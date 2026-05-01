@@ -286,6 +286,9 @@ public class CliProgressReporter
 
     private static string GetJobTypePrefix(ServerJobKind kind)
     {
+        if (kind == ServerJobKind.RetrieveFolder)
+            return "RetrieveFolderJob: ";
+
         string kindText = kind.ToWireString();
         return $"{char.ToUpperInvariant(kindText[0])}{kindText[1..]}Job: ";
     }
@@ -305,6 +308,12 @@ public class CliProgressReporter
     private static string TextWithProfileSuffix(JobSummaryDto summary, string text)
         => text + ProfileSuffix(summary);
 
+    private static string JobStatusLine(Job job, string status, string? detail = null)
+        => $"[{job.DisplayId}] {GetJobTypePrefix(job)}{status}: {detail ?? job.ToString(true)}";
+
+    private static string JobStatusLine(JobSummaryDto summary, string status, string? detail = null)
+        => $"[{summary.DisplayId}] {GetJobTypePrefix(summary.Kind)}{status}: {detail ?? summary.QueryText}";
+
     private static void WriteJobLineWithProfileSuffix(Job job, string text, ConsoleColor mainColor = ConsoleColor.Gray)
     {
         string suffix = ProfileSuffix(job);
@@ -316,7 +325,57 @@ public class CliProgressReporter
 
         Logger.LogNonConsole(Logger.LogLevel.Info, text + suffix);
         Printing.Write(text, mainColor);
-        Printing.WriteLine(suffix, ConsoleColor.DarkGray);
+            Printing.WriteLine(suffix, ConsoleColor.DarkGray);
+    }
+
+    private void WritePlainJobStatus(Job job, string status, string? detail = null)
+    {
+        _jobStatuses[job] = status;
+        var line = JobStatusLine(job, status, detail);
+        if (_plainJobStatusLines.TryGetValue(job, out var previous) && previous == line)
+            return;
+
+        _plainJobStatusLines[job] = line;
+        WriteJobLineWithProfileSuffix(job, line);
+    }
+
+    private void WritePlainJobStatus(JobSummaryDto summary, string status, string? detail = null)
+    {
+        _backendJobStatuses[summary.JobId] = status;
+        var line = JobStatusLine(summary, status, detail);
+        if (_backendPlainJobStatusLines.TryGetValue(summary.JobId, out var previous) && previous == line)
+            return;
+
+        _backendPlainJobStatusLines[summary.JobId] = line;
+        RefreshOrPrintJobLineWithProfileSuffix(null, 0, summary, line, print: true);
+    }
+
+    private void WritePlainBackendSongStatus(
+        Guid jobId,
+        int displayId,
+        SongQueryDto query,
+        string status,
+        string? detail = null)
+    {
+        var line = $"[{displayId}] SongJob: {status}: {detail ?? SongQueryText(query)}";
+        if (_backendPlainJobStatusLines.TryGetValue(jobId, out var previous) && previous == line)
+            return;
+
+        _backendJobStatuses[jobId] = status;
+        _backendPlainJobStatusLines[jobId] = line;
+        Logger.Info(line);
+    }
+
+    private void ClearPlainJobStatus(Job job)
+    {
+        _jobStatuses.TryRemove(job, out _);
+        _plainJobStatusLines.TryRemove(job, out _);
+    }
+
+    private void ClearPlainJobStatus(JobSummaryDto summary)
+    {
+        _backendJobStatuses.TryRemove(summary.JobId, out _);
+        _backendPlainJobStatusLines.TryRemove(summary.JobId, out _);
     }
 
     private static void RefreshOrPrintJobLineWithProfileSuffix(ProgressBar? progress, int current, Job job, string text, bool print = false, bool refreshIfOffscreen = false)
@@ -411,7 +470,18 @@ public class CliProgressReporter
         var chosen = song.ChosenCandidate;
         return chosen != null
             ? $"{chosen.Username}\\..\\{System.IO.Path.GetFileName(chosen.Filename)}"
-            : $"[{song.DisplayId}] {song.Query.Artist} - {song.Query.Title}";
+            : SongQueryText(song.Query);
+    }
+
+    private static string SongQueryText(SongQueryDto query)
+    {
+        var parts = new[] { query.Artist, query.Title }
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .ToArray();
+        if (parts.Length > 0)
+            return string.Join(" - ", parts);
+
+        return query.Album ?? query.Uri ?? "";
     }
 
     private static string TerminalLabel(SongStateChangedEventDto song)
@@ -421,6 +491,27 @@ public class CliProgressReporter
                 ? $"Failed [{FailureReasonLabel(song.FailureReason)}]"
                 : "Failed";
 
+    private static string TerminalStatusLabel(SongJob song)
+    {
+        if (song.State is JobState.Done or JobState.AlreadyExists)
+            return "succeeded";
+
+        var reason = FailureReasonLabel(song.FailureReason);
+        return reason.Length > 0 ? $"failed [{reason}]" : "failed";
+    }
+
+    private static string TerminalStatusLabel(SongStateChangedEventDto song)
+        => TerminalStatusLabel(song.State, song.FailureReason);
+
+    private static string TerminalStatusLabel(ServerJobState state, ServerFailureReason? reason)
+    {
+        if (state is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists)
+            return "succeeded";
+
+        var reasonLabel = FailureReasonLabel(reason);
+        return reasonLabel.Length > 0 ? $"failed [{reasonLabel}]" : "failed";
+    }
+
 
     // ── event handlers ───────────────────────────────────────────────────
 
@@ -428,7 +519,10 @@ public class CliProgressReporter
     {
         if (PlainMode)
         {
-            Logger.Info($"Downloading: {Printing.DisplayString(song.Query, candidate.File, candidate.Response, infoFirst: false)}");
+            WritePlainJobStatus(
+                song,
+                "downloading",
+                Printing.DisplayString(song.Query, candidate.File, candidate.Response, infoFirst: false));
             return;
         }
 
@@ -443,10 +537,12 @@ public class CliProgressReporter
     {
         if (PlainMode)
         {
-            if (IsBackendInlineChild(song.JobId))
-                return;
-
-            Logger.Info($"Downloading: {song.Candidate.Username}\\..\\{System.IO.Path.GetFileName(song.Candidate.Filename)}");
+            WritePlainBackendSongStatus(
+                song.JobId,
+                song.DisplayId,
+                song.Query,
+                "downloading",
+                $"{song.Candidate.Username}\\..\\{System.IO.Path.GetFileName(song.Candidate.Filename)}");
             return;
         }
 
@@ -480,7 +576,7 @@ public class CliProgressReporter
     {
         if (PlainMode)
         {
-            Logger.Info($"{TerminalLabel(song)}: {SongDisplay(song)}");
+            WritePlainJobStatus(song, TerminalStatusLabel(song), SongDisplay(song));
             return;
         }
 
@@ -507,10 +603,12 @@ public class CliProgressReporter
     {
         if (PlainMode)
         {
-            if (IsBackendInlineChild(song.JobId))
-                return;
-
-            Logger.Info($"{TerminalLabel(song)}: {SongDisplay(song)}");
+            WritePlainBackendSongStatus(
+                song.JobId,
+                song.DisplayId,
+                song.Query,
+                TerminalStatusLabel(song),
+                SongDisplay(song));
             return;
         }
 
@@ -583,8 +681,7 @@ public class CliProgressReporter
         if (PlainMode)
         {
             string plainStatus = job is RetrieveFolderJob ? "retrieving folder" : "searching";
-            _jobStatuses[job] = plainStatus;
-            WriteJobLineWithProfileSuffix(job, $"[{job.DisplayId}] {GetJobTypePrefix(job)}{plainStatus}: {job.ToString(true)}");
+            WritePlainJobStatus(job, plainStatus);
             return;
         }
 
@@ -605,13 +702,7 @@ public class CliProgressReporter
 
         if (PlainMode)
         {
-            _backendJobStatuses[job.Summary.JobId] = status;
-            RefreshOrPrintJobLineWithProfileSuffix(
-                null,
-                0,
-                job.Summary,
-                $"[{job.Summary.DisplayId}] {GetJobTypePrefix(job.Summary.Kind)}{status}: {job.Summary.QueryText}",
-                print: true);
+            WritePlainJobStatus(job.Summary, status);
             return;
         }
 
@@ -921,8 +1012,8 @@ public class CliProgressReporter
                 ? (job is RetrieveFolderJob ? "found additional files in" : "found results")
                 : (job is RetrieveFolderJob ? "no additional files found" : "no results found");
             string lockedMsg = !found && lockedFiles > 0 ? $" (Found {lockedFiles} locked files)" : "";
-            WriteJobLineWithProfileSuffix(job, $"[{job.DisplayId}] {GetJobTypePrefix(job)}{status}: {job.ToString(true)}{lockedMsg}");
-            _jobStatuses.TryRemove(job, out _);
+            WritePlainJobStatus(job, status, job.ToString(true) + lockedMsg);
+            ClearPlainJobStatus(job);
             return;
         }
 
@@ -960,13 +1051,8 @@ public class CliProgressReporter
                 ? (job.Summary.Kind == ServerJobKind.RetrieveFolder ? "found additional files in" : "found results")
                 : (job.Summary.Kind == ServerJobKind.RetrieveFolder ? "no additional files found" : "no results found");
             string lockedMsg = !job.Found && job.LockedFileCount > 0 ? $" (Found {job.LockedFileCount} locked files)" : "";
-            RefreshOrPrintJobLineWithProfileSuffix(
-                null,
-                0,
-                job.Summary,
-                $"[{job.Summary.DisplayId}] {GetJobTypePrefix(job.Summary.Kind)}{status}: {job.Summary.QueryText}{lockedMsg}",
-                print: true);
-            _backendJobStatuses.TryRemove(job.Summary.JobId, out _);
+            WritePlainJobStatus(job.Summary, status, (job.Summary.QueryText ?? "") + lockedMsg);
+            ClearPlainJobStatus(job.Summary);
             return;
         }
 
@@ -997,7 +1083,7 @@ public class CliProgressReporter
     {
         if (PlainMode)
         {
-            Logger.Info($"Searching: [{song.DisplayId}] {song}");
+            WritePlainJobStatus(song, "searching");
             return;
         }
 
@@ -1020,10 +1106,11 @@ public class CliProgressReporter
     {
         if (PlainMode)
         {
-            if (IsBackendInlineChild(song.JobId))
-                return;
-
-            Logger.Info($"Searching: [{song.DisplayId}] {song.Query.Artist} - {song.Query.Title}");
+            WritePlainBackendSongStatus(
+                song.JobId,
+                song.DisplayId,
+                song.Query,
+                "searching");
             return;
         }
 
@@ -1049,7 +1136,7 @@ public class CliProgressReporter
     {
         if (PlainMode)
         {
-            Logger.Info($"Not found: [{song.DisplayId}] {song}");
+            WritePlainJobStatus(song, "not found");
             return;
         }
 
@@ -1064,10 +1151,11 @@ public class CliProgressReporter
     {
         if (PlainMode)
         {
-            if (IsBackendInlineChild(song.JobId))
-                return;
-
-            Logger.Info($"Not found: [{song.DisplayId}] {song.Query.Artist} - {song.Query.Title}");
+            WritePlainBackendSongStatus(
+                song.JobId,
+                song.DisplayId,
+                song.Query,
+                "not found");
             return;
         }
 
@@ -1083,7 +1171,7 @@ public class CliProgressReporter
     {
         if (PlainMode)
         {
-            Logger.Info($"{TerminalLabel(song)}: {SongDisplay(song)}");
+            WritePlainJobStatus(song, TerminalStatusLabel(song), SongDisplay(song));
             return;
         }
 
@@ -1099,7 +1187,11 @@ public class CliProgressReporter
             if (IsBackendInlineChild(song.JobId))
                 return;
 
-            Logger.Info($"{TerminalLabel(new SongStateChangedEventDto(song.JobId, song.DisplayId, song.WorkflowId, song.Query, ServerProtocol.JobStates.Failed, song.FailureReason, null, null))}: [{song.DisplayId}] {song.Query.Artist} - {song.Query.Title}");
+            WritePlainBackendSongStatus(
+                song.JobId,
+                song.DisplayId,
+                song.Query,
+                TerminalStatusLabel(ServerProtocol.JobStates.Failed, song.FailureReason));
             return;
         }
 
@@ -1183,13 +1275,7 @@ public class CliProgressReporter
     {
         if (PlainMode)
         {
-            _jobStatuses[job] = status;
-            var line = $"[{job.DisplayId}] {GetJobTypePrefix(job)}{status}: {job.ToString(true)}";
-            if (_plainJobStatusLines.TryGetValue(job, out var previous) && previous == line)
-                return;
-
-            _plainJobStatusLines[job] = line;
-            Logger.Info(line);
+            WritePlainJobStatus(job, status);
             return;
         }
 
@@ -1217,13 +1303,7 @@ public class CliProgressReporter
 
         if (PlainMode)
         {
-            _backendJobStatuses[job.Summary.JobId] = job.Status;
-            var line = $"[{job.Summary.DisplayId}] {GetJobTypePrefix(job.Summary.Kind)}{job.Status}: {job.Summary.QueryText}";
-            if (_backendPlainJobStatusLines.TryGetValue(job.Summary.JobId, out var previous) && previous == line)
-                return;
-
-            _backendPlainJobStatusLines[job.Summary.JobId] = line;
-            Logger.Info(line);
+            WritePlainJobStatus(job.Summary, job.Status);
             return;
         }
 

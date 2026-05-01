@@ -11,6 +11,12 @@ namespace Tests.ProgressReporterTests;
 [TestClass]
 public class CliProgressReporterTests
 {
+    [TestCleanup]
+    public void Cleanup()
+    {
+        Logger.RemoveNonFileOutputs();
+    }
+
     [TestMethod]
     public void DownloadStart_NoProgress_DoesNotCreateProgressBar()
     {
@@ -25,6 +31,63 @@ public class CliProgressReporterTests
             InvokePrivate(reporter, "ReportDownloadStart", song, candidate);
 
             Assert.IsFalse(HasBarData(reporter, song));
+        }
+        finally
+        {
+            reporter.Stop();
+        }
+    }
+
+    [TestMethod]
+    public void SongSearching_NoProgress_UsesJobFormatAndDeduplicatesEquivalentSearchEvents()
+    {
+        Logger.RemoveNonFileOutputs();
+        var messages = new List<string>();
+        Logger.AddConsole(writer: (message, _) => messages.Add(message));
+
+        var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
+        try
+        {
+            var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Song" });
+
+            InvokePrivate(reporter, "ReportJobStarted", song);
+            InvokePrivate(reporter, "ReportSongSearching", song);
+            InvokePrivate(reporter, "ReportJobStatus", song, "searching");
+
+            Assert.AreEqual(1, messages.Count);
+            Assert.AreEqual($"[{song.DisplayId}] SongJob: searching: Artist - Song", messages[0]);
+        }
+        finally
+        {
+            reporter.Stop();
+        }
+    }
+
+    [TestMethod]
+    public void SongLifecycle_NoProgress_UsesJobFormatForDownloadAndTerminalState()
+    {
+        Logger.RemoveNonFileOutputs();
+        var messages = new List<string>();
+        Logger.AddConsole(writer: (message, _) => messages.Add(message));
+
+        var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
+        try
+        {
+            var file = new Soulseek.File(1, @"Music\Artist\Song.flac", 100, ".flac");
+            var response = new Soulseek.SearchResponse("user", 1, true, 100, 0, [file]);
+            var candidate = new FileCandidate(response, file);
+            var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Song" })
+            {
+                State = JobState.Done,
+                ResolvedTarget = candidate,
+            };
+
+            InvokePrivate(reporter, "ReportDownloadStart", song, candidate);
+            InvokePrivate(reporter, "ReportStateChanged", song);
+
+            Assert.AreEqual(2, messages.Count);
+            StringAssert.StartsWith(messages[0], $"[{song.DisplayId}] SongJob: downloading: ");
+            StringAssert.StartsWith(messages[1], $"[{song.DisplayId}] SongJob: succeeded: ");
         }
         finally
         {
@@ -285,6 +348,52 @@ public class CliProgressReporterTests
 
             Assert.IsFalse(HasBackendBarData(reporter, fileJobId));
             Assert.AreEqual(1, GetBackendAlbumDoneCount(reporter, albumJobId));
+        }
+        finally
+        {
+            reporter.Stop();
+        }
+    }
+
+    [TestMethod]
+    public void RemoteAlbumChildDownload_NoProgress_PrintsTrackLifecycle()
+    {
+        Logger.RemoveNonFileOutputs();
+        var messages = new List<string>();
+        Logger.AddConsole(writer: (message, _) => messages.Add(message));
+
+        var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
+        try
+        {
+            var workflowId = Guid.NewGuid();
+            var albumJobId = Guid.NewGuid();
+            var fileJobId = Guid.NewGuid();
+            var albumSummary = CreateAlbumSummary(albumJobId, ServerProtocol.JobStates.Downloading, null) with
+            {
+                WorkflowId = workflowId,
+            };
+            var songSummary = CreateSongSummary(fileJobId, workflowId, albumJobId);
+            var query = new SongQueryDto("Artist", "Track", null, null, null, false);
+            var candidate = CreateFileCandidate("local", @"Artist\Album\01. Artist - Track.flac");
+
+            InvokePrivate(reporter, "ReportJobUpserted", albumSummary);
+            InvokePrivate(reporter, "ReportJobUpserted", songSummary);
+            InvokePrivate(reporter, "ReportDownloadStart", new DownloadStartedEventDto(fileJobId, 7, workflowId, query, candidate));
+            InvokePrivate(reporter, "ReportStateChanged", new SongStateChangedEventDto(
+                fileJobId,
+                DisplayId: 7,
+                workflowId,
+                query,
+                ServerProtocol.JobStates.Done,
+                FailureReason: null,
+                DownloadPath: @"out\Track.flac",
+                ChosenCandidate: candidate));
+
+            CollectionAssert.AreEqual(new[]
+            {
+                @"[7] SongJob: downloading: local\..\Artist\Album\01. Artist - Track.flac",
+                @"[7] SongJob: succeeded: local\..\Artist\Album\01. Artist - Track.flac",
+            }, messages);
         }
         finally
         {
