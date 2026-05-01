@@ -45,6 +45,15 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
+        public void Defaults_NecessaryCondLengthTolerance_IsSet()
+        {
+            var config = Cfg();
+            // A set required tolerance is inert for queries without a known length, but
+            // prevents known wrong-length candidates from being accepted when length is provided.
+            Assert.IsTrue(config.Search.NecessaryCond.LengthTolerance > 0);
+        }
+
+        [TestMethod]
         public void Defaults_AlbumFalse_AggregateFalse()
         {
             var config = Cfg();
@@ -137,6 +146,14 @@ namespace Tests.ConfigParsingTests
         {
             var config = Cfg("--pref-length-tol", "5", "some input");
             Assert.AreEqual(5, config.Search.PreferredCond.LengthTolerance);
+        }
+
+        [TestMethod]
+        public void StrictConditions_DisablesAcceptMissingProps()
+        {
+            var config = Cfg("--strict-conditions", "some input");
+            Assert.AreEqual(false, config.Search.NecessaryCond.AcceptMissingProps);
+            Assert.AreEqual(false, config.Search.PreferredCond.AcceptMissingProps);
         }
 
         [TestMethod]

@@ -14,6 +14,7 @@ public class SearchSettings
     public FileConditions NecessaryCond { get; set; } = new()
     {
         Formats = ["mp3", "flac", "ogg", "m4a", "opus", "wav", "aac", "alac"],
+        LengthTolerance = 3,
     };
 
     public FileConditions PreferredCond { get; set; } = new()

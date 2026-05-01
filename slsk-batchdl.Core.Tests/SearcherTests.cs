@@ -68,6 +68,23 @@ namespace Tests.Unit
         }
 
         [TestMethod]
+        public async Task SearchSong_FiltersKnownWrongLength_ByDefault()
+        {
+            var response = new SearchResponse("User", 1, true, 1000, 0,
+            [
+                TestHelpers.CreateSlFile(@"Music\Artist\Twilight.flac", length: 209),
+            ]);
+            var client = CreateMockClient([response]);
+            var settings = TestHelpers.CreateDefaultSettings().Download;
+            var searcher = CreateSearcher(client, settings);
+            var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Twilight", Length = 522 });
+
+            await searcher.SearchSong(song, settings.Search, new ResponseData(), CancellationToken.None);
+
+            Assert.AreEqual(0, song.Candidates?.Count ?? 0);
+        }
+
+        [TestMethod]
         public void AlbumFolders_PreservesAlbumModeSorterOrder()
         {
             var badResponse = new SearchResponse("SlowUser", 1, false, 1, 10,

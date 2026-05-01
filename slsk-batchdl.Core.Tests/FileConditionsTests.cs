@@ -108,6 +108,42 @@ namespace Tests.FileConditionsTests
             var fc = new FileConditions { MinBitrate = 128, AcceptMissingProps = true };
             Assert.IsTrue(fc.BitrateSatisfies((int?)null));
         }
+
+        [TestMethod]
+        public void NullBitrate_AcceptMissingPropsNull_ReturnsTrue()
+        {
+            // Some Soulseek clients do not broadcast bitrate. Non-strict conditions
+            // should not reject those peers solely because the metadata is absent.
+            var fc = new FileConditions { MinBitrate = 128, AcceptMissingProps = null };
+            Assert.IsTrue(fc.BitrateSatisfies((int?)null));
+        }
+
+        [TestMethod]
+        public void NullBitrate_AcceptMissingPropsFalse_ReturnsFalse()
+        {
+            var fc = new FileConditions { MinBitrate = 128, AcceptMissingProps = false };
+            Assert.IsFalse(fc.BitrateSatisfies((int?)null));
+        }
+    }
+
+    [TestClass]
+    public class SampleRateSatisfiesTests
+    {
+        [TestMethod]
+        public void NullSampleRate_AcceptMissingPropsNull_ReturnsTrue()
+        {
+            // Like bitrate, sample rate availability depends on the peer's Soulseek client.
+            // Non-strict conditions accept missing metadata; strict mode flips AcceptMissingProps.
+            var fc = new FileConditions { MinSampleRate = 44100, AcceptMissingProps = null };
+            Assert.IsTrue(fc.SampleRateSatisfies((int?)null));
+        }
+
+        [TestMethod]
+        public void NullSampleRate_AcceptMissingPropsFalse_ReturnsFalse()
+        {
+            var fc = new FileConditions { MinSampleRate = 44100, AcceptMissingProps = false };
+            Assert.IsFalse(fc.SampleRateSatisfies((int?)null));
+        }
     }
 
     [TestClass]

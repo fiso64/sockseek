@@ -39,6 +39,8 @@ namespace Sldl.Core.Services
         {
             if (useTags)
                 Logger.Info($"Reading tags from mock files dir, this may take a while. Use --mock-files-no-read-tags if tags are not needed.");
+            else
+                Logger.Info("Mock files tag reading disabled; using deterministic synthetic track lengths derived from filenames.");
 
             var files = localPaths.SelectMany(EnumerateLocalFiles).ToList();
             var localFilePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
