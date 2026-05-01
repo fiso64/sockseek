@@ -240,7 +240,7 @@ namespace Tests.ConfigParsingTests
             var config = Cfg("--cond", "album-track-count>=8", "x");
 
             Assert.AreEqual(8,  config.Search.NecessaryFolderCond.MinTrackCount);
-            Assert.AreEqual(-1, config.Search.NecessaryFolderCond.MaxTrackCount);
+            Assert.IsNull(config.Search.NecessaryFolderCond.MaxTrackCount);
 
             var albumJob = UpgradeAndPrepare(config);
             Assert.AreEqual("Some Artist", albumJob.Query.Artist);
@@ -429,14 +429,14 @@ namespace Tests.ConfigParsingTests
         {
             var (_, dl, _) = Bind("x", "--album-track-count", "8+");
             Assert.AreEqual(8,  dl.Search.NecessaryFolderCond.MinTrackCount);
-            Assert.AreEqual(-1, dl.Search.NecessaryFolderCond.MaxTrackCount);
+            Assert.IsNull(dl.Search.NecessaryFolderCond.MaxTrackCount);
         }
 
         [TestMethod]
         public void AlbumTrackCount_RangeMax()
         {
             var (_, dl, _) = Bind("x", "--album-track-count", "12-");
-            Assert.AreEqual(-1, dl.Search.NecessaryFolderCond.MinTrackCount);
+            Assert.IsNull(dl.Search.NecessaryFolderCond.MinTrackCount);
             Assert.AreEqual(12, dl.Search.NecessaryFolderCond.MaxTrackCount);
         }
 

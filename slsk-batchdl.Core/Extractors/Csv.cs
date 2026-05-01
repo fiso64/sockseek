@@ -251,10 +251,10 @@ namespace Sldl.Core.Extractors;
                     {
                         ItemNumber = rows.Count + 1,
                         LineNumber = index,
-                        ExtractorFolderCond = new FolderConditions
+                        ExtractorFolderCond = new FolderConditionPatch
                         {
-                            MinTrackCount = minAlbumTrackCount,
-                            MaxTrackCount = maxAlbumTrackCount,
+                            MinTrackCount = minAlbumTrackCount >= 0 ? minAlbumTrackCount : null,
+                            MaxTrackCount = maxAlbumTrackCount >= 0 ? maxAlbumTrackCount : null,
                         },
                     });
                 }

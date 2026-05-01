@@ -2,14 +2,14 @@ using Sldl.Core.Models;
 
 namespace Sldl.Core.Services;
 
-/// Parses semicolon-separated condition strings into FileConditions and FolderConditions.
+/// Parses semicolon-separated condition strings into FileConditionPatch and FolderConditionPatch.
 /// Extracted from Config.ParseConditions — callers are List.cs extractor and ConfigManager.
 public static class ConditionParser
 {
     /// Parses a condition string (e.g. "format=mp3,flac;min-bitrate=200;album-track-count>=8")
-    /// into a FileConditions. Folder-level conditions (album-track-count) are written into
+    /// into a FileConditionPatch. Folder-level conditions (album-track-count) are written into
     /// folderOut if non-null; otherwise they produce an error.
-    public static FileConditions ParseFileConditions(string input, FolderConditions? folderOut = null)
+    public static FileConditionPatch ParseFileConditions(string input, FolderConditionPatch? folderOut = null)
     {
         static void UpdateMinMax(string value, string condition, ref int? min, ref int? max)
         {
@@ -25,16 +25,7 @@ public static class ConditionParser
                 min = max = int.Parse(value);
         }
 
-        static void UpdateMinMax2(string value, string condition, ref int min, ref int max)
-        {
-            int? nullableMin = min;
-            int? nullableMax = max;
-            UpdateMinMax(value, condition, ref nullableMin, ref nullableMax);
-            min = nullableMin ?? min;
-            max = nullableMax ?? max;
-        }
-
-        var cond = new FileConditions();
+        var cond = new FileConditionPatch();
 
         var tr = StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries;
         string[] conditions = input.Split(';', tr);
@@ -97,8 +88,8 @@ public static class ConditionParser
                 case "albumtrackcount":
                     if (folderOut != null)
                     {
-                        int minC = folderOut.MinTrackCount, maxC = folderOut.MaxTrackCount;
-                        UpdateMinMax2(value, condition, ref minC, ref maxC);
+                        int? minC = folderOut.MinTrackCount, maxC = folderOut.MaxTrackCount;
+                        UpdateMinMax(value, condition, ref minC, ref maxC);
                         folderOut.MinTrackCount = minC;
                         folderOut.MaxTrackCount = maxC;
                     }
@@ -129,9 +120,9 @@ public static class ConditionParser
 
     /// Convenience: parse only folder-level conditions from a condition string.
     /// File-level conditions in the string are parsed and discarded.
-    public static FolderConditions ParseFolderConditions(string input)
+    public static FolderConditionPatch ParseFolderConditions(string input)
     {
-        var folderOut = new FolderConditions();
+        var folderOut = new FolderConditionPatch();
         ParseFileConditions(input, folderOut);
         return folderOut;
     }

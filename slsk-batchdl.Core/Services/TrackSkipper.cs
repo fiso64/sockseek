@@ -115,12 +115,12 @@ namespace Sldl.Core.Services;
             return false;
         }
 
-        public static bool DirectoryHasGoodCount(string dir, int min = -1, int max = -1)
+        public static bool DirectoryHasGoodCount(string dir, int? min = null, int? max = null)
         {
-            if (min <= 0 && max == -1)
+            if ((min ?? 0) <= 0 && max == null)
                 return true;
             var count = Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Count(x => Utils.IsMusicFile(x));
-            return count >= min && (max == -1 || count <= max);
+            return count >= (min ?? 0) && (max == null || count <= max);
         }
     }
 
@@ -408,11 +408,11 @@ namespace Sldl.Core.Services;
             var files = Directory.GetFiles(t.DownloadPath, "*", SearchOption.AllDirectories);
 
             var folderCond = context.folderConditions ?? new FolderConditions();
-            if (folderCond.MaxTrackCount > -1 || folderCond.MinTrackCount > -1)
+            if (folderCond.MaxTrackCount != null || folderCond.MinTrackCount != null)
             {
                 int count = files.Count(x => Utils.IsMusicFile(x));
-                if (folderCond.MaxTrackCount > -1 && count > folderCond.MaxTrackCount) return false;
-                if (folderCond.MinTrackCount > -1 && count < folderCond.MinTrackCount) return false;
+                if (folderCond.MaxTrackCount is { } maxTrackCount && count > maxTrackCount) return false;
+                if (folderCond.MinTrackCount is { } minTrackCount && count < minTrackCount) return false;
             }
 
             foreach (var path in files)

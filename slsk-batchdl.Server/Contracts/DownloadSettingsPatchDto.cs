@@ -236,8 +236,8 @@ public static class DownloadSettingsPatchDtoMapper
         if (patch.StrictTitle is { } strictTitle) target.StrictTitle = strictTitle;
         if (patch.StrictArtist is { } strictArtist) target.StrictArtist = strictArtist;
         if (patch.StrictAlbum is { } strictAlbum) target.StrictAlbum = strictAlbum;
-        if (patch.Formats is { } formats) target.Formats = formats.ApplyTo(target.Formats?.ToList()).ToArray();
-        if (patch.BannedUsers is { } bannedUsers) target.BannedUsers = bannedUsers.ApplyTo(target.BannedUsers?.ToList()).ToArray();
+        if (patch.Formats is { } formats) target.Formats = formats.ApplyTo(target.Formats.ToList()).ToArray();
+        if (patch.BannedUsers is { } bannedUsers) target.BannedUsers = bannedUsers.ApplyTo(target.BannedUsers.ToList()).ToArray();
         if (patch.AcceptNoLength is { } acceptNoLength) target.AcceptNoLength = acceptNoLength;
         if (patch.AcceptMissingProps is { } acceptMissingProps) target.AcceptMissingProps = acceptMissingProps;
     }

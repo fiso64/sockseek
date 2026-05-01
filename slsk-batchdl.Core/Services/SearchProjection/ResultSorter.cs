@@ -202,13 +202,13 @@ public static partial class ResultSorter
             string getStrictFilenameNoExt() => strictFilenameNoExt ??= FileConditions.StrictStringPreprocess(Utils.GetFileNameWithoutExtSlsk(filename));
             string getStrictDirectoryName() => strictDirectoryName ??= FileConditions.StrictStringPreprocess(Utils.GetDirectoryNameSlsk(filename));
 
-            bool strictTitleMatch = Search.PreferredCond.StrictTitle != true
+            bool strictTitleMatch = !Search.PreferredCond.StrictTitle
                 || StrictStringPrepared(getStrictFilenameNoExt(), strictTitle);
-            bool strictAlbumMatch = Search.PreferredCond.StrictAlbum != true
+            bool strictAlbumMatch = !Search.PreferredCond.StrictAlbum
                 || StrictStringPrepared(getStrictDirectoryName(), strictAlbum);
-            bool preferredStrictArtistMatch = Search.PreferredCond.StrictArtist != true
+            bool preferredStrictArtistMatch = !Search.PreferredCond.StrictArtist
                 || StrictStringPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false);
-            bool strictArtistMatch = Search.PreferredCond.StrictArtist != true
+            bool strictArtistMatch = !Search.PreferredCond.StrictArtist
                 || StrictStringPrepared(getStrictFullFilename(), strictTitle, boundarySkipWs: false);
 
             bool lengthToleranceMatch = Search.PreferredCond.LengthToleranceSatisfies(file, Query.Length);
@@ -222,9 +222,7 @@ public static partial class ResultSorter
                 UserSuccessCounts.GetValueOrDefault(response.Username, 0) > Search.DownrankOn,
                 Search.NecessaryCond.FileSatisfies(file, Query, response),
                 preferredUserConditionsMet,
-                (file.Length != null && file.Length > 0)
-                    || Search.PreferredCond.AcceptNoLength == null
-                    || Search.PreferredCond.AcceptNoLength.Value,
+                (file.Length != null && file.Length > 0) || Search.PreferredCond.AcceptNoLength,
                 !UseBracketCheck || CheapBracketCheck(queryTitleAllowsBrackets, filename),
                 strictTitleMatch,
                 !AlbumMode || strictAlbumMatch,

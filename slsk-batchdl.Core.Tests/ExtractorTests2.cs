@@ -55,7 +55,7 @@ namespace Tests.ExtractorTests2
 
             Assert.IsNotNull(ej.ExtractorFolderCond);
             Assert.AreEqual(8,  ej.ExtractorFolderCond.MinTrackCount);
-            Assert.AreEqual(-1, ej.ExtractorFolderCond.MaxTrackCount);
+            Assert.IsNull(ej.ExtractorFolderCond.MaxTrackCount);
         }
 
         [TestMethod]

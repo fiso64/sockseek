@@ -110,10 +110,10 @@ namespace Sldl.Core.Extractors;
 
             queue.Jobs.Add(new AlbumJob(query)
             {
-                ExtractorFolderCond = new FolderConditions
+                ExtractorFolderCond = new FolderConditionPatch
                 {
                     MinTrackCount = totalTracks,
-                    MaxTrackCount = (!fromReleaseGroup || extraction.SetAlbumMaxTrackCount) ? totalTracks : -1,
+                    MaxTrackCount = (!fromReleaseGroup || extraction.SetAlbumMaxTrackCount) ? totalTracks : null,
                 }
             });
             return queue;
@@ -187,7 +187,7 @@ namespace Sldl.Core.Extractors;
                         ItemNumber = offset + count + 1,
                         ItemName = collectionName,
                         EnablesIndexByDefault = true,
-                        ExtractorFolderCond = new FolderConditions { MinTrackCount = trackCount, MaxTrackCount = trackCount },
+                        ExtractorFolderCond = new FolderConditionPatch { MinTrackCount = trackCount, MaxTrackCount = trackCount },
                     };
                     queue.Jobs.Add(job);
                     count++;

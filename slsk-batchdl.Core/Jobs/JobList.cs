@@ -179,27 +179,31 @@ namespace Sldl.Core.Jobs;
             && a.URI == b.URI
             && a.ArtistMaybeWrong == b.ArtistMaybeWrong;
 
-        private static bool ConditionsEqual(FileConditions? a, FileConditions? b)
-            => a == null ? b == null : a.Equals(b);
-
-        private static bool FolderConditionsEqual(FolderConditions? a, FolderConditions? b, bool ignoreRequiredTrackTitles)
+        private static bool ConditionsEqual(FileConditionPatch? a, FileConditionPatch? b)
         {
             if (a == null || b == null)
-                return FolderConditionsIsEmpty(a) && FolderConditionsIsEmpty(b);
+                return (a == null || a.IsEmpty()) && (b == null || b.IsEmpty());
+
+            return a.Equals(b);
+        }
+
+        private static bool FolderConditionsEqual(FolderConditionPatch? a, FolderConditionPatch? b, bool ignoreRequiredTrackTitles)
+        {
+            if (a == null || b == null)
+                return (a == null || a.IsEmpty()) && (b == null || b.IsEmpty());
 
             return a.MinTrackCount == b.MinTrackCount
                 && a.MaxTrackCount == b.MaxTrackCount
-                && (ignoreRequiredTrackTitles || a.RequiredTrackTitles.SequenceEqual(b.RequiredTrackTitles));
+                && (ignoreRequiredTrackTitles || ((a.RequiredTrackTitles == null && b.RequiredTrackTitles == null)
+                    || (a.RequiredTrackTitles != null && b.RequiredTrackTitles != null
+                        && a.RequiredTrackTitles.SequenceEqual(b.RequiredTrackTitles))));
         }
-
-        private static bool FolderConditionsIsEmpty(FolderConditions? c)
-            => c == null || (c.MinTrackCount == -1 && c.MaxTrackCount == -1 && c.RequiredTrackTitles.Count == 0);
 
         private static void MergeSongUpgradedAlbum(AlbumJob target, AlbumJob duplicate)
         {
             target.UpgradeSources.AddRange(duplicate.UpgradeSources.Select(s => new SongQuery(s)));
-            target.ExtractorFolderCond ??= new FolderConditions();
-            if (duplicate.ExtractorFolderCond != null)
+            target.ExtractorFolderCond ??= new FolderConditionPatch();
+            if (duplicate.ExtractorFolderCond?.RequiredTrackTitles != null)
                 target.ExtractorFolderCond.AddRequiredTrackTitles(duplicate.ExtractorFolderCond.RequiredTrackTitles);
         }
     }

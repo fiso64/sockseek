@@ -43,10 +43,10 @@ namespace Sldl.Core.Extractors;
                 };
                 return Task.FromResult<Job>(new AlbumJob(query)
                 {
-                    ExtractorFolderCond = new FolderConditions
+                    ExtractorFolderCond = new FolderConditionPatch
                     {
-                        MinTrackCount = minAlbumTrackCount,
-                        MaxTrackCount = maxAlbumTrackCount,
+                        MinTrackCount = minAlbumTrackCount >= 0 ? minAlbumTrackCount : null,
+                        MaxTrackCount = maxAlbumTrackCount >= 0 ? maxAlbumTrackCount : null,
                     },
                 });
             }

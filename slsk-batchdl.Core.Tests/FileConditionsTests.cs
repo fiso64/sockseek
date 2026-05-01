@@ -15,9 +15,9 @@ namespace Tests.FileConditionsTests
         }
 
         [TestMethod]
-        public void ValueNull_AcceptMissingPropsNull_ReturnsTrue()
+        public void ValueNull_DefaultAcceptMissingProps_ReturnsTrue()
         {
-            var fc = new FileConditions { AcceptMissingProps = null };
+            var fc = new FileConditions();
             Assert.IsTrue(fc.BoundCheck(null, 0, 100));
         }
 
@@ -110,11 +110,11 @@ namespace Tests.FileConditionsTests
         }
 
         [TestMethod]
-        public void NullBitrate_AcceptMissingPropsNull_ReturnsTrue()
+        public void NullBitrate_DefaultAcceptMissingProps_ReturnsTrue()
         {
             // Some Soulseek clients do not broadcast bitrate. Non-strict conditions
             // should not reject those peers solely because the metadata is absent.
-            var fc = new FileConditions { MinBitrate = 128, AcceptMissingProps = null };
+            var fc = new FileConditions { MinBitrate = 128 };
             Assert.IsTrue(fc.BitrateSatisfies((int?)null));
         }
 
@@ -130,11 +130,11 @@ namespace Tests.FileConditionsTests
     public class SampleRateSatisfiesTests
     {
         [TestMethod]
-        public void NullSampleRate_AcceptMissingPropsNull_ReturnsTrue()
+        public void NullSampleRate_DefaultAcceptMissingProps_ReturnsTrue()
         {
             // Like bitrate, sample rate availability depends on the peer's Soulseek client.
             // Non-strict conditions accept missing metadata; strict mode flips AcceptMissingProps.
-            var fc = new FileConditions { MinSampleRate = 44100, AcceptMissingProps = null };
+            var fc = new FileConditions { MinSampleRate = 44100 };
             Assert.IsTrue(fc.SampleRateSatisfies((int?)null));
         }
 
@@ -185,10 +185,9 @@ namespace Tests.FileConditionsTests
         }
 
         [TestMethod]
-        public void NullLength_AcceptNoLengthNull_ReturnsTrue()
+        public void NullLength_DefaultAcceptNoLength_ReturnsTrue()
         {
-            // AcceptNoLength == null => `AcceptNoLength == null || AcceptNoLength.Value` short-circuits to true
-            var fc = new FileConditions { LengthTolerance = 3, AcceptNoLength = null };
+            var fc = new FileConditions { LengthTolerance = 3 };
             Assert.IsTrue(fc.LengthToleranceSatisfies((int?)null, 100));
         }
 
@@ -219,9 +218,9 @@ namespace Tests.FileConditionsTests
     public class FormatSatisfiesTests
     {
         [TestMethod]
-        public void NullFormats_ReturnsTrue()
+        public void EmptyFormatsByDefault_ReturnsTrue()
         {
-            var fc = new FileConditions { Formats = null };
+            var fc = new FileConditions();
             Assert.IsTrue(fc.FormatSatisfies("song.mp3"));
         }
 
@@ -258,9 +257,9 @@ namespace Tests.FileConditionsTests
     public class StrictSatisfiesTests
     {
         [TestMethod]
-        public void StrictTitleNull_ReturnsTrue()
+        public void StrictTitleDefaultFalse_ReturnsTrue()
         {
-            var fc = new FileConditions { StrictTitle = null };
+            var fc = new FileConditions();
             Assert.IsTrue(fc.StrictTitleSatisfies("some file.mp3", "blah"));
         }
 
@@ -335,9 +334,9 @@ namespace Tests.FileConditionsTests
         }
 
         [TestMethod]
-        public void NullBannedUsers_ReturnsTrue()
+        public void EmptyBannedUsersByDefault_ReturnsTrue()
         {
-            var fc = new FileConditions { BannedUsers = null };
+            var fc = new FileConditions();
             var response = new SearchResponse("someuser", 1, true, 100, 0, new List<Soulseek.File>());
             Assert.IsTrue(fc.BannedUsersSatisfies(response));
         }
@@ -437,7 +436,7 @@ namespace Tests.FileConditionsTests
         public void With_MergesCorrectly()
         {
             var fc = new FileConditions { MinBitrate = 128, LengthTolerance = 3 };
-            var mod = new FileConditions { MinBitrate = 256, Formats = new[] { "flac" } };
+            var mod = new FileConditionPatch { MinBitrate = 256, Formats = new[] { "flac" } };
 
             var result = fc.With(mod);
 
@@ -447,7 +446,7 @@ namespace Tests.FileConditionsTests
             CollectionAssert.AreEqual(new[] { "flac" }, result.Formats);
             // Original unchanged
             Assert.AreEqual(128, fc.MinBitrate);
-            Assert.IsNull(fc.Formats);
+            CollectionAssert.AreEqual(Array.Empty<string>(), fc.Formats);
         }
 
         [TestMethod]
@@ -479,7 +478,7 @@ namespace Tests.FileConditionsTests
         public void AddConditions_ReturnsUndoModifier()
         {
             var fc = new FileConditions { MinBitrate = 128, MaxBitrate = 320 };
-            var mod = new FileConditions { MinBitrate = 256 };
+            var mod = new FileConditionPatch { MinBitrate = 256 };
 
             var undo = fc.AddConditions(mod);
 

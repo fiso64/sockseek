@@ -3,6 +3,7 @@
 using SearchResponse = Soulseek.SearchResponse;
 
 namespace Sldl.Core.Models;
+
     public class FileConditions
     {
         public int? LengthTolerance;
@@ -12,13 +13,13 @@ namespace Sldl.Core.Models;
         public int? MaxSampleRate;
         public int? MinBitDepth;
         public int? MaxBitDepth;
-        public bool? StrictTitle;
-        public bool? StrictArtist;
-        public bool? StrictAlbum;
-        public string[]? Formats;
-        public string[]? BannedUsers;
-        public bool? AcceptNoLength;
-        public bool? AcceptMissingProps;
+        public bool StrictTitle;
+        public bool StrictArtist;
+        public bool StrictAlbum;
+        public string[] Formats = [];
+        public string[] BannedUsers = [];
+        public bool AcceptNoLength = true;
+        public bool AcceptMissingProps = true;
 
         public FileConditions() { }
 
@@ -36,20 +37,38 @@ namespace Sldl.Core.Models;
             MinBitDepth = other.MinBitDepth;
             MaxBitDepth = other.MaxBitDepth;
             AcceptMissingProps = other.AcceptMissingProps;
-            Formats = other.Formats?.ToArray();
-            BannedUsers = other.BannedUsers?.ToArray();
+            Formats = other.Formats.ToArray();
+            BannedUsers = other.BannedUsers.ToArray();
         }
 
-        public FileConditions With(FileConditions other)
+        public FileConditions With(FileConditionPatch other)
         {
             var res = new FileConditions(this);
             res.AddConditions(other);
             return res;
         }
 
-        public FileConditions AddConditions(FileConditions mod)
+        public FileConditions With(FileConditions other) => new(this)
         {
-            var undoMod = new FileConditions();
+            LengthTolerance = other.LengthTolerance ?? LengthTolerance,
+            MinBitrate = other.MinBitrate ?? MinBitrate,
+            MaxBitrate = other.MaxBitrate ?? MaxBitrate,
+            MinSampleRate = other.MinSampleRate ?? MinSampleRate,
+            MaxSampleRate = other.MaxSampleRate ?? MaxSampleRate,
+            MinBitDepth = other.MinBitDepth ?? MinBitDepth,
+            MaxBitDepth = other.MaxBitDepth ?? MaxBitDepth,
+            StrictTitle = StrictTitle || other.StrictTitle,
+            StrictArtist = StrictArtist || other.StrictArtist,
+            StrictAlbum = StrictAlbum || other.StrictAlbum,
+            Formats = other.Formats.Length > 0 ? other.Formats.ToArray() : Formats.ToArray(),
+            BannedUsers = BannedUsers.Concat(other.BannedUsers).Distinct().ToArray(),
+            AcceptNoLength = AcceptNoLength && other.AcceptNoLength,
+            AcceptMissingProps = AcceptMissingProps && other.AcceptMissingProps,
+        };
+
+        public FileConditionPatch AddConditions(FileConditionPatch mod)
+        {
+            var undoMod = new FileConditionPatch();
 
             if (mod.LengthTolerance != null)
             {
@@ -104,12 +123,12 @@ namespace Sldl.Core.Models;
             if (mod.Formats != null)
             {
                 undoMod.Formats = Formats;
-                Formats = mod.Formats;
+                Formats = mod.Formats.ToArray();
             }
             if (mod.BannedUsers != null)
             {
                 undoMod.BannedUsers = BannedUsers;
-                BannedUsers = mod.BannedUsers;
+                BannedUsers = mod.BannedUsers.ToArray();
             }
             if (mod.AcceptNoLength != null)
             {
@@ -144,8 +163,8 @@ namespace Sldl.Core.Models;
                 && StrictAlbum == other.StrictAlbum
                 && AcceptNoLength == other.AcceptNoLength
                 && AcceptMissingProps == other.AcceptMissingProps
-                && ((Formats == null && other.Formats == null) || (Formats != null && other.Formats != null && Formats.SequenceEqual(other.Formats)))
-                && ((BannedUsers == null && other.BannedUsers == null) || (BannedUsers != null && other.BannedUsers != null && BannedUsers.SequenceEqual(other.BannedUsers)));
+                && Formats.SequenceEqual(other.Formats)
+                && BannedUsers.SequenceEqual(other.BannedUsers);
         }
 
         public void UnsetClientSpecificFields()
@@ -196,7 +215,7 @@ namespace Sldl.Core.Models;
 
         public bool StrictTitleSatisfies(string fname, string tname, bool noPath = true)
         {
-            if (StrictTitle == null || !StrictTitle.Value || tname.Length == 0)
+            if (!StrictTitle || tname.Length == 0)
                 return true;
 
             fname = noPath ? Utils.GetFileNameWithoutExtSlsk(fname) : fname;
@@ -205,7 +224,7 @@ namespace Sldl.Core.Models;
 
         public bool StrictArtistSatisfies(string fname, string aname)
         {
-            if (StrictArtist == null || !StrictArtist.Value || aname.Length == 0)
+            if (!StrictArtist || aname.Length == 0)
                 return true;
 
             return StrictString(fname, aname, diacrRemove: true, ignoreCase: true, boundarySkipWs: false);
@@ -213,7 +232,7 @@ namespace Sldl.Core.Models;
 
         public bool StrictAlbumSatisfies(string fname, string alname)
         {
-            if (StrictAlbum == null || !StrictAlbum.Value || alname.Length == 0)
+            if (!StrictAlbum || alname.Length == 0)
                 return true;
 
             return StrictString(Utils.GetDirectoryNameSlsk(fname), alname, diacrRemove: true, ignoreCase: true, boundarySkipWs: true);
@@ -304,7 +323,7 @@ namespace Sldl.Core.Models;
 
         public bool FormatSatisfies(string fname)
         {
-            if (Formats == null || Formats.Length == 0)
+            if (Formats.Length == 0)
                 return true;
 
             string ext = Path.GetExtension(fname).TrimStart('.').ToLower();
@@ -319,7 +338,7 @@ namespace Sldl.Core.Models;
             if (LengthTolerance == null || LengthTolerance < 0 || wantedLength < 0)
                 return true;
             if (length == null || length < 0)
-                return AcceptNoLength == null || AcceptNoLength.Value;
+                return AcceptNoLength;
             return Math.Abs((int)length - wantedLength) <= LengthTolerance;
         }
 
@@ -352,7 +371,7 @@ namespace Sldl.Core.Models;
             if (max == null && min == null)
                 return true;
             if (num == null)
-                return AcceptMissingProps == null || AcceptMissingProps.Value;
+                return AcceptMissingProps;
             if ((min != null && num < min) || (max != null && num > max))
                 return false;
             return true;
@@ -360,7 +379,7 @@ namespace Sldl.Core.Models;
 
         public bool BannedUsersSatisfies(SearchResponse? response)
         {
-            return response == null || BannedUsers == null || !BannedUsers.Any(x => x == response.Username);
+            return response == null || BannedUsers.Length == 0 || !BannedUsers.Any(x => x == response.Username);
         }
 
         public string GetNotSatisfiedName(Soulseek.File file, SongQuery? query, SearchResponse? response)
@@ -395,3 +414,86 @@ namespace Sldl.Core.Models;
             throw new NotImplementedException();
         }
     }
+
+    public class FileConditionPatch
+    {
+        public int? LengthTolerance;
+        public int? MinBitrate;
+        public int? MaxBitrate;
+        public int? MinSampleRate;
+        public int? MaxSampleRate;
+        public int? MinBitDepth;
+        public int? MaxBitDepth;
+        public bool? StrictTitle;
+        public bool? StrictArtist;
+        public bool? StrictAlbum;
+        public string[]? Formats;
+        public string[]? BannedUsers;
+        public bool? AcceptNoLength;
+        public bool? AcceptMissingProps;
+
+        public bool IsEmpty()
+            => LengthTolerance == null
+            && MinBitrate == null
+            && MaxBitrate == null
+            && MinSampleRate == null
+            && MaxSampleRate == null
+            && MinBitDepth == null
+            && MaxBitDepth == null
+            && StrictTitle == null
+            && StrictArtist == null
+            && StrictAlbum == null
+            && Formats == null
+            && BannedUsers == null
+            && AcceptNoLength == null
+            && AcceptMissingProps == null;
+
+        public override bool Equals(object? obj)
+        {
+            if (obj is not FileConditionPatch other)
+                return false;
+
+            return LengthTolerance == other.LengthTolerance
+                && MinBitrate == other.MinBitrate
+                && MaxBitrate == other.MaxBitrate
+                && MinSampleRate == other.MinSampleRate
+                && MaxSampleRate == other.MaxSampleRate
+                && MinBitDepth == other.MinBitDepth
+                && MaxBitDepth == other.MaxBitDepth
+                && StrictTitle == other.StrictTitle
+                && StrictArtist == other.StrictArtist
+                && StrictAlbum == other.StrictAlbum
+                && AcceptNoLength == other.AcceptNoLength
+                && AcceptMissingProps == other.AcceptMissingProps
+                && ((Formats == null && other.Formats == null) || (Formats != null && other.Formats != null && Formats.SequenceEqual(other.Formats)))
+                && ((BannedUsers == null && other.BannedUsers == null) || (BannedUsers != null && other.BannedUsers != null && BannedUsers.SequenceEqual(other.BannedUsers)));
+        }
+
+        public override int GetHashCode()
+        {
+            var hash = new HashCode();
+            hash.Add(LengthTolerance);
+            hash.Add(MinBitrate);
+            hash.Add(MaxBitrate);
+            hash.Add(MinSampleRate);
+            hash.Add(MaxSampleRate);
+            hash.Add(MinBitDepth);
+            hash.Add(MaxBitDepth);
+            hash.Add(StrictTitle);
+            hash.Add(StrictArtist);
+            hash.Add(StrictAlbum);
+            hash.Add(AcceptNoLength);
+            hash.Add(AcceptMissingProps);
+
+            if (Formats != null)
+                foreach (var format in Formats)
+                    hash.Add(format);
+
+            if (BannedUsers != null)
+                foreach (var bannedUser in BannedUsers)
+                    hash.Add(bannedUser);
+
+            return hash.ToHashCode();
+        }
+    }
+

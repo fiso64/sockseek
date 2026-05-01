@@ -123,13 +123,13 @@ public static class DownloadSettingsDeltaMapper
             case "Search.NecessaryCond.MaxSampleRate": settings.Search.NecessaryCond.MaxSampleRate = op.IntValue; break;
             case "Search.NecessaryCond.MinBitDepth": settings.Search.NecessaryCond.MinBitDepth = op.IntValue; break;
             case "Search.NecessaryCond.MaxBitDepth": settings.Search.NecessaryCond.MaxBitDepth = op.IntValue; break;
-            case "Search.NecessaryCond.StrictTitle": settings.Search.NecessaryCond.StrictTitle = op.BoolValue; break;
-            case "Search.NecessaryCond.StrictArtist": settings.Search.NecessaryCond.StrictArtist = op.BoolValue; break;
-            case "Search.NecessaryCond.StrictAlbum": settings.Search.NecessaryCond.StrictAlbum = op.BoolValue; break;
-            case "Search.NecessaryCond.Formats": settings.Search.NecessaryCond.Formats = op.StringListValue?.ToArray(); break;
-            case "Search.NecessaryCond.BannedUsers": settings.Search.NecessaryCond.BannedUsers = op.StringListValue?.ToArray(); break;
-            case "Search.NecessaryCond.AcceptNoLength": settings.Search.NecessaryCond.AcceptNoLength = op.BoolValue; break;
-            case "Search.NecessaryCond.AcceptMissingProps": settings.Search.NecessaryCond.AcceptMissingProps = op.BoolValue; break;
+            case "Search.NecessaryCond.StrictTitle": settings.Search.NecessaryCond.StrictTitle = Bool(op); break;
+            case "Search.NecessaryCond.StrictArtist": settings.Search.NecessaryCond.StrictArtist = Bool(op); break;
+            case "Search.NecessaryCond.StrictAlbum": settings.Search.NecessaryCond.StrictAlbum = Bool(op); break;
+            case "Search.NecessaryCond.Formats": settings.Search.NecessaryCond.Formats = op.StringListValue?.ToArray() ?? []; break;
+            case "Search.NecessaryCond.BannedUsers": settings.Search.NecessaryCond.BannedUsers = op.StringListValue?.ToArray() ?? []; break;
+            case "Search.NecessaryCond.AcceptNoLength": settings.Search.NecessaryCond.AcceptNoLength = Bool(op); break;
+            case "Search.NecessaryCond.AcceptMissingProps": settings.Search.NecessaryCond.AcceptMissingProps = Bool(op); break;
 
             case "Search.PreferredCond.LengthTolerance": settings.Search.PreferredCond.LengthTolerance = op.IntValue; break;
             case "Search.PreferredCond.MinBitrate": settings.Search.PreferredCond.MinBitrate = op.IntValue; break;
@@ -138,19 +138,19 @@ public static class DownloadSettingsDeltaMapper
             case "Search.PreferredCond.MaxSampleRate": settings.Search.PreferredCond.MaxSampleRate = op.IntValue; break;
             case "Search.PreferredCond.MinBitDepth": settings.Search.PreferredCond.MinBitDepth = op.IntValue; break;
             case "Search.PreferredCond.MaxBitDepth": settings.Search.PreferredCond.MaxBitDepth = op.IntValue; break;
-            case "Search.PreferredCond.StrictTitle": settings.Search.PreferredCond.StrictTitle = op.BoolValue; break;
-            case "Search.PreferredCond.StrictArtist": settings.Search.PreferredCond.StrictArtist = op.BoolValue; break;
-            case "Search.PreferredCond.StrictAlbum": settings.Search.PreferredCond.StrictAlbum = op.BoolValue; break;
-            case "Search.PreferredCond.Formats": settings.Search.PreferredCond.Formats = op.StringListValue?.ToArray(); break;
-            case "Search.PreferredCond.BannedUsers": settings.Search.PreferredCond.BannedUsers = op.StringListValue?.ToArray(); break;
-            case "Search.PreferredCond.AcceptNoLength": settings.Search.PreferredCond.AcceptNoLength = op.BoolValue; break;
-            case "Search.PreferredCond.AcceptMissingProps": settings.Search.PreferredCond.AcceptMissingProps = op.BoolValue; break;
+            case "Search.PreferredCond.StrictTitle": settings.Search.PreferredCond.StrictTitle = Bool(op); break;
+            case "Search.PreferredCond.StrictArtist": settings.Search.PreferredCond.StrictArtist = Bool(op); break;
+            case "Search.PreferredCond.StrictAlbum": settings.Search.PreferredCond.StrictAlbum = Bool(op); break;
+            case "Search.PreferredCond.Formats": settings.Search.PreferredCond.Formats = op.StringListValue?.ToArray() ?? []; break;
+            case "Search.PreferredCond.BannedUsers": settings.Search.PreferredCond.BannedUsers = op.StringListValue?.ToArray() ?? []; break;
+            case "Search.PreferredCond.AcceptNoLength": settings.Search.PreferredCond.AcceptNoLength = Bool(op); break;
+            case "Search.PreferredCond.AcceptMissingProps": settings.Search.PreferredCond.AcceptMissingProps = Bool(op); break;
 
-            case "Search.NecessaryFolderCond.MinTrackCount": settings.Search.NecessaryFolderCond.MinTrackCount = Int(op); break;
-            case "Search.NecessaryFolderCond.MaxTrackCount": settings.Search.NecessaryFolderCond.MaxTrackCount = Int(op); break;
+            case "Search.NecessaryFolderCond.MinTrackCount": settings.Search.NecessaryFolderCond.MinTrackCount = op.IntValue; break;
+            case "Search.NecessaryFolderCond.MaxTrackCount": settings.Search.NecessaryFolderCond.MaxTrackCount = op.IntValue; break;
             case "Search.NecessaryFolderCond.RequiredTrackTitles": ApplyStringList(settings.Search.NecessaryFolderCond.RequiredTrackTitles, op); break;
-            case "Search.PreferredFolderCond.MinTrackCount": settings.Search.PreferredFolderCond.MinTrackCount = Int(op); break;
-            case "Search.PreferredFolderCond.MaxTrackCount": settings.Search.PreferredFolderCond.MaxTrackCount = Int(op); break;
+            case "Search.PreferredFolderCond.MinTrackCount": settings.Search.PreferredFolderCond.MinTrackCount = op.IntValue; break;
+            case "Search.PreferredFolderCond.MaxTrackCount": settings.Search.PreferredFolderCond.MaxTrackCount = op.IntValue; break;
             case "Search.PreferredFolderCond.RequiredTrackTitles": ApplyStringList(settings.Search.PreferredFolderCond.RequiredTrackTitles, op); break;
 
             case "Skip.SkipExisting": settings.Skip.SkipExisting = Bool(op); break;
@@ -256,19 +256,19 @@ public static class DownloadSettingsDeltaMapper
         AddNullableIntDiff(operations, $"{prefix}.MaxSampleRate", before.MaxSampleRate, after.MaxSampleRate);
         AddNullableIntDiff(operations, $"{prefix}.MinBitDepth", before.MinBitDepth, after.MinBitDepth);
         AddNullableIntDiff(operations, $"{prefix}.MaxBitDepth", before.MaxBitDepth, after.MaxBitDepth);
-        AddNullableBoolDiff(operations, $"{prefix}.StrictTitle", before.StrictTitle, after.StrictTitle);
-        AddNullableBoolDiff(operations, $"{prefix}.StrictArtist", before.StrictArtist, after.StrictArtist);
-        AddNullableBoolDiff(operations, $"{prefix}.StrictAlbum", before.StrictAlbum, after.StrictAlbum);
+        AddBoolDiff(operations, $"{prefix}.StrictTitle", before.StrictTitle, after.StrictTitle);
+        AddBoolDiff(operations, $"{prefix}.StrictArtist", before.StrictArtist, after.StrictArtist);
+        AddBoolDiff(operations, $"{prefix}.StrictAlbum", before.StrictAlbum, after.StrictAlbum);
         AddStringListDiff(operations, $"{prefix}.Formats", before.Formats, after.Formats);
         AddStringListDiff(operations, $"{prefix}.BannedUsers", before.BannedUsers, after.BannedUsers);
-        AddNullableBoolDiff(operations, $"{prefix}.AcceptNoLength", before.AcceptNoLength, after.AcceptNoLength);
-        AddNullableBoolDiff(operations, $"{prefix}.AcceptMissingProps", before.AcceptMissingProps, after.AcceptMissingProps);
+        AddBoolDiff(operations, $"{prefix}.AcceptNoLength", before.AcceptNoLength, after.AcceptNoLength);
+        AddBoolDiff(operations, $"{prefix}.AcceptMissingProps", before.AcceptMissingProps, after.AcceptMissingProps);
     }
 
     private static void AddFolderConditionDiffs(List<DownloadSettingOperationDto> operations, string prefix, FolderConditions before, FolderConditions after)
     {
-        AddIntDiff(operations, $"{prefix}.MinTrackCount", before.MinTrackCount, after.MinTrackCount);
-        AddIntDiff(operations, $"{prefix}.MaxTrackCount", before.MaxTrackCount, after.MaxTrackCount);
+        AddNullableIntDiff(operations, $"{prefix}.MinTrackCount", before.MinTrackCount, after.MinTrackCount);
+        AddNullableIntDiff(operations, $"{prefix}.MaxTrackCount", before.MaxTrackCount, after.MaxTrackCount);
         AddStringListDiff(operations, $"{prefix}.RequiredTrackTitles", before.RequiredTrackTitles, after.RequiredTrackTitles);
     }
 
@@ -372,11 +372,6 @@ public static class DownloadSettingsDeltaMapper
     }
 
     private static void AddBoolDiff(List<DownloadSettingOperationDto> operations, string path, bool before, bool after)
-    {
-        if (before != after) operations.Add(Set(path, after));
-    }
-
-    private static void AddNullableBoolDiff(List<DownloadSettingOperationDto> operations, string path, bool? before, bool? after)
     {
         if (before != after) operations.Add(Set(path, after));
     }

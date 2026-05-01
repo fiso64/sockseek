@@ -713,7 +713,7 @@ public class DownloadEngine
                 // Verify track counts after full folder retrieval if needed.
                 var folderCond = config.Search.NecessaryFolderCond;
                 if (config.Transfer.AlbumTrackCountMaxRetries > 0
-                    && (folderCond.MaxTrackCount > 0 || (folderCond.MinTrackCount > 0 && job.Query.Album.Length > 0)))
+                    && ((folderCond.MaxTrackCount ?? 0) > 0 || ((folderCond.MinTrackCount ?? 0) > 0 && job.Query.Album.Length > 0)))
                 {
                     if (!retrievedFolders.Contains(chosenFolder.FolderPath))
                     {
@@ -723,9 +723,9 @@ public class DownloadEngine
                     }
                     int newCount = chosenFolder.Files.Count(af => !af.IsNotAudio);
                     bool trackCountFailed = false;
-                    if (folderCond.MaxTrackCount > 0 && newCount > folderCond.MaxTrackCount)
+                    if (folderCond.MaxTrackCount is { } maxTrackCount and > 0 && newCount > maxTrackCount)
                     { Logger.Info($"New file count ({newCount}) above maximum ({folderCond.MaxTrackCount}), skipping folder"); trackCountFailed = true; }
-                    if (folderCond.MinTrackCount > 0 && newCount < folderCond.MinTrackCount)
+                    if (folderCond.MinTrackCount is { } minTrackCount and > 0 && newCount < minTrackCount)
                     { Logger.Info($"New file count ({newCount}) below minimum ({folderCond.MinTrackCount}), skipping folder"); trackCountFailed = true; }
 
                     if (trackCountFailed)

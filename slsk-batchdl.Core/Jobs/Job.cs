@@ -43,10 +43,10 @@ namespace Sldl.Core.Jobs;
 
         // Extractor hints — set by extractors, consumed by JobPreparer when preparing this job's
         // Config and JobContext. JobPreparer clears them after use so they don't linger.
-        public FileConditions?          ExtractorCond         { get; set; }
-        public FileConditions?          ExtractorPrefCond     { get; set; }
-        public Models.FolderConditions? ExtractorFolderCond   { get; set; }
-        public Models.FolderConditions? ExtractorPrefFolderCond { get; set; }
+        public FileConditionPatch?      ExtractorCond         { get; set; }
+        public FileConditionPatch?      ExtractorPrefCond     { get; set; }
+        public FolderConditionPatch?    ExtractorFolderCond   { get; set; }
+        public FolderConditionPatch?    ExtractorPrefFolderCond { get; set; }
         public bool                     EnablesIndexByDefault { get; set; }
 
         // Display / identity

@@ -56,20 +56,20 @@ namespace Sldl.Core.Extractors;
                 if (isAlbum)
                     fields[0] = "album://" + fields[0];
 
-                FileConditions?          extractorCond         = null;
-                FileConditions?          extractorPrefCond     = null;
-                Models.FolderConditions? extractorFolderCond     = null;
-                Models.FolderConditions? extractorPrefFolderCond = null;
+                FileConditionPatch?      extractorCond         = null;
+                FileConditionPatch?      extractorPrefCond     = null;
+                FolderConditionPatch?    extractorFolderCond     = null;
+                FolderConditionPatch?    extractorPrefFolderCond = null;
 
                 if (fields.Count >= 2)
                 {
-                    var fc = new Models.FolderConditions();
+                    var fc = new FolderConditionPatch();
                     extractorCond       = Services.ConditionParser.ParseFileConditions(fields[1], fc);
                     extractorFolderCond = fc;
                 }
                 if (fields.Count >= 3)
                 {
-                    var fc = new Models.FolderConditions();
+                    var fc = new FolderConditionPatch();
                     extractorPrefCond       = Services.ConditionParser.ParseFileConditions(fields[2], fc);
                     extractorPrefFolderCond = fc;
                 }

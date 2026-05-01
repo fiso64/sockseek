@@ -128,16 +128,16 @@ public static partial class SearchResultProjector
 
         MergeChildDirectories(dirStructure);
 
-        int min = search.NecessaryFolderCond.MinTrackCount;
-        int max = search.NecessaryFolderCond.MaxTrackCount;
+        int? min = search.NecessaryFolderCond.MinTrackCount;
+        int? max = search.NecessaryFolderCond.MaxTrackCount;
         var folders = new List<AlbumFolder>();
         var inferDefault = new SongQuery { Artist = query.Artist, Album = query.Album };
 
         foreach (var (_, folder) in dirStructure)
         {
             if (folder.MusicCount == 0) continue;
-            if (max != -1 && folder.MusicCount > max) continue;
-            if (min > 0 && folder.MusicCount < min) continue;
+            if (max is { } maxCount && folder.MusicCount > maxCount) continue;
+            if (min is { } minCount and > 0 && folder.MusicCount < minCount) continue;
 
             folder.Files.Sort(AlbumFolderFileComparer.Instance);
 

@@ -91,7 +91,7 @@ namespace Sldl.Core.Jobs;
                 newJob.CopySharedFieldsFrom(this);
                 if (Query.Title.Length > 0)
                 {
-                    newJob.ExtractorFolderCond = newJob.ExtractorFolderCond != null ? new FolderConditions(newJob.ExtractorFolderCond) : new FolderConditions();
+                    newJob.ExtractorFolderCond ??= new FolderConditionPatch();
                     newJob.ExtractorFolderCond.AddRequiredTrackTitle(Query.Title);
                 }
                 newJob.ItemName ??= newJob.ToString(noInfo: true);
@@ -103,7 +103,7 @@ namespace Sldl.Core.Jobs;
                 newJob.CopySharedFieldsFrom(this);
                 if (Query.Title.Length > 0)
                 {
-                    newJob.ExtractorFolderCond = newJob.ExtractorFolderCond != null ? new FolderConditions(newJob.ExtractorFolderCond) : new FolderConditions();
+                    newJob.ExtractorFolderCond ??= new FolderConditionPatch();
                     newJob.ExtractorFolderCond.AddRequiredTrackTitle(Query.Title);
                 }
                 newJob.UpgradeSources.Add(new SongQuery(Query));

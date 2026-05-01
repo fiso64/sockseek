@@ -121,15 +121,15 @@ namespace Tests.Jobs
         {
             var first = new SongJob(new SongQuery { Artist = "Artist", Album = "Album", Title = "Track 1" })
             {
-                ExtractorFolderCond = new FolderConditions { MinTrackCount = 5, MaxTrackCount = 5 }
+                ExtractorFolderCond = new FolderConditionPatch { MinTrackCount = 5, MaxTrackCount = 5 }
             };
             var second = new SongJob(new SongQuery { Artist = "Artist", Album = "Album", Title = "Track 2" })
             {
-                ExtractorFolderCond = new FolderConditions { MinTrackCount = 6, MaxTrackCount = 6 }
+                ExtractorFolderCond = new FolderConditionPatch { MinTrackCount = 6, MaxTrackCount = 6 }
             };
             var third = new SongJob(new SongQuery { Artist = "Artist", Album = "Album", Title = "Track 3" })
             {
-                ExtractorFolderCond = new FolderConditions { MinTrackCount = 5, MaxTrackCount = 5 }
+                ExtractorFolderCond = new FolderConditionPatch { MinTrackCount = 5, MaxTrackCount = 5 }
             };
             var list = new JobList("My List", new Job[] { first, second, third });
 
@@ -147,11 +147,11 @@ namespace Tests.Jobs
         {
             var first = new SongJob(new SongQuery { Artist = "Artist", Album = "Album", Title = "Track 1" })
             {
-                ExtractorCond = new FileConditions { Formats = ["flac"] }
+                ExtractorCond = new FileConditionPatch { Formats = ["flac"] }
             };
             var second = new SongJob(new SongQuery { Artist = "Artist", Album = "Album", Title = "Track 2" })
             {
-                ExtractorCond = new FileConditions { Formats = ["mp3"] }
+                ExtractorCond = new FileConditionPatch { Formats = ["mp3"] }
             };
             var list = new JobList("My List", new Job[] { first, second });
 

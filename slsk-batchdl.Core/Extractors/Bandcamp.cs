@@ -144,7 +144,7 @@ namespace Sldl.Core.Extractors;
                 {
                     var artist = nameSection.SelectSingleNode(".//h3/span/a").InnerText.UnHtmlString().Trim();
                     var query  = new AlbumQuery { Artist = artist, Album = name };
-                    var folderCond = new FolderConditions();
+                    var folderCond = new FolderConditionPatch();
 
                     if (extraction.SetAlbumMinTrackCount || extraction.SetAlbumMaxTrackCount)
                     {

@@ -348,7 +348,7 @@ namespace Sldl.Core.Extractors;
                         ItemNumber            = num++,
                         ItemName              = "Spotify Albums",
                         EnablesIndexByDefault = true,
-                        ExtractorFolderCond = new FolderConditions { MinTrackCount = album.TotalTracks },
+                        ExtractorFolderCond = new FolderConditionPatch { MinTrackCount = album.TotalTracks },
                     };
                     queue.Jobs.Add(job);
                 }
@@ -447,10 +447,10 @@ namespace Sldl.Core.Extractors;
             var albumJob = new AlbumJob(albumQuery);
             if (extraction.SetAlbumMinTrackCount || extraction.SetAlbumMaxTrackCount)
             {
-                albumJob.ExtractorFolderCond = new FolderConditions
+                albumJob.ExtractorFolderCond = new FolderConditionPatch
                 {
-                    MinTrackCount = extraction.SetAlbumMinTrackCount ? songs.Count : -1,
-                    MaxTrackCount = extraction.SetAlbumMaxTrackCount ? songs.Count : -1,
+                    MinTrackCount = extraction.SetAlbumMinTrackCount ? songs.Count : null,
+                    MaxTrackCount = extraction.SetAlbumMaxTrackCount ? songs.Count : null,
                 };
             }
 

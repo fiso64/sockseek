@@ -414,7 +414,6 @@ public static partial class ConfigManager
         void Remote(Action<RemoteSettings> action) => entry.Remote.Add(action);
 
         bool Bool() => bool.Parse(value);
-        bool? NullableBool() => Bool();
         int Int() => ParseInt(value, flag);
         double Double() => ParseDouble(value, flag);
 
@@ -609,7 +608,7 @@ public static partial class ConfigManager
                 Download(d =>
                 {
                     if (value == "-1")
-                        d.Search.NecessaryFolderCond.MinTrackCount = d.Search.NecessaryFolderCond.MaxTrackCount = -1;
+                        d.Search.NecessaryFolderCond.MinTrackCount = d.Search.NecessaryFolderCond.MaxTrackCount = null;
                     else if (value.EndsWith('-'))
                         d.Search.NecessaryFolderCond.MaxTrackCount = ParseInt(value[..^1], flag);
                     else if (value.EndsWith('+'))
@@ -683,13 +682,13 @@ public static partial class ConfigManager
             case "--Mbd": case "--max-bitdepth":
                 Download(d => d.Search.NecessaryCond.MaxBitDepth = Int()); break;
             case "--stt": case "--strict-title":
-                Download(d => d.Search.NecessaryCond.StrictTitle = NullableBool()); break;
+                Download(d => d.Search.NecessaryCond.StrictTitle = Bool()); break;
             case "--sar": case "--strict-artist":
-                Download(d => d.Search.NecessaryCond.StrictArtist = NullableBool()); break;
+                Download(d => d.Search.NecessaryCond.StrictArtist = Bool()); break;
             case "--sal": case "--strict-album":
-                Download(d => d.Search.NecessaryCond.StrictAlbum = NullableBool()); break;
+                Download(d => d.Search.NecessaryCond.StrictAlbum = Bool()); break;
             case "--anl": case "--accept-no-length":
-                Download(d => d.Search.NecessaryCond.AcceptNoLength = NullableBool()); break;
+                Download(d => d.Search.NecessaryCond.AcceptNoLength = Bool()); break;
             case "--bu": case "--banned-users":
                 Download(d => d.Search.NecessaryCond.BannedUsers = value.Split(',', tr)); break;
             case "--sc": case "--strict": case "--strict-conditions":
@@ -703,7 +702,7 @@ public static partial class ConfigManager
             case "--cond": case "--conditions":
                 Download(d =>
                 {
-                    var fc = new FolderConditions();
+                    var fc = new FolderConditionPatch();
                     d.Search.NecessaryCond.AddConditions(ConditionParser.ParseFileConditions(value, fc));
                     d.Search.NecessaryFolderCond.AddConditions(fc);
                 });
@@ -727,19 +726,19 @@ public static partial class ConfigManager
             case "--pMbd": case "--pref-max-bitdepth":
                 Download(d => d.Search.PreferredCond.MaxBitDepth = Int()); break;
             case "--pst": case "--pstt": case "--pref-strict-title":
-                Download(d => d.Search.PreferredCond.StrictTitle = NullableBool()); break;
+                Download(d => d.Search.PreferredCond.StrictTitle = Bool()); break;
             case "--psar": case "--pref-strict-artist":
-                Download(d => d.Search.PreferredCond.StrictArtist = NullableBool()); break;
+                Download(d => d.Search.PreferredCond.StrictArtist = Bool()); break;
             case "--psal": case "--pref-strict-album":
-                Download(d => d.Search.PreferredCond.StrictAlbum = NullableBool()); break;
+                Download(d => d.Search.PreferredCond.StrictAlbum = Bool()); break;
             case "--panl": case "--pref-accept-no-length":
-                Download(d => d.Search.PreferredCond.AcceptNoLength = NullableBool()); break;
+                Download(d => d.Search.PreferredCond.AcceptNoLength = Bool()); break;
             case "--pbu": case "--pref-banned-users":
                 Download(d => d.Search.PreferredCond.BannedUsers = value.Split(',', tr)); break;
             case "--pc": case "--pref": case "--preferred-conditions":
                 Download(d =>
                 {
-                    var fc = new FolderConditions();
+                    var fc = new FolderConditionPatch();
                     d.Search.PreferredCond.AddConditions(ConditionParser.ParseFileConditions(value, fc));
                     d.Search.PreferredFolderCond.AddConditions(fc);
                 });
@@ -886,19 +885,19 @@ public static partial class ConfigManager
 
         private void AddConditionOperations(string filePrefix, string folderPrefix, string value)
         {
-            var folder = new FolderConditions();
+            var folder = new FolderConditionPatch();
             var file = ConditionParser.ParseFileConditions(value, folder);
             AddFileConditionOperations(filePrefix, file);
 
-            if (folder.MinTrackCount != -1)
+            if (folder.MinTrackCount != null)
                 Add(DownloadSettingsDeltaMapper.Set($"{folderPrefix}.MinTrackCount", folder.MinTrackCount));
-            if (folder.MaxTrackCount != -1)
+            if (folder.MaxTrackCount != null)
                 Add(DownloadSettingsDeltaMapper.Set($"{folderPrefix}.MaxTrackCount", folder.MaxTrackCount));
-            if (folder.RequiredTrackTitles.Count > 0)
+            if (folder.RequiredTrackTitles?.Count > 0)
                 Add(DownloadSettingsDeltaMapper.Append($"{folderPrefix}.RequiredTrackTitles", folder.RequiredTrackTitles));
         }
 
-        private void AddFileConditionOperations(string prefix, FileConditions file)
+        private void AddFileConditionOperations(string prefix, FileConditionPatch file)
         {
             if (file.LengthTolerance != null) Add(DownloadSettingsDeltaMapper.Set($"{prefix}.LengthTolerance", file.LengthTolerance));
             if (file.MinBitrate != null) Add(DownloadSettingsDeltaMapper.Set($"{prefix}.MinBitrate", file.MinBitrate));
