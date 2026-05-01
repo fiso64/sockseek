@@ -484,6 +484,8 @@ public class CliProgressReporter
             return;
         }
 
+        Logger.LogNonConsole(Logger.LogLevel.Info, $"{TerminalLabel(song)}: {SongDisplay(song)}");
+
         if (_bars.TryGetValue(song, out var d) && d.Bar != null)
         {
             bool succeeded = song.State is JobState.Done or JobState.AlreadyExists;
@@ -511,6 +513,9 @@ public class CliProgressReporter
             Logger.Info($"{TerminalLabel(song)}: {SongDisplay(song)}");
             return;
         }
+
+        if (!IsBackendInlineChild(song.JobId))
+            Logger.LogNonConsole(Logger.LogLevel.Info, $"{TerminalLabel(song)}: {SongDisplay(song)}");
 
         if (_backendBars.TryGetValue(song.JobId, out var d) && d.Bar != null)
         {
