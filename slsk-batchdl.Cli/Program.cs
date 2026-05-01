@@ -77,7 +77,7 @@ internal static partial class Program
         CliProgressReporter? cliReporter = null;
         if (cliSettings.ProgressJson)
             new JsonStreamProgressReporter(Console.Out).Attach(backend);
-        else
+        else if (ShouldAttachHumanProgressReporter(rootSettings.PrintOption))
         {
             cliReporter = new CliProgressReporter(cliSettings);
             cliReporter.Attach(backend);
@@ -86,7 +86,8 @@ internal static partial class Program
         {
             if (envelope.Type == "track-batch.resolved"
                 && envelope.Payload is TrackBatchResolvedEventDto batch
-                && !batch.PrintOption.HasFlag(PrintOption.Tracks))
+                && !batch.PrintOption.HasFlag(PrintOption.Tracks)
+                && ShouldPrintHumanBatchPreview(batch.PrintOption))
             {
                 PrintTrackBatchResolved(batch);
             }
@@ -189,7 +190,7 @@ internal static partial class Program
         CliProgressReporter? cliReporter = null;
         if (cliSettings.ProgressJson)
             new JsonStreamProgressReporter(Console.Out).Attach(backend);
-        else
+        else if (ShouldAttachHumanProgressReporter(rootSettings.PrintOption))
         {
             cliReporter = new CliProgressReporter(cliSettings);
             cliReporter.Attach(backend);
@@ -199,7 +200,8 @@ internal static partial class Program
         {
             if (envelope.Type == "track-batch.resolved"
                 && envelope.Payload is TrackBatchResolvedEventDto batch
-                && !batch.PrintOption.HasFlag(PrintOption.Tracks))
+                && !batch.PrintOption.HasFlag(PrintOption.Tracks)
+                && ShouldPrintHumanBatchPreview(batch.PrintOption))
             {
                 PrintTrackBatchResolved(batch);
             }
@@ -330,6 +332,15 @@ internal static partial class Program
         if (preview.Count > 0)
             Printing.PrintTracks(preview, 10, fullInfo: false);
     }
+
+    private static bool ShouldAttachHumanProgressReporter(PrintOption printOption)
+        => !IsMachineReadablePrint(printOption);
+
+    private static bool ShouldPrintHumanBatchPreview(PrintOption printOption)
+        => !IsMachineReadablePrint(printOption);
+
+    private static bool IsMachineReadablePrint(PrintOption printOption)
+        => (printOption & (PrintOption.Json | PrintOption.Link | PrintOption.Index)) != 0;
 
     internal static async Task PrintRemoteCompleteAsync(
         ICliBackend backend,
