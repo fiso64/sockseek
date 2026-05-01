@@ -40,6 +40,7 @@ public class CliProgressReporter
         public ProgressBar? Bar;
         public string       BaseText   = "";
         public string       StateLabel = "";
+        public string?      JobPrefix;
         public int          SpinIndex  = 0;
         public int          Pct        = 0;
     }
@@ -227,7 +228,10 @@ public class CliProgressReporter
         string prefix = d.StateLabel == "InProgress"
             ? $"{SpinFrames[d.SpinIndex % SpinFrames.Length]} "
             : "  ";
-        string label = (d.StateLabel + ":").PadRight(12);
+        var stateLabel = d.JobPrefix != null
+            ? $"{d.JobPrefix}{d.StateLabel.ToLowerInvariant()}"
+            : d.StateLabel;
+        string label = (stateLabel + ":").PadRight(d.JobPrefix != null ? 0 : 12);
         return $"{prefix}{label} {d.BaseText}";
     }
 
@@ -446,7 +450,7 @@ public class CliProgressReporter
         => summary.Kind == ServerJobKind.Song
             && summary.ParentJobId is Guid parentJobId
             && _backendJobKinds.TryGetValue(parentJobId, out var parentKind)
-            && parentKind is ServerJobKind.Album or ServerJobKind.Aggregate;
+            && parentKind is ServerJobKind.Album;
 
     private static string SongDisplay(SongJob song)
     {
@@ -527,6 +531,7 @@ public class CliProgressReporter
         }
 
         var d = _bars.GetOrAdd(song, _ => new BarData { Bar = Printing.GetProgressBar() });
+        d.JobPrefix = $"[{song.DisplayId}] SongJob: ";
         d.StateLabel = "Queued";
         d.BaseText   = Printing.DisplayString(song.Query, candidate.File, candidate.Response, infoFirst: false);
         d.Pct        = 0;
@@ -550,6 +555,7 @@ public class CliProgressReporter
             return;
 
         var d = _backendBars.GetOrAdd(song.JobId, _ => new BarData { Bar = Printing.GetProgressBar() });
+        d.JobPrefix = IsBackendInlineChild(song.JobId) ? null : $"[{song.DisplayId}] SongJob: ";
         d.StateLabel = "Queued";
         d.BaseText = $"{song.Candidate.Username}\\..\\{System.IO.Path.GetFileName(song.Candidate.Filename)}";
         d.Pct = 0;
@@ -685,6 +691,9 @@ public class CliProgressReporter
             return;
         }
 
+        if (job is SongJob)
+            return;
+
         var bar = Printing.GetProgressBar();
         _jobBars[job] = bar;
         string status = job is RetrieveFolderJob ? "retrieving folder" : "searching";
@@ -705,6 +714,9 @@ public class CliProgressReporter
             WritePlainJobStatus(job.Summary, status);
             return;
         }
+
+        if (job.Summary.Kind == ServerJobKind.Song)
+            return;
 
         var bar = Printing.GetProgressBar();
         _backendJobBars[job.Summary.JobId] = bar;
@@ -1090,15 +1102,17 @@ public class CliProgressReporter
         if (_bars.TryGetValue(song, out var existing))
         {
             existing.StateLabel = "Searching";
-            existing.BaseText   = $"[{song.DisplayId}] {song.ToString()}";
+            existing.JobPrefix = $"[{song.DisplayId}] SongJob: ";
+            existing.BaseText   = song.ToString();
             Printing.RefreshOrPrint(existing.Bar, 0, BuildText(existing), print: false);
             return;
         }
 
         bool isFirst = !_bars.ContainsKey(song);
         var d = _bars.GetOrAdd(song, _ => new BarData { Bar = Printing.GetProgressBar() });
+        d.JobPrefix = $"[{song.DisplayId}] SongJob: ";
         d.StateLabel = "Searching";
-        d.BaseText   = $"[{song.DisplayId}] {song.ToString()}";
+        d.BaseText   = song.ToString();
         Printing.RefreshOrPrint(d.Bar, 0, BuildText(d), print: isFirst);
     }
 
@@ -1117,7 +1131,8 @@ public class CliProgressReporter
         if (_backendBars.TryGetValue(song.JobId, out var existing))
         {
             existing.StateLabel = "Searching";
-            existing.BaseText = $"[{song.DisplayId}] {song.Query.Artist} - {song.Query.Title}";
+            existing.JobPrefix = IsBackendInlineChild(song.JobId) ? null : $"[{song.DisplayId}] SongJob: ";
+            existing.BaseText = $"{song.Query.Artist} - {song.Query.Title}";
             Printing.RefreshOrPrint(existing.Bar, 0, BuildText(existing), print: false);
             return;
         }
@@ -1127,8 +1142,9 @@ public class CliProgressReporter
 
         bool isFirst = !_backendBars.ContainsKey(song.JobId);
         var d = _backendBars.GetOrAdd(song.JobId, _ => new BarData { Bar = Printing.GetProgressBar() });
+        d.JobPrefix = $"[{song.DisplayId}] SongJob: ";
         d.StateLabel = "Searching";
-        d.BaseText = $"[{song.DisplayId}] {song.Query.Artist} - {song.Query.Title}";
+        d.BaseText = $"{song.Query.Artist} - {song.Query.Title}";
         Printing.RefreshOrPrint(d.Bar, 0, BuildText(d), print: isFirst);
     }
 
