@@ -277,6 +277,22 @@ public static class Printing
                 }
             }
         }
+        else if (job is AlbumAggregateJob albumAggregateJob)
+        {
+            if (albumAggregateJob.Albums.Count == 0)
+            {
+                Console.WriteLine("No results.");
+                return;
+            }
+
+            bool nonVerbose = (printOption & (PrintOption.Json | PrintOption.Link | PrintOption.Index)) != 0;
+            foreach (var album in albumAggregateJob.Albums)
+            {
+                PrintResults(album, printOption, search);
+                if (!nonVerbose)
+                    Console.WriteLine();
+            }
+        }
         else
         {
             Console.WriteLine("No results.");
@@ -417,6 +433,11 @@ public static class Printing
         {
             case SongJob song:
                 yield return song;
+                break;
+
+            case AlbumAggregateJob albumAggregate when albumAggregate.Albums.Count > 0:
+                foreach (var album in albumAggregate.Albums)
+                    yield return album;
                 break;
 
             case AlbumJob or AggregateJob or AlbumAggregateJob:

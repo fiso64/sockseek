@@ -307,5 +307,66 @@ namespace Tests.EndToEnd
             }
         }
 
+        [TestMethod]
+        public async Task PrintResults_AlbumAggregateJob_SearchesWithoutDownloading()
+        {
+            var lengthOne = new Soulseek.FileAttribute(Soulseek.FileAttributeType.Length, 120);
+            var lengthTwo = new Soulseek.FileAttribute(Soulseek.FileAttributeType.Length, 180);
+            var index = new List<Soulseek.SearchResponse>
+            {
+                new(
+                    username: "user1",
+                    token: 1,
+                    hasFreeUploadSlot: true,
+                    uploadSpeed: 100,
+                    queueLength: 0,
+                    fileList:
+                    [
+                        new Soulseek.File(1, "Music\\ELO\\Time\\01. ELO - First.mp3", 10000, ".mp3", [lengthOne]),
+                        new Soulseek.File(2, "Music\\ELO\\Time\\02. ELO - Second.mp3", 10000, ".mp3", [lengthTwo]),
+                    ]),
+                new(
+                    username: "user2",
+                    token: 2,
+                    hasFreeUploadSlot: true,
+                    uploadSpeed: 100,
+                    queueLength: 0,
+                    fileList:
+                    [
+                        new Soulseek.File(3, "Shares\\Electric Light Orchestra\\Time\\01. ELO - First.mp3", 10000, ".mp3", [lengthOne]),
+                        new Soulseek.File(4, "Shares\\Electric Light Orchestra\\Time\\02. ELO - Second.mp3", 10000, ".mp3", [lengthTwo]),
+                    ]),
+            };
+            var testClient = new ClientTests.MockSoulseekClient(index);
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-print-album-aggregate-" + Guid.NewGuid());
+            Directory.CreateDirectory(outputDir);
+
+            try
+            {
+                var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                var rootSettings = new DownloadSettings();
+                rootSettings.Output.ParentDir = outputDir;
+                rootSettings.PrintOption = PrintOption.Results;
+
+                var aggregateJob = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
+                var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
+                var app = new DownloadEngine(engineSettings, clientManager);
+                app.Enqueue(aggregateJob, rootSettings);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                Assert.AreEqual(JobState.Done, aggregateJob.State);
+                Assert.IsTrue(aggregateJob.Albums.Count > 0, "Print-results mode should retain album-aggregate candidates for printing.");
+                Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length,
+                    "Print-results mode should not download album-aggregate files.");
+            }
+            finally
+            {
+                if (Directory.Exists(outputDir))
+                    Directory.Delete(outputDir, true);
+            }
+        }
+
     }
 }

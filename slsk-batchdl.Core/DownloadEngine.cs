@@ -530,6 +530,7 @@ public class DownloadEngine
             else if (job is AlbumAggregateJob aabJob)
             {
                 var newAlbumJobs = await searcher!.SearchAggregateAlbum(aabJob, config.Search, responseData, job.Cts!.Token);
+                aabJob.Albums = newAlbumJobs;
 
                 job.State = JobState.Done;
                 foundSomething = newAlbumJobs.Count > 0;
@@ -538,6 +539,8 @@ public class DownloadEngine
                 if (foundSomething)
                 {
                     var albumList = new JobList(job.ItemName, newAlbumJobs);
+                    albumList.Config = job.Config;
+                    albumList.WorkflowId = job.WorkflowId;
                     foreach (var aj in newAlbumJobs)
                     {
                         aj.ItemName = job.ItemName;

@@ -13,6 +13,9 @@ namespace Sldl.Core.Jobs;
 
         protected override bool DefaultCanBeSkipped => false;
 
+        // Populated after aggregate search: one AlbumJob per distinct album candidate.
+        public List<AlbumJob> Albums { get; set; } = new();
+
         public AlbumAggregateJob(AlbumQuery query)
         {
             Query = query;
