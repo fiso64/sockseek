@@ -1,8 +1,10 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sldl.Core;
 using Sldl.Core.Jobs;
+using Sldl.Core.Models;
 using Sldl.Core.Services;
 using Sldl.Core.Settings;
+using Soulseek;
 
 namespace Tests.Eventing
 {
@@ -20,11 +22,11 @@ namespace Tests.Eventing
         {
             var listFile = Path.GetTempFileName();
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-events-" + Guid.NewGuid());
-            Directory.CreateDirectory(outputDir);
+            System.IO.Directory.CreateDirectory(outputDir);
 
             try
             {
-                File.WriteAllLines(listFile, new[]
+                System.IO.File.WriteAllLines(listFile, new[]
                 {
                     "\"Artist One - Track One\"",
                     "\"Artist Two - Track Two\"",
@@ -108,8 +110,8 @@ namespace Tests.Eventing
             }
             finally
             {
-                if (File.Exists(listFile)) File.Delete(listFile);
-                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+                if (System.IO.File.Exists(listFile)) System.IO.File.Delete(listFile);
+                if (System.IO.Directory.Exists(outputDir)) System.IO.Directory.Delete(outputDir, true);
             }
         }
 
@@ -157,5 +159,91 @@ namespace Tests.Eventing
             Assert.AreEqual(0, existing!.Count);
             Assert.AreEqual(0, notFound!.Count);
         }
+
+        [TestMethod]
+        public async Task EngineEvents_AlbumJob_ExposesResolvedTarget_OnDownloadingState()
+        {
+            var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+            var downloadSettings = new DownloadSettings();
+            var albumQuery = new AlbumQuery { Artist = "Artist One", Album = "Album One" };
+            var albumJob = new AlbumJob(albumQuery);
+
+            var songJob = new SongJob(new SongQuery { Artist = "Artist One", Title = "Track One", Album = "Album One" });
+            var folder = new AlbumFolder("test_user", "C:\\Music\\Album One", new List<SongJob> { songJob });
+
+            var searchResponse = new SearchResponse(
+                username: "test_user",
+                token: 1,
+                hasFreeUploadSlot: true,
+                uploadSpeed: 100,
+                queueLength: 0,
+                fileList: new List<Soulseek.File> { new Soulseek.File(1, "C:\\Music\\Album One\\Artist One - Album One - Track One.mp3", 10000, ".mp3") }
+            );
+
+            var client = new ClientTests.MockSoulseekClient(new List<SearchResponse> { searchResponse });
+            var clientManager = TestHelpers.CreateMockClientManager(client, engineSettings);
+            var engine = new DownloadEngine(engineSettings, clientManager);
+
+            AlbumFolder? capturedFolder = null;
+
+            engine.Events.JobStateChanged += (job, state) =>
+            {
+                if (state == JobState.Downloading && job is AlbumJob aj)
+                {
+                    capturedFolder = aj.ResolvedTarget;
+                }
+            };
+
+            engine.Enqueue(albumJob, downloadSettings);
+            engine.CompleteEnqueue();
+
+            await engine.RunAsync(CancellationToken.None);
+
+            Assert.IsNotNull(capturedFolder, "ResolvedTarget should be populated when JobState.Downloading is reported.");
+            Assert.AreEqual("C:\\Music\\Album One", capturedFolder.FolderPath);
+        }
+        [TestMethod]
+        public void Job_PopulatesDiscoveryMetadata_BeforeStateChangedFires()
+        {
+            var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" });
+            DiscoverySummary? capturedDiscovery = null;
+            JobState? capturedState = null;
+
+            var events = new EngineEvents();
+            events.JobStateChanged += (j, s) =>
+            {
+                capturedDiscovery = j.Discovery;
+                capturedState = s;
+            };
+
+            song.Discovery = new DiscoverySummary { ResultCount = 5, LockedFileCount = 2 };
+            var raiseMethod = typeof(EngineEvents).GetMethod("RaiseJobStateChanged", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            raiseMethod?.Invoke(events, [song, JobState.Downloading]);
+
+            Assert.AreEqual(JobState.Downloading, capturedState);
+            Assert.IsNotNull(capturedDiscovery);
+            Assert.AreEqual(5, capturedDiscovery.ResultCount);
+            Assert.AreEqual(2, capturedDiscovery.LockedFileCount);
+        }
+
+        [TestMethod]
+        public void DiscoveryMetadata_PersistsForMultipleSubscribers()
+        {
+            var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" });
+            bool sub1SawIt = false;
+            bool sub2SawIt = false;
+
+            var events = new EngineEvents();
+            events.JobStateChanged += (j, s) => sub1SawIt = j.Discovery != null;
+            events.JobStateChanged += (j, s) => sub2SawIt = j.Discovery != null;
+
+            song.Discovery = new DiscoverySummary { ResultCount = 1 };
+            var raiseMethod = typeof(EngineEvents).GetMethod("RaiseJobStateChanged", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            raiseMethod?.Invoke(events, [song, JobState.Downloading]);
+
+            Assert.IsTrue(sub1SawIt, "First subscriber should see metadata");
+            Assert.IsTrue(sub2SawIt, "Second subscriber should see metadata (not consumed)");
+        }
     }
 }
+

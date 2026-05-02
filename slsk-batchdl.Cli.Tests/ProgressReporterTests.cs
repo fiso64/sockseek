@@ -203,6 +203,8 @@ public class CliProgressReporterTests
                 ParentJobId: null,
                 ResultJobId: null,
                 SourceJobId: null,
+                DiscoveryResultCount: null,
+                DiscoveryLockedFileCount: null,
                 AppliedAutoProfiles: [],
                 AvailableActions: []);
             var folder = new AlbumFolderDto(
@@ -330,6 +332,8 @@ public class CliProgressReporterTests
                 ParentJobId: null,
                 ResultJobId: null,
                 SourceJobId: null,
+                DiscoveryResultCount: null,
+                DiscoveryLockedFileCount: null,
                 AppliedAutoProfiles: [],
                 AvailableActions: []);
             var childSummary = CreateSongSummary(fileJobId, workflowId, aggregateJobId);
@@ -607,6 +611,8 @@ public class CliProgressReporterTests
             ParentJobId: null,
             ResultJobId: null,
             SourceJobId: null,
+            DiscoveryResultCount: null,
+            DiscoveryLockedFileCount: null,
             AppliedAutoProfiles: [],
             AvailableActions: []);
 
@@ -624,6 +630,8 @@ public class CliProgressReporterTests
             ParentJobId: parentJobId,
             ResultJobId: null,
             SourceJobId: null,
+            DiscoveryResultCount: null,
+            DiscoveryLockedFileCount: null,
             AppliedAutoProfiles: [],
             AvailableActions: []);
 

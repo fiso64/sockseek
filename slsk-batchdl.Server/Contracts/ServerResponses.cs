@@ -86,6 +86,8 @@ public sealed record JobSummaryDto(
     Guid? ParentJobId,
     Guid? ResultJobId,
     Guid? SourceJobId,
+    int? DiscoveryResultCount,
+    int? DiscoveryLockedFileCount,
     IReadOnlyList<string> AppliedAutoProfiles,
     IReadOnlyList<ResourceActionDto> AvailableActions);
 

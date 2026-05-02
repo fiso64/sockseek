@@ -36,7 +36,7 @@ public class EngineEventDtoAdapterTests
         var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Title", Album = "Album" });
         new EngineEventDtoAdapter(SummaryFor, (type, payload) => published.Add((type, payload))).Attach(events);
 
-        Raise(events, "RaiseSongSearching", song);
+        Raise(events, "RaiseJobStateChanged", song, JobState.Searching);
 
         Assert.AreEqual(1, published.Count);
         Assert.AreEqual("song.searching", published[0].Type);
@@ -61,6 +61,8 @@ public class EngineEventDtoAdapterTests
             null,
             null,
             null,
+            job.Discovery?.ResultCount,
+            job.Discovery?.LockedFileCount,
             [],
             []);
 

@@ -26,11 +26,6 @@ public sealed class EngineStateStore
         engine.Events.JobResultCreated += OnJobResultCreated;
         engine.Events.JobStateChanged += OnJobStateChanged;
         engine.Events.JobExecutionCompleted += OnJobExecutionCompleted;
-        engine.Events.SongSearching += OnNestedSongChanged;
-        engine.Events.SearchCompleted += OnNestedSongSearchCompleted;
-        engine.Events.SongNotFound += OnNestedSongChanged;
-        engine.Events.SongFailed += OnNestedSongChanged;
-        engine.Events.StateChanged += OnNestedSongChanged;
         engine.Events.DownloadStarted += OnNestedSongDownloadStarted;
     }
 
@@ -40,11 +35,6 @@ public sealed class EngineStateStore
         engine.Events.JobResultCreated -= OnJobResultCreated;
         engine.Events.JobStateChanged -= OnJobStateChanged;
         engine.Events.JobExecutionCompleted -= OnJobExecutionCompleted;
-        engine.Events.SongSearching -= OnNestedSongChanged;
-        engine.Events.SearchCompleted -= OnNestedSongSearchCompleted;
-        engine.Events.SongNotFound -= OnNestedSongChanged;
-        engine.Events.SongFailed -= OnNestedSongChanged;
-        engine.Events.StateChanged -= OnNestedSongChanged;
         engine.Events.DownloadStarted -= OnNestedSongDownloadStarted;
     }
 
@@ -326,8 +316,6 @@ public sealed class EngineStateStore
         PublishJobAndWorkflowUpserts([summary], [workflowSummary]);
     }
 
-    private void OnNestedSongSearchCompleted(SongJob song, int _) => OnNestedSongChanged(song);
-
     private void OnNestedSongDownloadStarted(SongJob song, FileCandidate _) => OnNestedSongChanged(song);
 
     private void OnNestedSongChanged(SongJob song)
@@ -548,6 +536,8 @@ public sealed class EngineStateStore
             parentJobId,
             resultJobId,
             sourceJobId,
+            job.Discovery?.ResultCount,
+            job.Discovery?.LockedFileCount,
             job.Config?.AppliedAutoProfiles?.OrderBy(x => x).ToList() ?? [],
             BuildActions(job));
     }

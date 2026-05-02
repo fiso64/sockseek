@@ -60,13 +60,6 @@ public sealed record ExtractionFailedEventDto(
 public sealed record JobStartedEventDto(
     JobSummaryDto Summary);
 
-/// <summary>
-/// Activity event emitted when job execution completes.
-/// </summary>
-public sealed record JobCompletedEventDto(
-    JobSummaryDto Summary,
-    bool Found,
-    int LockedFileCount);
 
 /// <summary>
 /// Activity event carrying transient human-readable job status text.
@@ -84,25 +77,7 @@ public sealed record SongSearchingEventDto(
     Guid WorkflowId,
     SongQueryDto Query);
 
-/// <summary>
-/// Activity event emitted when no suitable song candidate is found.
-/// </summary>
-public sealed record SongNotFoundEventDto(
-    Guid JobId,
-    int DisplayId,
-    Guid WorkflowId,
-    SongQueryDto Query,
-    ServerFailureReason? FailureReason);
 
-/// <summary>
-/// Activity event emitted when a song job fails.
-/// </summary>
-public sealed record SongFailedEventDto(
-    Guid JobId,
-    int DisplayId,
-    Guid WorkflowId,
-    SongQueryDto Query,
-    ServerFailureReason? FailureReason);
 
 /// <summary>
 /// Activity event emitted when a file transfer starts.
@@ -142,7 +117,9 @@ public sealed record SongStateChangedEventDto(
     ServerJobState State,
     ServerFailureReason? FailureReason,
     string? DownloadPath,
-    FileCandidateDto? ChosenCandidate);
+    FileCandidateDto? ChosenCandidate,
+    int? DiscoveryResultCount = null,
+    int? DiscoveryLockedFileCount = null);
 
 /// <summary>
 /// Activity event emitted when an album download begins for a selected folder.

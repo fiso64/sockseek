@@ -122,7 +122,7 @@ public partial class Searcher
                 responseFilter: r => r.UploadSpeed > 0 && nec.BannedUsersSatisfies(r),
                 fileFilter: f => nec.FileSatisfies(f, song.Query, null));
 
-        events.RaiseSongSearching(song);
+        song.State = JobState.Searching;
         await concurrencySemaphore.WaitAsync(ct);
         try { await RunSearches(song.Query, session.Results, getOpts, responseHandler, search, ct, onSearch); }
         finally { concurrencySemaphore.Release(); }
@@ -131,8 +131,10 @@ public partial class Searcher
 
         responseData.lockedFilesCount += session.LockedFileCount;
 
+        song.Discovery ??= new DiscoverySummary();
+        song.Discovery.ResultCount = session.Results.Count;
+
         Logger.Debug($"{session.Results.Count} results found: {song}");
-        events.RaiseSearchCompleted(song, session.Results.Count);
 
         if (!session.Results.IsEmpty)
         {
@@ -154,6 +156,7 @@ public partial class Searcher
     public async Task SearchAlbum(AlbumJob job, SearchSettings search, ResponseData responseData, CancellationToken ct)
     {
         var searchJob = new SearchJob(job.Query);
+        job.State = JobState.Searching;
         await Search(searchJob, search, responseData, ct);
         job.Results = searchJob.GetAlbumFolders(search).Items.ToList();
     }
@@ -174,6 +177,7 @@ public partial class Searcher
                 responseFilter: r => r.UploadSpeed > 0 && nec.BannedUsersSatisfies(r),
                 fileFilter: f => nec.FileSatisfies(f, job.Query, null));
 
+        job.State = JobState.Searching;
         await concurrencySemaphore.WaitAsync(ct);
         try { await RunSearches(job.Query, session.Results, getOpts, session.AddResponse, search, ct); }
         finally { concurrencySemaphore.Release(); }
@@ -185,6 +189,7 @@ public partial class Searcher
     // Returns new AlbumJobs (one per distinct album version found on the network).
     public async Task<List<AlbumJob>> SearchAggregateAlbum(AlbumAggregateJob job, SearchSettings search, ResponseData responseData, CancellationToken ct)
     {
+        job.State = JobState.Searching;
         var tempJob = new AlbumJob(job.Query);
         await SearchAlbum(tempJob, search, responseData, ct);
         return SearchResultProjector.AggregateAlbums(tempJob.Results, job.Query, search);

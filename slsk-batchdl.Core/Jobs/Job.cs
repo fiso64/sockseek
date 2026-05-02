@@ -5,6 +5,13 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
 namespace Sldl.Core.Jobs;
+
+    public class DiscoverySummary
+    {
+        public int ResultCount { get; set; }
+        public int LockedFileCount { get; set; }
+    }
+
     public abstract class Job : INotifyPropertyChanged
     {
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -55,6 +62,9 @@ namespace Sldl.Core.Jobs;
         // Source provenance (position in the input file / playlist)
         public int ItemNumber { get; set; } = 1;
         public int LineNumber { get; set; } = 1;
+
+        // Discovery results (populated during Search or Folder Retrieval phases)
+        public DiscoverySummary? Discovery { get; set; }
 
         // Job-level outcome (set after the job completes or fails)
         private FailureReason _failureReason = FailureReason.None;

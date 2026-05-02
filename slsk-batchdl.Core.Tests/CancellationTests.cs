@@ -384,10 +384,13 @@ namespace Tests.Cancellation
 
                 AlbumJob? albumJob = null;
                 AlbumFolder? folder = null;
-                engine.Events.AlbumTrackDownloadStarted += (job, startedFolder) =>
+                engine.Events.JobStateChanged += (job, state) =>
                 {
-                    albumJob = (AlbumJob)job;
-                    folder = startedFolder;
+                    if (state == JobState.Downloading && job is AlbumJob aj)
+                    {
+                        albumJob = aj;
+                        folder = aj.ResolvedTarget;
+                    }
                 };
 
                 engine.Enqueue(new ExtractJob(dl.Extraction.Input!, dl.Extraction.InputType), dl);

@@ -198,18 +198,15 @@ public class DownloadEngine
                     ej.State = JobState.Failed;
                     ej.FailureReason = FailureReason.ExtractionFailed;
                     ej.FailureMessage = e.Message;
-                    Events.RaiseExtractionFailed(ej, e.Message);
                     return;
                 }
 
                 ej.InputType = inputType;
-                ej.State = JobState.Extracting;
-                Events.RaiseExtractionStarted(ej);
-
                 Job extracted;
                 await _extractorSemaphore.WaitAsync(ej.Cts!.Token);
                 try
                 {
+                    ej.State = JobState.Extracting;
                     extracted = await ex.GetTracks(ej.Input, ej.Config.Extraction);
                 }
                 catch (Exception e)
@@ -217,7 +214,6 @@ public class DownloadEngine
                     ej.State = JobState.Failed;
                     ej.FailureReason = FailureReason.ExtractionFailed;
                     ej.FailureMessage = e.Message;
-                    Events.RaiseExtractionFailed(ej, e.Message);
                     return;
                 }
                 finally
@@ -227,7 +223,6 @@ public class DownloadEngine
 
                 ej.Result = extracted;
                 ej.State = JobState.Done;
-                Events.RaiseExtractionCompleted(ej, extracted);
 
                 Logger.Debug("Got tracks");
 
@@ -444,19 +439,16 @@ public class DownloadEngine
         {
             await _clientManager.WaitUntilReadyAsync(job.Cts!.Token);
 
-            Events.RaiseJobStarted(job);
-
             var responseData = new ResponseData();
             await searcher!.Search(searchJob, config.Search, responseData, job.Cts!.Token);
-            Events.RaiseJobCompleted(job, searchJob.ResultCount > 0, responseData.lockedFilesCount);
+            job.Discovery = new DiscoverySummary { ResultCount = searchJob.ResultCount, LockedFileCount = responseData.lockedFilesCount };
             return;
         }
 
         if (job is RetrieveFolderJob retrieveFolderJob)
         {
             await _clientManager.WaitUntilReadyAsync(job.Cts!.Token);
-
-            Events.RaiseJobStarted(job);
+            retrieveFolderJob.State = JobState.Searching;
 
             int newFilesFound = 0;
             try
@@ -464,14 +456,14 @@ public class DownloadEngine
                 newFilesFound = await searcher!.CompleteFolder(retrieveFolderJob.TargetFolder, job.Cts!.Token);
                 retrieveFolderJob.NewFilesFoundCount = newFilesFound;
                 retrieveFolderJob.State = JobState.Done;
-                Events.RaiseJobCompleted(job, newFilesFound > 0, 0);
+                job.Discovery = new DiscoverySummary { ResultCount = newFilesFound, LockedFileCount = 0 };
             }
             catch (OperationCanceledException)
             {
                 retrieveFolderJob.State = JobState.Failed;
                 retrieveFolderJob.FailureReason = FailureReason.Cancelled;
                 Events.RaiseJobStatus(retrieveFolderJob, "cancelled");
-                Events.RaiseJobCompleted(job, false, 0);
+                job.Discovery = new DiscoverySummary { ResultCount = 0, LockedFileCount = 0 };
             }
 
             return;
@@ -494,9 +486,7 @@ public class DownloadEngine
         if (job is AlbumJob or AggregateJob or AlbumAggregateJob)
         {
             await _clientManager.WaitUntilReadyAsync(job.Cts!.Token);
-
-            if (!HasPreResolvedAlbumResults(job))
-                Events.RaiseJobStarted(job);
+            await _clientManager.WaitUntilReadyAsync(job.Cts!.Token);
 
             bool foundSomething = false;
             ResponseData responseData = new ResponseData();
@@ -510,7 +500,6 @@ public class DownloadEngine
 
                     if (albumJob.ResolvedTargetNeedsInitialFolderRetrieval)
                     {
-                        Events.RaiseJobFolderRetrieving(job);
                         await ProcessFolderRetrieval(albumJob.ResolvedTarget, albumJob);
                         albumJob.ResolvedTargetNeedsInitialFolderRetrieval = false;
                         if (albumJob.ResolvedTarget.Files.Count == 0)
@@ -537,7 +526,7 @@ public class DownloadEngine
 
                 job.State = JobState.Done;
                 foundSomething = newAlbumJobs.Count > 0;
-                Events.RaiseJobCompleted(job, foundSomething, responseData.lockedFilesCount);
+                job.Discovery = new DiscoverySummary { ResultCount = aabJob.Albums.Count, LockedFileCount = responseData.lockedFilesCount };
 
                 if (config.PrintResults)
                     return;
@@ -569,7 +558,11 @@ public class DownloadEngine
                 return;
             }
 
-            Events.RaiseJobCompleted(job, foundSomething, responseData.lockedFilesCount);
+            job.Discovery = new DiscoverySummary 
+            { 
+                ResultCount = job switch { SongJob s => s.Candidates?.Count ?? 0, AlbumJob a => a.Results.Count, _ => foundSomething ? 1 : 0 }, 
+                LockedFileCount = responseData.lockedFilesCount 
+            };
 
             if (!foundSomething)
             {
@@ -616,6 +609,7 @@ public class DownloadEngine
                     break;
 
                 case AggregateJob ag:
+                    ag.State = JobState.Downloading;
                     Events.RaiseTrackBatchResolved(ag,
                         ag.Songs.Where(s => s.State == JobState.Pending).ToList(),
                         [],
@@ -758,15 +752,13 @@ public class DownloadEngine
 
             lastChosenFolder = chosenFolder;
             organizer.SetremoteBaseDir(chosenFolder.FolderPath);
-
-            if (!wasPreselected)
-                Events.RaiseAlbumDownloadStarted(job, chosenFolder);
+            job.ResolvedTarget = chosenFolder;
+            job.State = JobState.Downloading;
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(job.Cts!.Token);
 
             try
             {
-                Events.RaiseAlbumTrackDownloadStarted(job, chosenFolder);
                 await RunAlbumDownloads(chosenFolder, cts);
 
                 if (!config.Search.NoBrowseFolder && retrieveCurrent && !chosenFolder.IsFullyRetrieved && !retrievedFolders.Contains(chosenFolder.FolderPath))
@@ -871,7 +863,6 @@ public class DownloadEngine
         if (chosenFiles != null && !string.IsNullOrEmpty(job.DownloadPath))
             organizer.OrganizeAlbum(job, chosenFiles, additionalImages);
 
-        Events.RaiseAlbumDownloadCompleted(job);
 
         ctx.IndexEditor?.Update();
         ctx.PlaylistEditor?.Update();
@@ -885,7 +876,6 @@ public class DownloadEngine
         {
             song.State = JobState.Failed;
             song.FailureReason = FailureReason.Cancelled;
-            Events.RaiseStateChanged(song);
         }
     }
 
@@ -924,7 +914,6 @@ public class DownloadEngine
                 {
                     song.State = JobState.Failed;
                     song.FailureReason = sdEx.Reason;
-                    Events.RaiseStateChanged(song);
 
                     if (cancelOnFail)
                     {
@@ -936,7 +925,6 @@ public class DownloadEngine
                 {
                     song.State = JobState.Failed;
                     song.FailureReason = FailureReason.Cancelled;
-                    Events.RaiseStateChanged(song);
                     throw;
                 }
                 else
@@ -949,20 +937,21 @@ public class DownloadEngine
             break;
         }
 
-        if (tries == 0 && cancelOnFail)
+        if (tries == 0)
         {
             song.State = JobState.Failed;
-            song.FailureReason = FailureReason.OutOfDownloadRetries;
-            Events.RaiseStateChanged(song);
-            cts.Cancel();
-            throw new OperationCanceledException();
+            song.FailureReason = FailureReason.AllDownloadsFailed;
+            if (cancelOnFail)
+            {
+                cts.Cancel();
+                throw new OperationCanceledException();
+            }
         }
 
         if (savedFilePath.Length > 0)
         {
             song.State = JobState.Done;
             song.DownloadPath = savedFilePath;
-            Events.RaiseStateChanged(song);
 
         }
 
@@ -993,13 +982,10 @@ public class DownloadEngine
         // Skip search if candidates are pre-set (ResolvedTarget / direct download).
         if (song.Candidates == null)
         {
-            song.State = JobState.Searching;
-            Events.RaiseSongSearching(song);
 
             if (!config.Search.FastSearch)
             {
-                await searcher!.SearchSong(song, config.Search, responseData, cts.Token,
-                    onSearch: () => Events.RaiseSongSearching(song));
+                await searcher!.SearchSong(song, config.Search, responseData, cts.Token);
             }
             else
             {
@@ -1012,7 +998,6 @@ public class DownloadEngine
                 Task<(string path, FileCandidate? candidate)>? fastDownloadTask = null;
 
                 var searchTask = searcher!.SearchSong(song, config.Search, responseData, searchCts.Token,
-                    onSearch: () => Events.RaiseSongSearching(song),
                     onFastSearchCandidate: fc =>
                     {
                         if (fastDownloadTask == null)
@@ -1059,7 +1044,6 @@ public class DownloadEngine
 
         if (candidates == null || candidates.Count == 0)
         {
-            Events.RaiseSongNotFound(song);
             throw new NoSuitableFileFoundException();
         }
 
@@ -1083,7 +1067,6 @@ public class DownloadEngine
                 Logger.DebugError($"Download attempt {tried} failed: {ex.Message}");
                 if (tried >= candidates.Count)
                 {
-                    Events.RaiseSongFailed(song);
                     throw new AllDownloadsFailedException();
                 }
             }
@@ -1339,15 +1322,10 @@ public class DownloadEngine
         if (folder.IsFullyRetrieved)
             return 0;
 
-        var rfJob = new RetrieveFolderJob(folder) { ItemName = folder.FolderPath };
-
+        var rfJob = new RetrieveFolderJob(folder) { ItemName = folder.FolderPath, WorkflowId = parentJob.WorkflowId, Config = parentJob.Config };
         RegisterJob(rfJob, parentJob);
+        rfJob.State = JobState.Searching;
         rfJob.Cts = CancellationTokenSource.CreateLinkedTokenSource(appCts.Token, parentJob.Cts!.Token);
-
-        if (parentJob is AlbumJob albumJob)
-            Events.RaiseRetrieveFolderJobStarted(albumJob, rfJob);
-
-        Events.RaiseJobStarted(rfJob);
 
         int count = 0;
         try
@@ -1368,7 +1346,7 @@ public class DownloadEngine
         }
         finally
         {
-            Events.RaiseJobCompleted(rfJob, count > 0, 0);
+            rfJob.Discovery = new DiscoverySummary { ResultCount = count, LockedFileCount = 0 };
         }
     }
 
@@ -1456,7 +1434,6 @@ public class DownloadEngine
                 imgs[0].ResolvedTarget!.Response.Username,
                 Utils.GreatestCommonDirectorySlsk(imgs.Select(af => af.ResolvedTarget!.Filename)),
                 imgs);
-            Events.RaiseAlbumDownloadStarted(job, syntheticFolder);
 
             fileManager.downloadingAdditionalImages = true;
             fileManager.SetRemoteCommonImagesDir(Utils.GreatestCommonDirectorySlsk(imgs.Select(af => af.ResolvedTarget!.Filename)));

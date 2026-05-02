@@ -451,6 +451,8 @@ public sealed class EngineSupervisor
             null,
             null,
             sourceJobId,
+            job.Discovery?.ResultCount,
+            job.Discovery?.LockedFileCount,
             job.Config?.AppliedAutoProfiles?.ToList() ?? [],
             []);
 

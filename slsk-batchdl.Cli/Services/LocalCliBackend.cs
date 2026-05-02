@@ -483,6 +483,8 @@ internal sealed class LocalCliBackend
             null,
             null,
             null,
+            job.Discovery?.ResultCount,
+            job.Discovery?.LockedFileCount,
             job.Config?.AppliedAutoProfiles?.ToList() ?? [],
             []);
 

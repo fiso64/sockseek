@@ -351,11 +351,11 @@ namespace Tests.EndToEnd
                 var aggregateJob = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
                 var app = new DownloadEngine(engineSettings, clientManager);
-                var startedAlbumJobs = 0;
-                app.Events.JobStarted += job =>
+                var searchedAlbumJobs = 0;
+                app.Events.JobStateChanged += (job, state) =>
                 {
-                    if (job is AlbumJob)
-                        startedAlbumJobs++;
+                    if (state == JobState.Searching && job is AlbumJob)
+                        searchedAlbumJobs++;
                 };
                 app.Enqueue(aggregateJob, rootSettings);
                 app.CompleteEnqueue();
@@ -364,7 +364,7 @@ namespace Tests.EndToEnd
 
                 Assert.AreEqual(JobState.Done, aggregateJob.State);
                 Assert.IsTrue(aggregateJob.Albums.Count > 0, "Print-results mode should retain album-aggregate candidates for printing.");
-                Assert.AreEqual(0, startedAlbumJobs, "Print-results mode should not re-search album-aggregate candidate albums.");
+                Assert.AreEqual(0, searchedAlbumJobs, "Print-results mode should not re-search album-aggregate candidate albums.");
                 Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length,
                     "Print-results mode should not download album-aggregate files.");
             }
@@ -419,16 +419,13 @@ namespace Tests.EndToEnd
                 var aggregateJob = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
                 var app = new DownloadEngine(engineSettings, clientManager);
-                var startedAlbumJobs = 0;
+                var searchedAlbumJobs = 0;
                 var albumDownloadsStarted = 0;
-                app.Events.JobStarted += job =>
+                app.Events.JobStateChanged += (job, state) =>
                 {
-                    if (job is AlbumJob)
-                        startedAlbumJobs++;
-                };
-                app.Events.AlbumDownloadStarted += (job, _) =>
-                {
-                    if (job is AlbumJob)
+                    if (state == JobState.Searching && job is AlbumJob)
+                        searchedAlbumJobs++;
+                    else if (state == JobState.Downloading && job is AlbumJob)
                         albumDownloadsStarted++;
                 };
                 app.Enqueue(aggregateJob, rootSettings);
@@ -438,7 +435,7 @@ namespace Tests.EndToEnd
 
                 Assert.AreEqual(JobState.Done, aggregateJob.State);
                 Assert.IsTrue(aggregateJob.Albums.Count > 0, "Album aggregate should produce resolved album candidates.");
-                Assert.AreEqual(0, startedAlbumJobs, "Resolved album-aggregate candidates should not run a second album search.");
+                Assert.AreEqual(0, searchedAlbumJobs, "Resolved album-aggregate candidates should not run a second album search.");
                 Assert.IsTrue(albumDownloadsStarted > 0, "Resolved album-aggregate candidates should still enter album download.");
                 Assert.IsTrue(Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length > 0,
                     "Album aggregate should download files from the resolved candidate album.");
@@ -492,15 +489,14 @@ namespace Tests.EndToEnd
                 var aggregateJob = new AggregateJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
                 var app = new DownloadEngine(engineSettings, clientManager);
-                var startedSongJobs = 0;
+
                 var songSearchesStarted = 0;
                 var downloadsStarted = 0;
-                app.Events.JobStarted += job =>
+                app.Events.JobStateChanged += (job, state) =>
                 {
-                    if (job is SongJob)
-                        startedSongJobs++;
+                    if (job is SongJob && state == JobState.Searching)
+                        songSearchesStarted++;
                 };
-                app.Events.SongSearching += _ => songSearchesStarted++;
                 app.Events.DownloadStarted += (_, _) => downloadsStarted++;
                 app.Enqueue(aggregateJob, rootSettings);
                 app.CompleteEnqueue();
@@ -508,7 +504,6 @@ namespace Tests.EndToEnd
                 await app.RunAsync(CancellationToken.None);
 
                 Assert.IsTrue(aggregateJob.Songs.Count > 0, "Aggregate should produce resolved song candidates.");
-                Assert.AreEqual(0, startedSongJobs, "Resolved aggregate child songs should not emit generic search-style job starts.");
                 Assert.AreEqual(0, songSearchesStarted, "Resolved aggregate child songs should not run a second song search.");
                 Assert.IsTrue(downloadsStarted > 0, "Resolved aggregate child songs should still download.");
             }

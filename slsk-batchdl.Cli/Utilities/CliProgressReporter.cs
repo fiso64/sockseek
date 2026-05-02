@@ -84,25 +84,51 @@ public class CliProgressReporter
 
     public void Attach(EngineEvents events)
     {
-        events.SongSearching          += ReportSongSearching;
         events.DownloadStarted        += ReportDownloadStart;
-        events.DownloadProgress       += ReportDownloadProgress;
-        events.StateChanged           += song => ReportStateChanged(song);
-        events.ExtractionStarted      += ReportExtractionStarted;
-        events.ExtractionCompleted    += ReportExtractionCompleted;
-        events.ExtractionFailed       += ReportExtractionFailed;
-        events.JobStarted             += ReportJobStarted;
-        events.AlbumDownloadStarted   += (job, folder) => ReportAlbumDownloadStarted((AlbumJob)job, folder);
-        events.AlbumTrackDownloadStarted += (job, folder) => ReportAlbumTrackDownloadStarted((AlbumJob)job, folder);
-        events.AlbumDownloadCompleted += job => ReportAlbumDownloadCompleted((AlbumJob)job);
-        events.JobFolderRetrieving    += ReportJobFolderRetrieving;
-        events.JobCompleted           += ReportJobCompleted;
-        events.SongNotFound           += ReportSongNotFound;
-        events.SongFailed             += ReportSongFailed;
+        events.JobStatus              += ReportJobStatus;
         events.DownloadStateChanged   += (song, state) => ReportDownloadStateChanged(song, GetStateLabel(state));
         events.OnCompleteStart        += ReportOnCompleteStart;
         events.OnCompleteEnd          += ReportOnCompleteEnd;
         events.JobStatus              += ReportJobStatus;
+        events.JobStateChanged        += OnJobStateChanged;
+    }
+
+    private void OnJobStateChanged(Job job, JobState state)
+    {
+        if (job is SongJob song)
+        {
+            if (state == JobState.Searching)
+                ReportSongSearching(song);
+            else if (state is JobState.Done or JobState.Failed or JobState.AlreadyExists or JobState.Skipped or JobState.NotFoundLastTime)
+                ReportStateChanged(song);
+        }
+        else if (job is AlbumJob albumJob)
+        {
+            if (state == JobState.Searching)
+                ReportJobSearching(albumJob);
+            else if (state == JobState.Downloading && albumJob.ResolvedTarget != null)
+                ReportAlbumTrackDownloadStarted(albumJob, albumJob.ResolvedTarget);
+            else if (state == JobState.Done)
+                ReportAlbumDownloadCompleted(albumJob);
+            else if (state == JobState.Failed)
+                ReportJobStatus(albumJob, "failed");
+        }
+        else if (job is ExtractJob extractJob)
+        {
+            if (state == JobState.Extracting)
+                ReportExtractionStarted(extractJob);
+            else if (state == JobState.Done && extractJob.Result != null)
+                ReportExtractionCompleted(extractJob, extractJob.Result);
+            else if (state == JobState.Failed)
+                ReportJobStatus(extractJob, "extraction failed");
+        }
+        else
+        {
+            if (state == JobState.Searching)
+                ReportJobSearching(job);
+            else if (state == JobState.Downloading)
+                ReportJobDownloading(job);
+        }
     }
 
     internal void Attach(ICliBackend backend)
@@ -123,9 +149,6 @@ public class CliProgressReporter
                 case "job.started" when envelope.Payload is JobStartedEventDto e:
                     ReportJobStarted(e);
                     break;
-                case "job.completed" when envelope.Payload is JobCompletedEventDto e:
-                    ReportJobCompleted(e);
-                    break;
                 case "job.status" when envelope.Payload is JobStatusEventDto e:
                     ReportJobStatus(e);
                     break;
@@ -134,12 +157,6 @@ public class CliProgressReporter
                     break;
                 case "song.searching" when envelope.Payload is SongSearchingEventDto e:
                     ReportSongSearching(e);
-                    break;
-                case "song.not-found" when envelope.Payload is SongNotFoundEventDto e:
-                    ReportSongNotFound(e);
-                    break;
-                case "song.failed" when envelope.Payload is SongFailedEventDto e:
-                    ReportSongFailed(e);
                     break;
                 case "download.started" when envelope.Payload is DownloadStartedEventDto e:
                     ReportDownloadStart(e);
@@ -542,19 +559,27 @@ public class CliProgressReporter
             return "succeeded";
 
         var reason = FailureReasonLabel(song.FailureReason);
-        return reason.Length > 0 ? $"failed [{reason}]" : "failed";
+        var discovery = song.Discovery != null && song.Discovery.LockedFileCount > 0 
+            ? $" (Found {song.Discovery.LockedFileCount} locked files)" 
+            : "";
+        return reason.Length > 0 ? $"failed [{reason}]{discovery}" : $"failed{discovery}";
+    }
+    private static string TerminalStatusLabel(ServerJobState state, ServerFailureReason? reason)
+    {
+        var reasonLabel = FailureReasonLabel(reason);
+        return reasonLabel.Length > 0 ? $"failed [{reasonLabel}]" : "failed";
     }
 
     private static string TerminalStatusLabel(SongStateChangedEventDto song)
-        => TerminalStatusLabel(song.State, song.FailureReason);
-
-    private static string TerminalStatusLabel(ServerJobState state, ServerFailureReason? reason)
     {
-        if (state is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists)
+        if (song.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists)
             return "succeeded";
 
-        var reasonLabel = FailureReasonLabel(reason);
-        return reasonLabel.Length > 0 ? $"failed [{reasonLabel}]" : "failed";
+        var reason = FailureReasonLabel(song.FailureReason);
+        var discovery = song.DiscoveryLockedFileCount > 0 
+            ? $" (Found {song.DiscoveryLockedFileCount} locked files)" 
+            : "";
+        return reason.Length > 0 ? $"failed [{reason}]{discovery}" : $"failed{discovery}";
     }
 
 
@@ -757,7 +782,12 @@ public class CliProgressReporter
 
         var bar = Printing.GetProgressBar();
         _jobBars[job] = bar;
-        string status = job is RetrieveFolderJob ? "retrieving folder" : "searching";
+        string status = job switch
+        {
+            RetrieveFolderJob => "retrieving folder",
+            AlbumJob aj when aj.ResolvedTarget != null => "downloading",
+            _ => "searching"
+        };
         _jobStatuses[job] = status;
         RefreshOrPrintJobLineWithProfileSuffix(bar, 0, job, $"[{job.DisplayId}] {GetJobTypePrefix(job)}{status}: {job.ToString(true)}", print: true);
     }
@@ -788,6 +818,36 @@ public class CliProgressReporter
             job.Summary,
             $"[{job.Summary.DisplayId}] {GetJobTypePrefix(job.Summary.Kind)}{status}: {job.Summary.QueryText}",
             print: true);
+    }
+
+    private void ReportJobSearching(Job job)
+    {
+        if (PlainMode)
+        {
+            WritePlainJobStatus(job, "searching");
+            return;
+        }
+
+        _jobStatuses[job] = "searching";
+        if (_jobBars.TryGetValue(job, out var bar) && bar != null)
+        {
+            RefreshOrPrintJobLineWithProfileSuffix(bar, 0, job, $"[{job.DisplayId}] {GetJobTypePrefix(job)}searching: {job.ToString(true)}", print: false);
+        }
+    }
+
+    private void ReportJobDownloading(Job job)
+    {
+        if (PlainMode)
+        {
+            WritePlainJobStatus(job, "downloading");
+            return;
+        }
+
+        _jobStatuses[job] = "downloading";
+        if (_jobBars.TryGetValue(job, out var bar) && bar != null)
+        {
+            RefreshOrPrintJobLineWithProfileSuffix(bar, 0, job, $"[{job.DisplayId}] {GetJobTypePrefix(job)}downloading: {job.ToString(true)}", print: false);
+        }
     }
 
     private void ReportAlbumDownloadStarted(AlbumJob job, AlbumFolder folder)
@@ -1098,80 +1158,6 @@ public class CliProgressReporter
         Printing.RefreshOrPrint(bar, 0, "Getting all files in folder..", print: true);
     }
 
-    private void ReportJobCompleted(Job job, bool found, int lockedFiles)
-    {
-        if (PlainMode)
-        {
-            string status = found
-                ? (job is RetrieveFolderJob ? "found additional files in" : "found results")
-                : (job is RetrieveFolderJob ? "no additional files found" : "no results found");
-            string lockedMsg = !found && lockedFiles > 0 ? $" (Found {lockedFiles} locked files)" : "";
-            WritePlainJobStatus(job, status, job.ToString(true) + lockedMsg);
-            ClearPlainJobStatus(job);
-            return;
-        }
-
-        _jobBars.TryGetValue(job, out var bar);
-        if (!found)
-        {
-            string lockedMsg = lockedFiles > 0 ? $" (Found {lockedFiles} locked files)" : "";
-            string prefix    = job is RetrieveFolderJob ? "no additional files found" : "no results found";
-            _jobStatuses[job] = prefix;
-            RefreshOrPrintJobLineWithProfileSuffix(bar, 0, job, $"[{job.DisplayId}] {GetJobTypePrefix(job)}{prefix}: {job.ToString(true)}{lockedMsg}", print: true);
-            _jobBars.TryRemove(job, out _);
-            _jobStatuses.TryRemove(job, out _);
-            if (job is AlbumJob aj) _albumBlocks.TryRemove(aj, out _);
-        }
-        // If found and it's an AlbumJob, leave the header bar in _jobBars so
-        // ReportAlbumDownloadStarted can update it. Removed by ReportAlbumDownloadCompleted.
-        else if (job is not AlbumJob)
-        {
-            if (bar != null)
-            {
-                string prefix = job is RetrieveFolderJob ? "found additional files in" : "found results";
-                _jobStatuses[job] = prefix;
-                RefreshOrPrintJobLineWithProfileSuffix(bar, 0, job, $"[{job.DisplayId}] {GetJobTypePrefix(job)}{prefix}: {job.ToString(true)}", print: true);
-            }
-            _jobBars.TryRemove(job, out _);
-            _jobStatuses.TryRemove(job, out _);
-        }
-    }
-
-    private void ReportJobCompleted(JobCompletedEventDto job)
-    {
-        if (PlainMode)
-        {
-            string status = job.Found
-                ? (job.Summary.Kind == ServerJobKind.RetrieveFolder ? "found additional files in" : "found results")
-                : (job.Summary.Kind == ServerJobKind.RetrieveFolder ? "no additional files found" : "no results found");
-            string lockedMsg = !job.Found && job.LockedFileCount > 0 ? $" (Found {job.LockedFileCount} locked files)" : "";
-            WritePlainJobStatus(job.Summary, status, (job.Summary.QueryText ?? "") + lockedMsg);
-            ClearPlainJobStatus(job.Summary);
-            return;
-        }
-
-        _backendJobBars.TryGetValue(job.Summary.JobId, out var bar);
-        if (!job.Found)
-        {
-            string lockedMsg = job.LockedFileCount > 0 ? $" (Found {job.LockedFileCount} locked files)" : "";
-            string prefix = job.Summary.Kind == ServerJobKind.RetrieveFolder ? "no additional files found" : "no results found";
-            _backendJobStatuses[job.Summary.JobId] = prefix;
-            RefreshOrPrintJobLineWithProfileSuffix(bar, 0, job.Summary, $"[{job.Summary.DisplayId}] {GetJobTypePrefix(job.Summary.Kind)}{prefix}: {job.Summary.QueryText}{lockedMsg}", print: true);
-            _backendJobBars.TryRemove(job.Summary.JobId, out _);
-            _backendJobStatuses.TryRemove(job.Summary.JobId, out _);
-        }
-        else if (job.Summary.Kind != ServerJobKind.Album)
-        {
-            if (bar != null)
-            {
-                string prefix = job.Summary.Kind == ServerJobKind.RetrieveFolder ? "found additional files in" : "found results";
-                _backendJobStatuses[job.Summary.JobId] = prefix;
-                RefreshOrPrintJobLineWithProfileSuffix(bar, 0, job.Summary, $"[{job.Summary.DisplayId}] {GetJobTypePrefix(job.Summary.Kind)}{prefix}: {job.Summary.QueryText}", print: true);
-            }
-            _backendJobBars.TryRemove(job.Summary.JobId, out _);
-            _backendJobStatuses.TryRemove(job.Summary.JobId, out _);
-        }
-    }
 
     private void ReportSongSearching(SongJob song)
     {
@@ -1228,79 +1214,6 @@ public class CliProgressReporter
         d.StateLabel = "Searching";
         d.BaseText = $"{song.Query.Artist} - {song.Query.Title}";
         Printing.RefreshOrPrint(d.Bar, 0, BuildText(d), print: isFirst);
-    }
-
-    private void ReportSongNotFound(SongJob song)
-    {
-        if (PlainMode)
-        {
-            WritePlainJobStatus(song, "not found");
-            return;
-        }
-
-        if (!_bars.TryGetValue(song, out var d)) return;
-        d.StateLabel = "Not found";
-        var reason = FailureReasonLabel(song.FailureReason);
-        if (reason.Length > 0) d.BaseText += $" [{reason}]";
-        bool isCompact = _cli.AlbumCompactProgress && _songToAlbum.ContainsKey(song);
-        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d, indent: isCompact), print: d.Bar != null);
-    }
-
-    private void ReportSongNotFound(SongNotFoundEventDto song)
-    {
-        if (PlainMode)
-        {
-            WritePlainBackendSongStatus(
-                song.JobId,
-                song.DisplayId,
-                song.Query,
-                "not found");
-            return;
-        }
-
-        if (!_backendBars.TryGetValue(song.JobId, out var d)) return;
-        d.StateLabel = "Not found";
-        if (song.FailureReason != null)
-            d.BaseText += $" [{FailureReasonLabel(song.FailureReason)}]";
-        bool isCompact = _cli.AlbumCompactProgress && _backendSongToAlbum.ContainsKey(song.JobId);
-        MarkBackendAlbumTrackCompleted(song.JobId);
-        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d, indent: isCompact), print: !IsBackendInlineChild(song.JobId) && d.Bar != null);
-    }
-
-    private void ReportSongFailed(SongJob song)
-    {
-        if (PlainMode)
-        {
-            WritePlainJobStatus(song, TerminalStatusLabel(song), SongDisplay(song));
-            return;
-        }
-
-        if (!_bars.TryGetValue(song, out var d)) return;
-        d.StateLabel = "Failed";
-        bool isCompact = _cli.AlbumCompactProgress && _songToAlbum.ContainsKey(song);
-        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d, indent: isCompact), print: d.Bar != null);
-    }
-
-    private void ReportSongFailed(SongFailedEventDto song)
-    {
-        if (PlainMode)
-        {
-            if (IsBackendInlineChild(song.JobId))
-                return;
-
-            WritePlainBackendSongStatus(
-                song.JobId,
-                song.DisplayId,
-                song.Query,
-                TerminalStatusLabel(ServerProtocol.JobStates.Failed, song.FailureReason));
-            return;
-        }
-
-        if (!_backendBars.TryGetValue(song.JobId, out var d)) return;
-        d.StateLabel = "Failed";
-        MarkBackendAlbumTrackCompleted(song.JobId);
-        bool isCompact = _cli.AlbumCompactProgress && _backendSongToAlbum.ContainsKey(song.JobId);
-        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d, indent: isCompact), print: !IsBackendInlineChild(song.JobId) && d.Bar != null);
     }
 
     private void ReportDownloadStateChanged(SongJob song, string stateLabel)

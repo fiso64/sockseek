@@ -205,9 +205,9 @@ public class CliEndToEndTests
             var cancellationIssued = 0;
             var secondPromptExcludedCancelled = false;
 
-            app.Events.JobStarted += job =>
+            app.Events.JobStateChanged += (job, state) =>
             {
-                if (job is not AlbumJob albumJob || albumJob.ResolvedTarget == null || cancelledFolderKey == null)
+                if (state != JobState.Downloading || job is not AlbumJob albumJob || albumJob.ResolvedTarget == null || cancelledFolderKey == null)
                     return;
 
                 var key = albumJob.ResolvedTarget.Username + "\\" + albumJob.ResolvedTarget.FolderPath;

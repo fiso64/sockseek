@@ -8,6 +8,7 @@ namespace Sldl.Server;
 public sealed class ServerProgressLogReporter
 {
     private readonly ConcurrentDictionary<Job, string> jobStatusLines = new();
+    private readonly ConcurrentDictionary<Guid, bool> reportedDiscoveryJobs = new();
 
     public ServerProgressLogReporter(EngineSupervisor supervisor)
     {
@@ -16,31 +17,59 @@ public sealed class ServerProgressLogReporter
 
     private void Attach(DownloadEngine engine)
     {
-        engine.Events.JobStarted += ReportJobStarted;
-        engine.Events.JobCompleted += ReportJobCompleted;
+        engine.Events.JobStateChanged += OnJobStateChanged;
         engine.Events.JobStatus += ReportJobStatus;
-        engine.Events.StateChanged += ReportStateChanged;
         engine.Events.DownloadStarted += ReportDownloadStarted;
-        engine.Events.AlbumDownloadStarted += (job, folder) => ReportAlbumDownloadStarted((AlbumJob)job, folder);
-        engine.Events.AlbumTrackDownloadStarted += (job, folder) => ReportAlbumTrackDownloadStarted((AlbumJob)job, folder);
-        engine.Events.AlbumDownloadCompleted += job => ReportAlbumDownloadCompleted((AlbumJob)job);
     }
 
-    private void ReportJobStarted(Job job)
+    private void OnJobStateChanged(Job job, JobState state)
     {
-        if (job is SongJob song && song.ResolvedTarget != null)
-            return;
+        if (state == JobState.Searching)
+        {
+            if (job is SongJob song && song.ResolvedTarget != null)
+                return;
 
-        string status = job is RetrieveFolderJob ? "retrieving folder" : "searching";
-        Log($"[{job.DisplayId}] {GetJobTypePrefix(job)}{status}: {job.ToString(true)}");
+            string status = job is RetrieveFolderJob ? "retrieving folder" : "searching";
+            Log($"[{job.DisplayId}] {GetJobTypePrefix(job)}{status}: {job.ToString(true)}");
+        }
+        else if (state == JobState.Downloading)
+        {
+            if (job is AlbumJob aj && aj.ResolvedTarget != null)
+            {
+                ReportAlbumDownloadStarted(aj, aj.ResolvedTarget);
+                ReportAlbumTrackDownloadStarted(aj, aj.ResolvedTarget);
+            }
+        }
+        else if (state == JobState.Done)
+        {
+            if (job is AlbumJob aj)
+                ReportAlbumDownloadCompleted(aj);
+            else if (job is ExtractJob ej && ej.Result != null)
+                Log($"[{ej.DisplayId}] ExtractJob: extraction completed: {ej.ToString(true)}");
+            
+            if (job.Discovery != null && reportedDiscoveryJobs.TryAdd(job.Id, true))
+                ReportDiscoveryResult(job);
+        }
+        else if (IsTerminal(state))
+        {
+            if (job.Discovery != null && reportedDiscoveryJobs.TryAdd(job.Id, true))
+                ReportDiscoveryResult(job);
+
+            if (job is SongJob song)
+                Log($"{TerminalLabel(song)}: {SongDisplay(song)}");
+        }
     }
 
-    private static void ReportJobCompleted(Job job, bool found, int lockedFiles)
+    private static void ReportDiscoveryResult(Job job)
     {
+        var d = job.Discovery;
+        if (d == null) return;
+
+        bool found = d.ResultCount > 0;
         string status = found
             ? (job is RetrieveFolderJob ? "found additional files in" : "found results")
             : (job is RetrieveFolderJob ? "no additional files found" : "no results found");
-        string lockedMsg = !found && lockedFiles > 0 ? $" (Found {lockedFiles} locked files)" : "";
+        string lockedMsg = !found && d.LockedFileCount > 0 ? $" (Found {d.LockedFileCount} locked files)" : "";
         Log($"[{job.DisplayId}] {GetJobTypePrefix(job)}{status}: {job.ToString(true)}{lockedMsg}");
     }
 
@@ -67,13 +96,6 @@ public sealed class ServerProgressLogReporter
         Log($"Downloading: {DownloadDisplay(candidate)}");
     }
 
-    private static void ReportStateChanged(SongJob song)
-    {
-        if (!IsTerminal(song.State))
-            return;
-
-        Log($"{TerminalLabel(song)}: {SongDisplay(song)}");
-    }
 
     private void ReportJobStatus(Job job, string status)
     {

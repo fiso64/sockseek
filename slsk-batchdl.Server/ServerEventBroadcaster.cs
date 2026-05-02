@@ -65,6 +65,8 @@ public sealed class ServerEventBroadcaster : IDisposable
             null,
             null,
             null,
+            job.Discovery?.ResultCount,
+            job.Discovery?.LockedFileCount,
             job.Config?.AppliedAutoProfiles?.ToList() ?? [],
             []);
 
@@ -80,11 +82,8 @@ public sealed class ServerEventBroadcaster : IDisposable
             ExtractionStartedEventDto e => e.Summary.WorkflowId,
             ExtractionFailedEventDto e => e.Summary.WorkflowId,
             JobStartedEventDto e => e.Summary.WorkflowId,
-            JobCompletedEventDto e => e.Summary.WorkflowId,
             JobStatusEventDto e => e.Summary.WorkflowId,
             SongSearchingEventDto e => e.WorkflowId,
-            SongNotFoundEventDto e => e.WorkflowId,
-            SongFailedEventDto e => e.WorkflowId,
             DownloadStartedEventDto e => e.WorkflowId,
             DownloadProgressEventDto e => e.WorkflowId,
             DownloadStateChangedEventDto e => e.WorkflowId,

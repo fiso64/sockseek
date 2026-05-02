@@ -33,14 +33,25 @@ public class JsonStreamProgressReporter
     public void Attach(EngineEvents events)
     {
         events.TrackListReady     += songs => ReportTrackList(songs);
-        events.SongSearching      += ReportSearchStart;
-        events.SearchCompleted    += (song, count) => ReportSearchResult(song, count);
+        events.JobStateChanged    += (job, state) =>
+        {
+            if (job is SongJob song)
+            {
+                if (state == JobState.Searching)
+                    ReportSearchStart(song);
+                else if (state is JobState.Done or JobState.Failed or JobState.AlreadyExists or JobState.Skipped or JobState.NotFoundLastTime)
+                    ReportStateChanged(song);
+            }
+        };
         events.DownloadStarted    += ReportDownloadStart;
         events.DownloadProgress   += ReportDownloadProgress;
-        events.StateChanged       += ReportStateChanged;
         events.OverallProgress    += ReportOverallProgress;
         events.ListProgress       += ReportListProgress;
-        events.ExtractionFailed   += ReportExtractionFailed;
+        events.JobStateChanged    += (job, state) =>
+        {
+            if (state == JobState.Failed && job is ExtractJob ej)
+                ReportExtractionFailed(ej, ej.FailureMessage ?? "Extraction failed");
+        };
     }
 
     internal void Attach(ICliBackend backend)
@@ -108,16 +119,6 @@ public class JsonStreamProgressReporter
             artist = song.Query.Artist,
             title  = song.Query.Title,
             album  = song.Query.Album,
-        });
-    }
-
-    private void ReportSearchResult(SongJob song, int resultCount)
-    {
-        WriteEvent("search_result", new
-        {
-            artist      = song.Query.Artist,
-            title       = song.Query.Title,
-            resultCount,
         });
     }
 
@@ -195,6 +196,8 @@ public class JsonStreamProgressReporter
             size          = chosen?.File.Size,
             bitRate       = chosen?.File.BitRate,
             extension     = chosen != null ? GetExtension(chosen.Filename) : null,
+            resultCount   = song.Discovery?.ResultCount,
+            lockedCount   = song.Discovery?.LockedFileCount,
         });
     }
 
@@ -212,6 +215,8 @@ public class JsonStreamProgressReporter
             size = song.ChosenCandidate?.Size,
             bitRate = song.ChosenCandidate?.BitRate,
             extension = song.ChosenCandidate != null ? GetExtension(song.ChosenCandidate.Filename) : null,
+            resultCount = song.DiscoveryResultCount,
+            lockedCount = song.DiscoveryLockedFileCount,
         });
     }
 
