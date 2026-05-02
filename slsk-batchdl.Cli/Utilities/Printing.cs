@@ -1,9 +1,6 @@
 using Sldl.Core.Jobs;
 using Sldl.Core.Models;
 using Sldl.Core;
-using Sldl.Core.Services;
-using Konsole;
-using ProgressBar = Konsole.ProgressBar;
 using SearchResponse = Soulseek.SearchResponse;
 using SlFile = Soulseek.File;
 using Sldl.Core.Settings;
@@ -45,25 +42,35 @@ public static class Printing
 
     private class BufferedProgressBar : IProgressBar
     {
-        private Konsole.ProgressBar? _inner;
-        private int _lastCurrent;
-        private string _lastItem = "";
-        private bool _isQueued = false;
+        private int     _y;
+        private bool    _initialized;
+        private int     _lastCurrent;
+        private string  _lastItem = "";
+        private bool    _isQueued;
+        private ConsoleColor _textColor;
+
+        public int     Y       => _initialized ? _y : Console.CursorTop;
+        public string? Line1   => null;
+        public int     Current => _lastCurrent;
 
         public BufferedProgressBar()
         {
             if (!IsBuffering)
-                _inner = GetRealProgressBar();
+                Initialize();
         }
 
-        public int Y => _inner?.Y ?? Console.CursorTop;
-        public string? Line1 => _inner?.Line1;
-        public int Current => _inner?.Current ?? _lastCurrent;
+        private void Initialize()
+        {
+            _y = Console.CursorTop;
+            _textColor = Console.ForegroundColor;
+            Console.WriteLine("");
+            _initialized = true;
+        }
 
         public void Refresh(int current, string item)
         {
             _lastCurrent = current;
-            _lastItem = item;
+            _lastItem    = item;
 
             if (IsBuffering)
             {
@@ -82,11 +89,66 @@ public static class Printing
         {
             lock (ConsoleLock)
             {
-                if (_inner == null)
-                    _inner = GetRealProgressBar();
-                try { _inner?.Refresh(_lastCurrent, _lastItem); } catch { }
+                if (!_initialized)
+                    Initialize();
+
+                if (Console.IsOutputRedirected) return;
+
+                int windowWidth = Console.WindowWidth;
+                if (windowWidth <= 10 || _y < Console.WindowTop) return;
+
+                int textWidth = windowWidth - 10;
+                string text   = _lastItem;
+
+                // Truncate text to textWidth display columns, counting wide chars as 2.
+                // (Konsole's FixLeft uses .Length, so wide chars cause overflow and garble
+                // subsequent bars — we avoid that by writing directly.)
+                int displayW = 0, cutAt = text.Length;
+                for (int i = 0; i < text.Length; i++)
+                {
+                    int cw = IsWide(text[i]) ? 2 : 1;
+                    if (displayW + cw > textWidth) { cutAt = i; break; }
+                    displayW += cw;
+                }
+
+                int pct  = Math.Clamp(_lastCurrent, 0, 100);
+                int num2 = Math.Max(0, windowWidth - textWidth - 8); // progress bar chars (= 2)
+
+                var prevColor = Console.ForegroundColor;
+                try
+                {
+                    Console.CursorTop  = _y;
+                    Console.CursorLeft = 0;
+                    Console.ForegroundColor = _textColor;
+                    Console.Write(text[..cutAt]);
+                    Console.Write(new string(' ', textWidth - displayW)); // pad to textWidth display cols
+                    Console.Write($" ({pct,-3}%) ");                      // 8 chars
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.Write(new string(' ', num2));                  // progress bar area
+                    // Leave cursor at the start of the next row so subsequent bar
+                    // initializations record the correct y position.
+                    Console.CursorTop  = _y + 1;
+                    Console.CursorLeft = 0;
+                }
+                catch { }
+                finally { Console.ForegroundColor = prevColor; }
             }
         }
+
+        // East Asian double-width Unicode ranges.
+        private static bool IsWide(char c) =>
+            (c >= '\u1100' && c <= '\u115F') ||
+            (c >= '\u2E80' && c <= '\u303E') ||
+            (c >= '\u3041' && c <= '\u33BF') ||
+            (c >= '\u3400' && c <= '\u4DBF') ||
+            (c >= '\u4E00' && c <= '\u9FFF') ||
+            (c >= '\uAC00' && c <= '\uD7AF') ||
+            (c >= '\uF900' && c <= '\uFAFF') ||
+            (c >= '\uFE10' && c <= '\uFE1F') ||
+            (c >= '\uFE30' && c <= '\uFE4F') ||
+            (c >= '\uFE50' && c <= '\uFE6F') ||
+            (c >= '\uFF01' && c <= '\uFF60') ||
+            (c >= '\uFFE0' && c <= '\uFFE6');
     }
 
     public static string DisplayString(SongQuery query, Soulseek.File? file = null, SearchResponse? response = null,
@@ -799,12 +861,4 @@ public static class Printing
         return new BufferedProgressBar();
     }
 
-    private static Konsole.ProgressBar? GetRealProgressBar()
-    {
-        lock (ConsoleLock)
-        {
-            try { return new Konsole.ProgressBar(PbStyle.SingleLine, 100, Console.WindowWidth - 10, character: ' '); }
-            catch { return null; }
-        }
-    }
 }

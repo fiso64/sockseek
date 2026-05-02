@@ -558,7 +558,7 @@ public class CliProgressReporterTests
     private static string BuildBarText(object barData)
         => (string)typeof(CliProgressReporter)
             .GetMethod("BuildText", BindingFlags.Static | BindingFlags.NonPublic)!
-            .Invoke(null, [barData])!;
+            .Invoke(null, [barData, false])!;
 
     private static bool HasBackendBarData(CliProgressReporter reporter, Guid jobId)
     {

@@ -52,6 +52,9 @@ public class CliProgressReporter
         public List<SongJob> Songs = new();
         public SongJob?      LastUpdatedSong;
         public ProgressBar?  CompactBar;
+        public int           LastDone = -1;
+        public int           LastTotal = -1;
+        public string?       LastStatus;
     }
 
     sealed class BackendAlbumBlock
@@ -61,6 +64,10 @@ public class CliProgressReporter
         public ConcurrentDictionary<Guid, byte> CompletedSongIds = new();
         public Guid?         LastUpdatedSongId;
         public ProgressBar?  CompactBar;
+        public int           LastDone = -1;
+        public int           LastTotal = -1;
+        public string?       LastStatus;
+        public int           LastCompactSpin = -1;
     }
 
     private readonly CancellationTokenSource _tickCts = new();
@@ -209,29 +216,45 @@ public class CliProgressReporter
                     int done  = block.Songs.Count(s => s.State is JobState.Done or JobState.AlreadyExists or JobState.Failed or JobState.Skipped);
                     int total = block.Songs.Count;
                     _jobStatuses.TryGetValue(job, out var status);
-                    try { headerBar.Refresh(total > 0 ? done * 100 / total : 0, AlbumHeaderText(job, done, total, status)); } catch { }
+
+                    if (done != block.LastDone || total != block.LastTotal || status != block.LastStatus)
+                    {
+                        try { headerBar.Refresh(total > 0 ? done * 100 / total : 0, AlbumHeaderText(job, done, total, status)); } catch { }
+                        block.LastDone = done;
+                        block.LastTotal = total;
+                        block.LastStatus = status;
+                    }
 
                     if (block.CompactBar != null && block.LastUpdatedSong != null && _bars.TryGetValue(block.LastUpdatedSong, out var d))
                     {
                         if (d.StateLabel == "InProgress") d.SpinIndex++;
-                        try { block.CompactBar.Refresh(d.Pct, BuildText(d)); } catch { }
+                        try { block.CompactBar.Refresh(d.Pct, BuildText(d, indent: true)); } catch { }
                     }
                 }
 
                 foreach (var (jobId, block) in _backendAlbumBlocks)
                 {
                     if (!_backendJobBars.TryGetValue(jobId, out var headerBar) || headerBar == null) continue;
+                    int done  = BackendAlbumDoneCount(block);
                     int total = block.Songs.Count;
                     _backendJobStatuses.TryGetValue(jobId, out var status);
-                    int done = BackendAlbumDoneCount(block);
-                    try { headerBar.Refresh(total > 0 ? done * 100 / total : 0, AlbumHeaderText(block.Summary, total > 0 ? done : 0, total, status)); } catch { }
 
-                    if (block.CompactBar != null && block.LastUpdatedSongId is Guid sid && _backendBars.TryGetValue(sid, out var d))
+                    if (done != block.LastDone || total != block.LastTotal || status != block.LastStatus)
+                    {
+                        try { headerBar.Refresh(total > 0 ? done * 100 / total : 0, AlbumHeaderText(block.Summary, done, total, status)); } catch { }
+                        block.LastDone = done;
+                        block.LastTotal = total;
+                        block.LastStatus = status;
+                    }
+
+                    if (block.CompactBar != null && block.LastUpdatedSongId != null && _backendBars.TryGetValue(block.LastUpdatedSongId.Value, out var d))
                     {
                         if (d.StateLabel == "InProgress") d.SpinIndex++;
-                        try { block.CompactBar.Refresh(d.Pct, BuildText(d)); } catch { }
+                        try { block.CompactBar.Refresh(d.Pct, BuildText(d, indent: true)); } catch { }
                     }
                 }
+
+
 
             }
         }
@@ -241,11 +264,11 @@ public class CliProgressReporter
 
     // ── bar text construction ────────────────────────────────────────────
 
-    static string BuildText(BarData d)
+    static string BuildText(BarData d, bool indent = false)
     {
         string prefix = d.StateLabel == "InProgress"
-            ? $"{SpinFrames[d.SpinIndex % SpinFrames.Length]} "
-            : "  ";
+            ? (indent ? "  " : "") + $"{SpinFrames[d.SpinIndex % SpinFrames.Length]} "
+            : (indent ? "    " : "  ");
         var stateLabel = d.JobPrefix != null
             ? $"{d.JobPrefix}{d.StateLabel.ToLowerInvariant()}"
             : d.StateLabel;
@@ -552,9 +575,9 @@ public class CliProgressReporter
         d.JobPrefix = $"[{song.DisplayId}] SongJob: ";
         d.StateLabel = "Queued";
         d.BaseText   = Printing.DisplayString(song.Query, candidate.File, candidate.Response, infoFirst: false);
-        d.Pct        = 0;
+        bool isCompact = _cli.AlbumCompactProgress && _songToAlbum.ContainsKey(song);
         UpdateLastUpdated(song);
-        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d), print: true);
+        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d, indent: isCompact), print: d.Bar != null);
     }
 
     private void ReportDownloadStart(DownloadStartedEventDto song)
@@ -577,9 +600,9 @@ public class CliProgressReporter
         d.JobPrefix = IsBackendInlineChild(song.JobId) ? null : $"[{song.DisplayId}] SongJob: ";
         d.StateLabel = "Queued";
         d.BaseText = $"{song.Candidate.Username}\\..\\{System.IO.Path.GetFileName(song.Candidate.Filename)}";
-        d.Pct = 0;
+        bool isCompact = _cli.AlbumCompactProgress && _backendSongToAlbum.ContainsKey(song.JobId);
         UpdateLastUpdatedBackend(song.JobId);
-        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d), print: !IsBackendInlineChild(song.JobId));
+        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d, indent: isCompact), print: !IsBackendInlineChild(song.JobId) && d.Bar != null);
     }
 
     private void ReportDownloadProgress(SongJob song, long bytesTransferred, long totalBytes)
@@ -613,34 +636,22 @@ public class CliProgressReporter
         if (_bars.TryGetValue(song, out var d))
         {
             UpdateLastUpdated(song);
+            bool succeeded = song.State is JobState.Done or JobState.AlreadyExists;
+            d.StateLabel = succeeded ? "Succeeded" : "Failed";
+            if (succeeded)
+                d.Pct = 100;
+            else
+            {
+                var reason = FailureReasonLabel(song.FailureReason);
+                if (reason.Length > 0) d.BaseText += $" [{reason}]";
+            }
             if (d.Bar != null)
             {
-                bool succeeded = song.State is JobState.Done or JobState.AlreadyExists;
-                d.StateLabel = succeeded ? "Succeeded" : "Failed";
-                if (succeeded)
-                    d.Pct = 100;
-                else
-                {
-                    var reason = FailureReasonLabel(song.FailureReason);
-                    if (reason.Length > 0) d.BaseText += $" [{reason}]";
-                }
                 Printing.RefreshOrPrint(d.Bar, d.Pct, BuildText(d), print: false);
             }
-            else if (_cli.AlbumCompactProgress)
+            else if (_cli.AlbumCompactProgress && _songToAlbum.TryGetValue(song, out var albumJob) && _albumBlocks.TryGetValue(albumJob, out var b) && b.CompactBar != null)
             {
-                bool succeeded = song.State is JobState.Done or JobState.AlreadyExists;
-                d.StateLabel = succeeded ? "Succeeded" : "Failed";
-                if (succeeded)
-                    d.Pct = 100;
-                else
-                {
-                    var reason = FailureReasonLabel(song.FailureReason);
-                    if (reason.Length > 0) d.BaseText += $" [{reason}]";
-                }
-                if (_songToAlbum.TryGetValue(song, out var albumJob) && _albumBlocks.TryGetValue(albumJob, out var b) && b.CompactBar != null)
-                {
-                    try { b.CompactBar.Refresh(d.Pct, BuildText(d)); } catch { }
-                }
+                try { b.CompactBar.Refresh(d.Pct, BuildText(d, indent: true)); } catch { }
             }
         }
         _bars.TryRemove(song, out _);
@@ -666,30 +677,20 @@ public class CliProgressReporter
         if (_backendBars.TryGetValue(song.JobId, out var d))
         {
             UpdateLastUpdatedBackend(song.JobId);
+            bool succeeded = song.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists;
+            d.StateLabel = succeeded ? "Succeeded" : "Failed";
+            if (succeeded)
+                d.Pct = 100;
+            else if (song.FailureReason != null)
+                d.BaseText += $" [{FailureReasonLabel(song.FailureReason)}]";
+            MarkBackendAlbumTrackCompleted(song.JobId);
             if (d.Bar != null)
             {
-                bool succeeded = song.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists;
-                d.StateLabel = succeeded ? "Succeeded" : "Failed";
-                if (succeeded)
-                    d.Pct = 100;
-                else if (song.FailureReason != null)
-                    d.BaseText += $" [{FailureReasonLabel(song.FailureReason)}]";
-                MarkBackendAlbumTrackCompleted(song.JobId);
                 Printing.RefreshOrPrint(d.Bar, d.Pct, BuildText(d), print: false);
             }
-            else if (_cli.AlbumCompactProgress)
+            else if (_cli.AlbumCompactProgress && _backendSongToAlbum.TryGetValue(song.JobId, out var albumId) && _backendAlbumBlocks.TryGetValue(albumId, out var b) && b.CompactBar != null)
             {
-                bool succeeded = song.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists;
-                d.StateLabel = succeeded ? "Succeeded" : "Failed";
-                if (succeeded)
-                    d.Pct = 100;
-                else if (song.FailureReason != null)
-                    d.BaseText += $" [{FailureReasonLabel(song.FailureReason)}]";
-                MarkBackendAlbumTrackCompleted(song.JobId);
-                if (_backendSongToAlbum.TryGetValue(song.JobId, out var albumId) && _backendAlbumBlocks.TryGetValue(albumId, out var b) && b.CompactBar != null)
-                {
-                    try { b.CompactBar.Refresh(d.Pct, BuildText(d)); } catch { }
-                }
+                try { b.CompactBar.Refresh(d.Pct, BuildText(d, indent: true)); } catch { }
             }
         }
         _backendBars.TryRemove(song.JobId, out _);
@@ -800,7 +801,6 @@ public class CliProgressReporter
 
         if (Console.IsOutputRedirected)
         {
-            Printing.WriteLine();
             Printing.PrintAlbum(folder);
             return;
         }
@@ -817,7 +817,8 @@ public class CliProgressReporter
             _jobStatuses[job] = "downloading";
             try { RefreshOrPrintJobLineWithProfileSuffix(headerBar, 0, job, AlbumHeaderText(job, 0, total, "downloading"), print: true); } catch { }
 
-            Printing.PrintAlbumHeader(folder);
+            if (!_cli.AlbumCompactProgress)
+                Printing.PrintAlbumHeader(folder);
 
             var block = new AlbumBlock { Songs = folder.Files.ToList() };
             if (_cli.AlbumCompactProgress)
@@ -839,6 +840,11 @@ public class CliProgressReporter
                 _bars[song] = d;
                 if (bar != null)
                     try { bar.Refresh(0, BuildText(d)); } catch { }
+            }
+
+            if (block.CompactBar != null && block.Songs.Count > 0 && _bars.TryGetValue(block.Songs[0], out var d0))
+            {
+                try { block.CompactBar.Refresh(d0.Pct, BuildText(d0, indent: true)); } catch { }
             }
 
             _albumBlocks[job] = block;
@@ -872,7 +878,8 @@ public class CliProgressReporter
             _backendJobStatuses[job.Summary.JobId] = "downloading";
             try { RefreshOrPrintJobLineWithProfileSuffix(headerBar, 0, job.Summary, AlbumHeaderText(job.Summary, 0, total, "downloading"), print: true); } catch { }
 
-            Printing.PrintAlbumHeader(ToAlbumFolder(job.Folder));
+            if (!_cli.AlbumCompactProgress)
+                Printing.PrintAlbumHeader(ToAlbumFolder(job.Folder));
             InitializeBackendAlbumBlock(job.Summary, job.Tracks);
         }
     }
@@ -1008,7 +1015,13 @@ public class CliProgressReporter
     {
         var block = new BackendAlbumBlock { Summary = summary, Songs = tracks?.ToList() ?? [] };
         if (_cli.AlbumCompactProgress)
+        {
             block.CompactBar = Printing.GetProgressBar();
+            if (block.Songs.Count > 0 && block.Songs[0].JobId.HasValue && _backendBars.TryGetValue(block.Songs[0].JobId!.Value, out var d0))
+            {
+                try { block.CompactBar.Refresh(d0.Pct, BuildText(d0, indent: true)); } catch { }
+            }
+        }
 
         foreach (var song in block.Songs.Where(s => s.JobId.HasValue))
         {
@@ -1229,7 +1242,8 @@ public class CliProgressReporter
         d.StateLabel = "Not found";
         var reason = FailureReasonLabel(song.FailureReason);
         if (reason.Length > 0) d.BaseText += $" [{reason}]";
-        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d), print: true);
+        bool isCompact = _cli.AlbumCompactProgress && _songToAlbum.ContainsKey(song);
+        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d, indent: isCompact), print: d.Bar != null);
     }
 
     private void ReportSongNotFound(SongNotFoundEventDto song)
@@ -1248,8 +1262,9 @@ public class CliProgressReporter
         d.StateLabel = "Not found";
         if (song.FailureReason != null)
             d.BaseText += $" [{FailureReasonLabel(song.FailureReason)}]";
+        bool isCompact = _cli.AlbumCompactProgress && _backendSongToAlbum.ContainsKey(song.JobId);
         MarkBackendAlbumTrackCompleted(song.JobId);
-        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d), print: true);
+        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d, indent: isCompact), print: !IsBackendInlineChild(song.JobId) && d.Bar != null);
     }
 
     private void ReportSongFailed(SongJob song)
@@ -1262,7 +1277,8 @@ public class CliProgressReporter
 
         if (!_bars.TryGetValue(song, out var d)) return;
         d.StateLabel = "Failed";
-        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d), print: true);
+        bool isCompact = _cli.AlbumCompactProgress && _songToAlbum.ContainsKey(song);
+        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d, indent: isCompact), print: d.Bar != null);
     }
 
     private void ReportSongFailed(SongFailedEventDto song)
@@ -1283,7 +1299,8 @@ public class CliProgressReporter
         if (!_backendBars.TryGetValue(song.JobId, out var d)) return;
         d.StateLabel = "Failed";
         MarkBackendAlbumTrackCompleted(song.JobId);
-        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d), print: true);
+        bool isCompact = _cli.AlbumCompactProgress && _backendSongToAlbum.ContainsKey(song.JobId);
+        Printing.RefreshOrPrint(d.Bar, 0, BuildText(d, indent: isCompact), print: !IsBackendInlineChild(song.JobId) && d.Bar != null);
     }
 
     private void ReportDownloadStateChanged(SongJob song, string stateLabel)
@@ -1292,7 +1309,8 @@ public class CliProgressReporter
 
         if (!_bars.TryGetValue(song, out var d)) return;
         d.StateLabel = stateLabel;
-        Printing.RefreshOrPrint(d.Bar, d.Pct, BuildText(d), print: false);
+        bool isCompact = _cli.AlbumCompactProgress && _songToAlbum.ContainsKey(song);
+        Printing.RefreshOrPrint(d.Bar, d.Pct, BuildText(d, indent: isCompact), print: false);
     }
 
     private void ReportDownloadStateChanged(DownloadStateChangedEventDto song)
@@ -1301,7 +1319,8 @@ public class CliProgressReporter
 
         if (!_backendBars.TryGetValue(song.JobId, out var d)) return;
         d.StateLabel = GetStateLabel(Enum.TryParse<TransferStates>(song.State, out var state) ? state : TransferStates.None);
-        Printing.RefreshOrPrint(d.Bar, d.Pct, BuildText(d), print: false);
+        bool isCompact = _cli.AlbumCompactProgress && _backendSongToAlbum.ContainsKey(song.JobId);
+        Printing.RefreshOrPrint(d.Bar, d.Pct, BuildText(d, indent: isCompact), print: false);
     }
 
     private void ReportOnCompleteStart(SongJob song)
