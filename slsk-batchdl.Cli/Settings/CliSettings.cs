@@ -16,4 +16,7 @@ public class CliSettings
 
     /// When true, the CLI uses JsonStreamProgressReporter instead of the default CLI reporter.
     public bool ProgressJson { get; set; }
+
+    /// When true, album downloads show a compact progress (two lines total).
+    public bool AlbumCompactProgress { get; set; }
 }
