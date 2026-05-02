@@ -6,8 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Sldl.Server</AssemblyName>
     <RootNamespace>Sldl.Server</RootNamespace>
-    <VersionPrefix>3.0.0</VersionPrefix>
-    <VersionSuffix>dev</VersionSuffix>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
