@@ -538,6 +538,8 @@ public class DownloadEngine
                         {
                             IndexEditor = ctx.IndexEditor,
                             PlaylistEditor = ctx.PlaylistEditor,
+                            OutputDirSkipper = ctx.OutputDirSkipper,
+                            MusicDirSkipper = ctx.MusicDirSkipper,
                             PreprocessTracks = false,
                         };
                     }
@@ -545,6 +547,8 @@ public class DownloadEngine
                     {
                         IndexEditor = ctx.IndexEditor,
                         PlaylistEditor = ctx.PlaylistEditor,
+                        OutputDirSkipper = ctx.OutputDirSkipper,
+                        MusicDirSkipper = ctx.MusicDirSkipper,
                         PreprocessTracks = false,
                     };
                     await ProcessJob(albumList, null, job.Cts!.Token, job);
@@ -1129,7 +1133,7 @@ public class DownloadEngine
 
         if (path != null)
         {
-            job.SetSkipped(JobState.Skipped);
+            job.SetSkipped(JobState.AlreadyExists);
             if (job is AlbumJob albumJob)
                 albumJob.DownloadPath = path;
             ctx.IndexEditor?.NotifyJobDownloadPath(job.Id, path);

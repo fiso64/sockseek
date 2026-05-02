@@ -24,6 +24,7 @@ namespace Sldl.Core.Services;
         public FolderConditions? folderConditions;
         public M3uEditor?      indexEditor;
         public bool            checkFileExists;
+        public SearchSettings? searchSettings;
 
         public static TrackSkipperContext From(JobContext ctx, SkipSettings skip, SearchSettings search)
         {
@@ -39,6 +40,7 @@ namespace Sldl.Core.Services;
                 indexEditor     = ctx.IndexEditor,
                 conditions      = cond,
                 folderConditions = search.NecessaryFolderCond,
+                searchSettings  = search,
             };
         }
     }
@@ -338,7 +340,7 @@ namespace Sldl.Core.Services;
         public override bool SongExists(SongJob song, TrackSkipperContext context, out string? foundPath)
         {
             foundPath = null;
-            var t = context.indexEditor?.PreviousRunResult(song);
+            var t = context.indexEditor?.PreviousRunResult(song, context.searchSettings);
             if (t == null || (t.State != JobState.Done && t.State != JobState.AlreadyExists))
                 return false;
 
@@ -377,7 +379,7 @@ namespace Sldl.Core.Services;
         public override bool SongExists(SongJob song, TrackSkipperContext context, out string? foundPath)
         {
             foundPath = null;
-            var t = context.indexEditor?.PreviousRunResult(song);
+            var t = context.indexEditor?.PreviousRunResult(song, context.searchSettings);
             if (t == null || string.IsNullOrEmpty(t.DownloadPath) || !File.Exists(t.DownloadPath))
                 return false;
 

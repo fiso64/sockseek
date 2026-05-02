@@ -1,6 +1,7 @@
 using Sldl.Core.Jobs;
 using Sldl.Core.Models;
 using Sldl.Core;
+using Sldl.Core.Settings;
 using System.Text;
 
 namespace Sldl.Core.Services;
@@ -268,12 +269,18 @@ public class M3uEditor // todo: separate into M3uEditor and IndexEditor
 
                 foreach (var song in songs)
                 {
+                    if (song.IsNotAudio)
+                        continue;
+
                     Logger.Trace($"M3uEditor: Checking song {song.Query.Title} (State: {song.State}, Path: {song.DownloadPath})");
                     if (song.State == JobState.Pending)
                         continue;
 
                     string key = MakeSongKey(song);
-                    updateEntryIfNeeded(key, song.DownloadPath ?? "",
+                    var prev = PreviousRunResult(song, song.Config?.Search ?? job.Config?.Search);
+                    string actualKey = prev != null ? prev.ToKey() : key;
+
+                    updateEntryIfNeeded(actualKey, song.DownloadPath ?? "",
                         song.Query.Artist, song.Query.Album, song.Query.Title, song.Query.Length,
                         song.State, song.FailureReason);
 
@@ -411,10 +418,24 @@ public class M3uEditor // todo: separate into M3uEditor and IndexEditor
     }
 
     // Looks up the persisted state for a SongJob from a prior run.
-    public IndexEntry? PreviousRunResult(SongJob song)
+    public IndexEntry? PreviousRunResult(SongJob song, SearchSettings? search = null)
     {
-        previousRunData.TryGetValue(MakeSongKey(song), out var t);
-        return t;
+        if (previousRunData.TryGetValue(MakeSongKey(song), out var t))
+            return t;
+
+        if (search != null && search.IsAggregate)
+        {
+            var comparer = new SongQueryComparer(ignoreCase: true, search.AggregateLengthTol);
+            foreach (var entry in previousRunData.Values)
+            {
+                if (entry.IsAlbum || entry.Title.Length == 0) continue;
+                var entryQuery = new SongQuery { Artist = entry.Artist, Album = entry.Album, Title = entry.Title, Length = entry.Length };
+                if (comparer.Equals(song.Query, entryQuery))
+                    return entry;
+            }
+        }
+
+        return null;
     }
 
     // Looks up the persisted state for an AlbumJob from a prior run.
@@ -426,7 +447,7 @@ public class M3uEditor // todo: separate into M3uEditor and IndexEditor
 
     public bool TryGetPreviousRunResult(SongJob song, out IndexEntry? result)
     {
-        previousRunData.TryGetValue(MakeSongKey(song), out result);
+        result = PreviousRunResult(song);
         return result != null;
     }
 
