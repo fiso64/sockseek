@@ -450,5 +450,74 @@ namespace Tests.EndToEnd
             }
         }
 
+        [TestMethod]
+        public async Task AggregateJob_DownloadsResolvedSongCandidatesWithoutResearchingThem()
+        {
+            var length = new Soulseek.FileAttribute(Soulseek.FileAttributeType.Length, 180);
+            var index = new List<Soulseek.SearchResponse>
+            {
+                new(
+                    username: "user1",
+                    token: 1,
+                    hasFreeUploadSlot: true,
+                    uploadSpeed: 100,
+                    queueLength: 0,
+                    fileList:
+                    [
+                        new Soulseek.File(1, "Music\\ELO\\01. ELO - Blue Sky.mp3", 10000, ".mp3", [length]),
+                    ]),
+                new(
+                    username: "user2",
+                    token: 2,
+                    hasFreeUploadSlot: true,
+                    uploadSpeed: 100,
+                    queueLength: 0,
+                    fileList:
+                    [
+                        new Soulseek.File(2, "Shares\\Electric Light Orchestra\\01. ELO - Blue Sky.mp3", 10000, ".mp3", [length]),
+                    ]),
+            };
+            var testClient = new ClientTests.MockSoulseekClient(index);
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-download-aggregate-" + Guid.NewGuid());
+            Directory.CreateDirectory(outputDir);
+
+            try
+            {
+                var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                var rootSettings = new DownloadSettings();
+                rootSettings.Output.ParentDir = outputDir;
+                rootSettings.Search.MinSharesAggregate = 1;
+                rootSettings.Skip.SkipExisting = false;
+
+                var aggregateJob = new AggregateJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
+                var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
+                var app = new DownloadEngine(engineSettings, clientManager);
+                var startedSongJobs = 0;
+                var songSearchesStarted = 0;
+                var downloadsStarted = 0;
+                app.Events.JobStarted += job =>
+                {
+                    if (job is SongJob)
+                        startedSongJobs++;
+                };
+                app.Events.SongSearching += _ => songSearchesStarted++;
+                app.Events.DownloadStarted += (_, _) => downloadsStarted++;
+                app.Enqueue(aggregateJob, rootSettings);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                Assert.IsTrue(aggregateJob.Songs.Count > 0, "Aggregate should produce resolved song candidates.");
+                Assert.AreEqual(0, startedSongJobs, "Resolved aggregate child songs should not emit generic search-style job starts.");
+                Assert.AreEqual(0, songSearchesStarted, "Resolved aggregate child songs should not run a second song search.");
+                Assert.IsTrue(downloadsStarted > 0, "Resolved aggregate child songs should still download.");
+            }
+            finally
+            {
+                if (Directory.Exists(outputDir))
+                    Directory.Delete(outputDir, true);
+            }
+        }
+
     }
 }

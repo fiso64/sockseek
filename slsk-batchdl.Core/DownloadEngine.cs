@@ -1496,7 +1496,6 @@ public class DownloadEngine
         song.Config = config;
         song.Cts = CancellationTokenSource.CreateLinkedTokenSource(appCts.Token, groupCts.Token);
         RegisterJob(song, parentJob);
-        Events.RaiseJobStarted(song);
 
         try
         {
