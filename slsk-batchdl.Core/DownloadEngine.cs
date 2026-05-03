@@ -396,11 +396,24 @@ public class DownloadEngine
         }
     }
 
+    static bool IsSubtreeSuccessful(Job? job)
+    {
+        if (job == null) return false;
+
+        return job switch
+        {
+            JobList jl => jl.Jobs.All(IsSubtreeSuccessful),
+            ExtractJob ej => ej.State == JobState.Done && ej.Result != null && IsSubtreeSuccessful(ej.Result),
+            _ => job.State == JobState.Done || job.State == JobState.AlreadyExists,
+        };
+    }
+
     static async Task MaybeRemoveFromSource(Job job, IExtractor? extractor, ExtractionSettings config)
     {
         if (extractor == null || !config.RemoveTracksFromSource) return;
         if (job.LineNumber == 0) return;
-        if (job.State != JobState.Done && job.State != JobState.AlreadyExists) return;
+        if (!IsSubtreeSuccessful(job)) return;
+        
         Logger.Debug($"RemoveFromSource: '{job}' (LineNumber={job.LineNumber})");
         try { await extractor.RemoveFromSource(job); }
         catch (Exception ex) { Logger.Error($"Error removing from source: {ex.Message}"); }
@@ -466,11 +479,10 @@ public class DownloadEngine
         {
             await _clientManager.WaitUntilReadyAsync(job.Cts!.Token);
             retrieveFolderJob.UpdateState(JobState.Searching);
-
-            int newFilesFound = 0;
+            
             try
             {
-                newFilesFound = await searcher!.CompleteFolder(retrieveFolderJob.TargetFolder, job.Cts!.Token);
+                int newFilesFound = await searcher!.CompleteFolder(retrieveFolderJob.TargetFolder, job.Cts!.Token);
                 retrieveFolderJob.NewFilesFoundCount = newFilesFound;
                 retrieveFolderJob.UpdateState(JobState.Done);
                 job.Discovery = new DiscoverySummary { ResultCount = newFilesFound, LockedFileCount = 0 };

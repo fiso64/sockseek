@@ -381,6 +381,104 @@ namespace Tests.ExtractorTests2
     }
 
     [TestClass]
+    public class ListRemoveFromSourceTests
+    {
+        private string _tempList = "";
+
+        [TestInitialize]
+        public void Setup()
+        {
+            _tempList = Path.GetTempFileName() + ".txt";
+        }
+
+        [TestCleanup]
+        public void Cleanup()
+        {
+            if (File.Exists(_tempList)) File.Delete(_tempList);
+        }
+
+        [TestMethod]
+        public async Task ListInput_SongFails_RemoveFromSource_DoesNotClearRow()
+        {
+            File.WriteAllText(_tempList, "\"Valid - Song\"\n\"Missing - Song\"\n");
+
+            var validFile = TestHelpers.CreateSlFile(@"Music\Valid - Song.mp3", length: 180);
+            var response = new Soulseek.SearchResponse("User1", 1, true, 100, 0, [validFile]);
+            var testClient = new ClientTests.MockSoulseekClient([response]);
+
+            var eng = new EngineSettings { Username = "u", Password = "p" };
+            var dl = new DownloadSettings();
+            dl.Extraction.Input = _tempList;
+            dl.Extraction.InputType = InputType.List;
+            dl.Extraction.RemoveTracksFromSource = true;
+            
+            var outputDir = Path.Combine(Path.GetTempPath(), "sldl-test-list-rfs-" + Guid.NewGuid());
+            Directory.CreateDirectory(outputDir);
+            dl.Output.ParentDir = outputDir;
+
+            try
+            {
+                var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                app.Enqueue(new ExtractJob(_tempList, InputType.List), dl);
+                app.CompleteEnqueue();
+                await app.RunAsync(CancellationToken.None);
+
+                var lines = File.ReadAllLines(_tempList);
+                Assert.AreEqual(2, lines.Length, "File should retain its physical lines (cleared lines become empty string).");
+                Assert.AreEqual("", lines[0], "Successful song row should be cleared.");
+                Assert.AreEqual("\"Missing - Song\"", lines[1], "Failed song row should NOT be cleared.");
+            }
+            finally
+            {
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+            }
+        }
+
+        [TestMethod]
+        public async Task ListInput_RecursiveCsvPartiallyFails_RemoveFromSource_DoesNotClearListRow()
+        {
+            var csvPath = Path.GetTempFileName() + ".csv";
+            File.WriteAllText(csvPath, "artist,title\nValid,Song\nMissing,Song\n");
+            File.WriteAllText(_tempList, $"\"{csvPath}\"\n");
+
+            var validFile = TestHelpers.CreateSlFile(@"Music\Valid - Song.mp3", length: 180);
+            var response = new Soulseek.SearchResponse("User1", 1, true, 100, 0, [validFile]);
+            var testClient = new ClientTests.MockSoulseekClient([response]);
+
+            var eng = new EngineSettings { Username = "u", Password = "p" };
+            var dl = new DownloadSettings();
+            dl.Extraction.Input = _tempList;
+            dl.Extraction.InputType = InputType.List;
+            dl.Extraction.RemoveTracksFromSource = true;
+
+            var outputDir = Path.Combine(Path.GetTempPath(), "sldl-test-list-rfs-csv-" + Guid.NewGuid());
+            Directory.CreateDirectory(outputDir);
+            dl.Output.ParentDir = outputDir;
+
+            try
+            {
+                var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                app.Enqueue(new ExtractJob(_tempList, InputType.List), dl);
+                app.CompleteEnqueue();
+                await app.RunAsync(CancellationToken.None);
+
+                var csvLines = File.ReadAllLines(csvPath);
+                Assert.AreEqual("artist,title", csvLines[0]);
+                Assert.AreEqual(",", csvLines[1], "Successful CSV song row should be cleared.");
+                Assert.AreEqual("Missing,Song", csvLines[2], "Failed CSV song row should NOT be cleared.");
+
+                var listLines = File.ReadAllLines(_tempList);
+                Assert.AreEqual($"\"{csvPath}\"", listLines[0], "List row pointing to partially failed CSV should NOT be cleared.");
+            }
+            finally
+            {
+                if (File.Exists(csvPath)) File.Delete(csvPath);
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+            }
+        }
+    }
+
+    [TestClass]
     public class ExtractorRegistryTests
     {
         private static readonly DownloadSettings _dl = TestHelpers.CreateDefaultSettings().Download;
