@@ -255,6 +255,8 @@ public class EngineSupervisorTests
             Assert.IsNotNull(albumJob);
             Assert.IsFalse(albumJob.Config?.Search.NoBrowseFolder, "Download should use default settings, not the search submission delta.");
 
+            await WaitForJobStateAsync(supervisor, downloadSummary.JobId, ServerProtocol.JobStates.Done);
+
             cts.Cancel();
             await runTask;
         }
