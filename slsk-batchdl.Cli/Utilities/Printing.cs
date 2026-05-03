@@ -673,24 +673,24 @@ public static class Printing
         if (toBeDownloaded.Count > 0)
         {
             bool showAll = !isNormal || printTracks || printResults;
-            PrintTracks(toBeDownloaded, showAll ? int.MaxValue : 10, full, infoFirst: printTracks);
+            int limit = showAll ? int.MaxValue : 10;
+            PrintTracks(toBeDownloaded, limit, full, infoFirst: printTracks);
+            if (!showAll && toBeDownloaded.Count > limit)
+                Console.WriteLine($"  ... and {toBeDownloaded.Count - limit} more");
 
             if (full && (existing.Count > 0 || notFound.Count > 0))
                 Console.WriteLine("\n-----------------------------------------------\n");
         }
 
-        if (printTracks || printResults)
+        if (existing.Count > 0)
         {
-            if (existing.Count > 0)
-            {
-                Console.WriteLine($"\nThe following tracks already exist:");
-                PrintTracks(existing, fullInfo: full, infoFirst: printTracks);
-            }
-            if (notFound.Count > 0)
-            {
-                Console.WriteLine($"\nThe following tracks were not found during a prior run:");
-                PrintTracks(notFound, fullInfo: full, infoFirst: printTracks);
-            }
+            Console.WriteLine($"\nThe following tracks already exist:");
+            PrintTracks(existing, fullInfo: full, infoFirst: printTracks);
+        }
+        if (notFound.Count > 0)
+        {
+            Console.WriteLine($"\nThe following tracks were not found during a prior run:");
+            PrintTracks(notFound, fullInfo: full, infoFirst: printTracks);
         }
     }
 

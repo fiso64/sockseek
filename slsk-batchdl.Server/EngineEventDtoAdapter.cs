@@ -66,6 +66,7 @@ public sealed class EngineEventDtoAdapter
             }
             else if (job is AggregateJob ag && state == JobState.Downloading)
             {
+                publish("job.status", new JobStatusEventDto(getSummary(job), "downloading"));
                 var pending   = ag.Songs.Where(s => s.State == JobState.Pending).ToList();
                 var existing  = ag.Songs.Where(s => s.State == JobState.AlreadyExists).ToList();
                 var notFound  = ag.Songs.Where(s => s.FailureReason == FailureReason.NoSuitableFileFound).ToList();
@@ -79,6 +80,10 @@ public sealed class EngineEventDtoAdapter
                     [.. SelectTrackBatchRows(pending,  job.Config.PrintOption)],
                     [.. SelectTrackBatchRows(existing, job.Config.PrintOption)],
                     [.. SelectTrackBatchRows(notFound, job.Config.PrintOption)]));
+            }
+            else if (job is AggregateJob && state == JobState.Done)
+            {
+                publish("job.status", new JobStatusEventDto(getSummary(job), "done"));
             }
             else
             {
@@ -98,17 +103,18 @@ public sealed class EngineEventDtoAdapter
             pending.Count,
             existing.Count,
             notFound.Count,
-            SelectTrackBatchRows(pending, job.Config.PrintOption).ToList(),
-            SelectTrackBatchRows(existing, job.Config.PrintOption).ToList(),
-            SelectTrackBatchRows(notFound, job.Config.PrintOption).ToList()));
+            [.. SelectTrackBatchRows(pending,  job.Config.PrintOption, limit: 20)],
+            [.. SelectTrackBatchRows(existing, job.Config.PrintOption)],
+            [.. SelectTrackBatchRows(notFound, job.Config.PrintOption)]));
     }
 
-    private static IEnumerable<SongJobPayloadDto> SelectTrackBatchRows(IReadOnlyList<SongJob> songs, PrintOption printOption)
+    private static IEnumerable<SongJobPayloadDto> SelectTrackBatchRows(
+        IReadOnlyList<SongJob> songs, PrintOption printOption, int limit = int.MaxValue)
     {
         bool needsFullRows = printOption.HasFlag(PrintOption.Tracks)
             || (printOption & (PrintOption.Results | PrintOption.Json | PrintOption.Link)) != 0;
-        var selected = needsFullRows ? songs : songs.Take(10);
-        return selected.Select(ToSongJobPayloadDto);
+        int effectiveLimit = needsFullRows ? int.MaxValue : limit;
+        return songs.Take(effectiveLimit).Select(ToSongJobPayloadDto);
     }
 
     public static SongQueryDto ToSongQueryDto(SongQuery query)

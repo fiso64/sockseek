@@ -321,6 +321,11 @@ internal static partial class Program
         if (batch.IsNormal && batch.PendingCount == 1 && batch.ExistingCount + batch.NotFoundCount == 0)
             return;
 
+        // For aggregate batches print a context header so the output is anchored even when
+        // concurrent download activity causes it to appear far from the job's progress bar.
+        if (!batch.IsNormal && batch.PendingCount + batch.ExistingCount + batch.NotFoundCount > 0)
+            Logger.Info($"[{batch.Summary.DisplayId}] {batch.Summary.Kind}Job: {batch.Summary.QueryText}:");
+
         if (batch.PendingCount > 0)
         {
             string notFoundLastTime = batch.NotFoundCount > 0 ? $"{batch.NotFoundCount} not found" : "";
@@ -332,7 +337,11 @@ internal static partial class Program
 
             var preview = batch.Pending.Select(ToSongJob).ToList();
             if (preview.Count > 0)
-                Printing.PrintTracks(preview, 10, fullInfo: false);
+            {
+                Printing.PrintTracks(preview, int.MaxValue, fullInfo: false);
+                if (batch.PendingCount > preview.Count)
+                    Console.WriteLine($"  ... and {batch.PendingCount - preview.Count} more");
+            }
         }
 
         // For aggregate batches print the skipped/not-found songs so the user can see what was skipped.
