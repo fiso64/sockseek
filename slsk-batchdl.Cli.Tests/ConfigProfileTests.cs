@@ -498,18 +498,6 @@ namespace Tests.ConfigTests
         }
 
         [TestMethod]
-        public void EdgeCase_UnknownManualProfileInCliArgs_DoesNotCrash()
-        {
-            var (file, root, _, args) = Bind(
-                "[auto]\nprofile-cond = interactive\nmax-stale-time = 10",
-                "--interactive", "--profile", "nonexistent");
-
-            var result = Resolve(file, root, new CliSettings { InteractiveMode = true }, args);
-
-            Assert.AreEqual(10, result.Search.MaxStaleTime);
-        }
-
-        [TestMethod]
         public void EdgeCase_MultipleManualProfilesAppliedInOrder()
         {
             var (file, root, _, args) = Bind(

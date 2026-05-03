@@ -647,6 +647,129 @@ namespace Tests.EndToEnd
             }
         }
 
+        // Bug: the fan-out branch only called MaybeRemoveFromSource on JobState.Done, not AlreadyExists.
+        // Songs that are skipped because they already exist on disk were never removed from the CSV.
+        [TestMethod]
+        public async Task CsvInput_SongAlreadyExists_RemoveFromSource_ClearsSongRow()
+        {
+            Console.ResetColor();
+            Console.OutputEncoding = Encoding.UTF8;
+            Logger.SetupExceptionHandling();
+            Logger.AddConsole();
+            Logger.SetConsoleLogLevel(Logger.LogLevel.Debug);
+
+            var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-csv-song-ae-music-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-csv-song-ae-out-" + Guid.NewGuid());
+            var csvPath   = Path.GetTempFileName() + ".csv";
+            Directory.CreateDirectory(musicRoot);
+            Directory.CreateDirectory(outputDir);
+            File.WriteAllBytes(Path.Combine(musicRoot, "Artist - Track.mp3"), TestHelpers.EmptyMp3Bytes);
+            File.WriteAllText(csvPath, "artist,title\nArtist,Track\n");
+
+            var testClient = ClientTests.MockSoulseekClient.FromLocalPaths(useTags: false, slowMode: false, musicRoot);
+
+            try
+            {
+                var eng = new EngineSettings { Username = "test_user", Password = "test_pass" };
+
+                // Run 1: download so the file lands in outputDir.
+                var dl1 = new DownloadSettings();
+                dl1.Extraction.Input = csvPath;
+                dl1.Output.ParentDir = outputDir;
+                var cm1 = TestHelpers.CreateMockClientManager(testClient, eng);
+                var app1 = new DownloadEngine(eng, cm1);
+                app1.Enqueue(new ExtractJob(csvPath, InputType.None), dl1);
+                app1.CompleteEnqueue();
+                await app1.RunAsync(CancellationToken.None);
+
+                // Run 2: file exists → AlreadyExists; with RemoveFromSource the CSV row must be cleared.
+                var dl2 = new DownloadSettings();
+                dl2.Extraction.Input = csvPath;
+                dl2.Extraction.RemoveTracksFromSource = true;
+                dl2.Output.ParentDir = outputDir;
+                dl2.Skip.SkipExisting = true;
+                dl2.Skip.SkipMode = SkipMode.Name;
+                var cm2 = TestHelpers.CreateMockClientManager(testClient, eng);
+                var app2 = new DownloadEngine(eng, cm2);
+                app2.Enqueue(new ExtractJob(csvPath, InputType.None), dl2);
+                app2.CompleteEnqueue();
+                await app2.RunAsync(CancellationToken.None);
+
+                var lines = File.ReadAllLines(csvPath);
+                Assert.AreEqual("artist,title", lines[0], "Header must be preserved");
+                Assert.AreEqual(",", lines[1],
+                    $"Song row should be cleared when AlreadyExists, but got: '{lines[1]}'");
+            }
+            finally
+            {
+                if (Directory.Exists(musicRoot)) Directory.Delete(musicRoot, true);
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+                if (File.Exists(csvPath)) File.Delete(csvPath);
+            }
+        }
+
+        // Regression guard: albums with AlreadyExists should also be cleared (this already works via
+        // the else-branch / post-ProcessJob path, but keep it tested).
+        [TestMethod]
+        public async Task CsvInput_AlbumAlreadyExists_RemoveFromSource_ClearsAlbumRow()
+        {
+            Console.ResetColor();
+            Console.OutputEncoding = Encoding.UTF8;
+            Logger.SetupExceptionHandling();
+            Logger.AddConsole();
+            Logger.SetConsoleLogLevel(Logger.LogLevel.Debug);
+
+            var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-csv-album-ae-music-" + Guid.NewGuid());
+            var albumDir  = Path.Combine(musicRoot, "TestArtist", "TestAlbum");
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-csv-album-ae-out-" + Guid.NewGuid());
+            var csvPath   = Path.GetTempFileName() + ".csv";
+            Directory.CreateDirectory(albumDir);
+            Directory.CreateDirectory(outputDir);
+            File.WriteAllBytes(Path.Combine(albumDir, "01. TestArtist - Track1.mp3"), TestHelpers.EmptyMp3Bytes);
+            File.WriteAllBytes(Path.Combine(albumDir, "02. TestArtist - Track2.mp3"), TestHelpers.EmptyMp3Bytes);
+            File.WriteAllText(csvPath, "artist,title,album\nTestArtist,,TestAlbum\n");
+
+            var testClient = ClientTests.MockSoulseekClient.FromLocalPaths(useTags: false, slowMode: false, musicRoot);
+
+            try
+            {
+                var eng = new EngineSettings { Username = "test_user", Password = "test_pass" };
+
+                // Run 1: download so the album folder lands in outputDir.
+                var dl1 = new DownloadSettings();
+                dl1.Extraction.Input = csvPath;
+                dl1.Output.ParentDir = outputDir;
+                var cm1 = TestHelpers.CreateMockClientManager(testClient, eng);
+                var app1 = new DownloadEngine(eng, cm1);
+                app1.Enqueue(new ExtractJob(csvPath, InputType.None), dl1);
+                app1.CompleteEnqueue();
+                await app1.RunAsync(CancellationToken.None);
+
+                // Run 2: album folder exists → AlreadyExists; CSV row must be cleared.
+                var dl2 = new DownloadSettings();
+                dl2.Extraction.Input = csvPath;
+                dl2.Extraction.RemoveTracksFromSource = true;
+                dl2.Output.ParentDir = outputDir;
+                dl2.Skip.SkipExisting = true;
+                var cm2 = TestHelpers.CreateMockClientManager(testClient, eng);
+                var app2 = new DownloadEngine(eng, cm2);
+                app2.Enqueue(new ExtractJob(csvPath, InputType.None), dl2);
+                app2.CompleteEnqueue();
+                await app2.RunAsync(CancellationToken.None);
+
+                var lines = File.ReadAllLines(csvPath);
+                Assert.AreEqual("artist,title,album", lines[0], "Header must be preserved");
+                Assert.AreEqual(",,", lines[1],
+                    $"Album row should be cleared when AlreadyExists, but got: '{lines[1]}'");
+            }
+            finally
+            {
+                if (Directory.Exists(musicRoot)) Directory.Delete(musicRoot, true);
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+                if (File.Exists(csvPath)) File.Delete(csvPath);
+            }
+        }
+
         [TestMethod]
         public async Task AggregateJob_DownloadsResolvedSongCandidatesWithoutResearchingThem()
         {

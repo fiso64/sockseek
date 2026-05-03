@@ -209,8 +209,8 @@ public static partial class ConfigManager
 
             if (file.Profiles.TryGetValue(name, out var prof))
                 yield return prof;
-            // We intentionally don't warn here. If the profile is missing, the JobSettingsResolver
-            // (running either locally or on the remote daemon) will log the appropriate warning.
+            // We intentionally don't warn/throw here during initial bind. The JobSettingsResolver
+            // will validate the profile name and fail the job/request if it's missing.
         }
     }
 
