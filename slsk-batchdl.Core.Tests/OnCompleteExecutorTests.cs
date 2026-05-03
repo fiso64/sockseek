@@ -166,7 +166,7 @@ namespace Tests.OnCompleteExecutorTests
             var result = method.Invoke(null, new object[] { command })!;
             // ValueTuple named fields aren't accessible via dynamic; use positional fields
             var fields = result.GetType().GetFields();
-            return ((string)fields[0].GetValue(result)!, (string)fields[1].GetValue(result)!);
+            return ((string)fields[0].GetValue(result)!, (string)fields[2].GetValue(result)!);
         }
 
         [TestMethod]

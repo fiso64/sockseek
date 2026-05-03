@@ -88,8 +88,8 @@ public static class OnCompleteExecutor
                 continue;
             }
 
-            (string fileName, string arguments) = ParseFileNameAndArguments(preparedCommand);
-            ProcessStartInfo startInfo = ConfigureProcessStartInfo(fileName, arguments, config);
+            (string fileName, List<string> argList, string argString) = ParseFileNameAndArguments(preparedCommand);
+            ProcessStartInfo startInfo = ConfigureProcessStartInfo(fileName, argList, argString, config);
 
             ProcessResult? currentResult = null;
             bool acquiredLock = false;
@@ -213,10 +213,10 @@ public static class OnCompleteExecutor
         }
     }
 
-    private static (string FileName, string Arguments) ParseFileNameAndArguments(string preparedCommand)
+    private static (string FileName, List<string> ArgumentList, string ArgumentsString) ParseFileNameAndArguments(string preparedCommand)
     {
         preparedCommand = preparedCommand.Trim();
-        if (string.IsNullOrEmpty(preparedCommand)) return ("", "");
+        if (string.IsNullOrEmpty(preparedCommand)) return ("", new List<string>(), "");
 
         string fileName;
         string arguments = "";
@@ -249,15 +249,73 @@ public static class OnCompleteExecutor
             }
         }
 
-        return (fileName, arguments);
+        var argList = SplitArguments(arguments);
+        return (fileName, argList, arguments);
     }
 
-    private static ProcessStartInfo ConfigureProcessStartInfo(string fileName, string arguments, CommandConfig config)
+    private static List<string> SplitArguments(string commandLine)
+    {
+        var args = new List<string>();
+        var currentArg = new System.Text.StringBuilder();
+        bool inSingleQuote = false;
+        bool inDoubleQuote = false;
+        bool escapeNext = false;
+
+        for (int i = 0; i < commandLine.Length; i++)
+        {
+            char c = commandLine[i];
+
+            if (escapeNext)
+            {
+                currentArg.Append(c);
+                escapeNext = false;
+                continue;
+            }
+
+            if (c == '\\')
+            {
+                escapeNext = true;
+                continue;
+            }
+
+            if (c == '\'' && !inDoubleQuote)
+            {
+                inSingleQuote = !inSingleQuote;
+                continue;
+            }
+
+            if (c == '"' && !inSingleQuote)
+            {
+                inDoubleQuote = !inDoubleQuote;
+                continue;
+            }
+
+            if (char.IsWhiteSpace(c) && !inSingleQuote && !inDoubleQuote)
+            {
+                if (currentArg.Length > 0)
+                {
+                    args.Add(currentArg.ToString());
+                    currentArg.Clear();
+                }
+                continue;
+            }
+
+            currentArg.Append(c);
+        }
+
+        if (currentArg.Length > 0)
+        {
+            args.Add(currentArg.ToString());
+        }
+
+        return args;
+    }
+
+    private static ProcessStartInfo ConfigureProcessStartInfo(string fileName, List<string> argList, string argString, CommandConfig config)
     {
         var startInfo = new ProcessStartInfo
         {
             FileName        = fileName,
-            Arguments       = arguments,
             UseShellExecute = config.UseShellExecute,
             CreateNoWindow  = config.CreateNoWindow,
         };
@@ -269,6 +327,16 @@ public static class OnCompleteExecutor
             startInfo.RedirectStandardError    = true;
             startInfo.StandardOutputEncoding   = System.Text.Encoding.UTF8;
             startInfo.StandardErrorEncoding    = System.Text.Encoding.UTF8;
+        }
+
+        if (startInfo.UseShellExecute)
+        {
+            startInfo.Arguments = argString;
+        }
+        else
+        {
+            foreach (var arg in argList)
+                startInfo.ArgumentList.Add(arg);
         }
 
         return startInfo;
