@@ -7,6 +7,7 @@ namespace Sldl.Core;
     private readonly SemaphoreSlim semaphore;
     private long nextResetTimeTicks;
     private readonly object resetTimeLock = new object();
+    private int _limitedNotified = 0; // 0 = not yet notified for current window
 
     public RateLimitedSemaphore(int maxCount, TimeSpan resetTimeSpan)
     {
@@ -32,14 +33,18 @@ namespace Sldl.Core;
 
                 var newResetTimeTicks = (currentTime + this.resetTimeSpan).UtcTicks;
                 Interlocked.Exchange(ref this.nextResetTimeTicks, newResetTimeTicks);
+                Interlocked.Exchange(ref _limitedNotified, 0);
             }
         }
     }
 
-    public async Task WaitAsync(CancellationToken cancellationToken = default)
+    public async Task WaitAsync(CancellationToken cancellationToken = default, Action? onWaiting = null)
     {
         TryResetSemaphore();
         var semaphoreTask = this.semaphore.WaitAsync(cancellationToken);
+
+        if (!semaphoreTask.IsCompleted && onWaiting != null && Interlocked.Exchange(ref _limitedNotified, 1) == 0)
+            onWaiting();
 
         while (!semaphoreTask.IsCompleted)
         {
@@ -47,7 +52,7 @@ namespace Sldl.Core;
             var ticks = Interlocked.Read(ref this.nextResetTimeTicks);
             var nextResetTime = new DateTimeOffset(new DateTime(ticks, DateTimeKind.Utc));
             var delayTime = nextResetTime - DateTimeOffset.UtcNow;
-            
+
             Task delayTask;
             if (delayTime > TimeSpan.Zero)
                 delayTask = Task.Delay(delayTime, cancellationToken);

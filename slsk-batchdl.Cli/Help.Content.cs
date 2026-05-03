@@ -524,10 +524,12 @@ On-Complete Actions
     const string shortcutsHelp = @"
 Shortcuts & interactive mode
 
-  Shortcuts
-    To cancel a running album download, press C.
+  CLI Shortcuts
 
-  Interactive mode
+    c               cancel a job by id or all jobs
+    t               try next candidate for a job id
+
+  CLI Interactive Prompt Shortcuts
     Interactive mode for albums can be enabled with -t/--interactive. It enables users to choose the
     desired folder or download specific files from it.
     Key bindings:
