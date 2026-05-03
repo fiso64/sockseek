@@ -1108,7 +1108,7 @@ public class DownloadEngine
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 Logger.DebugError($"Download attempt {tried} failed: {ex.Message}");
-                if (tried >= candidates.Count)
+                if (tried >= candidates.Count || tried >= config.Transfer.MaxRetriesPerTrack)
                 {
                     throw new AllDownloadsFailedException();
                 }
