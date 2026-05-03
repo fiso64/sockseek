@@ -249,4 +249,89 @@ public class CliEndToEndTests
             if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
         }
     }
+
+    [TestMethod]
+    public async Task InteractiveAlbumSelection_FailedChosenAlbum_RepromptsWithoutFailedFolder()
+    {
+        var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-mock-music-fail-reprompt-" + Guid.NewGuid());
+        var albumOneDir = Path.Combine(musicRoot, "Source One", "Shared Album");
+        var albumTwoDir = Path.Combine(musicRoot, "Source Two", "Shared Album");
+        var outputDir = Path.Combine(Path.GetTempPath(), "slsk-mock-out-fail-reprompt-" + Guid.NewGuid());
+
+        Directory.CreateDirectory(albumOneDir);
+        Directory.CreateDirectory(albumTwoDir);
+        Directory.CreateDirectory(outputDir);
+
+        // Identical filenames so they look like perfect alternate sources
+        string doomedFilePath = Path.Combine(albumOneDir, "01. Artist - Track.mp3");
+        File.WriteAllBytes(doomedFilePath, [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(albumTwoDir, "01. Artist - Track.mp3"), [4, 5, 6]);
+
+        try
+        {
+            var engineSettings = new EngineSettings
+            {
+                Username = "test_user",
+                Password = "test_pass",
+                MockFilesDir = musicRoot,
+                MockFilesReadTags = false,
+            };
+            var rootSettings = new DownloadSettings();
+            rootSettings.Extraction.Input = "Shared Album";
+            rootSettings.Extraction.IsAlbum = true;
+            rootSettings.Search.NoBrowseFolder = true;
+            rootSettings.Output.ParentDir = outputDir;
+            rootSettings.Output.NameFormat = "{foldername}/{filename}";
+            rootSettings.Transfer.MaxDownloadRetries = 0; // Fail quickly
+
+            var cliSettings = new CliSettings { InteractiveMode = true, NoProgress = true };
+            var clientManager = new SoulseekClientManager(engineSettings);
+            var app = new DownloadEngine(engineSettings, clientManager);
+
+            var pickerCalls = 0;
+            var coordinator = new InteractiveCliCoordinator(
+                app,
+                cliSettings,
+                CancellationToken.None,
+                request =>
+                {
+                    pickerCalls++;
+                    
+                    Assert.IsTrue(request.Folders.Count >= 1, "Expected at least 1 folder candidate available to pick.");
+                    var folder = request.Folders.First();
+                    
+                    // We delete the file here so the download fails
+                    if (pickerCalls == 1 && File.Exists(doomedFilePath))
+                    {
+                        File.Delete(doomedFilePath);
+                    }
+
+                    return Task.FromResult(new InteractiveModeManager.RunResult(
+                        0,
+                        folder,
+                        RetrieveCurrentFolder: true,
+                        ExitInteractiveMode: false,
+                        request.FilterStr));
+                });
+
+            coordinator.Start(new ExtractJob(rootSettings.Extraction.Input!, rootSettings.Extraction.InputType), rootSettings);
+
+            await app.RunAsync(CancellationToken.None);
+
+            Assert.AreEqual(2, pickerCalls, "A failed chosen album should reopen the picker with remaining candidates.");
+            
+            var albumJob = app.Queue.Jobs.OfType<AlbumJob>().LastOrDefault();
+            Assert.IsNotNull(albumJob);
+            Assert.AreEqual(JobState.Done, albumJob.State, "Album should eventually succeed with the remaining folder.");
+            
+            var files = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories);
+            Assert.AreEqual(1, files.Length, "Only the retry selection should complete.");
+            Assert.IsTrue(files[0].EndsWith("Track.mp3"));
+        }
+        finally
+        {
+            if (Directory.Exists(musicRoot)) Directory.Delete(musicRoot, true);
+            if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+        }
+    }
 }
