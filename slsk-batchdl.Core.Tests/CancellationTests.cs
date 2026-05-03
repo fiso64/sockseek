@@ -351,6 +351,112 @@ namespace Tests.Cancellation
         }
 
         [TestMethod]
+        public async Task SongJob_Cancellation_DoesNotFallbackToNextCandidate()
+        {
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-cancel-song-fb-" + Guid.NewGuid());
+            System.IO.Directory.CreateDirectory(outputDir);
+
+            // Two candidates
+            var file1 = TestHelpers.CreateSlFile(@"Music\Artist - Song.mp3", length: 180);
+            var file2 = TestHelpers.CreateSlFile(@"Shares\Artist - Song.mp3", length: 180);
+
+            var resp1 = new SearchResponse("user1", 1, true, 1000, 0, [file1]);
+            var resp2 = new SearchResponse("user2", 1, true, 100, 0, [file2]);
+
+            // slowMode = true so we can catch it downloading
+            var testClient = new ClientTests.MockSoulseekClient([resp1, resp2], slowMode: true);
+
+            try
+            {
+                var eng = new EngineSettings { Username = "u", Password = "p" };
+                var dl = new DownloadSettings();
+                dl.Extraction.Input = "Artist - Song";
+                dl.Output.ParentDir = outputDir;
+
+                var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                app.Enqueue(new ExtractJob(dl.Extraction.Input, dl.Extraction.InputType), dl);
+                app.CompleteEnqueue();
+
+                SongJob? songJob = null;
+                app.Events.JobStateChanged += (job, state) =>
+                {
+                    if (state == JobState.Downloading && job is SongJob sj)
+                    {
+                        songJob = sj;
+                        // Cancel as soon as downloading starts
+                        sj.Cancel();
+                    }
+                };
+
+                var runTask = app.RunAsync(CancellationToken.None);
+                await IgnoreCancellation(runTask);
+
+                Assert.IsNotNull(songJob);
+                Assert.AreEqual(JobState.Failed, songJob.State);
+                Assert.AreEqual(FailureReason.Cancelled, songJob.FailureReason);
+                Assert.AreEqual(1, testClient.DownloadCallCount, "Should only attempt the first candidate before cancellation takes effect.");
+            }
+            finally
+            {
+                if (System.IO.Directory.Exists(outputDir)) System.IO.Directory.Delete(outputDir, true);
+            }
+        }
+
+        [TestMethod]
+        public async Task AlbumJob_Cancellation_DoesNotFallbackToNextFolder()
+        {
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-cancel-album-fb-" + Guid.NewGuid());
+            System.IO.Directory.CreateDirectory(outputDir);
+
+            var file1 = TestHelpers.CreateSlFile(@"Music\Album\01. Artist - Song.mp3", length: 180);
+            var file2 = TestHelpers.CreateSlFile(@"Shares\Album\01. Artist - Song.mp3", length: 180);
+
+            var resp1 = new SearchResponse("user1", 1, true, 1000, 0, [file1]);
+            var resp2 = new SearchResponse("user2", 1, true, 100, 0, [file2]);
+
+            var testClient = new ClientTests.MockSoulseekClient([resp1, resp2], slowMode: true);
+
+            try
+            {
+                var eng = new EngineSettings { Username = "u", Password = "p" };
+                var dl = new DownloadSettings();
+                dl.Extraction.Input = "artist=Artist, album=Album";
+                dl.Extraction.IsAlbum = true;
+                dl.Search.NoBrowseFolder = true; // Avoid extra folder retrieval overhead
+                dl.Output.ParentDir = outputDir;
+
+                var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                app.Enqueue(new ExtractJob(dl.Extraction.Input, dl.Extraction.InputType), dl);
+                app.CompleteEnqueue();
+
+                AlbumJob? albumJob = null;
+                app.Events.JobStateChanged += (job, state) =>
+                {
+                    if (state == JobState.Downloading && job is AlbumJob aj)
+                    {
+                        albumJob = aj;
+                        // Cancel as soon as downloading starts
+                        aj.Cancel();
+                    }
+                };
+
+                var runTask = app.RunAsync(CancellationToken.None);
+                await IgnoreCancellation(runTask);
+
+                Assert.IsNotNull(albumJob);
+                Assert.AreEqual(JobState.Failed, albumJob.State);
+                Assert.AreEqual(FailureReason.Cancelled, albumJob.FailureReason);
+                
+                // Assuming only 1 file in the album, max 1 download call
+                Assert.IsTrue(testClient.DownloadCallCount <= 1, $"Should only attempt the first folder. Calls: {testClient.DownloadCallCount}");
+            }
+            finally
+            {
+                if (System.IO.Directory.Exists(outputDir)) System.IO.Directory.Delete(outputDir, true);
+            }
+        }
+
+        [TestMethod]
         public async Task CancelAlbum_MarksAllUnfinishedFolderFilesCancelled()
         {
             var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-album-cancel-music-" + Guid.NewGuid());
