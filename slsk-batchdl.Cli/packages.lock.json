@@ -18,6 +18,15 @@
           "Microsoft.AspNetCore.SignalR.Client.Core": "10.0.7"
         }
       },
+      "Microsoft.AspNetCore.SignalR.Protocols.Json": {
+        "type": "Direct",
+        "requested": "[10.0.7, )",
+        "resolved": "10.0.7",
+        "contentHash": "Z12681pukNsHIGZ87arfec1R2CyRS1MP7m65oLzyXAuugf+moAWSojIPX/D18amTfKqddDMn9j+W4PcTCBDDlA==",
+        "dependencies": {
+          "Microsoft.AspNetCore.SignalR.Common": "10.0.7"
+        }
+      },
       "AngleSharp": {
         "type": "Transitive",
         "resolved": "1.4.0",
@@ -123,14 +132,6 @@
         "dependencies": {
           "Microsoft.AspNetCore.Connections.Abstractions": "10.0.7",
           "Microsoft.Extensions.Options": "10.0.7"
-        }
-      },
-      "Microsoft.AspNetCore.SignalR.Protocols.Json": {
-        "type": "Transitive",
-        "resolved": "10.0.7",
-        "contentHash": "Z12681pukNsHIGZ87arfec1R2CyRS1MP7m65oLzyXAuugf+moAWSojIPX/D18amTfKqddDMn9j+W4PcTCBDDlA==",
-        "dependencies": {
-          "Microsoft.AspNetCore.SignalR.Common": "10.0.7"
         }
       },
       "Microsoft.Extensions.DependencyInjection": {

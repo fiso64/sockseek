@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.DependencyInjection;
 using Sldl.Server;
 
 namespace Sldl.Cli;
@@ -15,18 +16,31 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
 
     public event Action<ServerEventEnvelopeDto>? EventReceived;
 
-    public RemoteCliBackend(string serverUrl)
+    internal static JsonSerializerOptions CreateJsonOptions()
     {
-        var baseUri = NormalizeServerUrl(serverUrl);
-        http = new HttpClient { BaseAddress = baseUri };
-        jsonOptions = new JsonSerializerOptions
+        var options = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         };
+        options.TypeInfoResolverChain.Insert(0, ServerJsonContext.Default);
+        return options;
+    }
+
+    public RemoteCliBackend(string serverUrl)
+    {
+        var baseUri = NormalizeServerUrl(serverUrl);
+        http = new HttpClient { BaseAddress = baseUri };
+        jsonOptions = CreateJsonOptions();
 
         connection = new HubConnectionBuilder()
             .WithUrl(new Uri(baseUri, "api/events"))
+            .AddJsonProtocol(options =>
+            {
+                options.PayloadSerializerOptions.PropertyNameCaseInsensitive = true;
+                options.PayloadSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+                options.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, ServerJsonContext.Default);
+            })
             .WithAutomaticReconnect()
             .Build();
 

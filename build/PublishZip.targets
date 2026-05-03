@@ -20,7 +20,7 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
 
     <PropertyGroup>
       <SelfContained Condition="'$(SelfContained)' == ''">true</SelfContained>
-      <Trimmed Condition="'$(Trimmed)' == ''">$(SelfContained)</Trimmed>
+      <Trimmed Condition="'$(Trimmed)' == ''">true</Trimmed>
       <PublishLabel Condition="'$(PublishLabel)' == ''">$(RID)</PublishLabel>
       <PublishDir>$(PublishRoot)/$(PublishLabel)</PublishDir>
       <IsWindowsRid>$([System.String]::Copy('$(RID)').StartsWith('win'))</IsWindowsRid>

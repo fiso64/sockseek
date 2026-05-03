@@ -21,6 +21,7 @@
   <ItemGroup>
     <PackageReference Include="Goblinfactory.Konsole" Version="7.0.0.7-alpha" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.7" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.Json" Version="10.0.7" />
   </ItemGroup>
 
   <ItemGroup>
@@ -43,6 +44,18 @@
     <TrimMode>partial</TrimMode>
   </PropertyGroup>
   <ItemGroup Condition="'$(PublishTrimmed)' == 'true'">
+    <TrimmerRootAssembly Include="Sldl.Core" />
+    <TrimmerRootAssembly Include="Sldl.Server" />
+    <TrimmerRootAssembly Include="Soulseek" />
+    <TrimmerRootAssembly Include="SpotifyAPI.Web" />
+    <TrimmerRootAssembly Include="SpotifyAPI.Web.Auth" />
+    <TrimmerRootAssembly Include="Google.Apis" />
+    <TrimmerRootAssembly Include="Google.Apis.Core" />
+    <TrimmerRootAssembly Include="Google.Apis.YouTube.v3" />
+    <TrimmerRootAssembly Include="EmbedIO" />
+    <TrimmerRootAssembly Include="HtmlAgilityPack" />
+    <TrimmerRootAssembly Include="AngleSharp" />
+    <TrimmerRootAssembly Include="Goblinfactory.Konsole" />
     <TrimmerRootAssembly Include="TagLibSharp" />
     <TrimmerRootAssembly Include="Newtonsoft.Json" />
   </ItemGroup>

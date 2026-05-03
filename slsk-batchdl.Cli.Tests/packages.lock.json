@@ -354,6 +354,7 @@
         "dependencies": {
           "Goblinfactory.Konsole": "[7.0.0.7-alpha, )",
           "Microsoft.AspNetCore.SignalR.Client": "[10.0.7, )",
+          "Microsoft.AspNetCore.SignalR.Protocols.Json": "[10.0.7, )",
           "Sldl.Core": "[3.0.0-dev, )",
           "Sldl.Server": "[3.0.0-dev, )"
         }

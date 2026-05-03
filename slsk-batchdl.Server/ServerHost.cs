@@ -29,9 +29,15 @@ public static class ServerHost
         builder.Services.Configure<JsonOptions>(jsonOptions =>
         {
             jsonOptions.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+            jsonOptions.SerializerOptions.TypeInfoResolverChain.Insert(0, ServerJsonContext.Default);
         });
 
-        builder.Services.AddSignalR();
+        builder.Services.AddSignalR()
+            .AddJsonProtocol(jsonOptions =>
+            {
+                jsonOptions.PayloadSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+                jsonOptions.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, ServerJsonContext.Default);
+            });
         builder.Services.AddOpenApi();
         builder.Services.AddSingleton<EngineSupervisor>();
         builder.Services.AddSingleton(sp => sp.GetRequiredService<EngineSupervisor>().StateStore);

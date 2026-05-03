@@ -68,6 +68,54 @@ public class OpenApiContractTests
         }
     }
 
+    [TestMethod]
+    public void ServerJsonContext_CoversServerDtoContracts()
+    {
+        var dtoTypes = typeof(ServerJsonContext).Assembly
+            .GetTypes()
+            .Where(type =>
+                type.IsPublic
+                && type.Namespace == typeof(ServerJsonContext).Namespace
+                && type.Name.EndsWith("Dto", StringComparison.Ordinal)
+                && !type.ContainsGenericParameters)
+            .OrderBy(type => type.FullName)
+            .ToList();
+
+        var closedGenericDtoTypes = new[]
+        {
+            typeof(SearchResultSnapshotDto<FileCandidateDto>),
+            typeof(SearchResultSnapshotDto<AlbumFolderDto>),
+            typeof(SearchResultSnapshotDto<AggregateTrackCandidateDto>),
+            typeof(SearchResultSnapshotDto<AggregateAlbumCandidateDto>),
+            typeof(CollectionPatchDto<string>),
+            typeof(CollectionPatchDto<RegexRuleDto>),
+        };
+
+        var missing = dtoTypes
+            .Concat(closedGenericDtoTypes)
+            .Distinct()
+            .Where(type => !HasServerJsonTypeInfo(type))
+            .Select(type => type.FullName)
+            .ToList();
+
+        Assert.AreEqual(
+            0,
+            missing.Count,
+            "Missing ServerJsonContext metadata for:" + Environment.NewLine + string.Join(Environment.NewLine, missing));
+    }
+
+    private static bool HasServerJsonTypeInfo(Type type)
+    {
+        try
+        {
+            return ServerJsonContext.Default.GetTypeInfo(type) != null;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
     private static int GetFreeTcpPort()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);

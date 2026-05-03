@@ -56,7 +56,7 @@ internal static partial class Program
                     try
                     {
                         using var http = new HttpClient { BaseAddress = RemoteCliBackend.NormalizeServerUrl(remoteSettings.ServerUrl!) };
-                        var profiles = await http.GetFromJsonAsync<IReadOnlyList<ProfileSummaryDto>>("api/profiles");
+                        var profiles = await http.GetFromJsonAsync<IReadOnlyList<ProfileSummaryDto>>("api/profiles", RemoteCliBackend.CreateJsonOptions());
                         
                         if (profiles == null || profiles.Count == 0)
                             Console.WriteLine("No profiles found on remote daemon.");
