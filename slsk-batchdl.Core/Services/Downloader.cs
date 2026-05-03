@@ -52,8 +52,7 @@ public class Downloader
                         File.Copy(existingPath!, outputPath, true);
                     }
 
-                    song.DownloadPath = outputPath;
-                    song.UpdateState(JobState.Done);
+                    song.SetDone(outputPath, candidate);
                     return;
                 }
                 else
@@ -141,9 +140,7 @@ public class Downloader
         downloadRegistry.DownloadedFiles[fileKey] = song;
         downloadRegistry.Downloads.TryRemove(candidate.Filename, out _);
 
-        song.ChosenCandidate = candidate;
-        song.DownloadPath    = outputPath;
-        song.UpdateState(JobState.Done);
+        song.SetDone(outputPath, candidate);
     }
 
     static string GetStateLabel(TransferStates s)

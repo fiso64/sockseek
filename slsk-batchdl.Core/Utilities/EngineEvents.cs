@@ -9,6 +9,14 @@ namespace Sldl.Core;
 /// unsubscribed events are no-ops (null-conditional invocation).
 ///
 /// CLI reporters and the future Server/SignalR hub both subscribe here.
+/// 
+/// TODO: Architectural Issue - Mutable Event Payloads
+/// Currently, events pass mutable Job objects by reference (e.g., Action<Job, JobState>).
+/// This causes race conditions for async consumers (like the local CLI progress reporter), 
+/// because the Job's properties (like ResolvedTarget) can mutate before the consumer processes the event.
+/// The Server/Remote CLI mode mitigates this by immediately projecting the Job into an immutable DTO 
+/// on the publisher thread, effectively taking a snapshot. In the future, the core EngineEvents 
+/// should be refactored to pass immutable state snapshots rather than live Job references.
 /// </summary>
 public class EngineEvents
 {

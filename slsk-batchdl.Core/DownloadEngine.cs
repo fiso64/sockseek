@@ -455,13 +455,6 @@ public class DownloadEngine
 
         if (config.Skip.SkipExisting && !config.PrintResults && job.CanBeSkipped && TrySetJobAlreadyExists(job, ctx))
         {
-            var existingPath = job switch
-            {
-                SongJob songJob => songJob.DownloadPath,
-                AlbumJob albumJob => albumJob.DownloadPath,
-                _ => null,
-            };
-            Logger.Info($"Download '{job.ToString(true)}' already exists{(string.IsNullOrWhiteSpace(existingPath) ? "" : $" at {existingPath}")}, skipping");
             ctx.IndexEditor?.Update();
             ctx.PlaylistEditor?.Update();
             return;
@@ -481,7 +474,6 @@ public class DownloadEngine
 
             var responseData = new ResponseData();
             await searcher!.Search(searchJob, config.Search, responseData, job.Cts!.Token);
-            job.Discovery = new DiscoverySummary { ResultCount = searchJob.ResultCount, LockedFileCount = responseData.lockedFilesCount };
             return;
         }
 
@@ -494,14 +486,14 @@ public class DownloadEngine
             {
                 int newFilesFound = await searcher!.CompleteFolder(retrieveFolderJob.TargetFolder, job.Cts!.Token);
                 retrieveFolderJob.NewFilesFoundCount = newFilesFound;
-                retrieveFolderJob.UpdateState(JobState.Done);
                 job.Discovery = new DiscoverySummary { ResultCount = newFilesFound, LockedFileCount = 0 };
+                retrieveFolderJob.UpdateState(JobState.Done);
             }
             catch (OperationCanceledException)
             {
+                job.Discovery = new DiscoverySummary { ResultCount = 0, LockedFileCount = 0 };
                 retrieveFolderJob.Fail(FailureReason.Cancelled);
                 Events.RaiseJobStatus(retrieveFolderJob, "cancelled");
-                job.Discovery = new DiscoverySummary { ResultCount = 0, LockedFileCount = 0 };
             }
 
             return;
@@ -992,9 +984,7 @@ public class DownloadEngine
 
         if (savedFilePath.Length > 0)
         {
-            song.UpdateState(JobState.Done);
-            song.DownloadPath = savedFilePath;
-
+            song.SetDone(savedFilePath);
         }
 
         if (song.State == JobState.Done && organize)
@@ -1153,8 +1143,7 @@ public class DownloadEngine
 
         if (path != null)
         {
-            song.SetSkipped(JobState.AlreadyExists);
-            song.DownloadPath = path;
+            song.SetAlreadyExists(path);
         }
 
         return path != null;
@@ -1194,9 +1183,9 @@ public class DownloadEngine
 
         if (path != null)
         {
-            job.SetSkipped(JobState.AlreadyExists);
             if (job is AlbumJob albumJob)
                 albumJob.DownloadPath = path;
+            job.SetSkipped(JobState.AlreadyExists);
             ctx.IndexEditor?.NotifyJobDownloadPath(job.Id, path);
         }
 

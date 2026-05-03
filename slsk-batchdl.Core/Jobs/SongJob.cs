@@ -80,6 +80,20 @@ namespace Sldl.Core.Jobs;
             Query = query;
         }
 
+        public void SetDone(string downloadPath, FileCandidate? candidate = null)
+        {
+            if (candidate != null)
+                ChosenCandidate = candidate;
+            DownloadPath    = downloadPath;
+            UpdateState(JobState.Done);
+        }
+
+        public void SetAlreadyExists(string path)
+        {
+            DownloadPath = path;
+            SetSkipped(JobState.AlreadyExists);
+        }
+
         public override string ToString(bool noInfo) => Query.ToString(noInfo);
         public override string ToString()             => Query.ToString();
 

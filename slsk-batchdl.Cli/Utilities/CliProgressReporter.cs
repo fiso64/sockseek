@@ -328,8 +328,7 @@ public class CliProgressReporter
     }
 
     private static bool IsTerminalBar(BarData data)
-        => data.StateLabel == "Succeeded"
-            || data.StateLabel == "Not found"
+        => data.StateLabel is "Succeeded" or "Already exists" or "Not found"
             || data.StateLabel.StartsWith("Failed", StringComparison.Ordinal);
 
     private void MarkBackendAlbumTrackCompleted(Guid songJobId)
@@ -526,15 +525,19 @@ public class CliProgressReporter
     private static string SongDisplay(SongJob song)
     {
         var chosen = song.ChosenCandidate;
-        return chosen != null
-            ? Printing.DisplayString(song.Query, chosen.File, chosen.Response, infoFirst: false)
-            : $"[{song.DisplayId}] {song}";
+        if (chosen != null)
+            return Printing.DisplayString(song.Query, chosen.File, chosen.Response, infoFirst: false);
+        if (!string.IsNullOrEmpty(song.DownloadPath))
+            return $"{song.ToString(true)} at {song.DownloadPath}";
+        return song.ToString(true);
     }
 
     private static string TerminalLabel(SongJob song)
     {
-        if (song.State is JobState.Done or JobState.AlreadyExists)
+        if (song.State == JobState.Done)
             return "Succeeded";
+        if (song.State == JobState.AlreadyExists)
+            return "Already exists";
 
         var reason = FailureReasonLabel(song.FailureReason);
         if (reason.Length == 0) reason = "Unknown error";
@@ -544,9 +547,11 @@ public class CliProgressReporter
     private static string SongDisplay(SongStateChangedEventDto song)
     {
         var chosen = song.ChosenCandidate;
-        return chosen != null
-            ? $"{chosen.Username}\\..\\{System.IO.Path.GetFileName(chosen.Filename)}"
-            : SongQueryText(song.Query);
+        if (chosen != null)
+            return $"{chosen.Username}\\..\\{Path.GetFileName(chosen.Filename)}";
+        if (!string.IsNullOrEmpty(song.DownloadPath))
+            return $"{SongQueryText(song.Query)} at {song.DownloadPath}";
+        return SongQueryText(song.Query);
     }
 
     private static string SongQueryText(SongQueryDto query)
@@ -562,8 +567,10 @@ public class CliProgressReporter
 
     private static string TerminalLabel(SongStateChangedEventDto song)
     {
-        if (song.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists)
+        if (song.State == ServerProtocol.JobStates.Done)
             return "Succeeded";
+        if (song.State == ServerProtocol.JobStates.AlreadyExists)
+            return "Already exists";
 
         var reason = FailureReasonLabel(song.FailureReason);
         if (reason.Length == 0) reason = "Unknown error";
@@ -572,8 +579,10 @@ public class CliProgressReporter
 
     private static string TerminalStatusLabel(JobState state, FailureReason reason, string fallbackStatus = "failed")
     {
-        if (state is JobState.Done or JobState.AlreadyExists)
+        if (state == JobState.Done)
             return "succeeded";
+        if (state == JobState.AlreadyExists)
+            return "already exists";
 
         var reasonLabel = FailureReasonLabel(reason);
         if (reasonLabel.Length == 0) reasonLabel = "Unknown error";
@@ -582,8 +591,10 @@ public class CliProgressReporter
 
     private static string TerminalStatusLabel(SongJob song)
     {
-        if (song.State is JobState.Done or JobState.AlreadyExists)
+        if (song.State == JobState.Done)
             return "succeeded";
+        if (song.State == JobState.AlreadyExists)
+            return "already exists";
 
         var reason = FailureReasonLabel(song.FailureReason);
         if (reason.Length == 0 && song.State is JobState.Failed or JobState.Skipped or JobState.NotFoundLastTime)
@@ -597,8 +608,10 @@ public class CliProgressReporter
 
     private static string TerminalStatusLabel(ServerJobState state, ServerFailureReason? reason, string fallbackStatus = "failed")
     {
-        if (state is ServerJobState.Done or ServerJobState.AlreadyExists)
+        if (state == ServerJobState.Done)
             return "succeeded";
+        if (state == ServerJobState.AlreadyExists)
+            return "already exists";
 
         var reasonLabel = FailureReasonLabel(reason);
         if (reasonLabel.Length == 0) reasonLabel = "Unknown error";
@@ -607,8 +620,10 @@ public class CliProgressReporter
 
     private static string TerminalStatusLabel(SongStateChangedEventDto song)
     {
-        if (song.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists)
+        if (song.State == ServerProtocol.JobStates.Done)
             return "succeeded";
+        if (song.State == ServerProtocol.JobStates.AlreadyExists)
+            return "already exists";
 
         var reason = FailureReasonLabel(song.FailureReason);
         if (reason.Length == 0 && song.State is ServerProtocol.JobStates.Failed or ServerProtocol.JobStates.Skipped or ServerProtocol.JobStates.NotFoundLastTime)
@@ -694,15 +709,25 @@ public class CliProgressReporter
             return;
         }
 
-        Logger.LogNonConsole(Logger.LogLevel.Info, $"{TerminalLabel(song)}: {SongDisplay(song)}");
+        Logger.LogNonConsole(Logger.LogLevel.Info, $"[{song.DisplayId}] SongJob: {TerminalLabel(song)}: {SongDisplay(song)}");
 
         if (_bars.TryGetValue(song, out var d))
         {
             UpdateLastUpdated(song);
             bool succeeded = song.State is JobState.Done or JobState.AlreadyExists;
-            d.StateLabel = succeeded ? "Succeeded" : "Failed";
+            d.StateLabel = song.State switch
+            {
+                JobState.Done => "Succeeded",
+                JobState.AlreadyExists => "Already exists",
+                _ => "Failed",
+            };
             if (succeeded)
+            {
                 d.Pct = 100;
+                var display = SongDisplay(song);
+                if (display != d.BaseText)
+                    d.BaseText = display;
+            }
             else
             {
                 var reason = FailureReasonLabel(song.FailureReason);
@@ -737,15 +762,25 @@ public class CliProgressReporter
         }
 
         if (!IsBackendInlineChild(song.JobId))
-            Logger.LogNonConsole(Logger.LogLevel.Info, $"{TerminalLabel(song)}: {SongDisplay(song)}");
+            Logger.LogNonConsole(Logger.LogLevel.Info, $"[{song.DisplayId}] SongJob: {TerminalLabel(song)}: {SongDisplay(song)}");
 
         if (_backendBars.TryGetValue(song.JobId, out var d))
         {
             UpdateLastUpdatedBackend(song.JobId);
             bool succeeded = song.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists;
-            d.StateLabel = succeeded ? "Succeeded" : "Failed";
+            d.StateLabel = song.State switch
+            {
+                ServerProtocol.JobStates.Done => "Succeeded",
+                ServerProtocol.JobStates.AlreadyExists => "Already exists",
+                _ => "Failed",
+            };
             if (succeeded)
+            {
                 d.Pct = 100;
+                var display = SongDisplay(song);
+                if (display != d.BaseText)
+                    d.BaseText = display;
+            }
             else
             {
                 var reason = FailureReasonLabel(song.FailureReason);
@@ -1153,7 +1188,12 @@ public class CliProgressReporter
                 continue;
 
             bool albumSucceeded = summary.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists;
-            data.StateLabel = albumSucceeded ? "Succeeded" : "Failed";
+            data.StateLabel = summary.State switch
+            {
+                ServerProtocol.JobStates.Done => "Succeeded",
+                ServerProtocol.JobStates.AlreadyExists => "Already exists",
+                _ => "Failed",
+            };
             if (albumSucceeded)
             {
                 data.Pct = 100;
@@ -1474,9 +1514,14 @@ public class CliProgressReporter
     {
         var data = new BarData { Bar = bar, BaseText = shortName, StateLabel = "Pending", Pct = 0 };
 
-        if (song.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists)
+        if (song.State == ServerProtocol.JobStates.Done)
         {
             data.StateLabel = "Succeeded";
+            data.Pct = 100;
+        }
+        else if (song.State == ServerProtocol.JobStates.AlreadyExists)
+        {
+            data.StateLabel = "Already exists";
             data.Pct = 100;
         }
         else if (song.State == ServerProtocol.JobStates.Failed)

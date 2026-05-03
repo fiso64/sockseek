@@ -42,13 +42,15 @@ public sealed class ServerProgressLogReporter
         }
         else if (state == JobState.Done)
         {
+            if (job.Discovery != null && reportedDiscoveryJobs.TryAdd(job.Id, true))
+                ReportDiscoveryResult(job);
+
             if (job is AlbumJob aj)
                 ReportAlbumDownloadCompleted(aj);
             else if (job is ExtractJob ej && ej.Result != null)
                 Log($"[{ej.DisplayId}] ExtractJob: extraction completed: {ej.ToString(true)}");
-            
-            if (job.Discovery != null && reportedDiscoveryJobs.TryAdd(job.Id, true))
-                ReportDiscoveryResult(job);
+            else if (job is SongJob doneSong)
+                Log($"[{doneSong.DisplayId}] SongJob: {TerminalLabel(doneSong)}: {SongDisplay(doneSong)}");
         }
         else if (IsTerminal(state))
         {
@@ -56,7 +58,7 @@ public sealed class ServerProgressLogReporter
                 ReportDiscoveryResult(job);
 
             if (job is SongJob song)
-                Log($"{TerminalLabel(song)}: {SongDisplay(song)}");
+                Log($"[{song.DisplayId}] SongJob: {TerminalLabel(song)}: {SongDisplay(song)}");
         }
     }
 
@@ -93,7 +95,7 @@ public sealed class ServerProgressLogReporter
 
     private static void ReportDownloadStarted(SongJob song, FileCandidate candidate)
     {
-        Log($"Downloading: {DownloadDisplay(candidate)}");
+        Log($"[{song.DisplayId}] SongJob: Downloading: {DownloadDisplay(candidate)}");
     }
 
 
@@ -118,17 +120,23 @@ public sealed class ServerProgressLogReporter
         => state is JobState.Done or JobState.AlreadyExists or JobState.Failed or JobState.Skipped or JobState.NotFoundLastTime;
 
     private static string SongDisplay(SongJob song)
-        => song.ChosenCandidate != null
-            ? DownloadDisplay(song.ChosenCandidate)
-            : $"[{song.DisplayId}] {song}";
+    {
+        if (song.ChosenCandidate != null)
+            return DownloadDisplay(song.ChosenCandidate);
+        if (!string.IsNullOrEmpty(song.DownloadPath))
+            return $"{song.ToString(true)} at {song.DownloadPath}";
+        return song.ToString(true);
+    }
 
     private static string DownloadDisplay(FileCandidate candidate)
         => $"{candidate.Username}\\..\\{Path.GetFileName(candidate.Filename)}";
 
     private static string TerminalLabel(Job job)
     {
-        if (job.State is JobState.Done or JobState.AlreadyExists)
+        if (job.State == JobState.Done)
             return "Succeeded";
+        if (job.State == JobState.AlreadyExists)
+            return "Already exists";
 
         string reason = FailureReasonLabel(job.FailureReason);
         if (reason.Length == 0) reason = "Unknown error";
