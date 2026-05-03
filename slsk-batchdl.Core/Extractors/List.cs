@@ -129,7 +129,7 @@ namespace Sldl.Core.Extractors;
             return fields;
         }
 
-        public async Task RemoveTrackFromSource(SongJob job)
+        public Task RemoveFromSource(Job job)
         {
             lock (fileLock)
             {
@@ -152,5 +152,6 @@ namespace Sldl.Core.Extractors;
                     }
                 }
             }
+            return Task.CompletedTask;
         }
     }

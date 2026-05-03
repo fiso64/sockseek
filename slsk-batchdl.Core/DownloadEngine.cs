@@ -250,11 +250,15 @@ public class DownloadEngine
                 // Any later automatic processing of the result job is separate execution.
                 RaiseJobExecutionCompleted();
 
-                // Propagate provenance from ExtractJob to the extracted result.
-                extracted.LineNumber = ej.LineNumber;
+                // Propagate provenance from ExtractJob to the extracted result,
+                // but don't overwrite a LineNumber already set by the extractor (e.g. CSV parsing).
+                if (extracted.LineNumber == 0)
+                    extracted.LineNumber = ej.LineNumber;
                 extracted.ItemNumber = ej.ItemNumber;
-                // For a single-song JobList, also stamp the inner song (used by RemoveTrackFromSource).
-                if (extracted is JobList ejl && ejl.Jobs.Count == 1 && ejl.Jobs[0] is SongJob innerSong)
+                // For a single-song JobList, also stamp the inner song (used by RemoveTrackFromSource),
+                // but only if it doesn't already have a LineNumber from extraction (e.g. CSV parsing).
+                if (extracted is JobList ejl && ejl.Jobs.Count == 1 && ejl.Jobs[0] is SongJob innerSong
+                    && innerSong.LineNumber == 0)
                 {
                     innerSong.LineNumber = ej.LineNumber;
                     innerSong.ItemNumber = ej.ItemNumber;
@@ -277,6 +281,12 @@ public class DownloadEngine
                 // the CTS hierarchy. Cancelling the ExtractJob after extraction completes has no effect
                 // on the already-running Result; the Result can be cancelled independently.
                 await ProcessJob(extracted, ex, parentToken, parentJob);
+
+                // For single extracted jobs with a source line (e.g. a lone AlbumJob from a CSV row),
+                // trigger removal now that processing is complete. Multi-item results use LineNumber=0
+                // (no source line of their own) and handle per-child removal inside ProcessJob.
+                await MaybeRemoveFromSource(extracted, ex, ej.Config.Extraction);
+
                 return;
             }
 
@@ -348,31 +358,21 @@ public class DownloadEngine
                             int fl = directSongs.Count(s => s.State == JobState.Failed);
                             Events.RaiseOverallProgress(dl, fl, directSongs.Count);
 
-                            if (config.Extraction.RemoveTracksFromSource && extractor != null && song.State == JobState.Done)
-                            {
-                                Logger.Debug($"RemoveTrackFromSource: song '{song}' (LineNumber={song.LineNumber})");
-                                try { await extractor.RemoveTrackFromSource(song); }
-                                catch (Exception ex) { Logger.Error($"Error removing track from source: {ex.Message}"); }
-                            }
+                            if (song.State == JobState.Done)
+                                await MaybeRemoveFromSource(song, extractor, config.Extraction);
                         }
                     }));
 
                     int dlFinal = directSongs.Count(s => s.State == JobState.Done || s.State == JobState.AlreadyExists);
                     int flFinal = directSongs.Count(s => s.State == JobState.Failed);
                     Events.RaiseListProgress(jl, dlFinal, flFinal, directSongs.Count);
-
-                    // If all succeeded, also call whole-list removal (e.g. list.txt removes the source file).
-                    if (config.Extraction.RemoveTracksFromSource && extractor != null
-                        && directSongs.All(s => s.State == JobState.Done || s.State == JobState.AlreadyExists))
-                    {
-                        Logger.Debug($"RemoveTrackFromSource: list-level cleanup for '{jl.ItemName}'");
-                        try { await extractor.RemoveTrackFromSource(new SongJob(new SongQuery { Title = jl.ItemName ?? "" })); }
-                        catch { /* list-level removal is best-effort */ }
-                    }
                 }
                 else
                 {
                     await Task.WhenAll(jl.Jobs.ToList().Select(child => ProcessJob(child, extractor, jl.Cts!.Token, jl)));
+
+                    foreach (var child in jl.Jobs)
+                        await MaybeRemoveFromSource(child, extractor, config.Extraction);
                 }
 
                 return;
@@ -385,6 +385,16 @@ public class DownloadEngine
         {
             RaiseJobExecutionCompleted();
         }
+    }
+
+    static async Task MaybeRemoveFromSource(Job job, IExtractor? extractor, ExtractionSettings config)
+    {
+        if (extractor == null || !config.RemoveTracksFromSource) return;
+        if (job.LineNumber == 0) return;
+        if (job.State != JobState.Done && job.State != JobState.AlreadyExists) return;
+        Logger.Debug($"RemoveFromSource: '{job}' (LineNumber={job.LineNumber})");
+        try { await extractor.RemoveFromSource(job); }
+        catch (Exception ex) { Logger.Error($"Error removing from source: {ex.Message}"); }
     }
 
     async Task ProcessLeafJob(Job job)

@@ -1,5 +1,4 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sldl.Core.Models;
 using Sldl.Core.Jobs;
 using Sldl.Core;
 using Sldl.Core.Extractors;
@@ -315,11 +314,11 @@ namespace Tests.ExtractorTests2
             if (File.Exists(_tempCsv)) File.Delete(_tempCsv);
         }
 
-        // Bug: DownloadEngine calls extractor.RemoveTrackFromSource(new SongJob(...)) for list-level
+        // Bug: DownloadEngine calls extractor.RemoveFromSource(new SongJob(...)) for list-level
         // cleanup when all songs in a JobList succeed. SongJob.LineNumber defaults to 1, which maps
-        // to idx=0 in RemoveTrackFromSource, erasing lines[0] = the CSV header.
+        // to idx=0 in RemoveFromSource, erasing lines[0] = the CSV header.
         [TestMethod]
-        public async Task RemoveTrackFromSource_ListLevelCleanupJob_DoesNotEraseHeader()
+        public async Task RemoveFromSource_ListLevelCleanupJob_DoesNotEraseHeader()
         {
             File.WriteAllText(_tempCsv, "artist,title\nArtist1,Song1\n");
             var config = TestHelpers.CreateDefaultSettings().Download;
@@ -329,7 +328,7 @@ namespace Tests.ExtractorTests2
             // This is what DownloadEngine creates at ~line 367 when all directSongs succeed
             var listCleanupJob = new SongJob(new SongQuery { Title = "mycsv" });
             // LineNumber defaults to 1 → idx = 0 → erases lines[0] = header
-            await extractor.RemoveTrackFromSource(listCleanupJob);
+            await extractor.RemoveFromSource(listCleanupJob);
 
             var lines = await File.ReadAllLinesAsync(_tempCsv);
             Assert.AreEqual("artist,title", lines[0],
@@ -338,7 +337,7 @@ namespace Tests.ExtractorTests2
 
         // After individual songs are removed (which is correct), the header must still survive.
         [TestMethod]
-        public async Task RemoveTrackFromSource_SongsAndListCleanup_HeaderPreserved()
+        public async Task RemoveFromSource_SongsAndListCleanup_HeaderPreserved()
         {
             File.WriteAllText(_tempCsv, "artist,title\nArtist1,Song1\nArtist2,Song2\n");
             var config = TestHelpers.CreateDefaultSettings().Download;
@@ -347,17 +346,17 @@ namespace Tests.ExtractorTests2
             var songs = ((JobList)result).AllSongs().ToList();
 
             foreach (var song in songs)
-                await extractor.RemoveTrackFromSource(song);
+                await extractor.RemoveFromSource(song);
 
             // Simulate the list-level cleanup DownloadEngine makes when all songs succeed
-            await extractor.RemoveTrackFromSource(new SongJob(new SongQuery { Title = "mycsv" }));
+            await extractor.RemoveFromSource(new SongJob(new SongQuery { Title = "mycsv" }));
 
             var lines = await File.ReadAllLinesAsync(_tempCsv);
             Assert.IsTrue(lines[0].Contains("artist") || lines[0].Contains("title"),
                 $"Header was erased. First line: '{lines[0]}'");
         }
 
-        // Bug: DownloadEngine never calls RemoveTrackFromSource for AlbumJobs — only for SongJobs.
+        // Bug: DownloadEngine never calls RemoveFromSource for AlbumJobs — only for SongJobs.
         // Verified here at the extractor level: the AlbumJob's LineNumber is set correctly,
         // so a correctly-wired caller would be able to clear the row.
         // The red test is in EndToEndTests (CsvInput_AlbumSucceeds_RemoveFromSourceClearsAlbumRow).

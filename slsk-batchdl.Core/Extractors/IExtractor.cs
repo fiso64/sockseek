@@ -1,5 +1,4 @@
 using Sldl.Core.Jobs;
-using Sldl.Core;
 using Sldl.Core.Settings;
 
 namespace Sldl.Core.Extractors;
@@ -11,7 +10,7 @@ namespace Sldl.Core.Extractors;
     public interface IExtractor
     {
         Task<Job> GetTracks(string input, ExtractionSettings extraction);
-        Task RemoveTrackFromSource(SongJob job) => Task.CompletedTask;
+        Task RemoveFromSource(Job job) => Task.CompletedTask;
     }
 
     public static class ExtractorRegistry

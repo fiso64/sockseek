@@ -109,12 +109,13 @@ namespace Sldl.Core.Extractors;
             return result;
         }
 
-        public async Task RemoveTrackFromSource(SongJob job)
+        public async Task RemoveFromSource(Job job)
         {
+            if (job is not SongJob song) return;
             try
             {
-                if (playlistUri.Length > 0 && job.Query.URI.Length > 0)
-                    await spotifyClient.RemoveTrackFromPlaylist(playlistUri, job.Query.URI);
+                if (playlistUri.Length > 0 && song.Query.URI.Length > 0)
+                    await spotifyClient.RemoveTrackFromPlaylist(playlistUri, song.Query.URI);
             }
             catch (Exception e)
             {

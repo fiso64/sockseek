@@ -93,7 +93,7 @@ namespace Sldl.Core.Extractors;
             return jobs;
         }
 
-        public async Task RemoveTrackFromSource(SongJob job)
+        public async Task RemoveFromSource(Job job)
         {
             await csvLock.WaitAsync();
             try

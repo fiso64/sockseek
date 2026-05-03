@@ -61,7 +61,7 @@ namespace Sldl.Core.Jobs;
 
         // Source provenance (position in the input file / playlist)
         public int ItemNumber { get; set; } = 1;
-        public int LineNumber { get; set; } = 1;
+        public int LineNumber { get; set; } = 0;
 
         // Discovery results (populated during Search or Folder Retrieval phases)
         public DiscoverySummary? Discovery { get; set; }
