@@ -20,7 +20,7 @@ COPY --chown=root:root . /app
 
 RUN if [ "$DOCKER_ARCH" = "amd64" ] || [ "$TARGETPLATFORM" = "linux/amd64" ]; then export DN_RUNTIME=linux-musl-x64; echo 'Building x64'; fi \
     && if [ "$DOCKER_ARCH" = "arm64" ] || [ "$TARGETPLATFORM" = "linux/arm64" ]; then export DN_RUNTIME=linux-musl-arm64; echo 'Build ARM'; fi \
-    && dotnet publish /app/slsk-batchdl/slsk-batchdl.csproj -c Release -r "$DN_RUNTIME" -p:PublishSingleFile=true -p:PublishTrimmed=true --self-contained=true -o build \
+    && dotnet publish /app/slsk-batchdl.Cli/slsk-batchdl.Cli.csproj -c Release -r "$DN_RUNTIME" -p:PublishSingleFile=true -p:PublishTrimmed=true --self-contained=true -o build \
     && rm -f build/*.pdb
 
 FROM base as app

@@ -365,3 +365,5 @@ FodyWeavers.xsd
 
 .aider*
 install.bat
+.codex
+**/launchSettings.json

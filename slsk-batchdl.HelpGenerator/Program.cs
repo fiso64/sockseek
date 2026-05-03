@@ -6,7 +6,7 @@ using Markdig.Syntax.Inlines;
 
 var rootDir = new DirectoryInfo(AppContext.BaseDirectory).Parent?.Parent?.Parent?.Parent?.FullName ?? ".";
 var readmePath = Path.Combine(rootDir, "README.md");
-var helpCsPath = Path.Combine(rootDir, "slsk-batchdl", "Help.Content.cs");
+var helpCsPath = Path.Combine(rootDir, "slsk-batchdl.Cli", "Help.Content.cs");
 
 if (!File.Exists(readmePath))
 {
@@ -196,6 +196,8 @@ static void GenerateHelpCs(string filePath, Dictionary<string, string> topics)
 // This file is generated from README.md. To update, run your build, or:
 // dotnet run --project slsk-batchdl.HelpGenerator
 
+namespace Sldl.Cli;
+
 public static partial class Help
 {
     const string usageText = @""Usage: sldl <input> [OPTIONS]"";
@@ -231,6 +233,10 @@ __HELP_TEXT_MAIN__"";
         .Replace("__HELP_TEXT_ON_COMPLETE__", topics["on-complete"])
         .Replace("__HELP_TEXT_SHORTCUTS__", topics["shortcuts"])
         .Replace("__HELP_TEXT_NOTES_AND_TIPS__", topics["notes-and-tips"]);
+
+    var directory = Path.GetDirectoryName(filePath);
+    if (!string.IsNullOrEmpty(directory))
+        Directory.CreateDirectory(directory);
 
     File.WriteAllText(filePath, content);
 }
