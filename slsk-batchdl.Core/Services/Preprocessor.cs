@@ -38,7 +38,7 @@ namespace Sldl.Core.Services;
                 }
             }
 
-            if (preprocess.ParseTitleTemplate.Length > 0 && title.Length > 0)
+            if (!string.IsNullOrEmpty(preprocess.ParseTitleTemplate) && title.Length > 0)
             {
                 var updated = new SongQuery(q) { Artist = artist, Title = title, Album = album };
                 TrackTemplateParser.TryUpdateSongQuery(title, preprocess.ParseTitleTemplate, ref updated);
