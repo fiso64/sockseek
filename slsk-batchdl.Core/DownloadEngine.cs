@@ -255,6 +255,10 @@ public class DownloadEngine
                 if (extracted.LineNumber == 0)
                     extracted.LineNumber = ej.LineNumber;
                 extracted.ItemNumber = ej.ItemNumber;
+                
+                if (ej.EnablesIndexByDefault)
+                    extracted.EnablesIndexByDefault = true;
+
                 // For a single-song JobList, also stamp the inner song (used by RemoveTrackFromSource),
                 // but only if it doesn't already have a LineNumber from extraction (e.g. CSV parsing).
                 if (extracted is JobList ejl && ejl.Jobs.Count == 1 && ejl.Jobs[0] is SongJob innerSong
@@ -262,6 +266,9 @@ public class DownloadEngine
                 {
                     innerSong.LineNumber = ej.LineNumber;
                     innerSong.ItemNumber = ej.ItemNumber;
+                    
+                    if (ej.EnablesIndexByDefault)
+                        innerSong.EnablesIndexByDefault = true;
                 }
 
                 // Report the initial track list.
@@ -270,7 +277,7 @@ public class DownloadEngine
                     Events.RaiseTrackListReady(allSongs);
 
                 // Prepare contexts for the extracted subtree, inheriting from the ExtractJob's context.
-                var newContexts = JobPreparer.PrepareSubtree(extracted, ej.Config, _jobSettingsResolver);
+                var newContexts = JobPreparer.PrepareSubtree(extracted, ej.Config, _jobSettingsResolver, parentJob as JobList, Ctx(ej));
                 foreach (var (id, ctx) in newContexts)
                     _contexts[id] = ctx;
 

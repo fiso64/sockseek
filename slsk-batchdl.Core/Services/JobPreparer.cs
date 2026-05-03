@@ -34,16 +34,32 @@ public static class JobPreparer
     public static Dictionary<Guid, JobContext> PrepareSubtree(
         Job root,
         DownloadSettings parentConfig,
-        IJobSettingsResolver? resolver = null)
+        IJobSettingsResolver? resolver = null,
+        JobList? explicitOwnerList = null,
+        JobContext? parentCtx = null)
     {
         var newContexts = new Dictionary<Guid, JobContext>();
         var editors     = new Dictionary<(string path, M3uOption option), M3uEditor>();
         var skippers    = new Dictionary<(string dir, SkipMode mode, bool checkCond), TrackSkipper>();
         resolver ??= DefaultJobSettingsResolver.Instance;
 
+        if (parentCtx != null)
+        {
+            if (parentCtx.IndexEditor != null)
+                editors[(parentCtx.IndexEditor.path, parentCtx.IndexEditor.option)] = parentCtx.IndexEditor;
+            if (parentCtx.PlaylistEditor != null)
+                editors[(parentCtx.PlaylistEditor.path, parentCtx.PlaylistEditor.option)] = parentCtx.PlaylistEditor;
+
+            bool checkCond = parentConfig.Skip.SkipCheckCond || parentConfig.Skip.SkipCheckPrefCond;
+            if (parentCtx.OutputDirSkipper != null && parentConfig.Output.ParentDir != null)
+                skippers[(parentConfig.Output.ParentDir, parentConfig.Skip.SkipMode, checkCond)] = parentCtx.OutputDirSkipper;
+            if (parentCtx.MusicDirSkipper != null && parentConfig.Skip.SkipMusicDir != null)
+                skippers[(parentConfig.Skip.SkipMusicDir, parentConfig.Skip.SkipModeMusicDir, checkCond)] = parentCtx.MusicDirSkipper;
+        }
+
         // Use a synthetic owner list so index/playlist paths are scoped correctly when
         // root is a bare leaf job (not a JobList).
-        var ownerList = root as JobList ?? new JobList(null, [root]);
+        var ownerList = explicitOwnerList ?? root as JobList ?? new JobList(null, [root]);
         PrepareJob(root, ownerList, parentConfig, newContexts, editors, skippers, resolver);
         return newContexts;
     }
