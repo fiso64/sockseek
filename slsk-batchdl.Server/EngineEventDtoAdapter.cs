@@ -77,9 +77,9 @@ public sealed class EngineEventDtoAdapter
                     pending.Count,
                     existing.Count,
                     notFound.Count,
-                    [.. SelectTrackBatchRows(pending,  job.Config.PrintOption)],
-                    [.. SelectTrackBatchRows(existing, job.Config.PrintOption)],
-                    [.. SelectTrackBatchRows(notFound, job.Config.PrintOption)]));
+                    [.. SelectTrackBatchRows(pending,  job.Config.PrintOption, limit: 20)],
+                    [.. SelectTrackBatchRows(existing, job.Config.PrintOption, limit: 20)],
+                    [.. SelectTrackBatchRows(notFound, job.Config.PrintOption, limit: 20)]));
             }
             else if (job is AggregateJob && state == JobState.Done)
             {
@@ -105,8 +105,8 @@ public sealed class EngineEventDtoAdapter
             existing.Count,
             notFound.Count,
             [.. SelectTrackBatchRows(pending,  job.Config.PrintOption, limit: 20)],
-            [.. SelectTrackBatchRows(existing, job.Config.PrintOption)],
-            [.. SelectTrackBatchRows(notFound, job.Config.PrintOption)]));
+            [.. SelectTrackBatchRows(existing, job.Config.PrintOption, limit: 20)],
+            [.. SelectTrackBatchRows(notFound, job.Config.PrintOption, limit: 20)]));
     }
 
     private static IEnumerable<SongJobPayloadDto> SelectTrackBatchRows(

@@ -7,6 +7,7 @@ public sealed class ServerEventCoalescer : IDisposable
     private readonly Lock gate = new();
     private readonly Action<string, object> publishImmediate;
     private readonly ConcurrentDictionary<Guid, DownloadProgressEventDto> pendingDownloadProgress = [];
+    private readonly ConcurrentDictionary<Guid, SearchUpdatedDto> pendingSearchUpdated = [];
     private readonly Timer timer;
 
     public ServerEventCoalescer(Action<string, object> publishImmediate, TimeSpan? flushInterval = null)
@@ -29,6 +30,12 @@ public sealed class ServerEventCoalescer : IDisposable
                 return;
             }
 
+            if (type == "search.updated" && payload is SearchUpdatedDto search)
+            {
+                pendingSearchUpdated[search.JobId] = search;
+                return;
+            }
+
             FlushCore();
             publishImmediate(type, payload);
         }
@@ -46,6 +53,12 @@ public sealed class ServerEventCoalescer : IDisposable
         {
             if (pendingDownloadProgress.TryRemove(jobId, out var progress))
                 publishImmediate("download.progress", progress);
+        }
+
+        foreach (var jobId in pendingSearchUpdated.Keys)
+        {
+            if (pendingSearchUpdated.TryRemove(jobId, out var search))
+                publishImmediate("search.updated", search);
         }
     }
 
