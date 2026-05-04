@@ -22,11 +22,12 @@ public class EngineSupervisorTests
         File.WriteAllText(Path.Combine(albumDir, "01. Artist - Track One.mp3"), "a");
 
         using var cts = new CancellationTokenSource();
+        Task runTask = Task.CompletedTask;
 
         try
         {
             var supervisor = CreateSupervisor(musicRoot, outputDir);
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var searchSummary = await supervisor.SubmitTrackSearchJobAsync(
                 new SubmitTrackSearchJobRequestDto(
@@ -68,6 +69,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
@@ -86,11 +88,11 @@ public class EngineSupervisorTests
         File.WriteAllText(Path.Combine(albumDir, "02. Track Two.mp3"), "b");
 
         using var cts = new CancellationTokenSource();
-
+        Task runTask = Task.CompletedTask;
         try
         {
             var supervisor = CreateSupervisor(musicRoot, outputDir);
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var searchSummary = await supervisor.SubmitAlbumSearchJobAsync(
                 new SubmitAlbumSearchJobRequestDto(
@@ -141,6 +143,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
@@ -159,11 +162,11 @@ public class EngineSupervisorTests
         File.WriteAllText(Path.Combine(albumDir, "02. Track Two.mp3"), "b");
 
         using var cts = new CancellationTokenSource();
-
+        Task runTask = Task.CompletedTask;
         try
         {
             var supervisor = CreateSupervisor(musicRoot, outputDir);
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var searchSummary = await supervisor.SubmitAlbumSearchJobAsync(
                 new SubmitAlbumSearchJobRequestDto(
@@ -199,6 +202,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
@@ -216,14 +220,14 @@ public class EngineSupervisorTests
         File.WriteAllText(Path.Combine(albumDir, "01. Track One.mp3"), "a");
 
         using var cts = new CancellationTokenSource();
-
+        Task runTask = Task.CompletedTask;
         try
         {
             var supervisor = CreateSupervisor(musicRoot, outputDir, settings =>
             {
                 settings.Search.NoBrowseFolder = false;
             });
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var searchSummary = await supervisor.SubmitAlbumSearchJobAsync(
                 new SubmitAlbumSearchJobRequestDto(
@@ -263,6 +267,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
@@ -281,7 +286,7 @@ public class EngineSupervisorTests
             File.WriteAllBytes(Path.Combine(albumDir, $"{i:00}. Artist - Track {i:00}.mp3"), new byte[1024]);
 
         using var cts = new CancellationTokenSource();
-
+        Task runTask = Task.CompletedTask;
         try
         {
             var supervisor = CreateSupervisor(
@@ -289,7 +294,7 @@ public class EngineSupervisorTests
                 outputDir,
                 configureDownload: settings => settings.Search.NoBrowseFolder = true,
                 configureEngine: settings => settings.MockFilesSlow = true);
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var searchSummary = await supervisor.SubmitAlbumSearchJobAsync(
                 new SubmitAlbumSearchJobRequestDto(
@@ -375,6 +380,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
@@ -392,7 +398,7 @@ public class EngineSupervisorTests
         File.WriteAllText(Path.Combine(trackDir, "Artist - Track One.mp3"), "a");
 
         using var cts = new CancellationTokenSource();
-
+        Task runTask = Task.CompletedTask;
         try
         {
             var supervisor = CreateSupervisor(musicRoot, outputDir);
@@ -401,7 +407,7 @@ public class EngineSupervisorTests
             supervisor.StateStore.JobUpserted += summary => seenJobIds.Add(summary.JobId);
             supervisor.StateStore.WorkflowUpserted += summary => seenWorkflowIds.Add(summary.WorkflowId);
 
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var searchSummary = await supervisor.SubmitTrackSearchJobAsync(
                 new SubmitTrackSearchJobRequestDto(
@@ -419,6 +425,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
@@ -436,14 +443,14 @@ public class EngineSupervisorTests
         File.WriteAllText(Path.Combine(trackDir, "Artist - Track One.mp3"), "a");
 
         using var cts = new CancellationTokenSource();
-
+        Task runTask = Task.CompletedTask;
         try
         {
             var supervisor = CreateSupervisor(musicRoot, outputDir);
             var updates = new ConcurrentBag<SearchUpdatedDto>();
             supervisor.StateStore.SearchUpdated += update => updates.Add(update);
 
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var searchSummary = await supervisor.SubmitTrackSearchJobAsync(
                 new SubmitTrackSearchJobRequestDto(
@@ -465,6 +472,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
@@ -483,14 +491,14 @@ public class EngineSupervisorTests
         File.WriteAllText(Path.Combine(albumDir, "02. Artist - Track Two.mp3"), "b");
 
         using var cts = new CancellationTokenSource();
-
+        Task runTask = Task.CompletedTask;
         try
         {
             var supervisor = CreateSupervisor(musicRoot, outputDir, settings =>
             {
                 settings.Search.NecessaryCond.StrictTitle = true;
             });
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var searchSummary = await supervisor.SubmitAlbumSearchJobAsync(
                 new SubmitAlbumSearchJobRequestDto(
@@ -552,6 +560,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
@@ -569,7 +578,7 @@ public class EngineSupervisorTests
         File.WriteAllText(Path.Combine(albumDir, "01. Track One.mp3"), "a");
 
         using var cts = new CancellationTokenSource();
-
+        Task runTask = Task.CompletedTask;
         try
         {
             var supervisor = CreateSupervisor(musicRoot, outputDir, settings =>
@@ -577,7 +586,7 @@ public class EngineSupervisorTests
                 settings.Extraction.IsAlbum = true;
                 settings.Search.NoBrowseFolder = true;
             });
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var extractSummary = await supervisor.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(
@@ -623,6 +632,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
@@ -640,7 +650,7 @@ public class EngineSupervisorTests
         File.WriteAllText(Path.Combine(albumDir, "01. Track One.mp3"), "a");
 
         using var cts = new CancellationTokenSource();
-
+        Task runTask = Task.CompletedTask;
         try
         {
             var profile = CreateProfile("my-interactive", settings => settings.Search.MaxStaleTime = 9999999)
@@ -650,7 +660,7 @@ public class EngineSupervisorTests
                 AutoProfiles = [profile],
                 NamedProfiles = [profile],
             });
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var summary = await supervisor.SubmitAlbumSearchJobAsync(
                 new SubmitAlbumSearchJobRequestDto(
@@ -674,6 +684,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
@@ -691,7 +702,7 @@ public class EngineSupervisorTests
         File.WriteAllText(Path.Combine(albumDir, "01. Track One.mp3"), "a");
 
         using var cts = new CancellationTokenSource();
-
+        Task runTask = Task.CompletedTask;
         try
         {
             var profile = CreateProfile("album-inbox", settings => settings.Output.ParentDir = "~/Music/Inbox")
@@ -701,7 +712,7 @@ public class EngineSupervisorTests
                 AutoProfiles = [profile],
                 NamedProfiles = [profile],
             });
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var summary = await supervisor.SubmitAlbumSearchJobAsync(
                 new SubmitAlbumSearchJobRequestDto(
@@ -723,6 +734,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
@@ -742,7 +754,7 @@ public class EngineSupervisorTests
         File.WriteAllText(Path.Combine(albumDir, "01. Track One.mp3"), "a");
 
         using var cts = new CancellationTokenSource();
-
+        Task runTask = Task.CompletedTask;
         try
         {
             var profile = CreateProfile("album-profile", settings =>
@@ -763,7 +775,7 @@ public class EngineSupervisorTests
                 launchDownloadSettings: new DownloadSettingsPatchDto(
                     Output: new OutputSettingsPatchDto(ParentDir: launchOutputDir),
                     Search: new SearchSettingsPatchDto(MaxStaleTime: 222)));
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var summary = await supervisor.SubmitAlbumSearchJobAsync(
                 new SubmitAlbumSearchJobRequestDto(
@@ -783,6 +795,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
@@ -800,7 +813,7 @@ public class EngineSupervisorTests
         File.WriteAllText(Path.Combine(trackDir, "Artist - Track One.mp3"), "a");
 
         using var cts = new CancellationTokenSource();
-
+        Task runTask = Task.CompletedTask;
         try
         {
             var named = CreateProfile("long-search", settings => settings.Search.MaxStaleTime = 123456);
@@ -808,7 +821,7 @@ public class EngineSupervisorTests
             {
                 NamedProfiles = [named],
             });
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var profiles = supervisor.GetProfiles();
             Assert.AreEqual(1, profiles.Count);
@@ -832,6 +845,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
@@ -849,7 +863,7 @@ public class EngineSupervisorTests
         File.WriteAllText(Path.Combine(trackDir, "Artist - Track One.mp3"), "a");
 
         using var cts = new CancellationTokenSource();
-
+        Task runTask = Task.CompletedTask;
         try
         {
             var named = CreateProfile("short-search", settings => settings.Search.MaxStaleTime = 111);
@@ -857,7 +871,7 @@ public class EngineSupervisorTests
             {
                 NamedProfiles = [named],
             });
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var baseline = new DownloadSettings();
             var cliSettings = SettingsCloner.Clone(baseline);
@@ -885,6 +899,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
@@ -902,7 +917,7 @@ public class EngineSupervisorTests
         File.WriteAllText(Path.Combine(trackDir, "Artist - Track One.mp3"), "a");
 
         using var cts = new CancellationTokenSource();
-
+        Task runTask = Task.CompletedTask;
         try
         {
             var named = CreateProfile("no-skip", settings => settings.Skip.SkipExisting = false);
@@ -910,7 +925,7 @@ public class EngineSupervisorTests
             {
                 NamedProfiles = [named],
             });
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var summary = await supervisor.SubmitTrackSearchJobAsync(
                 new SubmitTrackSearchJobRequestDto(
@@ -933,6 +948,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
@@ -950,7 +966,7 @@ public class EngineSupervisorTests
         File.WriteAllText(Path.Combine(trackDir, "Artist - Track One.mp3"), "a");
 
         using var cts = new CancellationTokenSource();
-
+        Task runTask = Task.CompletedTask;
         try
         {
             var named = CreateProfile("base-command", settings => settings.Output.OnComplete = ["first"]);
@@ -958,7 +974,7 @@ public class EngineSupervisorTests
             {
                 NamedProfiles = [named],
             });
-            var runTask = supervisor.RunAsync(cts.Token);
+            runTask = supervisor.RunAsync(cts.Token);
 
             var summary = await supervisor.SubmitTrackSearchJobAsync(
                 new SubmitTrackSearchJobRequestDto(
@@ -982,6 +998,7 @@ public class EngineSupervisorTests
         finally
         {
             cts.Cancel();
+            await runTask;
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
         }
