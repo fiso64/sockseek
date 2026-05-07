@@ -83,6 +83,27 @@ namespace Sldl.Core.Models;
             && MaxTrackCount == null
             && (RequiredTrackTitles == null || RequiredTrackTitles.Count == 0);
 
+        public void FillMissingFrom(FolderConditionPatch? fallback)
+        {
+            if (fallback == null)
+                return;
+
+            MinTrackCount ??= fallback.MinTrackCount;
+            MaxTrackCount ??= fallback.MaxTrackCount;
+
+            if (fallback.RequiredTrackTitles?.Count > 0)
+                AddRequiredTrackTitles(fallback.RequiredTrackTitles);
+        }
+
+        public static FolderConditionPatch? Merge(FolderConditionPatch? primary, FolderConditionPatch? fallback)
+        {
+            if (primary == null)
+                return fallback;
+
+            primary.FillMissingFrom(fallback);
+            return primary.IsEmpty() ? null : primary;
+        }
+
         public override bool Equals(object? obj)
         {
             if (obj is not FolderConditionPatch other)

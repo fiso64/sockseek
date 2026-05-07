@@ -354,6 +354,116 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
+        public async Task ListAlbumDownload_StrictAlbumAndTrackCountMustBothMatchSameFolder()
+        {
+            Console.ResetColor();
+            Console.OutputEncoding = Encoding.UTF8;
+            Logger.SetupExceptionHandling();
+            Logger.AddConsole();
+            Logger.SetConsoleLogLevel(Logger.LogLevel.Debug);
+
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-list-strict-count-out-" + Guid.NewGuid());
+            var listPath  = Path.GetTempFileName();
+
+            Directory.CreateDirectory(outputDir);
+
+            List<Soulseek.File> Tracks(string folder, string marker, int count)
+            {
+                var files = new List<Soulseek.File>();
+                for (int i = 1; i <= count; i++)
+                    files.Add(TestHelpers.CreateSlFile($@"{folder}\{i:D2}. Artist - {marker} {i:D2}.mp3", bitrate: 320));
+                return files;
+            }
+
+            var index = new List<Soulseek.SearchResponse>
+            {
+                new(
+                    username: "strict-fails-count-passes",
+                    token: 1,
+                    hasFreeUploadSlot: true,
+                    uploadSpeed: 500_000,
+                    queueLength: 0,
+                    fileList: Tracks(@"Artist\Album\Disc 1", "Strict Fails", 10)),
+                new(
+                    username: "strict-passes-count-fails",
+                    token: 2,
+                    hasFreeUploadSlot: true,
+                    uploadSpeed: 400_000,
+                    queueLength: 0,
+                    fileList: Tracks(@"Artist\Album 1", "Count Fails", 9)),
+                new(
+                    username: "both-pass",
+                    token: 3,
+                    hasFreeUploadSlot: true,
+                    uploadSpeed: 100_000,
+                    queueLength: 0,
+                    fileList: Tracks(@"Artist\Album 1", "Both Pass", 10)),
+            };
+            File.WriteAllText(listPath, "a:\"Album 1\"                         strict-album=true;album-track-count=10\n");
+
+            var testClient = new LocalFilesSoulseekClient(index);
+
+            try
+            {
+                var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                var rootSettings = new DownloadSettings();
+                rootSettings.Extraction.Input = listPath;
+                rootSettings.Extraction.InputType = InputType.List;
+                rootSettings.Output.ParentDir = outputDir;
+                rootSettings.Output.NameFormat = "{foldername}/{filename}";
+                rootSettings.Output.WriteIndex = false;
+                rootSettings.Output.HasConfiguredIndex = true;
+                rootSettings.Search.NecessaryCond.Formats = ["flac", "mp3"];
+                rootSettings.Search.NecessaryCond.MinBitrate = 200;
+
+                var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
+                var resolver = new ProfileJobSettingsResolver(
+                    rootSettings,
+                    defaultProfile: null,
+                    autoProfiles: [],
+                    namedProfiles: [new SettingsProfile { Name = "wishlist" }],
+                    cliProfile: null,
+                    normalize: SettingsNormalizer.Normalize);
+                var app = new DownloadEngine(engineSettings, clientManager, resolver);
+                AlbumJob? albumJob = null;
+                app.Events.JobRegistered += (job, _) =>
+                {
+                    if (job is AlbumJob aj)
+                        albumJob = aj;
+                };
+                app.Enqueue(new ExtractJob(listPath, InputType.List), rootSettings);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                var downloadedFiles = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                    .Where(Utils.IsMusicFile)
+                    .ToList();
+
+                Assert.IsNotNull(albumJob, "The list input should produce an album job.");
+                Assert.AreEqual(JobState.Done, albumJob.State);
+                Assert.IsNotNull(albumJob.ResolvedTarget, "The album job should resolve to the one folder satisfying both conditions.");
+                Assert.AreEqual("both-pass", albumJob.ResolvedTarget!.Username,
+                    $"Wrong album source selected. Candidates: {string.Join(", ", albumJob.Results.Select(r => $"{r.Username}:{r.FolderPath}"))}");
+                Assert.AreEqual("Artist\\Album 1", albumJob.ResolvedTarget.FolderPath.Replace('/', '\\'),
+                    $"Wrong album folder selected. Candidates: {string.Join(", ", albumJob.Results.Select(r => r.FolderPath))}");
+                Assert.AreEqual(1, albumJob.Results.Count,
+                    $"Folders satisfying only one condition should be filtered or rejected before download. Candidates: {string.Join(", ", albumJob.Results.Select(r => $"{r.Username}:{r.FolderPath}"))}");
+                Assert.AreEqual(10, downloadedFiles.Count,
+                    $"Expected exactly the ten tracks from the folder satisfying both conditions. Downloaded: {string.Join(", ", downloadedFiles)}");
+                Assert.IsTrue(downloadedFiles.All(f => Path.GetFileName(f).Contains("Both Pass")),
+                    $"Folders satisfying only one condition must be rejected. Downloaded: {string.Join(", ", downloadedFiles)}");
+                Assert.IsTrue(downloadedFiles.All(f => f.Contains($"{Path.DirectorySeparatorChar}Album 1{Path.DirectorySeparatorChar}")),
+                    $"The selected output folder should be the strict Album 1 folder. Downloaded: {string.Join(", ", downloadedFiles)}");
+            }
+            finally
+            {
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+                if (File.Exists(listPath)) File.Delete(listPath);
+            }
+        }
+
+        [TestMethod]
         public async Task PreselectedAlbumJob_SkipsSearchAndDownloadsResolvedFolder()
         {
             Console.ResetColor();

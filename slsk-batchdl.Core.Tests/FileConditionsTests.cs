@@ -433,6 +433,35 @@ namespace Tests.FileConditionsTests
     public class WithAddConditionsCopyTests
     {
         [TestMethod]
+        public void FileConditionPatchMerge_FillsMissingFieldsWithoutOverwritingPrimary()
+        {
+            var primary = new FileConditionPatch { Formats = ["flac"] };
+            var fallback = new FileConditionPatch { Formats = ["mp3"], StrictAlbum = true };
+
+            var result = FileConditionPatch.Merge(primary, fallback);
+
+            Assert.AreSame(primary, result);
+            CollectionAssert.AreEqual(new[] { "flac" }, result!.Formats);
+            Assert.AreEqual(true, result.StrictAlbum);
+        }
+
+        [TestMethod]
+        public void FolderConditionPatchMerge_FillsMissingFieldsAndUnionsRequiredTitles()
+        {
+            var primary = new FolderConditionPatch();
+            primary.AddRequiredTrackTitle("Existing");
+            var fallback = new FolderConditionPatch { MinTrackCount = 10, MaxTrackCount = 10 };
+            fallback.AddRequiredTrackTitle("Fallback");
+
+            var result = FolderConditionPatch.Merge(primary, fallback);
+
+            Assert.AreSame(primary, result);
+            Assert.AreEqual(10, result!.MinTrackCount);
+            Assert.AreEqual(10, result.MaxTrackCount);
+            CollectionAssert.AreEqual(new[] { "Existing", "Fallback" }, result.RequiredTrackTitles);
+        }
+
+        [TestMethod]
         public void With_MergesCorrectly()
         {
             var fc = new FileConditions { MinBitrate = 128, LengthTolerance = 3 };

@@ -330,10 +330,12 @@ public class DownloadEngine
 
                 // List/CSV row conditions are attached to the transient ExtractJob first.
                 // Carry them across so profile resolution on the extracted job cannot drop them.
-                extracted.ExtractorCond           ??= ej.ExtractorCond;
-                extracted.ExtractorPrefCond       ??= ej.ExtractorPrefCond;
-                extracted.ExtractorFolderCond     ??= ej.ExtractorFolderCond;
-                extracted.ExtractorPrefFolderCond ??= ej.ExtractorPrefFolderCond;
+                // Merge rather than null-coalesce: the inner extractor may have created an
+                // empty or partial patch, while the outer row still carries real conditions.
+                extracted.ExtractorCond           = FileConditionPatch.Merge(extracted.ExtractorCond, ej.ExtractorCond);
+                extracted.ExtractorPrefCond       = FileConditionPatch.Merge(extracted.ExtractorPrefCond, ej.ExtractorPrefCond);
+                extracted.ExtractorFolderCond     = FolderConditionPatch.Merge(extracted.ExtractorFolderCond, ej.ExtractorFolderCond);
+                extracted.ExtractorPrefFolderCond = FolderConditionPatch.Merge(extracted.ExtractorPrefFolderCond, ej.ExtractorPrefFolderCond);
 
                 // For a single-song JobList, also stamp the inner song (used by RemoveTrackFromSource),
                 // but only if it doesn't already have a LineNumber from extraction (e.g. CSV parsing).

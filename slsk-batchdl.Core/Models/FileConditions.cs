@@ -448,6 +448,36 @@ namespace Sldl.Core.Models;
             && AcceptNoLength == null
             && AcceptMissingProps == null;
 
+        public void FillMissingFrom(FileConditionPatch? fallback)
+        {
+            if (fallback == null)
+                return;
+
+            LengthTolerance ??= fallback.LengthTolerance;
+            MinBitrate ??= fallback.MinBitrate;
+            MaxBitrate ??= fallback.MaxBitrate;
+            MinSampleRate ??= fallback.MinSampleRate;
+            MaxSampleRate ??= fallback.MaxSampleRate;
+            MinBitDepth ??= fallback.MinBitDepth;
+            MaxBitDepth ??= fallback.MaxBitDepth;
+            StrictTitle ??= fallback.StrictTitle;
+            StrictArtist ??= fallback.StrictArtist;
+            StrictAlbum ??= fallback.StrictAlbum;
+            Formats ??= fallback.Formats == null ? null : [.. fallback.Formats];
+            BannedUsers ??= fallback.BannedUsers == null ? null : [.. fallback.BannedUsers];
+            AcceptNoLength ??= fallback.AcceptNoLength;
+            AcceptMissingProps ??= fallback.AcceptMissingProps;
+        }
+
+        public static FileConditionPatch? Merge(FileConditionPatch? primary, FileConditionPatch? fallback)
+        {
+            if (primary == null)
+                return fallback;
+
+            primary.FillMissingFrom(fallback);
+            return primary.IsEmpty() ? null : primary;
+        }
+
         public override bool Equals(object? obj)
         {
             if (obj is not FileConditionPatch other)
