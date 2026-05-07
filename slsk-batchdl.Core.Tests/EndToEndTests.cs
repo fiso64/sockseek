@@ -232,6 +232,128 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
+        public async Task ListAlbumDownload_LineFormatConditionRejectsMp3Album()
+        {
+            Console.ResetColor();
+            Console.OutputEncoding = Encoding.UTF8;
+            Logger.SetupExceptionHandling();
+            Logger.AddConsole();
+            Logger.SetConsoleLogLevel(Logger.LogLevel.Debug);
+
+            var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-list-format-music-" + Guid.NewGuid());
+            var albumDir  = Path.Combine(musicRoot, "Artist", "Album2");
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-list-format-out-" + Guid.NewGuid());
+            var listPath  = Path.GetTempFileName();
+            Directory.CreateDirectory(albumDir);
+            Directory.CreateDirectory(outputDir);
+
+            File.WriteAllBytes(Path.Combine(albumDir, "01. Artist - Album2 Track.mp3"), TestHelpers.EmptyMp3Bytes);
+            File.WriteAllText(listPath, "a:\"Album2\"\t\t\t\t\tstrict-album=true;format=flac\n");
+
+            var testClient = LocalFilesSoulseekClient.FromLocalPaths(useTags: false, slowMode: false, musicRoot);
+
+            try
+            {
+                var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                var rootSettings = new DownloadSettings();
+                rootSettings.Extraction.Input = listPath;
+                rootSettings.Extraction.InputType = InputType.List;
+                rootSettings.Output.ParentDir = outputDir;
+                rootSettings.Output.WriteIndex = false;
+                rootSettings.Output.HasConfiguredIndex = true;
+                rootSettings.Search.NecessaryCond.Formats = ["flac", "mp3"];
+                rootSettings.Search.NecessaryCond.MinBitrate = 200;
+
+                var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
+                var resolver = new ProfileJobSettingsResolver(
+                    rootSettings,
+                    defaultProfile: null,
+                    autoProfiles: [],
+                    namedProfiles: [new SettingsProfile { Name = "wishlist" }],
+                    cliProfile: null,
+                    normalize: SettingsNormalizer.Normalize);
+                var app = new DownloadEngine(engineSettings, clientManager, resolver);
+                app.Enqueue(new ExtractJob(listPath, InputType.List), rootSettings);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                var downloadedFiles = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                    .Where(Utils.IsMusicFile)
+                    .ToList();
+                Assert.AreEqual(0, downloadedFiles.Count,
+                    $"The list-row format=flac condition should reject the only available mp3 album, but downloaded: {string.Join(", ", downloadedFiles)}");
+            }
+            finally
+            {
+                if (Directory.Exists(musicRoot)) Directory.Delete(musicRoot, true);
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+                if (File.Exists(listPath)) File.Delete(listPath);
+            }
+        }
+
+        [TestMethod]
+        public async Task ListAlbumDownload_StrictAlbumRequiresFullAlbumNameInFolderPath()
+        {
+            Console.ResetColor();
+            Console.OutputEncoding = Encoding.UTF8;
+            Logger.SetupExceptionHandling();
+            Logger.AddConsole();
+            Logger.SetConsoleLogLevel(Logger.LogLevel.Debug);
+
+            var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-list-strict-album-music-" + Guid.NewGuid());
+            var albumDir  = Path.Combine(musicRoot, "Artist", "Album", "Disc 1");
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-list-strict-album-out-" + Guid.NewGuid());
+            var listPath  = Path.GetTempFileName();
+            Directory.CreateDirectory(albumDir);
+            Directory.CreateDirectory(outputDir);
+
+            File.WriteAllBytes(Path.Combine(albumDir, "01. Artist - Split Terms.mp3"), TestHelpers.EmptyMp3Bytes);
+            File.WriteAllText(listPath, "a:\"Album 1\"                  strict-album=true\n");
+
+            var testClient = LocalFilesSoulseekClient.FromLocalPaths(useTags: false, slowMode: false, musicRoot);
+
+            try
+            {
+                var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                var rootSettings = new DownloadSettings();
+                rootSettings.Extraction.Input = listPath;
+                rootSettings.Extraction.InputType = InputType.List;
+                rootSettings.Output.ParentDir = outputDir;
+                rootSettings.Output.WriteIndex = false;
+                rootSettings.Output.HasConfiguredIndex = true;
+                rootSettings.Search.NecessaryCond.Formats = ["flac", "mp3"];
+                rootSettings.Search.NecessaryCond.MinBitrate = 200;
+
+                var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
+                var resolver = new ProfileJobSettingsResolver(
+                    rootSettings,
+                    defaultProfile: null,
+                    autoProfiles: [],
+                    namedProfiles: [new SettingsProfile { Name = "wishlist" }],
+                    cliProfile: null,
+                    normalize: SettingsNormalizer.Normalize);
+                var app = new DownloadEngine(engineSettings, clientManager, resolver);
+                app.Enqueue(new ExtractJob(listPath, InputType.List), rootSettings);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                var downloadedFiles = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                    .Where(Utils.IsMusicFile)
+                    .ToList();
+                Assert.AreEqual(0, downloadedFiles.Count,
+                    $"Soulseek search terms can match Album and 1 separately, but strict-album must require the full album name 'Album 1'. Downloaded: {string.Join(", ", downloadedFiles)}");
+            }
+            finally
+            {
+                if (Directory.Exists(musicRoot)) Directory.Delete(musicRoot, true);
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+                if (File.Exists(listPath)) File.Delete(listPath);
+            }
+        }
+
+        [TestMethod]
         public async Task PreselectedAlbumJob_SkipsSearchAndDownloadsResolvedFolder()
         {
             Console.ResetColor();

@@ -132,22 +132,26 @@ public static class JobPreparer
         if (job.ExtractorCond != null)
         {
             job.Config.Search.NecessaryCond.AddConditions(job.ExtractorCond);
-            job.ExtractorCond = null;
+            if (job is not ExtractJob)
+                job.ExtractorCond = null;
         }
         if (job.ExtractorPrefCond != null)
         {
             job.Config.Search.PreferredCond.AddConditions(job.ExtractorPrefCond);
-            job.ExtractorPrefCond = null;
+            if (job is not ExtractJob)
+                job.ExtractorPrefCond = null;
         }
         if (job.ExtractorFolderCond != null)
         {
             job.Config.Search.NecessaryFolderCond.AddConditions(job.ExtractorFolderCond);
-            job.ExtractorFolderCond = null;
+            if (job is not ExtractJob)
+                job.ExtractorFolderCond = null;
         }
         if (job.ExtractorPrefFolderCond != null)
         {
             job.Config.Search.PreferredFolderCond.AddConditions(job.ExtractorPrefFolderCond);
-            job.ExtractorPrefFolderCond = null;
+            if (job is not ExtractJob)
+                job.ExtractorPrefFolderCond = null;
         }
 
         SetupIndexEditor(job, ctx, ownerList, editors);

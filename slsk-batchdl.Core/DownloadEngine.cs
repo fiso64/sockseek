@@ -295,6 +295,13 @@ public class DownloadEngine
                 if (ej.EnablesIndexByDefault)
                     extracted.EnablesIndexByDefault = true;
 
+                // List/CSV row conditions are attached to the transient ExtractJob first.
+                // Carry them across so profile resolution on the extracted job cannot drop them.
+                extracted.ExtractorCond           ??= ej.ExtractorCond;
+                extracted.ExtractorPrefCond       ??= ej.ExtractorPrefCond;
+                extracted.ExtractorFolderCond     ??= ej.ExtractorFolderCond;
+                extracted.ExtractorPrefFolderCond ??= ej.ExtractorPrefFolderCond;
+
                 // For a single-song JobList, also stamp the inner song (used by RemoveTrackFromSource),
                 // but only if it doesn't already have a LineNumber from extraction (e.g. CSV parsing).
                 if (extracted is JobList ejl && ejl.Jobs.Count == 1 && ejl.Jobs[0] is SongJob innerSong
