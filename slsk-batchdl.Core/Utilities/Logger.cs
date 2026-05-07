@@ -3,6 +3,8 @@ namespace Sldl.Core;
 
 public static class Logger
 {
+    // TODO: Replace this custom global logger with Microsoft.Extensions.Logging as the
+    // app-facing abstraction, and consider Serilog as the concrete CLI/daemon backend.
     public enum LogLevel
     {
         Trace,
@@ -30,6 +32,7 @@ public static class Logger
     private static readonly List<OutputConfig> OutputConfigs = new();
 
     private static readonly Lock LockObject = new();
+    private static readonly Lock FileLockObject = new();
 
     public static void SetupExceptionHandling()
     {
@@ -107,9 +110,15 @@ public static class Logger
             OutputConfigs.RemoveAll(config => !config.IsFileOutput);
     }
 
+    public static void RemoveFileOutputs()
+    {
+        lock (LockObject)
+            OutputConfigs.RemoveAll(config => config.IsFileOutput);
+    }
+
     public static void AddFile(string filePath, LogLevel minimumLevel = LogLevel.Debug, bool prependDate = true, bool prependLogLevel = true)
     {
-        AddOutput(message => File.AppendAllText(filePath, message + '\n'), minimumLevel, prependDate, prependLogLevel, isFileOutput: true);
+        AddOutput(message => AppendLogFile(filePath, message), minimumLevel, prependDate, prependLogLevel, isFileOutput: true);
     }
 
     public static void AddOrReplaceFile(string filePath, LogLevel minimumLevel = LogLevel.Debug, bool prependDate = true, bool prependLogLevel = true)
@@ -119,8 +128,28 @@ public static class Logger
         {
             Directory.CreateDirectory(directoryName);
         }
-        OutputConfigs.RemoveAll(config => config.IsFileOutput);
-        AddOutput(message => File.AppendAllText(filePath, message + '\n'), minimumLevel, prependDate, prependLogLevel, isFileOutput: true);
+        lock (LockObject)
+            OutputConfigs.RemoveAll(config => config.IsFileOutput);
+        AddOutput(message => AppendLogFile(filePath, message), minimumLevel, prependDate, prependLogLevel, isFileOutput: true);
+    }
+
+    private static void AppendLogFile(string filePath, string message)
+    {
+        try
+        {
+            lock (FileLockObject)
+            {
+                using var stream = new FileStream(filePath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                using var writer = new StreamWriter(stream);
+                writer.WriteLine(message);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     public static void Log(LogLevel level, string message, ConsoleColor? color = null, IEnumerable<OutputConfig>? outputs = null)
@@ -140,22 +169,31 @@ public static class Logger
             if (!config.IsConsoleOutput) msg = msg.TrimStart();
             string logEntry = BuildLogEntry(level, msg, config.PrependDate, config.PrependLogLevel);
 
-            if (config.IsConsoleOutput && config.UseConsoleColors && config.ColoredOutput != null)
+            try
             {
-                ConsoleColor targetColor = color ?? level switch
+                if (config.IsConsoleOutput && config.UseConsoleColors && config.ColoredOutput != null)
                 {
-                    LogLevel.Error or LogLevel.Fatal => ConsoleColor.Red,
-                    LogLevel.Warn or LogLevel.DebugError => ConsoleColor.DarkYellow,
-                    _ => ConsoleColor.Gray,
-                };
-                config.ColoredOutput(logEntry, targetColor);
-            }
-            else
-            {
-                if (config.OutputWithLevel != null)
-                    config.OutputWithLevel(level, logEntry);
+                    ConsoleColor targetColor = color ?? level switch
+                    {
+                        LogLevel.Error or LogLevel.Fatal => ConsoleColor.Red,
+                        LogLevel.Warn or LogLevel.DebugError => ConsoleColor.DarkYellow,
+                        _ => ConsoleColor.Gray,
+                    };
+                    config.ColoredOutput(logEntry, targetColor);
+                }
                 else
-                    config.Output(logEntry);
+                {
+                    if (config.OutputWithLevel != null)
+                        config.OutputWithLevel(level, logEntry);
+                    else
+                        config.Output(logEntry);
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
             }
         }
     }
