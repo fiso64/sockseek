@@ -55,7 +55,7 @@ public sealed class EngineEventDtoAdapter
                         folder.Files.Select(ToSongJobPayloadDto).ToList()));
                 }
                 else if (state == JobState.Done)
-                    publish("album.download-completed", new AlbumDownloadCompletedEventDto(getSummary(job)));
+                    publish("album.download-completed", new AlbumDownloadCompletedEventDto(getSummary(job), albumJob.DownloadPath));
             }
             else if (job is ExtractJob extractJob)
             {
@@ -66,7 +66,7 @@ public sealed class EngineEventDtoAdapter
             }
             else if (job is AggregateJob ag && state == JobState.Running)
             {
-                publish("job.status", new JobStatusEventDto(getSummary(job), "downloading"));
+                publish("job.status", new JobStatusEventDto(getSummary(job), "running"));
                 var pending   = ag.Songs.Where(s => s.State == JobState.Pending).ToList();
                 var existing  = ag.Songs.Where(s => s.State == JobState.AlreadyExists).ToList();
                 var notFound  = ag.Songs.Where(s => s.FailureReason == FailureReason.NoSuitableFileFound).ToList();
@@ -96,7 +96,7 @@ public sealed class EngineEventDtoAdapter
         events.DownloadStateChanged += (song, state) => publish("download.state-changed", new DownloadStateChangedEventDto(song.Id, song.WorkflowId, state.ToString()));
         events.OnCompleteStart += song => publish("on-complete.started", new OnCompleteStartedEventDto(song.Id, song.DisplayId, song.WorkflowId, ToSongQueryDto(song.Query)));
         events.OnCompleteEnd += song => publish("on-complete.ended", new OnCompleteEndedEventDto(song.Id, song.DisplayId, song.WorkflowId, ToSongQueryDto(song.Query)));
-        events.SearchRateLimited += () => publish("search.rate-limited", new SearchRateLimitedEventDto());
+        events.SearchRateLimited += resetsAt => publish("search.rate-limited", new SearchRateLimitedEventDto(resetsAt));
         events.SearchResumed += () => publish("search.resumed", new SearchResumedEventDto());
         events.TrackBatchResolved += (job, pending, existing, notFound) => publish("track-batch.resolved", new TrackBatchResolvedEventDto(
             getSummary(job),

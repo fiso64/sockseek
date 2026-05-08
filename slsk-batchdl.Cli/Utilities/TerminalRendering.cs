@@ -35,6 +35,7 @@ internal sealed record JobChildView(
     string State,
     string Name,
     int? Percent = null,
+    long? SpeedBytesPerSecond = null,
     bool IsMostRecent = false);
 
 internal sealed record JobView(
@@ -44,6 +45,7 @@ internal sealed record JobView(
     string Name,
     string State,
     int? Percent = null,
+    long? SpeedBytesPerSecond = null,
     int? DoneChildren = null,
     int? TotalChildren = null,
     IReadOnlyList<JobChildView>? Children = null,
@@ -64,7 +66,8 @@ internal sealed record TerminalJobRecord(
 internal sealed class TerminalLiveRenderer : IDisposable
 {
     private readonly ConcurrentDictionary<string, JobView> _jobs = new();
-    private readonly ConcurrentDictionary<string, TerminalJobRecord> _knownJobs = new();
+    private readonly Dictionary<string, TerminalJobRecord> _knownJobs = new(StringComparer.Ordinal);
+    private int _countQueued, _countActive, _countCompleted, _countFailed;
     private readonly ConcurrentQueue<TerminalLogLine> _logs = new();
     private readonly ConcurrentQueue<string> _rawLogs = new();
     private readonly CancellationTokenSource _cts = new();
@@ -74,6 +77,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
 
     private volatile bool _paused;
     private volatile string? _statusMessage;
+    private long _rateLimitResetTicks; // 0 = not rate-limited; otherwise UTC ticks of reset time
     private int _spinFrame;
     private bool _disposed;
 
@@ -83,6 +87,10 @@ internal sealed class TerminalLiveRenderer : IDisposable
     private static readonly IReadOnlyList<string> SpinFrames = SupportsUnicodeSpinner()
         ? Spinner.Known.Dots.Frames
         : ["|", "/", "-", "\\"];
+
+    private static readonly IReadOnlyList<string> RateLimitSpinFrames = SupportsUnicodeSpinner()
+        ? Spinner.Known.Point.Frames
+        : ["·"];
 
     private static bool SupportsUnicodeSpinner()
     {
@@ -111,6 +119,12 @@ internal sealed class TerminalLiveRenderer : IDisposable
         _statusMessage = message;
     }
 
+    public void SetRateLimited(DateTimeOffset? resetsAt)
+    {
+        if (_disposed) return;
+        Interlocked.Exchange(ref _rateLimitResetTicks, resetsAt?.UtcTicks ?? 0L);
+    }
+
     public void Upsert(JobView job)
     {
         if (_disposed) return;
@@ -120,7 +134,27 @@ internal sealed class TerminalLiveRenderer : IDisposable
     public void UpsertJob(TerminalJobRecord job)
     {
         if (_disposed) return;
-        _knownJobs[job.Id] = job;
+        lock (_sync)
+        {
+            bool isAlbumChild = job.ParentId != null
+                && _knownJobs.TryGetValue(job.ParentId, out var parent)
+                && IsAlbumKind(parent.Kind);
+
+            if (_knownJobs.TryGetValue(job.Id, out var old))
+                ApplyCountDelta(old.State, -1, isAlbumChild);
+
+            _knownJobs[job.Id] = job;
+            ApplyCountDelta(job.State, +1, isAlbumChild);
+        }
+    }
+
+    private void ApplyCountDelta(string state, int delta, bool isAlbumChild)
+    {
+        if (isAlbumChild) return;
+        if (IsQueuedState(state))                  _countQueued    += delta;
+        else if (IsSuccessfulTerminalState(state)) _countCompleted += delta;
+        else if (IsFailedTerminalState(state))     _countFailed    += delta;
+        else if (IsLiveState(state))               _countActive    += delta;
     }
 
     public void Remove(string id)
@@ -149,8 +183,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
         try { _renderTask.Wait(TimeSpan.FromSeconds(2)); }
         catch { }
         Printing.LiveWriteLine = null;
-        var counts = CountKnownJobs(0);
-        AnsiConsole.MarkupLine(BuildCountsMarkup(counts));
+        AnsiConsole.MarkupLine(BuildCountsMarkup(CountKnownJobs()));
         _cts.Dispose();
     }
 
@@ -199,9 +232,10 @@ internal sealed class TerminalLiveRenderer : IDisposable
 
             while (_logs.TryDequeue(out var line))
             {
-                var formatted = FormatLog(line);
-                int pad = Console.IsOutputRedirected ? 0 : Math.Max(0, Console.WindowWidth - 1 - formatted.Length);
-                AnsiConsole.WriteLine(formatted + new string(' ', pad));
+                var markup = FormatLogMarkup(line);
+                var visualLength = Markup.Remove(markup).Length;
+                int pad = Console.IsOutputRedirected ? 0 : Math.Max(0, Console.WindowWidth - 1 - visualLength);
+                AnsiConsole.MarkupLine(markup + new string(' ', pad));
             }
         }
     }
@@ -232,11 +266,22 @@ internal sealed class TerminalLiveRenderer : IDisposable
             .ThenBy(job => job.DisplayId)
             .ToList();
 
-        var counts = CountKnownJobs(CountVisibleJobs(jobs, allJobs));
-        var spin = SpinFrames[_spinFrame++ % SpinFrames.Count];
+        var counts = CountKnownJobs();
+        long resetTicks = Interlocked.Read(ref _rateLimitResetTicks);
+        bool isRateLimited = resetTicks != 0;
+        bool useRateLimitSpinner = isRateLimited
+            && !_jobs.Values.Any(j => string.Equals(j.State, "downloading", StringComparison.OrdinalIgnoreCase));
+        var frames = useRateLimitSpinner ? RateLimitSpinFrames : SpinFrames;
+        var spin = frames[_spinFrame++ % frames.Count];
 
         var statusLine = $"{spin} {BuildCountsMarkup(counts)}";
-        if (_statusMessage is string msg)
+        if (isRateLimited)
+        {
+            var remaining = new DateTimeOffset(new DateTime(resetTicks, DateTimeKind.Utc)) - DateTimeOffset.UtcNow;
+            int secs = Math.Max(0, (int)Math.Ceiling(remaining.TotalSeconds));
+            statusLine += $" | [bold yellow]Search rate limit reached, resuming in {secs}s[/]";
+        }
+        else if (_statusMessage is string msg)
             statusLine += $" | [bold yellow]{Markup.Escape(msg)}[/]";
 
         var rows = new List<LiveRow>
@@ -278,10 +323,10 @@ internal sealed class TerminalLiveRenderer : IDisposable
         => new(new Text(text));
 
     private static LiveRow JobRow(string indent, JobView job, int hiddenChildren)
-        => HangingTextRow($"{indent}{FormatDisplayId(job.DisplayId)}", FormatJobBody(job, hiddenChildren), dimPrefix: true);
+        => HangingTextRow($"{indent}{FormatDisplayId(job.DisplayId)}", FormatJobBodyMarkup(job, hiddenChildren), dimPrefix: true);
 
     private static LiveRow ChildRow(string indent, JobChildView child)
-        => HangingTextRow(indent, FormatChild(child));
+        => HangingTextRow(indent, FormatChildMarkup(child));
 
     private static Dictionary<string, int> AllocateChildLimits(IReadOnlyList<JobView> jobs, int availableRows)
     {
@@ -339,7 +384,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
         return children.Where(child => visibleIds.Contains(child.Id)).ToList();
     }
 
-    private static LiveRow HangingTextRow(string prefix, string text, bool dimPrefix = false)
+    private static LiveRow HangingTextRow(string prefix, string bodyMarkup, bool dimPrefix = false)
     {
         var grid = new Grid
         {
@@ -356,7 +401,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
         {
             Padding = new Padding(0, 0, 0, 0),
         });
-        grid.AddRow(dimPrefix ? new Text(prefix, DimIdStyle) : new Text(prefix), new Text(text));
+        grid.AddRow(dimPrefix ? new Text(prefix, DimIdStyle) : new Text(prefix), new Markup(bodyMarkup));
 
         return new LiveRow(grid);
     }
@@ -387,47 +432,11 @@ internal sealed class TerminalLiveRenderer : IDisposable
             && !string.Equals(state, "cancelled", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(state, "skipped", StringComparison.OrdinalIgnoreCase);
 
-    private (int Active, int Queued, int Completed, int Failed) CountKnownJobs(int liveJobCount)
+    private (int Active, int Queued, int Completed, int Failed) CountKnownJobs()
     {
-        var records = _knownJobs.Values.ToArray();
-        if (records.Length == 0)
-            return (liveJobCount, 0, 0, 0);
-
-        var recordsById = records.ToDictionary(record => record.Id, StringComparer.Ordinal);
-        int queued = 0;
-        int active = 0;
-        int completed = 0;
-        int failed = 0;
-
-        foreach (var record in records)
-        {
-            if (IsAlbumChild(record, recordsById))
-                continue;
-
-            if (IsQueuedState(record.State))
-                queued++;
-            else if (IsSuccessfulTerminalState(record.State))
-                completed++;
-            else if (IsFailedTerminalState(record.State))
-                failed++;
-            else if (IsLiveState(record.State))
-                active++;
-        }
-
-        return (Math.Max(active, liveJobCount), queued, completed, failed);
+        lock (_sync)
+            return (_countActive, _countQueued, _countCompleted, _countFailed);
     }
-
-    private static int CountVisibleJobs(
-        IEnumerable<JobView> jobs,
-        IReadOnlyDictionary<string, JobView> jobsById)
-        => jobs.Count(job => !IsAlbumChild(job, jobsById));
-
-    private static bool IsAlbumChild(
-        TerminalJobRecord record,
-        IReadOnlyDictionary<string, TerminalJobRecord> recordsById)
-        => record.ParentId is string parentId
-            && recordsById.TryGetValue(parentId, out var parent)
-            && IsAlbumKind(parent.Kind);
 
     private static bool IsAlbumChild(
         JobView job,
@@ -443,7 +452,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
     private static string BuildCountsMarkup((int Active, int Queued, int Completed, int Failed) counts)
     {
         var failedPart = counts.Failed > 0 ? $"[red]{counts.Failed}[/]" : $"{counts.Failed}";
-        return $"[cyan]{counts.Active}[/] active, {counts.Queued} queued, [green]{counts.Completed}[/] completed, {failedPart} failed";
+        return $"[cyan]{counts.Active}[/] active · {counts.Queued} queued · [green]{counts.Completed}[/] completed · {failedPart} failed";
     }
 
     private static bool IsQueuedState(string state)
@@ -477,33 +486,126 @@ internal sealed class TerminalLiveRenderer : IDisposable
         }
     }
 
-    private static string FormatJobBody(JobView job, int hiddenChildren)
+    private static string? KindColor(TerminalLogKind kind) => kind switch
     {
-        var prefix = FormatPercentPrefix(job.State, job.Percent);
-        var suffix = "";
-        if (job.TotalChildren is int total)
-            suffix += $" [{job.DoneChildren ?? 0}/{total}]";
+        TerminalLogKind.SongDownloaded or TerminalLogKind.AlbumTrackDownloaded
+            or TerminalLogKind.JobSucceeded or TerminalLogKind.PlaylistCompleted
+            or TerminalLogKind.AggregateCompleted or TerminalLogKind.SongAlreadyExists
+            => "green",
+        TerminalLogKind.SongFailed or TerminalLogKind.AlbumTrackFailed
+            or TerminalLogKind.JobFailed
+            => "red",
+        TerminalLogKind.SongSkipped or TerminalLogKind.AlbumTrackSkipped
+            or TerminalLogKind.JobCancelled
+            => "grey",
+        _ => null,
+    };
+
+    private static string? StateColor(string state)
+    {
+        if (string.Equals(state, "downloading", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(state, "downloading tracks", StringComparison.OrdinalIgnoreCase))
+            return "yellow";
+        if (string.Equals(state, "searching", StringComparison.OrdinalIgnoreCase))
+            return "cyan";
+        if (string.Equals(state, "on-complete", StringComparison.OrdinalIgnoreCase))
+            return "magenta";
+        if (string.Equals(state, "retrieving folder", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(state, "extracting", StringComparison.OrdinalIgnoreCase))
+            return "blue";
+        if (string.Equals(state, "queued (r)", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(state, "queued (l)", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(state, "requested", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(state, "initialising", StringComparison.OrdinalIgnoreCase))
+            return "grey";
+        return null;
+    }
+
+    private static string FormatJobBodyMarkup(JobView job, int hiddenChildren)
+    {
+        bool isAlbum = string.Equals(job.Kind, "Album", StringComparison.OrdinalIgnoreCase);
+
+        string suffix = "";
+        string? stateColor;
+
+        string annotation;
+        if (isAlbum && job.TotalChildren is int albumTotal)
+        {
+            annotation = $" [cyan]{Markup.Escape($"[{job.DoneChildren ?? 0}/{albumTotal}]")}[/]";
+            stateColor = null;
+        }
+        else if (job.Percent is int pct && string.Equals(job.State, "downloading", StringComparison.OrdinalIgnoreCase))
+        {
+            var speedStr = job.SpeedBytesPerSecond is long spd ? $", {FormatSpeed(spd)}" : "";
+            annotation = $" [cyan]{Markup.Escape($"({pct,2}%{speedStr})")}[/]";
+            stateColor = StateColor(job.State);
+            if (job.TotalChildren is int total)
+                suffix += $" [dim]{Markup.Escape($"[{job.DoneChildren ?? 0}/{total}]")}[/]";
+        }
+        else
+        {
+            annotation = "";
+            stateColor = StateColor(job.State);
+            if (job.TotalChildren is int total)
+                suffix += $" [dim]{Markup.Escape($"[{job.DoneChildren ?? 0}/{total}]")}[/]";
+        }
+
         if (hiddenChildren > 0)
-            suffix += $" (+{hiddenChildren} hidden)";
+            suffix += $" [dim]{Markup.Escape($"(+{hiddenChildren} hidden)")}[/]";
 
-        return $"{job.Kind}: {FormatStateLine(job.State, job.Name, prefix, suffix)}";
+        var stateMarkup = stateColor != null
+            ? $"[{stateColor}]{Markup.Escape(job.State)}[/]"
+            : Markup.Escape(job.State);
+
+        return $"{Markup.Escape(job.Kind)}: {stateMarkup}{annotation}: {Markup.Escape(job.Name)}{suffix}";
     }
 
-    private static string FormatChild(JobChildView child)
-        => FormatStateLine(child.State, child.Name, FormatPercentPrefix(child.State, child.Percent));
-
-    private static string FormatStateLine(string state, string name, string prefix = "", string suffix = "")
-        => $"{prefix}{state}: {name}{suffix}";
-
-    private static string FormatPercentPrefix(string state, int? percent)
+    private static string FormatChildMarkup(JobChildView child)
     {
-        return percent is int pct && string.Equals(state, "downloading", StringComparison.OrdinalIgnoreCase)
-            ? $"({pct,2}%) "
-            : "";
+        var stateColor = StateColor(child.State);
+        var stateMarkup = stateColor != null
+            ? $"[{stateColor}]{Markup.Escape(child.State)}[/]"
+            : Markup.Escape(child.State);
+        string annotation = "";
+        if (child.Percent is int pct && string.Equals(child.State, "downloading", StringComparison.OrdinalIgnoreCase))
+        {
+            var speedStr = child.SpeedBytesPerSecond is long spd ? $", {FormatSpeed(spd)}" : "";
+            annotation = $" [cyan]{Markup.Escape($"({pct,2}%{speedStr})")}[/]";
+        }
+        return $"{stateMarkup}{annotation}: {Markup.Escape(child.Name)}";
     }
 
-    private static string FormatLog(TerminalLogLine line)
-        => $"{FormatDisplayId(line.DisplayId)}{line.JobType}: {line.Message}";
+    private static string FormatSpeed(long bytesPerSecond)
+    {
+        if (bytesPerSecond >= 1_000_000) return $"{bytesPerSecond / 1_000_000.0:F1} MB/s";
+        if (bytesPerSecond >= 1_000)     return $"{bytesPerSecond / 1_000.0:F1} KB/s";
+        return $"{bytesPerSecond} B/s";
+    }
+
+    private static string FormatLogMarkup(TerminalLogLine line)
+    {
+        int pathLineIdx = line.Message.IndexOf("\n    ", StringComparison.Ordinal);
+        var mainPart = pathLineIdx >= 0 ? line.Message[..pathLineIdx] : line.Message;
+        var pathPart = pathLineIdx >= 0 ? line.Message[pathLineIdx..] : null;
+
+        var color = KindColor(line.Kind);
+        string mainMarkup;
+        if (color != null)
+        {
+            int colonIdx = mainPart.IndexOf(": ", StringComparison.Ordinal);
+            if (colonIdx >= 0)
+                mainMarkup = $"[{color}]{Markup.Escape(mainPart[..colonIdx])}[/]: {Markup.Escape(mainPart[(colonIdx + 2)..])}";
+            else
+                mainMarkup = $"[{color}]{Markup.Escape(mainPart)}[/]";
+        }
+        else
+        {
+            mainMarkup = Markup.Escape(mainPart);
+        }
+
+        var pathMarkup = pathPart != null ? $"[dim]{Markup.Escape(pathPart)}[/]" : "";
+        return $"[dim]{Markup.Escape(FormatDisplayId(line.DisplayId))}[/]{Markup.Escape(line.JobType)}: {mainMarkup}{pathMarkup}";
+    }
 
     private static string FormatDisplayId(int displayId)
         => $"[{displayId:000}] ";

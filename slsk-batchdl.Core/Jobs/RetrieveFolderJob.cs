@@ -21,9 +21,10 @@ namespace Sldl.Core.Jobs;
         public RetrieveFolderJob(AlbumFolder targetFolder)
         {
             TargetFolder = targetFolder;
+            ItemName = $"{targetFolder.Username}\\{targetFolder.FolderPath.Replace('/', '\\').TrimStart('\\')}";
         }
 
         public override SongQuery? QueryTrack => null;
-        public override string ToString() => $"RetrieveFolderJob: {TargetFolder.FolderPath}";
+        public override string ToString() => ItemName ?? TargetFolder.FolderPath;
         protected override bool DefaultCanBeSkipped => false;
     }

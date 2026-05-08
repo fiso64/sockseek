@@ -731,6 +731,21 @@ public class DownloadEngine
                     break;
 
                 case AggregateJob ag:
+                    // TODO [ARCHITECTURE]: AggregateJob processes songs via ProcessAggregateJob /
+                    // DownloadEmbeddedSong rather than the standard ProcessJob pipeline that
+                    // AlbumAggregateJob uses (wrapping results in a JobList). As a result songs
+                    // are not individually registered upfront and are invisible to the state store
+                    // until DownloadEmbeddedSong registers them one-by-one as they are dispatched.
+                    // This pre-registration is a workaround. The proper fix is to align AggregateJob
+                    // with AlbumAggregateJob: wrap pending songs in a JobList after skip-checking
+                    // and process it through ProcessJob, giving songs first-class lifecycle tracking
+                    // without this manual step.
+                    foreach (var song in ag.Songs.Where(s => s.State == JobState.Pending))
+                    {
+                        song.WorkflowId = ag.WorkflowId;
+                        song.Config = config;
+                        RegisterJob(song, ag);
+                    }
                     ag.UpdateState(JobState.Running);
                     await ProcessAggregateJob(ag, ctx);
                     break;
@@ -1501,7 +1516,6 @@ public class DownloadEngine
         {
             var completedJob = new RetrieveFolderJob(folder)
             {
-                ItemName = folder.FolderPath,
                 WorkflowId = parentJob.WorkflowId,
                 Config = parentJob.Config,
                 RetrievalOutcome = FolderRetrievalOutcome.Completed,
@@ -1509,7 +1523,7 @@ public class DownloadEngine
             return completedJob;
         }
 
-        var rfJob = new RetrieveFolderJob(folder) { ItemName = folder.FolderPath, WorkflowId = parentJob.WorkflowId, Config = parentJob.Config };
+        var rfJob = new RetrieveFolderJob(folder) { WorkflowId = parentJob.WorkflowId, Config = parentJob.Config };
         rfJob.Cts = CancellationTokenSource.CreateLinkedTokenSource(appCts.Token, parentJob.Cts!.Token);
         RegisterJob(rfJob, parentJob);
         rfJob.UpdateState(JobState.Searching);

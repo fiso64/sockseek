@@ -141,12 +141,13 @@ public sealed record AlbumTrackDownloadStartedEventDto(
 /// Activity event emitted when album download processing completes.
 /// </summary>
 public sealed record AlbumDownloadCompletedEventDto(
-    JobSummaryDto Summary);
+    JobSummaryDto Summary,
+    string? DownloadPath = null);
 
 /// <summary>
 /// Activity event emitted once per rate-limit window when the search semaphore is exhausted.
 /// </summary>
-public sealed record SearchRateLimitedEventDto();
+public sealed record SearchRateLimitedEventDto(DateTimeOffset ResetsAt);
 
 /// <summary>
 /// Activity event emitted when the rate-limit window resets and searching resumes.

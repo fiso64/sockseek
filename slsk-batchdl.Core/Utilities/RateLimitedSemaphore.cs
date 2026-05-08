@@ -38,6 +38,9 @@ namespace Sldl.Core;
         }
     }
 
+    public DateTimeOffset NextResetTime
+        => new(new DateTime(Interlocked.Read(ref nextResetTimeTicks), DateTimeKind.Utc));
+
     public async Task WaitAsync(Action? onWaiting = null, Action? onResumed = null, CancellationToken cancellationToken = default)
     {
         TryResetSemaphore();
