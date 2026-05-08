@@ -315,21 +315,37 @@ namespace Tests.EndToEnd
             Directory.CreateDirectory(outputDir);
             Directory.CreateDirectory(failedDir);
 
-            var response = new Soulseek.SearchResponse(
-                "user", 1, true, 100_000, 0,
-                [
-                    TestHelpers.CreateSlFile(@"Music\Test Artist\Test Album\01. Test Artist - First.mp3", length: 180),
-                    TestHelpers.CreateSlFile(@"Music\Test Artist\Test Album\02. Test Artist - Second.mp3", length: 181),
-                ]);
-            var testClient = new ClientTests.MockSoulseekClient([response])
-            {
-                BeforeDownloadCompletesAsync = (_, remoteFilename, _) =>
-                {
-                    if (remoteFilename.Contains("Second.mp3", StringComparison.OrdinalIgnoreCase))
-                        throw new Soulseek.SoulseekClientException("Simulated partial album failure");
+            var completedAlbumDir = Path.Combine(outputDir, "Test Album");
+            Directory.CreateDirectory(completedAlbumDir);
+            var completedPath = Path.Combine(completedAlbumDir, "01. Test Artist - First.mp3");
+            File.WriteAllBytes(completedPath, TestHelpers.EmptyMp3Bytes);
 
-                    return Task.CompletedTask;
-                },
+            var completedRemoteFile = TestHelpers.CreateSlFile(@"Music\Test Artist\Test Album\01. Test Artist - First.mp3", length: 180);
+            var failingRemoteFile = TestHelpers.CreateSlFile(@"Music\Test Artist\Test Album\02. Test Artist - Second.mp3", length: 181);
+            var response = new Soulseek.SearchResponse(
+                "failuser", 1, true, 100_000, 0,
+                [completedRemoteFile, failingRemoteFile]);
+            var testClient = new ClientTests.MockSoulseekClient([response], failingUsers: ["failuser"]);
+
+            var completedSong = new SongJob(new SongQuery { Artist = "Test Artist", Album = "Test Album", Title = "First" })
+            {
+                ResolvedTarget = new FileCandidate(response, completedRemoteFile),
+            };
+            completedSong.SetDone(completedPath);
+            var failingSong = new SongJob(new SongQuery { Artist = "Test Artist", Album = "Test Album", Title = "Second" })
+            {
+                ResolvedTarget = new FileCandidate(response, failingRemoteFile),
+            };
+            var folder = new AlbumFolder(
+                response.Username,
+                Utils.GetDirectoryNameSlsk(failingRemoteFile.Filename),
+                [completedSong, failingSong])
+                {
+                    IsFullyRetrieved = true,
+                };
+            var album = new AlbumJob(new AlbumQuery { Artist = "Test Artist", Album = "Test Album" })
+            {
+                Results = [folder],
             };
 
             try
@@ -347,7 +363,7 @@ namespace Tests.EndToEnd
                 settings.Transfer.MaxDownloadRetries = 1;
 
                 var app = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(testClient, engineSettings));
-                app.Enqueue(new ExtractJob(settings.Extraction.Input!, settings.Extraction.InputType), settings);
+                app.Enqueue(album, settings);
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
