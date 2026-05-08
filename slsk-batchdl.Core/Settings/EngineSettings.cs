@@ -35,7 +35,7 @@ public class EngineSettings
     /// Global limit for concurrent leaf work. Counts direct song jobs, album jobs,
     /// aggregate child song jobs, album-aggregate child album jobs, and standalone
     /// folder retrievals. Does not count extractor jobs or song jobs inside albums.
-    public int ConcurrentJobs { get; set; } = int.MaxValue;
+    public int ConcurrentJobs { get; set; } = 20;
 
     public int ConcurrentSearches { get; set; } = 2;
 
