@@ -166,7 +166,9 @@ public sealed record JobListPayloadDto(
 public sealed record RetrieveFolderJobPayloadDto(
     string FolderPath,
     string Username,
-    int NewFilesFoundCount) : JobPayloadDto;
+    int NewFilesFoundCount,
+    ServerFolderRetrievalOutcome RetrievalOutcome,
+    bool RetrievalCancelled) : JobPayloadDto;
 
 /// <summary>
 /// Fallback payload for job kinds without a specialized DTO.

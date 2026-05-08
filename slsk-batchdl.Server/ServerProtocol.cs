@@ -105,6 +105,26 @@ public enum ServerFailureReason
 }
 
 /// <summary>
+/// Outcome of a retrieve-folder job.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ServerFolderRetrievalOutcome>))]
+public enum ServerFolderRetrievalOutcome
+{
+    /// <summary>Folder retrieval has not finished yet.</summary>
+    [JsonStringEnumMemberName(ServerProtocol.FolderRetrievalOutcomes.None)]
+    None,
+    /// <summary>Folder retrieval completed successfully.</summary>
+    [JsonStringEnumMemberName(ServerProtocol.FolderRetrievalOutcomes.Completed)]
+    Completed,
+    /// <summary>Folder retrieval was cancelled.</summary>
+    [JsonStringEnumMemberName(ServerProtocol.FolderRetrievalOutcomes.Cancelled)]
+    Cancelled,
+    /// <summary>Folder retrieval failed for a non-cancellation reason.</summary>
+    [JsonStringEnumMemberName(ServerProtocol.FolderRetrievalOutcomes.Failed)]
+    Failed,
+}
+
+/// <summary>
 /// Action identifiers used by ResourceActionDto.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<ServerResourceActionKind>))]
@@ -193,6 +213,18 @@ public static class ServerProtocol
         public const ServerFailureReason Other = ServerFailureReason.Other;
         public const ServerFailureReason ExtractionFailed = ServerFailureReason.ExtractionFailed;
         public const ServerFailureReason Cancelled = ServerFailureReason.Cancelled;
+    }
+
+    /// <summary>
+    /// Compatibility aliases for <see cref="ServerFolderRetrievalOutcome"/> values.
+    /// Prefer <see cref="ServerFolderRetrievalOutcome"/> directly in new .NET code.
+    /// </summary>
+    public static class FolderRetrievalOutcomes
+    {
+        public const string None = "none";
+        public const string Completed = "completed";
+        public const string Cancelled = "cancelled";
+        public const string Failed = "failed";
     }
 
     /// <summary>

@@ -300,7 +300,8 @@ internal sealed class LocalCliBackend
         if (folder == null)
             throw new ArgumentException("Requested folder was not found in this search job.");
 
-        return await engine.ProcessFolderRetrieval(folder, searchJob);
+        var retrieveJob = await engine.ProcessFolderRetrieval(folder, searchJob);
+        return retrieveJob.NewFilesFoundCount;
     }
 
     public Task<IReadOnlyList<JobSummaryDto>?> StartFileDownloadsAsync(Guid searchJobId, StartFileDownloadsRequestDto request, CancellationToken ct = default)

@@ -228,7 +228,7 @@ public partial class Searcher
             {
                 allFiles = await GetAllFilesInFolder(folder.Username, folder.FolderPath, ct);
             }
-            catch (OperationCanceledException) { return 0; }
+            catch (OperationCanceledException) { throw; }
             catch (Exception e) { Logger.Error($"Error getting all files in '{folder.FolderPath}': {e}"); return 0; }
 
             var existing = folder.Files.Select(f => f.ResolvedTarget!.Filename).ToHashSet();
@@ -250,6 +250,10 @@ public partial class Searcher
             }
 
             folder.IsFullyRetrieved = true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

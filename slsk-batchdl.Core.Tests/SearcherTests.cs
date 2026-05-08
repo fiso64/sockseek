@@ -209,6 +209,88 @@ namespace Tests.Unit
         }
 
         [TestMethod]
+        public void AlbumFolders_MinTrackCount_FiltersNormalAlbumSearchResult()
+        {
+            var track = TestHelpers.CreateSlFile(@"ELO\Time\01. Twilight.flac", length: 209);
+            var response = new SearchResponse("User1", 1, true, 1000, 0, [track]);
+            var search = TestHelpers.CreateDefaultSettings().Download.Search;
+            search.NecessaryFolderCond.MinTrackCount = 10;
+            var query = new AlbumQuery { Artist = "ELO", Album = "Time" };
+
+            var folders = SearchResultProjector.AlbumFolders([(response, track)], query, search);
+
+            Assert.AreEqual(0, folders.Count,
+                "A normal album search result with too few visible tracks should be filtered before slow folder browsing.");
+        }
+
+        [TestMethod]
+        public void AlbumFolders_MinTrackCount_DoesNotFilterTrackHintNetworkSearchResult()
+        {
+            var track = TestHelpers.CreateSlFile(@"ELO\Time\01. Twilight.flac", length: 209);
+            var response = new SearchResponse("User1", 1, true, 1000, 0, [track]);
+            var search = TestHelpers.CreateDefaultSettings().Download.Search;
+            search.NecessaryFolderCond.MinTrackCount = 10;
+            var query = new AlbumQuery { Artist = "ELO", SearchHint = "Twilight" };
+
+            var folders = SearchResultProjector.AlbumFolders([(response, track)], query, search);
+
+            Assert.AreEqual(1, folders.Count,
+                "When SearchHint supplies the network query, visible results may be only the hinted track and must not prove min-count failure.");
+            Assert.AreEqual(@"ELO\Time", folders[0].FolderPath);
+            Assert.AreEqual(1, folders[0].SearchAudioFileCount);
+            Assert.IsFalse(folders[0].IsFullyRetrieved);
+        }
+
+        [TestMethod]
+        public void AlbumFolders_MinTrackCount_DoesNotFilterStrictTitleSearchHintResult()
+        {
+            var track = TestHelpers.CreateSlFile(@"ELO\Time\01. Twilight.flac", length: 209);
+            var response = new SearchResponse("User1", 1, true, 1000, 0, [track]);
+            var search = TestHelpers.CreateDefaultSettings().Download.Search;
+            search.NecessaryFolderCond.MinTrackCount = 10;
+            search.NecessaryCond.StrictTitle = true;
+            var query = new AlbumQuery { Artist = "ELO", Album = "Time", SearchHint = "Twilight" };
+
+            var folders = SearchResultProjector.AlbumFolders([(response, track)], query, search);
+
+            Assert.AreEqual(1, folders.Count,
+                "When SearchHint can become a title filter, visible results may be partial and must not prove min-count failure.");
+            Assert.AreEqual(@"ELO\Time", folders[0].FolderPath);
+        }
+
+        [TestMethod]
+        public void AlbumFolders_MaxTrackCount_FiltersVisibleOverflow()
+        {
+            var track1 = TestHelpers.CreateSlFile(@"ELO\Time\01. Twilight.flac", length: 209);
+            var track2 = TestHelpers.CreateSlFile(@"ELO\Time\02. Yours Truly.flac", length: 200);
+            var response = new SearchResponse("User1", 1, true, 1000, 0, [track1, track2]);
+            var search = TestHelpers.CreateDefaultSettings().Download.Search;
+            search.NecessaryFolderCond.MaxTrackCount = 1;
+            var query = new AlbumQuery { Artist = "ELO", Album = "Time" };
+
+            var folders = SearchResultProjector.AlbumFolders([(response, track1), (response, track2)], query, search);
+
+            Assert.AreEqual(0, folders.Count,
+                "A search result with more visible tracks than the max proves the complete folder cannot satisfy the max.");
+        }
+
+        [TestMethod]
+        public void IncrementalAlbumFolderChanges_MinTrackCount_FiltersNormalAlbumSearchResult()
+        {
+            var track = TestHelpers.CreateSlFile(@"ELO\Time\01. Twilight.flac", length: 209);
+            var response = new SearchResponse("User1", 1, true, 1000, 0, [track]);
+            var search = TestHelpers.CreateDefaultSettings().Download.Search;
+            search.NecessaryFolderCond.MinTrackCount = 10;
+            var query = new AlbumQuery { Artist = "ELO", Album = "Time" };
+            var incremental = new IncrementalAlbumFolderProjector(query, search);
+
+            var changes = incremental.AddRangeAndGetChanges([(response, track)]);
+
+            Assert.AreEqual(0, changes.Added.Count);
+            Assert.AreEqual(0, changes.Folders.Count);
+        }
+
+        [TestMethod]
         public void IncrementalAlbumFolders_CollapsesDiscFoldersLikeFullAlbumFolders()
         {
             var disc1File = TestHelpers.CreateSlFile(@"ELO\Time\CD 1\01. Twilight.flac", length: 209);

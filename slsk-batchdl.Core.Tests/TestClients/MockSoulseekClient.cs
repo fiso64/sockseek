@@ -18,6 +18,9 @@ namespace Tests.ClientTests
 
         public int SearchesCancelledMidDelay { get; private set; }
         public int DownloadCallCount;
+        public int BrowseCallCount;
+        public int DownloadCallCountAtFirstBrowse = -1;
+        public Action? BrowseStarted;
         public bool IsDisposed { get; private set; }
 
         public MockSoulseekClient(List<Soulseek.SearchResponse> index, bool slowMode = false, int searchDelayMs = 0, IEnumerable<string>? failingUsers = null)
@@ -117,8 +120,16 @@ namespace Tests.ClientTests
             return Task.CompletedTask;
         }
 
-        public Task<BrowseResponse> BrowseAsync(string username, BrowseOptions? options = null, CancellationToken? cancellationToken = null)
+        public async Task<BrowseResponse> BrowseAsync(string username, BrowseOptions? options = null, CancellationToken? cancellationToken = null)
         {
+            if (Interlocked.Increment(ref BrowseCallCount) == 1)
+                DownloadCallCountAtFirstBrowse = Volatile.Read(ref DownloadCallCount);
+
+            BrowseStarted?.Invoke();
+            var ct = cancellationToken.GetValueOrDefault(CancellationToken.None);
+            await Task.Yield();
+            ct.ThrowIfCancellationRequested();
+
             var user = index.FirstOrDefault(x => x.Username == username);
 
             if (user == null)
@@ -139,7 +150,7 @@ namespace Tests.ClientTests
                     )).ToList()
                 ));
 
-            return Task.FromResult(new BrowseResponse(directories));
+            return new BrowseResponse(directories);
         }
 
         public Task<(Search Search, IReadOnlyCollection<SearchResponse> Responses)> SearchAsync(SearchQuery query, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)

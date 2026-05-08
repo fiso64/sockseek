@@ -540,6 +540,302 @@ namespace Tests.Eventing
         }
 
         [TestMethod]
+        public async Task AlbumTrackCount_BrowsesAndChecksRequiredCountsBeforeDownloadEvenWhenNoBrowseFolder()
+        {
+            async Task RunCase(
+                string caseName,
+                int visibleCount,
+                int fullCount,
+                int? minTrackCount,
+                int? maxTrackCount,
+                bool shouldDownload)
+            {
+                var outputDir = Path.Combine(Path.GetTempPath(), "slsk-track-count-precheck-" + caseName + "-" + Guid.NewGuid());
+                System.IO.Directory.CreateDirectory(outputDir);
+
+                try
+                {
+                    var files = AlbumFiles(fullCount, $@"Music\Artist\{caseName}");
+                    var response = new SearchResponse(
+                        username: caseName,
+                        token: 1,
+                        hasFreeUploadSlot: true,
+                        uploadSpeed: 100_000,
+                        queueLength: 0,
+                        fileList: files);
+                    var folder = AlbumFolderFromSearch(response, files.Take(visibleCount));
+                    var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = caseName })
+                    {
+                        Results = [folder],
+                    };
+
+                    var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                    var downloadSettings = AlbumDownloadSettings(outputDir);
+                    downloadSettings.Search.NoBrowseFolder = true;
+                    downloadSettings.Search.NecessaryFolderCond.MinTrackCount = minTrackCount;
+                    downloadSettings.Search.NecessaryFolderCond.MaxTrackCount = maxTrackCount;
+
+                    var client = new ClientTests.MockSoulseekClient([response]);
+                    var clientManager = TestHelpers.CreateMockClientManager(client, engineSettings);
+                    var engine = new DownloadEngine(engineSettings, clientManager);
+                    var downloadsStarted = 0;
+                    engine.Events.DownloadStarted += (_, _) => downloadsStarted++;
+
+                    engine.Enqueue(album, downloadSettings);
+                    engine.CompleteEnqueue();
+
+                    await engine.RunAsync(CancellationToken.None);
+
+                    Assert.AreEqual(1, client.BrowseCallCount, $"{caseName}: track-count verification must browse before download even with NoBrowseFolder enabled.");
+                    Assert.AreEqual(0, client.DownloadCallCountAtFirstBrowse, $"{caseName}: browse must happen before the first download attempt.");
+
+                    if (shouldDownload)
+                    {
+                        Assert.AreEqual(JobState.Done, album.State, $"{caseName}: album should download after browse confirms the track count.");
+                        Assert.AreEqual(fullCount, downloadsStarted, $"{caseName}: browse should reveal and download the full matching folder.");
+                    }
+                    else
+                    {
+                        Assert.AreEqual(JobState.Failed, album.State, $"{caseName}: album should fail track-count verification before any download starts.");
+                        Assert.AreEqual(0, downloadsStarted, $"{caseName}: failed track-count verification must prevent downloads.");
+                        Assert.AreEqual(0, client.DownloadCallCount, $"{caseName}: failed track-count verification must prevent download calls.");
+                    }
+                }
+                finally
+                {
+                    if (System.IO.Directory.Exists(outputDir))
+                        System.IO.Directory.Delete(outputDir, true);
+                }
+            }
+
+            await RunCase(
+                caseName: "min-needs-browse",
+                visibleCount: 1,
+                fullCount: 3,
+                minTrackCount: 3,
+                maxTrackCount: null,
+                shouldDownload: true);
+
+            await RunCase(
+                caseName: "max-needs-browse",
+                visibleCount: 1,
+                fullCount: 3,
+                minTrackCount: null,
+                maxTrackCount: 2,
+                shouldDownload: false);
+        }
+
+        [TestMethod]
+        public async Task AlbumTrackCount_BrowsesBeforeDownloadOnlyWhenCurrentKnowledgeCannotProveCounts()
+        {
+            async Task RunCase(
+                string caseName,
+                int visibleCount,
+                int fullCount,
+                int? minTrackCount,
+                int? maxTrackCount,
+                bool markFullyRetrieved,
+                bool preselect,
+                bool expectBrowse,
+                bool shouldDownload)
+            {
+                var outputDir = Path.Combine(Path.GetTempPath(), "slsk-track-count-skip-browse-" + caseName + "-" + Guid.NewGuid());
+                System.IO.Directory.CreateDirectory(outputDir);
+
+                try
+                {
+                    var files = AlbumFiles(fullCount, $@"Music\Artist\{caseName}");
+                    var response = new SearchResponse(
+                        username: caseName,
+                        token: 1,
+                        hasFreeUploadSlot: true,
+                        uploadSpeed: 100_000,
+                        queueLength: 0,
+                        fileList: files);
+                    var folder = AlbumFolderFromSearch(response, files.Take(visibleCount));
+                    folder.IsFullyRetrieved = markFullyRetrieved;
+                    var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = caseName })
+                    {
+                        Results = [folder],
+                        ResolvedTarget = preselect ? folder : null,
+                    };
+
+                    var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                    var downloadSettings = AlbumDownloadSettings(outputDir);
+                    downloadSettings.Search.NoBrowseFolder = true;
+                    downloadSettings.Search.NecessaryFolderCond.MinTrackCount = minTrackCount;
+                    downloadSettings.Search.NecessaryFolderCond.MaxTrackCount = maxTrackCount;
+
+                    var client = new ClientTests.MockSoulseekClient([response]);
+                    var clientManager = TestHelpers.CreateMockClientManager(client, engineSettings);
+                    var engine = new DownloadEngine(engineSettings, clientManager);
+                    var downloadsStarted = 0;
+                    engine.Events.DownloadStarted += (_, _) => downloadsStarted++;
+
+                    engine.Enqueue(album, downloadSettings);
+                    engine.CompleteEnqueue();
+
+                    await engine.RunAsync(CancellationToken.None);
+
+                    Assert.AreEqual(expectBrowse ? 1 : 0, client.BrowseCallCount, $"{caseName}: unexpected pre-download browse count.");
+                    if (expectBrowse)
+                        Assert.AreEqual(0, client.DownloadCallCountAtFirstBrowse, $"{caseName}: browse must happen before downloading.");
+
+                    if (shouldDownload)
+                    {
+                        Assert.AreEqual(JobState.Done, album.State, $"{caseName}: album should download.");
+                        Assert.AreEqual(visibleCount, downloadsStarted, $"{caseName}: NoBrowseFolder should keep download limited to the known files when no correctness browse is needed.");
+                    }
+                    else
+                    {
+                        Assert.AreEqual(JobState.Failed, album.State, $"{caseName}: album should fail before download.");
+                        Assert.AreEqual(0, downloadsStarted, $"{caseName}: failed track-count verification must prevent downloads.");
+                    }
+                }
+                finally
+                {
+                    if (System.IO.Directory.Exists(outputDir))
+                        System.IO.Directory.Delete(outputDir, true);
+                }
+            }
+
+            await RunCase(
+                caseName: "known-min-passes",
+                visibleCount: 3,
+                fullCount: 3,
+                minTrackCount: 2,
+                maxTrackCount: null,
+                markFullyRetrieved: false,
+                preselect: false,
+                expectBrowse: false,
+                shouldDownload: true);
+
+            await RunCase(
+                caseName: "known-min-passes-but-max-may-fail",
+                visibleCount: 2,
+                fullCount: 3,
+                minTrackCount: 2,
+                maxTrackCount: 2,
+                markFullyRetrieved: false,
+                preselect: false,
+                expectBrowse: true,
+                shouldDownload: false);
+
+            await RunCase(
+                caseName: "already-browsed",
+                visibleCount: 2,
+                fullCount: 2,
+                minTrackCount: 2,
+                maxTrackCount: 2,
+                markFullyRetrieved: true,
+                preselect: true,
+                expectBrowse: false,
+                shouldDownload: true);
+        }
+
+        [TestMethod]
+        public async Task AlbumTrackCount_CancelledVerificationBrowseSkipsOnlyThatFolder()
+        {
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-track-count-cancel-browse-" + Guid.NewGuid());
+            System.IO.Directory.CreateDirectory(outputDir);
+
+            try
+            {
+                var cancelledFiles = AlbumFiles(3, @"Music\Artist\cancelled-folder");
+                var matchingFiles = AlbumFiles(2, @"Music\Artist\matching-folder");
+                var cancelledResponse = new SearchResponse("cancelled-user", 1, true, 100_000, 0, cancelledFiles);
+                var matchingResponse = new SearchResponse("matching-user", 1, true, 100_000, 0, matchingFiles);
+                var cancelledFolder = AlbumFolderFromSearch(cancelledResponse, cancelledFiles.Take(2));
+                var matchingFolder = AlbumFolderFromSearch(matchingResponse, matchingFiles.Take(2));
+                var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
+                {
+                    Results = [cancelledFolder, matchingFolder],
+                };
+
+                var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                var downloadSettings = AlbumDownloadSettings(outputDir);
+                downloadSettings.Search.NoBrowseFolder = true;
+                downloadSettings.Search.NecessaryFolderCond.MaxTrackCount = 2;
+
+                var client = new ClientTests.MockSoulseekClient([cancelledResponse, matchingResponse]);
+                var clientManager = TestHelpers.CreateMockClientManager(client, engineSettings);
+                var engine = new DownloadEngine(engineSettings, clientManager);
+                var retrieveJobs = new List<RetrieveFolderJob>();
+                var completedRetrieveJobs = new List<RetrieveFolderJob>();
+                var downloadsStarted = 0;
+
+                engine.Events.JobRegistered += (job, _) =>
+                {
+                    if (job is RetrieveFolderJob retrieveJob)
+                        retrieveJobs.Add(retrieveJob);
+                };
+                engine.Events.JobExecutionCompleted += job =>
+                {
+                    if (job is RetrieveFolderJob retrieveJob)
+                        completedRetrieveJobs.Add(retrieveJob);
+                };
+                engine.Events.DownloadStarted += (_, _) => downloadsStarted++;
+                client.BrowseStarted = () =>
+                {
+                    if (client.BrowseCallCount == 1)
+                        retrieveJobs.Single().Cancel();
+                };
+
+                engine.Enqueue(album, downloadSettings);
+                engine.CompleteEnqueue();
+
+                await engine.RunAsync(CancellationToken.None);
+
+                Assert.AreEqual(JobState.Done, album.State, "Cancelling one verification browse should not cancel the whole album when another folder can match.");
+                Assert.AreEqual(matchingFolder, album.ResolvedTarget, "The cancelled folder must be skipped instead of downloaded without a verified max count.");
+                Assert.AreEqual(2, downloadsStarted, "Only the verified matching folder should download.");
+                Assert.AreEqual(2, client.DownloadCallCount, "The cancelled folder must not start any downloads.");
+                Assert.AreEqual(2, client.BrowseCallCount, "The cancelled folder and then the matching folder should each be browsed.");
+                Assert.AreEqual(JobState.Failed, retrieveJobs[0].State, "The cancelled browse job should be failed.");
+                Assert.AreEqual(FailureReason.Cancelled, retrieveJobs[0].FailureReason, "The cancelled browse job should preserve its cancellation reason.");
+                Assert.AreEqual(FolderRetrievalOutcome.Cancelled, retrieveJobs[0].RetrievalOutcome, "The cancelled browse job should expose its retrieval outcome.");
+                Assert.AreEqual(FolderRetrievalOutcome.Completed, retrieveJobs[1].RetrievalOutcome, "The successful browse job should expose its retrieval outcome.");
+                Assert.IsTrue(completedRetrieveJobs.Contains(retrieveJobs[0]), "Embedded retrieve jobs should report execution completion after cancellation.");
+            }
+            finally
+            {
+                if (System.IO.Directory.Exists(outputDir))
+                    System.IO.Directory.Delete(outputDir, true);
+            }
+        }
+
+        private static List<Soulseek.File> AlbumFiles(int count, string folder)
+        {
+            var files = new List<Soulseek.File>();
+            for (int i = 1; i <= count; i++)
+                files.Add(TestHelpers.CreateSlFile($@"{folder}\{i:D2}. Artist - Track {i:D2}.mp3", bitrate: 320, length: 180 + i));
+            return files;
+        }
+
+        private static AlbumFolder AlbumFolderFromSearch(SearchResponse response, IEnumerable<Soulseek.File> files)
+        {
+            var visibleFiles = files.ToList();
+            var songs = visibleFiles
+                .Select(file => new SongJob(new SongQuery { Artist = "Artist", Album = Utils.GetBaseNameSlsk(Utils.GetDirectoryNameSlsk(file.Filename)), Title = Path.GetFileNameWithoutExtension(file.Filename) })
+                {
+                    ResolvedTarget = new FileCandidate(response, file),
+                })
+                .ToList();
+
+            return new AlbumFolder(response.Username, Utils.GetDirectoryNameSlsk(visibleFiles.First().Filename), songs);
+        }
+
+        private static DownloadSettings AlbumDownloadSettings(string outputDir)
+        {
+            var settings = new DownloadSettings();
+            settings.Output.ParentDir = outputDir;
+            settings.Output.WriteIndex = false;
+            settings.Output.HasConfiguredIndex = true;
+            settings.Skip.SkipExisting = false;
+            return settings;
+        }
+
+        [TestMethod]
         public async Task EngineEvents_AlbumJob_ExposesResolvedTarget_OnDownloadingState()
         {
             var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };

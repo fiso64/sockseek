@@ -8,6 +8,7 @@ namespace Sldl.Server;
 [JsonSerializable(typeof(ServerInfoDto))]
 [JsonSerializable(typeof(ServerStatusDto))]
 [JsonSerializable(typeof(SoulseekClientStatusDto))]
+[JsonSerializable(typeof(ServerFolderRetrievalOutcome))]
 [JsonSerializable(typeof(ProfileSummaryDto))]
 [JsonSerializable(typeof(ApiErrorDto))]
 [JsonSerializable(typeof(CancelWorkflowResponseDto))]

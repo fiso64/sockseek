@@ -596,7 +596,9 @@ public sealed class EngineStateStore
             RetrieveFolderJob retrieveFolderJob => new RetrieveFolderJobPayloadDto(
                 retrieveFolderJob.TargetFolder.FolderPath,
                 retrieveFolderJob.TargetFolder.Username,
-                retrieveFolderJob.NewFilesFoundCount),
+                retrieveFolderJob.NewFilesFoundCount,
+                ToServerFolderRetrievalOutcome(retrieveFolderJob.RetrievalOutcome),
+                retrieveFolderJob.RetrievalCancelled),
             _ => new GenericJobPayloadDto(job.ToString(noInfo: true))
         };
 
@@ -750,6 +752,9 @@ public sealed class EngineStateStore
         => reason == FailureReason.None
             ? null
             : Enum.Parse<ServerFailureReason>(reason.ToString());
+
+    public static ServerFolderRetrievalOutcome ToServerFolderRetrievalOutcome(FolderRetrievalOutcome outcome)
+        => Enum.Parse<ServerFolderRetrievalOutcome>(outcome.ToString());
 
     private static bool IsActiveJobState(JobState state)
         => state is JobState.Pending or JobState.Searching or JobState.Downloading or JobState.Extracting;

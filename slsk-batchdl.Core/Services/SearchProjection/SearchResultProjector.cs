@@ -130,14 +130,21 @@ public static partial class SearchResultProjector
 
         int? min = search.NecessaryFolderCond.MinTrackCount;
         int? max = search.NecessaryFolderCond.MaxTrackCount;
+        bool searchResultsLikelyContainCompleteAlbumFolders =
+            SearchResultsLikelyContainCompleteAlbumFolders(query, search);
         var folders = new List<AlbumFolder>();
         var inferDefault = new SongQuery { Artist = query.Artist, Album = query.Album };
 
         foreach (var (_, folder) in dirStructure)
         {
             if (folder.MusicCount == 0) continue;
+            // Search results can prove a folder has at least the visible audio files.
+            // That always proves max-count overflow, and it can prove min-count
+            // underflow when the search itself was not narrowed to a track hint.
+            if (min is { } minCount && minCount > 0
+                && searchResultsLikelyContainCompleteAlbumFolders
+                && folder.MusicCount < minCount) continue;
             if (max is { } maxCount && folder.MusicCount > maxCount) continue;
-            if (min is { } minCount and > 0 && folder.MusicCount < minCount) continue;
 
             folder.Files.Sort(AlbumFolderFileComparer.Instance);
 
@@ -155,6 +162,24 @@ public static partial class SearchResultProjector
         }
 
         return folders;
+    }
+
+    private static bool SearchResultsLikelyContainCompleteAlbumFolders(AlbumQuery query, SearchSettings search)
+    {
+        if (query.SearchHint.Length == 0)
+            return true;
+
+        // If Album is empty, SearchHint becomes the network query, so Soulseek may only
+        // return tracks matching that hint rather than the whole album folder.
+        if (query.Album.Length == 0)
+            return false;
+
+        // SearchHint can also become a file-level title filter when title conditions apply,
+        // which means non-hint tracks may be filtered before folder grouping.
+        if (search.NecessaryCond.StrictTitle || search.PreferredCond.StrictTitle)
+            return false;
+
+        return true;
     }
 
     private static int[] SortedAudioLengths(List<AlbumFolderFile> folderFiles)

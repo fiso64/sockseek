@@ -464,6 +464,93 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
+        public async Task ListAlbumDownload_AlbumTrackCountMinFiltersNormalAlbumSearchBeforeBrowse()
+        {
+            Console.ResetColor();
+            Console.OutputEncoding = Encoding.UTF8;
+            Logger.SetupExceptionHandling();
+            Logger.AddConsole();
+            Logger.SetConsoleLogLevel(Logger.LogLevel.Debug);
+
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-list-track-count-browse-out-" + Guid.NewGuid());
+            var listPath  = Path.GetTempFileName();
+            Directory.CreateDirectory(outputDir);
+
+            var files = new List<Soulseek.File>
+            {
+                TestHelpers.CreateSlFile(@"Artist\Candidate\01. Artist - Album 1.mp3", bitrate: 320),
+            };
+
+            for (int i = 2; i <= 10; i++)
+                files.Add(TestHelpers.CreateSlFile($@"Artist\Candidate\{i:D2}. Artist - Track {i:D2}.mp3", bitrate: 320));
+
+            var index = new List<Soulseek.SearchResponse>
+            {
+                new(
+                    username: "partial-search-full-browse",
+                    token: 1,
+                    hasFreeUploadSlot: true,
+                    uploadSpeed: 100_000,
+                    queueLength: 0,
+                    fileList: files),
+            };
+            File.WriteAllText(listPath, "a:\"Album 1\"                         album-track-count=10\n");
+
+            var testClient = new ClientTests.MockSoulseekClient(index);
+
+            try
+            {
+                var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                var rootSettings = new DownloadSettings();
+                rootSettings.Extraction.Input = listPath;
+                rootSettings.Extraction.InputType = InputType.List;
+                rootSettings.Output.ParentDir = outputDir;
+                rootSettings.Output.NameFormat = "{foldername}/{filename}";
+                rootSettings.Output.WriteIndex = false;
+                rootSettings.Output.HasConfiguredIndex = true;
+                rootSettings.Search.NecessaryCond.Formats = ["flac", "mp3"];
+                rootSettings.Search.NecessaryCond.MinBitrate = 200;
+
+                var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
+                var resolver = new ProfileJobSettingsResolver(
+                    rootSettings,
+                    defaultProfile: null,
+                    autoProfiles: [],
+                    namedProfiles: [new SettingsProfile { Name = "wishlist" }],
+                    cliProfile: null,
+                    normalize: SettingsNormalizer.Normalize);
+                var app = new DownloadEngine(engineSettings, clientManager, resolver);
+                AlbumJob? albumJob = null;
+                app.Events.JobRegistered += (job, _) =>
+                {
+                    if (job is AlbumJob aj)
+                        albumJob = aj;
+                };
+                app.Enqueue(new ExtractJob(listPath, InputType.List), rootSettings);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                var downloadedFiles = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                    .Where(Utils.IsMusicFile)
+                    .ToList();
+
+                Assert.IsNotNull(albumJob, "The list input should produce an album job.");
+                Assert.AreEqual(JobState.Failed, albumJob.State);
+                Assert.AreEqual(FailureReason.NoSuitableFileFound, albumJob.FailureReason);
+                Assert.AreEqual(0, testClient.BrowseCallCount,
+                    "Normal album searches should filter visible min-count underflow before the slow full-user browse.");
+                Assert.AreEqual(0, downloadedFiles.Count,
+                    $"Min-count filtering should prevent downloads. Downloaded: {string.Join(", ", downloadedFiles)}");
+            }
+            finally
+            {
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+                if (File.Exists(listPath)) File.Delete(listPath);
+            }
+        }
+
+        [TestMethod]
         public async Task PreselectedAlbumJob_SkipsSearchAndDownloadsResolvedFolder()
         {
             Console.ResetColor();

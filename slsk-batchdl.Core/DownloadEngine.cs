@@ -561,12 +561,14 @@ public class DownloadEngine
                     return await searcher!.CompleteFolder(retrieveFolderJob.TargetFolder, job.Cts!.Token);
                 });
                 retrieveFolderJob.NewFilesFoundCount = newFilesFound;
+                retrieveFolderJob.RetrievalOutcome = FolderRetrievalOutcome.Completed;
                 job.Discovery = new DiscoverySummary { ResultCount = newFilesFound, LockedFileCount = 0 };
                 retrieveFolderJob.SetDone();
             }
             catch (OperationCanceledException)
             {
                 job.Discovery = new DiscoverySummary { ResultCount = 0, LockedFileCount = 0 };
+                retrieveFolderJob.RetrievalOutcome = FolderRetrievalOutcome.Cancelled;
                 retrieveFolderJob.Fail(FailureReason.Cancelled);
                 Events.RaiseJobStatus(retrieveFolderJob, "cancelled");
             }
@@ -604,9 +606,9 @@ public class DownloadEngine
 
                     if (albumJob.ResolvedTargetNeedsInitialFolderRetrieval)
                     {
-                        await ProcessFolderRetrieval(albumJob.ResolvedTarget, albumJob);
+                        var retrieval = await ProcessFolderRetrieval(albumJob.ResolvedTarget, albumJob);
                         albumJob.ResolvedTargetNeedsInitialFolderRetrieval = false;
-                        if (albumJob.ResolvedTarget.Files.Count == 0)
+                        if (retrieval.RetrievalCancelled || albumJob.ResolvedTarget.Files.Count == 0)
                             albumJob.Results.Clear();
                     }
 
@@ -832,28 +834,37 @@ public class DownloadEngine
                     if (index == -1) break;
                 }
                 chosenFolder = job.Results[index];
+            }
 
-                // Verify track counts after full folder retrieval if needed.
-                var folderCond = config.Search.NecessaryFolderCond;
-                if (config.Transfer.AlbumTrackCountMaxRetries > 0
-                    && ((folderCond.MaxTrackCount ?? 0) > 0 || ((folderCond.MinTrackCount ?? 0) > 0 && job.Query.Album.Length > 0)))
+            // Track-count correctness is independent of the optional post-download browse.
+            // Search results can prove max overflow, but min underflow and hidden max
+            // overflow require browsing unless the folder is already fully retrieved.
+            var folderCond = config.Search.NecessaryFolderCond;
+            if (config.Transfer.AlbumTrackCountMaxRetries > 0
+                && ((folderCond.MaxTrackCount ?? 0) > 0 || (folderCond.MinTrackCount ?? 0) > 0))
+            {
+                int KnownAudioCount() => chosenFolder.Files.Count(af => !af.IsNotAudio);
+                int knownCount = KnownAudioCount();
+                bool mustBrowseBeforeDownload = !chosenFolder.IsFullyRetrieved
+                    && ((folderCond.MaxTrackCount is int browseMaxTrackCount && browseMaxTrackCount > 0 && knownCount <= browseMaxTrackCount)
+                        || (folderCond.MinTrackCount is int browseMinTrackCount && browseMinTrackCount > 0 && knownCount < browseMinTrackCount));
+
+                if (mustBrowseBeforeDownload && !retrievedFolders.Contains(chosenFolder.FolderPath))
                 {
-                    if (!chosenFolder.IsFullyRetrieved && !retrievedFolders.Contains(chosenFolder.FolderPath))
-                    {
-                        await ProcessFolderRetrieval(chosenFolder, job,
-                            "Verifying album track count.\n    Retrieving full folder contents...",
-                            consumeJobSlot: false);
+                    var retrieval = await ProcessFolderRetrieval(chosenFolder, job,
+                        "Verifying album track count.\n    Retrieving full folder contents...",
+                        consumeJobSlot: false);
+                    if (retrieval.RetrievalCompleted)
                         retrievedFolders.Add(chosenFolder.FolderPath);
-                    }
-                    int newCount = chosenFolder.Files.Count(af => !af.IsNotAudio);
-                    bool trackCountFailed = false;
-                    if (folderCond.MaxTrackCount is { } maxTrackCount and > 0 && newCount > maxTrackCount)
-                    { Logger.Info($"New file count ({newCount}) above maximum ({folderCond.MaxTrackCount}), skipping folder"); trackCountFailed = true; }
-                    if (folderCond.MinTrackCount is { } minTrackCount and > 0 && newCount < minTrackCount)
-                    { Logger.Info($"New file count ({newCount}) below minimum ({folderCond.MinTrackCount}), skipping folder"); trackCountFailed = true; }
-
-                    if (trackCountFailed)
+                    else
                     {
+                        Logger.Info("Album track count verification was cancelled, skipping folder.");
+                        if (wasPreselected)
+                        {
+                            job.Fail(FailureReason.NoSuitableFileFound);
+                            break;
+                        }
+
                         job.Results.RemoveAt(index);
                         if (--albumTrackCountRetries <= 0)
                         {
@@ -863,6 +874,32 @@ public class DownloadEngine
                         }
                         continue;
                     }
+                    knownCount = KnownAudioCount();
+                }
+
+                bool trackCountFailed = false;
+                if (folderCond.MaxTrackCount is { } maxTrackCount and > 0 && knownCount > maxTrackCount)
+                { Logger.Info($"New file count ({knownCount}) above maximum ({folderCond.MaxTrackCount}), skipping folder"); trackCountFailed = true; }
+                if (folderCond.MinTrackCount is { } minTrackCount and > 0 && knownCount < minTrackCount)
+                { Logger.Info($"New file count ({knownCount}) below minimum ({folderCond.MinTrackCount}), skipping folder"); trackCountFailed = true; }
+
+                if (trackCountFailed)
+                {
+                    if (wasPreselected)
+                    {
+                        Logger.Info("Preselected album failed album track count condition, skipping album.");
+                        job.Fail(FailureReason.NoSuitableFileFound);
+                        break;
+                    }
+
+                    job.Results.RemoveAt(index);
+                    if (--albumTrackCountRetries <= 0)
+                    {
+                        Logger.Info($"Failed album track count condition {config.Transfer.AlbumTrackCountMaxRetries} times, skipping album.");
+                        job.Fail(FailureReason.NoSuitableFileFound);
+                        break;
+                    }
+                    continue;
                 }
             }
 
@@ -881,9 +918,10 @@ public class DownloadEngine
 
                 if (!config.Search.NoBrowseFolder && retrieveCurrent && !chosenFolder.IsFullyRetrieved && !retrievedFolders.Contains(chosenFolder.FolderPath))
                 {
-                    var newFilesFound = await ProcessFolderRetrieval(chosenFolder, job, consumeJobSlot: false);
-                    retrievedFolders.Add(chosenFolder.FolderPath);
-                    if (newFilesFound > 0)
+                    var retrieval = await ProcessFolderRetrieval(chosenFolder, job, consumeJobSlot: false);
+                    if (retrieval.RetrievalCompleted)
+                        retrievedFolders.Add(chosenFolder.FolderPath);
+                    if (retrieval.NewFilesFoundCount > 0)
                     {
                         await RunAlbumDownloads(chosenFolder, cts);
                     }
@@ -1449,19 +1487,28 @@ public class DownloadEngine
 
     // ── folder retrieval ──────────────────────────────────────────────────────
 
-    public async Task<int> ProcessFolderRetrieval(
+    public async Task<RetrieveFolderJob> ProcessFolderRetrieval(
         AlbumFolder folder,
         Job parentJob,
         string? customMessage = null,
         bool consumeJobSlot = true)
     {
         if (folder.IsFullyRetrieved)
-            return 0;
+        {
+            var completedJob = new RetrieveFolderJob(folder)
+            {
+                ItemName = folder.FolderPath,
+                WorkflowId = parentJob.WorkflowId,
+                Config = parentJob.Config,
+                RetrievalOutcome = FolderRetrievalOutcome.Completed,
+            };
+            return completedJob;
+        }
 
         var rfJob = new RetrieveFolderJob(folder) { ItemName = folder.FolderPath, WorkflowId = parentJob.WorkflowId, Config = parentJob.Config };
+        rfJob.Cts = CancellationTokenSource.CreateLinkedTokenSource(appCts.Token, parentJob.Cts!.Token);
         RegisterJob(rfJob, parentJob);
         rfJob.UpdateState(JobState.Searching);
-        rfJob.Cts = CancellationTokenSource.CreateLinkedTokenSource(appCts.Token, parentJob.Cts!.Token);
 
         int count = 0;
         try
@@ -1476,20 +1523,23 @@ public class DownloadEngine
                 ? await WithJobSlot(rfJob.Cts.Token, CompleteFolder)
                 : await CompleteFolder();
             rfJob.NewFilesFoundCount = count;
+            rfJob.RetrievalOutcome = FolderRetrievalOutcome.Completed;
             rfJob.SetDone();
-            return count;
+            return rfJob;
         }
         catch (OperationCanceledException)
         {
-            // Suppress upward exception and return 0 so the parent job doesn't fail
+            // Suppress upward exception so cancelling this retrieval job doesn't cancel its parent.
+            rfJob.RetrievalOutcome = FolderRetrievalOutcome.Cancelled;
             rfJob.Fail(FailureReason.Cancelled);
             Events.RaiseJobStatus(rfJob, "cancelled");
             Logger.LogNonConsole(Logger.LogLevel.Info, $"[{rfJob.DisplayId}] RetrieveFolderJob: Cancelled folder retrieval for {folder.FolderPath}");
-            return 0;
+            return rfJob;
         }
         finally
         {
             rfJob.Discovery = new DiscoverySummary { ResultCount = count, LockedFileCount = 0 };
+            Events.RaiseJobExecutionCompleted(rfJob);
         }
     }
 
