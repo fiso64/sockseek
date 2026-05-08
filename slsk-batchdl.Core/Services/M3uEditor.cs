@@ -277,13 +277,17 @@ public class M3uEditor
                     if (song.State == JobState.Pending)
                         continue;
 
-                    string key = MakeSongKey(song);
-                    var prev = PreviousRunResult(song, song.Config?.Search ?? job.Config?.Search);
-                    string actualKey = prev != null ? prev.ToKey() : key;
+                    bool isAlbumChild = job is AlbumJob or AlbumAggregateJob;
+                    if (!isAlbumChild)
+                    {
+                        string key = MakeSongKey(song);
+                        var prev = PreviousRunResult(song, song.Config?.Search ?? job.Config?.Search);
+                        string actualKey = prev != null ? prev.ToKey() : key;
 
-                    updateEntryIfNeeded(actualKey, song.DownloadPath ?? "",
-                        song.Query.Artist, song.Query.Album, song.Query.Title, song.Query.Length,
-                        song.State, song.FailureReason);
+                        updateEntryIfNeeded(actualKey, song.DownloadPath ?? "",
+                            song.Query.Artist, song.Query.Album, song.Query.Title, song.Query.Length,
+                            song.State, song.FailureReason);
+                    }
 
                     if (option == M3uOption.All || option == M3uOption.Playlist)
                     {

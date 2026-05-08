@@ -221,7 +221,7 @@ namespace Tests.Index
         }
 
         [TestMethod]
-        public void Index_DoesNotIncludeNonAudioFiles()
+        public void Index_DoesNotIncludeAlbumChildFiles()
         {
             var queue = new JobList("Test Queue");
             var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
@@ -246,8 +246,9 @@ namespace Tests.Index
             editor.Update();
 
             var lines = File.ReadAllLines(testM3uPath);
+            Assert.IsTrue(lines.Any(l => l.Contains(",Artist,Album,,-1,1,")), "Index should contain the album entry.");
+            Assert.IsFalse(lines.Any(l => l.Contains("Track.mp3")), "Index should not contain individual album child audio files.");
             Assert.IsFalse(lines.Any(l => l.Contains("Cover.jpg")), "Index should not contain non-audio files.");
-            Assert.IsTrue(lines.Any(l => l.Contains("Track.mp3")), "Index should contain the audio file.");
         }
     }
 }
