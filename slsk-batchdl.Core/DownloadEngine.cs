@@ -676,7 +676,7 @@ public class DownloadEngine
                 }
                 else
                 {
-                    job.SetDone();
+                    job.Fail(FailureReason.NoSuitableFileFound);
                 }
                 return;
             }

@@ -1299,6 +1299,40 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
+        public async Task AlbumAggregateJob_FailsWhenNoAlbumsAreFound()
+        {
+            var testClient = new ClientTests.MockSoulseekClient([]);
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-empty-album-aggregate-" + Guid.NewGuid());
+            Directory.CreateDirectory(outputDir);
+
+            try
+            {
+                var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                var rootSettings = new DownloadSettings();
+                rootSettings.Output.ParentDir = outputDir;
+                rootSettings.Search.MinSharesAggregate = 1;
+
+                var aggregateJob = new AlbumAggregateJob(new AlbumQuery { Artist = "Missing Artist" });
+                var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
+                var app = new DownloadEngine(engineSettings, clientManager);
+
+                app.Enqueue(aggregateJob, rootSettings);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                Assert.AreEqual(JobState.Failed, aggregateJob.State);
+                Assert.AreEqual(FailureReason.NoSuitableFileFound, aggregateJob.FailureReason);
+                Assert.AreEqual(0, aggregateJob.Albums.Count);
+            }
+            finally
+            {
+                if (Directory.Exists(outputDir))
+                    Directory.Delete(outputDir, true);
+            }
+        }
+
+        [TestMethod]
         public async Task AggregateJob_DownloadsResolvedSongCandidatesWithoutResearchingThem()
         {
             var length = new Soulseek.FileAttribute(Soulseek.FileAttributeType.Length, 180);

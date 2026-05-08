@@ -38,6 +38,7 @@ internal static partial class Program
             configFile = ConfigManager.Load(configPath);
             (engineSettings, rootSettings, cliSettings, daemonSettings, remoteSettings) = ConfigManager.BindAll(configFile, bindArgs);
             ConfigManager.ApplyAutoProfileCliSettings(configFile, rootSettings, cliSettings);
+            ApplyMockFilesDefaults(engineSettings, rootSettings);
         }
         catch (Exception ex) when (ex is ArgumentException || ex.Message.StartsWith("Input error:"))
         {
@@ -142,6 +143,8 @@ internal static partial class Program
         try
         {
             jobSettingsResolver = ConfigManager.CreateJobSettingsResolver(configFile, bindArgs, cliSettings);
+            if (!string.IsNullOrEmpty(engineSettings.MockFilesDir))
+                jobSettingsResolver = new MockFilesJobSettingsResolver(jobSettingsResolver);
         }
         catch (Exception ex) when (ex is ArgumentException || ex.Message.StartsWith("Input error:"))
         {
@@ -285,6 +288,22 @@ internal static partial class Program
             Printing.SetBuffering(false);
             Printing.Flush();
             Logger.Trace("Main: Exiting.");
+        }
+    }
+
+    private static void ApplyMockFilesDefaults(EngineSettings engineSettings, DownloadSettings downloadSettings)
+    {
+        if (!string.IsNullOrEmpty(engineSettings.MockFilesDir))
+            downloadSettings.Search.MinSharesAggregate = 1;
+    }
+
+    private sealed class MockFilesJobSettingsResolver(IJobSettingsResolver inner) : IJobSettingsResolver
+    {
+        public DownloadSettings Resolve(DownloadSettings inherited, Job job)
+        {
+            var settings = inner.Resolve(inherited, job);
+            settings.Search.MinSharesAggregate = 1;
+            return settings;
         }
     }
 
