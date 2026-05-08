@@ -21,6 +21,12 @@
           "Microsoft.AspNetCore.SignalR.Common": "10.0.7"
         }
       },
+      "Spectre.Console": {
+        "type": "Direct",
+        "requested": "[0.54.0, )",
+        "resolved": "0.54.0",
+        "contentHash": "StDXCFayfy0yB1xzUHT2tgEpV1/HFTiS4JgsAQS49EYTfMixSwwucaQs/bIOCwXjWwIQTMuxjUIxcB5XsJkFJA=="
+      },
       "AngleSharp": {
         "type": "Transitive",
         "resolved": "1.4.0",

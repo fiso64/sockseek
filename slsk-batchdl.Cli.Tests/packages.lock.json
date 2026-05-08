@@ -296,6 +296,11 @@
         "resolved": "8.5.0",
         "contentHash": "PNmdER1Fjn0CFEYjp8F8XcFEgdldVQ5rkEcAE5yZOFy8uTb3aHMk3NUH6uQnqL/SINOWSuIJBmGimSW85aTy8A=="
       },
+      "Spectre.Console": {
+        "type": "Transitive",
+        "resolved": "0.54.0",
+        "contentHash": "StDXCFayfy0yB1xzUHT2tgEpV1/HFTiS4JgsAQS49EYTfMixSwwucaQs/bIOCwXjWwIQTMuxjUIxcB5XsJkFJA=="
+      },
       "SpotifyAPI.Web": {
         "type": "Transitive",
         "resolved": "7.4.2",
@@ -349,8 +354,9 @@
         "dependencies": {
           "Microsoft.AspNetCore.SignalR.Client": "[10.0.7, )",
           "Microsoft.AspNetCore.SignalR.Protocols.Json": "[10.0.7, )",
-          "Sldl.Core": "[3.0.0-dev, )",
-          "Sldl.Server": "[3.0.0-dev, )"
+          "Sldl.Core": "[3.0.0-dev.5, )",
+          "Sldl.Server": "[3.0.0-dev.5, )",
+          "Spectre.Console": "[0.54.0, )"
         }
       },
       "Sldl.Core": {
@@ -370,7 +376,7 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.AspNetCore.OpenApi": "[10.0.7, )",
-          "Sldl.Core": "[3.0.0-dev, )"
+          "Sldl.Core": "[3.0.0-dev.5, )"
         }
       }
     }
