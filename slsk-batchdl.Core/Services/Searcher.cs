@@ -117,7 +117,7 @@ public partial class Searcher
                 minimumPeerUploadSpeed: 1,
                 searchTimeout: timeout,
                 removeSingleCharacterSearchTerms: search.RemoveSingleCharSearchTerms,
-                responseFilter: r => r.UploadSpeed > 0 && nec.BannedUsersSatisfies(r),
+                responseFilter: r => r.UploadSpeed > 0 && nec.UserSatisfies(r),
                 fileFilter: f => nec.FileSatisfies(f, song.Query, null));
 
         song.UpdateState(JobState.Searching);
@@ -177,7 +177,7 @@ public partial class Searcher
                 minimumPeerUploadSpeed: 1,
                 removeSingleCharacterSearchTerms: search.RemoveSingleCharSearchTerms,
                 searchTimeout: timeout,
-                responseFilter: r => r.UploadSpeed > 0 && nec.BannedUsersSatisfies(r),
+                responseFilter: r => r.UploadSpeed > 0 && nec.UserSatisfies(r),
                 fileFilter: f => nec.FileSatisfies(f, job.Query, null));
 
         job.UpdateState(JobState.Searching);

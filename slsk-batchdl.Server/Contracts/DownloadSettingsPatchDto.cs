@@ -71,6 +71,7 @@ public sealed record FileConditionsPatchDto(
     bool? StrictAlbum = null,
     CollectionPatchDto<string>? Formats = null,
     CollectionPatchDto<string>? BannedUsers = null,
+    CollectionPatchDto<string>? AllowedUsers = null,
     bool? AcceptNoLength = null,
     bool? AcceptMissingProps = null);
 
@@ -238,6 +239,7 @@ public static class DownloadSettingsPatchDtoMapper
         if (patch.StrictAlbum is { } strictAlbum) target.StrictAlbum = strictAlbum;
         if (patch.Formats is { } formats) target.Formats = formats.ApplyTo(target.Formats.ToList()).ToArray();
         if (patch.BannedUsers is { } bannedUsers) target.BannedUsers = bannedUsers.ApplyTo(target.BannedUsers.ToList()).ToArray();
+        if (patch.AllowedUsers is { } allowedUsers) target.AllowedUsers = allowedUsers.ApplyTo(target.AllowedUsers.ToList()).ToArray();
         if (patch.AcceptNoLength is { } acceptNoLength) target.AcceptNoLength = acceptNoLength;
         if (patch.AcceptMissingProps is { } acceptMissingProps) target.AcceptMissingProps = acceptMissingProps;
     }
@@ -430,6 +432,7 @@ public static class DownloadSettingsPatchDtoMapper
                 case "Search.NecessaryCond.StrictAlbum": Search.NecessaryCond.StrictAlbum = op.BoolValue; break;
                 case "Search.NecessaryCond.Formats": Search.NecessaryCond.Formats = Collection(Search.NecessaryCond.Formats, op); break;
                 case "Search.NecessaryCond.BannedUsers": Search.NecessaryCond.BannedUsers = Collection(Search.NecessaryCond.BannedUsers, op); break;
+                case "Search.NecessaryCond.AllowedUsers": Search.NecessaryCond.AllowedUsers = Collection(Search.NecessaryCond.AllowedUsers, op); break;
                 case "Search.NecessaryCond.AcceptNoLength": Search.NecessaryCond.AcceptNoLength = op.BoolValue; break;
                 case "Search.NecessaryCond.AcceptMissingProps": Search.NecessaryCond.AcceptMissingProps = op.BoolValue; break;
 
@@ -445,6 +448,7 @@ public static class DownloadSettingsPatchDtoMapper
                 case "Search.PreferredCond.StrictAlbum": Search.PreferredCond.StrictAlbum = op.BoolValue; break;
                 case "Search.PreferredCond.Formats": Search.PreferredCond.Formats = Collection(Search.PreferredCond.Formats, op); break;
                 case "Search.PreferredCond.BannedUsers": Search.PreferredCond.BannedUsers = Collection(Search.PreferredCond.BannedUsers, op); break;
+                case "Search.PreferredCond.AllowedUsers": Search.PreferredCond.AllowedUsers = Collection(Search.PreferredCond.AllowedUsers, op); break;
                 case "Search.PreferredCond.AcceptNoLength": Search.PreferredCond.AcceptNoLength = op.BoolValue; break;
                 case "Search.PreferredCond.AcceptMissingProps": Search.PreferredCond.AcceptMissingProps = op.BoolValue; break;
 
@@ -566,10 +570,10 @@ public static class DownloadSettingsPatchDtoMapper
     {
         public int? LengthTolerance, MinBitrate, MaxBitrate, MinSampleRate, MaxSampleRate, MinBitDepth, MaxBitDepth;
         public bool? StrictTitle, StrictArtist, StrictAlbum, AcceptNoLength, AcceptMissingProps;
-        public CollectionPatchDto<string>? Formats, BannedUsers;
+        public CollectionPatchDto<string>? Formats, BannedUsers, AllowedUsers;
         public FileConditionsPatchDto? Build()
         {
-            var result = new FileConditionsPatchDto(LengthTolerance, MinBitrate, MaxBitrate, MinSampleRate, MaxSampleRate, MinBitDepth, MaxBitDepth, StrictTitle, StrictArtist, StrictAlbum, Formats, BannedUsers, AcceptNoLength, AcceptMissingProps);
+            var result = new FileConditionsPatchDto(LengthTolerance, MinBitrate, MaxBitrate, MinSampleRate, MaxSampleRate, MinBitDepth, MaxBitDepth, StrictTitle, StrictArtist, StrictAlbum, Formats, BannedUsers, AllowedUsers, AcceptNoLength, AcceptMissingProps);
             return result == new FileConditionsPatchDto() ? null : result;
         }
     }

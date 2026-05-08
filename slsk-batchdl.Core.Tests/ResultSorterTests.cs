@@ -404,6 +404,46 @@ namespace Tests.ResultSorterTests
         }
 
         [TestMethod]
+        public void OrderedResults_DownranksUsersNotInNecessaryAllowedUsers()
+        {
+            var file1 = TestHelpers.CreateSlFile("Music\\Track.mp3", bitrate: 320, length: 200);
+            var file2 = TestHelpers.CreateSlFile("Music\\Track.mp3", bitrate: 320, length: 200);
+            var blocked = CreateResponse("blocked", files: file1);
+            var allowed = CreateResponse("allowed", files: file2);
+            var results = new List<(SearchResponse, File)> { (blocked, file1), (allowed, file2) };
+
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            config.Search.NecessaryCond.AllowedUsers = ["allowed"];
+            var counts = new ConcurrentDictionary<string, int>();
+            var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
+
+            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+
+            Assert.AreEqual(2, ordered.Count);
+            Assert.AreEqual("allowed", ordered[0].response.Username);
+        }
+
+        [TestMethod]
+        public void OrderedResults_PrefersUsersInPreferredAllowedUsers()
+        {
+            var file1 = TestHelpers.CreateSlFile("Music\\Track.mp3", bitrate: 320, length: 200);
+            var file2 = TestHelpers.CreateSlFile("Music\\Track.mp3", bitrate: 320, length: 200);
+            var fallback = CreateResponse("fallback", files: file1);
+            var preferred = CreateResponse("preferred", files: file2);
+            var results = new List<(SearchResponse, File)> { (fallback, file1), (preferred, file2) };
+
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            config.Search.PreferredCond.AllowedUsers = ["preferred"];
+            var counts = new ConcurrentDictionary<string, int>();
+            var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
+
+            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+
+            Assert.AreEqual(2, ordered.Count);
+            Assert.AreEqual("preferred", ordered[0].response.Username);
+        }
+
+        [TestMethod]
         public void IncrementalResultSorter_MatchesOrderedResults_WhenFedInChunks()
         {
             var results = new List<(SearchResponse, File)>();

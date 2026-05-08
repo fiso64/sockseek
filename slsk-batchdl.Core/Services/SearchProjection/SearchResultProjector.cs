@@ -78,7 +78,7 @@ public static partial class SearchResultProjector
         var sortQuery = AlbumFileMatchQuery(query);
         var filteredResults = rawResults
             .Where(result =>
-                search.NecessaryCond.BannedUsersSatisfies(result.Response)
+                search.NecessaryCond.UserSatisfies(result.Response)
                 && (!Utils.IsMusicFile(result.File.Filename)
                     || search.NecessaryCond.FileSatisfies(result.File, sortQuery, result.Response)));
         var orderedResults = ResultSorter.OrderedResults(

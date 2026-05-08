@@ -39,7 +39,7 @@ public sealed class IncrementalAlbumFolderProjector
     // to qualify folders that contain a matching track, while still showing all files
     // from matching folders that were present in the search response.
     private bool ProjectionFilter((SearchResponse Response, SlFile File) result)
-        => search.NecessaryCond.BannedUsersSatisfies(result.Response)
+        => search.NecessaryCond.UserSatisfies(result.Response)
             && (!Utils.IsMusicFile(result.File.Filename)
                 || search.NecessaryCond.FileSatisfies(result.File, sortQuery, result.Response));
 

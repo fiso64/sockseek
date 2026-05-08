@@ -359,6 +359,41 @@ namespace Tests.FileConditionsTests
     }
 
     [TestClass]
+    public class AllowedUsersSatisfiesTests
+    {
+        [TestMethod]
+        public void NullResponse_ReturnsTrue()
+        {
+            var fc = new FileConditions { AllowedUsers = new[] { "gooduser" } };
+            Assert.IsTrue(fc.AllowedUsersSatisfies(null));
+        }
+
+        [TestMethod]
+        public void EmptyAllowedUsersByDefault_ReturnsTrue()
+        {
+            var fc = new FileConditions();
+            var response = new SearchResponse("someuser", 1, true, 100, 0, new List<Soulseek.File>());
+            Assert.IsTrue(fc.AllowedUsersSatisfies(response));
+        }
+
+        [TestMethod]
+        public void UserAllowed_ReturnsTrue()
+        {
+            var fc = new FileConditions { AllowedUsers = new[] { "gooduser" } };
+            var response = new SearchResponse("gooduser", 1, true, 100, 0, new List<Soulseek.File>());
+            Assert.IsTrue(fc.AllowedUsersSatisfies(response));
+        }
+
+        [TestMethod]
+        public void UserNotAllowed_ReturnsFalse()
+        {
+            var fc = new FileConditions { AllowedUsers = new[] { "gooduser" } };
+            var response = new SearchResponse("baduser", 1, true, 100, 0, new List<Soulseek.File>());
+            Assert.IsFalse(fc.AllowedUsersSatisfies(response));
+        }
+    }
+
+    [TestClass]
     public class BracketCheckTests
     {
         [TestMethod]
@@ -486,6 +521,7 @@ namespace Tests.FileConditionsTests
                 MinBitrate = 128,
                 Formats = new[] { "mp3", "flac" },
                 BannedUsers = new[] { "user1" },
+                AllowedUsers = new[] { "user2" },
                 StrictTitle = true,
             };
             var copy = new FileConditions(original);
@@ -493,14 +529,18 @@ namespace Tests.FileConditionsTests
             Assert.AreEqual(original.MinBitrate, copy.MinBitrate);
             Assert.AreEqual(original.StrictTitle, copy.StrictTitle);
             CollectionAssert.AreEqual(original.Formats, copy.Formats);
+            CollectionAssert.AreEqual(original.BannedUsers, copy.BannedUsers);
+            CollectionAssert.AreEqual(original.AllowedUsers, copy.AllowedUsers);
 
             // Modifying copy does not affect original
             copy.MinBitrate = 320;
             Assert.IsNotNull(copy.Formats);
             copy.Formats[0] = "ogg";
+            copy.AllowedUsers[0] = "user3";
             Assert.AreEqual(128, original.MinBitrate);
             Assert.IsNotNull(original.Formats);
             Assert.AreEqual("mp3", original.Formats[0]);
+            Assert.AreEqual("user2", original.AllowedUsers[0]);
         }
 
         [TestMethod]

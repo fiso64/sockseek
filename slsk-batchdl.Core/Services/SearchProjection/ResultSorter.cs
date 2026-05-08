@@ -216,7 +216,7 @@ public static partial class ResultSorter
             bool bitrateMatch = Search.PreferredCond.BitrateSatisfies(file);
             bool sampleRateMatch = Search.PreferredCond.SampleRateSatisfies(file);
             bool bitDepthMatch = Search.PreferredCond.BitDepthSatisfies(file);
-            bool preferredUserConditionsMet = Search.PreferredCond.BannedUsersSatisfies(response);
+            bool preferredUserConditionsMet = Search.PreferredCond.UserSatisfies(response);
 
             return new SortKey(
                 UserSuccessCounts.GetValueOrDefault(response.Username, 0) > Search.DownrankOn,

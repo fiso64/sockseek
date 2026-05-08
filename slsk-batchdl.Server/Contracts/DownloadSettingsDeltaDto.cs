@@ -128,6 +128,7 @@ public static class DownloadSettingsDeltaMapper
             case "Search.NecessaryCond.StrictAlbum": settings.Search.NecessaryCond.StrictAlbum = Bool(op); break;
             case "Search.NecessaryCond.Formats": settings.Search.NecessaryCond.Formats = op.StringListValue?.ToArray() ?? []; break;
             case "Search.NecessaryCond.BannedUsers": settings.Search.NecessaryCond.BannedUsers = op.StringListValue?.ToArray() ?? []; break;
+            case "Search.NecessaryCond.AllowedUsers": settings.Search.NecessaryCond.AllowedUsers = op.StringListValue?.ToArray() ?? []; break;
             case "Search.NecessaryCond.AcceptNoLength": settings.Search.NecessaryCond.AcceptNoLength = Bool(op); break;
             case "Search.NecessaryCond.AcceptMissingProps": settings.Search.NecessaryCond.AcceptMissingProps = Bool(op); break;
 
@@ -143,6 +144,7 @@ public static class DownloadSettingsDeltaMapper
             case "Search.PreferredCond.StrictAlbum": settings.Search.PreferredCond.StrictAlbum = Bool(op); break;
             case "Search.PreferredCond.Formats": settings.Search.PreferredCond.Formats = op.StringListValue?.ToArray() ?? []; break;
             case "Search.PreferredCond.BannedUsers": settings.Search.PreferredCond.BannedUsers = op.StringListValue?.ToArray() ?? []; break;
+            case "Search.PreferredCond.AllowedUsers": settings.Search.PreferredCond.AllowedUsers = op.StringListValue?.ToArray() ?? []; break;
             case "Search.PreferredCond.AcceptNoLength": settings.Search.PreferredCond.AcceptNoLength = Bool(op); break;
             case "Search.PreferredCond.AcceptMissingProps": settings.Search.PreferredCond.AcceptMissingProps = Bool(op); break;
 
@@ -261,6 +263,7 @@ public static class DownloadSettingsDeltaMapper
         AddBoolDiff(operations, $"{prefix}.StrictAlbum", before.StrictAlbum, after.StrictAlbum);
         AddStringListDiff(operations, $"{prefix}.Formats", before.Formats, after.Formats);
         AddStringListDiff(operations, $"{prefix}.BannedUsers", before.BannedUsers, after.BannedUsers);
+        AddStringListDiff(operations, $"{prefix}.AllowedUsers", before.AllowedUsers, after.AllowedUsers);
         AddBoolDiff(operations, $"{prefix}.AcceptNoLength", before.AcceptNoLength, after.AcceptNoLength);
         AddBoolDiff(operations, $"{prefix}.AcceptMissingProps", before.AcceptMissingProps, after.AcceptMissingProps);
     }

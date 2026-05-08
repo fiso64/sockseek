@@ -705,6 +705,8 @@ public static partial class ConfigManager
                 Download(d => d.Search.NecessaryCond.AcceptNoLength = Bool()); break;
             case "--bu": case "--banned-users":
                 Download(d => d.Search.NecessaryCond.BannedUsers = value.Split(',', tr)); break;
+            case "--au": case "--allowed-users":
+                Download(d => d.Search.NecessaryCond.AllowedUsers = value.Split(',', tr)); break;
             case "--sc": case "--strict": case "--strict-conditions":
                 Download(d =>
                 {
@@ -749,6 +751,8 @@ public static partial class ConfigManager
                 Download(d => d.Search.PreferredCond.AcceptNoLength = Bool()); break;
             case "--pbu": case "--pref-banned-users":
                 Download(d => d.Search.PreferredCond.BannedUsers = value.Split(',', tr)); break;
+            case "--pau": case "--pref-allowed-users":
+                Download(d => d.Search.PreferredCond.AllowedUsers = value.Split(',', tr)); break;
             case "--pc": case "--pref": case "--preferred-conditions":
                 Download(d =>
                 {
@@ -925,6 +929,7 @@ public static partial class ConfigManager
             if (file.StrictAlbum != null) Add(DownloadSettingsDeltaMapper.Set($"{prefix}.StrictAlbum", file.StrictAlbum));
             if (file.Formats != null) Add(DownloadSettingsDeltaMapper.Replace($"{prefix}.Formats", file.Formats));
             if (file.BannedUsers != null) Add(DownloadSettingsDeltaMapper.Replace($"{prefix}.BannedUsers", file.BannedUsers));
+            if (file.AllowedUsers != null) Add(DownloadSettingsDeltaMapper.Replace($"{prefix}.AllowedUsers", file.AllowedUsers));
             if (file.AcceptNoLength != null) Add(DownloadSettingsDeltaMapper.Set($"{prefix}.AcceptNoLength", file.AcceptNoLength));
             if (file.AcceptMissingProps != null) Add(DownloadSettingsDeltaMapper.Set($"{prefix}.AcceptMissingProps", file.AcceptMissingProps));
         }
@@ -1083,6 +1088,7 @@ public static partial class ConfigManager
             StrictAlbum = boolSeed,
             Formats = [stringSeed],
             BannedUsers = [stringSeed],
+            AllowedUsers = [stringSeed],
             AcceptNoLength = boolSeed,
             AcceptMissingProps = boolSeed,
         };

@@ -66,6 +66,10 @@ public static class ConditionParser
                 case "bannedusers":
                     cond.BannedUsers = value.Split(',', tr);
                     break;
+                case "allowed":
+                case "allowedusers":
+                    cond.AllowedUsers = value.Split(',', tr);
+                    break;
                 case "stricttitle":
                     cond.StrictTitle = bool.Parse(value);
                     break;

@@ -18,6 +18,7 @@ namespace Sldl.Core.Models;
         public bool StrictAlbum;
         public string[] Formats = [];
         public string[] BannedUsers = [];
+        public string[] AllowedUsers = [];
         public bool AcceptNoLength = true;
         public bool AcceptMissingProps = true;
 
@@ -39,6 +40,7 @@ namespace Sldl.Core.Models;
             AcceptMissingProps = other.AcceptMissingProps;
             Formats = other.Formats.ToArray();
             BannedUsers = other.BannedUsers.ToArray();
+            AllowedUsers = other.AllowedUsers.ToArray();
         }
 
         public FileConditions With(FileConditionPatch other)
@@ -62,6 +64,7 @@ namespace Sldl.Core.Models;
             StrictAlbum = StrictAlbum || other.StrictAlbum,
             Formats = other.Formats.Length > 0 ? other.Formats.ToArray() : Formats.ToArray(),
             BannedUsers = BannedUsers.Concat(other.BannedUsers).Distinct().ToArray(),
+            AllowedUsers = AllowedUsers.Concat(other.AllowedUsers).Distinct().ToArray(),
             AcceptNoLength = AcceptNoLength && other.AcceptNoLength,
             AcceptMissingProps = AcceptMissingProps && other.AcceptMissingProps,
         };
@@ -130,6 +133,11 @@ namespace Sldl.Core.Models;
                 undoMod.BannedUsers = BannedUsers;
                 BannedUsers = mod.BannedUsers.ToArray();
             }
+            if (mod.AllowedUsers != null)
+            {
+                undoMod.AllowedUsers = AllowedUsers;
+                AllowedUsers = mod.AllowedUsers.ToArray();
+            }
             if (mod.AcceptNoLength != null)
             {
                 undoMod.AcceptNoLength = AcceptNoLength;
@@ -164,7 +172,8 @@ namespace Sldl.Core.Models;
                 && AcceptNoLength == other.AcceptNoLength
                 && AcceptMissingProps == other.AcceptMissingProps
                 && Formats.SequenceEqual(other.Formats)
-                && BannedUsers.SequenceEqual(other.BannedUsers);
+                && BannedUsers.SequenceEqual(other.BannedUsers)
+                && AllowedUsers.SequenceEqual(other.AllowedUsers);
         }
 
         public void UnsetClientSpecificFields()
@@ -186,7 +195,7 @@ namespace Sldl.Core.Models;
             return FormatSatisfies(file.Filename)
                 && LengthToleranceSatisfies(file, length) && BitrateSatisfies(file) && SampleRateSatisfies(file)
                 && StrictTitleSatisfies(file.Filename, title) && StrictArtistSatisfies(file.Filename, artist)
-                && StrictAlbumSatisfies(file.Filename, album) && BannedUsersSatisfies(response) && BitDepthSatisfies(file);
+                && StrictAlbumSatisfies(file.Filename, album) && UserSatisfies(response) && BitDepthSatisfies(file);
         }
 
         public bool FileSatisfies(TagLib.File file, SongQuery? query, bool filenameChecks = false)
@@ -382,6 +391,16 @@ namespace Sldl.Core.Models;
             return response == null || BannedUsers.Length == 0 || !BannedUsers.Any(x => x == response.Username);
         }
 
+        public bool AllowedUsersSatisfies(SearchResponse? response)
+        {
+            return response == null || AllowedUsers.Length == 0 || AllowedUsers.Any(x => x == response.Username);
+        }
+
+        public bool UserSatisfies(SearchResponse? response)
+        {
+            return BannedUsersSatisfies(response) && AllowedUsersSatisfies(response);
+        }
+
         public string GetNotSatisfiedName(Soulseek.File file, SongQuery? query, SearchResponse? response)
         {
             string title  = query?.Title  ?? "";
@@ -390,6 +409,8 @@ namespace Sldl.Core.Models;
             int length    = query?.Length ?? -1;
             if (!BannedUsersSatisfies(response))
                 return "BannedUsers fails";
+            if (!AllowedUsersSatisfies(response))
+                return "AllowedUsers fails";
             if (!StrictTitleSatisfies(file.Filename, title))
                 return "StrictTitle fails";
             if (!StrictArtistSatisfies(file.Filename, artist))
@@ -429,6 +450,7 @@ namespace Sldl.Core.Models;
         public bool? StrictAlbum;
         public string[]? Formats;
         public string[]? BannedUsers;
+        public string[]? AllowedUsers;
         public bool? AcceptNoLength;
         public bool? AcceptMissingProps;
 
@@ -445,6 +467,7 @@ namespace Sldl.Core.Models;
             && StrictAlbum == null
             && Formats == null
             && BannedUsers == null
+            && AllowedUsers == null
             && AcceptNoLength == null
             && AcceptMissingProps == null;
 
@@ -465,6 +488,7 @@ namespace Sldl.Core.Models;
             StrictAlbum ??= fallback.StrictAlbum;
             Formats ??= fallback.Formats == null ? null : [.. fallback.Formats];
             BannedUsers ??= fallback.BannedUsers == null ? null : [.. fallback.BannedUsers];
+            AllowedUsers ??= fallback.AllowedUsers == null ? null : [.. fallback.AllowedUsers];
             AcceptNoLength ??= fallback.AcceptNoLength;
             AcceptMissingProps ??= fallback.AcceptMissingProps;
         }
@@ -496,7 +520,8 @@ namespace Sldl.Core.Models;
                 && AcceptNoLength == other.AcceptNoLength
                 && AcceptMissingProps == other.AcceptMissingProps
                 && ((Formats == null && other.Formats == null) || (Formats != null && other.Formats != null && Formats.SequenceEqual(other.Formats)))
-                && ((BannedUsers == null && other.BannedUsers == null) || (BannedUsers != null && other.BannedUsers != null && BannedUsers.SequenceEqual(other.BannedUsers)));
+                && ((BannedUsers == null && other.BannedUsers == null) || (BannedUsers != null && other.BannedUsers != null && BannedUsers.SequenceEqual(other.BannedUsers)))
+                && ((AllowedUsers == null && other.AllowedUsers == null) || (AllowedUsers != null && other.AllowedUsers != null && AllowedUsers.SequenceEqual(other.AllowedUsers)));
         }
 
         public override int GetHashCode()
@@ -522,6 +547,10 @@ namespace Sldl.Core.Models;
             if (BannedUsers != null)
                 foreach (var bannedUser in BannedUsers)
                     hash.Add(bannedUser);
+
+            if (AllowedUsers != null)
+                foreach (var allowedUser in AllowedUsers)
+                    hash.Add(allowedUser);
 
             return hash.ToHashCode();
         }
