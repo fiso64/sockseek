@@ -28,7 +28,12 @@ public class CliProgressReporterTests
             var candidate = new FileCandidate(response, file);
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Song" });
 
-            InvokePrivate(reporter, "ReportDownloadStart", song, candidate);
+            InvokePrivate(reporter, "ReportDownloadStart", new DownloadStartedEventDto(
+                song.Id,
+                song.DisplayId,
+                Guid.NewGuid(),
+                new SongQueryDto("Artist", "Song", null, null, null, false),
+                CreateFileCandidate(candidate.Response.Username, candidate.File.Filename)));
 
             Assert.IsFalse(HasBarData(reporter, song));
         }
@@ -49,10 +54,22 @@ public class CliProgressReporterTests
         try
         {
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Song" });
+            var workflowId = Guid.NewGuid();
+            var summary = CreateSongSummary(song.Id, workflowId, null) with
+            {
+                DisplayId = song.DisplayId,
+                ItemName = "Artist - Song",
+                QueryText = "Artist - Song",
+            };
 
-            InvokePrivate(reporter, "ReportJobStarted", song);
-            InvokePrivate(reporter, "ReportSongSearching", song);
-            InvokePrivate(reporter, "ReportJobStatus", song, "searching");
+            var searching = new SongSearchingEventDto(
+                song.Id,
+                song.DisplayId,
+                workflowId,
+                new SongQueryDto("Artist", "Song", null, null, null, false));
+
+            InvokePrivate(reporter, "ReportSongSearching", searching);
+            InvokePrivate(reporter, "ReportSongSearching", searching);
 
             Assert.AreEqual(1, messages.Count);
             Assert.AreEqual($"[{song.DisplayId}] SongJob: searching: Artist - Song", messages[0]);
@@ -82,8 +99,25 @@ public class CliProgressReporterTests
             };
             song.SetDone();
 
-            InvokePrivate(reporter, "ReportDownloadStart", song, candidate);
-            InvokePrivate(reporter, "ReportStateChanged", song);
+            var workflowId = Guid.NewGuid();
+            var query = new SongQueryDto("Artist", "Song", null, null, null, false);
+            var candidateDto = CreateFileCandidate(candidate.Response.Username, candidate.File.Filename);
+
+            InvokePrivate(reporter, "ReportDownloadStart", new DownloadStartedEventDto(
+                song.Id,
+                song.DisplayId,
+                workflowId,
+                query,
+                candidateDto));
+            InvokePrivate(reporter, "ReportStateChanged", new SongStateChangedEventDto(
+                song.Id,
+                song.DisplayId,
+                workflowId,
+                query,
+                ServerProtocol.JobStates.Done,
+                FailureReason: null,
+                DownloadPath: null,
+                ChosenCandidate: candidateDto));
 
             Assert.AreEqual(2, messages.Count);
             StringAssert.StartsWith(messages[0], $"[{song.DisplayId}] SongJob: downloading: ");
@@ -110,10 +144,27 @@ public class CliProgressReporterTests
             };
             song.Fail(FailureReason.Cancelled);
 
-            InvokePrivate(reporter, "ReportDownloadStart", song, candidate);
+            var workflowId = Guid.NewGuid();
+            var query = new SongQueryDto("Artist", "Song", null, null, null, false);
+            var candidateDto = CreateFileCandidate(candidate.Response.Username, candidate.File.Filename);
+
+            InvokePrivate(reporter, "ReportDownloadStart", new DownloadStartedEventDto(
+                song.Id,
+                song.DisplayId,
+                workflowId,
+                query,
+                candidateDto));
             var barData = GetBarData(reporter, song);
 
-            InvokePrivate(reporter, "ReportStateChanged", song);
+            InvokePrivate(reporter, "ReportStateChanged", new SongStateChangedEventDto(
+                song.Id,
+                song.DisplayId,
+                workflowId,
+                query,
+                ServerProtocol.JobStates.Failed,
+                ServerProtocol.FailureReasons.Cancelled,
+                DownloadPath: null,
+                ChosenCandidate: candidateDto));
 
             Assert.AreEqual("Failed", GetField<string>(barData, "StateLabel"));
             Assert.AreNotEqual(100, GetField<int>(barData, "Pct"));
@@ -140,10 +191,27 @@ public class CliProgressReporterTests
             };
             song.SetDone();
 
-            InvokePrivate(reporter, "ReportDownloadStart", song, candidate);
+            var workflowId = Guid.NewGuid();
+            var query = new SongQueryDto("Artist", "Song", null, null, null, false);
+            var candidateDto = CreateFileCandidate(candidate.Response.Username, candidate.File.Filename);
+
+            InvokePrivate(reporter, "ReportDownloadStart", new DownloadStartedEventDto(
+                song.Id,
+                song.DisplayId,
+                workflowId,
+                query,
+                candidateDto));
             var barData = GetBarData(reporter, song);
 
-            InvokePrivate(reporter, "ReportStateChanged", song);
+            InvokePrivate(reporter, "ReportStateChanged", new SongStateChangedEventDto(
+                song.Id,
+                song.DisplayId,
+                workflowId,
+                query,
+                ServerProtocol.JobStates.Done,
+                FailureReason: null,
+                DownloadPath: null,
+                ChosenCandidate: candidateDto));
 
             StringAssert.StartsWith(BuildBarText(barData), $"  [{song.DisplayId}] SongJob: succeeded: ");
         }
@@ -467,8 +535,8 @@ public class CliProgressReporterTests
 
             CollectionAssert.AreEqual(new[]
             {
-                @"[7] SongJob: downloading: local\..\Artist\Album\01. Artist - Track.flac",
-                @"[7] SongJob: succeeded: local\..\Artist\Album\01. Artist - Track.flac",
+                @"[7] SongJob: downloading: Artist - Track: local\..\Artist\Album\01. Artist - Track.flac",
+                @"[7] SongJob: succeeded: Artist - Track: local\..\Artist\Album\01. Artist - Track.flac",
             }, messages);
         }
         finally
@@ -545,7 +613,7 @@ public class CliProgressReporterTests
             .GetField("_bars", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(reporter)!;
 
-        object?[] args = [song, null];
+        object?[] args = [song.Id, null];
         var found = (bool)bars.GetType().GetMethod("TryGetValue")!.Invoke(bars, args)!;
         barData = args[1];
         return found;
@@ -561,12 +629,12 @@ public class CliProgressReporterTests
     private static string BuildBarText(object barData)
         => (string)typeof(CliProgressReporter)
             .GetMethod("BuildText", BindingFlags.Static | BindingFlags.NonPublic)!
-            .Invoke(null, [barData, false])!;
+            .Invoke(null, [barData])!;
 
     private static bool HasBackendBarData(CliProgressReporter reporter, Guid jobId)
     {
         var bars = typeof(CliProgressReporter)
-            .GetField("_backendBars", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetField("_bars", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(reporter)!;
 
         object?[] args = [jobId, null];
@@ -576,7 +644,7 @@ public class CliProgressReporterTests
     private static bool HasBackendJobBar(CliProgressReporter reporter, Guid jobId)
     {
         var bars = typeof(CliProgressReporter)
-            .GetField("_backendJobBars", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetField("_jobBars", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(reporter)!;
 
         object?[] args = [jobId, null];
@@ -586,13 +654,13 @@ public class CliProgressReporterTests
     private static int GetBackendAlbumDoneCount(CliProgressReporter reporter, Guid albumJobId)
     {
         var blocks = typeof(CliProgressReporter)
-            .GetField("_backendAlbumBlocks", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetField("_albumBlocks", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(reporter)!;
 
         object?[] args = [albumJobId, null];
         Assert.IsTrue((bool)blocks.GetType().GetMethod("TryGetValue")!.Invoke(blocks, args)!);
         return (int)typeof(CliProgressReporter)
-            .GetMethod("BackendAlbumDoneCount", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetMethod("AlbumDoneCount", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(reporter, [args[1]])!;
     }
 
