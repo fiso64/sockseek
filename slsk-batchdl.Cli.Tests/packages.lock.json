@@ -44,11 +44,6 @@
           "Unosquare.Swan.Lite": "3.1.0"
         }
       },
-      "Goblinfactory.Konsole": {
-        "type": "Transitive",
-        "resolved": "7.0.0.7-alpha",
-        "contentHash": "psWW4ikGQk6EBs9L0GsglxMDPeiUitPW5HSIAcIFNhURwcdBRb9ZVBWxiWrsujVN40kaxmwH/CT0Lm2yxanj+A=="
-      },
       "Google.Apis": {
         "type": "Transitive",
         "resolved": "1.69.0",
@@ -352,7 +347,6 @@
       "sldl": {
         "type": "Project",
         "dependencies": {
-          "Goblinfactory.Konsole": "[7.0.0.7-alpha, )",
           "Microsoft.AspNetCore.SignalR.Client": "[10.0.7, )",
           "Microsoft.AspNetCore.SignalR.Protocols.Json": "[10.0.7, )",
           "Sldl.Core": "[3.0.0-dev, )",

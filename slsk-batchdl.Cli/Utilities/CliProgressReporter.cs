@@ -4,7 +4,6 @@ using Sldl.Core;
 using Sldl.Core.Jobs;
 using Sldl.Core.Models;
 using Sldl.Core.Services;
-using Konsole;
 using ProgressBar = Sldl.Cli.IProgressBar;
 using Sldl.Core.Settings;
 using Sldl.Server;

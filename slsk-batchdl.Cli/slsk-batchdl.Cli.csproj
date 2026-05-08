@@ -19,7 +19,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Goblinfactory.Konsole" Version="7.0.0.7-alpha" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.7" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.Json" Version="10.0.7" />
   </ItemGroup>
@@ -55,7 +54,6 @@
     <TrimmerRootAssembly Include="EmbedIO" />
     <TrimmerRootAssembly Include="HtmlAgilityPack" />
     <TrimmerRootAssembly Include="AngleSharp" />
-    <TrimmerRootAssembly Include="Goblinfactory.Konsole" />
     <TrimmerRootAssembly Include="TagLibSharp" />
     <TrimmerRootAssembly Include="Newtonsoft.Json" />
   </ItemGroup>

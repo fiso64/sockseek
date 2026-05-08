@@ -2,12 +2,6 @@
   "version": 1,
   "dependencies": {
     "net10.0": {
-      "Goblinfactory.Konsole": {
-        "type": "Direct",
-        "requested": "[7.0.0.7-alpha, )",
-        "resolved": "7.0.0.7-alpha",
-        "contentHash": "psWW4ikGQk6EBs9L0GsglxMDPeiUitPW5HSIAcIFNhURwcdBRb9ZVBWxiWrsujVN40kaxmwH/CT0Lm2yxanj+A=="
-      },
       "Microsoft.AspNetCore.SignalR.Client": {
         "type": "Direct",
         "requested": "[10.0.7, )",

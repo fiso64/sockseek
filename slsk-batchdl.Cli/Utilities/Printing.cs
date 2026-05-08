@@ -147,8 +147,6 @@ public static class Printing
                 string text   = _lastItem;
 
                 // Truncate text to textWidth display columns, counting wide chars as 2.
-                // (Konsole's FixLeft uses .Length, so wide chars cause overflow and garble
-                // subsequent bars — we avoid that by writing directly.)
                 int displayW = 0, cutAt = text.Length;
                 for (int i = 0; i < text.Length; i++)
                 {
@@ -160,8 +158,8 @@ public static class Printing
                 int pct  = Math.Clamp(_lastCurrent, 0, 100);
                 int num2 = Math.Max(0, windowWidth - textWidth - 8); // progress bar chars (= 2)
 
-                // Save cursor so we can restore it after writing the bar (same pattern as
-                // Konsole's _Refresh — cursor stays at the natural "below all bars" position).
+                // Save cursor so we can restore it after writing the bar; the cursor stays
+                // at the natural "below all bars" position.
                 int savedTop  = Console.CursorTop;
                 int savedLeft = Console.CursorLeft;
                 var prevFg    = Console.ForegroundColor;
@@ -182,7 +180,7 @@ public static class Printing
                 finally
                 {
                     // Restore all console state (color + cursor) to what it was before we
-                    // jumped to _y — same pattern as Konsole's ConsoleState save/restore.
+                    // jumped to _y.
                     try
                     {
                         Console.ForegroundColor = prevFg;
