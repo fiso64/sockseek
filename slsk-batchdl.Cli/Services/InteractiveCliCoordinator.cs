@@ -135,7 +135,11 @@ internal sealed class InteractiveCliCoordinator
             ct);
         var folders = projection?.Items.Select(ToAlbumFolder).ToList() ?? [];
         if (folders.Count == 0)
+        {
+            if (ConsoleInputManager.Reporter != null)
+                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumJob", search.QueryText, "No suitable file found");
             return;
+        }
 
         var promptJob = ToSearchJob(search);
         var session = new InteractiveAlbumSession(

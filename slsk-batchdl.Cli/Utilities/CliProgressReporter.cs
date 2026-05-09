@@ -83,6 +83,21 @@ public class CliProgressReporter
         _live?.Dispose();
     }
 
+    public void ReportSyntheticJobFailure(int displayId, string jobType, string name, string failureReason)
+    {
+        string msg = $"failed [{failureReason}]: {name}";
+
+        if (LiveMode)
+        {
+            _live!.Log(new TerminalLogLine(TerminalLogKind.JobFailed, Guid.Empty.ToString(), displayId, jobType, msg));
+            Logger.LogNonConsole(Logger.LogLevel.Info, $"[{displayId:000}] {jobType}: {msg}");
+        }
+        else
+        {
+            Logger.Info($"[{displayId:000}] {jobType}: {msg}");
+        }
+    }
+
     internal void Attach(ICliBackend backend)
     {
         backend.EventReceived += envelope =>
