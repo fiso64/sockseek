@@ -43,7 +43,10 @@ public sealed class ServerProgressLogReporter
         else if (state == JobState.Done)
         {
             if (job.Discovery != null && reportedDiscoveryJobs.TryAdd(job.Id, true))
-                ReportDiscoveryResult(job);
+            {
+                if (job is not SearchJob)
+                    ReportDiscoveryResult(job);
+            }
 
             if (job is AlbumJob aj)
                 ReportAlbumDownloadCompleted(aj);
@@ -51,14 +54,21 @@ public sealed class ServerProgressLogReporter
                 Log($"[{ej.DisplayId}] ExtractJob: extraction completed: {ej.ToString(true)}");
             else if (job is SongJob doneSong)
                 Log($"[{doneSong.DisplayId}] SongJob: {TerminalLabel(doneSong)}: {SongDisplay(doneSong)}");
+            else if (job is SearchJob sj)
+                Log($"[{sj.DisplayId}] SearchJob: {TerminalLabel(sj)}: {sj.ToString(true)}: Found {sj.Discovery?.ResultCount ?? 0} files");
         }
         else if (IsTerminal(state))
         {
             if (job.Discovery != null && reportedDiscoveryJobs.TryAdd(job.Id, true))
-                ReportDiscoveryResult(job);
+            {
+                if (job is not SearchJob)
+                    ReportDiscoveryResult(job);
+            }
 
             if (job is SongJob song)
                 Log($"[{song.DisplayId}] SongJob: {TerminalLabel(song)}: {SongDisplay(song)}");
+            else if (job is SearchJob sj)
+                Log($"[{sj.DisplayId}] SearchJob: {TerminalLabel(sj)}: {sj.ToString(true)}");
         }
     }
 

@@ -332,6 +332,12 @@ internal sealed class EventLogger
             _ => $"{char.ToUpperInvariant(summary.Kind.ToWireString()[0])}{summary.Kind.ToWireString()[1..]}Job: "
         };
         var line = $"[{summary.DisplayId}] {prefix}{status}: {WithName(name, d)}" + ProfileSuffix(summary);
+        
+        if (summary.State == ServerProtocol.JobStates.Done && summary.Kind == ServerJobKind.Search && summary.DiscoveryResultCount.HasValue)
+        {
+            line += $": Found {summary.DiscoveryResultCount.Value} files";
+        }
+
         if (!string.IsNullOrEmpty(summary.FailureMessage))
             line += Environment.NewLine + $"    Error: {summary.FailureMessage}";
         return line;

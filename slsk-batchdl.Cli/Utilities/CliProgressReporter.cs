@@ -193,8 +193,12 @@ public class CliProgressReporter
                 var name = summary.ItemName ?? "";
                 var detail = summary.QueryText ?? name;
                 
+                string msg = $"{label}: {WithName(name, detail)}";
+                if (summary.State == ServerProtocol.JobStates.Done && summary.Kind == ServerJobKind.Search && summary.DiscoveryResultCount.HasValue)
+                    msg += $": Found {summary.DiscoveryResultCount.Value} files";
+
                 if (LiveMode)
-                    LogLive(kind, summary, $"{label}: {WithName(name, detail)}");
+                    LogLive(kind, summary, msg);
             }
 
             return;
@@ -384,7 +388,12 @@ public class CliProgressReporter
     {
         var name = summary.ItemName ?? "";
         var d = detail ?? summary.QueryText ?? name;
-        return $"[{summary.DisplayId}] {GetJobTypePrefix(summary.Kind)}{status}: {WithName(name, d)}";
+        string line = $"[{summary.DisplayId}] {GetJobTypePrefix(summary.Kind)}{status}: {WithName(name, d)}";
+        
+        if (summary.State == ServerProtocol.JobStates.Done && summary.Kind == ServerJobKind.Search && summary.DiscoveryResultCount.HasValue)
+            line += $": Found {summary.DiscoveryResultCount.Value} files";
+            
+        return line;
     }
 
     private void UpsertLiveJob(
