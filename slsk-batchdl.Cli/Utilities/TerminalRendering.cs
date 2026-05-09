@@ -702,7 +702,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
 
         try
         {
-            return Math.Clamp(Console.WindowHeight - 8, 4, 30);
+            return Math.Clamp(Console.WindowHeight - 8, 4, 60);
         }
         catch
         {
