@@ -1,4 +1,5 @@
 using Sldl.Server;
+using Soulseek;
 
 namespace Sldl.Cli;
 
@@ -108,12 +109,12 @@ internal static class JobInfoPrinter
         if (p.ResultCount > 0)
             Field("Results", $"{p.ResultCount} folders found");
 
-        if (children.Count > 0)
+        if (p.Tracks is { Count: > 0 } tracks)
         {
             Printing.WriteLine(force: true);
-            Printing.WriteLine($"  Tracks ({children.Count}):", ConsoleColor.Gray, force: true);
-            foreach (var child in children)
-                PrintChildSummary(child);
+            Printing.WriteLine($"  Tracks ({tracks.Count}):", ConsoleColor.Gray, force: true);
+            foreach (var track in tracks)
+                PrintAlbumTrack(track, p.ResolvedFolderPath);
         }
     }
 
@@ -179,6 +180,62 @@ internal static class JobInfoPrinter
         Field("Outcome", p.RetrievalOutcome.ToString());
         if (p.RetrievalCancelled)
             Field("Cancelled", "yes", ConsoleColor.Yellow);
+    }
+
+    private static void PrintAlbumTrack(SongJobPayloadDto track, string? folderPath)
+    {
+        var stateLabel = TransferStateLabel(track.TransferState) ?? track.State?.ToString().ToLowerInvariant() ?? "pending";
+        var stateColor = stateLabel == "downloading" ? ConsoleColor.Cyan
+            : track.State.HasValue ? StateColor(track.State.Value)
+            : ConsoleColor.Gray;
+
+        var name = TrackRelativeName(track.ResolvedFilename, folderPath)
+            ?? FormatSongQuery(track.Query)
+            ?? "?";
+
+        var meta = FormatTrackMeta(track);
+
+        Printing.Write($"    {stateLabel,-14}", stateColor, force: true);
+        Printing.Write(": ", ConsoleColor.DarkGray, force: true);
+        Printing.Write(name, ConsoleColor.White, force: true);
+        if (meta != null)
+        {
+            Printing.Write("  ", ConsoleColor.DarkGray, force: true);
+            Printing.Write($"[{meta}]", ConsoleColor.DarkGray, force: true);
+        }
+        Printing.WriteLine(force: true);
+    }
+
+    private static string? TrackRelativeName(string? filename, string? folderPath)
+    {
+        if (filename == null) return null;
+        var f = filename.Replace('/', '\\').TrimStart('\\');
+        if (folderPath == null) return f;
+        var folder = folderPath.Replace('/', '\\').TrimStart('\\');
+        var prefix = folder.EndsWith('\\') ? folder : folder + "\\";
+        return f.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? f[prefix.Length..] : f;
+    }
+
+    private static string? TransferStateLabel(string? raw)
+    {
+        if (raw == null || !Enum.TryParse<TransferStates>(raw, out var s))
+            return null;
+        if (s.HasFlag(TransferStates.InProgress))   return "downloading";
+        if (s.HasFlag(TransferStates.Queued) && s.HasFlag(TransferStates.Remotely)) return "queued (r)";
+        if (s.HasFlag(TransferStates.Queued) && s.HasFlag(TransferStates.Locally))  return "queued (l)";
+        if (s.HasFlag(TransferStates.Queued))       return "queued";
+        if (s.HasFlag(TransferStates.Initializing)) return "initialising";
+        return "requested";
+    }
+
+    private static string? FormatTrackMeta(SongJobPayloadDto track)
+    {
+        var parts = new List<string>();
+        if (track.ResolvedSize is long size && size > 0)
+            parts.Add(FormatBytes(size));
+        var attrs = FormatAttributes(track.ResolvedAttributes, track.ResolvedSampleRate, null);
+        if (attrs != null) parts.Add(attrs);
+        return parts.Count > 0 ? string.Join(" · ", parts) : null;
     }
 
     private static void PrintChildSummary(JobSummaryDto child)

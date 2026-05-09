@@ -4,6 +4,7 @@ using Sldl.Core;
 using Sldl.Core.Jobs;
 using Sldl.Core.Models;
 using Sldl.Server;
+using Soulseek;
 
 namespace Tests.Server;
 
@@ -115,6 +116,31 @@ public class EngineStateStoreTests
         Assert.AreEqual(2, payload.ResultCount);
     }
 
+    [TestMethod]
+    public void AlbumDetail_TracksReflectCurrentTransferState()
+    {
+        var store = new EngineStateStore();
+        var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
+        var song1 = new SongJob(new SongQuery { Title = "One" });
+        var song2 = new SongJob(new SongQuery { Title = "Two" });
+        song1.UpdateState(JobState.Downloading);
+        song2.UpdateState(JobState.Downloading);
+
+        Register(store, album);
+        Register(store, song1, album);
+        Register(store, song2, album);
+
+        // Fire transfer state after registration — the cached record payload won't have it
+        DownloadStateChanged(store, song1, TransferStates.InProgress);
+        DownloadStateChanged(store, song2, TransferStates.Queued | TransferStates.Remotely);
+
+        var tracks = (store.GetJobDetail(album.Id)?.Payload as AlbumJobPayloadDto)?.Tracks;
+        Assert.IsNotNull(tracks);
+        Assert.AreEqual(2, tracks.Count);
+        Assert.AreEqual(TransferStates.InProgress.ToString(), tracks[0].TransferState);
+        Assert.AreEqual((TransferStates.Queued | TransferStates.Remotely).ToString(), tracks[1].TransferState);
+    }
+
     private static void Register(EngineStateStore store, Job job, Job? parent = null)
     {
         typeof(EngineStateStore)
@@ -127,5 +153,12 @@ public class EngineStateStoreTests
         typeof(EngineStateStore)
             .GetMethod("OnJobStateChanged", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(store, [job, job.State]);
+    }
+
+    private static void DownloadStateChanged(EngineStateStore store, SongJob song, TransferStates state)
+    {
+        typeof(EngineStateStore)
+            .GetMethod("OnDownloadStateChanged", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(store, [song, state]);
     }
 }

@@ -86,7 +86,8 @@ public sealed record SongJobPayloadDto(
     long? BytesTransferred = null,
     long? TotalBytes = null,
     double? ProgressPercent = null,
-    IReadOnlyList<ResourceActionDto>? AvailableActions = null) : JobPayloadDto;
+    IReadOnlyList<ResourceActionDto>? AvailableActions = null,
+    string? TransferState = null) : JobPayloadDto;
 
 /// <summary>
 /// Payload for album search/download jobs.

@@ -2,6 +2,7 @@ using Sldl.Core;
 using Sldl.Core.Jobs;
 using Sldl.Core.Models;
 using Sldl.Core.Services;
+using Soulseek;
 
 namespace Sldl.Server;
 
@@ -15,6 +16,7 @@ public sealed class EngineStateStore
     private readonly Dictionary<Guid, Guid> sourceJobIds = [];
     private readonly HashSet<Guid> infrastructureFailedJobs = [];
     private readonly HashSet<Guid> executionCompletedJobs = [];
+    private readonly Dictionary<Guid, TransferStates> songTransferStates = [];
 
     public event Action<JobSummaryDto>? JobUpserted;
     public event Action<WorkflowSummaryDto>? WorkflowUpserted;
@@ -27,6 +29,7 @@ public sealed class EngineStateStore
         engine.Events.JobStateChanged += OnJobStateChanged;
         engine.Events.JobExecutionCompleted += OnJobExecutionCompleted;
         engine.Events.DownloadStarted += OnNestedSongDownloadStarted;
+        engine.Events.DownloadStateChanged += OnDownloadStateChanged;
     }
 
     public void DetachEngine(DownloadEngine engine)
@@ -36,6 +39,7 @@ public sealed class EngineStateStore
         engine.Events.JobStateChanged -= OnJobStateChanged;
         engine.Events.JobExecutionCompleted -= OnJobExecutionCompleted;
         engine.Events.DownloadStarted -= OnNestedSongDownloadStarted;
+        engine.Events.DownloadStateChanged -= OnDownloadStateChanged;
     }
 
     public JobSummaryDto? GetJobSummary(Guid jobId)
@@ -68,10 +72,21 @@ public sealed class EngineStateStore
             var children = records.Values
                 .Where(candidate => candidate.ParentJobId == jobId)
                 .OrderBy(candidate => candidate.Summary.DisplayId)
-                .Select(candidate => candidate.Summary)
                 .ToList();
 
-            return new JobDetailDto(record.Summary, record.Payload, children);
+            JobPayloadDto payload = record.Payload;
+            if (payload is AlbumJobPayloadDto albumPayload)
+            {
+                var tracks = children
+                    .Select(c => jobs.TryGetValue(c.Id, out var job) ? job as SongJob : null)
+                    .OfType<SongJob>()
+                    .Select(s => ToSongJobPayloadDto(s, songTransferStates.TryGetValue(s.Id, out var ts) ? ts.ToString() : null))
+                    .ToList();
+                if (tracks.Count > 0)
+                    payload = albumPayload with { Tracks = tracks };
+            }
+
+            return new JobDetailDto(record.Summary, payload, children.Select(c => c.Summary).ToList());
         }
     }
 
@@ -317,6 +332,13 @@ public sealed class EngineStateStore
 
         PublishJobAndWorkflowUpserts([summary], [workflowSummary]);
     }
+
+    private void OnDownloadStateChanged(SongJob song, TransferStates state)
+    {
+        lock (gate)
+            songTransferStates[song.Id] = state;
+    }
+
 
     private void OnNestedSongDownloadStarted(SongJob song, FileCandidate _) => OnNestedSongChanged(song);
 
@@ -567,7 +589,8 @@ public sealed class EngineStateStore
                 searchJob.ResultCount,
                 searchJob.Revision,
                 searchJob.IsComplete),
-            SongJob songJob => ToSongJobPayloadDto(songJob),
+            SongJob songJob => ToSongJobPayloadDto(songJob,
+                songTransferStates.TryGetValue(songJob.Id, out var ts) ? ts.ToString() : null),
             AlbumJob albumJob => new AlbumJobPayloadDto(
                 ToAlbumQueryDto(albumJob.Query),
                 albumJob.Results.Count,
@@ -636,7 +659,7 @@ public sealed class EngineStateStore
     private static ResourceActionDto CancelAction(Guid jobId)
         => new(ServerResourceActionKind.Cancel, "POST", $"/api/jobs/{jobId}/cancel");
 
-    private static SongJobPayloadDto ToSongJobPayloadDto(SongJob song)
+    private static SongJobPayloadDto ToSongJobPayloadDto(SongJob song, string? transferState = null)
     {
         long? totalBytes = song.FileSize > 0 ? song.FileSize : song.ResolvedTarget?.File.Size;
         double? progressPercent = totalBytes > 0
@@ -664,7 +687,8 @@ public sealed class EngineStateStore
             song.BytesTransferred,
             totalBytes,
             progressPercent,
-            BuildActions(song));
+            BuildActions(song),
+            transferState);
     }
 
     private static SongQueryDto ToSongQueryDto(SongQuery query) => new(

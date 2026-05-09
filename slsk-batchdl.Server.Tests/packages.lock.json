@@ -31,6 +31,12 @@
           "MSTest.Analyzers": "3.7.3"
         }
       },
+      "Soulseek": {
+        "type": "Direct",
+        "requested": "[8.5.0, )",
+        "resolved": "8.5.0",
+        "contentHash": "PNmdER1Fjn0CFEYjp8F8XcFEgdldVQ5rkEcAE5yZOFy8uTb3aHMk3NUH6uQnqL/SINOWSuIJBmGimSW85aTy8A=="
+      },
       "AngleSharp": {
         "type": "Transitive",
         "resolved": "1.4.0",
@@ -178,11 +184,6 @@
         "resolved": "1.2.0",
         "contentHash": "yCc84rzTlnXPEJnrMo7QQUXcnG0em1NAN7BQZxhksvxUo7SGnTW+ya86R34q3EwoUV+hZ4ZoRiLAyEmY7254hA=="
       },
-      "Soulseek": {
-        "type": "Transitive",
-        "resolved": "8.5.0",
-        "contentHash": "PNmdER1Fjn0CFEYjp8F8XcFEgdldVQ5rkEcAE5yZOFy8uTb3aHMk3NUH6uQnqL/SINOWSuIJBmGimSW85aTy8A=="
-      },
       "SpotifyAPI.Web": {
         "type": "Transitive",
         "resolved": "7.4.2",
@@ -248,7 +249,7 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.AspNetCore.OpenApi": "[10.0.7, )",
-          "Sldl.Core": "[3.0.0-dev.5, )"
+          "Sldl.Core": "[3.0.0-dev.6, )"
         }
       }
     }
