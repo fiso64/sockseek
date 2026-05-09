@@ -102,6 +102,16 @@ public static class ServerHost
             .Produces<JobDetailDto>()
             .Produces(StatusCodes.Status404NotFound);
 
+        app.MapGet("/api/workflows/{workflowId:guid}/jobs/display/{displayId:int}", (Guid workflowId, int displayId, EngineSupervisor supervisor) =>
+        {
+            var detail = supervisor.GetJobDetailByDisplayId(workflowId, displayId);
+            return detail != null ? Results.Ok(detail) : Results.NotFound();
+        })
+            .WithTags("Jobs")
+            .WithSummary("Gets a job snapshot by workflow and display id.")
+            .Produces<JobDetailDto>()
+            .Produces(StatusCodes.Status404NotFound);
+
         app.MapGet("/api/jobs/{jobId:guid}/raw", (Guid jobId, long afterSequence, EngineSupervisor supervisor) =>
         {
             var results = supervisor.GetSearchRawResults(jobId, afterSequence);

@@ -242,6 +242,19 @@ public sealed class EngineSupervisor
         return engine?.TryNextCandidate(job.Id) ?? false;
     }
 
+    public JobDetailDto? GetJobDetailByDisplayId(Guid workflowId, int displayId)
+    {
+        DownloadEngine? engine;
+        lock (engineGate)
+            engine = currentEngine;
+
+        var job = engine?.GetJob(displayId);
+        if (job == null || job.WorkflowId != workflowId)
+            return null;
+
+        return StateStore.GetJobDetail(job.Id);
+    }
+
     public IReadOnlyList<SearchRawResultDto>? GetSearchRawResults(Guid jobId, long afterSequence)
     {
         var searchJob = StateStore.GetJob<SearchJob>(jobId);

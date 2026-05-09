@@ -137,6 +137,17 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         return await ReadRequiredAsync<JobDetailDto>(response, ct);
     }
 
+    public async Task<JobDetailDto?> GetJobDetailByDisplayIdAsync(int displayId, Guid? workflowId = null, CancellationToken ct = default)
+    {
+        if (workflowId is not Guid id)
+            return null;
+        using var response = await http.GetAsync($"api/workflows/{id}/jobs/display/{displayId}", ct);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+        await EnsureSuccessAsync(response, ct);
+        return await ReadRequiredAsync<JobDetailDto>(response, ct);
+    }
+
     public async Task<WorkflowDetailDto?> GetWorkflowAsync(Guid workflowId, CancellationToken ct = default)
     {
         using var response = await http.GetAsync($"api/workflows/{workflowId}", ct);

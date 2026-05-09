@@ -99,6 +99,15 @@ internal sealed class LocalCliBackend
         return Task.FromResult(stateStore.GetJobDetail(jobId));
     }
 
+    public Task<JobDetailDto?> GetJobDetailByDisplayIdAsync(int displayId, Guid? workflowId = null, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var job = engine.GetJob(displayId);
+        if (job == null || (workflowId.HasValue && job.WorkflowId != workflowId.Value))
+            return Task.FromResult<JobDetailDto?>(null);
+        return Task.FromResult(stateStore.GetJobDetail(job.Id));
+    }
+
     public Task<WorkflowDetailDto?> GetWorkflowAsync(Guid workflowId, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();

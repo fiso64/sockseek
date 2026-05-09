@@ -261,6 +261,24 @@ internal static partial class Program
             }
         };
 
+        ConsoleInputManager.OnInfoRequested = async () =>
+        {
+            while (true)
+            {
+                lock (Printing.ConsoleLock)
+                    Printing.Write("Info for job ID (or Esc): ", ConsoleColor.Yellow, force: true);
+
+                var id = ConsoleInputManager.ReadJobIdInput();
+                if (id == null) return;
+
+                var detail = await backend.GetJobDetailByDisplayIdAsync(id.Value, ct: cts.Token);
+                if (detail == null)
+                    Logger.Error($"Job ID [{id}] not found.");
+                else
+                    JobInfoPrinter.Print(detail);
+            }
+        };
+
         _ = Task.Run(() => ConsoleInputManager.RunLoopAsync(cts.Token), cts.Token);
 
         try
@@ -423,6 +441,24 @@ internal static partial class Program
             else
             {
                 Logger.Error($"Invalid input '{result.Input}'.");
+            }
+        };
+
+        ConsoleInputManager.OnInfoRequested = async () =>
+        {
+            while (true)
+            {
+                lock (Printing.ConsoleLock)
+                    Printing.Write("Info for job ID (or Esc): ", ConsoleColor.Yellow, force: true);
+
+                var id = ConsoleInputManager.ReadJobIdInput();
+                if (id == null) return;
+
+                var detail = await backend.GetJobDetailByDisplayIdAsync(id.Value, submission.WorkflowId, cts.Token);
+                if (detail == null)
+                    Logger.Error($"Job ID [{id}] not found.");
+                else
+                    JobInfoPrinter.Print(detail);
             }
         };
 

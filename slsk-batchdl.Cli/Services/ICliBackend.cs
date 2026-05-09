@@ -19,6 +19,7 @@ internal interface ICliBackend
     Task SubscribeWorkflowAsync(Guid workflowId, CancellationToken ct = default);
     Task<IReadOnlyList<JobSummaryDto>> GetJobsAsync(JobQuery query, CancellationToken ct = default);
     Task<JobDetailDto?> GetJobDetailAsync(Guid jobId, CancellationToken ct = default);
+    Task<JobDetailDto?> GetJobDetailByDisplayIdAsync(int displayId, Guid? workflowId = null, CancellationToken ct = default);
     Task<WorkflowDetailDto?> GetWorkflowAsync(Guid workflowId, CancellationToken ct = default);
     Task<SearchResultSnapshotDto<FileCandidateDto>?> GetFileResultsAsync(Guid jobId, CancellationToken ct = default);
     Task<SearchResultSnapshotDto<FileCandidateDto>?> GetFileResultsAsync(Guid jobId, FileSearchProjectionRequestDto request, CancellationToken ct = default);

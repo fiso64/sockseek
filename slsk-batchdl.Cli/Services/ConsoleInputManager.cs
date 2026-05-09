@@ -19,6 +19,7 @@ public static class ConsoleInputManager
     public static bool GlobalCancelEnabled { get; set; } = true;
     public static Func<Task>? OnCancelRequested { get; set; }
     public static Func<Task>? OnNextCandidateRequested { get; set; }
+    public static Func<Task>? OnInfoRequested { get; set; }
     public static CliProgressReporter? Reporter { get; set; }
 
     public static async Task RunLoopAsync(CancellationToken ct)
@@ -58,6 +59,18 @@ public static class ConsoleInputManager
                             if (Reporter != null) Reporter.IsPaused = false;
                         }
                     }
+                    else if (key.KeyChar == 'i')
+                    {
+                        if (OnInfoRequested != null)
+                        {
+                            if (Reporter != null) Reporter.IsPaused = true;
+                            Printing.SetBuffering(true);
+                            await OnInfoRequested();
+                            Printing.SetBuffering(false);
+                            Printing.Flush();
+                            if (Reporter != null) Reporter.IsPaused = false;
+                        }
+                    }
                     else
                     {
                         _keyChannel.Writer.TryWrite(key);
@@ -75,6 +88,12 @@ public static class ConsoleInputManager
     public static async ValueTask<ConsoleKeyInfo> ReadKeyAsync(CancellationToken ct = default)
     {
         return await _keyChannel.Reader.ReadAsync(ct);
+    }
+
+    public static int? ReadJobIdInput()
+    {
+        var result = ReadCancelPromptResult();
+        return result.Action == CancelPromptAction.CancelJob ? result.JobId : null;
     }
 
     public static CancelPromptResult ReadCancelPromptResult()
