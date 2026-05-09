@@ -576,28 +576,36 @@ public class DownloadEngine
             return;
         }
 
-        // ── source search ─────────────────────────────────────────────────────
+        // ── source search / download ──────────────────────────────────────────
+        // Leaf jobs hold a single job slot for their entire lifetime (search + download combined).
+        // Containers (AggregateJob, AlbumAggregateJob) don't hold a slot here; their children do.
+        if (job is SongJob or AlbumJob or SearchJob or RetrieveFolderJob)
+            await WithJobSlot(job.Cts!.Token, () => ProcessLeafJobCore(job, ctx));
+        else
+            await ProcessLeafJobCore(job, ctx);
+    }
+
+    async Task ProcessLeafJobCore(Job job, JobContext ctx)
+    {
+        var config = job.Config;
 
         if (job is SearchJob searchJob)
         {
             await _clientManager.WaitUntilReadyAsync(job.Cts!.Token);
 
             var responseData = new ResponseData();
-            await WithJobSlot(job.Cts!.Token, () => searcher!.Search(searchJob, config.Search, responseData, job.Cts!.Token));
+            await searcher!.Search(searchJob, config.Search, responseData, job.Cts!.Token);
             return;
         }
 
         if (job is RetrieveFolderJob retrieveFolderJob)
         {
             await _clientManager.WaitUntilReadyAsync(job.Cts!.Token);
-            
+
             try
             {
-                int newFilesFound = await WithJobSlot(job.Cts!.Token, async () =>
-                {
-                    retrieveFolderJob.UpdateState(JobState.Searching);
-                    return await searcher!.CompleteFolder(retrieveFolderJob.TargetFolder, job.Cts!.Token);
-                });
+                retrieveFolderJob.UpdateState(JobState.Searching);
+                int newFilesFound = await searcher!.CompleteFolder(retrieveFolderJob.TargetFolder, job.Cts!.Token);
                 retrieveFolderJob.NewFilesFoundCount = newFilesFound;
                 retrieveFolderJob.RetrievalOutcome = FolderRetrievalOutcome.Completed;
                 job.Discovery = new DiscoverySummary { ResultCount = newFilesFound, LockedFileCount = 0 };
@@ -617,19 +625,16 @@ public class DownloadEngine
         if (job is SongJob printSong && config.PrintResults)
         {
             await _clientManager.WaitUntilReadyAsync(job.Cts!.Token);
-            await WithJobSlot(job.Cts!.Token, () => searcher!.SearchSong(printSong, config.Search, new ResponseData(), job.Cts!.Token));
+            await searcher!.SearchSong(printSong, config.Search, new ResponseData(), job.Cts!.Token);
             if (printSong.Candidates?.Count > 0)
                 printSong.SetDone();
             else
-            {
                 printSong.Fail(FailureReason.NoSuitableFileFound);
-            }
             return;
         }
 
         if (job is AlbumJob or AggregateJob or AlbumAggregateJob)
         {
-            await _clientManager.WaitUntilReadyAsync(job.Cts!.Token);
             await _clientManager.WaitUntilReadyAsync(job.Cts!.Token);
 
             bool foundSomething = false;
@@ -655,7 +660,7 @@ public class DownloadEngine
                 else if (albumJob.Results.Count > 0)
                     foundSomething = true;
                 else
-                    await WithJobSlot(job.Cts!.Token, () => searcher!.SearchAlbum(albumJob, config.Search, responseData, job.Cts!.Token));
+                    await searcher!.SearchAlbum(albumJob, config.Search, responseData, job.Cts!.Token);
                 foundSomething = albumJob.Results.Count > 0;
             }
             else if (job is AggregateJob aggJob)
@@ -761,11 +766,11 @@ public class DownloadEngine
             switch (job)
             {
                 case SongJob sj:
-                    await WithJobSlot(job.Cts!.Token, () => ProcessSongJob(sj, ctx));
+                    await ProcessSongJob(sj, ctx);
                     break;
 
                 case AlbumJob aj:
-                    await WithJobSlot(job.Cts!.Token, () => ProcessAlbumJob(aj, ctx));
+                    await ProcessAlbumJob(aj, ctx);
                     break;
 
                 case AggregateJob ag:
@@ -792,9 +797,7 @@ public class DownloadEngine
         catch (OperationCanceledException)
         {
             if (job.Cts != null && job.Cts.IsCancellationRequested)
-            {
                 job.Fail(FailureReason.Cancelled);
-            }
         }
 
         Logger.Trace($"ProcessLeafJob: finished for job {job.DisplayId} ({job.GetType().Name})");
