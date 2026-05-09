@@ -146,6 +146,8 @@ public static partial class ResultSorter
     // Fix: Instead of grouping all results upfront, infer the query on-demand per file and 
     // cache the result in a thread-safe dictionary, or restructure the sort so inference 
     // is only performed on the subset of items that actually tie on higher-level flags.
+    //
+    // But first: Check if inferred track count ranking is even used. Remove if not.
     internal sealed class SortKeyContext
     {
         private readonly Lazy<Dictionary<(string Username, string Filename), InferredResultGroup>>? infQueriesAndCounts;
