@@ -75,6 +75,8 @@ public sealed class IncrementalResultSorter
         return newEntries.Count;
     }
 
+    // TODO [PERFORMANCE]: Maybe remove the `readonly` modifier from the `entries` field, and simply swap the 
+    // reference: `this.entries = merged;`.
     private void MergeSortedEntries(List<ResultSorter.SortEntry> newEntries)
     {
         if (entries.Count == 0)

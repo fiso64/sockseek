@@ -208,6 +208,11 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
     public async Task<JobSummaryDto?> StartRetrieveFolderAsync(Guid searchJobId, RetrieveFolderRequestDto request, CancellationToken ct = default)
         => await PostOptionalSummaryAsync($"api/jobs/{searchJobId}/retrieve-folder", request, ct);
 
+    // TODO: Replace HTTP polling with event-driven SignalR pushes.
+    // Constantly awaiting Task.Delay(100) to GET job details wastes resources and adds latency. 
+    // Since this class already has a SignalR HubConnection, the server should push a 
+    // "folder.retrieved" event to the client. We can then use a TaskCompletionSource here 
+    // to await that specific event perfectly, eliminating the while-true loop.
     public async Task<int> RetrieveFolderAndWaitAsync(Guid searchJobId, RetrieveFolderRequestDto request, CancellationToken ct = default)
     {
         var summary = await StartRetrieveFolderAsync(searchJobId, request, ct);

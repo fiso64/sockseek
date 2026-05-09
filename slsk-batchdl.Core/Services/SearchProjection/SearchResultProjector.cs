@@ -366,6 +366,8 @@ public static partial class SearchResultProjector
             ArtistMaybeWrong = query.ArtistMaybeWrong,
         };
 
+    // TODO [PERFORMANCE]: Keys are already alphabetically sorted.
+    // Check if this can be made O(n) (might be more nuanced)
     private static void MergeChildDirectories(Dictionary<string, AlbumFolderBuilder> dirStructure)
     {
         var sortedKeys = dirStructure.Keys.OrderBy(k => k).ToList();

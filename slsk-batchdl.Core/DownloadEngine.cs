@@ -16,6 +16,14 @@ using SlFile = Soulseek.File;
 namespace Sldl.Core;
 
 
+// TODO [ARCHITECTURE]: Refactor DownloadEngine to alleviate "God Class" anti-pattern.
+// Currently, this class violates the Single Responsibility Principle by managing the queue, 
+// instantiating concrete dependencies (new Searcher(), new Downloader()), managing cancellation 
+// hierarchies, and polling for stale downloads.
+// We should adopt Microsoft.Extensions.DependencyInjection:
+// 1. Break this class into isolated services (e.g., IJobPipeline, IStaleMonitor, IQueueOrchestrator).
+// 2. Inject dependencies (ISearcher, IDownloader) via constructor injection.
+// This will drastically improve maintainability and make the orchestration logic actually unit-testable.
 public class DownloadEngine
 {
     private const int updateInterval = 100;
@@ -1769,6 +1777,11 @@ public class DownloadEngine
 
     // ── update / stale-detection loop ─────────────────────────────────────────
 
+    // TODO: Replace this while-true polling loop with a PeriodicTimer or scheduled callbacks.
+    // Iterating over every active download every 100ms to check for stale states burns CPU cycles. 
+    // Stale detection should ideally be handled by CancellationTokens with timeouts (e.g., CancelAfter) 
+    // attached directly to the network streams, or by using a System.Threading.PeriodicTimer for 
+    // better async hygiene and less GC pressure.
     async Task UpdateLoop(CancellationToken cancellationToken)
     {
         while (!appCts.IsCancellationRequested)

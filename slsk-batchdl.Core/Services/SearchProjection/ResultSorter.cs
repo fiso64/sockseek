@@ -139,6 +139,13 @@ public static partial class ResultSorter
         return inferredQueries;
     }
 
+    // TODO [PERFORMANCE]: Fix O(N) latency spike in Lazy inferred queries evaluation.
+    // infQueriesAndCounts is evaluated the first time ANY item needs an inferred track count 
+    // to break a tie. Because GetInferredQueries processes the *entire* resultList at once, 
+    // this causes a massive latency spike during the sort. 
+    // Fix: Instead of grouping all results upfront, infer the query on-demand per file and 
+    // cache the result in a thread-safe dictionary, or restructure the sort so inference 
+    // is only performed on the subset of items that actually tie on higher-level flags.
     internal sealed class SortKeyContext
     {
         private readonly Lazy<Dictionary<(string Username, string Filename), InferredResultGroup>>? infQueriesAndCounts;
@@ -262,6 +269,7 @@ public static partial class ResultSorter
             return (emptyQuery, 0);
         }
 
+        // TODO: Check if this is ever used (i.e. if UseLevenshtein can even be true)
         private int LevenshteinScore(SongQuery inferred)
         {
             if (string.Equals(Query.Title, inferred.Title, StringComparison.OrdinalIgnoreCase))

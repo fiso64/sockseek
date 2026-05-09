@@ -274,6 +274,7 @@ namespace Sldl.Core.Services;
             => album == item.palbum && (albumArtist == null || item.palbumArtist.Contains(albumArtist));
     }
 
+    // TODO: Replace generic tuple soup with readonly record structs.
     public class TagConditionalSkipper : FileBasedSkipper<(string partist, string ptitle, string palbum, string palbumArtist, SimpleFile file)>
     {
         readonly string dir;

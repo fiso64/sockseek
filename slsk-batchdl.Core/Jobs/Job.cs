@@ -12,6 +12,16 @@ namespace Sldl.Core.Jobs;
         public int LockedFileCount { get; set; }
     }
 
+    // TODO [ARCHITECTURE]: Convert Job models to immutable types and implement Unidirectional Data Flow.
+    // Currently, Jobs act as globally mutable state containers. Properties like `State`, `BytesTransferred`, 
+    // and `DownloadPath` are mutated directly by Downloader/Searcher on background threads.
+    // Because INotifyPropertyChanged fires on the mutating thread, this forces the UI/CLI layers to use 
+    // liberal lock() statements to avoid race conditions and visual tearing.
+    // Refactor:
+    // 1. Make Job a C# `record` with `init` only properties.
+    // 2. Background workers should yield `ProgressEvent` structs to a Channel.
+    // 3. A central reducer reads the channel, creates a *new* copy of the Job via the `with` expression, 
+    //    and pushes the unified snapshot to the UI.
     public abstract class Job : INotifyPropertyChanged
     {
         public event PropertyChangedEventHandler? PropertyChanged;

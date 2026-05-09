@@ -295,6 +295,9 @@ public static partial class Utils
         return s;
     }
 
+    // TODO [PERFORMANCE]: String manipulation is at the core of our ranking and filtering logic.
+    // Try to optimize functions which are frequently called (again). MUST carefully benchmark though.
+
     public static string ReplaceInvalidChars(this string str, string replaceStr, bool windows = false, bool removeSlash = true)
     {
         if (string.IsNullOrEmpty(str))

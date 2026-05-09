@@ -661,6 +661,16 @@ public partial class Searcher
     ];
 }
 
+// TODO [ARCHITECTURE]: Standardize on the Result/Outcome pattern across all job processors.
+// Currently, control flow is mixed:
+// 1. Expected domain failures in single-song downloads throw exceptions (e.g., NoSuitableFileFoundException).
+// 2. High-level processors (ProcessAlbumJob, ProcessAggregateJob) directly mutate the Job state (job.Fail()).
+//
+// We should refactor all job handlers (ProcessSongJob, ProcessAlbumJob, etc.) to return a 
+// standardized Result object (e.g., `JobOutcome`). This will:
+// - Eliminate boilerplate exceptions and stack-trace overhead for expected domain outcomes.
+// - Decouple execution from state mutation.
+// - Fix race conditions in EngineEvents by localizing Job state mutation to the main orchestration loop.
 
 public abstract class SearchAndDownloadException : Exception
 {

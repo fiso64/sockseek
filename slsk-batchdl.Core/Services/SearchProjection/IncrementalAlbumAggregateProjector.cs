@@ -47,6 +47,12 @@ public sealed class IncrementalAlbumAggregateProjector
         return added;
     }
 
+    // TODO [ARCHITECTURE] [Low priority]: Implement true incremental updates for album aggregates.
+    // Currently, if a single album folder is updated or removed, this method drops to O(N) 
+    // and rebuilds the entire aggregate state from scratch via Reset().
+    // Add explicit logic to remove old AlbumFolder references from their respective 
+    // buckets, delete empty buckets, and then AddRange the updated folders, allowing the 
+    // UI/Server to actually benefit from incremental performance.
     public int ApplyChanges(AlbumFolderProjectionChanges changes)
     {
         if (changes.Updated.Count > 0 || changes.Removed.Count > 0)
