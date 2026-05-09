@@ -25,7 +25,7 @@ public class CliProgressReporter
     private readonly ConcurrentDictionary<Guid, ServerJobKind> _jobKinds = new();
     private readonly ConcurrentDictionary<Guid, Guid> _parentJobIds = new();
     private readonly ConcurrentDictionary<Guid, byte> _inlineChildJobs = new();
-    private readonly ConcurrentDictionary<Guid, (int DisplayId, string Name)> _liveSongInfo = new();
+    private readonly ConcurrentDictionary<Guid, (int DisplayId, string Name, TerminalFileMetadata? Metadata)> _liveSongInfo = new();
     private readonly ConcurrentDictionary<Guid, byte> _liveTerminalParentLogs = new();
     private readonly ConcurrentDictionary<Guid, Guid> _songToAlbum = new();
 
@@ -44,6 +44,7 @@ public class CliProgressReporter
         public long         LastBytes;
         public long         LastSpeedTicks;
         public long?        SpeedBps;
+        public TerminalFileMetadata? Metadata;
     }
 
     sealed class AlbumBlock
@@ -361,14 +362,17 @@ public class CliProgressReporter
         }
 
         var baseText = candidate != null
-            ? AlbumChildDisplay(block, CandidateDisplay(candidate))
+            ? AlbumChildDisplay(block, CandidateDisplayLive(candidate))
             : SongQueryText(query);
         data = _bars.GetOrAdd(songJobId, _ => new BarData
         {
             BaseText = baseText,
             StateLabel = "pending",
             Pct = 0,
+            Metadata = candidate != null ? CandidateMetadata(candidate) : null,
         });
+        if (candidate != null)
+            data.Metadata = CandidateMetadata(candidate);
         return true;
     }
 
@@ -451,7 +455,8 @@ public class CliProgressReporter
         int? done = null,
         int? total = null,
         IReadOnlyList<JobChildView>? children = null,
-        string? displayName = null)
+        string? displayName = null,
+        TerminalFileMetadata? metadata = null)
     {
         if (_live == null) return;
         _live.Upsert(new JobView(
@@ -464,14 +469,16 @@ public class CliProgressReporter
             DoneChildren: done,
             TotalChildren: total,
             Children: children,
+            Metadata: metadata,
             ParentId: GetContainerParentId(summary.JobId)));
     }
 
-    private void UpsertLiveSong(Guid jobId, int displayId, string name, string state, int? percent = null, long? speedBps = null)
+    private void UpsertLiveSong(Guid jobId, int displayId, string name, string state, int? percent = null, long? speedBps = null, TerminalFileMetadata? metadata = null)
     {
         _live?.Upsert(new JobView(jobId.ToString(), displayId, "Song", name, state,
             Percent: percent,
             SpeedBytesPerSecond: speedBps,
+            Metadata: metadata,
             ParentId: GetContainerParentId(jobId)));
     }
 
@@ -542,6 +549,7 @@ public class CliProgressReporter
                     AlbumChildDisplay(block, data?.BaseText ?? song.ResolvedFilename ?? SongQueryText(song.Query)),
                     data?.Pct,
                     SpeedBytesPerSecond: data?.SpeedBps,
+                    Metadata: data?.Metadata ?? SongPayloadMetadata(song),
                     IsMostRecent: block.LastUpdatedSongId == jobId);
             })
             .Where(child => child.State is not "Pending")
@@ -674,6 +682,42 @@ public class CliProgressReporter
     private static string CandidateDisplay(FileCandidateDto candidate)
         => CandidateDisplay(candidate.Ref);
 
+    private static string CandidateDisplayLive(FileCandidateRefDto candidate)
+        => $"{candidate.Username}\\{candidate.Filename.Replace('/', '\\').TrimStart('\\')}";
+
+    private static string CandidateDisplayLive(FileCandidateDto candidate)
+        => CandidateDisplayLive(candidate.Ref);
+
+    private static TerminalFileMetadata CandidateMetadata(FileCandidateDto candidate)
+        => new(
+            candidate.Size,
+            candidate.Length ?? AttributeValue(candidate.Attributes, "Length"),
+            candidate.BitRate ?? AttributeValue(candidate.Attributes, "BitRate"),
+            candidate.SampleRate ?? AttributeValue(candidate.Attributes, "SampleRate"),
+            AttributeValue(candidate.Attributes, "BitDepth"));
+
+    private static TerminalFileMetadata? SongPayloadMetadata(SongJobPayloadDto song)
+    {
+        if (song.ResolvedSize == null
+            && song.ResolvedSampleRate == null
+            && AttributeValue(song.ResolvedAttributes, "Length") == null
+            && AttributeValue(song.ResolvedAttributes, "BitRate") == null
+            && AttributeValue(song.ResolvedAttributes, "BitDepth") == null)
+            return null;
+
+        return new TerminalFileMetadata(
+            song.ResolvedSize,
+            AttributeValue(song.ResolvedAttributes, "Length"),
+            AttributeValue(song.ResolvedAttributes, "BitRate"),
+            song.ResolvedSampleRate ?? AttributeValue(song.ResolvedAttributes, "SampleRate"),
+            AttributeValue(song.ResolvedAttributes, "BitDepth"));
+    }
+
+    private static int? AttributeValue(IReadOnlyList<FileAttributeDto>? attributes, string type)
+        => attributes?
+            .FirstOrDefault(attribute => string.Equals(attribute.Type, type, StringComparison.OrdinalIgnoreCase))
+            ?.Value;
+
     private static string ShortRemotePath(string username, string normalizedPath)
     {
         var parts = normalizedPath.Split('\\');
@@ -702,6 +746,16 @@ public class CliProgressReporter
             return filename;
         }
         return shortPath ? ShortRemotePath(song.ResolvedUsername, filename) : $"{song.ResolvedUsername}\\..\\{filename}";
+    }
+
+    private static string? ResolvedSongDisplayLive(SongJobPayloadDto song)
+    {
+        if (string.IsNullOrWhiteSpace(song.ResolvedFilename))
+            return null;
+        var filename = song.ResolvedFilename.Replace('/', '\\').TrimStart('\\');
+        return string.IsNullOrWhiteSpace(song.ResolvedUsername)
+            ? filename
+            : $"{song.ResolvedUsername}\\{filename}";
     }
 
     private static string AlbumFolderDisplay(AlbumFolderDto folder, bool shortPath = false)
@@ -843,18 +897,20 @@ public class CliProgressReporter
                 if (TryRegisterAlbumChild(song.JobId, song.DisplayId, song.Query, song.Candidate, out var albumId, out var block, out var childData))
                 {
                     childData.StateLabel = "queued";
-                    childData.BaseText = AlbumChildDisplay(block, CandidateDisplay(song.Candidate));
+                    childData.BaseText = AlbumChildDisplay(block, CandidateDisplayLive(song.Candidate));
                     childData.Pct = 0;
+                    childData.Metadata = CandidateMetadata(song.Candidate);
                     UpdateLastUpdated(song.JobId);
                     UpsertLiveAlbum(albumId, block);
                 }
                 return;
             }
 
-            var songName = WithName(SongQueryText(song.Query), CandidateDisplayShort(song.Candidate));
-            _liveSongInfo[song.JobId] = (song.DisplayId, songName);
-            _bars[song.JobId] = new BarData { StateLabel = "queued" };
-            UpsertLiveSong(song.JobId, song.DisplayId, songName, "queued", 0);
+            var songName = WithName(SongQueryText(song.Query), CandidateDisplayLive(song.Candidate));
+            var metadata = CandidateMetadata(song.Candidate);
+            _liveSongInfo[song.JobId] = (song.DisplayId, songName, metadata);
+            _bars[song.JobId] = new BarData { StateLabel = "queued", Metadata = metadata };
+            UpsertLiveSong(song.JobId, song.DisplayId, songName, "queued", 0, metadata: metadata);
             return;
         }
 
@@ -894,7 +950,7 @@ public class CliProgressReporter
             {
                 _bars.TryGetValue(progress.JobId, out var songData);
                 if (songData != null) UpdateSpeed(songData, progress.BytesTransferred);
-                UpsertLiveSong(progress.JobId, info.DisplayId, info.Name, "downloading", pct, songData?.SpeedBps);
+                UpsertLiveSong(progress.JobId, info.DisplayId, info.Name, "downloading", pct, songData?.SpeedBps, info.Metadata);
             }
             return;
         }
@@ -1108,7 +1164,7 @@ public class CliProgressReporter
             }
             else if (!IsInlineChild(song.JobId))
             {
-                _liveSongInfo[song.JobId] = (song.DisplayId, name);
+                _liveSongInfo[song.JobId] = (song.DisplayId, name, null);
                 UpsertLiveSong(song.JobId, song.DisplayId, name, "searching");
             }
             return;
@@ -1149,7 +1205,7 @@ public class CliProgressReporter
                 UpsertLiveAlbum(albumId, block);
             }
             else if (_liveSongInfo.TryGetValue(song.JobId, out var info))
-                UpsertLiveSong(song.JobId, info.DisplayId, info.Name, stateLabel.ToLowerInvariant());
+                UpsertLiveSong(song.JobId, info.DisplayId, info.Name, stateLabel.ToLowerInvariant(), metadata: info.Metadata);
             return;
         }
 
@@ -1169,7 +1225,7 @@ public class CliProgressReporter
         if (LiveMode)
         {
             var name = SongQueryText(song.Query);
-            _liveSongInfo[song.JobId] = (song.DisplayId, name);
+            _liveSongInfo[song.JobId] = (song.DisplayId, name, null);
             UpsertLiveSong(song.JobId, song.DisplayId, name, "on-complete");
             return;
         }
@@ -1190,7 +1246,7 @@ public class CliProgressReporter
         if (LiveMode)
         {
             if (_liveSongInfo.TryGetValue(song.JobId, out var info))
-                UpsertLiveSong(song.JobId, info.DisplayId, info.Name, "downloading");
+                UpsertLiveSong(song.JobId, info.DisplayId, info.Name, "downloading", metadata: info.Metadata);
             return;
         }
 
@@ -1419,7 +1475,7 @@ public class CliProgressReporter
             _songToAlbum[songJobId] = summary.JobId;
             string filename = song.ResolvedFilename ?? $"{song.Query.Artist} - {song.Query.Title}";
             string shortName = LiveMode
-                ? AlbumChildDisplay(block, ResolvedSongDisplay(song) ?? filename)
+                ? AlbumChildDisplay(block, ResolvedSongDisplayLive(song) ?? filename)
                 : System.IO.Path.GetFileName(filename);
             var bar = LiveMode ? null : Printing.GetProgressBar();
             var data = ToBarData(song, bar, shortName);

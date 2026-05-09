@@ -29,6 +29,12 @@ internal sealed record TerminalLogLine(
     string JobType,
     string Message);
 
+internal abstract record PrintedLogLine
+{
+    public sealed record Raw(string Text) : PrintedLogLine;
+    public sealed record Structured(TerminalLogLine Line) : PrintedLogLine;
+}
+
 internal sealed record JobChildView(
     string Id,
     int DisplayId,
@@ -36,7 +42,15 @@ internal sealed record JobChildView(
     string Name,
     int? Percent = null,
     long? SpeedBytesPerSecond = null,
+    TerminalFileMetadata? Metadata = null,
     bool IsMostRecent = false);
+
+internal sealed record TerminalFileMetadata(
+    long? SizeBytes,
+    int? LengthSeconds,
+    int? BitRate,
+    int? SampleRate,
+    int? BitDepth);
 
 internal sealed record JobView(
     string Id,
@@ -49,6 +63,7 @@ internal sealed record JobView(
     int? DoneChildren = null,
     int? TotalChildren = null,
     IReadOnlyList<JobChildView>? Children = null,
+    TerminalFileMetadata? Metadata = null,
     string? ParentId = null,
     bool IsParentSummary = false)
 {
@@ -70,6 +85,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
     private int _countQueued, _countActive, _countCompleted, _countFailed;
     private readonly ConcurrentQueue<TerminalLogLine> _logs = new();
     private readonly ConcurrentQueue<string> _rawLogs = new();
+    private readonly List<PrintedLogLine> _printedLogHistory = [];
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _renderTask;
     private readonly TimeSpan _refreshInterval = TimeSpan.FromMilliseconds(100);
@@ -80,9 +96,17 @@ internal sealed class TerminalLiveRenderer : IDisposable
     private long _rateLimitResetTicks; // 0 = not rate-limited; otherwise UTC ticks of reset time
     private int _spinFrame;
     private bool _disposed;
+    private (int Width, int Height) _lastTerminalSize;
+    private bool _terminalWasResized;
 
     private sealed record LiveRow(IRenderable Renderable);
+    private sealed record LiveCell(string Text, Style? Style = null);
     private static readonly Style DimIdStyle = new(foreground: Color.Grey);
+    private static readonly Style DimStyle = new(foreground: Color.Grey);
+    private static readonly Style CyanStyle = new(foreground: Color.Cyan1);
+    private static readonly Style YellowStyle = new(foreground: Color.Yellow);
+    private static readonly Style BlueStyle = new(foreground: Color.Blue);
+    private static readonly Style MagentaStyle = new(foreground: Color.Magenta1);
 
     private static readonly IReadOnlyList<string> SpinFrames = SupportsUnicodeSpinner()
         ? Spinner.Known.Dots.Frames
@@ -92,18 +116,12 @@ internal sealed class TerminalLiveRenderer : IDisposable
         ? Spinner.Known.Point.Frames
         : ["·"];
 
-    private static bool SupportsUnicodeSpinner()
-    {
-        if (!AnsiConsole.Profile.Capabilities.Unicode)
-            return false;
-        if (OperatingSystem.IsWindows() && Environment.GetEnvironmentVariable("WT_SESSION") is null)
-            return false;
-        return true;
-    }
+    private static bool SupportsUnicodeSpinner() => AnsiConsole.Profile.Capabilities.Unicode;
 
     public TerminalLiveRenderer()
     {
         Printing.LiveWriteLine = (line, _) => EnqueueRawLog(line);
+        _lastTerminalSize = GetTerminalSize();
         _renderTask = Task.Run(RenderLoopAsync);
     }
 
@@ -183,6 +201,11 @@ internal sealed class TerminalLiveRenderer : IDisposable
         try { _renderTask.Wait(TimeSpan.FromSeconds(2)); }
         catch { }
         Printing.LiveWriteLine = null;
+        // When the terminal shrinks, Spectre.Live's repaint can clear the wrong rows and
+        // eat into real log scrollback above the live region (see comment in FlushLogs).
+        // Replaying the log history at the end recovers those lost lines.
+        if (_terminalWasResized)
+            ReplayPrintedLogHistory();
         AnsiConsole.MarkupLine(BuildCountsMarkup(CountKnownJobs()));
         _cts.Dispose();
     }
@@ -199,6 +222,8 @@ internal sealed class TerminalLiveRenderer : IDisposable
                 {
                     while (!_cts.IsCancellationRequested)
                     {
+                        RememberTerminalResize();
+
                         if (!_paused)
                         {
                             FlushLogs();
@@ -220,17 +245,50 @@ internal sealed class TerminalLiveRenderer : IDisposable
         catch (UnauthorizedAccessException) { }
     }
 
+    private void RememberTerminalResize()
+    {
+        var size = GetTerminalSize();
+        if (size == _lastTerminalSize)
+            return;
+
+        if (size.Width < _lastTerminalSize.Width || size.Height < _lastTerminalSize.Height)
+            _terminalWasResized = true;
+
+        _lastTerminalSize = size;
+    }
+
+    private static (int Width, int Height) GetTerminalSize()
+    {
+        if (Console.IsOutputRedirected)
+            return (0, 0);
+
+        try
+        {
+            return (Console.WindowWidth, Console.WindowHeight);
+        }
+        catch
+        {
+            return (0, 0);
+        }
+    }
+
     private void FlushLogs()
     {
+        // Known bug: Spectre.Live's relative repaint model is not resize-safe when we also
+        // print real log lines above the live region. Terminal resize can reflow scrollback,
+        // after which Live may clear the wrong rows and delete earlier logs. Buffering logs
+        // inside Live avoids real scrollback, which is not an acceptable replacement.
         lock (_sync)
         {
             while (_rawLogs.TryDequeue(out var rawLine))
             {
+                _printedLogHistory.Add(new PrintedLogLine.Raw(rawLine));
                 WritePlainLogLines(rawLine);
             }
 
             while (_logs.TryDequeue(out var line))
             {
+                _printedLogHistory.Add(new PrintedLogLine.Structured(line));
                 var markup = FormatLogMarkup(line);
                 var visualLength = Markup.Remove(markup).Length;
                 int width = LogLineWidth();
@@ -243,6 +301,40 @@ internal sealed class TerminalLiveRenderer : IDisposable
                 AnsiConsole.MarkupLine(markup + PaddingFor(visualLength));
             }
         }
+    }
+
+    private void ReplayPrintedLogHistory()
+    {
+        lock (_sync)
+        {
+            AnsiConsole.MarkupLine("\n[grey]─── terminal was resized — replaying log ───[/]\n");
+            foreach (var line in _printedLogHistory)
+            {
+                switch (line)
+                {
+                    case PrintedLogLine.Raw raw:
+                        WritePlainLogLines(raw.Text);
+                        break;
+                    case PrintedLogLine.Structured structured:
+                        WriteStructuredLogLine(structured.Line);
+                        break;
+                }
+            }
+        }
+    }
+
+    private static void WriteStructuredLogLine(TerminalLogLine line)
+    {
+        var markup = FormatLogMarkup(line);
+        var visualLength = Markup.Remove(markup).Length;
+        int width = LogLineWidth();
+        if (markup.Contains('\n') || (!Console.IsOutputRedirected && visualLength >= width))
+        {
+            WriteMarkupLogLines(line);
+            return;
+        }
+
+        AnsiConsole.MarkupLine(markup + PaddingFor(visualLength));
     }
 
     private static void WritePlainLogLines(string text)
@@ -260,40 +352,66 @@ internal sealed class TerminalLiveRenderer : IDisposable
         var normalized = line.Message.Replace("\r\n", "\n").Replace('\r', '\n');
         var messageLines = normalized.Split('\n');
         var prefixText = $"{FormatDisplayId(line.DisplayId)}{line.JobType}: ";
-        var prefixMarkup = $"[dim]{Markup.Escape(FormatDisplayId(line.DisplayId))}[/]{Markup.Escape(line.JobType)}: ";
-        var continuationPrefix = new string(' ', prefixText.Length);
+        var prefixMarkup = $"[grey]{Markup.Escape(FormatDisplayId(line.DisplayId))}[/]{Markup.Escape(line.JobType)}: ";
+        var continuationPrefix = new string(' ', FormatDisplayId(line.DisplayId).Length);
 
         WriteWrappedMarkupContent(
             prefixText,
             prefixMarkup,
             messageLines[0],
-            content => FormatMainLogContentMarkup(content, line.Kind));
+            first: content => FormatMainLogContentMarkup(content, line.Kind),
+            continuation: content => Markup.Escape(content));
 
         foreach (var messageLine in messageLines.Skip(1))
         {
+            // For path lines like "    -> /some/path", align continuation under the path content
+            string? pathContPrefix = PathContinuationIndent(messageLine);
             WriteWrappedMarkupContent(
                 "",
                 "",
                 messageLine,
-                content => $"[dim]{Markup.Escape(content)}[/]");
+                first: content => $"[grey]{Markup.Escape(content)}[/]",
+                continuation: content => $"[grey]{Markup.Escape(content)}[/]",
+                continuationPrefixText: pathContPrefix);
         }
 
         void WriteWrappedMarkupContent(
             string firstPrefixText,
             string firstPrefixMarkup,
             string content,
-            Func<string, string> formatContent)
+            Func<string, string> first,
+            Func<string, string> continuation,
+            string? continuationPrefixText = null)
         {
-            var prefixTextForChunk = firstPrefixText;
-            var prefixMarkupForChunk = firstPrefixMarkup;
-            foreach (var chunk in WrapContent(content, LogLineWidth() - firstPrefixText.Length))
+            string contPrefixText = continuationPrefixText ?? continuationPrefix;
+            string contPrefixMarkup = Markup.Escape(contPrefixText);
+
+            int lineWidth = LogLineWidth() - firstPrefixText.Length;
+            var chunks = WrapContent(content, lineWidth).ToList();
+
+            for (int i = 0; i < chunks.Count; i++)
             {
-                var markup = prefixMarkupForChunk + formatContent(chunk);
-                AnsiConsole.MarkupLine(markup + PaddingFor(prefixTextForChunk.Length + chunk.Length));
-                prefixTextForChunk = continuationPrefix;
-                prefixMarkupForChunk = Markup.Escape(continuationPrefix);
+                bool isFirst = i == 0;
+                var chunk = chunks[i];
+                var prefixTextForChunk = isFirst ? firstPrefixText : contPrefixText;
+                var prefixMarkupForChunk = isFirst ? firstPrefixMarkup : contPrefixMarkup;
+
+                string contentMarkup = (isFirst ? first : continuation)(chunk);
+                AnsiConsole.MarkupLine(prefixMarkupForChunk + contentMarkup + PaddingFor(prefixTextForChunk.Length + chunk.Length));
             }
         }
+    }
+
+    // Returns the continuation indent string for path lines like "    -> /some/path",
+    // aligning wrapped continuation chunks under the path content (after the arrow).
+    private static string? PathContinuationIndent(string messageLine)
+    {
+        var trimmed = messageLine.TrimStart();
+        if (!trimmed.StartsWith("-> ") && !trimmed.StartsWith("→ "))
+            return null;
+        int leadingSpaces = messageLine.Length - trimmed.Length;
+        int arrowLen = trimmed.IndexOf(' ') + 1;
+        return new string(' ', leadingSpaces + arrowLen);
     }
 
     private static IEnumerable<string> WrapContent(string content, int availableWidth)
@@ -411,6 +529,13 @@ internal sealed class TerminalLiveRenderer : IDisposable
         if (rows.Count <= maxRows)
             return rows;
 
+        // TODO: smarter slot selection when rows overflow. Currently trims at the row level (keeps
+        // last N rows). Instead, select which jobs to include at the job level before rendering,
+        // by priority tier: (1) downloading, (2) searching/extracting/other active, (3) remaining
+        // live. Container jobs (AggregateJob, JobList) are pulled in via AddVisibleAncestors and
+        // don't compete for slots independently. AlbumJobs use their own state (stable, not
+        // derived from children) to avoid flickering during inter-track gaps.
+        // Need to test if this approach is too jumpy or not.
         int keep = Math.Max(3, maxRows - 1);
         int omitted = rows.Count - keep;
         return [
@@ -427,10 +552,17 @@ internal sealed class TerminalLiveRenderer : IDisposable
         => new(new Text(text));
 
     private static LiveRow JobRow(string indent, JobView job, int hiddenChildren)
-        => HangingTextRow($"{indent}{FormatDisplayId(job.DisplayId)}", FormatJobBodyMarkup(job, hiddenChildren), dimPrefix: true);
+    {
+        var prefix = $"{indent}{FormatDisplayId(job.DisplayId)}";
+        return new LiveRow(new LiveLineRenderable(
+            [new LiveCell(prefix, DimIdStyle), ..JobLeftCells(job, hiddenChildren)],
+            MetadataCells(job.Metadata)));
+    }
 
     private static LiveRow ChildRow(string indent, JobChildView child)
-        => HangingTextRow(indent, FormatChildMarkup(child));
+        => new(new LiveLineRenderable(
+            [new LiveCell(indent), ..ChildLeftCells(child)],
+            MetadataCells(child.Metadata)));
 
     private static Dictionary<string, int> AllocateChildLimits(IReadOnlyList<JobView> jobs, int availableRows)
     {
@@ -486,28 +618,6 @@ internal sealed class TerminalLiveRenderer : IDisposable
         }
 
         return children.Where(child => visibleIds.Contains(child.Id)).ToList();
-    }
-
-    private static LiveRow HangingTextRow(string prefix, string bodyMarkup, bool dimPrefix = false)
-    {
-        var grid = new Grid
-        {
-            Expand = true,
-        };
-
-        grid.AddColumn(new GridColumn
-        {
-            Width = prefix.Length,
-            NoWrap = true,
-            Padding = new Padding(0, 0, 0, 0),
-        });
-        grid.AddColumn(new GridColumn
-        {
-            Padding = new Padding(0, 0, 0, 0),
-        });
-        grid.AddRow(dimPrefix ? new Text(prefix, DimIdStyle) : new Text(prefix), new Markup(bodyMarkup));
-
-        return new LiveRow(grid);
     }
 
     private static void AddVisibleAncestors(
@@ -625,59 +735,304 @@ internal sealed class TerminalLiveRenderer : IDisposable
         return null;
     }
 
-    private static string FormatJobBodyMarkup(JobView job, int hiddenChildren)
+    private static Style? StateStyle(string state)
+        => StateColor(state) switch
+        {
+            "yellow" => YellowStyle,
+            "cyan" => CyanStyle,
+            "magenta" => MagentaStyle,
+            "blue" => BlueStyle,
+            "grey" => DimStyle,
+            _ => null,
+        };
+
+    private static IReadOnlyList<LiveCell> JobLeftCells(JobView job, int hiddenChildren)
     {
         bool isAlbum = string.Equals(job.Kind, "Album", StringComparison.OrdinalIgnoreCase);
 
-        string suffix = "";
-        string? stateColor;
+        var cells = new List<LiveCell>
+        {
+            new(job.Kind),
+            new(": "),
+        };
 
+        Style? stateStyle;
         string annotation;
         if (isAlbum && job.TotalChildren is int albumTotal)
         {
-            annotation = $" [cyan]{Markup.Escape($"[{job.DoneChildren ?? 0}/{albumTotal}]")}[/]";
-            stateColor = null;
+            annotation = $" [{job.DoneChildren ?? 0}/{albumTotal}]";
+            stateStyle = null;
         }
         else if (job.Percent is int pct && string.Equals(job.State, "downloading", StringComparison.OrdinalIgnoreCase))
         {
             var speedStr = job.SpeedBytesPerSecond is long spd ? $", {FormatSpeed(spd)}" : "";
-            annotation = $" [cyan]{Markup.Escape($"({pct,2}%{speedStr})")}[/]";
-            stateColor = StateColor(job.State);
-            if (job.TotalChildren is int total)
-                suffix += $" [dim]{Markup.Escape($"[{job.DoneChildren ?? 0}/{total}]")}[/]";
+            annotation = $" ({pct,2}%{speedStr})";
+            stateStyle = StateStyle(job.State);
         }
         else
         {
             annotation = "";
-            stateColor = StateColor(job.State);
-            if (job.TotalChildren is int total)
-                suffix += $" [dim]{Markup.Escape($"[{job.DoneChildren ?? 0}/{total}]")}[/]";
+            stateStyle = StateStyle(job.State);
         }
 
+        cells.Add(new LiveCell(job.State, stateStyle));
+        if (annotation.Length > 0)
+            cells.Add(new LiveCell(annotation, CyanStyle));
+        cells.Add(new LiveCell(": "));
+        cells.Add(new LiveCell(job.Name));
+
+        var suffixText = "";
+        if (!isAlbum && job.TotalChildren is int total)
+            suffixText += $" [{job.DoneChildren ?? 0}/{total}]";
         if (hiddenChildren > 0)
-            suffix += $" [dim]{Markup.Escape($"(+{hiddenChildren} hidden)")}[/]";
+            suffixText += $" (+{hiddenChildren} hidden)";
+        if (suffixText.Length > 0)
+            cells.Add(new LiveCell(suffixText, DimStyle));
 
-        var stateMarkup = stateColor != null
-            ? $"[{stateColor}]{Markup.Escape(job.State)}[/]"
-            : Markup.Escape(job.State);
-
-        return $"{Markup.Escape(job.Kind)}: {stateMarkup}{annotation}: {Markup.Escape(job.Name)}{suffix}";
+        return cells;
     }
 
-    private static string FormatChildMarkup(JobChildView child)
+    private static IReadOnlyList<LiveCell> ChildLeftCells(JobChildView child)
     {
-        var stateColor = StateColor(child.State);
-        var stateMarkup = stateColor != null
-            ? $"[{stateColor}]{Markup.Escape(child.State)}[/]"
-            : Markup.Escape(child.State);
-        string annotation = "";
+        var cells = new List<LiveCell>
+        {
+            new(child.State, StateStyle(child.State)),
+        };
         if (child.Percent is int pct && string.Equals(child.State, "downloading", StringComparison.OrdinalIgnoreCase))
         {
             var speedStr = child.SpeedBytesPerSecond is long spd ? $", {FormatSpeed(spd)}" : "";
-            annotation = $" [cyan]{Markup.Escape($"({pct,2}%{speedStr})")}[/]";
+            cells.Add(new LiveCell($" ({pct,2}%{speedStr})", CyanStyle));
         }
-        return $"{stateMarkup}{annotation}: {Markup.Escape(child.Name)}";
+        cells.Add(new LiveCell(": "));
+        cells.Add(new LiveCell(child.Name));
+        return cells;
     }
+
+    private static IReadOnlyList<LiveCell> MetadataCells(TerminalFileMetadata? metadata)
+    {
+        if (metadata == null)
+            return [];
+
+        var parts = new List<string>();
+        if (metadata.SizeBytes is long sizeBytes && sizeBytes > 0)
+            parts.Add(FormatSize(sizeBytes));
+        if (metadata.LengthSeconds is int lengthSeconds && lengthSeconds > 0)
+            parts.Add(FormatDuration(lengthSeconds));
+        if (metadata.SampleRate is int sampleRate && sampleRate > 0)
+            parts.Add(FormatSampleRate(sampleRate));
+        else if (metadata.BitRate is int bitRate && bitRate > 0)
+            parts.Add($"{bitRate}k");
+        if (metadata.BitDepth is int bitDepth && bitDepth > 0)
+            parts.Add($"{bitDepth}b");
+
+        return parts.Count == 0 ? [] : [new LiveCell($"[{string.Join(" · ", parts)}]", DimStyle)];
+    }
+
+    private sealed class LiveLineRenderable(
+        IReadOnlyList<LiveCell> left,
+        IReadOnlyList<LiveCell> metadata) : IRenderable
+    {
+        public Measurement Measure(RenderOptions options, int maxWidth)
+            => new(0, Math.Max(0, maxWidth));
+
+        public IEnumerable<Segment> Render(RenderOptions options, int maxWidth)
+        {
+            if (maxWidth <= 0)
+                return [];
+
+            var metadataSegments = ToSegments(metadata).ToList();
+            var metadataWidth = Segment.CellCount(metadataSegments);
+            var showMetadata = metadataWidth > 0 && maxWidth - metadataWidth - 1 >= 12;
+            var leftWidth = showMetadata
+                ? Math.Max(0, maxWidth - metadataWidth - 1)
+                : maxWidth;
+
+            var leftSegments = ToSegments(FitPathCells(left, leftWidth)).ToList();
+            var rendered = TruncateSegments(leftSegments, leftWidth).ToList();
+            if (!showMetadata)
+                return rendered;
+
+            var leftRenderedWidth = Segment.CellCount(rendered);
+            var padding = Math.Max(1, maxWidth - leftRenderedWidth - metadataWidth);
+            rendered.Add(Segment.Padding(padding));
+            rendered.AddRange(metadataSegments);
+            return rendered;
+        }
+
+        private static IReadOnlyList<LiveCell> FitPathCells(IReadOnlyList<LiveCell> cells, int maxWidth)
+        {
+            if (maxWidth <= 0)
+                return cells;
+
+            var fitted = cells.ToArray();
+            while (Segment.CellCount(ToSegments(fitted)) > maxWidth)
+            {
+                var changed = false;
+                for (var i = fitted.Length - 1; i >= 0; i--)
+                {
+                    if (!LooksLikePathText(fitted[i].Text))
+                        continue;
+
+                    var currentWidth = Segment.CellCount(ToSegments(fitted));
+                    var cellWidth = CellCount(fitted[i].Text);
+                    var targetCellWidth = Math.Max(1, cellWidth - (currentWidth - maxWidth));
+                    var shortened = ShortenPathText(fitted[i].Text, targetCellWidth);
+                    if (shortened == fitted[i].Text)
+                        continue;
+
+                    fitted[i] = fitted[i] with { Text = shortened };
+                    changed = true;
+                    break;
+                }
+
+                if (!changed)
+                    break;
+            }
+
+            return fitted;
+        }
+
+        private static bool LooksLikePathText(string text)
+            => text.Contains('\\') || text.Contains('/');
+
+        private static string ShortenPathText(string text, int maxWidth)
+        {
+            var slashIndex = text.IndexOfAny(['\\', '/']);
+            if (slashIndex < 0)
+                return text;
+
+            var pathStart = 0;
+            var labelIndex = text.LastIndexOf(": ", slashIndex, StringComparison.Ordinal);
+            if (labelIndex >= 0)
+                pathStart = labelIndex + 2;
+
+            var prefix = text[..pathStart];
+            var path = text[pathStart..].Replace('/', '\\').TrimStart('\\');
+            var pathWidth = maxWidth - CellCount(prefix);
+            if (pathWidth <= 0)
+                return text;
+
+            var shortenedPath = ShortenPath(path, pathWidth);
+            return prefix + shortenedPath;
+        }
+
+        private static string ShortenPath(string path, int maxWidth)
+        {
+            if (CellCount(path) <= maxWidth)
+                return path;
+
+            var firstSeparator = path.IndexOf('\\');
+            if (firstSeparator < 0)
+                return TruncateEnd(path, maxWidth);
+
+            var head = path[..(firstSeparator + 1)];
+            var tail = path[(firstSeparator + 1)..];
+            var marker = "(…)";
+            var headWithMarker = head + marker;
+            var headWithMarkerWidth = CellCount(headWithMarker);
+
+            if (headWithMarkerWidth < maxWidth)
+                return headWithMarker + RightFit(tail, maxWidth - headWithMarkerWidth);
+
+            return TruncateEnd(path, maxWidth);
+        }
+
+        private static string RightFit(string text, int maxWidth)
+        {
+            if (maxWidth <= 0)
+                return "";
+            if (CellCount(text) <= maxWidth)
+                return text;
+
+            for (var start = 1; start < text.Length; start++)
+            {
+                var candidate = text[start..];
+                if (CellCount(candidate) <= maxWidth)
+                    return candidate;
+            }
+
+            return "";
+        }
+
+        private static string TruncateEnd(string text, int maxWidth)
+        {
+            if (maxWidth <= 0)
+                return "";
+            if (CellCount(text) <= maxWidth)
+                return text;
+
+            var ellipsisWidth = CellCount("…");
+            if (maxWidth <= ellipsisWidth)
+                return "…";
+
+            for (var length = text.Length - 1; length >= 0; length--)
+            {
+                var candidate = text[..length] + "…";
+                if (CellCount(candidate) <= maxWidth)
+                    return candidate;
+            }
+
+            return "…";
+        }
+
+        private static int CellCount(string text)
+            => new Segment(text).CellCount();
+
+        private static IEnumerable<Segment> ToSegments(IEnumerable<LiveCell> cells)
+        {
+            foreach (var cell in cells)
+            {
+                if (cell.Text.Length == 0)
+                    continue;
+                yield return cell.Style == null
+                    ? new Segment(cell.Text)
+                    : new Segment(cell.Text, cell.Style);
+            }
+        }
+
+        private static IEnumerable<Segment> TruncateSegments(IReadOnlyList<Segment> segments, int maxWidth)
+        {
+            if (maxWidth <= 0)
+                return [];
+
+            var result = new List<Segment>();
+            var remaining = maxWidth;
+            foreach (var segment in segments)
+            {
+                var width = segment.CellCount();
+                if (width <= remaining)
+                {
+                    result.Add(segment);
+                    remaining -= width;
+                    continue;
+                }
+
+                if (remaining > 0)
+                    result.AddRange(Segment.SplitOverflow(segment, Overflow.Ellipsis, remaining));
+                break;
+            }
+
+            return result;
+        }
+    }
+
+    private static string FormatSize(long bytes)
+        => bytes >= 1024 * 1024 * 1024
+            ? $"{bytes / (1024.0 * 1024.0 * 1024.0),4:F1}GB"
+            : $"{bytes / (1024.0 * 1024.0),4:F1}MB";
+
+    private static string FormatDuration(int seconds)
+    {
+        var time = TimeSpan.FromSeconds(seconds);
+        return time.TotalHours >= 1
+            ? $"{(int)time.TotalHours}:{time.Minutes:00}:{time.Seconds:00}"
+            : $"{time.Minutes,2}:{time.Seconds:00}";
+    }
+
+    private static string FormatSampleRate(int sampleRate)
+        => sampleRate % 1000 == 0
+            ? $"{sampleRate / 1000}k"
+            : $"{sampleRate / 1000.0:0.#}k";
 
     private static string FormatSpeed(long bytesPerSecond)
     {
@@ -707,8 +1062,8 @@ internal sealed class TerminalLiveRenderer : IDisposable
             mainMarkup = Markup.Escape(mainPart);
         }
 
-        var pathMarkup = pathPart != null ? $"[dim]{Markup.Escape(pathPart)}[/]" : "";
-        return $"[dim]{Markup.Escape(FormatDisplayId(line.DisplayId))}[/]{Markup.Escape(line.JobType)}: {mainMarkup}{pathMarkup}";
+        var pathMarkup = pathPart != null ? $"[grey]{Markup.Escape(pathPart)}[/]" : "";
+        return $"[grey]{Markup.Escape(FormatDisplayId(line.DisplayId))}[/]{Markup.Escape(line.JobType)}: {mainMarkup}{pathMarkup}";
     }
 
     private static string FormatMainLogContentMarkup(string content, TerminalLogKind kind)
