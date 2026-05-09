@@ -157,8 +157,20 @@ def generate(root: Path, seed: int) -> None:
     selected_tracks = rng.sample(track_rows, 100)
     selected_albums = rng.sample(album_rows, 30)
 
+    list_lines: list[str] =[]
+    sample_albums = rng.sample(album_rows, 25)
+    sample_tracks = rng.sample(track_rows, 25)
+    
+    for album in sample_albums:
+        list_lines.append(f'a:"{album["artist"]} - {album["album"]}"')
+    for track in sample_tracks:
+        list_lines.append(f'"{track["artist"]} - {track["title"]}"')
+        
+    rng.shuffle(list_lines)
+
     tracks_csv = csv_dir / "tracks_to_download.csv"
     albums_csv = csv_dir / "albums_to_download.csv"
+    list_txt = csv_dir / "list.txt"
 
     with tracks_csv.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=["artist", "title", "album"])
@@ -170,13 +182,19 @@ def generate(root: Path, seed: int) -> None:
         writer.writeheader()
         writer.writerows(selected_albums)
 
+    with list_txt.open("w", encoding="utf-8") as handle:
+        for line in list_lines:
+            handle.write(line + "\n")
+
     print(f"Created library: {library_dir}")
     print(f"Created tracks CSV: {tracks_csv}")
     print(f"Created albums CSV: {albums_csv}")
+    print(f"Created list.txt: {list_txt}")
     print()
     print("Example commands:")
     print(f'  sldl "{tracks_csv}" --mock-files-dir "{library_dir}" --mock-files-no-read-tags --mock-files-slow')
     print(f'  sldl "{albums_csv}" --mock-files-dir "{library_dir}" --mock-files-no-read-tags --mock-files-slow')
+    print(f'  sldl "{list_txt}" --input-type list --mock-files-dir "{library_dir}" --mock-files-no-read-tags --mock-files-slow')
 
 
 def main() -> None:

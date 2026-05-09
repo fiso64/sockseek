@@ -506,28 +506,28 @@ internal sealed class TerminalLiveRenderer : IDisposable
         else if (_statusMessage is string msg)
             statusLine += $" | [bold yellow]{Markup.Escape(msg)}[/]";
 
-        var rows = new List<LiveRow>
-        {
-            MarkupRow(statusLine),
-            TextRow(""),
-        };
+        statusLine += " | [grey][[c]]ancel · [[t]]ry next · [[i]]nfo[/]";
 
-        var childLimits = AllocateChildLimits(jobs, maxRows - rows.Count - jobs.Count);
+        var rows = new List<LiveRow>();
+
+        var childLimits = AllocateChildLimits(jobs, maxRows - 3 - jobs.Count);
         foreach (var job in jobs)
         {
             var indent = job.ParentId != null ? "  " : "";
             var children = VisibleChildren(job, childLimits.GetValueOrDefault(job.Id));
             var hiddenChildren = job.Children.Count(child => IsLiveState(child.State)) - children.Count;
-            rows.Add(JobRow(indent, job, hiddenChildren));
+            rows.Add(JobRow(indent, job, children, hiddenChildren));
             foreach (var child in children)
                 rows.Add(ChildRow($"  {indent}  ", child));
         }
 
-        if (rows.Count == 2)
+        if (rows.Count == 0)
             rows.Add(TextRow("(none)"));
 
-        if (rows.Count <= maxRows)
-            return rows;
+        var finalRows = new List<LiveRow>
+        {
+            TextRow("") // Newline separating logs and live section
+        };
 
         // TODO: smarter slot selection when rows overflow. Currently trims at the row level (keeps
         // last N rows). Instead, select which jobs to include at the job level before rendering,
@@ -536,13 +536,22 @@ internal sealed class TerminalLiveRenderer : IDisposable
         // don't compete for slots independently. AlbumJobs use their own state (stable, not
         // derived from children) to avoid flickering during inter-track gaps.
         // Need to test if this approach is too jumpy or not.
-        int keep = Math.Max(3, maxRows - 1);
-        int omitted = rows.Count - keep;
-        return [
-            ..rows.Take(2),
-            TextRow($"... {omitted} active rows hidden ..."),
-            ..rows.Skip(rows.Count - Math.Max(1, keep - 2)).Take(maxRows - 3),
-        ];
+        if (rows.Count + 3 <= maxRows)
+        {
+            finalRows.AddRange(rows);
+        }
+        else
+        {
+            int keep = Math.Max(1, maxRows - 4);
+            int omitted = rows.Count - keep;
+            finalRows.Add(TextRow($"... {omitted} active rows hidden ..."));
+            finalRows.AddRange(rows.Skip(rows.Count - keep));
+        }
+
+        finalRows.Add(TextRow(""));
+        finalRows.Add(MarkupRow(statusLine));
+
+        return finalRows;
     }
 
     private static LiveRow MarkupRow(string markup)
@@ -551,12 +560,12 @@ internal sealed class TerminalLiveRenderer : IDisposable
     private static LiveRow TextRow(string text)
         => new(new Text(text));
 
-    private static LiveRow JobRow(string indent, JobView job, int hiddenChildren)
+    private static LiveRow JobRow(string indent, JobView job, IReadOnlyList<JobChildView> visibleChildren, int hiddenChildren)
     {
         var prefix = $"{indent}{FormatDisplayId(job.DisplayId)}";
-        return new LiveRow(new LiveLineRenderable(
-            [new LiveCell(prefix, DimIdStyle), ..JobLeftCells(job, hiddenChildren)],
-            MetadataCells(job.Metadata)));
+        var leftCells = JobLeftCells(job, visibleChildren, hiddenChildren, out var childMetadata);
+        return new LiveRow(new LiveLineRenderable([new LiveCell(prefix, DimIdStyle), ..leftCells],
+            MetadataCells(childMetadata ?? job.Metadata)));
     }
 
     private static LiveRow ChildRow(string indent, JobChildView child)
@@ -569,6 +578,8 @@ internal sealed class TerminalLiveRenderer : IDisposable
         var jobsWithChildren = jobs
             .Select(job => (Job: job, ChildCount: job.Children.Count(child => IsLiveState(child.State))))
             .Where(entry => entry.ChildCount > 0)
+            .OrderByDescending(entry => entry.Job.Children.Any(c => string.Equals(c.State, "downloading", StringComparison.OrdinalIgnoreCase)))
+            .ThenBy(entry => entry.Job.ParentId == null ? 0 : 1)
             .ToList();
 
         if (jobsWithChildren.Count == 0 || availableRows <= 0)
@@ -605,17 +616,16 @@ internal sealed class TerminalLiveRenderer : IDisposable
     {
         var children = job.Children.Where(child => IsLiveState(child.State)).ToList();
         if (children.Count == 0 || limit <= 0)
-            return [];
+            return[];
         if (children.Count <= limit)
             return children;
 
-        var visibleIds = children.Take(limit).Select(child => child.Id).ToHashSet(StringComparer.Ordinal);
-        var recent = children.LastOrDefault(child => child.IsMostRecent);
-        if (recent != null && !visibleIds.Contains(recent.Id))
-        {
-            visibleIds.Remove(children.Take(limit).Last().Id);
-            visibleIds.Add(recent.Id);
-        }
+        var visibleIds = children
+            .OrderByDescending(c => string.Equals(c.State, "downloading", StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(c => c.IsMostRecent)
+            .Take(limit)
+            .Select(child => child.Id)
+            .ToHashSet(StringComparer.Ordinal);
 
         return children.Where(child => visibleIds.Contains(child.Id)).ToList();
     }
@@ -746,9 +756,10 @@ internal sealed class TerminalLiveRenderer : IDisposable
             _ => null,
         };
 
-    private static IReadOnlyList<LiveCell> JobLeftCells(JobView job, int hiddenChildren)
+    private static IReadOnlyList<LiveCell> JobLeftCells(JobView job, IReadOnlyList<JobChildView> visibleChildren, int hiddenChildren, out TerminalFileMetadata? outMetadata)
     {
-        bool isAlbum = string.Equals(job.Kind, "Album", StringComparison.OrdinalIgnoreCase);
+        bool isAlbum = IsAlbumKind(job.Kind);
+        outMetadata = null;
 
         var cells = new List<LiveCell>
         {
@@ -758,6 +769,9 @@ internal sealed class TerminalLiveRenderer : IDisposable
 
         Style? stateStyle;
         string annotation;
+        string displayName = job.Name;
+        List<LiveCell>? extraDisplayCells = null;
+
         if (isAlbum && job.TotalChildren is int albumTotal)
         {
             annotation = $" [{job.DoneChildren ?? 0}/{albumTotal}]";
@@ -775,15 +789,57 @@ internal sealed class TerminalLiveRenderer : IDisposable
             stateStyle = StateStyle(job.State);
         }
 
+        if (isAlbum && hiddenChildren > 0)
+        {
+            var hiddenDownloadingChild = job.Children
+                .FirstOrDefault(c => string.Equals(c.State, "downloading", StringComparison.OrdinalIgnoreCase) 
+                                     && !visibleChildren.Any(vc => vc.Id == c.Id));
+
+            if (hiddenDownloadingChild != null)
+            {
+                stateStyle = YellowStyle;
+                outMetadata = hiddenDownloadingChild.Metadata;
+
+                var speedStr = hiddenDownloadingChild.SpeedBytesPerSecond is long spd ? $", {FormatSpeed(spd)}" : "";
+                var childPct = hiddenDownloadingChild.Percent ?? 0;
+                var progressStr = speedStr.Length > 0 ? $"({childPct}%, {speedStr}) " : $"({childPct}%) ";
+
+                int colonIdx = job.Name.LastIndexOf(": ", StringComparison.Ordinal);
+                if (colonIdx >= 0)
+                {
+                    string albumName = job.Name[..colonIdx];
+                    string folderDisplay = job.Name[(colonIdx + 2)..];
+                    string sep = folderDisplay.EndsWith('\\') || folderDisplay.EndsWith('/') ? "" : "\\";
+                    
+                    displayName = $"{albumName}: ";
+                    extraDisplayCells =[
+                        new LiveCell(progressStr, CyanStyle),
+                        new LiveCell($"{folderDisplay}{sep}{hiddenDownloadingChild.Name}")
+                    ];
+                }
+                else
+                {
+                    displayName = $"{job.Name}: ";
+                    extraDisplayCells =[
+                        new LiveCell(progressStr, CyanStyle),
+                        new LiveCell(hiddenDownloadingChild.Name)
+                    ];
+                }
+            }
+        }
+
         cells.Add(new LiveCell(job.State, stateStyle));
         if (annotation.Length > 0)
             cells.Add(new LiveCell(annotation, CyanStyle));
         cells.Add(new LiveCell(": "));
-        cells.Add(new LiveCell(job.Name));
+        
+        cells.Add(new LiveCell(displayName));
+        if (extraDisplayCells != null)
+            cells.AddRange(extraDisplayCells);
 
         var suffixText = "";
         if (!isAlbum && job.TotalChildren is int total)
-            suffixText += $" [{job.DoneChildren ?? 0}/{total}]";
+            suffixText += $"[{job.DoneChildren ?? 0}/{total}]";
         if (hiddenChildren > 0)
             suffixText += $" (+{hiddenChildren} hidden)";
         if (suffixText.Length > 0)
