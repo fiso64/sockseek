@@ -303,6 +303,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
         }
     }
 
+    // TODO: Lines wrap incorrectly when terminal size is different
     private void ReplayPrintedLogHistory()
     {
         lock (_sync)

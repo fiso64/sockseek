@@ -14,6 +14,8 @@
 
 - Skip retrieve full folder contents whenever it's already guaranteed to contain all files (e.g. when it was `cd`'d into).
 
+- Introduce a new state `pending search` (set unconditionally before waiting on the search rate & concurrency semaphores). `searching` state should only be set while actually searching.  
+
 - Logging is scattered & inconsistent. Centralize and make it more defined.
     - Consider storing errors on the job objects and DTOs
     - or even full per-job logs?
