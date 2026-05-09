@@ -869,12 +869,21 @@ public class CliProgressReporter
     private static void UpdateSpeed(BarData d, long bytesTransferred)
     {
         long now = DateTimeOffset.UtcNow.UtcTicks;
-        if (d.LastSpeedTicks != 0)
+        if (d.LastSpeedTicks == 0)
         {
-            long elapsed = now - d.LastSpeedTicks;
-            if (elapsed > 0)
-                d.SpeedBps = (bytesTransferred - d.LastBytes) * TimeSpan.TicksPerSecond / elapsed;
+            d.LastBytes = bytesTransferred;
+            d.LastSpeedTicks = now;
+            return;
         }
+
+        long elapsed = now - d.LastSpeedTicks;
+        if (elapsed < TimeSpan.TicksPerMillisecond * 500)
+            return;
+
+        long instantBps = (bytesTransferred - d.LastBytes) * TimeSpan.TicksPerSecond / elapsed;
+        d.SpeedBps = d.SpeedBps is long prev
+            ? (long)(0.4 * instantBps + 0.6 * prev)
+            : instantBps;
         d.LastBytes = bytesTransferred;
         d.LastSpeedTicks = now;
     }
