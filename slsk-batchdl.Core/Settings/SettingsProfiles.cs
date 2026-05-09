@@ -317,6 +317,7 @@ public static class SettingsCloner
         MockFilesDir = source.MockFilesDir,
         MockFilesReadTags = source.MockFilesReadTags,
         MockFilesSlow = source.MockFilesSlow,
+        MockFilesFailDownloads = source.MockFilesFailDownloads,
     };
 
     public static DownloadSettings Clone(DownloadSettings source) => new()

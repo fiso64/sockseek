@@ -226,17 +226,121 @@ internal sealed class TerminalLiveRenderer : IDisposable
         {
             while (_rawLogs.TryDequeue(out var rawLine))
             {
-                int pad = Console.IsOutputRedirected ? 0 : Math.Max(0, Console.WindowWidth - 1 - rawLine.Length);
-                AnsiConsole.WriteLine(rawLine + new string(' ', pad));
+                WritePlainLogLines(rawLine);
             }
 
             while (_logs.TryDequeue(out var line))
             {
                 var markup = FormatLogMarkup(line);
                 var visualLength = Markup.Remove(markup).Length;
-                int pad = Console.IsOutputRedirected ? 0 : Math.Max(0, Console.WindowWidth - 1 - visualLength);
-                AnsiConsole.MarkupLine(markup + new string(' ', pad));
+                int width = LogLineWidth();
+                if (markup.Contains('\n') || (!Console.IsOutputRedirected && visualLength >= width))
+                {
+                    WriteMarkupLogLines(line);
+                    continue;
+                }
+
+                AnsiConsole.MarkupLine(markup + PaddingFor(visualLength));
             }
+        }
+    }
+
+    private static void WritePlainLogLines(string text)
+    {
+        var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        foreach (var line in normalized.Split('\n'))
+        {
+            foreach (var visualLine in WrapPlainLogLine(line))
+                AnsiConsole.WriteLine(visualLine + PaddingFor(visualLine.Length));
+        }
+    }
+
+    private static void WriteMarkupLogLines(TerminalLogLine line)
+    {
+        var normalized = line.Message.Replace("\r\n", "\n").Replace('\r', '\n');
+        var messageLines = normalized.Split('\n');
+        var prefixText = $"{FormatDisplayId(line.DisplayId)}{line.JobType}: ";
+        var prefixMarkup = $"[dim]{Markup.Escape(FormatDisplayId(line.DisplayId))}[/]{Markup.Escape(line.JobType)}: ";
+        var continuationPrefix = new string(' ', prefixText.Length);
+
+        WriteWrappedMarkupContent(
+            prefixText,
+            prefixMarkup,
+            messageLines[0],
+            content => FormatMainLogContentMarkup(content, line.Kind));
+
+        foreach (var messageLine in messageLines.Skip(1))
+        {
+            WriteWrappedMarkupContent(
+                "",
+                "",
+                messageLine,
+                content => $"[dim]{Markup.Escape(content)}[/]");
+        }
+
+        void WriteWrappedMarkupContent(
+            string firstPrefixText,
+            string firstPrefixMarkup,
+            string content,
+            Func<string, string> formatContent)
+        {
+            var prefixTextForChunk = firstPrefixText;
+            var prefixMarkupForChunk = firstPrefixMarkup;
+            foreach (var chunk in WrapContent(content, LogLineWidth() - firstPrefixText.Length))
+            {
+                var markup = prefixMarkupForChunk + formatContent(chunk);
+                AnsiConsole.MarkupLine(markup + PaddingFor(prefixTextForChunk.Length + chunk.Length));
+                prefixTextForChunk = continuationPrefix;
+                prefixMarkupForChunk = Markup.Escape(continuationPrefix);
+            }
+        }
+    }
+
+    private static IEnumerable<string> WrapContent(string content, int availableWidth)
+    {
+        if (Console.IsOutputRedirected)
+            return [content];
+
+        int width = Math.Max(1, availableWidth);
+        if (content.Length < width)
+            return [content];
+
+        var wrapped = new List<string>();
+        for (int offset = 0; offset < content.Length; offset += width)
+            wrapped.Add(content.Substring(offset, Math.Min(width, content.Length - offset)));
+        return wrapped;
+    }
+
+    private static IEnumerable<string> WrapPlainLogLine(string line)
+    {
+        if (Console.IsOutputRedirected)
+            return [line];
+
+        int width = LogLineWidth();
+        if (line.Length < width)
+            return [line];
+
+        var wrapped = new List<string>();
+        for (int offset = 0; offset < line.Length; offset += width)
+            wrapped.Add(line.Substring(offset, Math.Min(width, line.Length - offset)));
+        return wrapped;
+    }
+
+    private static string PaddingFor(int visualLength)
+        => Console.IsOutputRedirected ? "" : new string(' ', Math.Max(0, LogLineWidth() - visualLength));
+
+    private static int LogLineWidth()
+    {
+        if (Console.IsOutputRedirected)
+            return int.MaxValue;
+
+        try
+        {
+            return Math.Max(1, Console.WindowWidth - 1);
+        }
+        catch
+        {
+            return 79;
         }
     }
 
@@ -606,6 +710,22 @@ internal sealed class TerminalLiveRenderer : IDisposable
         var pathMarkup = pathPart != null ? $"[dim]{Markup.Escape(pathPart)}[/]" : "";
         return $"[dim]{Markup.Escape(FormatDisplayId(line.DisplayId))}[/]{Markup.Escape(line.JobType)}: {mainMarkup}{pathMarkup}";
     }
+
+    private static string FormatMainLogContentMarkup(string content, TerminalLogKind kind)
+    {
+        var color = KindColor(kind);
+        if (color == null)
+            return Markup.Escape(content);
+
+        int colonIdx = content.IndexOf(": ", StringComparison.Ordinal);
+        if (colonIdx >= 0)
+            return $"[{color}]{Markup.Escape(content[..colonIdx])}[/]: {Markup.Escape(content[(colonIdx + 2)..])}";
+
+        return $"[{color}]{Markup.Escape(content)}[/]";
+    }
+
+    private static string FormatLogText(TerminalLogLine line)
+        => $"{FormatDisplayId(line.DisplayId)}{line.JobType}: {line.Message}";
 
     private static string FormatDisplayId(int displayId)
         => $"[{displayId:000}] ";

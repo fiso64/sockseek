@@ -64,4 +64,6 @@ public class EngineSettings
     public bool MockFilesReadTags { get; set; } = true;
 
     public bool MockFilesSlow { get; set; }
+
+    public int MockFilesFailDownloads { get; set; }
 }

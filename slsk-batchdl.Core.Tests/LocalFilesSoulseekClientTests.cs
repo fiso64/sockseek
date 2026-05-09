@@ -39,4 +39,35 @@ public class LocalFilesSoulseekClientTests
                 File.Delete(outputPath);
         }
     }
+
+    [TestMethod]
+    public async Task FromLocalPaths_FailDownloads_FailsInitialDownloadAttempts()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "sldl-local-files-fail-" + Guid.NewGuid());
+        string outputPath = Path.Combine(Path.GetTempPath(), "sldl-local-files-fail-out-" + Guid.NewGuid() + ".mp3");
+        Directory.CreateDirectory(root);
+        File.WriteAllBytes(Path.Combine(root, "Artist - Track.mp3"), [1, 2, 3, 4]);
+
+        try
+        {
+            var client = LocalFilesSoulseekClient.FromLocalPaths(useTags: false, slowMode: false, failDownloads: 1, root);
+            var result = await client.SearchAsync(new SearchQuery("Artist Track"));
+            var filename = result.Responses.First().Files.First().Filename;
+
+            await Assert.ThrowsExceptionAsync<SoulseekClientException>(async () =>
+                await client.DownloadAsync("local", filename, outputPath));
+
+            var transfer = await client.DownloadAsync("local", filename, outputPath);
+
+            Assert.AreEqual(TransferStates.Completed, transfer.State);
+            CollectionAssert.AreEqual(new byte[] { 1, 2, 3, 4 }, File.ReadAllBytes(outputPath));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+            if (File.Exists(outputPath))
+                File.Delete(outputPath);
+        }
+    }
 }

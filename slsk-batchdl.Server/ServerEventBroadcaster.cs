@@ -87,6 +87,7 @@ public sealed class ServerEventBroadcaster : IDisposable
             DownloadStartedEventDto e => e.WorkflowId,
             DownloadProgressEventDto e => e.WorkflowId,
             DownloadStateChangedEventDto e => e.WorkflowId,
+            DownloadAttemptFailedEventDto e => e.WorkflowId,
             SongStateChangedEventDto e => e.WorkflowId,
             AlbumDownloadStartedEventDto e => e.Summary.WorkflowId,
             AlbumTrackDownloadStartedEventDto e => e.Summary.WorkflowId,

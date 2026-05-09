@@ -212,6 +212,7 @@ public static partial class Help
     
     --mock-files-dir <path>         Directory containing files to simulate download results
     --mock-files-no-read-tags       Only read filenames when simulating (much faster)
+    --mock-files-fail-downloads <n> Fail the next n mock download attempts
 
 Notes
   - Flags can be explicitly disabled by setting them to false, e.g. --interactive false.

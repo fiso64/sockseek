@@ -36,7 +36,8 @@ public sealed class EngineEventDtoAdapter
                         song.DownloadPath,
                         song.ChosenCandidate != null ? ToFileCandidateDto(song.ChosenCandidate) : null,
                         song.Discovery?.ResultCount,
-                        song.Discovery?.LockedFileCount));
+                        song.Discovery?.LockedFileCount,
+                        song.FailureMessage));
             }
             else if (job is AlbumJob albumJob)
             {
@@ -94,6 +95,18 @@ public sealed class EngineEventDtoAdapter
         events.DownloadStarted += (song, candidate) => publish("download.started", new DownloadStartedEventDto(song.Id, song.DisplayId, song.WorkflowId, ToSongQueryDto(song.Query), ToFileCandidateDto(candidate)));
         events.DownloadProgress += (song, transferred, total) => publish("download.progress", new DownloadProgressEventDto(song.Id, song.WorkflowId, transferred, total));
         events.DownloadStateChanged += (song, state) => publish("download.state-changed", new DownloadStateChangedEventDto(song.Id, song.WorkflowId, state.ToString()));
+        events.DownloadAttemptFailed += (song, candidate, outputPath, attempt, maxAttempts, ex) => publish("download.attempt-failed", new DownloadAttemptFailedEventDto(
+            song.Id,
+            song.DisplayId,
+            song.WorkflowId,
+            ToSongQueryDto(song.Query),
+            ToFileCandidateDto(candidate),
+            outputPath,
+            attempt,
+            maxAttempts,
+            ex.GetType().Name,
+            ex.Message,
+            ex.ToString()));
         events.OnCompleteStart += song => publish("on-complete.started", new OnCompleteStartedEventDto(song.Id, song.DisplayId, song.WorkflowId, ToSongQueryDto(song.Query)));
         events.OnCompleteEnd += song => publish("on-complete.ended", new OnCompleteEndedEventDto(song.Id, song.DisplayId, song.WorkflowId, ToSongQueryDto(song.Query)));
         events.SearchRateLimited += resetsAt => publish("search.rate-limited", new SearchRateLimitedEventDto(resetsAt));

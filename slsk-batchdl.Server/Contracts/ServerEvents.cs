@@ -107,6 +107,22 @@ public sealed record DownloadStateChangedEventDto(
     string State);
 
 /// <summary>
+/// Activity event emitted immediately when a low-level transfer attempt throws.
+/// </summary>
+public sealed record DownloadAttemptFailedEventDto(
+    Guid JobId,
+    int DisplayId,
+    Guid WorkflowId,
+    SongQueryDto Query,
+    FileCandidateDto Candidate,
+    string OutputPath,
+    int Attempt,
+    int MaxAttempts,
+    string ExceptionType,
+    string ExceptionMessage,
+    string Exception);
+
+/// <summary>
 /// Activity event emitted when a song job changes state.
 /// </summary>
 public sealed record SongStateChangedEventDto(
@@ -119,7 +135,8 @@ public sealed record SongStateChangedEventDto(
     string? DownloadPath,
     FileCandidateDto? ChosenCandidate,
     int? DiscoveryResultCount = null,
-    int? DiscoveryLockedFileCount = null);
+    int? DiscoveryLockedFileCount = null,
+    string? FailureMessage = null);
 
 /// <summary>
 /// Activity event emitted when an album download begins for a selected folder.

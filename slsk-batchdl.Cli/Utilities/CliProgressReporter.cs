@@ -128,6 +128,9 @@ public class CliProgressReporter
                 case "download.state-changed" when envelope.Payload is DownloadStateChangedEventDto e:
                     ReportDownloadStateChanged(e);
                     break;
+                case "download.attempt-failed" when envelope.Payload is DownloadAttemptFailedEventDto e:
+                    ReportDownloadAttemptFailed(e);
+                    break;
                 case "song.state-changed" when envelope.Payload is SongStateChangedEventDto e:
                     ReportStateChanged(e);
                     break;
@@ -641,16 +644,28 @@ public class CliProgressReporter
     private static string WithLocalPath(string display, string? localPath)
         => string.IsNullOrWhiteSpace(localPath) ? display : $"{display}\n    -> {localPath}";
 
+    private static string WithFailureMessage(string display, string? failureMessage)
+        => string.IsNullOrWhiteSpace(failureMessage) ? display : $"{display}\n    Error: {failureMessage}";
+
+    private static string IndentContinuationLines(string text, string indent)
+    {
+        var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        return string.Join('\n', normalized.Split('\n').Select(line => indent + line));
+    }
+
     private static string SongCompletedDisplay(SongStateChangedEventDto song)
         => WithLocalPath(SongDisplay(song, shortPath: true), song.DownloadPath);
+
+    private static string SongTerminalDisplay(SongStateChangedEventDto song)
+        => song.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists
+            ? SongCompletedDisplay(song)
+            : WithFailureMessage(SongDisplay(song, shortPath: true), song.FailureMessage);
 
 
     private string AlbumTrackLogMessage(AlbumBlock block, SongStateChangedEventDto song)
     {
         var albumName = block.Summary.QueryText ?? block.Summary.ItemName ?? "";
-        bool succeeded = song.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists;
-        var songDisplay = succeeded ? SongCompletedDisplay(song) : SongDisplay(song, shortPath: true);
-        return $"{TerminalStatusLabel(song)}: {WithName(albumName, songDisplay)}";
+        return $"{TerminalStatusLabel(song)}: {WithName(albumName, SongTerminalDisplay(song))}";
     }
 
     private static string CandidateDisplay(FileCandidateRefDto candidate)
@@ -889,13 +904,38 @@ public class CliProgressReporter
         UpdateLastUpdated(progress.JobId);
     }
 
+    private void ReportDownloadAttemptFailed(DownloadAttemptFailedEventDto failure)
+    {
+        var candidate = CandidateDisplayShort(failure.Candidate);
+        var message =
+            $"download error: {WithName(SongQueryText(failure.Query), candidate)}\n" +
+            $"    Output: {failure.OutputPath}\n" +
+            $"    Attempt: {failure.Attempt}/{failure.MaxAttempts}\n" +
+            $"    {failure.ExceptionType}: {failure.ExceptionMessage}\n" +
+            IndentContinuationLines(failure.Exception, "    ");
+
+        if (PlainMode)
+        {
+            Logger.Error($"[{failure.DisplayId}] SongJob: {message}");
+            return;
+        }
+
+        if (LiveMode)
+        {
+            LogLiveSong(TerminalLogKind.JobFailed, failure.JobId, failure.DisplayId, message);
+            return;
+        }
+
+        Logger.LogNonConsole(Logger.LogLevel.Error, $"[{failure.DisplayId}] SongJob: {message}");
+    }
+
     private void ReportStateChanged(SongStateChangedEventDto song)
     {
         bool songSucceeded = song.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists;
 
         if (PlainMode)
         {
-            WritePlainSongStatus(song.JobId, song.DisplayId, song.Query, TerminalStatusLabel(song), songSucceeded ? SongCompletedDisplay(song) : SongDisplay(song, shortPath: true));
+            WritePlainSongStatus(song.JobId, song.DisplayId, song.Query, TerminalStatusLabel(song), SongTerminalDisplay(song));
             return;
         }
 
@@ -919,7 +959,7 @@ public class CliProgressReporter
                 _liveSongInfo.TryRemove(song.JobId, out _);
                 if (ShouldLogLiveSongTerminal(song))
                 {
-                    var songDisplay = songSucceeded ? SongCompletedDisplay(song) : SongDisplay(song, shortPath: true);
+                    var songDisplay = SongTerminalDisplay(song);
                     LogLiveSong(TerminalKind(song), song.JobId, song.DisplayId, $"{TerminalStatusLabel(song)}: {WithName(SongQueryText(song.Query), songDisplay)}");
                 }
             }
@@ -929,7 +969,7 @@ public class CliProgressReporter
         }
 
         if (!IsInlineChild(song.JobId))
-            Logger.LogNonConsole(Logger.LogLevel.Info, $"[{song.DisplayId}] SongJob: {TerminalStatusLabel(song)}: {(songSucceeded ? SongCompletedDisplay(song) : SongDisplay(song))}");
+            Logger.LogNonConsole(Logger.LogLevel.Info, $"[{song.DisplayId}] SongJob: {TerminalStatusLabel(song)}: {SongTerminalDisplay(song)}");
 
         if (_bars.TryGetValue(song.JobId, out var d))
         {

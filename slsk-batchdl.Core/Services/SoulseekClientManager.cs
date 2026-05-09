@@ -136,7 +136,11 @@ public class SoulseekClientManager : IDisposable
         if (!string.IsNullOrEmpty(settings.MockFilesDir))
         {
             Logger.Info("Using local files Soulseek client.");
-            return LocalFilesSoulseekClient.FromLocalPaths(settings.MockFilesReadTags, settings.MockFilesSlow, settings.MockFilesDir);
+            return LocalFilesSoulseekClient.FromLocalPaths(
+                settings.MockFilesReadTags,
+                settings.MockFilesSlow,
+                settings.MockFilesFailDownloads,
+                settings.MockFilesDir);
         }
         else
         {

@@ -687,6 +687,9 @@ public class AllDownloadsFailedException : SearchAndDownloadException
 {
     public AllDownloadsFailedException()
         : base(FailureReason.AllDownloadsFailed, "All downloads failed.") { }
+
+    public AllDownloadsFailedException(Exception inner)
+        : base(FailureReason.AllDownloadsFailed, inner.Message, inner) { }
 }
 
 public class ManuallySkippedException : Exception {}

@@ -21,6 +21,7 @@ public static class ServerEventCatalog
             Activity("song.searching", nameof(SongSearchingEventDto)),
             Activity("download.started", nameof(DownloadStartedEventDto)),
             Activity("download.state-changed", nameof(DownloadStateChangedEventDto)),
+            Activity("download.attempt-failed", nameof(DownloadAttemptFailedEventDto)),
             Activity("song.state-changed", nameof(SongStateChangedEventDto)),
             Activity("album.download-started", nameof(AlbumDownloadStartedEventDto)),
             Activity("album.track-download-started", nameof(AlbumTrackDownloadStartedEventDto)),

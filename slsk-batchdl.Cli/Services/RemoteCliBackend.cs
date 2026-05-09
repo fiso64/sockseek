@@ -317,6 +317,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
             "download.started" => Deserialize<DownloadStartedEventDto>(payload),
             "download.progress" => Deserialize<DownloadProgressEventDto>(payload),
             "download.state-changed" => Deserialize<DownloadStateChangedEventDto>(payload),
+            "download.attempt-failed" => Deserialize<DownloadAttemptFailedEventDto>(payload),
             "song.state-changed" => Deserialize<SongStateChangedEventDto>(payload),
             "album.download-started" => Deserialize<AlbumDownloadStartedEventDto>(payload),
             "album.track-download-started" => Deserialize<AlbumTrackDownloadStartedEventDto>(payload),

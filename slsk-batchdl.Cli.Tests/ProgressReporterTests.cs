@@ -130,6 +130,82 @@ public class CliProgressReporterTests
     }
 
     [TestMethod]
+    public void SongFailure_NoProgress_PrintsFailureMessage()
+    {
+        Logger.RemoveNonFileOutputs();
+        var messages = new List<string>();
+        Logger.AddConsole(writer: (message, _) => messages.Add(message));
+
+        var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
+        try
+        {
+            var workflowId = Guid.NewGuid();
+            var songId = Guid.NewGuid();
+            var query = new SongQueryDto("Artist", "Song", null, null, null, false);
+            var candidate = CreateFileCandidate("user", @"Music\Artist\Song.flac");
+
+            InvokePrivate(reporter, "ReportStateChanged", new SongStateChangedEventDto(
+                songId,
+                DisplayId: 12,
+                workflowId,
+                query,
+                ServerProtocol.JobStates.Failed,
+                ServerProtocol.FailureReasons.AllDownloadsFailed,
+                DownloadPath: null,
+                ChosenCandidate: candidate,
+                FailureMessage: "Connection reset by peer"));
+
+            CollectionAssert.AreEqual(new[]
+            {
+                "[12] SongJob: failed [All downloads failed]: Artist - Song: user\\Music\\Artist\\Song.flac\n    Error: Connection reset by peer",
+            }, messages);
+        }
+        finally
+        {
+            reporter.Stop();
+        }
+    }
+
+    [TestMethod]
+    public void DownloadAttemptFailed_NoProgress_PrintsDiagnosticImmediately()
+    {
+        Logger.RemoveNonFileOutputs();
+        var messages = new List<string>();
+        Logger.AddConsole(writer: (message, _) => messages.Add(message));
+
+        var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
+        try
+        {
+            var workflowId = Guid.NewGuid();
+            var songId = Guid.NewGuid();
+            var query = new SongQueryDto("Artist", "Song", null, null, null, false);
+            var candidate = CreateFileCandidate("user", @"Music\Artist\Song.flac");
+
+            InvokePrivate(reporter, "ReportDownloadAttemptFailed", new DownloadAttemptFailedEventDto(
+                songId,
+                DisplayId: 12,
+                workflowId,
+                query,
+                candidate,
+                OutputPath: @"out\Song.flac.incomplete",
+                Attempt: 1,
+                MaxAttempts: 3,
+                ExceptionType: "SoulseekClientException",
+                ExceptionMessage: "Connection reset by peer",
+                Exception: "Soulseek.SoulseekClientException: Connection reset by peer"));
+
+            CollectionAssert.AreEqual(new[]
+            {
+                "[12] SongJob: download error: Artist - Song: user\\Music\\Artist\\Song.flac\n    Output: out\\Song.flac.incomplete\n    Attempt: 1/3\n    SoulseekClientException: Connection reset by peer\n    Soulseek.SoulseekClientException: Connection reset by peer",
+            }, messages);
+        }
+        finally
+        {
+            reporter.Stop();
+        }
+    }
+
+    [TestMethod]
     public void StateChanged_FailedPreResolvedSong_DoesNotRenderAsSucceeded()
     {
         var reporter = new CliProgressReporter(new CliSettings());

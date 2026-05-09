@@ -339,6 +339,13 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
+        public void Engine_MockFilesFailDownloads()
+        {
+            var (eng, _, _) = Bind("--mock-files-fail-downloads", "3");
+            Assert.AreEqual(3, eng.MockFilesFailDownloads);
+        }
+
+        [TestMethod]
         public void RemotePatch_ExplicitDefaultBool_IsRepresented()
         {
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["x", "--skip-existing", "true"]);

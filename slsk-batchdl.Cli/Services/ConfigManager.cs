@@ -478,6 +478,8 @@ public static partial class ConfigManager
                 Engine(e => e.MockFilesReadTags = false); break;
             case "--mock-files-slow":
                 Engine(e => e.MockFilesSlow = Bool()); break;
+            case "--mock-files-fail-downloads":
+                Engine(e => e.MockFilesFailDownloads = Int()); break;
 
             // ── CliSettings ──────────────────────────────────────────────────
             case "-t": case "--interactive":

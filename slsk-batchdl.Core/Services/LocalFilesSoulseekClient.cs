@@ -18,6 +18,7 @@ namespace Sldl.Core.Services
         private readonly int searchDelayMs;
         private readonly HashSet<string> failingUsers;
         private readonly Dictionary<string, string> localFilePaths;
+        private int remainingFailedDownloads;
 
         public int SearchesCancelledMidDelay { get; private set; }
 
@@ -26,16 +27,18 @@ namespace Sldl.Core.Services
             bool slowMode = false,
             int searchDelayMs = 0,
             IEnumerable<string>? failingUsers = null,
-            Dictionary<string, string>? localFilePaths = null)
+            Dictionary<string, string>? localFilePaths = null,
+            int failDownloads = 0)
         {
             this.index          = index;
             this.slowMode       = slowMode;
             this.searchDelayMs  = searchDelayMs;
             this.failingUsers   = new HashSet<string>(failingUsers ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
             this.localFilePaths = localFilePaths ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            this.remainingFailedDownloads = Math.Max(0, failDownloads);
         }
 
-        public static LocalFilesSoulseekClient FromLocalPaths(bool useTags, bool slowMode, params string[] localPaths)
+        public static LocalFilesSoulseekClient FromLocalPaths(bool useTags, bool slowMode, int failDownloads, params string[] localPaths)
         {
             if (useTags)
                 Logger.Info($"Reading tags from mock files dir, this may take a while. Use --mock-files-no-read-tags if tags are not needed.");
@@ -108,8 +111,11 @@ namespace Sldl.Core.Services
                 )
             };
 
-            return new LocalFilesSoulseekClient(index, slowMode, localFilePaths: localFilePaths);
+            return new LocalFilesSoulseekClient(index, slowMode, localFilePaths: localFilePaths, failDownloads: failDownloads);
         }
+
+        public static LocalFilesSoulseekClient FromLocalPaths(bool useTags, bool slowMode, params string[] localPaths)
+            => FromLocalPaths(useTags, slowMode, 0, localPaths);
 
 
         public Task ConnectAsync(string username, string password, CancellationToken? cancellationToken = null)
@@ -270,6 +276,9 @@ namespace Sldl.Core.Services
 
         private async Task<Transfer> DownloadAsyncInternal(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions options = null, CancellationToken? cancellationToken = null)
         {
+            if (remainingFailedDownloads > 0 && Interlocked.Decrement(ref remainingFailedDownloads) >= 0)
+                throw new SoulseekClientException($"Simulated mock download failure for {username}\\{remoteFilename}");
+
             if (failingUsers.Contains(username))
                 throw new SoulseekClientException($"Simulated download failure for user {username}");
 

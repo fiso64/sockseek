@@ -1105,6 +1105,7 @@ public class DownloadEngine
 
         int tries = config.Transfer.UnknownErrorRetries;
         string savedFilePath = "";
+        string? lastFailureMessage = null;
 
         while (tries > 0)
         {
@@ -1131,7 +1132,8 @@ public class DownloadEngine
                 }
                 else if (ex is SearchAndDownloadException sdEx)
                 {
-                    song.Fail(sdEx.Reason);
+                    lastFailureMessage = DownloadFailureMessage(sdEx);
+                    song.Fail(sdEx.Reason, lastFailureMessage);
 
                     if (cancelOnFail)
                     {
@@ -1146,6 +1148,7 @@ public class DownloadEngine
                 }
                 else
                 {
+                    lastFailureMessage = DownloadFailureMessage(ex);
                     tries--;
                     continue;
                 }
@@ -1156,7 +1159,7 @@ public class DownloadEngine
 
         if (tries == 0)
         {
-            song.Fail(FailureReason.AllDownloadsFailed);
+            song.Fail(FailureReason.AllDownloadsFailed, lastFailureMessage);
             if (cancelOnFail)
             {
                 cts.Cancel();
@@ -1181,6 +1184,9 @@ public class DownloadEngine
         }
 
     }
+
+    static string? DownloadFailureMessage(Exception ex)
+        => ex.InnerException?.Message ?? (string.IsNullOrWhiteSpace(ex.Message) ? null : ex.Message);
 
 
     /// <summary>
@@ -1271,6 +1277,7 @@ public class DownloadEngine
 
         // Try candidates in order until one succeeds.
         int tried = 0;
+        Exception? lastDownloadException = null;
         foreach (var candidate in candidates)
         {
             tried++;
@@ -1292,13 +1299,17 @@ public class DownloadEngine
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                lastDownloadException = ex;
                 Logger.DebugError($"Download attempt {tried} failed for '{candidate.Username}\\{candidate.Filename}' to '{outputPath}': {ex.Message}");
                 if (tried >= candidates.Count || tried >= config.Transfer.MaxDownloadRetries)
                 {
-                    throw new AllDownloadsFailedException();
+                    throw new AllDownloadsFailedException(ex);
                 }
             }
         }
+
+        if (lastDownloadException != null)
+            throw new AllDownloadsFailedException(lastDownloadException);
 
         throw new NoSuitableFileFoundException();
     }

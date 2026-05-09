@@ -109,6 +109,7 @@ namespace Sldl.Server;
 [JsonSerializable(typeof(DownloadStartedEventDto))]
 [JsonSerializable(typeof(DownloadProgressEventDto))]
 [JsonSerializable(typeof(DownloadStateChangedEventDto))]
+[JsonSerializable(typeof(DownloadAttemptFailedEventDto))]
 [JsonSerializable(typeof(SongStateChangedEventDto))]
 [JsonSerializable(typeof(AlbumDownloadStartedEventDto))]
 [JsonSerializable(typeof(AlbumTrackDownloadStartedEventDto))]
