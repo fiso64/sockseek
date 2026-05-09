@@ -31,10 +31,6 @@ public class CliProgressReporter
 
     static readonly char[] SpinFrames = { '|', '/', '—', '\\' };
 
-    private static readonly bool _supportsUnicode =
-        AnsiConsole.Profile.Capabilities.Unicode
-        && (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("WT_SESSION") is not null);
-
     private bool PlainMode => _cli.NoProgress;
 
     sealed class BarData
@@ -643,7 +639,7 @@ public class CliProgressReporter
     }
 
     private static string WithLocalPath(string display, string? localPath)
-        => string.IsNullOrWhiteSpace(localPath) ? display : $"{display}\n    {(_supportsUnicode ? "→" : "->")} {localPath}";
+        => string.IsNullOrWhiteSpace(localPath) ? display : $"{display}\n    -> {localPath}";
 
     private static string SongCompletedDisplay(SongStateChangedEventDto song)
         => WithLocalPath(SongDisplay(song, shortPath: true), song.DownloadPath);

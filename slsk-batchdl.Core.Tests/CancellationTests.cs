@@ -141,6 +141,9 @@ namespace Tests.Cancellation
                     "RunAsync should have aborted quickly after cancelling the list, not waited the full search delay");
                 Assert.IsTrue(songs.All(s => s.Cts!.IsCancellationRequested),
                     "All child song CTSes should be cancelled");
+                Assert.AreEqual(JobState.Failed, rootList.State,
+                    "A cancelled JobList should not be left as a completed-running container.");
+                Assert.AreEqual(FailureReason.Cancelled, rootList.FailureReason);
             }
             finally
             {
@@ -534,6 +537,90 @@ namespace Tests.Cancellation
             {
                 if (System.IO.Directory.Exists(musicRoot))
                     System.IO.Directory.Delete(musicRoot, recursive: true);
+                if (System.IO.Directory.Exists(outputDir))
+                    System.IO.Directory.Delete(outputDir, recursive: true);
+            }
+        }
+
+        [TestMethod]
+        public async Task AlbumAggregate_CancelledChildAlbums_MarksParentContainersCancelled()
+        {
+            var index = new List<SearchResponse>
+            {
+                new(
+                    username: "user1",
+                    token: 1,
+                    hasFreeUploadSlot: true,
+                    uploadSpeed: 100_000,
+                    queueLength: 0,
+                    fileList:
+                    [
+                        TestHelpers.CreateSlFile(@"Shares\ELO\Album One\01. ELO - One.mp3", length: 240),
+                        TestHelpers.CreateSlFile(@"Shares\ELO\Album One\02. ELO - Two.mp3", length: 241),
+                    ]),
+                new(
+                    username: "user2",
+                    token: 2,
+                    hasFreeUploadSlot: true,
+                    uploadSpeed: 100_000,
+                    queueLength: 0,
+                    fileList:
+                    [
+                        TestHelpers.CreateSlFile(@"Shares\ELO\Album Two\01. ELO - Three.mp3", length: 240),
+                        TestHelpers.CreateSlFile(@"Shares\ELO\Album Two\02. ELO - Four.mp3", length: 241),
+                    ]),
+            };
+
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-cancel-album-aggregate-" + Guid.NewGuid());
+            System.IO.Directory.CreateDirectory(outputDir);
+
+            try
+            {
+                var engineSettings = new EngineSettings
+                {
+                    Username = "u",
+                    Password = "p",
+                    ConcurrentJobs = 2,
+                    ConcurrentSearches = 10,
+                };
+                var downloadSettings = new DownloadSettings();
+                downloadSettings.Output.ParentDir = outputDir;
+                downloadSettings.Output.WriteIndex = false;
+                downloadSettings.Output.HasConfiguredIndex = true;
+                downloadSettings.Search.MinSharesAggregate = 1;
+                downloadSettings.Search.NoBrowseFolder = true;
+                downloadSettings.Skip.SkipExisting = false;
+
+                var aggregateJob = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
+                var client = new ClientTests.MockSoulseekClient(index);
+                var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
+
+                JobList? aggregateList = null;
+                engine.Events.JobRegistered += (job, parent) =>
+                {
+                    if (parent == aggregateJob && job is JobList list)
+                        aggregateList = list;
+                };
+                engine.Events.JobStateChanged += (job, state) =>
+                {
+                    if (ReferenceEquals(job, aggregateList) && state == JobState.Running)
+                        job.Cancel();
+                };
+
+                engine.Enqueue(aggregateJob, downloadSettings);
+                engine.CompleteEnqueue();
+
+                var runTask = engine.RunAsync(CancellationToken.None);
+                await IgnoreCancellation(runTask);
+
+                Assert.IsNotNull(aggregateList, "AlbumAggregate should process matching albums through a registered JobList.");
+                Assert.AreEqual(JobState.Failed, aggregateList!.State);
+                Assert.AreEqual(FailureReason.Cancelled, aggregateList.FailureReason);
+                Assert.AreEqual(JobState.Failed, aggregateJob.State);
+                Assert.AreEqual(FailureReason.Cancelled, aggregateJob.FailureReason);
+            }
+            finally
+            {
                 if (System.IO.Directory.Exists(outputDir))
                     System.IO.Directory.Delete(outputDir, recursive: true);
             }

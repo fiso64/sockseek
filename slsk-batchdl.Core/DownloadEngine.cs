@@ -431,43 +431,50 @@ public class DownloadEngine
                 ctx?.IndexEditor?.Update();
                 ctx?.PlaylistEditor?.Update();
 
-                // ── fan-out ───────────────────────────────────────────────────────
-                if (directSongs.Count > 0)
+                try
                 {
-                    var intervalReporter = engineSettings.ReportIntervalProgress
-                        ? new IntervalProgressReporter(TimeSpan.FromSeconds(30), 5, directSongs)
-                        : null;
-
-                    await Task.WhenAll(jl.Jobs.ToList().Select(async child =>
+                    // ── fan-out ───────────────────────────────────────────────────────
+                    if (directSongs.Count > 0)
                     {
-                        bool wasInitial = child is SongJob s && s.State == JobState.Pending;
-                        await ProcessJob(child, extractor, jl.Cts!.Token, jl);
+                        var intervalReporter = engineSettings.ReportIntervalProgress
+                            ? new IntervalProgressReporter(TimeSpan.FromSeconds(30), 5, directSongs)
+                            : null;
 
-                        if (wasInitial && child is SongJob song)
+                        await Task.WhenAll(jl.Jobs.ToList().Select(async child =>
                         {
-                            ctx?.IndexEditor?.Update();
-                            ctx?.PlaylistEditor?.Update();
-                            intervalReporter?.MaybeReport(song.State);
-                            int dl = directSongs.Count(s => s.State == JobState.Done || s.State == JobState.AlreadyExists);
-                            int fl = directSongs.Count(s => s.State == JobState.Failed);
-                            Events.RaiseOverallProgress(dl, fl, directSongs.Count);
+                            bool wasInitial = child is SongJob s && s.State == JobState.Pending;
+                            await ProcessJob(child, extractor, jl.Cts!.Token, jl);
 
-                            await MaybeRemoveFromSource(song, extractor, config.Extraction);
-                        }
-                    }));
+                            if (wasInitial && child is SongJob song)
+                            {
+                                ctx?.IndexEditor?.Update();
+                                ctx?.PlaylistEditor?.Update();
+                                intervalReporter?.MaybeReport(song.State);
+                                int dl = directSongs.Count(s => s.State == JobState.Done || s.State == JobState.AlreadyExists);
+                                int fl = directSongs.Count(s => s.State == JobState.Failed);
+                                Events.RaiseOverallProgress(dl, fl, directSongs.Count);
 
-                    int dlFinal = directSongs.Count(s => s.State == JobState.Done || s.State == JobState.AlreadyExists);
-                    int flFinal = directSongs.Count(s => s.State == JobState.Failed);
-                    Events.RaiseListProgress(jl, dlFinal, flFinal, directSongs.Count);
+                                await MaybeRemoveFromSource(song, extractor, config.Extraction);
+                            }
+                        }));
+
+                        int dlFinal = directSongs.Count(s => s.State == JobState.Done || s.State == JobState.AlreadyExists);
+                        int flFinal = directSongs.Count(s => s.State == JobState.Failed);
+                        Events.RaiseListProgress(jl, dlFinal, flFinal, directSongs.Count);
+                    }
+                    else
+                    {
+                        await Task.WhenAll(jl.Jobs.ToList().Select(child => ProcessJob(child, extractor, jl.Cts!.Token, jl)));
+
+                        foreach (var child in jl.Jobs)
+                            await MaybeRemoveFromSource(child, extractor, config.Extraction);
+                    }
                 }
-                else
+                catch (OperationCanceledException) when (jl.Cts?.IsCancellationRequested == true)
                 {
-                    await Task.WhenAll(jl.Jobs.ToList().Select(child => ProcessJob(child, extractor, jl.Cts!.Token, jl)));
-
-                    foreach (var child in jl.Jobs)
-                        await MaybeRemoveFromSource(child, extractor, config.Extraction);
                 }
 
+                SetJobListTerminalState(jl);
                 return;
             }
 
@@ -490,6 +497,34 @@ public class DownloadEngine
             JobList jl => jl.Jobs.All(IsSubtreeSuccessful),
             ExtractJob ej => ej.State == JobState.Done && ej.Result != null && IsSubtreeSuccessful(ej.Result),
             _ => job.State == JobState.Done || job.State == JobState.AlreadyExists,
+        };
+    }
+
+    static void SetJobListTerminalState(JobList jobList)
+    {
+        if (jobList.Cts?.IsCancellationRequested == true
+            || jobList.Jobs.Any(HasCancelledDescendant))
+        {
+            jobList.Fail(FailureReason.Cancelled);
+            return;
+        }
+
+        jobList.SetDone();
+    }
+
+    static bool HasCancelledDescendant(Job job)
+    {
+        if (job.FailureReason == FailureReason.Cancelled)
+            return true;
+
+        return job switch
+        {
+            JobList list => list.Jobs.Any(HasCancelledDescendant),
+            AlbumJob album => album.ResolvedTarget?.Files.Any(song => song.FailureReason == FailureReason.Cancelled) == true,
+            AggregateJob aggregate => aggregate.Songs.Any(song => song.FailureReason == FailureReason.Cancelled),
+            AlbumAggregateJob aggregate => aggregate.Albums.Any(HasCancelledDescendant),
+            ExtractJob extract => extract.Result != null && HasCancelledDescendant(extract.Result),
+            _ => false,
         };
     }
 
@@ -672,7 +707,10 @@ public class DownloadEngine
                     RegisterJob(albumList, job);
                     job.UpdateState(JobState.Running);
                     await ProcessJob(albumList, null, job.Cts!.Token, job);
-                    job.SetDone();
+                    if (job.Cts?.IsCancellationRequested == true || albumList.FailureReason == FailureReason.Cancelled)
+                        job.Fail(FailureReason.Cancelled);
+                    else
+                        job.SetDone();
                 }
                 else
                 {

@@ -1000,7 +1000,7 @@ namespace Tests.Unit
             await searcher.SearchSong(song1, settings.Search, new ResponseData(), CancellationToken.None);
 
             bool fired = false;
-            events.SearchRateLimited += () => fired = true;
+            events.SearchRateLimited += _ => fired = true;
 
             var song2 = new SongJob(new SongQuery { Artist = "C", Title = "D" });
             using var cts = new CancellationTokenSource();
