@@ -195,8 +195,6 @@ public class CliProgressReporter
                 
                 if (LiveMode)
                     LogLive(kind, summary, $"{label}: {WithName(name, detail)}");
-                else if (PlainMode)
-                    ReportJobStatus(new JobStatusEventDto(summary, label));
             }
 
             return;
@@ -215,8 +213,6 @@ public class CliProgressReporter
 
         if (PlainMode)
         {
-            if (summary.State == ServerProtocol.JobStates.Failed && summary.Kind != ServerJobKind.Song && summary.Kind != ServerJobKind.Extract)
-                ReportJobStatus(new JobStatusEventDto(summary, TerminalStatusLabel(summary.State, summary.FailureReason)));
             return;
         }
     }
@@ -502,11 +498,6 @@ public class CliProgressReporter
         UpsertLiveJob(block.Summary, status ?? "downloading", total > 0 ? done * 100 / total : null, done, total, children, AlbumDisplayName(albumName, block.RemoteFolderDisplay));
     }
 
-    private static void RefreshOrPrintJobLineWithProfileSuffix(int current, JobSummaryDto summary, string text, bool print = false)
-    {
-        var textWithSuffix = TextWithProfileSuffix(summary, text);
-        Printing.RefreshOrPrint(current, textWithSuffix, print);
-    }
 
     static string FailureReasonLabel(ServerFailureReason? reason) => reason switch
     {
@@ -775,17 +766,6 @@ public class CliProgressReporter
         return reason.Length > 0 ? $"failed [{reason}]{discovery}" : $"failed{discovery}";
     }
 
-    private void WritePlainJobStatus(JobSummaryDto summary, string status, string? detail = null)
-    {
-        _jobStatuses[summary.JobId] = status;
-        var line = JobStatusLine(summary, status, detail);
-        if (_plainJobStatusLines.TryGetValue(summary.JobId, out var previous) && previous == line)
-            return;
-
-        _plainJobStatusLines[summary.JobId] = line;
-        RefreshOrPrintJobLineWithProfileSuffix(0, summary, line, print: true);
-    }
-
     private void WritePlainSongStatus(
         Guid jobId,
         int displayId,
@@ -793,14 +773,8 @@ public class CliProgressReporter
         string status,
         string? detail = null)
     {
-        var name = SongQueryText(query);
-        var line = $"[{displayId}] SongJob: {status}: {WithName(name, detail ?? name)}";
-        if (_plainJobStatusLines.TryGetValue(jobId, out var previous) && previous == line)
-            return;
-
         _jobStatuses[jobId] = status;
-        _plainJobStatusLines[jobId] = line;
-        Logger.Info(line);
+        _plainJobStatusLines[jobId] = $"[{displayId}] SongJob: {status}: {WithName(SongQueryText(query), detail ?? SongQueryText(query))}";
     }
 
     private void UpdateLastUpdated(Guid songJobId)
@@ -934,10 +908,7 @@ public class CliProgressReporter
 
             if (PlainMode)
             {
-                var label = TerminalStatusLabel(song);
-                if (label == "succeeded") label = "downloaded";
-                var display = IsInlineChild(song.JobId) ? Path.GetFileName(song.ChosenCandidate?.Filename ?? "unknown") : SongTerminalDisplay(song);
-                RefreshOrPrintJobLineWithProfileSuffix(0, block.Summary, $"[{block.Summary.DisplayId}] AlbumJob: {label}: {display}", print: true);
+                // Refresh internal state but don't log, EventLogger handles it
             }
             else
             {
@@ -1021,16 +992,10 @@ public class CliProgressReporter
             return;
         }
 
-        if (!string.IsNullOrWhiteSpace(job.InputType))
+        if (LiveMode)
         {
-            lock (Printing.ConsoleLock)
-            {
-                Printing.WriteLine();
-                RefreshOrPrintJobLineWithProfileSuffix(
-                    0, job.Summary,
-                    $"[{job.Summary.DisplayId}] ExtractJob: Input ({job.InputType}): {job.Input}",
-                    print: true);
-            }
+            UpsertLiveJob(job.Summary, "extracting");
+            return;
         }
     }
 
@@ -1042,8 +1007,6 @@ public class CliProgressReporter
             LogLive(TerminalLogKind.JobFailed, job.Summary, $"failed: {job.Reason}");
             return;
         }
-
-        Logger.Error($"[{job.Summary.DisplayId}] ExtractJob: Failed: {job.Summary.QueryText}\n  Reason:    {job.Reason}");
     }
 
     private void ReportJobStarted(JobStartedEventDto job)
@@ -1056,7 +1019,7 @@ public class CliProgressReporter
 
         if (PlainMode)
         {
-            WritePlainJobStatus(job.Summary, status);
+            _jobStatuses[job.Summary.JobId] = status;
             return;
         }
 
@@ -1071,7 +1034,6 @@ public class CliProgressReporter
     {
         if (PlainMode)
         {
-            RefreshOrPrintJobLineWithProfileSuffix(0, job.Summary, JobStatusLine(job.Summary, "retrieving folder"), print: true);
             return;
         }
 
@@ -1082,7 +1044,7 @@ public class CliProgressReporter
     {
         if (PlainMode)
         {
-            WritePlainSongStatus(song.JobId, song.DisplayId, song.Query, "searching");
+            _jobStatuses[song.JobId] = "searching";
             return;
         }
 
@@ -1119,11 +1081,7 @@ public class CliProgressReporter
 
     private void ReportOnCompleteStart(OnCompleteStartedEventDto song)
     {
-        if (PlainMode)
-        {
-            Logger.Info($"OnComplete start: [{song.DisplayId}] {song.Query.Artist} - {song.Query.Title}");
-            return;
-        }
+        if (PlainMode) return;
 
         var name = SongQueryText(song.Query);
         _liveSongInfo[song.JobId] = (song.DisplayId, name, null);
@@ -1132,11 +1090,7 @@ public class CliProgressReporter
 
     private void ReportOnCompleteEnd(OnCompleteEndedEventDto song)
     {
-        if (PlainMode)
-        {
-            Logger.Info($"OnComplete end: [{song.DisplayId}] {song.Query.Artist} - {song.Query.Title}");
-            return;
-        }
+        if (PlainMode) return;
 
         if (_liveSongInfo.TryGetValue(song.JobId, out var info))
             UpsertLiveSong(song.JobId, info.DisplayId, info.Name, "downloading", metadata: info.Metadata);
@@ -1150,7 +1104,7 @@ public class CliProgressReporter
 
         if (PlainMode)
         {
-            WritePlainJobStatus(job.Summary, job.Status);
+            _jobStatuses[job.Summary.JobId] = job.Status;
             return;
         }
 
@@ -1168,7 +1122,6 @@ public class CliProgressReporter
 
         if (PlainMode)
         {
-            RefreshOrPrintJobLineWithProfileSuffix(0, job.Summary, JobStatusLine(job.Summary, "downloading"), print: true);
             return;
         }
 
@@ -1185,13 +1138,6 @@ public class CliProgressReporter
 
         if (PlainMode)
         {
-            string folderName = string.IsNullOrWhiteSpace(job.Folder.FolderPath)
-                ? job.Summary.QueryText ?? ""
-                : job.Folder.FolderPath;
-            RefreshOrPrintJobLineWithProfileSuffix(
-                0, job.Summary,
-                $"[{job.Summary.DisplayId}] AlbumJob: downloading tracks: {job.Summary.QueryText} - {folderName}",
-                print: true);
             return;
         }
 

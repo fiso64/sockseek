@@ -68,8 +68,9 @@ public class CliProgressReporterTests
                 workflowId,
                 new SongQueryDto("Artist", "Song", null, null, null, false));
 
-            InvokePrivate(reporter, "ReportSongSearching", searching);
-            InvokePrivate(reporter, "ReportSongSearching", searching);
+            var eventLogger = new EventLogger(null!, liveMode: false);
+            InvokePrivate(eventLogger, "HandleSongSearching", searching);
+            InvokePrivate(eventLogger, "HandleSongSearching", searching);
 
             Assert.AreEqual(1, messages.Count);
             Assert.AreEqual($"[{song.DisplayId}] SongJob: searching: Artist - Song", messages[0]);
@@ -109,15 +110,17 @@ public class CliProgressReporterTests
                 workflowId,
                 query,
                 candidateDto));
-            InvokePrivate(reporter, "ReportStateChanged", new SongStateChangedEventDto(
-                song.Id,
-                song.DisplayId,
-                workflowId,
-                query,
-                ServerProtocol.JobStates.Done,
-                FailureReason: null,
-                DownloadPath: null,
-                ChosenCandidate: candidateDto));
+            var summary = CreateSongSummary(song.Id, workflowId, null) with
+            {
+                DisplayId = song.DisplayId,
+                ItemName = "Artist - Song",
+                QueryText = "Artist - Song",
+            };
+            var eventLogger = new EventLogger(null!, liveMode: false);
+            InvokePrivate(eventLogger, "HandleDownloadStart", new DownloadStartedEventDto(song.Id, song.DisplayId, workflowId, query, candidateDto));
+            InvokePrivate(eventLogger, "HandleSongStateChanged", new SongStateChangedEventDto(
+                song.Id, song.DisplayId, workflowId, query, ServerProtocol.JobStates.Done,
+                null, null, candidateDto));
 
             Assert.AreEqual(2, messages.Count);
             StringAssert.StartsWith(messages[0], $"[{song.DisplayId}] SongJob: downloading: ");
@@ -144,7 +147,17 @@ public class CliProgressReporterTests
             var query = new SongQueryDto("Artist", "Song", null, null, null, false);
             var candidate = CreateFileCandidate("user", @"Music\Artist\Song.flac");
 
-            InvokePrivate(reporter, "ReportStateChanged", new SongStateChangedEventDto(
+            var eventLogger = new EventLogger(null!, liveMode: false);
+            var summary = CreateSongSummary(songId, workflowId, null) with
+            {
+                DisplayId = 12,
+                ItemName = "Artist - Song",
+                QueryText = "Artist - Song",
+                State = ServerProtocol.JobStates.Failed,
+                FailureReason = ServerProtocol.FailureReasons.AllDownloadsFailed,
+                FailureMessage = "Connection reset by peer"
+            };
+            InvokePrivate(eventLogger, "HandleSongStateChanged", new SongStateChangedEventDto(
                 songId,
                 DisplayId: 12,
                 workflowId,
@@ -154,10 +167,10 @@ public class CliProgressReporterTests
                 DownloadPath: null,
                 ChosenCandidate: candidate,
                 FailureMessage: "Connection reset by peer"));
-
+ 
             CollectionAssert.AreEqual(new[]
             {
-                "[12] SongJob: failed [All downloads failed]: Artist - Song: user\\Music\\Artist\\Song.flac\n    Error: Connection reset by peer",
+                $"[12] SongJob: failed [All downloads failed]: Artist - Song: user\\Music\\Artist\\Song.flac{Environment.NewLine}    Error: Connection reset by peer",
             }, messages);
         }
         finally
@@ -464,27 +477,21 @@ public class CliProgressReporterTests
             var query = new SongQueryDto("Artist", "Track", null, null, null, false);
             var candidate = CreateFileCandidate("local", @"Artist\Album\01. Artist - Track.flac");
 
-            InvokePrivate(reporter, "ReportJobUpserted", albumSummary);
-            InvokePrivate(reporter, "ReportAlbumTrackDownloadStarted", new AlbumTrackDownloadStartedEventDto(
+            var eventLogger = new EventLogger(null!, liveMode: false);
+            InvokePrivate(eventLogger, "HandleAlbumTrackDownloadStarted", new AlbumTrackDownloadStartedEventDto(
                 albumSummary,
                 CreateSingleFileAlbumFolder(fileJobId, ServerProtocol.JobStates.Pending, null),
                 [CreateSongPayload(fileJobId, ServerProtocol.JobStates.Pending, null)]));
-            InvokePrivate(reporter, "ReportJobUpserted", songSummary);
-            InvokePrivate(reporter, "ReportDownloadStart", new DownloadStartedEventDto(fileJobId, 7, workflowId, query, candidate));
-            InvokePrivate(reporter, "ReportStateChanged", new SongStateChangedEventDto(
-                fileJobId,
-                DisplayId: 7,
-                workflowId,
-                query,
-                ServerProtocol.JobStates.Done,
-                FailureReason: null,
-                DownloadPath: @"out\Track.flac",
-                ChosenCandidate: candidate));
+            InvokePrivate(eventLogger, "HandleJobUpserted", songSummary);
+            InvokePrivate(eventLogger, "HandleDownloadStart", new DownloadStartedEventDto(fileJobId, 7, workflowId, query, candidate));
+            InvokePrivate(eventLogger, "HandleSongStateChanged", new SongStateChangedEventDto(
+                fileJobId, 7, workflowId, query, ServerProtocol.JobStates.Done,
+                null, @"out\Track.flac", candidate));
 
-            Assert.AreEqual(3, messages.Count, "Expected three log messages (album tracks start, track downloading, and track completion). Found: " + string.Join(" | ", messages));
+            Assert.AreEqual(3, messages.Count);
             Assert.AreEqual(@"[6] AlbumJob: downloading tracks: Artist Album - Artist\Album", messages[0]);
             Assert.AreEqual(@"[7] SongJob: downloading: Artist - Track: local\Artist\Album\01. Artist - Track.flac", messages[1]);
-            Assert.AreEqual(@"[6] AlbumJob: downloaded: 01. Artist - Track.flac", messages[2]);
+            Assert.AreEqual(@"[6] AlbumJob: succeeded: 01. Artist - Track.flac", messages[2]);
         }
         finally
         {

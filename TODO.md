@@ -17,5 +17,7 @@
 
 - Skip retrieve full folder contents whenever it's already guaranteed to contain all files (e.g. when it was `cd`'d into).
 
+- Logging is a scattered, inconsistent mess. 
+
 ### YAML
 Maybe use yaml for settings instead of our custom format, and improve structure.

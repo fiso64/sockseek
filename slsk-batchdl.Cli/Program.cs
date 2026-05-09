@@ -163,6 +163,10 @@ internal static partial class Program
             cliReporter = new CliProgressReporter(cliSettings);
             cliReporter.Attach(backend);
         }
+
+        var eventLogger = new EventLogger(backend, ShouldUseLiveRendering(cliSettings));
+        eventLogger.Attach();
+
         backend.EventReceived += envelope =>
         {
             if (envelope.Type == "track-batch.resolved"
@@ -384,6 +388,9 @@ internal static partial class Program
             cliReporter = new CliProgressReporter(cliSettings);
             cliReporter.Attach(backend);
         }
+
+        var eventLogger = new EventLogger(backend, ShouldUseLiveRendering(cliSettings));
+        eventLogger.Attach();
 
         backend.EventReceived += envelope =>
         {
