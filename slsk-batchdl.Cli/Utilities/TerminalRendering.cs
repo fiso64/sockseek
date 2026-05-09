@@ -521,8 +521,8 @@ internal sealed class TerminalLiveRenderer : IDisposable
                 rows.Add(ChildRow($"  {indent}  ", child));
         }
 
-        if (rows.Count == 0)
-            rows.Add(TextRow("(none)"));
+        // if (rows.Count == 0)
+        //     rows.Add(TextRow("(none)"));
 
         var finalRows = new List<LiveRow>
         {
@@ -565,13 +565,13 @@ internal sealed class TerminalLiveRenderer : IDisposable
         var prefix = $"{indent}{FormatDisplayId(job.DisplayId)}";
         var leftCells = JobLeftCells(job, visibleChildren, hiddenChildren, out var childMetadata);
         return new LiveRow(new LiveLineRenderable([new LiveCell(prefix, DimIdStyle), ..leftCells],
-            MetadataCells(childMetadata ?? job.Metadata)));
+            childMetadata ?? job.Metadata));
     }
 
     private static LiveRow ChildRow(string indent, JobChildView child)
         => new(new LiveLineRenderable(
             [new LiveCell(indent), ..ChildLeftCells(child)],
-            MetadataCells(child.Metadata)));
+            child.Metadata));
 
     private static Dictionary<string, int> AllocateChildLimits(IReadOnlyList<JobView> jobs, int availableRows)
     {
@@ -864,29 +864,35 @@ internal sealed class TerminalLiveRenderer : IDisposable
         return cells;
     }
 
-    private static IReadOnlyList<LiveCell> MetadataCells(TerminalFileMetadata? metadata)
+    private static IReadOnlyList<LiveCell> MetadataCells(TerminalFileMetadata? metadata, int level)
     {
         if (metadata == null)
             return [];
 
+        bool compact = level > 1;
+        string sep = compact ? "/" : " · ";
         var parts = new List<string>();
+
         if (metadata.SizeBytes is long sizeBytes && sizeBytes > 0)
-            parts.Add(FormatSize(sizeBytes));
+            parts.Add(compact ? FormatSizeCompact(sizeBytes) : FormatSize(sizeBytes));
         if (metadata.LengthSeconds is int lengthSeconds && lengthSeconds > 0)
-            parts.Add(FormatDuration(lengthSeconds));
-        if (metadata.SampleRate is int sampleRate && sampleRate > 0)
-            parts.Add(FormatSampleRate(sampleRate));
-        else if (metadata.BitRate is int bitRate && bitRate > 0)
-            parts.Add($"{bitRate}k");
-        if (metadata.BitDepth is int bitDepth && bitDepth > 0)
+            parts.Add(compact ? FormatDurationCompact(lengthSeconds) : FormatDuration(lengthSeconds));
+        if (level <= 3)
+        {
+            if (metadata.BitRate is int bitRate && bitRate > 0)
+                parts.Add(compact ? $"{bitRate}k" : $"{bitRate:D4}k");
+            else if (metadata.SampleRate is int sampleRate && sampleRate > 0)
+                parts.Add(FormatSampleRate(sampleRate));
+        }
+        if (level <= 2 && metadata.BitDepth is int bitDepth && bitDepth > 0)
             parts.Add($"{bitDepth}b");
 
-        return parts.Count == 0 ? [] : [new LiveCell($"[{string.Join(" · ", parts)}]", DimStyle)];
+        return parts.Count == 0 ? [] : [new LiveCell($"[{string.Join(sep, parts)}]", DimStyle)];
     }
 
     private sealed class LiveLineRenderable(
         IReadOnlyList<LiveCell> left,
-        IReadOnlyList<LiveCell> metadata) : IRenderable
+        TerminalFileMetadata? metadata) : IRenderable
     {
         public Measurement Measure(RenderOptions options, int maxWidth)
             => new(0, Math.Max(0, maxWidth));
@@ -896,32 +902,51 @@ internal sealed class TerminalLiveRenderer : IDisposable
             if (maxWidth <= 0)
                 return [];
 
-            var metadataSegments = ToSegments(metadata).ToList();
-            var metadataWidth = Segment.CellCount(metadataSegments);
-            var showMetadata = metadataWidth > 0 && maxWidth - metadataWidth - 1 >= 12;
-            var leftWidth = showMetadata
+            var leftNaturalWidth = Segment.CellCount(ToSegments(left).ToList());
+            var spaceForMeta = maxWidth - leftNaturalWidth - 1;
+
+            IReadOnlyList<LiveCell> chosenMetadata = [];
+            int metadataWidth = 0;
+            for (int level = 1; level <= 4; level++)
+            {
+                var cells = MetadataCells(metadata, level);
+                if (cells.Count == 0) break;
+                var w = Segment.CellCount(ToSegments(cells).ToList());
+                if (w <= spaceForMeta || level == 4)
+                {
+                    if (maxWidth - w - 1 >= 12)
+                    {
+                        chosenMetadata = cells;
+                        metadataWidth = w;
+                    }
+                    break;
+                }
+            }
+
+            var leftWidth = metadataWidth > 0
                 ? Math.Max(0, maxWidth - metadataWidth - 1)
                 : maxWidth;
 
-            var leftSegments = ToSegments(FitPathCells(left, leftWidth)).ToList();
+            var leftSegments = ToSegments(FitPathCells(left, leftWidth, leftNaturalWidth)).ToList();
             var rendered = TruncateSegments(leftSegments, leftWidth).ToList();
-            if (!showMetadata)
+            if (metadataWidth == 0)
                 return rendered;
 
             var leftRenderedWidth = Segment.CellCount(rendered);
             var padding = Math.Max(1, maxWidth - leftRenderedWidth - metadataWidth);
             rendered.Add(Segment.Padding(padding));
-            rendered.AddRange(metadataSegments);
+            rendered.AddRange(ToSegments(chosenMetadata));
             return rendered;
         }
 
-        private static IReadOnlyList<LiveCell> FitPathCells(IReadOnlyList<LiveCell> cells, int maxWidth)
+        private static IReadOnlyList<LiveCell> FitPathCells(IReadOnlyList<LiveCell> cells, int maxWidth, int knownWidth = -1)
         {
             if (maxWidth <= 0)
                 return cells;
 
             var fitted = cells.ToArray();
-            while (Segment.CellCount(ToSegments(fitted)) > maxWidth)
+            var currentWidth = knownWidth >= 0 ? knownWidth : Segment.CellCount(ToSegments(fitted));
+            while (currentWidth > maxWidth)
             {
                 var changed = false;
                 for (var i = fitted.Length - 1; i >= 0; i--)
@@ -929,7 +954,6 @@ internal sealed class TerminalLiveRenderer : IDisposable
                     if (!LooksLikePathText(fitted[i].Text))
                         continue;
 
-                    var currentWidth = Segment.CellCount(ToSegments(fitted));
                     var cellWidth = CellCount(fitted[i].Text);
                     var targetCellWidth = Math.Max(1, cellWidth - (currentWidth - maxWidth));
                     var shortened = ShortenPathText(fitted[i].Text, targetCellWidth);
@@ -943,6 +967,8 @@ internal sealed class TerminalLiveRenderer : IDisposable
 
                 if (!changed)
                     break;
+
+                currentWidth = Segment.CellCount(ToSegments(fitted));
             }
 
             return fitted;
@@ -1074,15 +1100,28 @@ internal sealed class TerminalLiveRenderer : IDisposable
 
     private static string FormatSize(long bytes)
         => bytes >= 1024 * 1024 * 1024
-            ? $"{bytes / (1024.0 * 1024.0 * 1024.0),4:F1}GB"
-            : $"{bytes / (1024.0 * 1024.0),4:F1}MB";
+            ? $"{bytes / (1024.0 * 1024.0 * 1024.0):F1}GB".PadLeft(6, '0')
+            : $"{bytes / (1024.0 * 1024.0):F1}MB".PadLeft(6, '0');
+
+    private static string FormatSizeCompact(long bytes)
+        => bytes >= 1024 * 1024 * 1024
+            ? $"{bytes / (1024.0 * 1024.0 * 1024.0):F1}GB"
+            : $"{bytes / (1024.0 * 1024.0):F1}MB";
 
     private static string FormatDuration(int seconds)
     {
         var time = TimeSpan.FromSeconds(seconds);
         return time.TotalHours >= 1
             ? $"{(int)time.TotalHours}:{time.Minutes:00}:{time.Seconds:00}"
-            : $"{time.Minutes,2}:{time.Seconds:00}";
+            : $"{time.Minutes:00}:{time.Seconds:00}";
+    }
+
+    private static string FormatDurationCompact(int seconds)
+    {
+        var time = TimeSpan.FromSeconds(seconds);
+        return time.TotalHours >= 1
+            ? $"{(int)time.TotalHours}:{time.Minutes:00}:{time.Seconds:00}"
+            : $"{time.Minutes}:{time.Seconds:00}";
     }
 
     private static string FormatSampleRate(int sampleRate)
