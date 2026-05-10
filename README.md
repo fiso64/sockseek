@@ -415,6 +415,9 @@ by an artist. It is recommended to pair it with `--interactive`. See [Example](#
 
 <!-- sldl-help:start(daemon) -->
 ## Daemon / remote mode
+Daemon mode is the first step toward running sldl as a persistent Soulseek client rather than a one-shot downloader. 
+Right now it exposes the download engine for remote CLI use; future releases may expand it with long-running client features such as sharing.
+
 Run `sldl daemon` to start the HTTP/SignalR daemon. It uses the same config/profile system as the
 CLI and listens on `127.0.0.1:5030` by default.
 
