@@ -20,8 +20,8 @@ public static partial class Help
 
   Required Arguments
 
-    <input>                         A url, search string, or path to a local CSV file.
-                                    Run `--help input` to view the accepted inputs.
+    <input>                         A url, search string, Soulseek link, or path to a local
+                                    CSV/list file. Run `--help input` to view the accepted inputs.
                                     Can also be passed with -i, --input <input>
     --user <username>               Soulseek username
     --pass <password>               Soulseek password
@@ -29,53 +29,70 @@ public static partial class Help
   General Options
 
     -p, --path <path>               Download directory
-    --input-type <type>             [csv|youtube|spotify|bandcamp|string|list] (default: auto)
+    --input-type <type>             [csv|youtube|spotify|bandcamp|string|list|soulseek|
+                                    musicbrainz] (default: auto)
     --name-format <format>          Name format for downloaded tracks. See `--help name-format`
-        
+    --invalid-replace-str <str>     Replacement string for invalid path characters (default: space)
+    
     -n, --number <maxtracks>        Download the first n tracks of a playlist
     -o, --offset <offset>           Skip a specified number of tracks
     -r, --reverse                   Download tracks in reverse order
     -c, --config <path>             Set config file location. Set to 'none' to ignore config
+    --no-config                     Ignore any config file
     --profile <names>               Configuration profile(s) to use. See `--help config`.
-    --concurrent-downloads <num>    Max concurrent downloads for normal mode (default: 2)
+    --concurrent-jobs <num>         Max concurrent leaf jobs (default: 20)
+    --concurrent-searches <num>     Max concurrent Soulseek searches (default: 2)
+    --concurrent-extractors <num>   Max concurrent input extractors (default: 4)
     --write-playlist                Create an m3u playlist file in the output directory
     --playlist-path <path>          Override default path for m3u playlist file
+    --no-write-index                Do not create/update the sldl index
+    --index-path <path>             Override default path for sldl index
     --no-incomplete-ext             Save files with their final name instead of a temporary
                                     `.incomplete` extension.
-        
+    
     --no-skip-existing              Do not skip downloaded tracks
-    --no-write-index                Do not create a file indexing all downloaded tracks
-    --index-path <path>             Override default path for sldl index
+    --skip-mode-output-dir <mode>   How to match files in the output dir: name|tag|index
+                                    (default: index)
     --skip-check-cond               Check file conditions when skipping existing files
-    --skip-check-pref-cond          Check preferred conditions when skipping existing files  
-    --skip-music-dir <path>         Also skip downloading tracks found in a music library by
-                                    comparing filenames. Not 100% reliable.
+    --skip-check-pref-cond          Check preferred conditions when skipping existing files
+    --skip-music-dir <path>         Also skip downloading tracks found in a music library
+    --skip-mode-music-dir <mode>    How to match files in --skip-music-dir: name|tag
+                                    (default: name)
     --skip-not-found                Skip searching for tracks that weren't found on Soulseek
                                     during the last run.
-        
+    
     --listen-port <port>            Port for incoming connections (default: 49998)
+    --no-listen                     Disable the incoming connection listener
     --connect-timeout <ms>          Timeout used when logging in to Soulseek (default: 20000ms)
     --user-description <desc>       Optional description text for your Soulseek account
     --shared-files <int>            Number of files you share on Soulseek (default: 0)
     --shared-folders <int>          Number of folders you share on Soulseek (default: 0)
     
-    --server-ip <ip>                IP/interface for `sldl daemon` HTTP API
-                                    (default: 127.0.0.1)
-    --server-port <port>            Port for `sldl daemon` HTTP API (default: 5030)
-    --remote <url>                  Use an existing `sldl daemon` instead of running locally
-    
     --on-complete <command>         Run a command when a download completes. See `--help
                                     on-complete`
+
+  Daemon / Remote Options
+
+    sldl daemon                     Start the HTTP/SignalR daemon instead of running a download
+    --server-ip <ip>                IP/interface for the daemon HTTP API (default: 127.0.0.1)
+    --server-port <port>            Port for the daemon HTTP API (default: 5030)
+    --remote <url>                  Use an existing daemon instead of running locally
 
   Search Options
 
     --fast-search                   Begin downloading as soon as a file satisfying the preferred
                                     conditions is found. Only for normal download mode.
+    --fast-search-delay <ms>        Delay before accepting fast-search candidates (default: 300)
+    --fast-search-min-up-speed <n>  Minimum upload speed for fast-search candidates (default: 1)
     --remove-ft                     Remove 'feat.' and everything after before searching
+    --remove-brackets               Remove square-bracketed text from track titles before search
+    --extract-artist                Extract artist/title from titles like ""Artist - Title""
+    --parse-title <template>        Parse title fields with placeholders like {artist} - {title}
     --regex <regex>                 Remove a regexp from all track titles and artist names.
                                     Optionally specify a replacement regex after a semicolon.
                                     Add 'T:', 'A:' or 'L:' at the start to only apply this to
-                                    the track title, artist, or album respectively.
+                                    the track title, artist, or album respectively. Prefix with
+                                    '+ ' to append a regex rule instead of replacing prior rules.
     --artist-maybe-wrong            Performs an additional search without the artist name.
                                     Useful for sources like SoundCloud where the ""artist""
                                     could just be an uploader. Note that when downloading a
@@ -83,14 +100,18 @@ public static partial class Help
                                     on a per-track basis, so it is best kept off in that case.
     -d, --desperate                 Tries harder to find the desired track by searching for the
                                     artist/album/title only, then filtering. (slower search)
+    --no-remove-special-chars       Keep special characters in Soulseek search terms
+    --max-retries <num>             Max download retries per item (default: 10)
+    --unknown-error-retries <num>   Extra retries for unknown/transient errors (default: 2)
     --fails-to-downrank <num>       Number of fails to downrank a user's shares (default: 1)
     --fails-to-ignore <num>         Number of fails to ban/ignore a user's shares (default: 2)
     
     --yt-dlp                        Use yt-dlp to download tracks that weren't found on
                                     Soulseek. yt-dlp must be available from the command line.
     --yt-dlp-argument <str>         The command line arguments when running yt-dlp. Default:
-                                    ""{id}"" -f bestaudio/best -cix -o ""{savepath}.%(ext)s""
-                                    Available vars are: {id}, {savedir}, {savepath} (w/o ext).
+                                    ""{id}"" -f bestaudio/best -ci -o ""{savepath-noext}.%(ext)s"" -x
+                                    Available vars are: {id}, {savedir}, {savepath},
+                                    {savepath-noext}.
                                     Warning: If you change the -o parameter, sldl won't be able
                                     to index the downloaded files.
                                     Note that -x causes yt-dlp to download webms in case ffmpeg
@@ -99,9 +120,9 @@ public static partial class Help
     --search-timeout <ms>           Max search time in ms (default: 6000)
     --max-stale-time <ms>           Max download time without progress in ms (default: 30000)
     --searches-per-time <num>       Max searches per time interval. Higher values may cause
-                                    30-minute bans, see `--help search`. (default: 34)
+                                    30-minute bans, see `--help notes`. (default: 34)
     --searches-renew-time <sec>     Controls how often available searches are replenished.
-                                    See `--help search`. (default: 220)
+                                    See `--help notes`. (default: 220)
 
   Spotify Options
 
@@ -117,6 +138,10 @@ public static partial class Help
     --get-deleted                   Attempt to retrieve titles of deleted videos from wayback
                                     machine. Requires yt-dlp.
     --deleted-only                  Only retrieve & download deleted music.
+
+  Bandcamp Options
+
+    --from-html <path>              Read Bandcamp page HTML from a local file
 
   CSV File Options
 
@@ -148,6 +173,8 @@ public static partial class Help
     --strict-artist                 File path must contain artist name
     --strict-album                  File path must contain album name
     --banned-users <list>           Comma-separated list of users to ignore
+    --allowed-users <list>          Comma-separated list of users to allow
+    --cond <conditions>             Semicolon-delimited required conditions
     
     --pref-format <formats>         Preferred file format(s), comma-separated (default: mp3)
     --pref-length-tol <sec>         Preferred length tolerance in seconds (default: 3)
@@ -157,7 +184,10 @@ public static partial class Help
     --pref-max-samplerate <rate>    Preferred maximum sample rate (default: 48000)
     --pref-min-bitdepth <depth>     Preferred minimum bit depth
     --pref-max-bitdepth <depth>     Preferred maximum bit depth
+    --pref-strict-artist            Prefer file paths containing artist name
     --pref-banned-users <list>      Comma-separated list of users to downrank
+    --pref-allowed-users <list>     Comma-separated list of users to prefer
+    --pref <conditions>             Semicolon-delimited preferred conditions
     
     --strict-conditions             Skip files with missing properties instead of accepting by
                                     default; if --min-bitrate is set, ignores any files with
@@ -169,19 +199,22 @@ public static partial class Help
     -t, --interactive               Interactively select folders. See --help shortcuts.
     --album-track-count <num>       Specify the exact number of tracks in the album. Add a + or
                                     - for inequalities, e.g '5+' for five or more tracks.
+    --min-album-track-count <num>   Minimum number of tracks in an album folder
+    --max-album-track-count <num>   Maximum number of tracks in an album folder
+    --extract-max-track-count       Set maximum album track count from extracted sources
+    --album-track-count-max-retries Max retries when album track count fails (default: 5)
     --album-art <option>            Retrieve additional images after downloading the album:
                                     'default': No additional images
                                     'largest': Download from the folder with the largest image
                                     'most': Download from the folder containing the most images
-    --album-art-only                Only download album art for the provided album
+    --album-art-only                Only download album art for the provided album; implies
+                                    album-art=largest when album-art is default
     --no-browse-folder              Do not automatically browse user shares to get all files in
                                     the folder
     --failed-album-path             Path to move all album files to when one of the items from
                                     the directory fails to download. Set to 'delete' to delete
                                     the files instead. Set to 'disable' keep them where they 
                                     are. Default: {configured output dir}/failed
-    --album-parallel-search         Run album searches in parallel, then download sequentially.
-    --album-parallel-search-count   Number of parallel album searches (default: 5)
 
   Aggregate Download Options
 
@@ -197,9 +230,11 @@ public static partial class Help
   Printing & Debug Options
 
     -v, --verbose                   Print extra debug info
+    -vv, --trace                    Print trace-level debug info
+    --debug                         Alias for --verbose
     --log-file <path>               Write debug info to a specified file
     --no-progress                   Disable progress bars/percentages, only simple printing
-    --album-compact-progress        Enable a concise progress view for albums
+    --progress-json                 Print progress events as JSON lines
     --print <option>                Print tracks or search results instead of downloading:
                                     'tracks': Print all tracks to be downloaded
                                     'tracks-full': Print extended information about all tracks
@@ -213,15 +248,14 @@ public static partial class Help
     
     --mock-files-dir <path>         Directory containing files to simulate download results
     --mock-files-no-read-tags       Only read filenames when simulating (much faster)
+    --mock-files-slow               Simulate slow mock-file searches
+    --mock-files-fail-downloads <n> Simulate n failed mock-file downloads
 
 Notes
   - Flags can be explicitly disabled by setting them to false, e.g. --interactive false.
   - Single-character flags can be combined, e.g. -at for -a -t.
   - Acronyms of two- and --three-word-flags like --twf are also accepted. E.g. --Mbr for
-    --max-bitrate.
-  - Run sldl daemon to start the HTTP/SignalR daemon. Use --server-ip and --server-port to choose
-    where it listens.
-  - Use --remote <url> to run the CLI as a thin client against that daemon.";
+    --max-bitrate.";
 
     const string inputHelp = @"
 Input types
@@ -338,7 +372,13 @@ File conditions
   Files not satisfying the required conditions will be ignored. Files satisfying pref-conditions
   will be preferred: With --pref-format flac,wav, sldl will try to download lossless files if
   available while still accepting lossy files.
-  There are no default required conditions. The default preferred conditions are:
+  The default required conditions accept common audio formats and enforce the source length when
+  both source and file length are known:
+
+  format = mp3,flac,ogg,m4a,opus,wav,aac,alac
+  length-tol = 3
+
+  The default preferred conditions are:
 
   pref-format = mp3
   pref-length-tol = 3
@@ -348,14 +388,15 @@ File conditions
   pref-strict-title = true
   pref-strict-album = true
 
-  sldl will therefore prefer mp3 files with bitrate between 200 and 2500 kbps, and whose length
-  differs from the supplied length by no more than 3 seconds. Moreover, it will prefer files whose
-  paths contain the supplied title and album. Changing the last two preferred conditions is not
-  recommended.
+  sldl will therefore accept common audio files with no length metadata, or whose length differs
+  from the supplied length by no more than 3 seconds, and prefer mp3 files with bitrate between 200
+  and 2500 kbps. Moreover, it will prefer files whose paths contain the supplied title and album.
+  Changing the last two preferred conditions is not recommended.
   Note that files satisfying only a subset of the conditions will be preferred over files that don't
   satisfy any condition. Run a search with --print results-full to reveal the sorting logic.
   Conditions can also be supplied as a semicolon-delimited string with --cond and --pref, e.g --cond
-  ""br>=320; format=mp3,ogg; sr<96000"".
+  ""br>=320; format=mp3,ogg; sr<96000"". Folder conditions can be included too, such as
+  album-track-count>=8 or required-track-title=Intro.
 
   Note on availability of metadata
     Some info may be unavailable depending on the client used by the peer. If (e.g) --min-bitrate is
@@ -430,10 +471,12 @@ Configuration
 
   Config Location
     sldl will look for a file named sldl.conf in the following locations:
-    - ~/AppData/Roaming/sldl/sldl.conf
     - ~/.config/sldl/sldl.conf
+    - ~/AppData/Roaming/sldl/sldl.conf
     - $XDG_CONFIG_HOME/sldl/sldl.conf
     - {sldl executable dir}/sldl.conf
+    Use --config <path> to choose a config file, --config none or --no-config to skip config
+    loading.
 
   Syntax
     Example config file:
@@ -469,9 +512,13 @@ Configuration
     The following operators are supported for use in profile-cond: &&, ||, ==, !=, !{bool}. The
     following variables are available:
 
-    input-type        (""youtube""|""csv""|""string""|""bandcamp""|""spotify"")
-    download-mode     (""normal""|""aggregate""|""album""|""album-aggregate"")
-    interactive       (bool)";
+    input-type        (""youtube""|""csv""|""string""|""bandcamp""|""spotify""|""list""|""soulseek""|""musicbrainz""|""none"")
+    download-mode     (""normal""|""song""|""aggregate""|""album""|""album-aggregate"")
+    album             (bool)
+    aggregate         (bool)
+    interactive       (bool)
+    progress-json     (bool)
+    no-progress       (bool)";
 
     const string onCompleteHelp = @"
 On-Complete Actions
@@ -553,9 +600,6 @@ Shortcuts & interactive mode
 
     const string notesAndTipsHelp = @"
 Notes
-  - Terminal display issues: The printed output may appear duplicated, overlap, or not update on
-    some configurations (new windows terminal, git bash). Use another terminal or --no-progress in
-    case of issues. See https://github.com/fiso64/slsk-batchdl/issues/55.
   - Soulseek's rate limits: The server bans users for 30 minutes if too many searches are performed
     within a short timespan. sldl has a search limiter which can be adjusted with
     --searches-per-time and --searches-renew-time (when the limit is reached, the status of the
@@ -577,16 +621,17 @@ Tips
 
   Filtering Irrelevant Results
     sldl typically selects the correct files as long as they appear in the search results. By
-    default, it always tries to download something and does no additional filtering. However, you
-    can use the following options to filter your search results:
+    default, it filters to common audio formats and applies a 3-second length tolerance when the
+    input source provides a length. You can use the following options to filter your search results
+    further:
     - --strict-title, --strict-artist, --strict-album Filters out files whose paths do not include
       the specified title, artist, or album name (ignoring case and using boundary characters).
       Because the pref- versions of these options are enabled by default, they are only recommended
       when you want to reduce false downloads, e.g. for wishlists where there is a high probability
       that the item does not exist on the network.
     - --length-tol For normal downloads, this option sets a tolerance level by which the file’s
-      length can differ from the input length. The default preference (--pref-length-tol) is set to
-      3 seconds.
+      length can differ from the input length. The default required and preferred tolerance is 3
+      seconds.
     - --album-track-count When downloading an album, you can specify this option to ensure the album
       contains a certain number of tracks. For instance, if the input is a Spotify or Bandcamp
       album, this field is automatically set to n+ (where n is the number of tracks on the album).
@@ -598,11 +643,11 @@ Tips
     instability:
     - --fast-search skips waiting until the search completes and downloads as soon as a file
       matching the preferred conditions is found
-    - --concurrent-downloads can be set it to 4 or more. This only affects normal downloads (not
-      album).
+    - --concurrent-jobs controls how many leaf jobs can run at once (default: 20)
+    - --concurrent-searches controls how many Soulseek searches can run at once (default: 2)
+    - --concurrent-extractors controls how many inputs can be extracted at once (default: 4)
     - --max-stale-time is set to 30 seconds by default, sldl will wait a long time before giving up
       on a file.
-    - --album-parallel-search enables parallel searching for album entries
 
   Testing Options
     You can test almost any aspect of the search and downloading logic by using --mock-files-dir and
