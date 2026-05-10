@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -295,63 +296,82 @@ public static partial class Utils
         return s;
     }
 
-    // TODO [PERFORMANCE]: String manipulation is at the core of our ranking and filtering logic.
-    // Try to optimize functions which are frequently called (again). MUST carefully benchmark though.
+    private static readonly SearchValues<char> s_windowsInvalid =
+        SearchValues.Create([':', '|', '?', '>', '<', '*', '"', '/', '\\']);
 
-    public static string ReplaceInvalidChars(this string str, string replaceStr, bool windows = false, bool removeSlash = true)
-    {
-        if (string.IsNullOrEmpty(str))
-            return str;
+    private static readonly SearchValues<char> s_windowsInvalidNoSlash =
+        SearchValues.Create([':', '|', '?', '>', '<', '*', '"']);
 
-        char[] invalidChars;
+    private static readonly SearchValues<char> s_platformInvalid =
+        SearchValues.Create(Path.GetInvalidFileNameChars());
 
-        if (windows)
-            invalidChars = new char[] { ':', '|', '?', '>', '<', '*', '"' }; // forward- and backslash are always included
-        else
-            invalidChars = Path.GetInvalidFileNameChars();
+    private static readonly SearchValues<char> s_platformInvalidNoSlash =
+        SearchValues.Create(Path.GetInvalidFileNameChars()
+            .Where(static c => c is not '/' and not '\\')
+            .ToArray());
 
-        if (removeSlash)
-        {
-            str = str.Replace("/", replaceStr);
-            str = str.Replace("\\", replaceStr);
-        }
-
-        foreach (var c in invalidChars)
-        {
-            if (!removeSlash && (c == '/' || c == '\\'))
-                continue;
-            str = str.Replace(c.ToString(), replaceStr);
-        }
-
-        return str;
-    }
+    private static SearchValues<char> InvalidSet(bool windows, bool removeSlash) => windows
+        ? (removeSlash ? s_windowsInvalid : s_windowsInvalidNoSlash)
+        : (removeSlash ? s_platformInvalid : s_platformInvalidNoSlash);
 
     public static string ReplaceInvalidChars(this string str, char replaceChar, bool windows = false, bool removeSlash = true)
     {
         if (str.Length == 0)
             return str;
 
-        char[] invalidChars;
+        var invalid = InvalidSet(windows, removeSlash);
+        int first = str.AsSpan().IndexOfAny(invalid);
+        if (first < 0)
+            return str;
 
-        if (windows)
-            invalidChars = new char[] { ':', '|', '?', '>', '<', '*', '"' }; // forward- and backslash are always included
-        else
-            invalidChars = Path.GetInvalidFileNameChars();
-
-        if (removeSlash)
+        return string.Create(str.Length, (str, replaceChar, invalid, first), static (dst, s) =>
         {
-            str = str.Replace('/', replaceChar);
-            str = str.Replace('\\', replaceChar);
+            s.str.AsSpan().CopyTo(dst);
+            dst[s.first] = s.replaceChar;
+            for (int i = s.first + 1; i < dst.Length; i++)
+                if (s.invalid.Contains(dst[i]))
+                    dst[i] = s.replaceChar;
+        });
+    }
+
+    public static string ReplaceInvalidChars(this string str, string replaceStr, bool windows = false, bool removeSlash = true)
+    {
+        if (str.Length == 0)
+            return str;
+
+        var invalid = InvalidSet(windows, removeSlash);
+        int first = str.AsSpan().IndexOfAny(invalid);
+        if (first < 0)
+            return str;
+
+        if (replaceStr.Length == 1)
+            return str.ReplaceInvalidChars(replaceStr[0], windows, removeSlash);
+
+        if (replaceStr.Length == 0)
+        {
+            int keep = first;
+            for (int i = first; i < str.Length; i++)
+                if (!invalid.Contains(str[i])) keep++;
+
+            return string.Create(keep, (str, invalid, first), static (dst, s) =>
+            {
+                s.str.AsSpan()[..s.first].CopyTo(dst);
+                int di = s.first;
+                for (int i = s.first; i < s.str.Length; i++)
+                    if (!s.invalid.Contains(s.str[i]))
+                        dst[di++] = s.str[i];
+            });
         }
 
-        foreach (var c in invalidChars)
+        var sb = new StringBuilder(str.Length * 2);
+        sb.Append(str, 0, first);
+        sb.Append(replaceStr);
+        for (int i = first + 1; i < str.Length; i++)
         {
-            if (!removeSlash && (c == '/' || c == '\\'))
-                continue;
-            str = str.Replace(c, replaceChar);
+            if (invalid.Contains(str[i])) sb.Append(replaceStr);
+            else sb.Append(str[i]);
         }
-
-        return str;
+        return sb.ToString();
     }
 
     public static string CleanPath(this string fullPath, string replaceWith)
@@ -384,16 +404,63 @@ public static partial class Utils
         return string.Join('/', pathParts.Select(a => a.Trim()));
     }
 
+    private static readonly SearchValues<char> s_special = SearchValues.Create(
+        [';', ':', '\'', '"', '|', '?', '!', '<', '>', '*', '/', '\\',
+        '[', ']', '{', '}', '(', ')', '-',
+        '–', '—', '―',
+        '&', '%', '^', '$', '#', '@', '+', '=', '`', '~', '_',
+        '\u2018', '\u2019', '"', '"',
+        '•', '·',
+        '【', '】', '「', '」', '『', '』', '《', '》',
+        '～', '«', '»', '“', '”']);
 
     public static string ReplaceSpecialChars(this string str, string replaceStr)
     {
         if (str.Length == 0)
             return str;
 
-        string special = ";:'\"|?!<>*/\\[]{}()-–—&%^$#@+=`~_";
-        foreach (char c in special)
-            str = str.Replace(c.ToString(), replaceStr);
-        return str;
+        int first = str.AsSpan().IndexOfAny(s_special);
+        if (first < 0)
+            return str;
+
+        if (replaceStr.Length == 1)
+        {
+            char rc = replaceStr[0];
+            return string.Create(str.Length, (str, rc, first), static (dst, s) =>
+            {
+                s.str.AsSpan().CopyTo(dst);
+                dst[s.first] = s.rc;
+                for (int i = s.first + 1; i < dst.Length; i++)
+                    if (s_special.Contains(dst[i]))
+                        dst[i] = s.rc;
+            });
+        }
+
+        if (replaceStr.Length == 0)
+        {
+            int keep = first;
+            for (int i = first; i < str.Length; i++)
+                if (!s_special.Contains(str[i])) keep++;
+
+            return string.Create(keep, (str, first), static (dst, s) =>
+            {
+                s.str.AsSpan()[..s.first].CopyTo(dst);
+                int di = s.first;
+                for (int i = s.first; i < s.str.Length; i++)
+                    if (!s_special.Contains(s.str[i]))
+                        dst[di++] = s.str[i];
+            });
+        }
+
+        var sb = new StringBuilder(str.Length * 2);
+        sb.Append(str, 0, first);
+        sb.Append(replaceStr);
+        for (int i = first + 1; i < str.Length; i++)
+        {
+            if (s_special.Contains(str[i])) sb.Append(replaceStr);
+            else sb.Append(str[i]);
+        }
+        return sb.ToString();
     }
 
     public static string RemoveFt(this string str, bool removeParentheses = true)
@@ -401,61 +468,39 @@ public static partial class Utils
         if (str.Length == 0)
             return str;
 
-        var ftStrings = new string[] { "feat.", "ft." };
-        var open = new char[] { '(', '[' };
-        var close = new char[] { ')', ']' };
-        bool changed = false;
+        int ftIndex = str.IndexOf("feat.", StringComparison.OrdinalIgnoreCase);
+        if (ftIndex == -1)
+            ftIndex = str.IndexOf("ft.", StringComparison.OrdinalIgnoreCase);
+        if (ftIndex == -1)
+            return str;
 
-        foreach (string ftStr in ftStrings)
+        if (removeParentheses && ftIndex > 0)
         {
-            int ftIndex = str.IndexOf(ftStr, StringComparison.OrdinalIgnoreCase);
-
-            if (ftIndex != -1)
+            char closeChar = str[ftIndex - 1] switch
             {
-                changed = true;
-                if (removeParentheses && ftIndex > 0)
-                {
-                    bool any = false;
+                '(' => ')',
+                '[' => ']',
+                _ => '\0',
+            };
 
-                    for (int i = 0; i < 2; i++)
-                    {
-                        if (str[ftIndex - 1] == open[i])
-                        {
-                            int openIdx = ftIndex - 1;
-                            int closeIdx = str.IndexOf(close[i], ftIndex);
-                            if (closeIdx != -1)
-                            {
-                                int add = 0;
-                                if (openIdx > 0 && closeIdx < str.Length - 1 && str[openIdx - 1] == ' ' && str[closeIdx + 1] == ' ')
-                                    add = 1;
-                                str = str.Remove(openIdx, closeIdx - openIdx + 1 + add);
-                                any = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (!any)
-                    {
-                        var separatorIdx = str.IndexOf(" - ", ftIndex);
-                        if (separatorIdx != -1)
-                            str = str.Remove(ftIndex, separatorIdx - ftIndex + 1);
-                        else
-                            str = str[..ftIndex];
-                    }
-                }
-                else
+            if (closeChar != '\0')
+            {
+                int openIdx = ftIndex - 1;
+                int closeIdx = str.IndexOf(closeChar, ftIndex);
+                if (closeIdx != -1)
                 {
-                    var separatorIdx = str.IndexOf(" - ", ftIndex);
-                    if (separatorIdx != -1)
-                        str = str.Remove(ftIndex, separatorIdx - ftIndex + 1);
-                    else
-                        str = str[..ftIndex];
+                    int add = 0;
+                    if (openIdx > 0 && closeIdx < str.Length - 1 && char.IsWhiteSpace(str[openIdx - 1]) && char.IsWhiteSpace(str[closeIdx + 1]))
+                        add = 1;
+                    return str.Remove(openIdx, closeIdx - openIdx + 1 + add).TrimEnd();
                 }
-                break;
             }
         }
-        return changed ? str.TrimEnd() : str;
+
+        var separatorIdx = str.IndexOf(" - ", ftIndex);
+        return separatorIdx != -1
+            ? str.Remove(ftIndex, separatorIdx - ftIndex + 1).TrimEnd()
+            : str[..ftIndex].TrimEnd();
     }
 
     public static string RemoveConsecutiveWs(this string input)
@@ -463,27 +508,32 @@ public static partial class Utils
         if (input.Length == 0)
             return string.Empty;
 
+        char[]? buffer = null;
         int index = 0;
-        var src = input.ToCharArray();
-        bool skip = false;
-        char ch;
+        bool previousWhitespace = false;
+
         for (int i = 0; i < input.Length; i++)
         {
-            ch = src[i];
-            if (ch == ' ')
+            char ch = input[i];
+            bool isWhitespace = char.IsWhiteSpace(ch);
+
+            if (isWhitespace && previousWhitespace)
             {
-                if (skip) continue;
-                src[index++] = ch;
-                skip = true;
+                if (buffer == null)
+                {
+                    buffer = input.ToCharArray();
+                    index = i;
+                }
+                continue;
             }
-            else
-            {
-                skip = false;
-                src[index++] = ch;
-            }
+
+            if (buffer != null)
+                buffer[index++] = ch;
+
+            previousWhitespace = isWhitespace;
         }
 
-        return new string(src, 0, index);
+        return buffer == null ? input : new string(buffer, 0, index);
     }
 
     [GeneratedRegex(@"\[[^\]]*\]")]
@@ -504,11 +554,14 @@ public static partial class Utils
     }
 
     private static bool IsBoundaryChar(char c)
-        => c is '-' or '|' or '.' or '\\' or '/' or '_' or '—'
-            or '(' or ')' or '[' or ']' or ',' or ':' or '?' or '!' or ';'
-            or '@' or '#' or '*' or '=' or '+' or '{' or '}' or '\''
-            or '"' or '$' or '^' or '&' or '`' or '~' or '%' or '<'
-            or '>' or '–';
+        => c is '-' or '|' or '.' or '\\' or '/' or '_' or '—' or '–' or '―'
+            or '(' or ')' or '[' or ']' or '{' or '}' or '<' or '>'
+            or '「' or '」' or '【' or '】' or '『' or '』' or '《' or '》'
+            or ',' or ':' or '?' or '!' or ';'
+            or '@' or '#' or '*' or '=' or '+'
+            or '\'' or '"' or '\u2018' or '\u2019' or '\u201C' or '\u201D'
+            or '$' or '^' or '&' or '`' or '~' or '～' or '%'
+            or '•' or '·' or '«' or '»';
 
     public static bool ContainsWithBoundary(this string str, string? value, bool ignoreCase = false)
     {
@@ -522,13 +575,13 @@ public static partial class Utils
         int index = 0;
         while ((index = str.IndexOf(value, index, comp)) != -1)
         {
-            bool hasLeftBoundary = index == 0 || str[index - 1] == ' ' || IsBoundaryChar(str[index - 1]);
-            bool hasRightBoundary = index + value.Length >= str.Length || str[index + value.Length] == ' ' || IsBoundaryChar(str[index + value.Length]);
+            bool hasLeftBoundary = index == 0 || char.IsWhiteSpace(str[index - 1]) || IsBoundaryChar(str[index - 1]);
+            bool hasRightBoundary = index + value.Length >= str.Length || char.IsWhiteSpace(str[index + value.Length]) || IsBoundaryChar(str[index + value.Length]);
 
             if (hasLeftBoundary && hasRightBoundary)
                 return true;
 
-            index += value.Length;
+            index++;
         }
 
         return false;
@@ -547,13 +600,13 @@ public static partial class Utils
         while ((index = str.IndexOf(value, index, comp)) != -1)
         {
             int leftIndex = index - 1;
-            while (leftIndex >= 0 && str[leftIndex] == ' ')
+            while (leftIndex >= 0 && char.IsWhiteSpace(str[leftIndex]))
                 leftIndex--;
 
             bool hasLeftBoundary = leftIndex < 0 || acceptLeftDigit && leftIndex < index - 1 && char.IsDigit(str[leftIndex]) || IsBoundaryChar(str[leftIndex]);
 
             int rightIndex = index + value.Length;
-            while (rightIndex < str.Length && str[rightIndex] == ' ')
+            while (rightIndex < str.Length && char.IsWhiteSpace(str[rightIndex]))
                 rightIndex++;
 
             bool hasRightBoundary = rightIndex >= str.Length || IsBoundaryChar(str[rightIndex]);
@@ -561,7 +614,7 @@ public static partial class Utils
             if (hasLeftBoundary && hasRightBoundary)
                 return true;
 
-            index = rightIndex;
+            index++;
         }
 
         return false;
@@ -617,12 +670,6 @@ public static partial class Utils
         }
 
         return false;
-    }
-
-    public static bool RemoveRegexIfExist(this string s, string reg, out string res)
-    {
-        res = Regex.Replace(s, reg, string.Empty);
-        return res != s;
     }
 
     public static Dictionary<K, V> ToSafeDictionary<T, K, V>(this IEnumerable<T> source, Func<T, K> keySelector, Func<T, V> valSelector) where K : notnull
@@ -824,7 +871,7 @@ public static partial class Utils
     public static bool RemoveDiacriticsIfExist(this string s, out string res)
     {
         res = s.RemoveDiacritics();
-        return res != s;
+        return !ReferenceEquals(res, s);
     }
 
     public static char RemoveDiacritics(this char c)
@@ -838,15 +885,31 @@ public static partial class Utils
         if (s.Length == 0)
             return s;
 
-        var textBuilder = new StringBuilder();
-        foreach (char c in s)
+        int first = -1;
+        for (int i = 0; i < s.Length; i++)
         {
-            if (diacriticChars.TryGetValue(c, out char o))
-                textBuilder.Append(o);
-            else
-                textBuilder.Append(c);
+            char c = s[i];
+            if (c >= 128 && diacriticChars.ContainsKey(c))
+            {
+                first = i;
+                break;
+            }
         }
-        return textBuilder.ToString();
+
+        if (first < 0)
+            return s;
+
+        return string.Create(s.Length, (s, first), static (dst, state) =>
+        {
+            state.s.AsSpan().CopyTo(dst);
+
+            if (diacriticChars.TryGetValue(dst[state.first], out char firstReplacement))
+                dst[state.first] = firstReplacement;
+
+            for (int i = state.first + 1; i < dst.Length; i++)
+                if (dst[i] >= 128 && diacriticChars.TryGetValue(dst[i], out char replacement))
+                    dst[i] = replacement;
+        });
     }
 
     static readonly Dictionary<char, char> diacriticChars = new()

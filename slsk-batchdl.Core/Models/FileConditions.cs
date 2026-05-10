@@ -255,9 +255,6 @@ namespace Sldl.Core.Models;
             if (str.Length == 0)
                 return str;
 
-            // Equivalent to replacing '_' and Windows-invalid chars with spaces,
-            // optionally removing diacritics, trimming, and collapsing spaces.
-            // This runs for every sorted candidate path, so keep it single-pass.
             char[] buffer = new char[str.Length];
             int length = 0;
             bool previousWasSpace = false;
@@ -317,6 +314,7 @@ namespace Sldl.Core.Models;
                 return fname.ContainsWithBoundary(tname, ignoreCase);
         }
 
+        // Note: Unused. ResultSorter uses the optimized CheapBracketCheck
         public static bool BracketCheck(SongQuery query, SongQuery inferred)
         {
             string t1 = query.Title.RemoveFt().Replace('[', '(');

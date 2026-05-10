@@ -44,6 +44,359 @@ internal static class BenchmarkDataFactory
         "Birdland"
     ];
 
+    private static readonly string[] RemixArtists =
+    [
+        "Four Tet",
+        "Madlib",
+        "Aphex Twin",
+        "Flying Lotus",
+    ];
+
+    public static readonly string[] SearchTerms =
+    [
+        "Electric Light Orchestra",
+        "Twilight",
+        "Time",
+        "Steely Dan",
+        "Peg",
+        "KNOWER",
+        "Overtime",
+    ];
+
+    private static readonly string[] PathTemplates =
+    [
+        @"Music\{artist}\{album}\{track:D2}. {artist} - {title}.{ext}",
+        @"Music\{artist}\{album}\{track:D2}. {title}.{ext}",
+        @"Music\{artist}\{album}\{track:D2}. {artist} - {title} ({remix} Remix).{ext}",
+        @"Music\{artist}\[{year}] {album}\{track:D2}. {artist} - {title}.{ext}",
+        @"Music\{artist}\{album} [{year} Remaster]\{track:D2}. {title}.{ext}",
+        @"Music\{artist}\{album}\{track:D2}. {title} [Remastered {year}].{ext}",
+        @"Shared\Downloads\{artist} - {title} ({year}).{ext}",
+        @"Shared\Music\{artist} - {album}\{track:D2}. {title}.{ext}",
+    ];
+
+    // Artists that never include "Electric Light Orchestra" — used for miss paths.
+    private static readonly string[] OtherArtists =
+        [.. Artists.Where(a => a != "Electric Light Orchestra")];
+
+    public static string[] CreateFilePaths(int count)
+    {
+        var paths = new string[count];
+        for (int i = 0; i < count; i++)
+        {
+            var artist  = Artists[i % Artists.Length];
+            var album   = Albums[i % Albums.Length];
+            var title   = Titles[i % Titles.Length];
+            var remix   = RemixArtists[i % RemixArtists.Length];
+            var ext     = i % 4 == 0 ? "flac" : "mp3";
+            var track   = (i % 20) + 1;
+            var year    = 1975 + (i % 30);
+            var tmpl    = PathTemplates[i % PathTemplates.Length];
+
+            paths[i] = tmpl
+                .Replace("{artist}", artist)
+                .Replace("{album}", album)
+                .Replace("{title}", title)
+                .Replace("{remix}", remix)
+                .Replace("{ext}", ext)
+                .Replace("{track:D2}", track.ToString("D2"))
+                .Replace("{year}", year.ToString());
+        }
+        return paths;
+    }
+
+    // All paths contain "Electric Light Orchestra" at a word boundary.
+    public static string[] CreateHitPaths(int count)
+    {
+        var paths = new string[count];
+        string[] templates =
+        [
+            @"Music\Electric Light Orchestra\{album}\{track:D2}. Electric Light Orchestra - {title}.flac",
+            @"Music\Electric Light Orchestra\{album}\{track:D2}. Electric Light Orchestra - {title}.mp3",
+            @"Music\Electric Light Orchestra\{album}\{track:D2}. Electric Light Orchestra - {title} ({remix} Remix).flac",
+            @"Music\Electric Light Orchestra\[{year}] {album}\{track:D2}. Electric Light Orchestra - {title}.flac",
+            @"Music\Electric Light Orchestra\{album} [{year} Remaster]\{track:D2}. {title}.mp3",
+            @"Shared\Music\Electric Light Orchestra - {album}\{track:D2}. {title}.flac",
+        ];
+        for (int i = 0; i < count; i++)
+        {
+            paths[i] = templates[i % templates.Length]
+                .Replace("{album}",    Albums[i % Albums.Length])
+                .Replace("{title}",    Titles[i % Titles.Length])
+                .Replace("{remix}",    RemixArtists[i % RemixArtists.Length])
+                .Replace("{track:D2}", (i % 20 + 1).ToString("D2"))
+                .Replace("{year}",     (1975 + i % 30).ToString());
+        }
+        return paths;
+    }
+
+    // No path contains "Electric Light Orchestra".
+    public static string[] CreateMissPaths(int count)
+    {
+        var paths = new string[count];
+        for (int i = 0; i < count; i++)
+        {
+            var artist = OtherArtists[i % OtherArtists.Length];
+            var album  = Albums[i % Albums.Length];
+            var title  = Titles[i % Titles.Length];
+            var remix  = RemixArtists[i % RemixArtists.Length];
+            var tmpl   = PathTemplates[i % PathTemplates.Length];
+            paths[i] = tmpl
+                .Replace("{artist}",   artist)
+                .Replace("{album}",    album)
+                .Replace("{title}",    title)
+                .Replace("{remix}",    remix)
+                .Replace("{ext}",      i % 4 == 0 ? "flac" : "mp3")
+                .Replace("{track:D2}", (i % 20 + 1).ToString("D2"))
+                .Replace("{year}",     (1975 + i % 30).ToString());
+        }
+        return paths;
+    }
+
+    // Strings that contain Windows-invalid chars — for ReplaceInvalidChars hit case.
+    private static readonly string[] InvalidCharTemplates =
+    [
+        "{artist}: {title}",
+        "{artist} - {title}? (Live)",
+        "{artist} | {album}",
+        "{artist} - \"{title}\"",
+        "{artist} <{title}>",
+        "{artist} - {title} * Bonus",
+        "{artist}/{title}",
+        "{artist} - {title}: The {album} Sessions",
+    ];
+
+    // Strings that contain special chars for ReplaceSpecialChars hit case.
+    private static readonly string[] SpecialCharTemplates =
+    [
+        "{artist} - {title} (feat. {remix})",
+        "{artist} & {remix} - {title}",
+        "{artist} - {title} [Remastered]",
+        "{artist}: {title}",
+        "{artist} - {title}!",
+        "{artist} — {title}",
+        "{artist} - {title} (Disc 1/2)",
+        "「{artist}」{title}",
+    ];
+
+    public static string[] CreateInvalidCharHits(int count)
+    {
+        var r = new string[count];
+        for (int i = 0; i < count; i++)
+        {
+            var tmpl = InvalidCharTemplates[i % InvalidCharTemplates.Length];
+            r[i] = tmpl
+                .Replace("{artist}", Artists[i % Artists.Length])
+                .Replace("{title}",  Titles[i % Titles.Length])
+                .Replace("{album}",  Albums[i % Albums.Length])
+                .Replace("{remix}",  RemixArtists[i % RemixArtists.Length]);
+        }
+        return r;
+    }
+
+    public static string[] CreateInvalidCharMisses(int count)
+    {
+        var r = new string[count];
+        for (int i = 0; i < count; i++)
+            r[i] = $"{Artists[i % Artists.Length]} - {Titles[i % Titles.Length]}";
+        return r;
+    }
+
+    public static string[] CreateSpecialCharHits(int count)
+    {
+        var r = new string[count];
+        for (int i = 0; i < count; i++)
+        {
+            var tmpl = SpecialCharTemplates[i % SpecialCharTemplates.Length];
+            r[i] = tmpl
+                .Replace("{artist}", Artists[i % Artists.Length])
+                .Replace("{title}",  Titles[i % Titles.Length])
+                .Replace("{remix}",  RemixArtists[i % RemixArtists.Length]);
+        }
+        return r;
+    }
+
+    public static string[] CreateSpecialCharMisses(int count)
+    {
+        var r = new string[count];
+        for (int i = 0; i < count; i++)
+            r[i] = $"{Artists[i % Artists.Length]} {Titles[i % Titles.Length]} {Albums[i % Albums.Length]}";
+        return r;
+    }
+
+    public static string[] CreateLongPathLikeStrings(int count, bool metadataHeavy)
+    {
+        var r = new string[count];
+        for (int i = 0; i < count; i++)
+        {
+            var artist = Artists[i % Artists.Length];
+            var album = Albums[i % Albums.Length];
+            var title = Titles[i % Titles.Length];
+            var remix = RemixArtists[i % RemixArtists.Length];
+            var ext = i % 4 == 0 ? "flac" : "mp3";
+            var track = i % 20 + 1;
+            var year = 1975 + i % 30;
+            var disc = i % 4 + 1;
+            var source = i % 2 == 0 ? "CD Rip" : "Vinyl Rip";
+
+            r[i] = metadataHeavy
+                ? $@"Shared\Music Archive\{artist}: Studio Collection\{year} - {album} [Deluxe/Remaster]\Disc {disc} <Verified>\{source}\{track:D2}. {artist} - ""{title}""? ({remix} Remix) * Bonus | {album}.{ext}"
+                : $@"Shared\Music Archive\Collection\{artist}\{artist} Discography\{year} {album}\Disc {disc}\{source}\Lossless\Original Album\{track:D2}. {artist} - {title} {album} {year}.{ext}";
+        }
+        return r;
+    }
+
+    public static string[] CreateDiacriticStrings(int count, bool hasDiacritics, bool isLong)
+    {
+        string[] ascii =
+        [
+            "Cafe Creme a la mode",
+            "Electric Light Orchestra - Twilight",
+            "Casiopea Mint Jams Remaster",
+            "Shared Music Archive Collection Lossless Original Album",
+        ];
+
+        string[] diacritics =
+        [
+            "Café Crème à la mode Ü",
+            "Sigur Rós - Ágætis byrjun",
+            "Beyoncé - Déjà Vu",
+            "Françoise Hardy / João Gilberto / Zoë Keating",
+        ];
+
+        var r = new string[count];
+        var source = hasDiacritics ? diacritics : ascii;
+
+        for (int i = 0; i < count; i++)
+        {
+            string value = source[i % source.Length];
+            r[i] = isLong
+                ? $@"Shared\Music Archive\Collection\{value}\{1975 + i % 30} {value} Deluxe Edition\Disc {i % 4 + 1}\{i % 20 + 1:D2}. {value} - {value} Remaster {value}.flac"
+                : value;
+        }
+
+        return r;
+    }
+
+    public static string[] CreateStrictStringPreprocessStrings(int count, StrictStringPreprocessStringCase stringCase)
+    {
+        string[] source = stringCase switch
+        {
+            StrictStringPreprocessStringCase.CleanTitle =>
+            [
+                "Electric Light Orchestra Twilight",
+                "Steely Dan Peg",
+                "KNOWER Overtime",
+                "Tatsuro Yamashita Sparkle",
+            ],
+
+            StrictStringPreprocessStringCase.DirtyTitle =>
+            [
+                " Electric_Light Orchestra: Twilight  ",
+                "Steely  Dan - \"Peg\"?",
+                "KNOWER___Overtime",
+                "Herbie Hancock | Chameleon * Bonus",
+            ],
+
+            StrictStringPreprocessStringCase.DiacriticsTitle =>
+            [
+                "Beyoncé Déjà Vu",
+                "Sigur Rós Ágætis byrjun",
+                "Café Crème à la mode",
+                "João Gilberto Águas de Março",
+            ],
+
+            StrictStringPreprocessStringCase.CleanBaseName =>
+            [
+                "01 Electric Light Orchestra - Twilight",
+                "02 Steely Dan - Peg",
+                "03 KNOWER - Overtime",
+                "04 Tatsuro Yamashita - Sparkle",
+            ],
+
+            StrictStringPreprocessStringCase.DirtyBaseName =>
+            [
+                " 01._Electric_Light Orchestra - Twilight: Remaster  ",
+                "02. Steely__Dan - \"Peg\"?",
+                "03. KNOWER___Overtime",
+                "04. Herbie Hancock | Chameleon * Bonus",
+            ],
+
+            StrictStringPreprocessStringCase.DiacriticsBaseName =>
+            [
+                "01 Beyoncé - Déjà Vu",
+                "02 Sigur Rós - Ágætis byrjun",
+                "03 Café Tacvba - Crème à la mode",
+                "04 João Gilberto - Águas de Março",
+            ],
+
+            _ => throw new ArgumentOutOfRangeException(nameof(stringCase), stringCase, null),
+        };
+
+        var r = new string[count];
+        for (int i = 0; i < count; i++)
+            r[i] = source[i % source.Length];
+
+        return r;
+    }
+
+    public static (string Filename, SongQuery Query)[] CreateInferSongQueryCases(int count, InferSongQueryCase queryCase)
+    {
+        var r = new (string Filename, SongQuery Query)[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            var artist = Artists[i % Artists.Length];
+            var album = Albums[i % Albums.Length];
+            var title = Titles[i % Titles.Length];
+            var track = i % 20 + 1;
+            var year = 1975 + i % 30;
+
+            r[i] = queryCase switch
+            {
+                InferSongQueryCase.CleanArtistTitle => (
+                    $@"Shared\Music\{artist}\{album}\{artist} - {title}.flac",
+                    new SongQuery { Artist = artist, Title = title, Album = album }),
+
+                InferSongQueryCase.TrackNumStart => (
+                    $@"Shared\Music\{artist}\{album}\{track:D2}. {artist} - {title}.flac",
+                    new SongQuery { Artist = artist, Title = title, Album = album }),
+
+                InferSongQueryCase.TrackNumMiddle => (
+                    $@"Shared\Music\{artist}\{album}\{artist} - {track:D2} {title}.flac",
+                    new SongQuery { Artist = artist, Title = title, Album = album }),
+
+                InferSongQueryCase.TrackNumMiddleDash => (
+                    $@"Shared\Music\{artist}\{album}\{artist} - {track:D2} - {title}.flac",
+                    new SongQuery { Artist = artist, Title = title, Album = album }),
+
+                InferSongQueryCase.ThreePartAlbumArtistTitle => (
+                    $@"Shared\Music\{artist}\{album}\{album} - {artist} - {title}.flac",
+                    new SongQuery { Artist = artist, Title = title, Album = album }),
+
+                InferSongQueryCase.BracketedArtist => (
+                    $@"Shared\Music\{artist}\{album}\({track:D2}) [{artist}] {title}.flac",
+                    new SongQuery { Artist = artist, Title = title, Album = album }),
+
+                InferSongQueryCase.RemixLike => (
+                    $@"Shared\Music\{artist}\{album}\{title} ({artist} {RemixArtists[i % RemixArtists.Length]} Remix).flac",
+                    new SongQuery { Artist = artist, Title = title, Album = album }),
+
+                InferSongQueryCase.DirtyMetadata => (
+                    $@"Shared\Music\{artist}\{album}\{track:D2}._{artist}: ""{title}""? [{year} Remaster].flac",
+                    new SongQuery { Artist = artist, Title = title, Album = album }),
+
+                InferSongQueryCase.DiacriticsAndFt => (
+                    $@"Shared\Music\Beyoncé\B'Day\{track:D2}. Beyoncé feat. Jay-Z - Déjà Vu.flac",
+                    new SongQuery { Artist = "Beyoncé", Title = "Déjà Vu", Album = "B'Day" }),
+
+                _ => throw new ArgumentOutOfRangeException(nameof(queryCase), queryCase, null),
+            };
+        }
+
+        return r;
+    }
+
     public static SearchSettings CreateSearchSettings()
     {
         var settings = new DownloadSettings().Search;

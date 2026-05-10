@@ -51,6 +51,22 @@ namespace Tests.StringUtils
         }
 
         [TestMethod]
+        public void ContainsWithBoundary_OverlappingMatches_DoesNotSkip()
+        {
+            Assert.IsTrue("xblah blah blah".ContainsWithBoundary("blah blah"), 
+                "Failed to find overlapping match when left boundary fails.");
+
+            Assert.IsTrue("foo foo foo y".ContainsWithBoundary("foo foo"), 
+                "Failed to find overlapping match when right boundary fails.");
+
+            Assert.IsTrue("a x - x - x".ContainsWithBoundaryIgnoreWs("x - x"),
+                "IgnoreWs: Failed on overlapping left boundary.");
+
+            Assert.IsTrue("- yx-yx-y -".ContainsWithBoundaryIgnoreWs("yx-y"),
+                "IgnoreWs: Failed on overlapping right boundary.");
+        }
+
+        [TestMethod]
         public void GreatestCommonPath_FindsCommonPath()
         {
             var paths = new string[]
@@ -83,6 +99,49 @@ namespace Tests.StringUtils
             Assert.AreEqual(3, Utils.Levenshtein("kitten", "sitting"));
             Assert.AreEqual(2, Utils.Levenshtein("flaw", "lawn"));
             Assert.AreEqual(Utils.Levenshtein("Saturday", "Sunday"), Utils.Levenshtein("Sunday", "Saturday"));
+        }
+
+        [TestMethod]
+        public void ReplaceInvalidChars_CharOverload_HandlesSlashFlag()
+        {
+            Assert.AreEqual("a_b_c_d_e_f_g_h_i_j", "a:b|c?d>e<f*g\"h/i\\j".ReplaceInvalidChars('_', windows: true));
+            Assert.AreEqual("a_b_c_d_e_f_g_h/i\\j", "a:b|c?d>e<f*g\"h/i\\j".ReplaceInvalidChars('_', windows: true, removeSlash: false));
+        }
+
+        [TestMethod]
+        public void ReplaceInvalidChars_StringOverload_RemovesInvalidCharacters()
+        {
+            Assert.AreEqual("abcdefghij", "a:b|c?d>e<f*g\"h/i\\j".ReplaceInvalidChars("", windows: true));
+            Assert.AreEqual("abcdefgh/i\\j", "a:b|c?d>e<f*g\"h/i\\j".ReplaceInvalidChars("", windows: true, removeSlash: false));
+        }
+
+        [TestMethod]
+        public void ReplaceInvalidChars_StringOverload_ReplacesWithMultiCharString()
+        {
+            Assert.AreEqual("a--b--c--d", "a:b/c\\d".ReplaceInvalidChars("--", windows: true));
+            Assert.AreEqual("a--b/c\\d", "a:b/c\\d".ReplaceInvalidChars("--", windows: true, removeSlash: false));
+        }
+
+        [TestMethod]
+        public void ReplaceInvalidChars_NoInvalidCharacters_ReturnsOriginalString()
+        {
+            const string value = "abc def 123";
+            Assert.AreSame(value, value.ReplaceInvalidChars('_', windows: true));
+            Assert.AreSame(value, value.ReplaceInvalidChars("_", windows: true));
+        }
+
+        [TestMethod]
+        public void ReplaceSpecialChars_RemovesAsciiAndUnicodeSpecialCharacters()
+        {
+            Assert.AreEqual("abc", "a:b/c".ReplaceSpecialChars(""));
+            Assert.AreEqual("abcdef", "a–b—c―d“e”f".ReplaceSpecialChars(""));
+            Assert.AreEqual("abcdef", "a【b】c「d」e《f》".ReplaceSpecialChars(""));
+        }
+
+        [TestMethod]
+        public void ReplaceSpecialChars_ReplacesWithMultiCharString()
+        {
+            Assert.AreEqual("a--b--c", "a:b/c".ReplaceSpecialChars("--"));
         }
     }
 }

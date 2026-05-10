@@ -15,8 +15,8 @@ public class QuickBenchmarkConfig : ManualConfig
             .WithToolchain(InProcessEmitToolchain.Instance)
             .WithStrategy(RunStrategy.Monitoring)
             .WithLaunchCount(1)
-            .WithWarmupCount(1)
-            .WithIterationCount(2)
+            .WithWarmupCount(3)
+            .WithIterationCount(10)
             .WithInvocationCount(1)
             .WithUnrollFactor(1));
 
