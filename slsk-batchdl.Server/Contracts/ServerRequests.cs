@@ -13,18 +13,18 @@ public sealed record SubmitExtractJobRequestDto(
     SubmissionOptionsDto? Options = null);
 
 /// <summary>
-/// Starts a generic Soulseek search from raw query text. Result endpoints decide how raw results are projected.
-/// Prefer typed jobs with DownloadBehavior.Manual for normal user-facing manual download flows;
-/// search jobs remain a lower-level API for raw discovery, arbitrary projections, and diagnostics.
+/// Starts a generic Soulseek discovery job from raw query text.
+/// Search jobs are useful for exploratory/manual UIs: inspect raw results, project them
+/// as files, folders, or aggregate candidates, then start follow-up downloads from selected refs.
 /// </summary>
 public sealed record SubmitSearchJobRequestDto(
     string QueryText,
     SubmissionOptionsDto? Options = null);
 
 /// <summary>
-/// Starts a track search job. Use result endpoints to inspect candidates and follow-up endpoints
-/// to start downloads from selected candidates. Prefer SongJob/AggregateJob with DownloadBehavior.Manual
-/// when the client is implementing a manual pick-then-download flow.
+/// Starts a track discovery job.
+/// The job completes after search/projection; result endpoints expose candidates, and
+/// follow-up download endpoints start new download jobs from selected candidates.
 /// </summary>
 public sealed record SubmitTrackSearchJobRequestDto(
     SongQueryDto SongQuery,
@@ -32,16 +32,18 @@ public sealed record SubmitTrackSearchJobRequestDto(
     SubmissionOptionsDto? Options = null);
 
 /// <summary>
-/// Starts an album search job. Use result endpoints to inspect folders and follow-up endpoints
-/// to start downloads from selected folders. Prefer AlbumJob/AlbumAggregateJob with DownloadBehavior.Manual
-/// when the client is implementing a manual pick-then-download flow.
+/// Starts an album discovery job.
+/// The job completes after search/projection; result endpoints expose folders, and
+/// follow-up download endpoints start new download jobs from selected folders.
 /// </summary>
 public sealed record SubmitAlbumSearchJobRequestDto(
     AlbumQueryDto AlbumQuery,
     SubmissionOptionsDto? Options = null);
 
 /// <summary>
-/// Starts a song job. Set DownloadBehavior.Manual to search/project candidates and wait for selection.
+/// Starts a song download job.
+/// Automatic behavior downloads the selected match; DownloadBehavior.Manual searches/projects
+/// candidates and enters AwaitingSelection so the caller can resume the same job with a selection.
 /// </summary>
 public sealed record SubmitSongJobRequestDto(
     SongQueryDto SongQuery,
@@ -49,7 +51,9 @@ public sealed record SubmitSongJobRequestDto(
     DownloadBehaviorPolicyDto? DownloadBehavior = null);
 
 /// <summary>
-/// Starts an album job. Set DownloadBehavior.Manual to search/project folder candidates and wait for selection.
+/// Starts an album/folder download job.
+/// Automatic behavior downloads the selected folder; DownloadBehavior.Manual searches/projects
+/// folder candidates and enters AwaitingSelection so the caller can resume the same job with a selection.
 /// </summary>
 public sealed record SubmitAlbumJobRequestDto(
     AlbumQueryDto AlbumQuery,
@@ -57,7 +61,9 @@ public sealed record SubmitAlbumJobRequestDto(
     DownloadBehaviorPolicyDto? DownloadBehavior = null);
 
 /// <summary>
-/// Starts an aggregate track job. Set DownloadBehavior.Manual to project grouped candidates without auto-downloading.
+/// Starts an aggregate track job.
+/// Automatic behavior downloads from grouped candidates; DownloadBehavior.Manual projects grouped
+/// candidates and enters AwaitingSelection so the caller can resume selected child downloads.
 /// </summary>
 public sealed record SubmitAggregateJobRequestDto(
     SongQueryDto SongQuery,
@@ -65,7 +71,9 @@ public sealed record SubmitAggregateJobRequestDto(
     DownloadBehaviorPolicyDto? DownloadBehavior = null);
 
 /// <summary>
-/// Starts an aggregate album job. Set DownloadBehavior.Manual to project album buckets without auto-downloading.
+/// Starts an aggregate album job.
+/// Automatic behavior downloads selected album buckets; DownloadBehavior.Manual projects buckets
+/// and enters AwaitingSelection so the caller can resume selected child downloads.
 /// </summary>
 public sealed record SubmitAlbumAggregateJobRequestDto(
     AlbumQueryDto AlbumQuery,
@@ -128,7 +136,9 @@ public sealed record JobListJobDraftDto(
     IReadOnlyList<JobDraftDto> Jobs) : JobDraftDto;
 
 /// <summary>
-/// Controls whether jobs automatically download projected candidates or wait for caller selection.
+/// Controls automatic versus caller-selected downloads for download-capable jobs.
+/// Automatic jobs continue into transfer. Manual jobs collect candidates and enter AwaitingSelection
+/// until the caller resumes with a selection or completes the manual step.
 /// Null per-kind values inherit Default.
 /// </summary>
 public sealed record DownloadBehaviorPolicyDto(

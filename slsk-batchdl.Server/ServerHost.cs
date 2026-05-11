@@ -319,6 +319,7 @@ public static class ServerHost
         })
             .WithTags("Jobs")
             .WithSummary("Completes a manual-selection job without starting additional downloads.")
+            .WithDescription("Use this when a DownloadBehavior.Manual job reached AwaitingSelection and the caller wants to close the manual step without resuming the job.")
             .Produces(StatusCodes.Status202Accepted)
             .Produces(StatusCodes.Status404NotFound);
 
@@ -378,7 +379,7 @@ public static class ServerHost
             await SubmitJobAsync(() => supervisor.SubmitSearchJobAsync(request, ct)))
             .WithTags("Job Submission")
             .WithSummary("Submits a generic Soulseek search job.")
-            .WithDescription("The search stores raw Soulseek results. Use projection endpoints to view those results as files, album folders, or aggregate candidates.")
+            .WithDescription("Search jobs are discovery-oriented. They store raw Soulseek results; use projection endpoints to view those results as files, album folders, or aggregate candidates, then use follow-up download endpoints for selected refs.")
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
@@ -386,6 +387,7 @@ public static class ServerHost
             await SubmitJobAsync(() => supervisor.SubmitTrackSearchJobAsync(request, ct)))
             .WithTags("Job Submission")
             .WithSummary("Submits a track search job.")
+            .WithDescription("Track search jobs are suitable for exploratory pick-then-download UIs: inspect projected file candidates from the result endpoints, then start follow-up downloads from selected refs.")
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
@@ -393,6 +395,7 @@ public static class ServerHost
             await SubmitJobAsync(() => supervisor.SubmitAlbumSearchJobAsync(request, ct)))
             .WithTags("Job Submission")
             .WithSummary("Submits an album search job.")
+            .WithDescription("Album search jobs are suitable for exploratory pick-then-download UIs: inspect projected folder candidates from the result endpoints, then start a follow-up folder download from the selected ref.")
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
@@ -400,6 +403,7 @@ public static class ServerHost
             await SubmitJobAsync(() => supervisor.SubmitSongJobAsync(request, ct)))
             .WithTags("Job Submission")
             .WithSummary("Submits a single-file download job.")
+            .WithDescription("Use DownloadBehavior.Automatic for normal transfer jobs. Use DownloadBehavior.Manual when the job should pause at AwaitingSelection for caller approval/selection before resuming the same job.")
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
@@ -407,6 +411,7 @@ public static class ServerHost
             await SubmitJobAsync(() => supervisor.SubmitAlbumJobAsync(request, ct)))
             .WithTags("Job Submission")
             .WithSummary("Submits an album/folder download job.")
+            .WithDescription("Use DownloadBehavior.Automatic for normal transfer jobs. Use DownloadBehavior.Manual when the job should pause at AwaitingSelection for caller approval/selection before resuming the same job.")
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
@@ -414,6 +419,7 @@ public static class ServerHost
             await SubmitJobAsync(() => supervisor.SubmitAggregateJobAsync(request, ct)))
             .WithTags("Job Submission")
             .WithSummary("Submits an aggregate track search job.")
+            .WithDescription("Aggregate jobs can download automatically or, with DownloadBehavior.Manual, pause after candidate grouping so the caller can choose which child downloads to resume.")
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
@@ -421,6 +427,7 @@ public static class ServerHost
             await SubmitJobAsync(() => supervisor.SubmitAlbumAggregateJobAsync(request, ct)))
             .WithTags("Job Submission")
             .WithSummary("Submits an aggregate album search job.")
+            .WithDescription("Aggregate album jobs can download automatically or, with DownloadBehavior.Manual, pause after bucket projection so the caller can choose which child downloads to resume.")
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
