@@ -69,6 +69,10 @@ namespace Sldl.Core.Jobs;
         // Display / identity
         public string? ItemName { get; set; }
 
+        public DownloadBehaviorPolicy DownloadBehaviorPolicy { get; set; } = new();
+        public DownloadBehavior DownloadBehavior => DownloadBehaviorPolicy.For(this);
+        public bool ShouldDownloadAutomatically => DownloadBehavior == DownloadBehavior.Automatic;
+
         // Source provenance (position in the input file / playlist)
         public int ItemNumber { get; set; } = 1;
         public int LineNumber { get; set; } = 0;
@@ -175,5 +179,6 @@ namespace Sldl.Core.Jobs;
             LineNumber            = src.LineNumber;
             CanBeSkippedOverride  = src.CanBeSkippedOverride;
             WorkflowId            = src.WorkflowId;
+            DownloadBehaviorPolicy = src.DownloadBehaviorPolicy;
         }
     }

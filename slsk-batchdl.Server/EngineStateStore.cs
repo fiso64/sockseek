@@ -288,6 +288,9 @@ public sealed class EngineStateStore
         List<WorkflowSummaryDto> workflowSummaries;
         lock (gate)
         {
+            if (IsActiveJobState(job.State) && job.State != JobState.AwaitingSelection)
+                executionCompletedJobs.Remove(job.Id);
+
             if (!jobs.ContainsKey(job.Id))
             {
                 var containingRecords = UpdateRecordsContainingJob(job.Id);
@@ -612,7 +615,9 @@ public sealed class EngineStateStore
                 null),
             AlbumAggregateJob albumAggregateJob => new AlbumAggregateJobPayloadDto(
                 ToAlbumQueryDto(albumAggregateJob.Query),
-                CountDescendants(albumAggregateJob.Id, ServerJobKind.Album)),
+                albumAggregateJob.Albums.Count > 0
+                    ? albumAggregateJob.Albums.Count
+                    : CountDescendants(albumAggregateJob.Id, ServerJobKind.Album)),
             JobList jobList => new JobListPayloadDto(
                 jobList.Count,
                 jobList.Jobs.Count(IsActiveJob),
@@ -643,13 +648,16 @@ public sealed class EngineStateStore
                 new TrackSearchJobDraftDto(
                     ToSongQueryDto(search.DefaultFileProjection.Query),
                     search.DefaultFileProjection.IncludeFullResults),
-            SongJob song => new SongJobDraftDto(ToSongQueryDto(song.Query)),
-            AlbumJob album => new AlbumJobDraftDto(ToAlbumQueryDto(album.Query)),
-            AggregateJob aggregate => new AggregateJobDraftDto(ToSongQueryDto(aggregate.Query)),
-            AlbumAggregateJob aggregate => new AlbumAggregateJobDraftDto(ToAlbumQueryDto(aggregate.Query)),
+            SongJob song => new SongJobDraftDto(ToSongQueryDto(song.Query), ToDownloadBehaviorPolicyDto(song.DownloadBehaviorPolicy)),
+            AlbumJob album => new AlbumJobDraftDto(ToAlbumQueryDto(album.Query), ToDownloadBehaviorPolicyDto(album.DownloadBehaviorPolicy)),
+            AggregateJob aggregate => new AggregateJobDraftDto(ToSongQueryDto(aggregate.Query), ToDownloadBehaviorPolicyDto(aggregate.DownloadBehaviorPolicy)),
+            AlbumAggregateJob aggregate => new AlbumAggregateJobDraftDto(ToAlbumQueryDto(aggregate.Query), ToDownloadBehaviorPolicyDto(aggregate.DownloadBehaviorPolicy)),
             JobList list => new JobListJobDraftDto(list.ItemName, list.Jobs.Select(ToJobDraft).OfType<JobDraftDto>().ToList()),
             _ => null,
         };
+
+    private static DownloadBehaviorPolicyDto ToDownloadBehaviorPolicyDto(DownloadBehaviorPolicy policy)
+        => new(policy.Default, policy.Song, policy.Album, policy.Aggregate, policy.AlbumAggregate);
 
     private static IReadOnlyList<ResourceActionDto> BuildActions(Job job)
         => IsActiveJobState(job.State) && job.Cts != null && !job.Cts.IsCancellationRequested
@@ -744,9 +752,11 @@ public sealed class EngineStateStore
             folder.IsFullyRetrieved);
 
     private JobState EffectiveState(Job job)
-        => executionCompletedJobs.Contains(job.Id) && IsActiveJobState(job.State)
-            ? JobState.Done
-            : job.State;
+        => executionCompletedJobs.Contains(job.Id)
+            && IsActiveJobState(job.State)
+            && job.State != JobState.AwaitingSelection
+                ? JobState.Done
+                : job.State;
 
     private ServerJobState EffectiveServerState(Job job)
         => ToServerJobState(EffectiveState(job));
@@ -778,7 +788,8 @@ public sealed class EngineStateStore
             or ServerJobState.Searching
             or ServerJobState.Downloading
             or ServerJobState.Extracting
-            or ServerJobState.Running;
+            or ServerJobState.Running
+            or ServerJobState.AwaitingSelection;
 
     public static ServerJobState ToServerJobState(JobState state)
         => Enum.Parse<ServerJobState>(state.ToString());
@@ -796,7 +807,8 @@ public sealed class EngineStateStore
             or JobState.Searching
             or JobState.Downloading
             or JobState.Extracting
-            or JobState.Running;
+            or JobState.Running
+            or JobState.AwaitingSelection;
 
     private static bool IsTerminalJob(Job job)
         => !IsActiveJobState(job.State);

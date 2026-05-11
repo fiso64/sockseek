@@ -649,6 +649,29 @@ public class DownloadEngine
             return;
         }
 
+        if (job is SongJob manualSong
+            && !config.PrintResults
+            && manualSong.DownloadBehavior == DownloadBehavior.Manual
+            && manualSong.ResolvedTarget == null)
+        {
+            await _clientManager.WaitUntilReadyAsync(job.Cts!.Token);
+            var responseData = new ResponseData();
+            if (manualSong.Candidates == null)
+                await searcher!.SearchSong(manualSong, config.Search, responseData, job.Cts!.Token);
+
+            job.Discovery = new DiscoverySummary
+            {
+                ResultCount = manualSong.Candidates?.Count ?? 0,
+                LockedFileCount = responseData.lockedFilesCount,
+            };
+
+            if (manualSong.Candidates?.Count > 0)
+                manualSong.UpdateState(JobState.AwaitingSelection);
+            else
+                manualSong.Fail(FailureReason.NoSuitableFileFound);
+            return;
+        }
+
         if (job is AlbumJob or AggregateJob or AlbumAggregateJob)
         {
             await _clientManager.WaitUntilReadyAsync(job.Cts!.Token);
@@ -689,12 +712,27 @@ public class DownloadEngine
                 var newAlbumJobs = await searcher!.SearchAggregateAlbum(aabJob, config.Search, responseData, job.Cts!.Token);
                 aabJob.Albums = newAlbumJobs;
 
+                foreach (var album in newAlbumJobs)
+                    album.DownloadBehaviorPolicy = job.DownloadBehaviorPolicy;
+
                 foundSomething = newAlbumJobs.Count > 0;
                 job.Discovery = new DiscoverySummary { ResultCount = aabJob.Albums.Count, LockedFileCount = responseData.lockedFilesCount };
 
                 if (config.PrintResults)
                 {
                     job.SetDone();
+                    return;
+                }
+
+                if (!foundSomething)
+                {
+                    job.Fail(FailureReason.NoSuitableFileFound);
+                    return;
+                }
+
+                if (job.DownloadBehavior == DownloadBehavior.Manual)
+                {
+                    job.UpdateState(JobState.AwaitingSelection);
                     return;
                 }
 
@@ -756,6 +794,14 @@ public class DownloadEngine
                 if (!config.PrintResults)
                     ctx.IndexEditor?.Update();
 
+                return;
+            }
+
+            if (!config.PrintResults
+                && job.DownloadBehavior == DownloadBehavior.Manual
+                && (job is AggregateJob || job is AlbumJob { ResolvedTarget: null }))
+            {
+                job.UpdateState(JobState.AwaitingSelection);
                 return;
             }
 

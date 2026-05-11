@@ -38,6 +38,8 @@ namespace Sldl.Server;
 [JsonSerializable(typeof(AggregateTrackProjectionRequestDto))]
 [JsonSerializable(typeof(AggregateAlbumProjectionRequestDto))]
 [JsonSerializable(typeof(SubmissionOptionsDto))]
+[JsonSerializable(typeof(DownloadBehaviorPolicyDto))]
+[JsonSerializable(typeof(Sldl.Core.DownloadBehavior))]
 
 [JsonSerializable(typeof(JobDraftDto))]
 [JsonSerializable(typeof(ExtractJobDraftDto))]

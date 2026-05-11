@@ -63,6 +63,8 @@ public enum ServerJobState
     Extracting,
     /// <summary>Container job has active descendants.</summary>
     Running,
+    /// <summary>Job has projected candidates and is waiting for caller selection.</summary>
+    AwaitingSelection,
 }
 
 /// <summary>
@@ -200,6 +202,7 @@ public static class ServerProtocol
         public const ServerJobState Downloading = ServerJobState.Downloading;
         public const ServerJobState Extracting = ServerJobState.Extracting;
         public const ServerJobState Running = ServerJobState.Running;
+        public const ServerJobState AwaitingSelection = ServerJobState.AwaitingSelection;
     }
 
     /// <summary>

@@ -311,6 +311,17 @@ public static class ServerHost
             .Produces(StatusCodes.Status404NotFound)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
+        app.MapPost("/api/jobs/{jobId:guid}/manual/complete", (Guid jobId, EngineSupervisor supervisor) =>
+        {
+            return supervisor.CompleteManualSelection(jobId)
+                ? Results.Accepted($"/api/jobs/{jobId}")
+                : Results.NotFound();
+        })
+            .WithTags("Jobs")
+            .WithSummary("Completes a manual-selection job without starting additional downloads.")
+            .Produces(StatusCodes.Status202Accepted)
+            .Produces(StatusCodes.Status404NotFound);
+
         app.MapPost("/api/jobs/{jobId:guid}/cancel", (Guid jobId, EngineSupervisor supervisor) =>
         {
             return supervisor.CancelJob(jobId)

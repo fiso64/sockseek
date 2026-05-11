@@ -36,6 +36,7 @@ internal interface ICliBackend
     Task<bool> CancelJobAsync(Guid jobId, CancellationToken ct = default);
     Task<bool> CancelJobByDisplayIdAsync(int displayId, Guid? workflowId = null, CancellationToken ct = default);
     Task<int> CancelWorkflowAsync(Guid workflowId, CancellationToken ct = default);
+    Task<bool> CompleteManualSelectionAsync(Guid jobId, CancellationToken ct = default);
     Task<bool> TryNextCandidateAsync(Guid jobId, CancellationToken ct = default);
     Task<bool> TryNextCandidateByDisplayIdAsync(int displayId, Guid? workflowId = null, CancellationToken ct = default);
 }

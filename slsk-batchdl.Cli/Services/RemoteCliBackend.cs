@@ -241,6 +241,15 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
     public async Task<JobSummaryDto?> StartFolderDownloadAsync(Guid searchJobId, StartFolderDownloadRequestDto request, CancellationToken ct = default)
         => await PostOptionalSummaryAsync($"api/jobs/{searchJobId}/downloads/folder", request, ct);
 
+    public async Task<bool> CompleteManualSelectionAsync(Guid jobId, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync($"api/jobs/{jobId}/manual/complete", null, ct);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return false;
+        await EnsureSuccessAsync(response, ct);
+        return true;
+    }
+
     public async Task<bool> CancelJobAsync(Guid jobId, CancellationToken ct = default)
     {
         using var response = await http.PostAsync($"api/jobs/{jobId}/cancel", null, ct);

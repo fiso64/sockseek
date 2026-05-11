@@ -225,24 +225,37 @@ internal sealed class LocalCliBackend
         ct.ThrowIfCancellationRequested();
 
         var searchJob = stateStore.GetJob<SearchJob>(jobId);
-        if (searchJob?.Config == null)
+        if (searchJob?.Config != null)
+        {
+            var projection = request.SongQuery != null
+                ? new AggregateTrackProjection(JobRequestMapper.ToSongQuery(request.SongQuery))
+                : searchJob.DefaultAggregateTrackProjection
+                    ?? (searchJob.DefaultFileProjection is { } fileProjection
+                        ? new AggregateTrackProjection(fileProjection.Query)
+                        : new AggregateTrackProjection(new SongQuery { Title = searchJob.QueryText }));
+            bool includeCandidates = request.IncludeCandidates;
+            var snapshot = searchJob.GetAggregateTracks(projection, searchJob.Config.Search, engine.UserSuccessCounts);
+            return Task.FromResult<SearchResultSnapshotDto<AggregateTrackCandidateDto>?>(new(
+                snapshot.Revision,
+                snapshot.IsComplete,
+                snapshot.Items.Select(song => new AggregateTrackCandidateDto(
+                    ToSongQueryDto(song.Query),
+                    song.ItemName,
+                    includeCandidates ? song.Candidates?.Select(ToFileCandidateDto).ToList() : null)).ToList()));
+        }
+
+        var aggregateJob = stateStore.GetJob<AggregateJob>(jobId);
+        if (aggregateJob == null)
             return Task.FromResult<SearchResultSnapshotDto<AggregateTrackCandidateDto>?>(null);
 
-        var projection = request.SongQuery != null
-            ? new AggregateTrackProjection(JobRequestMapper.ToSongQuery(request.SongQuery))
-            : searchJob.DefaultAggregateTrackProjection
-                ?? (searchJob.DefaultFileProjection is { } fileProjection
-                    ? new AggregateTrackProjection(fileProjection.Query)
-                    : new AggregateTrackProjection(new SongQuery { Title = searchJob.QueryText }));
-        bool includeCandidates = request.IncludeCandidates;
-        var snapshot = searchJob.GetAggregateTracks(projection, searchJob.Config.Search, engine.UserSuccessCounts);
+        bool includeAggregateCandidates = request.IncludeCandidates;
         return Task.FromResult<SearchResultSnapshotDto<AggregateTrackCandidateDto>?>(new(
-            snapshot.Revision,
-            snapshot.IsComplete,
-            snapshot.Items.Select(song => new AggregateTrackCandidateDto(
+            Revision: 0,
+            IsComplete: aggregateJob.State is not (JobState.Pending or JobState.Searching),
+            Items: aggregateJob.Songs.Select(song => new AggregateTrackCandidateDto(
                 ToSongQueryDto(song.Query),
                 song.ItemName,
-                includeCandidates ? song.Candidates?.Select(ToFileCandidateDto).ToList() : null)).ToList()));
+                includeAggregateCandidates ? song.Candidates?.Select(ToFileCandidateDto).ToList() : null)).ToList()));
     }
 
     public Task<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?> GetAggregateAlbumResultsAsync(Guid jobId, CancellationToken ct = default)
@@ -256,140 +269,211 @@ internal sealed class LocalCliBackend
         ct.ThrowIfCancellationRequested();
 
         var searchJob = stateStore.GetJob<SearchJob>(jobId);
-        if (searchJob?.Config == null)
+        if (searchJob?.Config != null)
+        {
+            var projection = request?.AlbumQuery != null
+                ? new AggregateAlbumProjection(JobRequestMapper.ToAlbumQuery(request.AlbumQuery))
+                : searchJob.DefaultAggregateAlbumProjection
+                    ?? (searchJob.DefaultFolderProjection is { } folderProjection
+                        ? new AggregateAlbumProjection(folderProjection.Query)
+                        : null);
+            if (projection == null)
+                throw new ArgumentException("Aggregate album projection requires an album query.");
+
+            bool includeFolders = request?.IncludeFolders ?? false;
+            var snapshot = searchJob.GetAggregateAlbums(projection, searchJob.Config.Search);
+            return Task.FromResult<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?>(new(
+                snapshot.Revision,
+                snapshot.IsComplete,
+                snapshot.Items.Select(album => new AggregateAlbumCandidateDto(
+                    ToAlbumQueryDto(album.Query),
+                    album.ItemName,
+                    includeFolders ? [..album.Results.Select(f => ToAlbumFolderDto(f, includeFiles: true))] : null)).ToList()));
+        }
+
+        var albumAggregateJob = stateStore.GetJob<AlbumAggregateJob>(jobId);
+        if (albumAggregateJob == null)
             return Task.FromResult<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?>(null);
 
-        var projection = request?.AlbumQuery != null
-            ? new AggregateAlbumProjection(JobRequestMapper.ToAlbumQuery(request.AlbumQuery))
-            : searchJob.DefaultAggregateAlbumProjection
-                ?? (searchJob.DefaultFolderProjection is { } folderProjection
-                    ? new AggregateAlbumProjection(folderProjection.Query)
-                    : null);
-        if (projection == null)
-            throw new ArgumentException("Aggregate album projection requires an album query.");
-
-        bool includeFolders = request?.IncludeFolders ?? false;
-        var snapshot = searchJob.GetAggregateAlbums(projection, searchJob.Config.Search);
+        bool includeAggregateFolders = request?.IncludeFolders ?? false;
         return Task.FromResult<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?>(new(
-            snapshot.Revision,
-            snapshot.IsComplete,
-            snapshot.Items.Select(album => new AggregateAlbumCandidateDto(
+            Revision: 0,
+            IsComplete: albumAggregateJob.State is not (JobState.Pending or JobState.Searching),
+            Items: albumAggregateJob.Albums.Select(album => new AggregateAlbumCandidateDto(
                 ToAlbumQueryDto(album.Query),
                 album.ItemName,
-                includeFolders ? [..album.Results.Select(f => ToAlbumFolderDto(f, includeFiles: true))] : null)).ToList()));
+                includeAggregateFolders ? [..album.Results.Select(f => ToAlbumFolderDto(f, includeFiles: true))] : null)).ToList()));
     }
 
-    public Task<JobSummaryDto?> StartRetrieveFolderAsync(Guid searchJobId, RetrieveFolderRequestDto request, CancellationToken ct = default)
+    public Task<JobSummaryDto?> StartRetrieveFolderAsync(Guid sourceJobId, RetrieveFolderRequestDto request, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
 
-        var searchJob = stateStore.GetJob<SearchJob>(searchJobId);
-        if (searchJob?.Config == null)
+        var sourceJob = stateStore.GetJob<Job>(sourceJobId);
+        if (sourceJob?.Config == null)
             return Task.FromResult<JobSummaryDto?>(null);
 
-        var folder = FindAlbumFolder(searchJob, request.Folder, request.AlbumQuery);
+        var folder = FindAlbumFolder(sourceJob, request.Folder, request.AlbumQuery);
         if (folder == null)
-            throw new ArgumentException("Requested folder was not found in this search job.");
+            throw new ArgumentException("Requested folder was not found in this job's album candidates.");
 
-        var retrieveJob = new RetrieveFolderJob(folder) { ItemName = folder.FolderPath };
-        retrieveJob.WorkflowId = searchJob.WorkflowId;
-        engine.Enqueue(retrieveJob, searchJob.Config);
+        var retrieveJob = new RetrieveFolderJob(folder) { ItemName = folder.FolderPath, WorkflowId = sourceJob.WorkflowId };
+        engine.Enqueue(retrieveJob, sourceJob.Config);
         return Task.FromResult<JobSummaryDto?>(stateStore.GetJobSummary(retrieveJob.Id) ?? BuildSubmittedJobSummary(retrieveJob));
     }
 
-    public async Task<int> RetrieveFolderAndWaitAsync(Guid searchJobId, RetrieveFolderRequestDto request, CancellationToken ct = default)
+    public async Task<int> RetrieveFolderAndWaitAsync(Guid sourceJobId, RetrieveFolderRequestDto request, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
 
-        var searchJob = stateStore.GetJob<SearchJob>(searchJobId);
-        if (searchJob?.Config == null)
+        var sourceJob = stateStore.GetJob<Job>(sourceJobId);
+        if (sourceJob?.Config == null)
             return 0;
 
-        var folder = FindAlbumFolder(searchJob, request.Folder, request.AlbumQuery);
+        var folder = FindAlbumFolder(sourceJob, request.Folder, request.AlbumQuery);
         if (folder == null)
-            throw new ArgumentException("Requested folder was not found in this search job.");
+            throw new ArgumentException("Requested folder was not found in this job's album candidates.");
 
-        var retrieveJob = await engine.ProcessFolderRetrieval(folder, searchJob);
+        var retrieveJob = await engine.ProcessFolderRetrieval(folder, sourceJob);
         return retrieveJob.NewFilesFoundCount;
     }
 
-    public Task<IReadOnlyList<JobSummaryDto>?> StartFileDownloadsAsync(Guid searchJobId, StartFileDownloadsRequestDto request, CancellationToken ct = default)
+    public Task<IReadOnlyList<JobSummaryDto>?> StartFileDownloadsAsync(Guid sourceJobId, StartFileDownloadsRequestDto request, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
 
-        var searchJob = stateStore.GetJob<SearchJob>(searchJobId);
-        if (searchJob?.Config == null)
+        var sourceJob = stateStore.GetJob<Job>(sourceJobId);
+        if (sourceJob?.Config == null)
             return Task.FromResult<IReadOnlyList<JobSummaryDto>?>(null);
 
         if (request.Files.Count == 0)
             throw new ArgumentException("At least one file is required.");
 
         var summaries = new List<JobSummaryDto>();
+        var settings = BuildFollowUpSettings(sourceJob, request.Options);
+
+        if (sourceJob is SongJob manualSong && manualSong.State == JobState.AwaitingSelection)
+        {
+            if (request.Files.Count != 1)
+                throw new ArgumentException("Manual song jobs require exactly one selected file.");
+
+            var candidate = FindFileCandidate(sourceJob, request.Files[0]);
+            if (candidate == null)
+                throw new ArgumentException("Requested file was not found in this job's file candidates.");
+
+            manualSong.ResolvedTarget = candidate;
+            manualSong.Candidates ??= [candidate];
+            if (!manualSong.Candidates.Contains(candidate))
+                manualSong.Candidates.Insert(0, candidate);
+            manualSong.UpdateState(JobState.Pending);
+            engine.Enqueue(manualSong, settings);
+            summaries.Add(stateStore.GetJobSummary(manualSong.Id) ?? BuildSubmittedJobSummary(manualSong));
+            return Task.FromResult<IReadOnlyList<JobSummaryDto>?>(summaries);
+        }
+
         foreach (var file in request.Files)
         {
-            var candidate = FindTrackCandidate(searchJob, file);
+            var candidate = FindFileCandidate(sourceJob, file);
             if (candidate == null)
-                throw new ArgumentException("Requested file was not found in this search job.");
+                throw new ArgumentException("Requested file was not found in this job's file candidates.");
 
-            var songQuery = searchJob.DefaultFileProjection?.Query
-                ?? Searcher.InferSongQuery(candidate.Filename, new SongQuery { Title = searchJob.QueryText });
-            var songJob = new SongJob(new SongQuery(songQuery))
+            var songQuery = sourceJob switch
             {
-                ResolvedTarget = candidate,
-                ItemName = searchJob.ItemName,
-                WorkflowId = searchJob.WorkflowId,
+                SearchJob searchJob => searchJob.DefaultFileProjection?.Query
+                    ?? Searcher.InferSongQuery(candidate.Filename, new SongQuery { Title = searchJob.QueryText }),
+                SongJob existingSongJob => existingSongJob.Query,
+                AggregateJob aggregateJob => aggregateJob.Songs
+                    .FirstOrDefault(song => song.Candidates?.Contains(candidate) == true)?.Query
+                    ?? Searcher.InferSongQuery(candidate.Filename, aggregateJob.Query),
+                _ => Searcher.InferSongQuery(candidate.Filename, sourceJob.QueryTrack ?? new SongQuery()),
             };
 
-            var settings = SettingsCloner.Clone(defaultSubmitSettings ?? searchJob.Config);
-            DownloadSettingsPatchDtoMapper.ApplyTo(settings, request.Options?.DownloadSettings);
-            if (!string.IsNullOrWhiteSpace(request.Options?.OutputParentDir))
-                settings.Output.ParentDir = request.Options.OutputParentDir;
-            SettingsNormalizer.Normalize(settings);
+            var followUpSongJob = new SongJob(new SongQuery(songQuery))
+            {
+                ResolvedTarget = candidate,
+                ItemName = sourceJob.ItemName,
+                WorkflowId = sourceJob.WorkflowId,
+            };
 
-            engine.Enqueue(songJob, settings);
-            summaries.Add(stateStore.GetJobSummary(songJob.Id) ?? BuildSubmittedJobSummary(songJob));
+            engine.Enqueue(followUpSongJob, settings);
+            summaries.Add(stateStore.GetJobSummary(followUpSongJob.Id) ?? BuildSubmittedJobSummary(followUpSongJob));
         }
 
         return Task.FromResult<IReadOnlyList<JobSummaryDto>?>(summaries);
     }
 
-    public Task<JobSummaryDto?> StartFolderDownloadAsync(Guid searchJobId, StartFolderDownloadRequestDto request, CancellationToken ct = default)
+    public Task<JobSummaryDto?> StartFolderDownloadAsync(Guid sourceJobId, StartFolderDownloadRequestDto request, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
 
-        var searchJob = stateStore.GetJob<SearchJob>(searchJobId);
-        if (searchJob?.Config == null)
+        var sourceJob = stateStore.GetJob<Job>(sourceJobId);
+        if (sourceJob?.Config == null)
             return Task.FromResult<JobSummaryDto?>(null);
+
+        var folder = FindAlbumFolder(sourceJob, request.Folder, request.AlbumQuery);
+        if (folder == null)
+            throw new ArgumentException("Requested folder was not found in this job's album candidates.");
+
+        var settings = BuildFollowUpSettings(sourceJob, request.Options);
+
+        if (sourceJob is AlbumJob manualAlbum && manualAlbum.State == JobState.AwaitingSelection)
+        {
+            manualAlbum.ResolvedTarget = folder;
+            if (!manualAlbum.Results.Contains(folder))
+                manualAlbum.Results.Insert(0, folder);
+            manualAlbum.UpdateState(JobState.Pending);
+            engine.Enqueue(manualAlbum, settings);
+            return Task.FromResult<JobSummaryDto?>(stateStore.GetJobSummary(manualAlbum.Id) ?? BuildSubmittedJobSummary(manualAlbum));
+        }
 
         var albumQuery = request.AlbumQuery != null
             ? JobRequestMapper.ToAlbumQuery(request.AlbumQuery)
-            : searchJob.DefaultFolderProjection?.Query;
+            : sourceJob switch
+            {
+                SearchJob searchJob => searchJob.DefaultFolderProjection?.Query,
+                AlbumJob existingAlbumJob => existingAlbumJob.Query,
+                AlbumAggregateJob aggregate => aggregate.Query,
+                _ => null,
+            };
         if (albumQuery == null)
-            throw new ArgumentException("Album downloads from generic search jobs require an album query.");
+            throw new ArgumentException("Album downloads from this job require an album query.");
 
-        var folder = FindAlbumFolder(searchJob, request.Folder, request.AlbumQuery);
-        if (folder == null)
-            throw new ArgumentException("Requested folder was not found in this search job.");
-
-        string? itemName = searchJob.ItemName;
-        if (searchJob.DefaultAggregateAlbumProjection != null && !string.IsNullOrWhiteSpace(folder.FolderPath))
+        string? itemName = sourceJob.ItemName;
+        if (sourceJob is SearchJob { DefaultAggregateAlbumProjection: not null } && !string.IsNullOrWhiteSpace(folder.FolderPath))
             itemName = Utils.GetBaseNameSlsk(folder.FolderPath);
 
-        var albumJob = new AlbumJob(new AlbumQuery(albumQuery))
+        var followUpAlbumJob = new AlbumJob(new AlbumQuery(albumQuery))
         {
             ResolvedTarget = folder,
             ItemName = itemName,
-            WorkflowId = searchJob.WorkflowId,
+            WorkflowId = sourceJob.WorkflowId,
+            DownloadBehaviorPolicy = new DownloadBehaviorPolicy(),
         };
 
-        var settings = SettingsCloner.Clone(defaultSubmitSettings ?? searchJob.Config);
-        DownloadSettingsPatchDtoMapper.ApplyTo(settings, request.Options?.DownloadSettings);
-        if (!string.IsNullOrWhiteSpace(request.Options?.OutputParentDir))
-            settings.Output.ParentDir = request.Options.OutputParentDir;
-        SettingsNormalizer.Normalize(settings);
+        engine.Enqueue(followUpAlbumJob, settings);
+        return Task.FromResult<JobSummaryDto?>(stateStore.GetJobSummary(followUpAlbumJob.Id) ?? BuildSubmittedJobSummary(followUpAlbumJob));
+    }
 
-        engine.Enqueue(albumJob, settings);
-        return Task.FromResult<JobSummaryDto?>(stateStore.GetJobSummary(albumJob.Id) ?? BuildSubmittedJobSummary(albumJob));
+    public Task<bool> CompleteManualSelectionAsync(Guid jobId, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var job = engine.GetJob(jobId);
+        if (job == null || job.State != JobState.AwaitingSelection)
+            return Task.FromResult(false);
+
+        job.SetDone();
+        return Task.FromResult(true);
+    }
+
+    private DownloadSettings BuildFollowUpSettings(Job sourceJob, SubmissionOptionsDto? options)
+    {
+        var settings = SettingsCloner.Clone(defaultSubmitSettings ?? sourceJob.Config);
+        DownloadSettingsPatchDtoMapper.ApplyTo(settings, options?.DownloadSettings);
+        if (!string.IsNullOrWhiteSpace(options?.OutputParentDir))
+            settings.Output.ParentDir = options.OutputParentDir;
+        SettingsNormalizer.Normalize(settings);
+        return settings;
     }
 
     public Task<bool> CancelJobAsync(Guid jobId, CancellationToken ct = default)
@@ -460,21 +544,77 @@ internal sealed class LocalCliBackend
             _ => null,
         };
 
-    private AlbumFolder? FindAlbumFolder(SearchJob searchJob, AlbumFolderRefDto folderRef, AlbumQueryDto? albumQuery = null)
+    private AlbumFolder? FindAlbumFolder(Job sourceJob, AlbumFolderRefDto folderRef, AlbumQueryDto? albumQuery = null)
     {
-        if (searchJob.Config == null)
-            return null;
+        static bool Matches(AlbumFolder folder, AlbumFolderRefDto folderRef)
+            => string.Equals(folder.Username, folderRef.Username, StringComparison.Ordinal)
+                && string.Equals(folder.FolderPath, folderRef.FolderPath, StringComparison.Ordinal);
 
-        var projection = albumQuery != null
-            ? new FolderSearchProjection(JobRequestMapper.ToAlbumQuery(albumQuery))
-            : searchJob.DefaultFolderProjection;
-        if (projection == null)
-            return null;
+        if (sourceJob is SearchJob searchJob)
+        {
+            if (searchJob.Config == null)
+                return null;
 
-        return searchJob.GetAlbumFolders(projection, searchJob.Config.Search).Items.FirstOrDefault(folder =>
-                string.Equals(folder.Username, folderRef.Username, StringComparison.Ordinal)
-                && string.Equals(folder.FolderPath, folderRef.FolderPath, StringComparison.Ordinal));
+            var projection = albumQuery != null
+                ? new FolderSearchProjection(JobRequestMapper.ToAlbumQuery(albumQuery))
+                : searchJob.DefaultFolderProjection;
+            if (projection == null)
+                return null;
+
+            return searchJob.GetAlbumFolders(projection, searchJob.Config.Search).Items.FirstOrDefault(folder => Matches(folder, folderRef));
+        }
+
+        if (sourceJob is AlbumJob albumJob)
+            return albumJob.Results.FirstOrDefault(folder => Matches(folder, folderRef));
+
+        if (sourceJob is AlbumAggregateJob aggregateJob)
+            return aggregateJob.Albums
+                .Where(album => albumQuery == null || AlbumQueriesEqual(album.Query, JobRequestMapper.ToAlbumQuery(albumQuery)))
+                .SelectMany(album => album.Results)
+                .FirstOrDefault(folder => Matches(folder, folderRef));
+
+        return null;
     }
+
+    private FileCandidate? FindFileCandidate(Job sourceJob, FileCandidateRefDto candidateRef)
+    {
+        static bool Matches(FileCandidate candidate, FileCandidateRefDto candidateRef)
+            => string.Equals(candidate.Username, candidateRef.Username, StringComparison.Ordinal)
+                && string.Equals(candidate.Filename, candidateRef.Filename, StringComparison.Ordinal);
+
+        if (sourceJob is SearchJob searchJob)
+            return FindTrackCandidate(searchJob, candidateRef);
+
+        if (sourceJob is SongJob songJob)
+            return songJob.Candidates?.FirstOrDefault(candidate => Matches(candidate, candidateRef));
+
+        if (sourceJob is AggregateJob aggregateJob)
+            return aggregateJob.Songs
+                .SelectMany(song => song.Candidates ?? Enumerable.Empty<FileCandidate>())
+                .FirstOrDefault(candidate => Matches(candidate, candidateRef));
+
+        if (sourceJob is AlbumJob albumJob)
+            return albumJob.Results
+                .SelectMany(folder => folder.Files)
+                .Select(song => song.ResolvedTarget)
+                .OfType<FileCandidate>()
+                .FirstOrDefault(candidate => Matches(candidate, candidateRef));
+
+        if (sourceJob is AlbumAggregateJob aggregateAlbumJob)
+            return aggregateAlbumJob.Albums
+                .SelectMany(album => album.Results)
+                .SelectMany(folder => folder.Files)
+                .Select(song => song.ResolvedTarget)
+                .OfType<FileCandidate>()
+                .FirstOrDefault(candidate => Matches(candidate, candidateRef));
+
+        return null;
+    }
+
+    private static bool AlbumQueriesEqual(AlbumQuery left, AlbumQuery right)
+        => string.Equals(left.Artist, right.Artist, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.Album, right.Album, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.SearchHint, right.SearchHint, StringComparison.OrdinalIgnoreCase);
 
     private FileCandidate? FindTrackCandidate(SearchJob searchJob, FileCandidateRefDto candidateRef)
     {

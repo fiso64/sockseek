@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 
 namespace Sldl.Core;
     // Values 0-4 are written to index files — do not reorder, existing files must remain readable.
@@ -16,6 +18,7 @@ namespace Sldl.Core;
         Downloading      = 7,
         Extracting       = 8,
         Running          = 9,
+        AwaitingSelection = 10,
     }
 
     public enum FailureReason
@@ -100,4 +103,11 @@ namespace Sldl.Core;
         Ignore,
         Keep,
         Delete,
+    }
+
+    [JsonConverter(typeof(JsonStringEnumConverter<DownloadBehavior>))]
+    public enum DownloadBehavior
+    {
+        Automatic,
+        Manual,
     }

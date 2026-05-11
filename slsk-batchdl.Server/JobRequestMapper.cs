@@ -36,16 +36,16 @@ public static class JobRequestMapper
         => new(ToAlbumQuery(request.AlbumQuery));
 
     public static SongJob CreateSongJob(SubmitSongJobRequestDto request)
-        => new(ToSongQuery(request.SongQuery));
+        => ApplyDownloadBehavior(new SongJob(ToSongQuery(request.SongQuery)), request.DownloadBehavior);
 
     public static AlbumJob CreateAlbumJob(SubmitAlbumJobRequestDto request)
-        => new(ToAlbumQuery(request.AlbumQuery));
+        => ApplyDownloadBehavior(new AlbumJob(ToAlbumQuery(request.AlbumQuery)), request.DownloadBehavior);
 
     public static AggregateJob CreateAggregateJob(SubmitAggregateJobRequestDto request)
-        => new(ToSongQuery(request.SongQuery));
+        => ApplyDownloadBehavior(new AggregateJob(ToSongQuery(request.SongQuery)), request.DownloadBehavior);
 
     public static AlbumAggregateJob CreateAlbumAggregateJob(SubmitAlbumAggregateJobRequestDto request)
-        => new(ToAlbumQuery(request.AlbumQuery));
+        => ApplyDownloadBehavior(new AlbumAggregateJob(ToAlbumQuery(request.AlbumQuery)), request.DownloadBehavior);
 
     public static JobList CreateJobList(SubmitJobListRequestDto request)
         => CreateJobList(request.Name, request.Jobs);
@@ -78,13 +78,30 @@ public static class JobRequestMapper
                 extract.AutoStartExtractedResult)),
             TrackSearchJobDraftDto search => new SearchJob(ToSongQuery(search.SongQuery), search.IncludeFullResults),
             AlbumSearchJobDraftDto search => new SearchJob(ToAlbumQuery(search.AlbumQuery)),
-            SongJobDraftDto song => new SongJob(ToSongQuery(song.SongQuery)),
-            AlbumJobDraftDto album => new AlbumJob(ToAlbumQuery(album.AlbumQuery)),
-            AggregateJobDraftDto aggregate => new AggregateJob(ToSongQuery(aggregate.SongQuery)),
-            AlbumAggregateJobDraftDto aggregate => new AlbumAggregateJob(ToAlbumQuery(aggregate.AlbumQuery)),
+            SongJobDraftDto song => ApplyDownloadBehavior(new SongJob(ToSongQuery(song.SongQuery)), song.DownloadBehavior),
+            AlbumJobDraftDto album => ApplyDownloadBehavior(new AlbumJob(ToAlbumQuery(album.AlbumQuery)), album.DownloadBehavior),
+            AggregateJobDraftDto aggregate => ApplyDownloadBehavior(new AggregateJob(ToSongQuery(aggregate.SongQuery)), aggregate.DownloadBehavior),
+            AlbumAggregateJobDraftDto aggregate => ApplyDownloadBehavior(new AlbumAggregateJob(ToAlbumQuery(aggregate.AlbumQuery)), aggregate.DownloadBehavior),
             JobListJobDraftDto list => CreateJobList(list.Name, list.Jobs),
             _ => throw new ArgumentException($"Unsupported job draft type '{item.GetType().Name}'")
         };
+
+    public static DownloadBehaviorPolicy ToDownloadBehaviorPolicy(DownloadBehaviorPolicyDto dto) => new()
+    {
+        Default = dto.Default,
+        Song = dto.Song,
+        Album = dto.Album,
+        Aggregate = dto.Aggregate,
+        AlbumAggregate = dto.AlbumAggregate,
+    };
+
+    public static TJob ApplyDownloadBehavior<TJob>(TJob job, DownloadBehaviorPolicyDto? policy)
+        where TJob : Job
+    {
+        if (policy != null)
+            job.DownloadBehaviorPolicy = ToDownloadBehaviorPolicy(policy);
+        return job;
+    }
 
     private static JobList CreateJobList(string? name, IReadOnlyList<JobDraftDto> jobs)
     {

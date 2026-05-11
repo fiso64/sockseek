@@ -17,7 +17,7 @@ internal sealed class InteractiveCliCoordinator
     private readonly SemaphoreSlim promptSemaphore = new(1, 1);
     private readonly HashSet<Guid> startedExtractResults = [];
     private readonly HashSet<Guid> handledAlbumSearches = [];
-    private readonly Dictionary<Guid, InteractiveAlbumAggregateSearchSession> interactiveAlbumAggregateSearches = [];
+    private readonly HashSet<Guid> handledManualSelections = [];
     private readonly Dictionary<Guid, InteractiveAlbumSession> interactiveAlbumSessions = [];
     private SubmissionOptionsDto? rootOptions;
     private bool interactiveEnabled;
@@ -105,6 +105,21 @@ internal sealed class InteractiveCliCoordinator
                 startedFollowUp = true;
             }
 
+            if (summary.State == ServerProtocol.JobStates.AwaitingSelection
+                && handledManualSelections.Add(summary.JobId))
+            {
+                if (summary.Kind == ServerJobKind.Album)
+                {
+                    await HandleManualAlbumJobAsync(summary.JobId, ct);
+                    startedFollowUp = true;
+                }
+                else if (summary.Kind == ServerJobKind.AlbumAggregate)
+                {
+                    await HandleManualAlbumAggregateJobAsync(summary.JobId, ct);
+                    startedFollowUp = true;
+                }
+            }
+
             if (summary.Kind == ServerJobKind.Album
                 && !IsActive(summary.State)
                 && interactiveAlbumSessions.TryGetValue(summary.JobId, out var session))
@@ -126,12 +141,6 @@ internal sealed class InteractiveCliCoordinator
         var detail = await backend.GetJobDetailAsync(searchJobId, ct);
         if (detail?.Payload is not SearchJobPayloadDto search)
             return;
-
-        if (interactiveAlbumAggregateSearches.Remove(searchJobId, out var aggregateSearch))
-        {
-            await HandleCompletedAlbumAggregateSearchAsync(searchJobId, detail, search, aggregateSearch, ct);
-            return;
-        }
 
         if (!interactiveEnabled || search.DefaultFolderProjection == null)
             return;
@@ -162,16 +171,51 @@ internal sealed class InteractiveCliCoordinator
         await EnqueueInteractiveAlbumJobAsync(session, selected, ct);
     }
 
-    private async Task HandleCompletedAlbumAggregateSearchAsync(
-        Guid searchJobId,
-        JobDetailDto detail,
-        SearchJobPayloadDto search,
-        InteractiveAlbumAggregateSearchSession aggregateSearch,
-        CancellationToken ct)
+    private async Task HandleManualAlbumJobAsync(Guid albumJobId, CancellationToken ct)
     {
+        var detail = await backend.GetJobDetailAsync(albumJobId, ct);
+        if (detail?.Payload is not AlbumJobPayloadDto album)
+            return;
+
+        var projection = await backend.GetFolderResultsAsync(albumJobId, includeFiles: true, ct);
+        var folders = projection?.Items.Select(ToAlbumFolder).ToList() ?? [];
+        if (folders.Count == 0)
+        {
+            if (ConsoleInputManager.Reporter != null)
+                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumJob", detail.Summary.QueryText ?? "", "No suitable file found");
+            await backend.CompleteManualSelectionAsync(albumJobId, ct);
+            return;
+        }
+
+        var session = new InteractiveAlbumSession(
+            albumJobId,
+            new AlbumJob(ToAlbumQuery(album.Query)) { ItemName = detail.Summary.ItemName, Results = folders },
+            album.Query,
+            folders,
+            OptionsForWorkflow(detail.Summary.WorkflowId));
+
+        var selected = interactiveEnabled
+            ? await PromptForAlbumSelectionAsync(session)
+            : folders[0];
+
+        if (selected == null)
+        {
+            await backend.CompleteManualSelectionAsync(albumJobId, ct);
+            return;
+        }
+
+        await EnqueueInteractiveAlbumJobAsync(session, selected, ct);
+    }
+
+    private async Task HandleManualAlbumAggregateJobAsync(Guid albumAggregateJobId, CancellationToken ct)
+    {
+        var detail = await backend.GetJobDetailAsync(albumAggregateJobId, ct);
+        if (detail?.Payload is not AlbumAggregateJobPayloadDto albumAggregate)
+            return;
+
         var projection = await backend.GetAggregateAlbumResultsAsync(
-            searchJobId,
-            new AggregateAlbumProjectionRequestDto(aggregateSearch.Query, IncludeFolders: true),
+            albumAggregateJobId,
+            new AggregateAlbumProjectionRequestDto(albumAggregate.Query, IncludeFolders: true),
             ct);
 
         var buckets = projection?.Items
@@ -181,7 +225,8 @@ internal sealed class InteractiveCliCoordinator
         if (buckets.Count == 0)
         {
             if (ConsoleInputManager.Reporter != null)
-                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumAggregateJob", search.QueryText, "No suitable file found");
+                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumAggregateJob", detail.Summary.QueryText ?? "", "No suitable file found");
+            await backend.CompleteManualSelectionAsync(albumAggregateJobId, ct);
             return;
         }
 
@@ -189,26 +234,23 @@ internal sealed class InteractiveCliCoordinator
         {
             var folders = bucket.Folders!.Select(ToAlbumFolder).ToList();
             var session = new InteractiveAlbumSession(
-                searchJobId,
+                albumAggregateJobId,
                 new AlbumJob(ToAlbumQuery(bucket.Query)) { ItemName = bucket.ItemName, Results = folders },
                 bucket.Query,
                 folders,
-                aggregateSearch.Options);
+                OptionsForWorkflow(detail.Summary.WorkflowId));
 
-            AlbumFolder? selected;
-            if (interactiveEnabled)
-            {
-                selected = await PromptForAlbumSelectionAsync(session);
-                if (selected == null)
-                    continue;
-            }
-            else
-            {
-                selected = folders[0];
-            }
+            var selected = interactiveEnabled
+                ? await PromptForAlbumSelectionAsync(session)
+                : folders[0];
+
+            if (selected == null)
+                continue;
 
             await EnqueueInteractiveAlbumJobAsync(session, selected, ct);
         }
+
+        await backend.CompleteManualSelectionAsync(albumAggregateJobId, ct);
     }
 
     private async Task HandleCompletedInteractiveAlbumAsync(
@@ -368,15 +410,6 @@ internal sealed class InteractiveCliCoordinator
 
     private async Task<JobSummaryDto> SubmitDraftAsync(JobDraftDto draft, SubmissionOptionsDto options, CancellationToken ct)
     {
-        if (draft is AlbumAggregateJobDraftDto aggregate && interactiveEnabled)
-        {
-            var summary = await backend.SubmitAlbumSearchJobAsync(
-                new SubmitAlbumSearchJobRequestDto(aggregate.AlbumQuery, options),
-                ct);
-            interactiveAlbumAggregateSearches[summary.JobId] = new InteractiveAlbumAggregateSearchSession(aggregate.AlbumQuery, options);
-            return summary;
-        }
-
         return draft switch
         {
             ExtractJobDraftDto extract => await backend.SubmitExtractJobAsync(
@@ -389,16 +422,16 @@ internal sealed class InteractiveCliCoordinator
                 new SubmitAlbumSearchJobRequestDto(search.AlbumQuery, options),
                 ct),
             SongJobDraftDto song => await backend.SubmitSongJobAsync(
-                new SubmitSongJobRequestDto(song.SongQuery, options),
+                new SubmitSongJobRequestDto(song.SongQuery, options, song.DownloadBehavior),
                 ct),
             AlbumJobDraftDto album => await backend.SubmitAlbumJobAsync(
-                new SubmitAlbumJobRequestDto(album.AlbumQuery, options),
+                new SubmitAlbumJobRequestDto(album.AlbumQuery, options, album.DownloadBehavior),
                 ct),
             AggregateJobDraftDto aggregateTrack => await backend.SubmitAggregateJobAsync(
-                new SubmitAggregateJobRequestDto(aggregateTrack.SongQuery, options),
+                new SubmitAggregateJobRequestDto(aggregateTrack.SongQuery, options, aggregateTrack.DownloadBehavior),
                 ct),
             AlbumAggregateJobDraftDto aggregateAlbum => await backend.SubmitAlbumAggregateJobAsync(
-                new SubmitAlbumAggregateJobRequestDto(aggregateAlbum.AlbumQuery, options),
+                new SubmitAlbumAggregateJobRequestDto(aggregateAlbum.AlbumQuery, options, aggregateAlbum.DownloadBehavior),
                 ct),
             JobListJobDraftDto list => await backend.SubmitJobListAsync(
                 new SubmitJobListRequestDto(list.Name, list.Jobs, options),
@@ -411,13 +444,20 @@ internal sealed class InteractiveCliCoordinator
         => draft switch
         {
             AlbumJobDraftDto album =>
-                new AlbumSearchJobDraftDto(album.AlbumQuery),
+                album with { DownloadBehavior = InteractiveDownloadBehavior(album.DownloadBehavior) },
+            AlbumAggregateJobDraftDto aggregate =>
+                aggregate with { DownloadBehavior = InteractiveDownloadBehavior(aggregate.DownloadBehavior) },
             ExtractJobDraftDto extract =>
                 extract with { AutoStartExtractedResult = false },
             JobListJobDraftDto list =>
                 list with { Jobs = list.Jobs.Select(ToInteractiveDraft).ToList() },
             _ => draft,
         };
+
+    private static DownloadBehaviorPolicyDto InteractiveDownloadBehavior(DownloadBehaviorPolicyDto? existing)
+        => existing == null
+            ? new DownloadBehaviorPolicyDto(Album: DownloadBehavior.Manual, AlbumAggregate: DownloadBehavior.Manual)
+            : existing with { Album = DownloadBehavior.Manual, AlbumAggregate = DownloadBehavior.Manual };
 
     internal static string FolderKey(AlbumFolder folder)
         => folder.Username + "\\" + folder.FolderPath;
@@ -458,15 +498,12 @@ internal sealed class InteractiveCliCoordinator
             or ServerProtocol.JobStates.Extracting
             or ServerProtocol.JobStates.Searching
             or ServerProtocol.JobStates.Downloading
-            or ServerProtocol.JobStates.Running;
+            or ServerProtocol.JobStates.Running
+            or ServerProtocol.JobStates.AwaitingSelection;
 
     private static bool IsCompleted(ServerJobState state)
         => state is ServerProtocol.JobStates.Done
             or ServerProtocol.JobStates.AlreadyExists;
-
-    private sealed record InteractiveAlbumAggregateSearchSession(
-        AlbumQueryDto Query,
-        SubmissionOptionsDto Options);
 
     private sealed class InteractiveAlbumSession
     {

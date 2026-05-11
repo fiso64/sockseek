@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Sldl.Core;
 
 namespace Sldl.Server;
 
@@ -13,6 +14,8 @@ public sealed record SubmitExtractJobRequestDto(
 
 /// <summary>
 /// Starts a generic Soulseek search from raw query text. Result endpoints decide how raw results are projected.
+/// Prefer typed jobs with DownloadBehavior.Manual for normal user-facing manual download flows;
+/// search jobs remain a lower-level API for raw discovery, arbitrary projections, and diagnostics.
 /// </summary>
 public sealed record SubmitSearchJobRequestDto(
     string QueryText,
@@ -20,7 +23,8 @@ public sealed record SubmitSearchJobRequestDto(
 
 /// <summary>
 /// Starts a track search job. Use result endpoints to inspect candidates and follow-up endpoints
-/// to start downloads from selected candidates.
+/// to start downloads from selected candidates. Prefer SongJob/AggregateJob with DownloadBehavior.Manual
+/// when the client is implementing a manual pick-then-download flow. 
 /// </summary>
 public sealed record SubmitTrackSearchJobRequestDto(
     SongQueryDto SongQuery,
@@ -29,39 +33,44 @@ public sealed record SubmitTrackSearchJobRequestDto(
 
 /// <summary>
 /// Starts an album search job. Use result endpoints to inspect folders and follow-up endpoints
-/// to start downloads from selected folders.
+/// to start downloads from selected folders. Prefer AlbumJob/AlbumAggregateJob with DownloadBehavior.Manual
+/// when the client is implementing a manual pick-then-download flow.
 /// </summary>
 public sealed record SubmitAlbumSearchJobRequestDto(
     AlbumQueryDto AlbumQuery,
     SubmissionOptionsDto? Options = null);
 
 /// <summary>
-/// Starts a direct song download job.
+/// Starts a song job. Set DownloadBehavior.Manual to search/project candidates and wait for selection.
 /// </summary>
 public sealed record SubmitSongJobRequestDto(
     SongQueryDto SongQuery,
-    SubmissionOptionsDto? Options = null);
+    SubmissionOptionsDto? Options = null,
+    DownloadBehaviorPolicyDto? DownloadBehavior = null);
 
 /// <summary>
-/// Starts a direct album download job.
+/// Starts an album job. Set DownloadBehavior.Manual to search/project folder candidates and wait for selection.
 /// </summary>
 public sealed record SubmitAlbumJobRequestDto(
     AlbumQueryDto AlbumQuery,
-    SubmissionOptionsDto? Options = null);
+    SubmissionOptionsDto? Options = null,
+    DownloadBehaviorPolicyDto? DownloadBehavior = null);
 
 /// <summary>
-/// Starts an aggregate track job.
+/// Starts an aggregate track job. Set DownloadBehavior.Manual to project grouped candidates without auto-downloading.
 /// </summary>
 public sealed record SubmitAggregateJobRequestDto(
     SongQueryDto SongQuery,
-    SubmissionOptionsDto? Options = null);
+    SubmissionOptionsDto? Options = null,
+    DownloadBehaviorPolicyDto? DownloadBehavior = null);
 
 /// <summary>
-/// Starts an aggregate album job.
+/// Starts an aggregate album job. Set DownloadBehavior.Manual to project album buckets without auto-downloading.
 /// </summary>
 public sealed record SubmitAlbumAggregateJobRequestDto(
     AlbumQueryDto AlbumQuery,
-    SubmissionOptionsDto? Options = null);
+    SubmissionOptionsDto? Options = null,
+    DownloadBehaviorPolicyDto? DownloadBehavior = null);
 
 /// <summary>
 /// Starts a job-list root. Child items are typed with the "kind" discriminator because lists can
@@ -99,20 +108,35 @@ public sealed record AlbumSearchJobDraftDto(
     AlbumQueryDto AlbumQuery) : JobDraftDto;
 
 public sealed record SongJobDraftDto(
-    SongQueryDto SongQuery) : JobDraftDto;
+    SongQueryDto SongQuery,
+    DownloadBehaviorPolicyDto? DownloadBehavior = null) : JobDraftDto;
 
 public sealed record AlbumJobDraftDto(
-    AlbumQueryDto AlbumQuery) : JobDraftDto;
+    AlbumQueryDto AlbumQuery,
+    DownloadBehaviorPolicyDto? DownloadBehavior = null) : JobDraftDto;
 
 public sealed record AggregateJobDraftDto(
-    SongQueryDto SongQuery) : JobDraftDto;
+    SongQueryDto SongQuery,
+    DownloadBehaviorPolicyDto? DownloadBehavior = null) : JobDraftDto;
 
 public sealed record AlbumAggregateJobDraftDto(
-    AlbumQueryDto AlbumQuery) : JobDraftDto;
+    AlbumQueryDto AlbumQuery,
+    DownloadBehaviorPolicyDto? DownloadBehavior = null) : JobDraftDto;
 
 public sealed record JobListJobDraftDto(
     string? Name,
     IReadOnlyList<JobDraftDto> Jobs) : JobDraftDto;
+
+/// <summary>
+/// Controls whether jobs automatically download projected candidates or wait for caller selection.
+/// Null per-kind values inherit Default.
+/// </summary>
+public sealed record DownloadBehaviorPolicyDto(
+    DownloadBehavior Default = DownloadBehavior.Automatic,
+    DownloadBehavior? Song = null,
+    DownloadBehavior? Album = null,
+    DownloadBehavior? Aggregate = null,
+    DownloadBehavior? AlbumAggregate = null);
 
 /// <summary>
 /// Submission-time settings layered over the daemon defaults.
