@@ -4,6 +4,7 @@ using System.Text.Json;
 
 namespace Sldl.Api;
 
+/// <summary>Reusable HTTP client for the daemon API. SignalR clients should pair this with the event DTOs and payload converter in this project.</summary>
 public sealed class SldlApiClient
 {
     private readonly HttpClient http;
@@ -15,6 +16,7 @@ public sealed class SldlApiClient
         this.jsonOptions = jsonOptions ?? SldlApiJson.CreateSerializerOptions();
     }
 
+    /// <summary>Normalizes user-entered daemon URLs and applies the default daemon port when none is specified.</summary>
     public static Uri NormalizeServerUrl(string serverUrl)
     {
         var value = serverUrl.Trim();
@@ -31,18 +33,22 @@ public sealed class SldlApiClient
         return builder.Uri;
     }
 
+    /// <summary>Creates an <see cref="HttpClient"/> with a normalized daemon base address.</summary>
     public static HttpClient CreateHttpClient(string serverUrl)
         => new() { BaseAddress = NormalizeServerUrl(serverUrl) };
 
     public async Task<JobSummaryDto> SubmitExtractJobAsync(SubmitExtractJobRequestDto request, CancellationToken ct = default)
         => await PostJobAsync("api/jobs/extract", request, ct);
 
+    /// <summary>Submits a generic search job. Use projection methods to view the same raw results as files, folders, aggregate tracks, or aggregate albums.</summary>
     public async Task<JobSummaryDto> SubmitSearchJobAsync(SubmitSearchJobRequestDto request, CancellationToken ct = default)
         => await PostJobAsync("api/jobs/search", request, ct);
 
+    /// <summary>Submits a typed track search job. The default file result endpoint can infer its projection from the stored track query.</summary>
     public async Task<JobSummaryDto> SubmitTrackSearchJobAsync(SubmitTrackSearchJobRequestDto request, CancellationToken ct = default)
         => await PostJobAsync("api/jobs/search/tracks", request, ct);
 
+    /// <summary>Submits a typed album search job. The default folder result endpoint can infer its projection from the stored album query.</summary>
     public async Task<JobSummaryDto> SubmitAlbumSearchJobAsync(SubmitAlbumSearchJobRequestDto request, CancellationToken ct = default)
         => await PostJobAsync("api/jobs/search/albums", request, ct);
 
@@ -61,6 +67,7 @@ public sealed class SldlApiClient
     public async Task<JobSummaryDto> SubmitJobListAsync(SubmitJobListRequestDto request, CancellationToken ct = default)
         => await PostJobAsync("api/jobs/lists", request, ct);
 
+    /// <summary>Returns available daemon profiles.</summary>
     public async Task<IReadOnlyList<ProfileSummaryDto>> GetProfilesAsync(CancellationToken ct = default)
     {
         using var response = await http.GetAsync("api/profiles", ct);
@@ -118,8 +125,13 @@ public sealed class SldlApiClient
         return await ReadRequiredAsync<SearchResultSnapshotDto<FileCandidateDto>>(response, ct);
     }
 
-    public async Task<SearchResultSnapshotDto<FileCandidateDto>?> GetFileResultsAsync(Guid jobId, FileSearchProjectionRequestDto request, CancellationToken ct = default)
+    /// <summary>Projects a search job's raw results into file candidates using an explicit projection request.</summary>
+    public async Task<SearchResultSnapshotDto<FileCandidateDto>?> ProjectFileResultsAsync(Guid jobId, FileSearchProjectionRequestDto request, CancellationToken ct = default)
         => await PostOptionalAsync<SearchResultSnapshotDto<FileCandidateDto>, FileSearchProjectionRequestDto>($"api/jobs/{jobId}/results/files/project", request, ct);
+
+    /// <summary>Alias for <see cref="ProjectFileResultsAsync"/> kept for compatibility with earlier client code.</summary>
+    public async Task<SearchResultSnapshotDto<FileCandidateDto>?> GetFileResultsAsync(Guid jobId, FileSearchProjectionRequestDto request, CancellationToken ct = default)
+        => await ProjectFileResultsAsync(jobId, request, ct);
 
     public async Task<SearchResultSnapshotDto<AlbumFolderDto>?> GetFolderResultsAsync(Guid jobId, bool includeFiles, CancellationToken ct = default)
     {
@@ -130,8 +142,13 @@ public sealed class SldlApiClient
         return await ReadRequiredAsync<SearchResultSnapshotDto<AlbumFolderDto>>(response, ct);
     }
 
-    public async Task<SearchResultSnapshotDto<AlbumFolderDto>?> GetFolderResultsAsync(Guid jobId, FolderSearchProjectionRequestDto request, CancellationToken ct = default)
+    /// <summary>Projects a search job's raw results into album folders using an explicit projection request.</summary>
+    public async Task<SearchResultSnapshotDto<AlbumFolderDto>?> ProjectFolderResultsAsync(Guid jobId, FolderSearchProjectionRequestDto request, CancellationToken ct = default)
         => await PostOptionalAsync<SearchResultSnapshotDto<AlbumFolderDto>, FolderSearchProjectionRequestDto>($"api/jobs/{jobId}/results/folders/project", request, ct);
+
+    /// <summary>Alias for <see cref="ProjectFolderResultsAsync"/> kept for compatibility with earlier client code.</summary>
+    public async Task<SearchResultSnapshotDto<AlbumFolderDto>?> GetFolderResultsAsync(Guid jobId, FolderSearchProjectionRequestDto request, CancellationToken ct = default)
+        => await ProjectFolderResultsAsync(jobId, request, ct);
 
     public async Task<SearchResultSnapshotDto<AggregateTrackCandidateDto>?> GetAggregateTrackResultsAsync(Guid jobId, CancellationToken ct = default)
     {
@@ -142,8 +159,13 @@ public sealed class SldlApiClient
         return await ReadRequiredAsync<SearchResultSnapshotDto<AggregateTrackCandidateDto>>(response, ct);
     }
 
-    public async Task<SearchResultSnapshotDto<AggregateTrackCandidateDto>?> GetAggregateTrackResultsAsync(Guid jobId, AggregateTrackProjectionRequestDto request, CancellationToken ct = default)
+    /// <summary>Projects a search job's raw results into aggregate track candidates using an explicit projection request.</summary>
+    public async Task<SearchResultSnapshotDto<AggregateTrackCandidateDto>?> ProjectAggregateTrackResultsAsync(Guid jobId, AggregateTrackProjectionRequestDto request, CancellationToken ct = default)
         => await PostOptionalAsync<SearchResultSnapshotDto<AggregateTrackCandidateDto>, AggregateTrackProjectionRequestDto>($"api/jobs/{jobId}/results/aggregate-tracks/project", request, ct);
+
+    /// <summary>Alias for <see cref="ProjectAggregateTrackResultsAsync"/> kept for compatibility with earlier client code.</summary>
+    public async Task<SearchResultSnapshotDto<AggregateTrackCandidateDto>?> GetAggregateTrackResultsAsync(Guid jobId, AggregateTrackProjectionRequestDto request, CancellationToken ct = default)
+        => await ProjectAggregateTrackResultsAsync(jobId, request, ct);
 
     public async Task<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?> GetAggregateAlbumResultsAsync(Guid jobId, CancellationToken ct = default)
     {
@@ -154,8 +176,13 @@ public sealed class SldlApiClient
         return await ReadRequiredAsync<SearchResultSnapshotDto<AggregateAlbumCandidateDto>>(response, ct);
     }
 
-    public async Task<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?> GetAggregateAlbumResultsAsync(Guid jobId, AggregateAlbumProjectionRequestDto request, CancellationToken ct = default)
+    /// <summary>Projects a search job's raw results into aggregate album candidates using an explicit projection request.</summary>
+    public async Task<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?> ProjectAggregateAlbumResultsAsync(Guid jobId, AggregateAlbumProjectionRequestDto request, CancellationToken ct = default)
         => await PostOptionalAsync<SearchResultSnapshotDto<AggregateAlbumCandidateDto>, AggregateAlbumProjectionRequestDto>($"api/jobs/{jobId}/results/aggregate-albums/project", request, ct);
+
+    /// <summary>Alias for <see cref="ProjectAggregateAlbumResultsAsync"/> kept for compatibility with earlier client code.</summary>
+    public async Task<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?> GetAggregateAlbumResultsAsync(Guid jobId, AggregateAlbumProjectionRequestDto request, CancellationToken ct = default)
+        => await ProjectAggregateAlbumResultsAsync(jobId, request, ct);
 
     public async Task<JobSummaryDto?> StartRetrieveFolderAsync(Guid searchJobId, RetrieveFolderRequestDto request, CancellationToken ct = default)
         => await PostOptionalSummaryAsync($"api/jobs/{searchJobId}/retrieve-folder", request, ct);

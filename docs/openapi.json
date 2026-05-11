@@ -1,0 +1,5045 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "sldl daemon API",
+    "description": "HTTP API for the sldl daemon.",
+    "version": "3.0.0-dev.10+3a331a3bba4b18045bbed6012950a0d19f92624d"
+  },
+  "paths": {
+    "/api/server/info": {
+      "get": {
+        "tags": [
+          "Server"
+        ],
+        "summary": "Gets server identity and protocol information.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerInfoDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/server/status": {
+      "get": {
+        "tags": [
+          "Server"
+        ],
+        "summary": "Gets current daemon and Soulseek client status.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerStatusDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles": {
+      "get": {
+        "tags": [
+          "Profiles"
+        ],
+        "summary": "Lists configured download profiles.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProfileSummaryDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events/catalog": {
+      "get": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Lists SignalR event types and their snapshot invalidation behavior.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ServerEventDescriptorDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs": {
+      "get": {
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Lists known jobs.",
+        "description": "Default results contain only execution roots where ParentJobId is null. Set includeAll=true for a flat list of every matching job.",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ServerJobState"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ServerJobKind"
+            }
+          },
+          {
+            "name": "workflowId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "includeAll",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/JobSummaryDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}": {
+      "get": {
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Gets a job snapshot by id.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDetailDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflowId}/jobs/display/{displayId}": {
+      "get": {
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Gets a job snapshot by workflow and display id.",
+        "parameters": [
+          {
+            "name": "workflowId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "displayId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDetailDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}/raw": {
+      "get": {
+        "tags": [
+          "Search Results"
+        ],
+        "summary": "Gets raw search responses for a search job.",
+        "description": "Use afterSequence to incrementally fetch raw responses after the last seen sequence.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "afterSequence",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SearchRawResultDto"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}/results/files": {
+      "get": {
+        "tags": [
+          "Search Results"
+        ],
+        "summary": "Gets file candidates for a search-like job.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResultSnapshotDtoOfFileCandidateDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}/results/files/project": {
+      "post": {
+        "tags": [
+          "Search Results"
+        ],
+        "summary": "Projects search results as file candidates.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileSearchProjectionRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResultSnapshotDtoOfFileCandidateDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}/results/folders": {
+      "get": {
+        "tags": [
+          "Search Results"
+        ],
+        "summary": "Gets folder candidates for an album search-like job.",
+        "description": "Set includeFiles=true only when the client needs selectable files. Folder file counts can come from search results and may not represent a full browse of the remote folder.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "includeFiles",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResultSnapshotDtoOfAlbumFolderDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}/results/folders/project": {
+      "post": {
+        "tags": [
+          "Search Results"
+        ],
+        "summary": "Projects search results as album folders.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderSearchProjectionRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResultSnapshotDtoOfAlbumFolderDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}/results/aggregate-tracks": {
+      "get": {
+        "tags": [
+          "Search Results"
+        ],
+        "summary": "Gets aggregate track candidates.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResultSnapshotDtoOfAggregateTrackCandidateDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}/results/aggregate-tracks/project": {
+      "post": {
+        "tags": [
+          "Search Results"
+        ],
+        "summary": "Projects search results as aggregate track candidates.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AggregateTrackProjectionRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResultSnapshotDtoOfAggregateTrackCandidateDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}/results/aggregate-albums": {
+      "get": {
+        "tags": [
+          "Search Results"
+        ],
+        "summary": "Gets aggregate album candidates.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResultSnapshotDtoOfAggregateAlbumCandidateDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}/results/aggregate-albums/project": {
+      "post": {
+        "tags": [
+          "Search Results"
+        ],
+        "summary": "Projects search results as aggregate album candidates.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AggregateAlbumProjectionRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResultSnapshotDtoOfAggregateAlbumCandidateDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}/retrieve-folder": {
+      "post": {
+        "tags": [
+          "Follow-up Jobs"
+        ],
+        "summary": "Starts a folder retrieval job for a selected album result folder.",
+        "description": "Retrieves the full remote folder contents for a selected folder result. Search responses can omit child items that did not match the original query.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetrieveFolderRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSummaryDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}/downloads/files": {
+      "post": {
+        "tags": [
+          "Follow-up Jobs"
+        ],
+        "summary": "Starts one or more file download jobs from selected search result files.",
+        "description": "The source search job identifies where the candidate refs came from. Per-download settings belong in the request options, not in the original search job.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartFileDownloadsRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/JobSummaryDto"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}/downloads/folder": {
+      "post": {
+        "tags": [
+          "Follow-up Jobs"
+        ],
+        "summary": "Starts an album/folder download job from a selected folder result.",
+        "description": "The source search job identifies where the folder ref came from. Per-download settings belong in the request options, not in the original search job.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartFolderDownloadRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSummaryDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}/manual/complete": {
+      "post": {
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Completes a manual-selection job without starting additional downloads.",
+        "description": "Use this when a DownloadBehavior.Manual job reached AwaitingSelection and the caller wants to close the manual step without resuming the job.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}/cancel": {
+      "post": {
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Cancels a job when cancellation is available.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflowId}/jobs/display/{displayId}/cancel": {
+      "post": {
+        "tags": [
+          "Workflows"
+        ],
+        "summary": "Cancels a workflow job by display id.",
+        "description": "Convenience endpoint for CLI-style cancellation prompts. Normal GUI clients should prefer AvailableActions on known job ids.",
+        "parameters": [
+          {
+            "name": "workflowId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "displayId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/jobs/{jobId}/next-candidate": {
+      "post": {
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Tries the next candidate for an active job download.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflowId}/jobs/display/{displayId}/next-candidate": {
+      "post": {
+        "tags": [
+          "Workflows"
+        ],
+        "summary": "Tries the next candidate for an active job download by display id.",
+        "parameters": [
+          {
+            "name": "workflowId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "displayId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/jobs/extract": {
+      "post": {
+        "tags": [
+          "Job Submission"
+        ],
+        "summary": "Submits an input extraction job.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitExtractJobRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSummaryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/search": {
+      "post": {
+        "tags": [
+          "Job Submission"
+        ],
+        "summary": "Submits a generic Soulseek search job.",
+        "description": "Search jobs are discovery-oriented. They store raw Soulseek results; use projection endpoints to view those results as files, album folders, or aggregate candidates, then use follow-up download endpoints for selected refs.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitSearchJobRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSummaryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/search/tracks": {
+      "post": {
+        "tags": [
+          "Job Submission"
+        ],
+        "summary": "Submits a track search job.",
+        "description": "Track search jobs are suitable for exploratory pick-then-download UIs: inspect projected file candidates from the result endpoints, then start follow-up downloads from selected refs.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitTrackSearchJobRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSummaryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/search/albums": {
+      "post": {
+        "tags": [
+          "Job Submission"
+        ],
+        "summary": "Submits an album search job.",
+        "description": "Album search jobs are suitable for exploratory pick-then-download UIs: inspect projected folder candidates from the result endpoints, then start a follow-up folder download from the selected ref.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitAlbumSearchJobRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSummaryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/downloads/song": {
+      "post": {
+        "tags": [
+          "Job Submission"
+        ],
+        "summary": "Submits a single-file download job.",
+        "description": "Use DownloadBehavior.Automatic for normal transfer jobs. Use DownloadBehavior.Manual when the job should pause at AwaitingSelection for caller approval/selection before resuming the same job.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitSongJobRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSummaryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/downloads/album": {
+      "post": {
+        "tags": [
+          "Job Submission"
+        ],
+        "summary": "Submits an album/folder download job.",
+        "description": "Use DownloadBehavior.Automatic for normal transfer jobs. Use DownloadBehavior.Manual when the job should pause at AwaitingSelection for caller approval/selection before resuming the same job.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitAlbumJobRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSummaryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/aggregate/tracks": {
+      "post": {
+        "tags": [
+          "Job Submission"
+        ],
+        "summary": "Submits an aggregate track search job.",
+        "description": "Aggregate jobs can download automatically or, with DownloadBehavior.Manual, pause after candidate grouping so the caller can choose which child downloads to resume.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitAggregateJobRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSummaryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/aggregate/albums": {
+      "post": {
+        "tags": [
+          "Job Submission"
+        ],
+        "summary": "Submits an aggregate album search job.",
+        "description": "Aggregate album jobs can download automatically or, with DownloadBehavior.Manual, pause after bucket projection so the caller can choose which child downloads to resume.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitAlbumAggregateJobRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSummaryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/lists": {
+      "post": {
+        "tags": [
+          "Job Submission"
+        ],
+        "summary": "Submits a job list from draft child jobs.",
+        "description": "Job drafts are submission payloads only. Submitted children appear as normal runtime jobs in subsequent job/workflow snapshots.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitJobListRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSummaryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows": {
+      "get": {
+        "tags": [
+          "Workflows"
+        ],
+        "summary": "Lists known workflows.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkflowSummaryDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflowId}": {
+      "get": {
+        "tags": [
+          "Workflows"
+        ],
+        "summary": "Gets a workflow snapshot by id.",
+        "description": "Default results contain only execution roots where ParentJobId is null. Set includeAll=true for a flat list of every workflow job. Use /tree for the same jobs grouped by ParentJobId.",
+        "parameters": [
+          {
+            "name": "workflowId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "includeAll",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDetailDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflowId}/tree": {
+      "get": {
+        "tags": [
+          "Workflows"
+        ],
+        "summary": "Gets the execution tree for a workflow.",
+        "description": "This tree is built only from ParentJobId relationships. Follow-up jobs started from search results remain workflow roots and expose SourceJobId instead.",
+        "parameters": [
+          {
+            "name": "workflowId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowTreeDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/workflows/{workflowId}/cancel": {
+      "post": {
+        "tags": [
+          "Workflows"
+        ],
+        "summary": "Cancels cancellable jobs in a workflow.",
+        "parameters": [
+          {
+            "name": "workflowId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelWorkflowResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AggregateAlbumCandidateDto": {
+        "required": [
+          "query",
+          "itemName"
+        ],
+        "type": "object",
+        "properties": {
+          "query": {
+            "$ref": "#/components/schemas/AlbumQueryDto"
+          },
+          "itemName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "folders": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AlbumFolderDto"
+            }
+          }
+        }
+      },
+      "AggregateAlbumProjectionRequestDto": {
+        "type": "object",
+        "properties": {
+          "albumQuery": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AlbumQueryDto"
+              }
+            ]
+          },
+          "includeFolders": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "AggregateTrackCandidateDto": {
+        "required": [
+          "query",
+          "itemName"
+        ],
+        "type": "object",
+        "properties": {
+          "query": {
+            "$ref": "#/components/schemas/SongQueryDto"
+          },
+          "itemName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "candidates": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FileCandidateDto"
+            }
+          }
+        }
+      },
+      "AggregateTrackProjectionRequestDto": {
+        "type": "object",
+        "properties": {
+          "songQuery": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SongQueryDto"
+              }
+            ]
+          },
+          "includeCandidates": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "AlbumArtOption": {
+        "type": "integer"
+      },
+      "AlbumFolderDto": {
+        "required": [
+          "ref",
+          "username",
+          "folderPath",
+          "peer",
+          "fileCount",
+          "audioFileCount"
+        ],
+        "type": "object",
+        "properties": {
+          "ref": {
+            "$ref": "#/components/schemas/AlbumFolderRefDto"
+          },
+          "username": {
+            "type": "string"
+          },
+          "folderPath": {
+            "type": "string"
+          },
+          "peer": {
+            "$ref": "#/components/schemas/PeerInfoDto"
+          },
+          "fileCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "audioFileCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "files": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FileCandidateDto"
+            }
+          },
+          "isFullyRetrieved": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "AlbumFolderRefDto": {
+        "required": [
+          "username",
+          "folderPath"
+        ],
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "folderPath": {
+            "type": "string"
+          }
+        }
+      },
+      "AlbumQueryDto": {
+        "type": "object",
+        "properties": {
+          "artist": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "album": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "searchHint": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "uri": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "artistMaybeWrong": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "ApiErrorDto": {
+        "required": [
+          "error"
+        ],
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "BandcampSettingsPatchDto": {
+        "type": "object",
+        "properties": {
+          "htmlFromFile": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CancelWorkflowResponseDto": {
+        "required": [
+          "cancelled"
+        ],
+        "type": "object",
+        "properties": {
+          "cancelled": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "CollectionPatchDtoOfRegexRuleDto": {
+        "type": "object",
+        "properties": {
+          "replace": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/RegexRuleDto"
+            }
+          },
+          "append": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/RegexRuleDto"
+            }
+          }
+        }
+      },
+      "CollectionPatchDtoOfstring": {
+        "type": "object",
+        "properties": {
+          "replace": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "append": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "CsvSettingsPatchDto": {
+        "type": "object",
+        "properties": {
+          "artistCol": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "albumCol": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "titleCol": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "ytIdCol": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "descCol": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "trackCountCol": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lengthCol": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "timeUnit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "ytParse": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "DownloadBehavior": {
+        "enum": [
+          "Automatic",
+          "Manual"
+        ],
+        "default": "Automatic"
+      },
+      "DownloadBehaviorPolicyDto": {
+        "type": "object",
+        "properties": {
+          "default": {
+            "$ref": "#/components/schemas/DownloadBehavior"
+          },
+          "song": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehavior"
+              }
+            ]
+          },
+          "album": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehavior"
+              }
+            ]
+          },
+          "aggregate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehavior"
+              }
+            ]
+          },
+          "albumAggregate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehavior"
+              }
+            ]
+          }
+        }
+      },
+      "DownloadSettingsPatchDto": {
+        "type": "object",
+        "properties": {
+          "output": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OutputSettingsPatchDto"
+              }
+            ]
+          },
+          "search": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SearchSettingsPatchDto"
+              }
+            ]
+          },
+          "skip": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SkipSettingsPatchDto"
+              }
+            ]
+          },
+          "preprocess": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PreprocessSettingsPatchDto"
+              }
+            ]
+          },
+          "extraction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExtractionSettingsPatchDto"
+              }
+            ]
+          },
+          "transfer": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TransferSettingsPatchDto"
+              }
+            ]
+          },
+          "spotify": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SpotifySettingsPatchDto"
+              }
+            ]
+          },
+          "youTube": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/YouTubeSettingsPatchDto"
+              }
+            ]
+          },
+          "ytDlp": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/YtDlpSettingsPatchDto"
+              }
+            ]
+          },
+          "csv": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CsvSettingsPatchDto"
+              }
+            ]
+          },
+          "bandcamp": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BandcampSettingsPatchDto"
+              }
+            ]
+          },
+          "printOption": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PrintOption"
+              }
+            ]
+          }
+        }
+      },
+      "ExtractionSettingsPatchDto": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "inputType": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/InputType"
+              }
+            ]
+          },
+          "maxTracks": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "offset": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "reverse": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "removeTracksFromSource": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "isAlbum": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "setAlbumMinTrackCount": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "setAlbumMaxTrackCount": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "FileAttributeDto": {
+        "required": [
+          "type",
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "value": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "FileCandidateDto": {
+        "required": [
+          "ref",
+          "username",
+          "filename",
+          "peer",
+          "size",
+          "bitRate",
+          "sampleRate",
+          "length"
+        ],
+        "type": "object",
+        "properties": {
+          "ref": {
+            "$ref": "#/components/schemas/FileCandidateRefDto"
+          },
+          "username": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "peer": {
+            "$ref": "#/components/schemas/PeerInfoDto"
+          },
+          "size": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "bitRate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "sampleRate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "length": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "extension": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "attributes": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FileAttributeDto"
+            }
+          }
+        }
+      },
+      "FileCandidateRefDto": {
+        "required": [
+          "username",
+          "filename"
+        ],
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          }
+        }
+      },
+      "FileConditionsPatchDto": {
+        "type": "object",
+        "properties": {
+          "lengthTolerance": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "minBitrate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxBitrate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "minSampleRate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxSampleRate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "minBitDepth": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxBitDepth": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "strictTitle": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "strictArtist": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "strictAlbum": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "formats": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CollectionPatchDtoOfstring"
+              }
+            ]
+          },
+          "bannedUsers": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CollectionPatchDtoOfstring"
+              }
+            ]
+          },
+          "allowedUsers": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CollectionPatchDtoOfstring"
+              }
+            ]
+          },
+          "acceptNoLength": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "acceptMissingProps": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "FileSearchProjectionRequestDto": {
+        "type": "object",
+        "properties": {
+          "songQuery": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SongQueryDto"
+              }
+            ]
+          },
+          "includeFullResults": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "FolderConditionsPatchDto": {
+        "type": "object",
+        "properties": {
+          "minTrackCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxTrackCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "requiredTrackTitles": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CollectionPatchDtoOfstring"
+              }
+            ]
+          }
+        }
+      },
+      "FolderSearchProjectionRequestDto": {
+        "required": [
+          "albumQuery"
+        ],
+        "type": "object",
+        "properties": {
+          "albumQuery": {
+            "$ref": "#/components/schemas/AlbumQueryDto"
+          },
+          "includeFiles": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "InputType": {
+        "type": "integer"
+      },
+      "JobDetailDto": {
+        "required": [
+          "summary",
+          "payload",
+          "children"
+        ],
+        "type": "object",
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/JobSummaryDto"
+          },
+          "payload": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobPayloadDto"
+              }
+            ]
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobSummaryDto"
+            }
+          }
+        }
+      },
+      "JobDraftDto": {
+        "required": [
+          "kind"
+        ],
+        "type": "object",
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/JobDraftDtoExtractJobDraftDto"
+          },
+          {
+            "$ref": "#/components/schemas/JobDraftDtoTrackSearchJobDraftDto"
+          },
+          {
+            "$ref": "#/components/schemas/JobDraftDtoAlbumSearchJobDraftDto"
+          },
+          {
+            "$ref": "#/components/schemas/JobDraftDtoSongJobDraftDto"
+          },
+          {
+            "$ref": "#/components/schemas/JobDraftDtoAlbumJobDraftDto"
+          },
+          {
+            "$ref": "#/components/schemas/JobDraftDtoAggregateJobDraftDto"
+          },
+          {
+            "$ref": "#/components/schemas/JobDraftDtoAlbumAggregateJobDraftDto"
+          },
+          {
+            "$ref": "#/components/schemas/JobDraftDtoJobListJobDraftDto"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "extract": "#/components/schemas/JobDraftDtoExtractJobDraftDto",
+            "search-track": "#/components/schemas/JobDraftDtoTrackSearchJobDraftDto",
+            "search-album": "#/components/schemas/JobDraftDtoAlbumSearchJobDraftDto",
+            "song": "#/components/schemas/JobDraftDtoSongJobDraftDto",
+            "album": "#/components/schemas/JobDraftDtoAlbumJobDraftDto",
+            "aggregate": "#/components/schemas/JobDraftDtoAggregateJobDraftDto",
+            "album-aggregate": "#/components/schemas/JobDraftDtoAlbumAggregateJobDraftDto",
+            "job-list": "#/components/schemas/JobDraftDtoJobListJobDraftDto"
+          }
+        }
+      },
+      "JobDraftDtoAggregateJobDraftDto": {
+        "required": [
+          "songQuery"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "aggregate"
+            ],
+            "type": "string"
+          },
+          "songQuery": {
+            "$ref": "#/components/schemas/SongQueryDto"
+          },
+          "downloadBehavior": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
+              }
+            ]
+          }
+        }
+      },
+      "JobDraftDtoAlbumAggregateJobDraftDto": {
+        "required": [
+          "albumQuery"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "album-aggregate"
+            ],
+            "type": "string"
+          },
+          "albumQuery": {
+            "$ref": "#/components/schemas/AlbumQueryDto"
+          },
+          "downloadBehavior": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
+              }
+            ]
+          }
+        }
+      },
+      "JobDraftDtoAlbumJobDraftDto": {
+        "required": [
+          "albumQuery"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "album"
+            ],
+            "type": "string"
+          },
+          "albumQuery": {
+            "$ref": "#/components/schemas/AlbumQueryDto"
+          },
+          "downloadBehavior": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
+              }
+            ]
+          }
+        }
+      },
+      "JobDraftDtoAlbumSearchJobDraftDto": {
+        "required": [
+          "albumQuery"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "search-album"
+            ],
+            "type": "string"
+          },
+          "albumQuery": {
+            "$ref": "#/components/schemas/AlbumQueryDto"
+          }
+        }
+      },
+      "JobDraftDtoExtractJobDraftDto": {
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "extract"
+            ],
+            "type": "string"
+          },
+          "input": {
+            "type": "string"
+          },
+          "inputType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "autoStartExtractedResult": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "JobDraftDtoJobListJobDraftDto": {
+        "required": [
+          "name",
+          "jobs"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "job-list"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobDraftDto"
+            }
+          }
+        }
+      },
+      "JobDraftDtoSongJobDraftDto": {
+        "required": [
+          "songQuery"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "song"
+            ],
+            "type": "string"
+          },
+          "songQuery": {
+            "$ref": "#/components/schemas/SongQueryDto"
+          },
+          "downloadBehavior": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
+              }
+            ]
+          }
+        }
+      },
+      "JobDraftDtoTrackSearchJobDraftDto": {
+        "required": [
+          "songQuery"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "search-track"
+            ],
+            "type": "string"
+          },
+          "songQuery": {
+            "$ref": "#/components/schemas/SongQueryDto"
+          },
+          "includeFullResults": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "JobPayloadDto": {
+        "required": [
+          "kind"
+        ],
+        "type": "object",
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/JobPayloadDtoExtractJobPayloadDto"
+          },
+          {
+            "$ref": "#/components/schemas/JobPayloadDtoSearchJobPayloadDto"
+          },
+          {
+            "$ref": "#/components/schemas/JobPayloadDtoSongJobPayloadDto"
+          },
+          {
+            "$ref": "#/components/schemas/JobPayloadDtoAlbumJobPayloadDto"
+          },
+          {
+            "$ref": "#/components/schemas/JobPayloadDtoAggregateJobPayloadDto"
+          },
+          {
+            "$ref": "#/components/schemas/JobPayloadDtoAlbumAggregateJobPayloadDto"
+          },
+          {
+            "$ref": "#/components/schemas/JobPayloadDtoJobListPayloadDto"
+          },
+          {
+            "$ref": "#/components/schemas/JobPayloadDtoRetrieveFolderJobPayloadDto"
+          },
+          {
+            "$ref": "#/components/schemas/JobPayloadDtoGenericJobPayloadDto"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "extract": "#/components/schemas/JobPayloadDtoExtractJobPayloadDto",
+            "search": "#/components/schemas/JobPayloadDtoSearchJobPayloadDto",
+            "song": "#/components/schemas/JobPayloadDtoSongJobPayloadDto",
+            "album": "#/components/schemas/JobPayloadDtoAlbumJobPayloadDto",
+            "aggregate": "#/components/schemas/JobPayloadDtoAggregateJobPayloadDto",
+            "album-aggregate": "#/components/schemas/JobPayloadDtoAlbumAggregateJobPayloadDto",
+            "job-list": "#/components/schemas/JobPayloadDtoJobListPayloadDto",
+            "retrieve-folder": "#/components/schemas/JobPayloadDtoRetrieveFolderJobPayloadDto",
+            "generic": "#/components/schemas/JobPayloadDtoGenericJobPayloadDto"
+          }
+        }
+      },
+      "JobPayloadDtoAggregateJobPayloadDto": {
+        "required": [
+          "query",
+          "songCount",
+          "completedSongCount",
+          "succeededSongCount",
+          "failedSongCount"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "aggregate"
+            ],
+            "type": "string"
+          },
+          "query": {
+            "$ref": "#/components/schemas/SongQueryDto"
+          },
+          "songCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "completedSongCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "succeededSongCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "failedSongCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "songs": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/SongJobPayloadDto"
+            }
+          }
+        }
+      },
+      "JobPayloadDtoAlbumAggregateJobPayloadDto": {
+        "required": [
+          "query",
+          "resultCount"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "album-aggregate"
+            ],
+            "type": "string"
+          },
+          "query": {
+            "$ref": "#/components/schemas/AlbumQueryDto"
+          },
+          "resultCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "JobPayloadDtoAlbumJobPayloadDto": {
+        "required": [
+          "query",
+          "resultCount",
+          "downloadPath",
+          "resolvedFolderUsername",
+          "resolvedFolderPath"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "album"
+            ],
+            "type": "string"
+          },
+          "query": {
+            "$ref": "#/components/schemas/AlbumQueryDto"
+          },
+          "resultCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "downloadPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resolvedFolderUsername": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resolvedFolderPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "selectedFolderFileCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "selectedFolderCompletedFileCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "selectedFolderSucceededFileCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "selectedFolderFailedFileCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "results": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AlbumFolderDto"
+            }
+          },
+          "tracks": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/SongJobPayloadDto"
+            }
+          }
+        }
+      },
+      "JobPayloadDtoExtractJobPayloadDto": {
+        "required": [
+          "input",
+          "inputType",
+          "resultJobId",
+          "resultDraft"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "extract"
+            ],
+            "type": "string"
+          },
+          "input": {
+            "type": "string"
+          },
+          "inputType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resultJobId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "resultDraft": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobDraftDto"
+              }
+            ]
+          }
+        }
+      },
+      "JobPayloadDtoGenericJobPayloadDto": {
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "generic"
+            ],
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "JobPayloadDtoJobListPayloadDto": {
+        "required": [
+          "count",
+          "activeJobCount",
+          "completedJobCount",
+          "succeededJobCount",
+          "failedJobCount"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "job-list"
+            ],
+            "type": "string"
+          },
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "activeJobCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "completedJobCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "succeededJobCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "failedJobCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "directSongs": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/SongJobPayloadDto"
+            }
+          }
+        }
+      },
+      "JobPayloadDtoRetrieveFolderJobPayloadDto": {
+        "required": [
+          "folderPath",
+          "username",
+          "newFilesFoundCount",
+          "retrievalOutcome",
+          "retrievalCancelled"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "retrieve-folder"
+            ],
+            "type": "string"
+          },
+          "folderPath": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "newFilesFoundCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "retrievalOutcome": {
+            "$ref": "#/components/schemas/ServerFolderRetrievalOutcome"
+          },
+          "retrievalCancelled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "JobPayloadDtoSearchJobPayloadDto": {
+        "required": [
+          "queryText",
+          "defaultFileProjection",
+          "defaultFolderProjection",
+          "resultCount",
+          "revision",
+          "isComplete"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "search"
+            ],
+            "type": "string"
+          },
+          "queryText": {
+            "type": "string"
+          },
+          "defaultFileProjection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FileSearchProjectionRequestDto"
+              }
+            ]
+          },
+          "defaultFolderProjection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FolderSearchProjectionRequestDto"
+              }
+            ]
+          },
+          "resultCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "isComplete": {
+            "type": "boolean"
+          }
+        }
+      },
+      "JobPayloadDtoSongJobPayloadDto": {
+        "required": [
+          "query",
+          "candidateCount",
+          "downloadPath"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "song"
+            ],
+            "type": "string"
+          },
+          "query": {
+            "$ref": "#/components/schemas/SongQueryDto"
+          },
+          "candidateCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "downloadPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resolvedUsername": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resolvedFilename": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resolvedHasFreeUploadSlot": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "resolvedUploadSpeed": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "resolvedSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "resolvedSampleRate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "resolvedExtension": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resolvedAttributes": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FileAttributeDto"
+            }
+          },
+          "jobId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "displayId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "candidates": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FileCandidateDto"
+            }
+          },
+          "state": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerJobState"
+              }
+            ]
+          },
+          "failureReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerFailureReason"
+              }
+            ]
+          },
+          "failureMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "bytesTransferred": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "totalBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "progressPercent": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "availableActions": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ResourceActionDto"
+            }
+          },
+          "transferState": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "JobSummaryDto": {
+        "required": [
+          "jobId",
+          "displayId",
+          "workflowId",
+          "kind",
+          "state",
+          "itemName",
+          "queryText",
+          "failureReason",
+          "failureMessage",
+          "parentJobId",
+          "resultJobId",
+          "sourceJobId",
+          "discoveryResultCount",
+          "discoveryLockedFileCount",
+          "appliedAutoProfiles",
+          "availableActions"
+        ],
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "workflowId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ServerJobKind"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ServerJobState"
+          },
+          "itemName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "queryText": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "failureReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerFailureReason"
+              }
+            ]
+          },
+          "failureMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "parentJobId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "resultJobId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "sourceJobId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "discoveryResultCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "discoveryLockedFileCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "appliedAutoProfiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "availableActions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceActionDto"
+            }
+          }
+        }
+      },
+      "OutputSettingsPatchDto": {
+        "type": "object",
+        "properties": {
+          "parentDir": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "nameFormat": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "invalidReplaceStr": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "writePlaylist": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "writeIndex": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "hasConfiguredIndex": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "m3uFilePath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "indexFilePath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "failedAlbumPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "onComplete": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CollectionPatchDtoOfstring"
+              }
+            ]
+          },
+          "albumArtOnly": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "albumArtOption": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AlbumArtOption"
+              }
+            ]
+          }
+        }
+      },
+      "PeerInfoDto": {
+        "required": [
+          "username"
+        ],
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "hasFreeUploadSlot": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "uploadSpeed": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "PreprocessSettingsPatchDto": {
+        "type": "object",
+        "properties": {
+          "removeFt": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "removeBrackets": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "extractArtist": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "parseTitleTemplate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "regex": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CollectionPatchDtoOfRegexRuleDto"
+              }
+            ]
+          }
+        }
+      },
+      "PrintOption": {
+        "type": "integer"
+      },
+      "ProfileSummaryDto": {
+        "required": [
+          "name",
+          "condition",
+          "isAutoProfile",
+          "hasEngineSettings",
+          "hasDownloadSettings"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "condition": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "isAutoProfile": {
+            "type": "boolean"
+          },
+          "hasEngineSettings": {
+            "type": "boolean"
+          },
+          "hasDownloadSettings": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RegexFieldsDto": {
+        "required": [
+          "title",
+          "artist",
+          "album"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "artist": {
+            "type": "string"
+          },
+          "album": {
+            "type": "string"
+          }
+        }
+      },
+      "RegexRuleDto": {
+        "required": [
+          "match",
+          "replace"
+        ],
+        "type": "object",
+        "properties": {
+          "match": {
+            "$ref": "#/components/schemas/RegexFieldsDto"
+          },
+          "replace": {
+            "$ref": "#/components/schemas/RegexFieldsDto"
+          }
+        }
+      },
+      "ResourceActionDto": {
+        "required": [
+          "kind",
+          "method",
+          "href"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ServerResourceActionKind"
+          },
+          "method": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          }
+        }
+      },
+      "RetrieveFolderRequestDto": {
+        "required": [
+          "folder"
+        ],
+        "type": "object",
+        "properties": {
+          "folder": {
+            "$ref": "#/components/schemas/AlbumFolderRefDto"
+          },
+          "albumQuery": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AlbumQueryDto"
+              }
+            ]
+          }
+        }
+      },
+      "SearchRawResultDto": {
+        "required": [
+          "sequence",
+          "revision",
+          "username",
+          "filename",
+          "size",
+          "bitRate",
+          "sampleRate",
+          "length"
+        ],
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "username": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "size": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "bitRate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "sampleRate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "length": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "SearchResultSnapshotDtoOfAggregateAlbumCandidateDto": {
+        "required": [
+          "revision",
+          "isComplete",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "isComplete": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AggregateAlbumCandidateDto"
+            }
+          }
+        }
+      },
+      "SearchResultSnapshotDtoOfAggregateTrackCandidateDto": {
+        "required": [
+          "revision",
+          "isComplete",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "isComplete": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AggregateTrackCandidateDto"
+            }
+          }
+        }
+      },
+      "SearchResultSnapshotDtoOfAlbumFolderDto": {
+        "required": [
+          "revision",
+          "isComplete",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "isComplete": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlbumFolderDto"
+            }
+          }
+        }
+      },
+      "SearchResultSnapshotDtoOfFileCandidateDto": {
+        "required": [
+          "revision",
+          "isComplete",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "isComplete": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileCandidateDto"
+            }
+          }
+        }
+      },
+      "SearchSettingsPatchDto": {
+        "type": "object",
+        "properties": {
+          "necessaryCond": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FileConditionsPatchDto"
+              }
+            ]
+          },
+          "preferredCond": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FileConditionsPatchDto"
+              }
+            ]
+          },
+          "necessaryFolderCond": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FolderConditionsPatchDto"
+              }
+            ]
+          },
+          "preferredFolderCond": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FolderConditionsPatchDto"
+              }
+            ]
+          },
+          "searchTimeout": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxStaleTime": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "downrankOn": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "ignoreOn": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "fastSearch": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "fastSearchDelay": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "fastSearchMinUpSpeed": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "desperateSearch": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "noRemoveSpecialChars": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "removeSingleCharSearchTerms": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "noBrowseFolder": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "relax": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "artistMaybeWrong": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "isAggregate": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "minSharesAggregate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "aggregateLengthTol": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "ServerEventDescriptorDto": {
+        "required": [
+          "type",
+          "category",
+          "snapshotInvalidation",
+          "payloadDto"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "snapshotInvalidation": {
+            "type": "boolean"
+          },
+          "payloadDto": {
+            "type": "string"
+          }
+        }
+      },
+      "ServerFailureReason": {
+        "enum": [
+          "None",
+          "InvalidSearchString",
+          "OutOfDownloadRetries",
+          "NoSuitableFileFound",
+          "AllDownloadsFailed",
+          "Other",
+          "ExtractionFailed",
+          "Cancelled",
+          null
+        ]
+      },
+      "ServerFolderRetrievalOutcome": {
+        "enum": [
+          "none",
+          "completed",
+          "cancelled",
+          "failed"
+        ]
+      },
+      "ServerInfoDto": {
+        "required": [
+          "name",
+          "version",
+          "startedAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "startedAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ServerJobKind": {
+        "enum": [
+          "extract",
+          "search",
+          "song",
+          "album",
+          "aggregate",
+          "album-aggregate",
+          "job-list",
+          "retrieve-folder",
+          "generic"
+        ]
+      },
+      "ServerJobState": {
+        "enum": [
+          "Pending",
+          "Done",
+          "Failed",
+          "AlreadyExists",
+          "NotFoundLastTime",
+          "Skipped",
+          "Searching",
+          "Downloading",
+          "Extracting",
+          "Running",
+          "AwaitingSelection"
+        ]
+      },
+      "ServerResourceActionKind": {
+        "enum": [
+          "cancel"
+        ]
+      },
+      "ServerStatusDto": {
+        "required": [
+          "soulseekClient",
+          "totalJobCount",
+          "activeJobCount",
+          "totalWorkflowCount",
+          "activeWorkflowCount",
+          "restartCount"
+        ],
+        "type": "object",
+        "properties": {
+          "soulseekClient": {
+            "$ref": "#/components/schemas/SoulseekClientStatusDto"
+          },
+          "totalJobCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "activeJobCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "totalWorkflowCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "activeWorkflowCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "restartCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "ServerWorkflowState": {
+        "enum": [
+          "active",
+          "failed",
+          "completed"
+        ]
+      },
+      "SkipMode": {
+        "type": "integer"
+      },
+      "SkipSettingsPatchDto": {
+        "type": "object",
+        "properties": {
+          "skipExisting": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "skipNotFound": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "skipMode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SkipMode"
+              }
+            ]
+          },
+          "skipMusicDir": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "skipModeMusicDir": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SkipMode"
+              }
+            ]
+          },
+          "skipCheckCond": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "skipCheckPrefCond": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "SongJobPayloadDto": {
+        "required": [
+          "query",
+          "candidateCount",
+          "downloadPath"
+        ],
+        "type": "object",
+        "properties": {
+          "query": {
+            "$ref": "#/components/schemas/SongQueryDto"
+          },
+          "candidateCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "downloadPath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resolvedUsername": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resolvedFilename": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resolvedHasFreeUploadSlot": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "resolvedUploadSpeed": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "resolvedSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "resolvedSampleRate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "resolvedExtension": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resolvedAttributes": { },
+          "jobId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "displayId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "candidates": { },
+          "state": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerJobState"
+              }
+            ]
+          },
+          "failureReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerFailureReason"
+              }
+            ]
+          },
+          "failureMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "bytesTransferred": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "totalBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "progressPercent": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "availableActions": { },
+          "transferState": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SongQueryDto": {
+        "type": "object",
+        "properties": {
+          "artist": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "album": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "uri": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "length": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "artistMaybeWrong": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "SoulseekClientStatusDto": {
+        "required": [
+          "state",
+          "flags",
+          "isReady"
+        ],
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isReady": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SpotifySettingsPatchDto": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "clientSecret": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "token": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "refresh": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "StartFileDownloadsRequestDto": {
+        "required": [
+          "files"
+        ],
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileCandidateRefDto"
+            }
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            ]
+          }
+        }
+      },
+      "StartFolderDownloadRequestDto": {
+        "required": [
+          "folder"
+        ],
+        "type": "object",
+        "properties": {
+          "folder": {
+            "$ref": "#/components/schemas/AlbumFolderRefDto"
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            ]
+          },
+          "albumQuery": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AlbumQueryDto"
+              }
+            ]
+          }
+        }
+      },
+      "SubmissionOptionsDto": {
+        "type": "object",
+        "properties": {
+          "workflowId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "outputParentDir": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "profileNames": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "profileContext": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          },
+          "downloadSettings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+              }
+            ]
+          }
+        }
+      },
+      "SubmitAggregateJobRequestDto": {
+        "required": [
+          "songQuery"
+        ],
+        "type": "object",
+        "properties": {
+          "songQuery": {
+            "$ref": "#/components/schemas/SongQueryDto"
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            ]
+          },
+          "downloadBehavior": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
+              }
+            ]
+          }
+        }
+      },
+      "SubmitAlbumAggregateJobRequestDto": {
+        "required": [
+          "albumQuery"
+        ],
+        "type": "object",
+        "properties": {
+          "albumQuery": {
+            "$ref": "#/components/schemas/AlbumQueryDto"
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            ]
+          },
+          "downloadBehavior": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
+              }
+            ]
+          }
+        }
+      },
+      "SubmitAlbumJobRequestDto": {
+        "required": [
+          "albumQuery"
+        ],
+        "type": "object",
+        "properties": {
+          "albumQuery": {
+            "$ref": "#/components/schemas/AlbumQueryDto"
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            ]
+          },
+          "downloadBehavior": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
+              }
+            ]
+          }
+        }
+      },
+      "SubmitAlbumSearchJobRequestDto": {
+        "required": [
+          "albumQuery"
+        ],
+        "type": "object",
+        "properties": {
+          "albumQuery": {
+            "$ref": "#/components/schemas/AlbumQueryDto"
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            ]
+          }
+        }
+      },
+      "SubmitExtractJobRequestDto": {
+        "required": [
+          "input"
+        ],
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string"
+          },
+          "inputType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "autoStartExtractedResult": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            ]
+          }
+        }
+      },
+      "SubmitJobListRequestDto": {
+        "required": [
+          "name",
+          "jobs"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobDraftDto"
+            }
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            ]
+          }
+        }
+      },
+      "SubmitSearchJobRequestDto": {
+        "required": [
+          "queryText"
+        ],
+        "type": "object",
+        "properties": {
+          "queryText": {
+            "type": "string"
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            ]
+          }
+        }
+      },
+      "SubmitSongJobRequestDto": {
+        "required": [
+          "songQuery"
+        ],
+        "type": "object",
+        "properties": {
+          "songQuery": {
+            "$ref": "#/components/schemas/SongQueryDto"
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            ]
+          },
+          "downloadBehavior": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
+              }
+            ]
+          }
+        }
+      },
+      "SubmitTrackSearchJobRequestDto": {
+        "required": [
+          "songQuery"
+        ],
+        "type": "object",
+        "properties": {
+          "songQuery": {
+            "$ref": "#/components/schemas/SongQueryDto"
+          },
+          "includeFullResults": {
+            "type": "boolean",
+            "default": false
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            ]
+          }
+        }
+      },
+      "TransferSettingsPatchDto": {
+        "type": "object",
+        "properties": {
+          "maxDownloadRetries": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unknownErrorRetries": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "noIncompleteExt": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "albumTrackCountMaxRetries": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "WorkflowDetailDto": {
+        "required": [
+          "summary",
+          "jobs"
+        ],
+        "type": "object",
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/WorkflowSummaryDto"
+          },
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobSummaryDto"
+            }
+          }
+        }
+      },
+      "WorkflowJobNodeDto": {
+        "required": [
+          "summary",
+          "children"
+        ],
+        "type": "object",
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/JobSummaryDto"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowJobNodeDto"
+            }
+          }
+        }
+      },
+      "WorkflowSummaryDto": {
+        "required": [
+          "workflowId",
+          "title",
+          "state",
+          "rootJobIds",
+          "activeJobCount",
+          "failedJobCount",
+          "completedJobCount"
+        ],
+        "type": "object",
+        "properties": {
+          "workflowId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ServerWorkflowState"
+          },
+          "rootJobIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "activeJobCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "failedJobCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "completedJobCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "WorkflowTreeDto": {
+        "required": [
+          "summary",
+          "jobs"
+        ],
+        "type": "object",
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/WorkflowSummaryDto"
+          },
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowJobNodeDto"
+            }
+          }
+        }
+      },
+      "YouTubeSettingsPatchDto": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "getDeleted": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "deletedOnly": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "YtDlpSettingsPatchDto": {
+        "type": "object",
+        "properties": {
+          "useYtdlp": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "ytdlpArgument": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Server"
+    },
+    {
+      "name": "Profiles"
+    },
+    {
+      "name": "Events"
+    },
+    {
+      "name": "Jobs"
+    },
+    {
+      "name": "Search Results"
+    },
+    {
+      "name": "Follow-up Jobs"
+    },
+    {
+      "name": "Workflows"
+    },
+    {
+      "name": "Job Submission"
+    }
+  ]
+}

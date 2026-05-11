@@ -48,7 +48,7 @@ A smart and configurable downloader for Soulseek. Built with Soulseek.NET.
    - [Album](#album)
    - [Aggregate](#aggregate)
    - [Album Aggregate](#album-aggregate)
- - [Daemon / remote mode](#daemon--remote-mode)
+ - [Daemon / remote mode / API](#daemon--remote-mode)
  - [Configuration](#configuration)
  - [File conditions](#file-conditions)
  - [Name format](#name-format)
@@ -427,6 +427,8 @@ Once the daemon is running, use `--remote <url>` to run the CLI as a thin client
 sldl daemon --server-ip 0.0.0.0 --server-port 5030
 sldl "Artist - Title" --remote http://127.0.0.1:5030
 ```
+
+For HTTP API, SignalR, and client integration notes, see [docs/api.md](docs/api.md).
 <!-- sldl-help:end -->
 
 <!-- sldl-help:start(config) -->

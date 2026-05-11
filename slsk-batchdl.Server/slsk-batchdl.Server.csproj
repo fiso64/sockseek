@@ -8,6 +8,12 @@
     <RootNamespace>Sldl.Server</RootNamespace>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <OpenApiGenerateDocuments>true</OpenApiGenerateDocuments>
+    <OpenApiDocumentsDirectory>../docs</OpenApiDocumentsDirectory>
+    <OpenApiGenerateDocumentsOptions>--file-name openapi</OpenApiGenerateDocumentsOptions>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\slsk-batchdl.Api\slsk-batchdl.Api.csproj" />
     <ProjectReference Include="..\slsk-batchdl.Core\slsk-batchdl.Core.csproj" />
@@ -15,6 +21,10 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.7" />
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.7">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
 </Project>

@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.OpenApi;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -39,7 +41,20 @@ public static class ServerHost
                 jsonOptions.PayloadSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
                 SldlApiJson.ConfigureSerializerOptions(jsonOptions.PayloadSerializerOptions);
             });
-        builder.Services.AddOpenApi();
+        builder.Services.AddOpenApi(options =>
+        {
+            options.AddDocumentTransformer((document, context, cancellationToken) =>
+            {
+                document.Info = new()
+                {
+                    Title = "sldl daemon API",
+                    Version = GetInformationalVersion(),
+                    Description = "HTTP API for the sldl daemon."
+                };
+
+                return Task.CompletedTask;
+            });
+        });
         builder.Services.AddSingleton<EngineSupervisor>();
         builder.Services.AddSingleton(sp => sp.GetRequiredService<EngineSupervisor>().StateStore);
         builder.Services.AddSingleton<ServerEventBroadcaster>();
@@ -54,6 +69,14 @@ public static class ServerHost
         app.MapOpenApi("/api/openapi.json");
         MapEndpoints(app);
         return app;
+    }
+
+    private static string GetInformationalVersion()
+    {
+        var assembly = typeof(ServerHost).Assembly;
+        return assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? assembly.GetName().Version?.ToString()
+            ?? "0.0.0";
     }
 
     private static void MapEndpoints(WebApplication app)
