@@ -17,6 +17,7 @@ internal sealed class InteractiveCliCoordinator
     private readonly SemaphoreSlim promptSemaphore = new(1, 1);
     private readonly HashSet<Guid> startedExtractResults = [];
     private readonly HashSet<Guid> handledAlbumSearches = [];
+    private readonly Dictionary<Guid, InteractiveAlbumAggregateSearchSession> interactiveAlbumAggregateSearches = [];
     private readonly Dictionary<Guid, InteractiveAlbumSession> interactiveAlbumSessions = [];
     private SubmissionOptionsDto? rootOptions;
     private bool interactiveEnabled;
@@ -122,11 +123,17 @@ internal sealed class InteractiveCliCoordinator
 
     private async Task HandleCompletedSearchAsync(Guid searchJobId, CancellationToken ct)
     {
-        if (!interactiveEnabled)
+        var detail = await backend.GetJobDetailAsync(searchJobId, ct);
+        if (detail?.Payload is not SearchJobPayloadDto search)
             return;
 
-        var detail = await backend.GetJobDetailAsync(searchJobId, ct);
-        if (detail?.Payload is not SearchJobPayloadDto search || search.DefaultFolderProjection == null)
+        if (interactiveAlbumAggregateSearches.Remove(searchJobId, out var aggregateSearch))
+        {
+            await HandleCompletedAlbumAggregateSearchAsync(searchJobId, detail, search, aggregateSearch, ct);
+            return;
+        }
+
+        if (!interactiveEnabled || search.DefaultFolderProjection == null)
             return;
 
         var projection = await backend.GetFolderResultsAsync(
@@ -153,6 +160,55 @@ internal sealed class InteractiveCliCoordinator
             return;
 
         await EnqueueInteractiveAlbumJobAsync(session, selected, ct);
+    }
+
+    private async Task HandleCompletedAlbumAggregateSearchAsync(
+        Guid searchJobId,
+        JobDetailDto detail,
+        SearchJobPayloadDto search,
+        InteractiveAlbumAggregateSearchSession aggregateSearch,
+        CancellationToken ct)
+    {
+        var projection = await backend.GetAggregateAlbumResultsAsync(
+            searchJobId,
+            new AggregateAlbumProjectionRequestDto(aggregateSearch.Query, IncludeFolders: true),
+            ct);
+
+        var buckets = projection?.Items
+            .Where(album => album.Folders is { Count: > 0 })
+            .ToList() ?? [];
+
+        if (buckets.Count == 0)
+        {
+            if (ConsoleInputManager.Reporter != null)
+                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumAggregateJob", search.QueryText, "No suitable file found");
+            return;
+        }
+
+        foreach (var bucket in buckets)
+        {
+            var folders = bucket.Folders!.Select(ToAlbumFolder).ToList();
+            var session = new InteractiveAlbumSession(
+                searchJobId,
+                new AlbumJob(ToAlbumQuery(bucket.Query)) { ItemName = bucket.ItemName, Results = folders },
+                bucket.Query,
+                folders,
+                aggregateSearch.Options);
+
+            AlbumFolder? selected;
+            if (interactiveEnabled)
+            {
+                selected = await PromptForAlbumSelectionAsync(session);
+                if (selected == null)
+                    continue;
+            }
+            else
+            {
+                selected = folders[0];
+            }
+
+            await EnqueueInteractiveAlbumJobAsync(session, selected, ct);
+        }
     }
 
     private async Task HandleCompletedInteractiveAlbumAsync(
@@ -311,7 +367,17 @@ internal sealed class InteractiveCliCoordinator
     }
 
     private async Task<JobSummaryDto> SubmitDraftAsync(JobDraftDto draft, SubmissionOptionsDto options, CancellationToken ct)
-        => draft switch
+    {
+        if (draft is AlbumAggregateJobDraftDto aggregate && interactiveEnabled)
+        {
+            var summary = await backend.SubmitAlbumSearchJobAsync(
+                new SubmitAlbumSearchJobRequestDto(aggregate.AlbumQuery, options),
+                ct);
+            interactiveAlbumAggregateSearches[summary.JobId] = new InteractiveAlbumAggregateSearchSession(aggregate.AlbumQuery, options);
+            return summary;
+        }
+
+        return draft switch
         {
             ExtractJobDraftDto extract => await backend.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(extract.Input, extract.InputType, extract.AutoStartExtractedResult, options),
@@ -328,17 +394,18 @@ internal sealed class InteractiveCliCoordinator
             AlbumJobDraftDto album => await backend.SubmitAlbumJobAsync(
                 new SubmitAlbumJobRequestDto(album.AlbumQuery, options),
                 ct),
-            AggregateJobDraftDto aggregate => await backend.SubmitAggregateJobAsync(
-                new SubmitAggregateJobRequestDto(aggregate.SongQuery, options),
+            AggregateJobDraftDto aggregateTrack => await backend.SubmitAggregateJobAsync(
+                new SubmitAggregateJobRequestDto(aggregateTrack.SongQuery, options),
                 ct),
-            AlbumAggregateJobDraftDto aggregate => await backend.SubmitAlbumAggregateJobAsync(
-                new SubmitAlbumAggregateJobRequestDto(aggregate.AlbumQuery, options),
+            AlbumAggregateJobDraftDto aggregateAlbum => await backend.SubmitAlbumAggregateJobAsync(
+                new SubmitAlbumAggregateJobRequestDto(aggregateAlbum.AlbumQuery, options),
                 ct),
             JobListJobDraftDto list => await backend.SubmitJobListAsync(
                 new SubmitJobListRequestDto(list.Name, list.Jobs, options),
                 ct),
             _ => throw new InvalidOperationException($"Unsupported extracted job draft type '{draft.GetType().Name}'."),
         };
+    }
 
     private static JobDraftDto ToInteractiveDraft(JobDraftDto draft)
         => draft switch
@@ -354,6 +421,15 @@ internal sealed class InteractiveCliCoordinator
 
     internal static string FolderKey(AlbumFolder folder)
         => folder.Username + "\\" + folder.FolderPath;
+
+    private static AlbumQuery ToAlbumQuery(AlbumQueryDto query) => new()
+    {
+        Artist = query.Artist ?? "",
+        Album = query.Album ?? "",
+        SearchHint = query.SearchHint ?? "",
+        URI = query.Uri ?? "",
+        ArtistMaybeWrong = query.ArtistMaybeWrong,
+    };
 
     internal static AlbumFolder ToAlbumFolder(AlbumFolderDto folder)
         => new AlbumFolder(
@@ -387,6 +463,10 @@ internal sealed class InteractiveCliCoordinator
     private static bool IsCompleted(ServerJobState state)
         => state is ServerProtocol.JobStates.Done
             or ServerProtocol.JobStates.AlreadyExists;
+
+    private sealed record InteractiveAlbumAggregateSearchSession(
+        AlbumQueryDto Query,
+        SubmissionOptionsDto Options);
 
     private sealed class InteractiveAlbumSession
     {

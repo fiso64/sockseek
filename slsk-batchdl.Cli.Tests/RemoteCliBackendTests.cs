@@ -409,6 +409,112 @@ public class RemoteCliBackendTests
     }
 
     [TestMethod]
+    public async Task InteractiveCliCoordinator_AlbumAggregatePromptsEachBucket()
+    {
+        string musicRoot = Path.Combine(Path.GetTempPath(), "sldl-remote-interactive-agg-music-" + Guid.NewGuid());
+        string outputDir = Path.Combine(Path.GetTempPath(), "sldl-remote-interactive-agg-out-" + Guid.NewGuid());
+        string timeDir = Path.Combine(musicRoot, "ELO", "Time");
+        string discoveryDir = Path.Combine(musicRoot, "ELO", "Discovery");
+        Directory.CreateDirectory(timeDir);
+        Directory.CreateDirectory(discoveryDir);
+        Directory.CreateDirectory(outputDir);
+
+        File.WriteAllText(Path.Combine(timeDir, "01. ELO - Prologue.mp3"), "a");
+        File.WriteAllText(Path.Combine(timeDir, "02. ELO - Twilight.mp3"), "b");
+        File.WriteAllText(Path.Combine(discoveryDir, "01. ELO - Shine a Little Love.mp3"), "c");
+        File.WriteAllText(Path.Combine(discoveryDir, "02. ELO - Confusion.mp3"), "d");
+        File.WriteAllText(Path.Combine(discoveryDir, "03. ELO - Last Train to London.mp3"), "e");
+
+        int port = GetFreeTcpPort();
+        string url = $"http://127.0.0.1:{port}";
+        await using var app = ServerHost.Build([], new ServerOptions
+        {
+            Engine = new EngineSettings
+            {
+                MockFilesDir = musicRoot,
+                MockFilesReadTags = false,
+            },
+            DefaultDownload = new DownloadSettings
+            {
+                Output =
+                {
+                    ParentDir = outputDir,
+                    NameFormat = "{foldername}/{filename}",
+                },
+                Search =
+                {
+                    NoBrowseFolder = true,
+                    MinSharesAggregate = 1,
+                },
+            },
+            Profiles = ProfileCatalog.Empty,
+        }, url);
+
+        try
+        {
+            await app.StartAsync();
+            await using var backend = new RemoteCliBackend(url);
+            await backend.StartAsync();
+
+            var promptedBuckets = new List<string>();
+            var coordinator = new InteractiveCliCoordinator(
+                backend,
+                new CliSettings { InteractiveMode = true, NoProgress = true },
+                CancellationToken.None,
+                request =>
+                {
+                    promptedBuckets.Add(request.PromptJob.ToString(noInfo: true));
+                    var folder = request.Folders.First();
+                    return Task.FromResult(new InteractiveModeManager.RunResult(
+                        0,
+                        folder,
+                        RetrieveCurrentFolder: true,
+                        ExitInteractiveMode: false,
+                        request.FilterStr));
+                },
+                pollInterval: TimeSpan.FromMilliseconds(10));
+
+            var summary = await coordinator.StartAsync(
+                new SubmitExtractJobRequestDto(
+                    "ELO",
+                    "String",
+                    Options: new SubmissionOptionsDto(
+                        OutputParentDir: outputDir,
+                        ProfileContext: new Dictionary<string, bool> { ["interactive"] = true },
+                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch(["ELO", "--album", "--aggregate", "--min-shares-aggregate", "1", "--no-browse-folder"]))),
+                CancellationToken.None);
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await coordinator.RunUntilCompleteAsync(summary.WorkflowId, timeout.Token);
+
+            Assert.AreEqual(2, promptedBuckets.Count, "Each album-aggregate bucket should reach the interactive picker.");
+            Assert.IsTrue(promptedBuckets.Any(x => x.Contains("Time", StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(promptedBuckets.Any(x => x.Contains("Discovery", StringComparison.OrdinalIgnoreCase)));
+
+            var downloaded = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                .Select(Path.GetFileName)
+                .OrderBy(x => x)
+                .ToArray();
+            CollectionAssert.AreEqual(new[]
+            {
+                "01. ELO - Prologue.mp3",
+                "01. ELO - Shine a Little Love.mp3",
+                "02. ELO - Confusion.mp3",
+                "02. ELO - Twilight.mp3",
+                "03. ELO - Last Train to London.mp3",
+            }, downloaded);
+        }
+        finally
+        {
+            await app.StopAsync();
+            if (Directory.Exists(musicRoot))
+                Directory.Delete(musicRoot, true);
+            if (Directory.Exists(outputDir))
+                Directory.Delete(outputDir, true);
+        }
+    }
+
+    [TestMethod]
     public async Task RemoteCliBackend_PrintCompleteCountsCancelledAlbumPayloadFiles()
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "sldl-remote-cancel-music-" + Guid.NewGuid());
