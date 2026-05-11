@@ -3,7 +3,7 @@
   "info": {
     "title": "sldl daemon API",
     "description": "HTTP API for the sldl daemon.",
-    "version": "3.0.0-dev.10+3a331a3bba4b18045bbed6012950a0d19f92624d"
+    "version": "3.0.0-dev.10"
   },
   "paths": {
     "/api/server/info": {

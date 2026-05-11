@@ -48,7 +48,7 @@ public static class ServerHost
                 document.Info = new()
                 {
                     Title = "sldl daemon API",
-                    Version = GetInformationalVersion(),
+                    Version = GetOpenApiVersion(),
                     Description = "HTTP API for the sldl daemon."
                 };
 
@@ -71,12 +71,15 @@ public static class ServerHost
         return app;
     }
 
-    private static string GetInformationalVersion()
+    private static string GetOpenApiVersion()
     {
         var assembly = typeof(ServerHost).Assembly;
-        return assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
             ?? assembly.GetName().Version?.ToString()
             ?? "0.0.0";
+
+        var metadataIndex = version.IndexOf('+', StringComparison.Ordinal);
+        return metadataIndex >= 0 ? version[..metadataIndex] : version;
     }
 
     private static void MapEndpoints(WebApplication app)

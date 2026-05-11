@@ -50,6 +50,13 @@ public class OpenApiContractTests
             using var document = await JsonDocument.ParseAsync(stream);
             var json = document.RootElement.GetRawText();
 
+            var version = document.RootElement
+                .GetProperty("info")
+                .GetProperty("version")
+                .GetString();
+
+            Assert.AreEqual("3.0.0-dev.10", version);
+
             StringAssert.Contains(json, nameof(JobSummaryDto));
             StringAssert.Contains(json, nameof(SubmitAlbumJobRequestDto));
             StringAssert.Contains(json, nameof(AlbumJobPayloadDto));
