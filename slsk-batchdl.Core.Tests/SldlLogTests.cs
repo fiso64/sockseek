@@ -4,7 +4,7 @@ using Sldl.Core;
 namespace Tests.Core;
 
 [TestClass]
-public class LoggerTests
+public class SldlLogTests
 {
     [TestCleanup]
     public void Cleanup()
