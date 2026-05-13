@@ -16,13 +16,13 @@ public class CliBackendParityTests
     [TestInitialize]
     public void Initialize()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
     }
 
     [TestCleanup]
     public void Cleanup()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
     }
 
     [TestMethod]

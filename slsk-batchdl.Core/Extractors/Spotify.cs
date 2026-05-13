@@ -42,7 +42,7 @@ namespace Sldl.Core.Extractors;
 
             if (input == "spotify-likes")
             {
-                Logger.Info("Loading Spotify likes..");
+                SldlLog.Info("Loading Spotify likes..");
                 var songs = await spotifyClient.GetLikes(max, off);
                 var slj   = new JobList { ItemName = "Spotify Likes", EnablesIndexByDefault = true };
                 foreach (var s in songs) slj.Jobs.Add(s);
@@ -50,7 +50,7 @@ namespace Sldl.Core.Extractors;
             }
             else if (input == "spotify-albums")
             {
-                Logger.Info("Loading Spotify liked albums..");
+                SldlLog.Info("Loading Spotify liked albums..");
                 var albumList = await spotifyClient.GetAlbums(max, off);
                 albumList.ItemName              = "Spotify Liked Albums";
                 albumList.EnablesIndexByDefault = true;
@@ -58,7 +58,7 @@ namespace Sldl.Core.Extractors;
             }
             else if (input.Contains("/album/"))
             {
-                Logger.Info("Loading Spotify album..");
+                SldlLog.Info("Loading Spotify album..");
                 result = await spotifyClient.GetAlbumJob(input, extraction);
             }
             else if (input.Contains("/artist/"))
@@ -72,7 +72,7 @@ namespace Sldl.Core.Extractors;
 
                 try
                 {
-                    Logger.Info("Loading Spotify playlist");
+                    SldlLog.Info("Loading Spotify playlist");
                     (playlistName, playlistUri, songs) = await spotifyClient.GetPlaylist(input, max, off);
                 }
                 catch (SpotifyAPI.Web.APIException)
@@ -119,7 +119,7 @@ namespace Sldl.Core.Extractors;
             }
             catch (Exception e)
             {
-                Logger.Error($"Error removing from source: {e}");
+                SldlLog.Error($"Error removing from source: {e}");
             }
         }
     }
@@ -157,7 +157,7 @@ namespace Sldl.Core.Extractors;
         public async Task Authorize(bool login = false, bool needModify = false)
         {
             _client = null;
-            Logger.Debug($"Spotify: Authorizing (login={login}, modify={needModify})");
+            SldlLog.Debug($"Spotify: Authorizing (login={login}, modify={needModify})");
 
             if (!login)
             {
@@ -171,7 +171,7 @@ namespace Sldl.Core.Extractors;
                 Swan.Logging.Logger.NoLogging();
                 _server = new EmbedIOAuthServer(new Uri("http://127.0.0.1:48721/callback"), 48721);
                 await _server.Start();
-                Logger.Debug($"Spotify: AuthServer started");
+                SldlLog.Debug($"Spotify: AuthServer started");
 
                 var existingOk = false;
                 if (_clientToken.Length != 0 || _clientRefreshToken.Length != 0)
@@ -198,7 +198,7 @@ namespace Sldl.Core.Extractors;
 
                     var request = new LoginRequest(_server.BaseUri, _clientId, LoginRequest.ResponseType.Code) { Scope = scope };
                     try { BrowserUtil.Open(request.ToUri()); }
-                    catch (Exception) { Logger.Info($"Unable to open URL, manually open: {request.ToUri()}"); }
+                    catch (Exception) { SldlLog.Info($"Unable to open URL, manually open: {request.ToUri()}"); }
                 }
 
                 await IsClientReady();
@@ -209,64 +209,64 @@ namespace Sldl.Core.Extractors;
         {
             if (_clientToken.Length != 0)
             {
-                Logger.Debug("Testing Spotify access with existing token...");
+                SldlLog.Debug("Testing Spotify access with existing token...");
                 var client = new SpotifyClient(_clientToken);
                 try
                 {
                     var me = await client.UserProfile.Current();
-                    Logger.Debug("Spotify access is good!");
+                    SldlLog.Debug("Spotify access is good!");
                     _client = client;
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    Logger.Info($"Could not make an API call with existing token: {ex.Message}");
+                    SldlLog.Info($"Could not make an API call with existing token: {ex.Message}");
                 }
             }
 
             if (_clientRefreshToken.Length != 0)
             {
-                Logger.Info("Trying to renew access with refresh token...");
+                SldlLog.Info("Trying to renew access with refresh token...");
                 var refreshRequest = new AuthorizationCodeRefreshRequest(_clientId, _clientSecret, _clientRefreshToken);
                 try
                 {
                     var oauthClient    = new OAuthClient();
                     var refreshResponse = await oauthClient.RequestToken(refreshRequest);
-                    Logger.Debug("Received refreshed Spotify access token.");
+                    SldlLog.Debug("Received refreshed Spotify access token.");
                     _clientToken = refreshResponse.AccessToken;
                     _client      = new SpotifyClient(_clientToken);
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    Logger.Info($"Could not refresh access token with refresh token: {ex}");
+                    SldlLog.Info($"Could not refresh access token with refresh token: {ex}");
                 }
             }
             else
             {
-                Logger.Info("No refresh token present, cannot refresh existing access");
+                SldlLog.Info("No refresh token present, cannot refresh existing access");
             }
 
-            Logger.Info("Not possible to access Spotify API without login! Falling back to login flow...");
+            SldlLog.Info("Not possible to access Spotify API without login! Falling back to login flow...");
             return false;
         }
 
         private async Task OnAuthorizationCodeReceived(object sender, AuthorizationCodeResponse response)
         {
-            Logger.Debug($"Spotify: Authorization code received");
+            SldlLog.Debug($"Spotify: Authorization code received");
             await _server.Stop();
 
             var config        = SpotifyClientConfig.CreateDefault();
-            Logger.Debug($"Spotify: Getting token response..");
+            SldlLog.Debug($"Spotify: Getting token response..");
             var tokenResponse = await new OAuthClient(config).RequestToken(
                 new AuthorizationCodeTokenRequest(_clientId, _clientSecret, response.Code, new Uri("http://127.0.0.1:48721/callback")));
 
-            Logger.Debug($"Spotify: Got token");
-            Logger.LogConsoleOnly(Logger.LogLevel.Info, "spotify-token=" + tokenResponse.AccessToken);
+            SldlLog.Debug($"Spotify: Got token");
+            SldlLog.LogConsoleOnly(LogLevel.Information, "spotify-token=" + tokenResponse.AccessToken);
             _clientToken = tokenResponse.AccessToken;
-            Logger.LogConsoleOnly(Logger.LogLevel.Info, "");
-            Logger.LogConsoleOnly(Logger.LogLevel.Info, "spotify-refresh=" + tokenResponse.RefreshToken);
-            Logger.LogConsoleOnly(Logger.LogLevel.Info, "");
+            SldlLog.LogConsoleOnly(LogLevel.Information, "");
+            SldlLog.LogConsoleOnly(LogLevel.Information, "spotify-refresh=" + tokenResponse.RefreshToken);
+            SldlLog.LogConsoleOnly(LogLevel.Information, "");
             _clientRefreshToken = tokenResponse.RefreshToken;
             _client             = new SpotifyClient(tokenResponse.AccessToken);
             loggedIn            = true;
@@ -274,7 +274,7 @@ namespace Sldl.Core.Extractors;
 
         private async Task OnErrorReceived(object sender, string error, string state)
         {
-            Logger.DebugError($"Spotify: Auth error: {error}");
+            SldlLog.Debug($"Spotify: Auth error: {error}");
             await _server.Stop();
             throw new Exception($"Aborting authorization, error received: {error}");
         }
@@ -358,7 +358,7 @@ namespace Sldl.Core.Extractors;
                 limit   = Math.Min(max - queue.Jobs.Count, 50);
             }
 
-            Logger.Info($"Found {queue.Jobs.Count} liked albums on Spotify");
+            SldlLog.Info($"Found {queue.Jobs.Count} liked albums on Spotify");
             return queue;
         }
 

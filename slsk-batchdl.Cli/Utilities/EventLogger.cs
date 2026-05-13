@@ -82,9 +82,9 @@ internal sealed class EventLogger
         // Extraction failure is an Error level event in the original code.
         var message = $"[{job.Summary.DisplayId}] ExtractJob: Failed: {job.Summary.QueryText}\n  Reason:    {job.Reason}";
         if (_liveMode)
-            Logger.LogNonConsole(Logger.LogLevel.Error, message);
+            SldlLog.LogNonConsole(LogLevel.Error, message);
         else
-            Logger.Error(message);
+            SldlLog.Error(message);
     }
 
     private void HandleJobStarted(JobStartedEventDto job)
@@ -255,9 +255,9 @@ internal sealed class EventLogger
 
         // If we are in Live Mode, EventLogger output always goes to the file only.
         if (_liveMode)
-            Logger.LogNonConsole(Logger.LogLevel.Info, message);
+            SldlLog.LogNonConsole(LogLevel.Information, message);
         else
-            Logger.Info(message);
+            SldlLog.Info(message);
     }
     
     private void Log(string message, bool ephemeral)
@@ -265,17 +265,17 @@ internal sealed class EventLogger
         // For events without a JobId, we use a global last message tracker or just allow them?
         // Most events have a jobId. 
         if (_liveMode)
-            Logger.LogNonConsole(Logger.LogLevel.Info, message);
+            SldlLog.LogNonConsole(LogLevel.Information, message);
         else
-            Logger.Info(message);
+            SldlLog.Info(message);
     }
     
     private void LogError(string message)
     {
         if (_liveMode)
-            Logger.LogNonConsole(Logger.LogLevel.Error, message);
+            SldlLog.LogNonConsole(LogLevel.Error, message);
         else
-            Logger.Error(message);
+            SldlLog.Error(message);
     }
 
     // --- Formatting Helpers (mirrored from CliProgressReporter) ---

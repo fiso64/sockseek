@@ -15,7 +15,7 @@ public class CliProgressReporterTests
     [TestCleanup]
     public void Cleanup()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
     }
 
     [TestMethod]
@@ -47,9 +47,9 @@ public class CliProgressReporterTests
     [TestMethod]
     public void SongSearching_NoProgress_UsesJobFormatAndDeduplicatesEquivalentSearchEvents()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
         var messages = new List<string>();
-        Logger.AddConsole(writer: (message, _) => messages.Add(message));
+        SldlLog.AddConsole(writer: (message, _) => messages.Add(message));
 
         var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
         try
@@ -85,9 +85,9 @@ public class CliProgressReporterTests
     [TestMethod]
     public void SongLifecycle_NoProgress_UsesJobFormatForDownloadAndTerminalState()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
         var messages = new List<string>();
-        Logger.AddConsole(writer: (message, _) => messages.Add(message));
+        SldlLog.AddConsole(writer: (message, _) => messages.Add(message));
 
         var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
         try
@@ -136,9 +136,9 @@ public class CliProgressReporterTests
     [TestMethod]
     public void SongFailure_NoProgress_PrintsFailureMessage()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
         var messages = new List<string>();
-        Logger.AddConsole(writer: (message, _) => messages.Add(message));
+        SldlLog.AddConsole(writer: (message, _) => messages.Add(message));
 
         var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
         try
@@ -183,9 +183,9 @@ public class CliProgressReporterTests
     [TestMethod]
     public void DownloadAttemptFailed_NoProgress_PrintsDiagnosticImmediately()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
         var messages = new List<string>();
-        Logger.AddConsole(writer: (message, _) => messages.Add(message));
+        SldlLog.AddConsole(writer: (message, _) => messages.Add(message));
 
         var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
         try
@@ -460,9 +460,9 @@ public class CliProgressReporterTests
     [TestMethod]
     public void RemoteAlbumChildDownload_NoProgress_PrintsTrackLifecycle()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
         var messages = new List<string>();
-        Logger.AddConsole(writer: (message, _) => messages.Add(message));
+        SldlLog.AddConsole(writer: (message, _) => messages.Add(message));
 
         var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
         try

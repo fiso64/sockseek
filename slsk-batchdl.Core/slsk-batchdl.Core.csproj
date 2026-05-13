@@ -21,6 +21,7 @@
   <ItemGroup>
     <PackageReference Include="Google.Apis.YouTube.v3" Version="1.69.0.3680" />
     <PackageReference Include="HtmlAgilityPack" Version="1.11.72" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.7" />
     <PackageReference Include="SmallestCSVParser" Version="1.2.0" />
     <PackageReference Include="Soulseek" Version="8.5.0" />
     <PackageReference Include="SpotifyAPI.Web" Version="7.4.2" />

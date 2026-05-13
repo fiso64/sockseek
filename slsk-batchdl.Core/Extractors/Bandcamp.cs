@@ -36,7 +36,7 @@ namespace Sldl.Core.Extractors;
 
             if (isWishlist)
             {
-                Logger.Info("Retrieving bandcamp wishlist..");
+                SldlLog.Info("Retrieving bandcamp wishlist..");
                 HtmlDocument doc;
 
                 if (!string.IsNullOrEmpty(_bandcamp.HtmlFromFile))
@@ -80,7 +80,7 @@ namespace Sldl.Core.Extractors;
             }
             else if (isArtist)
             {
-                Logger.Info("Retrieving bandcamp artist discography..");
+                SldlLog.Info("Retrieving bandcamp artist discography..");
                 using var httpClient = new HttpClient();
                 string response;
 
@@ -123,7 +123,7 @@ namespace Sldl.Core.Extractors;
             }
             else
             {
-                Logger.Info("Retrieving bandcamp item..");
+                SldlLog.Info("Retrieving bandcamp item..");
                 HtmlDocument doc;
 
                 if (!string.IsNullOrEmpty(_bandcamp.HtmlFromFile))

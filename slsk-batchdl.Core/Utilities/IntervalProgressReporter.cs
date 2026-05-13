@@ -58,7 +58,7 @@ public class IntervalProgressReporter
 
                 var failedStr       = failedCount > 0 ? $", Failed {failedCount}" : "";
                 var percentComplete = (double)(downloadedCount + failedCount) / totalCount;
-                Logger.Info($"Downloaded {downloadedCount}{failedStr} of Total {totalCount} ({percentComplete:P})", color: ConsoleColor.DarkGray);
+                SldlLog.Info($"Downloaded {downloadedCount}{failedStr} of Total {totalCount} ({percentComplete:P})", color: ConsoleColor.DarkGray);
             }
         }
     }

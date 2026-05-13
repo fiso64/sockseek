@@ -84,7 +84,7 @@ public static class OnCompleteExecutor
             string preparedCommand = PrepareCommandString(config.Command, fmCtx, prevCommandResult, firstCommandResult);
             if (string.IsNullOrWhiteSpace(preparedCommand))
             {
-                Logger.Warn($"Skipping on-complete action {i + 1} because the prepared command is empty after variable replacement.");
+                SldlLog.Warn($"Skipping on-complete action {i + 1} because the prepared command is empty after variable replacement.");
                 continue;
             }
 
@@ -98,12 +98,12 @@ public static class OnCompleteExecutor
             {
                 if (config.UseLocking)
                 {
-                    Logger.Debug($"on-complete [{i + 1}/{job.Config.Output.OnComplete.Count}]: Waiting for lock...");
+                    SldlLog.Debug($"on-complete [{i + 1}/{job.Config.Output.OnComplete.Count}]: Waiting for lock...");
                     await _lockingSemaphore.WaitAsync();
                     acquiredLock = true;
                 }
 
-                Logger.Debug($"on-complete [{i + 1}/{job.Config.Output.OnComplete.Count}]: Executing: FileName='{startInfo.FileName}', Arguments='{startInfo.Arguments}', UseShellExecute={startInfo.UseShellExecute}, CreateNoWindow={startInfo.CreateNoWindow}, RedirectOutput={startInfo.RedirectStandardOutput}");
+                SldlLog.Debug($"on-complete [{i + 1}/{job.Config.Output.OnComplete.Count}]: Executing: FileName='{startInfo.FileName}', Arguments='{startInfo.Arguments}', UseShellExecute={startInfo.UseShellExecute}, CreateNoWindow={startInfo.CreateNoWindow}, RedirectOutput={startInfo.RedirectStandardOutput}");
                 currentResult = await ExecuteProcessAsync(startInfo);
             }
             finally
@@ -114,7 +114,7 @@ public static class OnCompleteExecutor
 
             if (currentResult == null)
             {
-                Logger.Error($"Execution failed for command {i + 1}. Stopping further on-complete actions for this item.");
+                SldlLog.Error($"Execution failed for command {i + 1}. Stopping further on-complete actions for this item.");
                 return;
             }
 
@@ -129,7 +129,7 @@ public static class OnCompleteExecutor
         {
             ctx.IndexEditor?.Update();
             ctx.PlaylistEditor?.Update();
-            Logger.Debug($"Index/Playlist updated based on on-complete action output.");
+            SldlLog.Debug($"Index/Playlist updated based on on-complete action output.");
         }
     }
 
@@ -185,11 +185,11 @@ public static class OnCompleteExecutor
                 if (!string.IsNullOrEmpty(ctx.DownloadPath) && System.IO.File.Exists(ctx.DownloadPath))
                     audio = TagLib.File.Create(ctx.DownloadPath);
                 else
-                    Logger.Warn($"Cannot load tags for variable replacement: DownloadPath is null or file does not exist ('{ctx.DownloadPath}')");
+                    SldlLog.Warn($"Cannot load tags for variable replacement: DownloadPath is null or file does not exist ('{ctx.DownloadPath}')");
             }
             catch (Exception ex)
             {
-                Logger.Warn($"Failed to load audio tags for variable replacement from '{ctx.DownloadPath}': {ex.Message}");
+                SldlLog.Warn($"Failed to load audio tags for variable replacement from '{ctx.DownloadPath}': {ex.Message}");
             }
         }
 
@@ -349,7 +349,7 @@ public static class OnCompleteExecutor
         {
             if (!process.Start())
             {
-                Logger.Error($"Failed to start process: FileName='{startInfo.FileName}', Arguments='{startInfo.Arguments}'");
+                SldlLog.Error($"Failed to start process: FileName='{startInfo.FileName}', Arguments='{startInfo.Arguments}'");
                 return null;
             }
 
@@ -365,7 +365,7 @@ public static class OnCompleteExecutor
         }
         catch (Exception ex)
         {
-            Logger.Error($"Error executing process: FileName='{startInfo.FileName}', Arguments='{startInfo.Arguments}'. Exception: {ex}");
+            SldlLog.Error($"Error executing process: FileName='{startInfo.FileName}', Arguments='{startInfo.Arguments}'. Exception: {ex}");
             return null;
         }
     }
@@ -386,7 +386,7 @@ public static class OnCompleteExecutor
                 {
                     if (song.State != newState)
                     {
-                        Logger.Info($"Updating song {song} state from {song.State} to {newState} based on stdout.");
+                        SldlLog.Info($"Updating song {song} state from {song.State} to {newState} based on stdout.");
                         if (newState == JobState.Failed)
                             song.Fail(FailureReason.Other, "Failed via on-complete stdout");
                         else if (newState is JobState.Skipped or JobState.AlreadyExists or JobState.NotFoundLastTime)
@@ -401,7 +401,7 @@ public static class OnCompleteExecutor
                         string newPath = parts[1].Trim();
                         if (song.DownloadPath != newPath)
                         {
-                            Logger.Info($"Updating song {song} path to '{newPath}' based on stdout.");
+                            SldlLog.Info($"Updating song {song} path to '{newPath}' based on stdout.");
                             song.DownloadPath = newPath;
                             needsUpdate = true;
                         }
@@ -410,12 +410,12 @@ public static class OnCompleteExecutor
             }
             else
             {
-                Logger.Warn($"Could not parse new state from stdout. Stdout: '{result.Stdout}'");
+                SldlLog.Warn($"Could not parse new state from stdout. Stdout: '{result.Stdout}'");
             }
         }
 
         if (result.ExitCode != 0)
-            Logger.DebugError($"Command finished with non-zero exit code {result.ExitCode}. Stdout: '{result.Stdout ?? "N/A"}', Stderr: '{result.Stderr ?? "N/A"}'");
+            SldlLog.Debug($"Command finished with non-zero exit code {result.ExitCode}. Stdout: '{result.Stdout ?? "N/A"}', Stderr: '{result.Stderr ?? "N/A"}'");
 
         return needsUpdate;
     }

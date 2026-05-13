@@ -9,21 +9,21 @@ public class LoggerTests
     [TestCleanup]
     public void Cleanup()
     {
-        Logger.RemoveNonFileOutputs();
-        Logger.RemoveFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
+        SldlLog.RemoveFileOutputs();
     }
 
     [TestMethod]
     public void LogConsoleOnly_DoesNotWriteToNonConsoleSinks()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
         var consoleMessages = new List<string>();
         var sinkMessages = new List<string>();
 
-        Logger.AddConsole(writer: (message, _) => consoleMessages.Add(message));
-        Logger.AddSink((_, message) => sinkMessages.Add(message));
+        SldlLog.AddConsole(writer: (message, _) => consoleMessages.Add(message));
+        SldlLog.AddSink((_, message) => sinkMessages.Add(message));
 
-        Logger.LogConsoleOnly(Logger.LogLevel.Info, "spotify-token=secret");
+        SldlLog.LogConsoleOnly(LogLevel.Information, "spotify-token=secret");
 
         CollectionAssert.Contains(consoleMessages, "spotify-token=secret");
         Assert.AreEqual(0, sinkMessages.Count);
@@ -36,20 +36,20 @@ public class LoggerTests
 
         try
         {
-            Logger.AddOrReplaceFile(logPath, Logger.LogLevel.Debug, prependDate: false, prependLogLevel: false);
+            SldlLog.AddOrReplaceFile(logPath, LogLevel.Debug, prependDate: false, prependLogLevel: false);
 
             await Task.WhenAll(Enumerable.Range(0, 100)
-                .Select(i => Task.Run(() => Logger.Debug($"message-{i}"))));
+                .Select(i => Task.Run(() => SldlLog.Debug($"message-{i}"))));
 
             var lines = File.ReadAllLines(logPath);
             Assert.AreEqual(100, lines.Length);
             CollectionAssert.AreEquivalent(
-                Enumerable.Range(0, 100).Select(i => $"message-{i}").ToArray(),
+                Enumerable.Range(0, 100).Select(i => $"[sldl.tests.core] message-{i}").ToArray(),
                 lines);
         }
         finally
         {
-            Logger.RemoveFileOutputs();
+            SldlLog.RemoveFileOutputs();
             if (File.Exists(logPath))
                 File.Delete(logPath);
         }
@@ -63,14 +63,14 @@ public class LoggerTests
 
         try
         {
-            Logger.AddOrReplaceFile(logPath, Logger.LogLevel.Debug, prependDate: false, prependLogLevel: false);
+            SldlLog.AddOrReplaceFile(logPath, LogLevel.Debug, prependDate: false, prependLogLevel: false);
 
             using var locked = new FileStream(logPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-            Logger.Debug("this should not crash");
+            SldlLog.Debug("this should not crash");
         }
         finally
         {
-            Logger.RemoveFileOutputs();
+            SldlLog.RemoveFileOutputs();
             if (File.Exists(logPath))
                 File.Delete(logPath);
         }

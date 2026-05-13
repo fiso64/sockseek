@@ -1,13 +1,14 @@
-using CoreLogger = Sldl.Core.Logger;
+using Microsoft.Extensions.Logging;
+using Sldl.Core;
 
 namespace Sldl.Server;
 
 public static class CoreLoggerBridge
 {
-    public static void Configure(IServiceProvider _, CoreLogger.LogLevel minimumLevel)
+    public static void Configure(IServiceProvider _, LogLevel minimumLevel)
     {
-        CoreLogger.RemoveNonFileOutputs();
-        CoreLogger.AddSink(
+        SldlLog.RemoveNonFileOutputs();
+        SldlLog.AddSink(
             (_, message) => Console.WriteLine(message),
             minimumLevel,
             prependDate: true,

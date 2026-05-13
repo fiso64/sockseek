@@ -18,11 +18,11 @@ namespace Sldl.Cli;
             if (printOption.HasFlag(PrintOption.Index))
             {
                 if (string.IsNullOrEmpty(indexFilePath))
-                { Logger.Fatal("Error: No index file path provided"); return; }
+                { SldlLog.Fatal("Error: No index file path provided"); return; }
 
                 var fullPath = Utils.GetFullPath(Utils.ExpandVariables(indexFilePath));
                 if (!System.IO.File.Exists(fullPath))
-                { Logger.Fatal($"Error: Index file {fullPath} does not exist"); return; }
+                { SldlLog.Fatal($"Error: Index file {fullPath} does not exist"); return; }
 
                 var index = new M3uEditor(fullPath, new JobList(), M3uOption.Index, true);
                 var data = index.GetPreviousRunData();

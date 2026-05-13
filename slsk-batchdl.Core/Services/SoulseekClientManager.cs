@@ -74,7 +74,7 @@ public class SoulseekClientManager : IDisposable
             {
                 if (!loginSettings.UseRandomLogin && (string.IsNullOrEmpty(loginSettings.Username) || string.IsNullOrEmpty(loginSettings.Password)))
                 {
-                    Logger.Fatal("No soulseek username or password provided for login.");
+                    SldlLog.Fatal("No soulseek username or password provided for login.");
                 }
 
                 await LoginInternalAsync(_client, loginSettings, cancellationToken);
@@ -84,7 +84,7 @@ public class SoulseekClientManager : IDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Logger.Error($"Failed to ensure Soulseek connection and login: {ex.Message}");
+            SldlLog.Error($"Failed to ensure Soulseek connection and login: {ex.Message}");
             StartMonitoring(); // Ensure monitoring starts even on failure so we can retry
             throw new InvalidOperationException($"Soulseek login failed: {ex.Message}", ex);
         }
@@ -120,12 +120,12 @@ public class SoulseekClientManager : IDisposable
                         _readyTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     }
 
-                    Logger.Warn($"Connection lost. Retrying in {retryDelay}s...");
+                    SldlLog.Warn($"Connection lost. Retrying in {retryDelay}s...");
                     await Task.Delay(retryDelay * 1000, ct);
                     
                     await EnsureConnectedAndLoggedInAsync(_initialSettings, ct);
                     retryDelay = 1; // Reset on success
-                    Logger.Info("Reconnected successfully.");
+                    SldlLog.Info("Reconnected successfully.");
                 }
                 else
                 {
@@ -137,11 +137,11 @@ public class SoulseekClientManager : IDisposable
             {
                 if (!IsTransient(ex))
                 {
-                    Logger.Fatal($"Permanent Soulseek error: {ex.Message}. Stopping reconnection attempts.");
+                    SldlLog.Fatal($"Permanent Soulseek error: {ex.Message}. Stopping reconnection attempts.");
                     break;
                 }
 
-                Logger.DebugError($"Reconnection attempt failed: {ex.Message}");
+                SldlLog.Debug($"Reconnection attempt failed: {ex.Message}");
                 retryDelay = Math.Min(retryDelay * 2, 8);
             }
 
@@ -151,10 +151,10 @@ public class SoulseekClientManager : IDisposable
 
     private ISoulseekClient CreateClientInstance(EngineSettings settings)
     {
-        Logger.Debug("Creating Soulseek client instance...");
+        SldlLog.Debug("Creating Soulseek client instance...");
         if (!string.IsNullOrEmpty(settings.MockFilesDir))
         {
-            Logger.Info("Using local files Soulseek client.");
+            SldlLog.Info("Using local files Soulseek client.");
             return LocalFilesSoulseekClient.FromLocalPaths(
                 settings.MockFilesReadTags,
                 settings.MockFilesSlow,
@@ -163,7 +163,7 @@ public class SoulseekClientManager : IDisposable
         }
         else
         {
-            Logger.Debug("Configuring real Soulseek Client connection options.");
+            SldlLog.Debug("Configuring real Soulseek Client connection options.");
             var serverConnectionOptions = new ConnectionOptions(
             connectTimeout: settings.ConnectTimeout,
             configureSocket: (socket) =>
@@ -229,21 +229,21 @@ public class SoulseekClientManager : IDisposable
             const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
             user = new string(Enumerable.Repeat(chars, 10).Select(s => s[r.Next(s.Length)]).ToArray());
             pass = new string(Enumerable.Repeat(chars, 10).Select(s => s[r.Next(s.Length)]).ToArray());
-            Logger.Debug($"Generated random username: {user}");
+            SldlLog.Debug($"Generated random username: {user}");
         }
 
         string displayUser = settings.UseRandomLogin ? "[Random]" : user;
-        Logger.Info($"Login {displayUser}");
+        SldlLog.Info($"Login {displayUser}");
 
         cancellationToken.ThrowIfCancellationRequested();
         await client.ConnectAsync(user, pass);
 
         if (!settings.NoModifyShareCount)
         {
-            Logger.Debug($"Setting share count for {displayUser}");
+            SldlLog.Debug($"Setting share count for {displayUser}");
             await client.SetSharedCountsAsync(settings.SharedFiles, settings.SharedFolders, cancellationToken);
         }
-        Logger.Debug($"Logged in {displayUser}");
+        SldlLog.Debug($"Logged in {displayUser}");
     }
 
     public void Dispose()

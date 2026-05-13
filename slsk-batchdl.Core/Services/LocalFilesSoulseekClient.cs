@@ -41,9 +41,9 @@ namespace Sldl.Core.Services
         public static LocalFilesSoulseekClient FromLocalPaths(bool useTags, bool slowMode, int failDownloads, params string[] localPaths)
         {
             if (useTags)
-                Logger.Info($"Reading tags from mock files dir, this may take a while. Use --mock-files-no-read-tags if tags are not needed.");
+                SldlLog.Info($"Reading tags from mock files dir, this may take a while. Use --mock-files-no-read-tags if tags are not needed.");
             else
-                Logger.Info("Mock files tag reading disabled; using deterministic synthetic track lengths derived from filenames.");
+                SldlLog.Info("Mock files tag reading disabled; using deterministic synthetic track lengths derived from filenames.");
 
             var files = localPaths.SelectMany(EnumerateLocalFiles).ToList();
             var localFilePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -77,7 +77,7 @@ namespace Sldl.Core.Services
                                         attributes.Add(new Soulseek.FileAttribute(FileAttributeType.BitDepth, file.Properties.BitsPerSample));
                                 }
                             }
-                            catch (Exception ex) { Logger.Warn($"Failed to read tags for '{path}': {ex.Message}"); }
+                            catch (Exception ex) { SldlLog.Warn($"Failed to read tags for '{path}': {ex.Message}"); }
                         }
                         else
                         {

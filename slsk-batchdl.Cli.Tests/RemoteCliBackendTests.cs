@@ -17,13 +17,13 @@ public class RemoteCliBackendTests
     [TestInitialize]
     public void Initialize()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
     }
 
     [TestCleanup]
     public void Cleanup()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
     }
 
     [TestMethod]
@@ -265,14 +265,14 @@ public class RemoteCliBackendTests
 
             using var output = new StringWriter();
             Console.SetOut(output);
-            Logger.AddConsole(writer: (message, _) => Console.WriteLine(message));
-            Logger.SetConsoleLogLevel(Logger.LogLevel.Info);
+            SldlLog.AddConsole(writer: (message, _) => Console.WriteLine(message));
+            SldlLog.SetConsoleLogLevel(LogLevel.Information);
             await Sldl.Cli.Program.PrintRemoteCompleteAsync(backend, summary.WorkflowId, CancellationToken.None);
             StringAssert.Contains(output.ToString(), "Completed: 2 succeeded, 0 failed.");
         }
         finally
         {
-            Logger.RemoveNonFileOutputs();
+            SldlLog.RemoveNonFileOutputs();
             Console.SetOut(originalOut);
             await app.StopAsync();
             if (Directory.Exists(musicRoot))
@@ -587,8 +587,8 @@ public class RemoteCliBackendTests
 
             using var output = new StringWriter();
             Console.SetOut(output);
-            Logger.AddConsole(writer: (message, _) => Console.WriteLine(message));
-            Logger.SetConsoleLogLevel(Logger.LogLevel.Info);
+            SldlLog.AddConsole(writer: (message, _) => Console.WriteLine(message));
+            SldlLog.SetConsoleLogLevel(LogLevel.Information);
             await Sldl.Cli.Program.PrintRemoteCompleteAsync(backend, downloadSummary.WorkflowId, CancellationToken.None);
 
             string rendered = output.ToString();
@@ -601,7 +601,7 @@ public class RemoteCliBackendTests
         }
         finally
         {
-            Logger.RemoveNonFileOutputs();
+            SldlLog.RemoveNonFileOutputs();
             Console.SetOut(originalOut);
             await app.StopAsync();
             if (Directory.Exists(musicRoot))

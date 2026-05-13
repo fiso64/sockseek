@@ -414,7 +414,7 @@ namespace Tests.ConfigParsingTests
         public void Verbose_SetsLogLevelDebug()
         {
             var (eng, _, _) = Bind("-v");
-            Assert.AreEqual(Logger.LogLevel.Debug, eng.LogLevel);
+            Assert.AreEqual(LogLevel.Debug, eng.LogLevel);
         }
 
         [TestMethod]

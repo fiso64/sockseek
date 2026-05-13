@@ -41,7 +41,7 @@ namespace Sldl.Core.Extractors;
 
             if (_yt.GetDeleted)
             {
-                Logger.Info("Getting deleted videos..");
+                SldlLog.Info("Getting deleted videos..");
                 var archive = new YouTube.YouTubeArchiveRetriever();
                 deleted = await archive.RetrieveDeleted(input, printFailed: _yt.DeletedOnly);
             }
@@ -49,12 +49,12 @@ namespace Sldl.Core.Extractors;
             {
                 if (!string.IsNullOrEmpty(YouTube.ApiKey))
                 {
-                    Logger.Info("Loading YouTube playlist (API)");
+                    SldlLog.Info("Loading YouTube playlist (API)");
                     (name, songs) = await YouTube.GetSongsApi(input, max, off);
                 }
                 else
                 {
-                    Logger.Info("Loading YouTube playlist");
+                    SldlLog.Info("Loading YouTube playlist");
                     (name, songs) = await YouTube.GetSongsYtExplode(input, max, off);
                 }
             }
@@ -170,7 +170,7 @@ namespace Sldl.Core.Extractors;
             }
 
             if (songsDict.Count >= 200)
-                Logger.Info($"Loaded: {songs.Count}");
+                SldlLog.Info($"Loaded: {songs.Count}");
             return (playlistName, songs);
         }
 
@@ -412,10 +412,10 @@ namespace Sldl.Core.Extractors;
             startInfo.RedirectStandardError = true;
             startInfo.UseShellExecute = false;
             process.StartInfo = startInfo;
-            process.OutputDataReceived += (sender, e) => { Logger.Info(e.Data ?? ""); };
-            process.ErrorDataReceived += (sender, e) => { Logger.Info(e.Data ?? ""); };
+            process.OutputDataReceived += (sender, e) => { SldlLog.Info(e.Data ?? ""); };
+            process.ErrorDataReceived += (sender, e) => { SldlLog.Info(e.Data ?? ""); };
 
-            Logger.Debug($"{startInfo.FileName} {startInfo.Arguments}");
+            SldlLog.Debug($"{startInfo.FileName} {startInfo.Arguments}");
             process.Start();
 
             List<(int, string, string)> results = new List<(int, string, string)>();
@@ -458,7 +458,7 @@ namespace Sldl.Core.Extractors;
             startInfo.UseShellExecute = false;
             process.StartInfo = startInfo;
 
-            Logger.Debug($"{startInfo.FileName} {startInfo.Arguments}");
+            SldlLog.Debug($"{startInfo.FileName} {startInfo.Arguments}");
             process.Start();
             process.WaitForExit();
 
@@ -481,7 +481,7 @@ namespace Sldl.Core.Extractors;
             if (!musicFiles.Any())
             {
                 if (isCustomPath)
-                    Logger.Debug($"Could not find yt-dlp output file. This is expected if using a custom output path argument.");
+                    SldlLog.Debug($"Could not find yt-dlp output file. This is expected if using a custom output path argument.");
                 else
                     throw new FileNotFoundException($"Could not find yt-dlp output file after download in {parentDirectory}/{fileName}.*");
             }
@@ -577,21 +577,21 @@ namespace Sldl.Core.Extractors;
                 await Task.WhenAll(workers);
                 process.WaitForExit();
                 deletedVideoUrls.CompleteAdding();
-                Logger.Info($"Deleted metadata total/archived/retrieved: {totalCount}/{archivedCount}/{songs.Count}");
+                SldlLog.Info($"Deleted metadata total/archived/retrieved: {totalCount}/{archivedCount}/{songs.Count}");
 
                 if (printFailed)
                 {
                     if (archivedCount < totalCount)
                     {
-                        Logger.Info("No archived version found for the following:");
-                        foreach (var x in noArchive) Logger.Info($"  {x}");
-                        Logger.Info("");
+                        SldlLog.Info("No archived version found for the following:");
+                        foreach (var x in noArchive) SldlLog.Info($"  {x}");
+                        SldlLog.Info("");
                     }
                     if (songs.Count < archivedCount)
                     {
-                        Logger.Info("Failed to parse archived version for the following:");
-                        foreach (var x in failRetrieve) Logger.Info($"  {x}");
-                        Logger.Info("");
+                        SldlLog.Info("Failed to parse archived version for the following:");
+                        foreach (var x in failRetrieve) SldlLog.Info($"  {x}");
+                        SldlLog.Info("");
                     }
                 }
 

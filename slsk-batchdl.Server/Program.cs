@@ -1,8 +1,8 @@
 using Sldl.Api;
 using Sldl.Server;
 
-Sldl.Core.Logger.SetupExceptionHandling();
-Sldl.Core.Logger.AddConsole();
+Sldl.Core.SldlLog.SetupExceptionHandling();
+Sldl.Core.SldlLog.AddConsole();
 
 var app = ServerHost.Build(args);
 app.Run();

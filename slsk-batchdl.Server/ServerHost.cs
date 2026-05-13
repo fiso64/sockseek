@@ -524,7 +524,7 @@ public static class ServerHost
     private static IResult BadRequest(Exception ex)
     {
         TryCreateBadRequest(ex, out var error);
-        Sldl.Core.Logger.LogNonConsole(Sldl.Core.Logger.LogLevel.Warn, $"Bad request: {error}");
+        Sldl.Core.SldlLog.LogNonConsole(Microsoft.Extensions.Logging.LogLevel.Warning, $"Bad request: {error}");
         return Results.BadRequest(new ApiErrorDto(error));
     }
 

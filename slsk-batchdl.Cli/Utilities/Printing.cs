@@ -429,7 +429,7 @@ public static class Printing
 
     private static void PrintPlannedJobLines(string header, IReadOnlyList<Job> jobs, DownloadSettings config, bool includePath = false)
     {
-        Logger.Info(header);
+        SldlLog.Info(header);
         Console.ResetColor();
         foreach (var job in jobs)
         {
@@ -488,7 +488,7 @@ public static class Printing
         if (successes + fails > 1)
         {
             WriteLine();
-            Logger.Info($"Completed: {successes} succeeded, {fails} failed.");
+            SldlLog.Info($"Completed: {successes} succeeded, {fails} failed.");
         }
     }
 
@@ -513,7 +513,7 @@ public static class Printing
         bool allSkipped = existing.Count + notFound.Count > toBeDownloaded.Count;
 
         if (summary && (isNormal || skippedTracks.Length > 0))
-            Logger.Info($"Downloading {toBeDownloaded.Count} tracks{skippedTracks}{(allSkipped ? '.' : ':')}");
+            SldlLog.Info($"Downloading {toBeDownloaded.Count} tracks{skippedTracks}{(allSkipped ? '.' : ':')}");
 
         if (toBeDownloaded.Count > 0)
         {
@@ -684,7 +684,7 @@ public static class Printing
     public static void RefreshOrPrint(int current, string item, bool print = false)
     {
         if (print)
-            Logger.Info(item);
+            SldlLog.Info(item);
     }
 
     public static void WriteLine(string value = "", ConsoleColor color = ConsoleColor.Gray, bool force = false)
