@@ -77,7 +77,7 @@ public sealed class EngineSupervisor
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 Interlocked.Increment(ref restartCount);
-                Logger.Error($"Engine instance failed, restarting supervisor loop: {ex.Message}");
+                SldlLog.Error($"Engine instance failed, restarting supervisor loop: {ex.Message}");
                 StateStore.MarkActiveJobsInfrastructureFailed(ex.Message);
                 StateStore.DetachEngine(engine);
                 lock (engineGate)

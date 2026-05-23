@@ -74,7 +74,7 @@ namespace Sldl.Core.Extractors;
                     }
                     catch (Exception e)
                     {
-                        Logger.Error($"Error removing from source: {e}");
+                        SldlLog.Error($"Error removing from source: {e}");
                     }
                 }
             }
@@ -134,7 +134,7 @@ namespace Sldl.Core.Extractors;
 
             int foundCount = cols.Count(col => col.Length > 0);
             if (!string.IsNullOrEmpty(usingColumns))
-                Logger.Info($"Using columns: {usingColumns.TrimEnd(' ', ',')}.");
+                SldlLog.Info($"Using columns: {usingColumns.TrimEnd(' ', ',')}.");
             else if (foundCount == 0)
                 throw new Exception("No columns specified and couldn't determine automatically");
 
@@ -193,7 +193,7 @@ namespace Sldl.Core.Extractors;
                 if (lengthIndex >= 0)
                 {
                     try { length = (int)ParseTrackLength(values[lengthIndex], timeUnit); }
-                    catch { Logger.Warn($"Couldn't parse track length \"{values[lengthIndex]}\" with format \"{timeUnit}\""); }
+                    catch { SldlLog.Warn($"Couldn't parse track length \"{values[lengthIndex]}\" with format \"{timeUnit}\""); }
                 }
 
                 if (title.Length == 0 && album.Length == 0 && artist.Length == 0)

@@ -148,7 +148,7 @@ namespace Sldl.Core.Jobs;
         {
             if (_printLines == null) return;
             foreach (var line in _printLines)
-                Logger.Info(line);
+                SldlLog.Info(line);
             _printLines = null;
         }
 

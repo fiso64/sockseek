@@ -158,7 +158,7 @@ namespace Sldl.Core.Extractors;
 
             if (other.Length > 0 && (isAlbum && _album.Length > 0 || !isAlbum && _title.Length > 0))
             {
-                Logger.Warn($"Warning: Input part '{other}' provided without a property name " +
+                SldlLog.Warn($"Warning: Input part '{other}' provided without a property name " +
                     $"and album or title is already set. Ignoring.");
             }
             else if (other.Length > 0)

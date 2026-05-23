@@ -148,7 +148,7 @@ namespace Sldl.Core.Extractors;
                     }
                     catch (Exception e)
                     {
-                        Logger.Error($"Error removing from source: {e}");
+                        SldlLog.Error($"Error removing from source: {e}");
                     }
                 }
             }

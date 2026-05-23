@@ -157,5 +157,5 @@ public sealed class ServerProgressLogReporter
         => reason == FailureReason.None ? "" : reason.ToString();
 
     private static void Log(string message)
-        => Logger.LogNonConsole(Logger.LogLevel.Info, message);
+        => SldlLog.LogNonConsole(LogLevel.Information, message);
 }

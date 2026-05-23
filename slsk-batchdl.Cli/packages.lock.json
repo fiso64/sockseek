@@ -255,7 +255,7 @@
       "Sldl.Api": {
         "type": "Project",
         "dependencies": {
-          "Sldl.Core": "[3.0.0-dev, )"
+          "Sldl.Core": "[3.0.0-dev.10, )"
         }
       },
       "Sldl.Core": {
@@ -263,6 +263,7 @@
         "dependencies": {
           "Google.Apis.YouTube.v3": "[1.69.0.3680, )",
           "HtmlAgilityPack": "[1.11.72, )",
+          "Microsoft.Extensions.Logging": "[10.0.7, )",
           "SmallestCSVParser": "[1.2.0, )",
           "Soulseek": "[8.5.0, )",
           "SpotifyAPI.Web": "[7.4.2, )",
@@ -275,8 +276,8 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.AspNetCore.OpenApi": "[10.0.7, )",
-          "Sldl.Api": "[3.0.0-dev, )",
-          "Sldl.Core": "[3.0.0-dev, )"
+          "Sldl.Api": "[3.0.0-dev.10, )",
+          "Sldl.Core": "[3.0.0-dev.10, )"
         }
       }
     }

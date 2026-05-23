@@ -183,7 +183,7 @@ public class M3uEditor
 
     public void Update()
     {
-        Logger.Trace($"M3uEditor.Update() called for {path} (Option: {option}, Queue length: {queue.Jobs.Count})");
+        SldlLog.Trace($"M3uEditor.Update() called for {path} (Option: {option}, Queue length: {queue.Jobs.Count})");
         if (option == M3uOption.None)
             return;
 
@@ -213,7 +213,7 @@ public class M3uEditor
 
                 if (needUpdate)
                 {
-                    Logger.Trace($"M3uEditor: Updating entry for {key}");
+                    SldlLog.Trace($"M3uEditor: Updating entry for {key}");
                     if (prev == null)
                     {
                         previousRunData[key] = new IndexEntry
@@ -239,7 +239,7 @@ public class M3uEditor
 
             foreach (var job in queue.AllJobs())
             {
-                Logger.Trace($"M3uEditor: Checking job {job.GetType().Name} (ID: {job.DisplayId}, State: {job.State})");
+                SldlLog.Trace($"M3uEditor: Checking job {job.GetType().Name} (ID: {job.DisplayId}, State: {job.State})");
                 var albumJobs = job switch
                 {
                     AlbumJob aj => new[] { aj },
@@ -273,7 +273,7 @@ public class M3uEditor
                     if (song.IsNotAudio)
                         continue;
 
-                    Logger.Trace($"M3uEditor: Checking song {song.Query.Title} (State: {song.State}, Path: {song.DownloadPath})");
+                    SldlLog.Trace($"M3uEditor: Checking song {song.Query.Title} (State: {song.State}, Path: {song.DownloadPath})");
                     if (song.State == JobState.Pending)
                         continue;
 
@@ -293,27 +293,27 @@ public class M3uEditor
                     {
                         var line = SongToLine(song);
                         newLines.Add(line);
-                        Logger.Trace($"M3uEditor: Added line to newLines: {line}");
+                        SldlLog.Trace($"M3uEditor: Added line to newLines: {line}");
                     }
                 }
             }
 
             if (option == M3uOption.Playlist && !newLines.SequenceEqual(lines))
             {
-                Logger.Trace($"M3uEditor: newLines changed (count: {newLines.Count} vs {lines.Count})");
+                SldlLog.Trace($"M3uEditor: newLines changed (count: {newLines.Count} vs {lines.Count})");
                 lines = newLines;
                 needUpdate = true;
             }
 
             if (needUpdate || needFirstUpdate)
             {
-                Logger.Trace($"M3uEditor: Writing all lines (needUpdate: {needUpdate}, needFirstUpdate: {needFirstUpdate})");
+                SldlLog.Trace($"M3uEditor: Writing all lines (needUpdate: {needUpdate}, needFirstUpdate: {needFirstUpdate})");
                 needFirstUpdate = false;
                 WriteAllLines();
             }
             else
             {
-                Logger.Trace($"M3uEditor: No update needed.");
+                SldlLog.Trace($"M3uEditor: No update needed.");
             }
         }
     }
@@ -328,7 +328,7 @@ public class M3uEditor
 
     private void WriteAllLines()
     {
-        Logger.Trace($"M3uEditor: Writing file to {path}");
+        SldlLog.Trace($"M3uEditor: Writing file to {path}");
         if (!Directory.Exists(parent))
             Directory.CreateDirectory(parent);
 

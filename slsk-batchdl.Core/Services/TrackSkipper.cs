@@ -195,7 +195,7 @@ namespace Sldl.Core.Services;
                 {
                     TagLib.File musicFile;
                     try { musicFile = TagLib.File.Create(path); }
-                    catch (Exception ex) { Logger.Trace($"Failed to read tags for '{path}': {ex.Message}"); continue; }
+                    catch (Exception ex) { SldlLog.Trace($"Failed to read tags for '{path}': {ex.Message}"); continue; }
 
                     string ppath  = Preprocess(path[..path.LastIndexOf('.')], false, false)[removeLen..];
                     string pname  = Path.GetFileName(ppath);
@@ -255,7 +255,7 @@ namespace Sldl.Core.Services;
                 {
                     TagLib.File musicFile;
                     try { musicFile = TagLib.File.Create(path); }
-                    catch (Exception ex) { Logger.Trace($"Failed to read tags for '{path}': {ex.Message}"); continue; }
+                    catch (Exception ex) { SldlLog.Trace($"Failed to read tags for '{path}': {ex.Message}"); continue; }
 
                     string partist      = Preprocess(musicFile.Tag.JoinedPerformers ?? "",   false, false);
                     string ptitle       = Preprocess(musicFile.Tag.Title ?? "",              false, false);
@@ -298,7 +298,7 @@ namespace Sldl.Core.Services;
                 {
                     TagLib.File musicFile;
                     try { musicFile = TagLib.File.Create(path); }
-                    catch (Exception ex) { Logger.Trace($"Failed to read tags for '{path}': {ex.Message}"); continue; }
+                    catch (Exception ex) { SldlLog.Trace($"Failed to read tags for '{path}': {ex.Message}"); continue; }
 
                     string partist      = Preprocess(musicFile.Tag.JoinedPerformers ?? "",   false, false);
                     string ptitle       = Preprocess(musicFile.Tag.Title ?? "",              false, false);
@@ -396,7 +396,7 @@ namespace Sldl.Core.Services;
             }
             catch (Exception ex)
             {
-                Logger.Trace($"Failed to read tags for '{t.DownloadPath}': {ex.Message}");
+                SldlLog.Trace($"Failed to read tags for '{t.DownloadPath}': {ex.Message}");
                 return false;
             }
         }
@@ -424,7 +424,7 @@ namespace Sldl.Core.Services;
                 {
                     TagLib.File musicFile;
                     try { musicFile = TagLib.File.Create(path); }
-                    catch (Exception ex) { Logger.Trace($"Failed to read tags for '{path}': {ex.Message}"); return false; }
+                    catch (Exception ex) { SldlLog.Trace($"Failed to read tags for '{path}': {ex.Message}"); return false; }
 
                     if (!context.conditions.FileSatisfies(musicFile, null))
                         return false;

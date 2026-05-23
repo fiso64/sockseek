@@ -179,7 +179,7 @@ public static class JobPreparer
             || (config.Skip.SkipExisting && config.Skip.SkipMode == SkipMode.Index)
             || config.Skip.SkipNotFound;
 
-        Logger.Trace($"SetupIndexEditor: Job {job.DisplayId} ({job.GetType().Name}) - WillWriteIndex={indexOption != M3uOption.None}, NeedIndex={needIndex}");
+        SldlLog.Trace($"SetupIndexEditor: Job {job.DisplayId} ({job.GetType().Name}) - WillWriteIndex={indexOption != M3uOption.None}, NeedIndex={needIndex}");
 
         if (!needIndex) return;
 
@@ -210,7 +210,7 @@ public static class JobPreparer
         Dictionary<(string, M3uOption), M3uEditor> editors)
     {
         var config = job.Config;
-        Logger.Trace($"SetupPlaylistEditor: Job {job.DisplayId} ({job.GetType().Name}) - WritePlaylist={config.Output.WritePlaylist}");
+        SldlLog.Trace($"SetupPlaylistEditor: Job {job.DisplayId} ({job.GetType().Name}) - WritePlaylist={config.Output.WritePlaylist}");
         if (!config.Output.WritePlaylist) return;
 
         string m3uPath;

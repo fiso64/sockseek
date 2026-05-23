@@ -43,11 +43,11 @@ public class Downloader
 
                 if (existingFileInfo.Exists && existingFileInfo.Length == candidate.File.Size)
                 {
-                    Logger.Debug($"File \"{candidate.Filename}\" already downloaded at {existingPath}");
+                    SldlLog.Debug($"File \"{candidate.Filename}\" already downloaded at {existingPath}");
 
                     if (!outputFileInfo.Exists || outputFileInfo.Length != existingFileInfo.Length)
                     {
-                        Logger.Debug("Copying to new output path");
+                        SldlLog.Debug("Copying to new output path");
                         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
                         File.Copy(existingPath!, outputPath, true);
                     }
@@ -66,7 +66,7 @@ public class Downloader
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         string incompleteOutputPath = transfer.NoIncompleteExt ? outputPath : outputPath + ".incomplete";
 
-        Logger.Debug($"Downloading: {song} from '{candidate.Username}\\{candidate.Filename}' to '{incompleteOutputPath}'");
+        SldlLog.Debug($"Downloading: {song} from '{candidate.Username}\\{candidate.Filename}' to '{incompleteOutputPath}'");
 
         var transferOptions = new TransferOptions(
             disposeOutputStreamOnCompletion: false,
@@ -122,7 +122,7 @@ public class Downloader
                         ? maxRetries
                         : retryCount;
 
-                    Logger.DebugError($"Error while downloading '{candidate.Username}\\{candidate.Filename}' to '{incompleteOutputPath}' (attempt {retryCount}/{maxRetries}): {e}");
+                    SldlLog.Debug($"Error while downloading '{candidate.Username}\\{candidate.Filename}' to '{incompleteOutputPath}' (attempt {retryCount}/{maxRetries}): {e}");
                     events.RaiseDownloadAttemptFailed(song, candidate, incompleteOutputPath, retryCount, reportedMaxRetries, e);
 
                     if (!canRetry)
@@ -147,7 +147,7 @@ public class Downloader
         if (!transfer.NoIncompleteExt)
         {
             try { Utils.Move(incompleteOutputPath, outputPath); }
-            catch (IOException e) { Logger.Error($"Failed to rename .incomplete file. Error: {e}"); }
+            catch (IOException e) { SldlLog.Error($"Failed to rename .incomplete file. Error: {e}"); }
         }
 
         downloadRegistry.DownloadedFiles[fileKey] = song;

@@ -50,7 +50,7 @@ public class EngineSettings
     /// Verbosity level for the engine's own log output.
     /// The CLI reads this to configure the console logger.
     /// --verbose / -v / --debug are special cases handled by ConfigManager that set this to Debug.
-    public Logger.LogLevel LogLevel { get; set; } = Logger.LogLevel.Info;
+    public Microsoft.Extensions.Logging.LogLevel LogLevel { get; set; } = LogLevel.Information;
 
     public bool ReportIntervalProgress { get; set; } = true;
 

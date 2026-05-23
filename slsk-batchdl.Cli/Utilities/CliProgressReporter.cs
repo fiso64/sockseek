@@ -91,11 +91,11 @@ public class CliProgressReporter
         if (LiveMode)
         {
             _live!.Log(new TerminalLogLine(TerminalLogKind.JobFailed, Guid.Empty.ToString(), displayId, jobType, msg));
-            Logger.LogNonConsole(Logger.LogLevel.Info, $"[{displayId:000}] {jobType}: {msg}");
+            SldlLog.LogNonConsole(LogLevel.Information, $"[{displayId:000}] {jobType}: {msg}");
         }
         else
         {
-            Logger.Info($"[{displayId:000}] {jobType}: {msg}");
+            SldlLog.Info($"[{displayId:000}] {jobType}: {msg}");
         }
     }
 
@@ -104,11 +104,11 @@ public class CliProgressReporter
         if (LiveMode)
         {
             _live!.Log(new TerminalLogLine(TerminalLogKind.JobFailed, Guid.Empty.ToString(), 0, "Remote", message));
-            Logger.LogNonConsole(Logger.LogLevel.Error, message);
+            SldlLog.LogNonConsole(LogLevel.Error, message);
         }
         else
         {
-            Logger.Error(message);
+            SldlLog.Error(message);
         }
     }
 
@@ -916,7 +916,7 @@ public class CliProgressReporter
 
         if (PlainMode)
         {
-            Logger.Error($"[{failure.DisplayId}] SongJob: {message}");
+            SldlLog.Error($"[{failure.DisplayId}] SongJob: {message}");
             return;
         }
 
@@ -926,7 +926,7 @@ public class CliProgressReporter
             return;
         }
 
-        Logger.LogNonConsole(Logger.LogLevel.Error, $"[{failure.DisplayId}] SongJob: {message}");
+        SldlLog.LogNonConsole(LogLevel.Error, $"[{failure.DisplayId}] SongJob: {message}");
     }
 
     private void ReportStateChanged(SongStateChangedEventDto song)
@@ -1010,11 +1010,11 @@ public class CliProgressReporter
                 if (songs.Count == 0) return;
                 var shown = songs.Take(max).ToList();
                 var more = songs.Count - shown.Count;
-                Logger.Info($"{songs.Count} {label}:");
+                SldlLog.Info($"{songs.Count} {label}:");
                 foreach (var s in shown)
-                    Logger.Info($"    {SongQueryText(s.Query)}");
+                    SldlLog.Info($"    {SongQueryText(s.Query)}");
                 if (more > 0)
-                    Logger.Info($"    ... and {more} more");
+                    SldlLog.Info($"    ... and {more} more");
             }
 
             LogPlainGroup(batch.Existing, "tracks already exist");

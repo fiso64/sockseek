@@ -173,7 +173,7 @@ public partial class FileManager
             if (Utils.NormalizedPath(newFilePath) != Utils.NormalizedPath(song.DownloadPath))
             {
                 try { Utils.MoveAndDeleteParent(song.DownloadPath, newFilePath, output.ParentDir); }
-                catch (Exception ex) { Logger.Error($"Failed to move: {ex}"); return; }
+                catch (Exception ex) { SldlLog.Error($"Failed to move: {ex}"); return; }
             }
 
             song.DownloadPath = newFilePath;
@@ -198,7 +198,7 @@ public partial class FileManager
         if (Utils.NormalizedPath(newFilePath) != Utils.NormalizedPath(file.DownloadPath))
         {
             try { Utils.MoveAndDeleteParent(file.DownloadPath, newFilePath, output.ParentDir); }
-            catch (Exception ex) { Logger.Error($"Failed to move: {ex}"); return; }
+            catch (Exception ex) { SldlLog.Error($"Failed to move: {ex}"); return; }
         }
 
         file.DownloadPath = newFilePath;
@@ -215,7 +215,7 @@ public partial class FileManager
             {
                 tried = true;
                 try { tagFile = TagLib.File.Create(ctx.DownloadPath); }
-                catch (Exception ex) { Logger.Trace($"Failed to read tags for '{ctx.DownloadPath}': {ex.Message}"); }
+                catch (Exception ex) { SldlLog.Trace($"Failed to read tags for '{ctx.DownloadPath}': {ex.Message}"); }
             }
             return tagFile;
         }

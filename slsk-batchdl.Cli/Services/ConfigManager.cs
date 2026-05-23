@@ -107,7 +107,7 @@ public static partial class ConfigManager
             cliProfile,
             context,
             normalize: PostProcessDownload,
-            warn: msg => Logger.Warn(msg));
+            warn: msg => SldlLog.Warn(msg));
     }
 
     public static DownloadSettings BindCliDownloadTokens(IReadOnlyList<string> cliArgs)
@@ -178,7 +178,7 @@ public static partial class ConfigManager
                 return;
         }
 
-        Logger.Warn("Warning: Client profile settings did not stabilize after repeated auto-profile passes");
+        SldlLog.Warn("Warning: Client profile settings did not stabilize after repeated auto-profile passes");
     }
 
     public static IReadOnlyList<string> GetProfileNames(ConfigFile file)
@@ -460,9 +460,9 @@ public static partial class ConfigManager
             case "--nmsc": case "--no-modify-share-count":
                 Engine(e => e.NoModifyShareCount = Bool()); break;
             case "-v": case "--verbose": case "--debug":
-                Engine(e => e.LogLevel = Logger.LogLevel.Debug); break;
+                Engine(e => e.LogLevel = LogLevel.Debug); break;
             case "-vv": case "--trace":
-                Engine(e => e.LogLevel = Logger.LogLevel.Trace); break;
+                Engine(e => e.LogLevel = LogLevel.Trace); break;
             case "--lf": case "--log-file":
                 Engine(e => e.LogFilePath = value); break;
             case "--cto": case "--connect-timeout":

@@ -84,7 +84,7 @@ namespace Sldl.Core.Extractors;
             if (offset > 0 || max == 0)
                 return queue;
 
-            Logger.Info("Loading MusicBrainz release...");
+            SldlLog.Info("Loading MusicBrainz release...");
             var url = $"https://musicbrainz.org/ws/2/release/{mbid}?inc=artist-credits+media&fmt=json";
             var response = await _httpClient.GetStringAsync(url);
             var release = JsonDocument.Parse(response).RootElement;
@@ -121,7 +121,7 @@ namespace Sldl.Core.Extractors;
 
         public async Task<JobList> GetReleaseGroupAsAlbum(string mbid, int max, int offset, ExtractionSettings extraction)
         {
-            Logger.Info("Loading MusicBrainz release group...");
+            SldlLog.Info("Loading MusicBrainz release group...");
             var url = $"https://musicbrainz.org/ws/2/release-group/{mbid}?inc=releases&fmt=json";
             var response = await _httpClient.GetStringAsync(url);
             var releaseGroup = JsonDocument.Parse(response).RootElement;
@@ -129,7 +129,7 @@ namespace Sldl.Core.Extractors;
             var releases = releaseGroup.GetProperty("releases").EnumerateArray().ToList();
             if (releases.Count == 0)
             {
-                Logger.Info("Release group contains no releases.");
+                SldlLog.Info("Release group contains no releases.");
                 return new JobList();
             }
 
@@ -140,7 +140,7 @@ namespace Sldl.Core.Extractors;
                 bestRelease = releases.First();
 
             var releaseMbid = bestRelease.GetProperty("id").GetString();
-            Logger.Info($"Found release '{bestRelease.GetProperty("title").GetString()}' ({releaseMbid}) in release group. Getting album info...");
+            SldlLog.Info($"Found release '{bestRelease.GetProperty("title").GetString()}' ({releaseMbid}) in release group. Getting album info...");
             return await GetReleaseAsAlbum(releaseMbid, max, offset, extraction, true);
         }
 
@@ -150,7 +150,7 @@ namespace Sldl.Core.Extractors;
             var collectionInfoResponse = await _httpClient.GetStringAsync(collectionInfoUrl);
             var collectionInfo = JsonDocument.Parse(collectionInfoResponse).RootElement;
             var collectionName = collectionInfo.GetProperty("name").GetString();
-            Logger.Info($"Loading releases from MusicBrainz collection '{collectionName}'...");
+            SldlLog.Info($"Loading releases from MusicBrainz collection '{collectionName}'...");
 
             var queue = new JobList();
             int limit = Math.Min(max, 100);
@@ -196,7 +196,7 @@ namespace Sldl.Core.Extractors;
                 currentOffset += limit;
             }
 
-            Logger.Info($"Found {queue.Jobs.Count} releases in MusicBrainz collection '{collectionName}'");
+            SldlLog.Info($"Found {queue.Jobs.Count} releases in MusicBrainz collection '{collectionName}'");
             return queue;
         }
     }

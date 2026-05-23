@@ -15,7 +15,113 @@ public class CliProgressReporterTests
     [TestCleanup]
     public void Cleanup()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
+    }
+
+    [TestMethod]
+    public void EventLogger_HandledEventTypes_AreCataloged()
+    {
+        var catalogedTypes = ServerEventCatalog.All
+            .Select(descriptor => descriptor.Type)
+            .ToArray();
+
+        CollectionAssert.IsSubsetOf(
+            EventLogger.HandledEventTypes.ToArray(),
+            catalogedTypes,
+            "EventLogger must not use stale or uncataloged server event names.");
+
+        CollectionAssert.IsSubsetOf(
+            new[]
+            {
+                "download.started",
+                "on-complete.started",
+                "on-complete.ended",
+                "extraction.started",
+                "extraction.failed",
+            },
+            EventLogger.HandledEventTypes.ToArray(),
+            "Regression coverage for event names previously stale in EventLogger.");
+    }
+
+    [TestMethod]
+    public void EventLogger_HandleEvent_UsesCatalogedActivityNames()
+    {
+        SldlLog.RemoveNonFileOutputs();
+        var messages = new List<string>();
+        SldlLog.AddConsole(writer: (message, _) => messages.Add(message));
+
+        var eventLogger = new EventLogger(null!, liveMode: false);
+        var workflowId = Guid.NewGuid();
+        var songId = Guid.NewGuid();
+        var query = new SongQueryDto("Artist", "Song", null, null, null, false);
+        var candidate = CreateFileCandidate("user", @"Music\Artist\Song.flac");
+        var extractSummary = CreateExtractSummary(Guid.NewGuid(), workflowId, ServerProtocol.JobStates.Extracting, null);
+
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("download.started", new DownloadStartedEventDto(songId, 9, workflowId, query, candidate)));
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("on-complete.started", new OnCompleteStartedEventDto(songId, 9, workflowId, query)));
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("on-complete.ended", new OnCompleteEndedEventDto(songId, 9, workflowId, query)));
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("extraction.started", new ExtractionStartedEventDto(extractSummary, "input.txt", "List")));
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("extraction.failed", new ExtractionFailedEventDto(
+            extractSummary with { State = ServerProtocol.JobStates.Failed },
+            "Could not parse input")));
+
+        Assert.AreEqual(5, messages.Count);
+        StringAssert.StartsWith(messages[0], @"[9] SongJob: downloading: Artist - Song: user\Music\Artist\Song.flac");
+        Assert.AreEqual("OnComplete start: [9] Artist - Song", messages[1]);
+        Assert.AreEqual("OnComplete end: [9] Artist - Song", messages[2]);
+        Assert.AreEqual("[11] ExtractJob: Input (List): input.txt", messages[3]);
+        Assert.AreEqual($"[11] ExtractJob: Failed: input.txt{Environment.NewLine}  Reason:    Could not parse input", messages[4]);
+    }
+
+    [TestMethod]
+    public void EventLogger_LiveMode_RoutesActivityLogsToNonConsoleOnly()
+    {
+        SldlLog.RemoveNonFileOutputs();
+        var consoleMessages = new List<string>();
+        var sinkMessages = new List<string>();
+        SldlLog.AddConsole(writer: (message, _) => consoleMessages.Add(message));
+        SldlLog.AddSink((_, message) => sinkMessages.Add(message));
+
+        var workflowId = Guid.NewGuid();
+        var eventLogger = new EventLogger(null!, liveMode: true);
+        InvokePrivate(eventLogger, "HandleEvent", Envelope(
+            "download.started",
+            new DownloadStartedEventDto(
+                Guid.NewGuid(),
+                9,
+                workflowId,
+                new SongQueryDto("Artist", "Song", null, null, null, false),
+                CreateFileCandidate("user", @"Music\Artist\Song.flac"))));
+
+        Assert.AreEqual(0, consoleMessages.Count);
+        Assert.AreEqual(1, sinkMessages.Count);
+        StringAssert.StartsWith(sinkMessages[0], @"[sldl.cli] [9] SongJob: downloading: Artist - Song: user\Music\Artist\Song.flac");
+    }
+
+    [TestMethod]
+    public void EventLogger_NoProgressMode_RoutesActivityLogsToConsoleAndNonConsole()
+    {
+        SldlLog.RemoveNonFileOutputs();
+        var consoleMessages = new List<string>();
+        var sinkMessages = new List<string>();
+        SldlLog.AddConsole(writer: (message, _) => consoleMessages.Add(message));
+        SldlLog.AddSink((_, message) => sinkMessages.Add(message));
+
+        var workflowId = Guid.NewGuid();
+        var eventLogger = new EventLogger(null!, liveMode: false);
+        InvokePrivate(eventLogger, "HandleEvent", Envelope(
+            "download.started",
+            new DownloadStartedEventDto(
+                Guid.NewGuid(),
+                9,
+                workflowId,
+                new SongQueryDto("Artist", "Song", null, null, null, false),
+                CreateFileCandidate("user", @"Music\Artist\Song.flac"))));
+
+        Assert.AreEqual(1, consoleMessages.Count);
+        Assert.AreEqual(1, sinkMessages.Count);
+        StringAssert.StartsWith(consoleMessages[0], @"[9] SongJob: downloading: Artist - Song: user\Music\Artist\Song.flac");
+        StringAssert.StartsWith(sinkMessages[0], @"[sldl.cli] [9] SongJob: downloading: Artist - Song: user\Music\Artist\Song.flac");
     }
 
     [TestMethod]
@@ -47,9 +153,9 @@ public class CliProgressReporterTests
     [TestMethod]
     public void SongSearching_NoProgress_UsesJobFormatAndDeduplicatesEquivalentSearchEvents()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
         var messages = new List<string>();
-        Logger.AddConsole(writer: (message, _) => messages.Add(message));
+        SldlLog.AddConsole(writer: (message, _) => messages.Add(message));
 
         var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
         try
@@ -85,9 +191,9 @@ public class CliProgressReporterTests
     [TestMethod]
     public void SongLifecycle_NoProgress_UsesJobFormatForDownloadAndTerminalState()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
         var messages = new List<string>();
-        Logger.AddConsole(writer: (message, _) => messages.Add(message));
+        SldlLog.AddConsole(writer: (message, _) => messages.Add(message));
 
         var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
         try
@@ -136,9 +242,9 @@ public class CliProgressReporterTests
     [TestMethod]
     public void SongFailure_NoProgress_PrintsFailureMessage()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
         var messages = new List<string>();
-        Logger.AddConsole(writer: (message, _) => messages.Add(message));
+        SldlLog.AddConsole(writer: (message, _) => messages.Add(message));
 
         var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
         try
@@ -183,9 +289,9 @@ public class CliProgressReporterTests
     [TestMethod]
     public void DownloadAttemptFailed_NoProgress_PrintsDiagnosticImmediately()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
         var messages = new List<string>();
-        Logger.AddConsole(writer: (message, _) => messages.Add(message));
+        SldlLog.AddConsole(writer: (message, _) => messages.Add(message));
 
         var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
         try
@@ -460,9 +566,9 @@ public class CliProgressReporterTests
     [TestMethod]
     public void RemoteAlbumChildDownload_NoProgress_PrintsTrackLifecycle()
     {
-        Logger.RemoveNonFileOutputs();
+        SldlLog.RemoveNonFileOutputs();
         var messages = new List<string>();
-        Logger.AddConsole(writer: (message, _) => messages.Add(message));
+        SldlLog.AddConsole(writer: (message, _) => messages.Add(message));
 
         var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
         try
@@ -646,6 +752,19 @@ public class CliProgressReporterTests
             .Invoke(target, args);
     }
 
+    private static ServerEventEnvelopeDto Envelope(string type, object payload)
+    {
+        var descriptor = ServerEventCatalog.Describe(type);
+        return new ServerEventEnvelopeDto(
+            Sequence: 1,
+            Type: type,
+            OccurredAtUtc: DateTimeOffset.UtcNow,
+            Category: descriptor.Category,
+            SnapshotInvalidation: descriptor.SnapshotInvalidation,
+            WorkflowId: null,
+            Payload: payload);
+    }
+
     private static object GetBarData(CliProgressReporter reporter, SongJob song)
     {
         Assert.IsTrue(TryGetBarData(reporter, song, out var barData));
@@ -746,6 +865,25 @@ public class CliProgressReporterTests
             FailureReason: null,
             FailureMessage: null,
             ParentJobId: parentJobId,
+            ResultJobId: null,
+            SourceJobId: null,
+            DiscoveryResultCount: null,
+            DiscoveryLockedFileCount: null,
+            AppliedAutoProfiles: [],
+            AvailableActions: []);
+
+    private static JobSummaryDto CreateExtractSummary(Guid jobId, Guid workflowId, ServerJobState state, ServerFailureReason? failureReason)
+        => new(
+            jobId,
+            DisplayId: 11,
+            WorkflowId: workflowId,
+            Kind: ServerJobKind.Extract,
+            State: state,
+            ItemName: "input.txt",
+            QueryText: "input.txt",
+            FailureReason: failureReason,
+            FailureMessage: null,
+            ParentJobId: null,
             ResultJobId: null,
             SourceJobId: null,
             DiscoveryResultCount: null,

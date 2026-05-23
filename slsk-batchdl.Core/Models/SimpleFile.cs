@@ -26,7 +26,7 @@ namespace Sldl.Core.Models;
             }
             catch (Exception ex)
             {
-                Logger.Trace($"Failed to read tags for '{path}': {ex.Message}");
+                SldlLog.Trace($"Failed to read tags for '{path}': {ex.Message}");
                 Path = path;
             }
         }

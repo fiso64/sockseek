@@ -21,8 +21,8 @@ internal static partial class Program
         bool daemonMode = args.Length > 0 && string.Equals(args[0], "daemon", StringComparison.OrdinalIgnoreCase);
         var bindArgs = daemonMode ? args.Skip(1).ToArray() : args;
 
-        Logger.SetupExceptionHandling();
-        Logger.AddConsole(writer: (msg, color) => Printing.WriteLine(msg, color));
+        SldlLog.SetupExceptionHandling();
+        SldlLog.AddConsole(writer: (msg, color) => Printing.WriteLine(msg, color));
 
         string configPath;
         ConfigFile configFile;
@@ -42,7 +42,7 @@ internal static partial class Program
         }
         catch (Exception ex) when (ex is ArgumentException || ex.Message.StartsWith("Input error:"))
         {
-            Logger.Fatal(ex.Message);
+            SldlLog.Fatal(ex.Message);
             return;
         }
 
@@ -71,7 +71,7 @@ internal static partial class Program
                     }
                     catch (Exception ex)
                     {
-                        Logger.Fatal($"Failed to retrieve profiles from remote daemon: {ex.Message}");
+                        SldlLog.Fatal($"Failed to retrieve profiles from remote daemon: {ex.Message}");
                     }
                 }
                 else
@@ -91,9 +91,9 @@ internal static partial class Program
         }
 
         if (!string.IsNullOrWhiteSpace(engineSettings.LogFilePath))
-            Logger.AddOrReplaceFile(engineSettings.LogFilePath, engineSettings.LogLevel < Logger.LogLevel.Debug ? engineSettings.LogLevel : Logger.LogLevel.Debug);
+            SldlLog.AddOrReplaceFile(engineSettings.LogFilePath, engineSettings.LogLevel < LogLevel.Debug ? engineSettings.LogLevel : LogLevel.Debug);
 
-        Logger.SetConsoleLogLevel(rootSettings.NonVerbosePrint ? Logger.LogLevel.Error : engineSettings.LogLevel);
+        SldlLog.SetConsoleLogLevel(rootSettings.NonVerbosePrint ? LogLevel.Error : engineSettings.LogLevel);
         if (ShouldUseLiveRendering(cliSettings))
             engineSettings.ReportIntervalProgress = false;
 
@@ -113,7 +113,7 @@ internal static partial class Program
             }
             catch (InvalidOperationException ex)
             {
-                Logger.Fatal(ex.Message);
+                SldlLog.Fatal(ex.Message);
             }
             return;
         }
@@ -129,12 +129,12 @@ internal static partial class Program
             }
             catch (Exception ex)
             {
-                Logger.Fatal($"Diagnostic action failed: {ex.Message}");
+                SldlLog.Fatal($"Diagnostic action failed: {ex.Message}");
             }
 
             if (!rootSettings.PrintOption.HasFlag(PrintOption.Index))
             {
-                Logger.Fatal("Input error: No input provided.");
+                SldlLog.Fatal("Input error: No input provided.");
                 Help.PrintAndExitIfNeeded([]);
             }
             return;
@@ -149,7 +149,7 @@ internal static partial class Program
         }
         catch (Exception ex) when (ex is ArgumentException || ex.Message.StartsWith("Input error:"))
         {
-            Logger.Fatal(ex.Message);
+            SldlLog.Fatal(ex.Message);
             return;
         }
 
@@ -219,7 +219,7 @@ internal static partial class Program
 
             if (result.Action == ConsoleInputManager.CancelPromptAction.CancelAll)
             {
-                Logger.LogNonConsole(Logger.LogLevel.Info, "Cancelling all jobs...");
+                SldlLog.LogNonConsole(LogLevel.Information, "Cancelling all jobs...");
                 Printing.WriteLine("Cancelling all jobs...", ConsoleColor.Gray, force: true);
                 engine.Cancel();
                 return;
@@ -229,16 +229,16 @@ internal static partial class Program
             {
                 if (await backend.CancelJobByDisplayIdAsync(id, ct: cts.Token))
                 {
-                    Logger.Info($"Cancelling job [{id}]...");
+                    SldlLog.Info($"Cancelling job [{id}]...");
                 }
                 else
                 {
-                    Logger.Error($"Job ID [{id}] not found.");
+                    SldlLog.Error($"Job ID [{id}] not found.");
                 }
             }
             else
             {
-                Logger.Error($"Invalid input '{result.Input}'.");
+                SldlLog.Error($"Invalid input '{result.Input}'.");
             }
         };
 
@@ -259,16 +259,16 @@ internal static partial class Program
             {
                 if (await backend.TryNextCandidateByDisplayIdAsync(id, ct: cts.Token))
                 {
-                    Logger.Info($"Trying next candidate for job [{id}]...");
+                    SldlLog.Info($"Trying next candidate for job [{id}]...");
                 }
                 else
                 {
-                    Logger.Error($"Job ID [{id}] not found or has no active download.");
+                    SldlLog.Error($"Job ID [{id}] not found or has no active download.");
                 }
             }
             else
             {
-                Logger.Error($"Invalid input '{result.Input}'.");
+                SldlLog.Error($"Invalid input '{result.Input}'.");
             }
         };
 
@@ -285,7 +285,7 @@ internal static partial class Program
 
                 var detail = await backend.GetJobDetailByDisplayIdAsync(id.Value, ct: cts.Token);
                 if (detail == null)
-                    Logger.Error($"Job ID [{id}] not found.");
+                    SldlLog.Error($"Job ID [{id}] not found.");
                 else
                     JobInfoPrinter.Print(detail);
 
@@ -325,7 +325,7 @@ internal static partial class Program
         try
         {
             await engine.RunAsync(cts.Token);
-            Logger.Trace("Main: RunAsync returned.");
+            SldlLog.Trace("Main: RunAsync returned.");
             cliReporter?.Stop();
             cliReporter = null;
             Printing.PrintComplete(engine.Queue);
@@ -338,14 +338,14 @@ internal static partial class Program
         }
         finally
         {
-            Logger.Trace("Main: Entered finally block. Disposing clientManager...");
+            SldlLog.Trace("Main: Entered finally block. Disposing clientManager...");
             engine.Cancel();
             cts.Cancel();
             cliReporter?.Stop();
             clientManager.Dispose();
             Printing.SetBuffering(false);
-            Logger.Trace("Main: ClientManager disposed.");
-            Logger.Trace("Main: Exiting.");
+            SldlLog.Trace("Main: ClientManager disposed.");
+            SldlLog.Trace("Main: Exiting.");
         }
     }
 
@@ -374,7 +374,7 @@ internal static partial class Program
     {
         if (string.IsNullOrWhiteSpace(rootSettings.Extraction.Input))
         {
-            Logger.Fatal("Remote mode requires an input.");
+            SldlLog.Fatal("Remote mode requires an input.");
             return;
         }
 
@@ -444,7 +444,7 @@ internal static partial class Program
 
                 if (result.Action == ConsoleInputManager.CancelPromptAction.CancelAll)
                 {
-                    Logger.LogNonConsole(Logger.LogLevel.Info, "Cancelling workflow...");
+                    SldlLog.LogNonConsole(LogLevel.Information, "Cancelling workflow...");
                     Printing.WriteLine("Cancelling workflow...", ConsoleColor.Gray, force: true);
                     await backend.CancelWorkflowAsync(submission.WorkflowId, cts.Token);
                     return;
@@ -453,13 +453,13 @@ internal static partial class Program
                 if (result.Action == ConsoleInputManager.CancelPromptAction.CancelJob && result.JobId is int id)
                 {
                     if (await backend.CancelJobByDisplayIdAsync(id, submission.WorkflowId, cts.Token))
-                        Logger.Info($"Cancelling job [{id}]...");
+                        SldlLog.Info($"Cancelling job [{id}]...");
                     else
-                        Logger.Error($"Job ID [{id}] not found.");
+                        SldlLog.Error($"Job ID [{id}] not found.");
                 }
                 else
                 {
-                    Logger.Error($"Invalid input '{result.Input}'.");
+                    SldlLog.Error($"Invalid input '{result.Input}'.");
                 }
             };
 
@@ -479,13 +479,13 @@ internal static partial class Program
                 if (result.Action == ConsoleInputManager.CancelPromptAction.CancelJob && result.JobId is int id)
                 {
                     if (await backend.TryNextCandidateByDisplayIdAsync(id, submission.WorkflowId, cts.Token))
-                        Logger.Info($"Trying next candidate for job [{id}]...");
+                        SldlLog.Info($"Trying next candidate for job [{id}]...");
                     else
-                        Logger.Error($"Job ID [{id}] not found or has no active download.");
+                        SldlLog.Error($"Job ID [{id}] not found or has no active download.");
                 }
                 else
                 {
-                    Logger.Error($"Invalid input '{result.Input}'.");
+                    SldlLog.Error($"Invalid input '{result.Input}'.");
                 }
             };
 
@@ -502,7 +502,7 @@ internal static partial class Program
 
                     var detail = await backend.GetJobDetailByDisplayIdAsync(id.Value, submission.WorkflowId, cts.Token);
                     if (detail == null)
-                        Logger.Error($"Job ID [{id}] not found.");
+                        SldlLog.Error($"Job ID [{id}] not found.");
                     else
                         JobInfoPrinter.Print(detail);
 
@@ -563,7 +563,7 @@ internal static partial class Program
             if (cliReporter != null)
                 cliReporter.ReportClientError(ex.Message);
             else
-                Logger.Fatal(ex.Message);
+                SldlLog.Fatal(ex.Message);
         }
         finally
         {
@@ -605,7 +605,7 @@ internal static partial class Program
         // For aggregate batches print a context header so the output is anchored even when
         // concurrent download activity causes it to appear far from the job's progress bar.
         if (!batch.IsNormal && batch.PendingCount + batch.ExistingCount + batch.NotFoundCount > 0)
-            Logger.Info($"[{batch.Summary.DisplayId}] {batch.Summary.Kind}Job: {batch.Summary.QueryText}:");
+            SldlLog.Info($"[{batch.Summary.DisplayId}] {batch.Summary.Kind}Job: {batch.Summary.QueryText}:");
 
         if (batch.PendingCount > 0)
         {
@@ -614,7 +614,7 @@ internal static partial class Program
             notFoundLastTime = alreadyExist.Length > 0 && notFoundLastTime.Length > 0 ? ", " + notFoundLastTime : notFoundLastTime;
             string skippedTracks = alreadyExist.Length + notFoundLastTime.Length > 0 ? $" ({alreadyExist}{notFoundLastTime})" : "";
             bool allSkipped = batch.ExistingCount + batch.NotFoundCount > batch.PendingCount;
-            Logger.Info($"Downloading {batch.PendingCount} tracks{skippedTracks}{(allSkipped ? '.' : ':')}");
+            SldlLog.Info($"Downloading {batch.PendingCount} tracks{skippedTracks}{(allSkipped ? '.' : ':')}");
 
             var preview = batch.Pending.Select(ToSongJob).ToList();
             if (preview.Count > 0)
@@ -630,12 +630,12 @@ internal static partial class Program
         {
             if (batch.ExistingCount > 0)
             {
-                Logger.Info($"{batch.ExistingCount} tracks already exist:");
+                SldlLog.Info($"{batch.ExistingCount} tracks already exist:");
                 Printing.PrintTracks([.. batch.Existing.Select(ToSongJob)], int.MaxValue, fullInfo: false);
             }
             if (batch.NotFoundCount > 0)
             {
-                Logger.Info($"{batch.NotFoundCount} tracks were not found in a prior run:");
+                SldlLog.Info($"{batch.NotFoundCount} tracks were not found in a prior run:");
                 Printing.PrintTracks([.. batch.NotFound.Select(ToSongJob)], int.MaxValue, fullInfo: false);
             }
         }
@@ -1005,8 +1005,8 @@ internal static partial class Program
         };
 
         var app = ServerHost.Build(args, options, url);
-        Logger.Info($"Starting sldl daemon on {url}");
-        Logger.Info("Press Ctrl+C to stop.");
+        SldlLog.Info($"Starting sldl daemon on {url}", categoryName: SldlLog.Categories.Daemon);
+        SldlLog.Info("Press Ctrl+C to stop.", categoryName: SldlLog.Categories.Daemon);
         await app.RunAsync();
     }
 

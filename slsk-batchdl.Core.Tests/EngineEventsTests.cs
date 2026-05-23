@@ -14,7 +14,7 @@ namespace Tests.Eventing
         [ClassInitialize]
         public static void ClassSetup(TestContext _)
         {
-            Logger.AddConsole(Logger.LogLevel.Fatal);
+            SldlLog.AddConsole(LogLevel.Critical);
         }
 
         private static async Task CompleteRunWithBlockedDownloads(TestHelpers.DownloadGate downloadGate, Task runTask)
