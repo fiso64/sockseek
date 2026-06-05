@@ -11,6 +11,7 @@ public sealed class IncrementalAlbumAggregateProjector
     private readonly int maxDiff;
     private readonly Dictionary<int, Dictionary<int, List<AlbumAggregateBucket>>> byTrackCountAndFirstLength = [];
     private readonly Dictionary<AlbumFolder, SongQuery?> representativeQueries = [];
+    private readonly Dictionary<string, int> folderOrder = new(StringComparer.Ordinal);
     private readonly List<AlbumAggregateBucket> buckets = [];
     private readonly HashSet<string> seenFolders = new(StringComparer.Ordinal);
 
@@ -27,6 +28,7 @@ public sealed class IncrementalAlbumAggregateProjector
     {
         byTrackCountAndFirstLength.Clear();
         representativeQueries.Clear();
+        folderOrder.Clear();
         buckets.Clear();
         seenFolders.Clear();
     }
@@ -55,6 +57,8 @@ public sealed class IncrementalAlbumAggregateProjector
     // UI/Server to actually benefit from incremental performance.
     public int ApplyChanges(AlbumFolderProjectionChanges changes)
     {
+        UpdateFolderOrder(changes.Folders);
+
         if (changes.Updated.Count > 0 || changes.Removed.Count > 0)
         {
             Reset(changes.Folders);
@@ -66,8 +70,10 @@ public sealed class IncrementalAlbumAggregateProjector
 
     public void Reset(IEnumerable<AlbumFolder> albums)
     {
+        var albumList = albums as IReadOnlyList<AlbumFolder> ?? albums.ToList();
         Clear();
-        AddRange(albums);
+        UpdateFolderOrder(albumList);
+        AddRange(albumList);
     }
 
     public List<AlbumJob> Snapshot()
@@ -111,7 +117,7 @@ public sealed class IncrementalAlbumAggregateProjector
                 if (!LengthsAreSimilar(sortedLengths, bucket.Lengths))
                     continue;
 
-                if (sortedLengths.Length == 1 && !SingleTrackAlbumsMatch(bucket.Versions[0], folder))
+                if (sortedLengths.Length == 1 && !SingleTrackAlbumsMatch(bucket.RepresentativeFolder, folder))
                     continue;
 
                 if (matchingBucket == null || bucket.Index < matchingBucket.Index)
@@ -121,7 +127,7 @@ public sealed class IncrementalAlbumAggregateProjector
 
         if (matchingBucket != null)
         {
-            matchingBucket.Versions.Add(folder);
+            matchingBucket.AddVersion(folder, CompareFolders);
             matchingBucket.Users.Add(folder.Username);
             return;
         }
@@ -136,6 +142,34 @@ public sealed class IncrementalAlbumAggregateProjector
 
         byLength.Add(newBucket);
     }
+
+    private void UpdateFolderOrder(IEnumerable<AlbumFolder> folders)
+    {
+        folderOrder.Clear();
+        int index = 0;
+        foreach (var folder in folders)
+            folderOrder[FolderKey(folder)] = index++;
+    }
+
+    private int CompareFolders(AlbumFolder x, AlbumFolder y)
+    {
+        int comparison = GetFolderOrder(x).CompareTo(GetFolderOrder(y));
+        if (comparison != 0)
+            return comparison;
+
+        comparison = string.Compare(x.Username, y.Username, StringComparison.Ordinal);
+        return comparison != 0
+            ? comparison
+            : string.Compare(x.FolderPath, y.FolderPath, StringComparison.Ordinal);
+    }
+
+    private int GetFolderOrder(AlbumFolder folder)
+        => folderOrder.TryGetValue(FolderKey(folder), out int order)
+            ? order
+            : int.MaxValue;
+
+    private static string FolderKey(AlbumFolder folder)
+        => folder.Username + '\\' + folder.FolderPath;
 
     private bool LengthsAreSimilar(int[] s1, int[] s2)
     {
@@ -194,6 +228,7 @@ public sealed class IncrementalAlbumAggregateProjector
         public int Index { get; }
         public int[] Lengths { get; }
         public List<AlbumFolder> Versions { get; }
+        public AlbumFolder RepresentativeFolder { get; }
         public HashSet<string> Users { get; }
 
         public AlbumAggregateBucket(int index, int[] lengths, AlbumFolder folder)
@@ -201,7 +236,16 @@ public sealed class IncrementalAlbumAggregateProjector
             Index = index;
             Lengths = lengths;
             Versions = [folder];
+            RepresentativeFolder = folder;
             Users = [folder.Username];
+        }
+
+        public void AddVersion(AlbumFolder folder, Comparison<AlbumFolder> comparison)
+        {
+            int index = Versions.BinarySearch(folder, Comparer<AlbumFolder>.Create(comparison));
+            if (index < 0)
+                index = ~index;
+            Versions.Insert(index, folder);
         }
     }
 }

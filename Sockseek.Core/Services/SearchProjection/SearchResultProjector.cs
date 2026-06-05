@@ -253,9 +253,25 @@ public static partial class SearchResultProjector
         var byTrackCountAndFirstLength = new Dictionary<int, Dictionary<int, List<AlbumAggregateBucket>>>();
         var buckets = new List<AlbumAggregateBucket>();
         var representativeQueries = new Dictionary<AlbumFolder, SongQuery?>();
+        var folderOrder = new Dictionary<AlbumFolder, int>();
+        int folderIndex = 0;
+
+        int CompareFolders(AlbumFolder x, AlbumFolder y)
+        {
+            int comparison = folderOrder.GetValueOrDefault(x, int.MaxValue)
+                .CompareTo(folderOrder.GetValueOrDefault(y, int.MaxValue));
+            if (comparison != 0)
+                return comparison;
+
+            comparison = string.Compare(x.Username, y.Username, StringComparison.Ordinal);
+            return comparison != 0
+                ? comparison
+                : string.Compare(x.FolderPath, y.FolderPath, StringComparison.Ordinal);
+        }
 
         foreach (var folder in albums)
         {
+            folderOrder[folder] = folderIndex++;
             var sortedLengths = GetSearchSortedAudioLengths(folder);
             if (sortedLengths.Length == 0) continue;
 
@@ -277,7 +293,7 @@ public static partial class SearchResultProjector
                     var bucket = candidates[i];
                     if (!LengthsAreSimilar(sortedLengths, bucket.Lengths)) continue;
 
-                    if (sortedLengths.Length == 1 && !SingleTrackAlbumsMatch(bucket.Versions[0], folder, representativeQueries))
+                    if (sortedLengths.Length == 1 && !SingleTrackAlbumsMatch(bucket.RepresentativeFolder, folder, representativeQueries))
                         continue;
 
                     if (matchingBucket == null || bucket.Index < matchingBucket.Index)
@@ -287,7 +303,7 @@ public static partial class SearchResultProjector
 
             if (matchingBucket != null)
             {
-                matchingBucket.Versions.Add(folder);
+                matchingBucket.AddVersion(folder, CompareFolders);
                 matchingBucket.Users.Add(folder.Username);
                 continue;
             }
@@ -464,6 +480,7 @@ public static partial class SearchResultProjector
         public int Index { get; }
         public int[] Lengths { get; }
         public List<AlbumFolder> Versions { get; }
+        public AlbumFolder RepresentativeFolder { get; }
         public HashSet<string> Users { get; }
 
         public AlbumAggregateBucket(int index, int[] lengths, AlbumFolder folder)
@@ -471,7 +488,16 @@ public static partial class SearchResultProjector
             Index = index;
             Lengths = lengths;
             Versions = [folder];
+            RepresentativeFolder = folder;
             Users = [folder.Username];
+        }
+
+        public void AddVersion(AlbumFolder folder, Comparison<AlbumFolder> comparison)
+        {
+            int index = Versions.BinarySearch(folder, Comparer<AlbumFolder>.Create(comparison));
+            if (index < 0)
+                index = ~index;
+            Versions.Insert(index, folder);
         }
     }
 

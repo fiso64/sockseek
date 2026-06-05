@@ -764,48 +764,97 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void IncrementalAlbumAggregate_SortsVersionsWithinBucketLikeAlbumFolders_WhenPreferredFormatArrivesLater()
+        public void IncrementalAlbumAggregate_SortsEachBucketByAlbumSort()
         {
-            var opusFolder = AlbumFolder(
-                "OpusUser",
-                @"Music\ELO\Time [OPUS]",
-                [209],
-                representativeFilename: @"Music\ELO\Time [OPUS]\01. Twilight.opus");
-            var flacFolder = AlbumFolder(
-                "FlacUser",
-                @"Music\ELO\Time [FLAC]",
-                [209],
-                representativeFilename: @"Music\ELO\Time [FLAC]\01. Twilight.flac");
             var query = new AlbumQuery { Artist = "ELO", Album = "Time" };
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
             search.MinSharesAggregate = 1;
             search.PreferredCond.Formats = ["flac"];
-            var expected = SearchResultProjector.AggregateAlbums([flacFolder, opusFolder], query, search);
+            var folderProjector = new IncrementalAlbumFolderProjector(query, search);
             var aggregateProjector = new IncrementalAlbumAggregateProjector(query, search);
 
-            aggregateProjector.AddRange([opusFolder]);
-            aggregateProjector.AddRange([flacFolder]);
+            var responses = new[]
+            {
+                AlbumSearchResponse("OpusTimeUser", false, 1000, @"Music\ELO\Time [OPUS]", ".opus", [209, 200]),
+                AlbumSearchResponse("OpusLiveUser", false, 1000, @"Music\ELO\Time Live [OPUS]", ".opus", [300, 301]),
+                AlbumSearchResponse("FlacTimeUser", true, 5000, @"Music\ELO\Time [FLAC]", ".flac", [209, 200]),
+                AlbumSearchResponse("FlacLiveUser", true, 5000, @"Music\ELO\Time Live [FLAC]", ".flac", [300, 301]),
+            };
 
-            var normalFolderOrder = expected
-                .Single()
-                .Results
-                .Select(folder => folder.Username + "\\" + folder.FolderPath)
-                .ToList();
-            var aggregateVersionOrder = aggregateProjector.Snapshot()
-                .Single()
-                .Results
-                .Select(folder => folder.Username + "\\" + folder.FolderPath)
-                .ToList();
+            foreach (var response in responses)
+            {
+                var changes = folderProjector.AddRangeAndGetChanges(
+                    response.Files.Select(file => (response, file)));
+                aggregateProjector.ApplyChanges(changes);
+            }
 
-            Assert.IsTrue(normalFolderOrder[0].StartsWith("FlacUser\\"), "Test setup should model normal album-folder ranking with FLAC first.");
-            Assert.AreEqual(
-                normalFolderOrder[0],
-                aggregateVersionOrder[0],
-                "The best version within an aggregate album bucket should be the normally highest-ranked folder.");
-            CollectionAssert.AreEqual(
-                normalFolderOrder,
-                aggregateVersionOrder,
-                "Versions within an aggregate album bucket should keep normal album-folder ranking, including preferred format.");
+            var albumFolders = folderProjector.Snapshot();
+            var aggregateBuckets = aggregateProjector.Snapshot();
+
+            AssertAlbumSortRanksLaterFlacAheadOfEarlierOpus(albumFolders);
+            Assert.AreEqual(2, aggregateBuckets.Count);
+            foreach (var bucket in aggregateBuckets)
+                Assert.AreEqual(2, bucket.Results.Count);
+            AssertBucketsSortedByAlbumSort(aggregateBuckets, albumFolders);
+
+            static SearchResponse AlbumSearchResponse(
+                string username,
+                bool hasFreeUploadSlot,
+                int uploadSpeedKibPerSecond,
+                string folderPath,
+                string extension,
+                int[] lengths)
+            {
+                var files = lengths
+                    .Select((length, index) => TestHelpers.CreateSlFile(
+                        $@"{folderPath}\{index + 1:D2}. Track {index + 1}{extension}",
+                        extension: extension,
+                        bitrate: extension == ".flac" ? 900 : 192,
+                        length: length,
+                        sampleRate: 44100))
+                    .ToList();
+                return new SearchResponse(username, 1, hasFreeUploadSlot, uploadSpeedKibPerSecond * 1024, 0, files);
+            }
+
+            static void AssertAlbumSortRanksLaterFlacAheadOfEarlierOpus(IReadOnlyList<AlbumFolder> albumSortedFolders)
+            {
+                var albumSortOrder = albumSortedFolders
+                    .Select((folder, index) => new { Key = FolderKey(folder), Index = index })
+                    .ToDictionary(x => x.Key, x => x.Index, StringComparer.Ordinal);
+
+                Assert.IsTrue(
+                    albumSortOrder[@"FlacTimeUser\Music\ELO\Time [FLAC]"] < albumSortOrder[@"OpusTimeUser\Music\ELO\Time [OPUS]"],
+                    "Test setup should rank later-arriving FLAC Time ahead of earlier-arriving OPUS Time.");
+                Assert.IsTrue(
+                    albumSortOrder[@"FlacLiveUser\Music\ELO\Time Live [FLAC]"] < albumSortOrder[@"OpusLiveUser\Music\ELO\Time Live [OPUS]"],
+                    "Test setup should rank later-arriving FLAC Live ahead of earlier-arriving OPUS Live.");
+            }
+
+            static void AssertBucketsSortedByAlbumSort(
+                IEnumerable<AlbumJob> buckets,
+                IReadOnlyList<AlbumFolder> albumSortedFolders)
+            {
+                var albumSortOrder = albumSortedFolders
+                    .Select((folder, index) => new { Key = FolderKey(folder), Index = index })
+                    .ToDictionary(x => x.Key, x => x.Index, StringComparer.Ordinal);
+
+                foreach (var bucket in buckets)
+                {
+                    var actual = bucket.Results.Select(FolderKey).ToList();
+                    var expected = bucket.Results
+                        .OrderBy(folder => albumSortOrder[FolderKey(folder)])
+                        .Select(FolderKey)
+                        .ToList();
+
+                    CollectionAssert.AreEqual(
+                        expected,
+                        actual,
+                        $"Aggregate bucket '{bucket.ItemName}' should be sorted by the normal album-folder ranking.");
+                }
+            }
+
+            static string FolderKey(AlbumFolder folder)
+                => folder.Username + '\\' + folder.FolderPath;
         }
 
         [TestMethod]
