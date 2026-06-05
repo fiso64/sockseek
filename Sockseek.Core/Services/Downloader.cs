@@ -43,11 +43,11 @@ public class Downloader
 
                 if (existingFileInfo.Exists && existingFileInfo.Length == candidate.File.Size)
                 {
-                    SockseekLog.Debug($"File \"{candidate.Filename}\" already downloaded at {existingPath}");
+                    SockseekLog.Jobs.Debug($"File \"{candidate.Filename}\" already downloaded at {existingPath}");
 
                     if (!outputFileInfo.Exists || outputFileInfo.Length != existingFileInfo.Length)
                     {
-                        SockseekLog.Debug("Copying to new output path");
+                        SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: copying existing download from '{existingPath}' to '{outputPath}'");
                         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
                         File.Copy(existingPath!, outputPath, true);
                     }
@@ -66,7 +66,7 @@ public class Downloader
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         string incompleteOutputPath = transfer.NoIncompleteExt ? outputPath : outputPath + ".incomplete";
 
-        SockseekLog.Debug($"Downloading: {song} from '{candidate.Username}\\{candidate.Filename}' to '{incompleteOutputPath}'");
+        SockseekLog.Soulseek.Debug($"Downloading: {song} from '{candidate.Username}\\{candidate.Filename}' to '{incompleteOutputPath}'");
 
         var transferOptions = new TransferOptions(
             disposeOutputStreamOnCompletion: false,
@@ -122,7 +122,7 @@ public class Downloader
                         ? maxRetries
                         : retryCount;
 
-                    SockseekLog.Debug($"Error while downloading '{candidate.Username}\\{candidate.Filename}' to '{incompleteOutputPath}' (attempt {retryCount}/{maxRetries}): {e}");
+                    SockseekLog.Soulseek.Debug($"Error while downloading '{candidate.Username}\\{candidate.Filename}' to '{incompleteOutputPath}' (attempt {retryCount}/{maxRetries}): {e}");
                     events.RaiseDownloadAttemptFailed(song, candidate, incompleteOutputPath, retryCount, reportedMaxRetries, e);
 
                     if (!canRetry)
@@ -135,7 +135,17 @@ public class Downloader
         catch
         {
             if (File.Exists(incompleteOutputPath))
-                try { Utils.DeleteFileAndParentsIfEmpty(incompleteOutputPath, parentDir ?? ""); } catch { }
+            {
+                try
+                {
+                    Utils.DeleteFileAndParentsIfEmpty(incompleteOutputPath, parentDir ?? "");
+                    SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: deleted incomplete download '{incompleteOutputPath}' after failure");
+                }
+                catch (Exception ex)
+                {
+                    SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: failed to delete incomplete download '{incompleteOutputPath}' after failure: {ex.Message}");
+                }
+            }
             
             if (downloadRegistry.Downloads.TryRemove(candidate.Filename, out var ad) && ad.IsManuallySkipped)
                 throw new ManuallySkippedException();
@@ -147,7 +157,7 @@ public class Downloader
         if (!transfer.NoIncompleteExt)
         {
             try { Utils.Move(incompleteOutputPath, outputPath); }
-            catch (IOException e) { SockseekLog.Error($"Failed to rename .incomplete file. Error: {e}"); }
+            catch (IOException e) { SockseekLog.Jobs.Error($"[{song.DisplayId}] SongJob: failed to rename incomplete file from '{incompleteOutputPath}' to '{outputPath}'. Error: {e}"); }
         }
 
         downloadRegistry.DownloadedFiles[fileKey] = song;

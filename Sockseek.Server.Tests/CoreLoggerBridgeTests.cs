@@ -34,7 +34,7 @@ public class CoreLoggerBridgeTests
         }
 
         var line = output.ToString().Trim();
-        StringAssert.Contains(line, "[info] [Sockseek.daemon] daemon is ready");
+        StringAssert.Contains(line, "[info] [daemon] daemon is ready");
         StringAssert.Matches(line, new System.Text.RegularExpressions.Regex(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} "));
     }
 }

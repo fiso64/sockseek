@@ -173,7 +173,7 @@ public partial class FileManager
             if (Utils.NormalizedPath(newFilePath) != Utils.NormalizedPath(song.DownloadPath))
             {
                 try { Utils.MoveAndDeleteParent(song.DownloadPath, newFilePath, output.ParentDir); }
-                catch (Exception ex) { SockseekLog.Error($"Failed to move: {ex}"); return; }
+                catch (Exception ex) { SockseekLog.Jobs.Error($"[{song.DisplayId}] SongJob: failed to move organized file from '{song.DownloadPath}' to '{newFilePath}': {ex}"); return; }
             }
 
             song.DownloadPath = newFilePath;
@@ -198,7 +198,7 @@ public partial class FileManager
         if (Utils.NormalizedPath(newFilePath) != Utils.NormalizedPath(file.DownloadPath))
         {
             try { Utils.MoveAndDeleteParent(file.DownloadPath, newFilePath, output.ParentDir); }
-            catch (Exception ex) { SockseekLog.Error($"Failed to move: {ex}"); return; }
+            catch (Exception ex) { SockseekLog.Jobs.Error($"[{file.DisplayId}] SongJob: failed to move non-audio file from '{file.DownloadPath}' to '{newFilePath}' for parent job [{job.DisplayId}]: {ex}"); return; }
         }
 
         file.DownloadPath = newFilePath;

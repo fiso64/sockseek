@@ -38,12 +38,16 @@ public class SockseekLogTests
         SockseekLog.Info("cli message", categoryName: SockseekLog.Categories.Cli);
         SockseekLog.Debug("core message", callerFilePath: "/repo/Sockseek.Core/DownloadEngine.cs");
         SockseekLog.Warn("daemon message", callerFilePath: "/repo/Sockseek.Server/ServerHost.cs");
+        SockseekLog.Jobs.Info("job message");
+        SockseekLog.Soulseek.Debug("soulseek message");
 
         CollectionAssert.AreEqual(new[]
         {
-            "[info] [Sockseek.cli] cli message",
-            "[debug] [Sockseek.core] core message",
-            "[warn] [Sockseek.daemon] daemon message",
+            "[info] [cli] cli message",
+            "[debug] [core] core message",
+            "[warn] [daemon] daemon message",
+            "[info] [jobs] job message",
+            "[debug] [soulseek] soulseek message",
         }, sinkMessages);
     }
 
@@ -76,7 +80,7 @@ public class SockseekLogTests
             var lines = File.ReadAllLines(logPath);
             Assert.AreEqual(100, lines.Length);
             CollectionAssert.AreEquivalent(
-                Enumerable.Range(0, 100).Select(i => $"[Sockseek.tests.core] message-{i}").ToArray(),
+                Enumerable.Range(0, 100).Select(i => $"[tests.core] message-{i}").ToArray(),
                 lines);
         }
         finally

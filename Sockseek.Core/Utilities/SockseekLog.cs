@@ -7,13 +7,21 @@ public static class SockseekLog
 {
     public static class Categories
     {
-        public const string Cli = "Sockseek.cli";
-        public const string Core = "Sockseek.core";
-        public const string Daemon = "Sockseek.daemon";
-        public const string CliTests = "Sockseek.tests.cli";
-        public const string CoreTests = "Sockseek.tests.core";
-        public const string DaemonTests = "Sockseek.tests.daemon";
+        public const string Cli = "cli";
+        public const string Core = "core";
+        public const string Daemon = "daemon";
+        public const string Jobs = "jobs";
+        public const string Soulseek = "soulseek";
+        public const string CliTests = "tests.cli";
+        public const string CoreTests = "tests.core";
+        public const string DaemonTests = "tests.daemon";
     }
+
+    public static LogChannel Cli { get; } = new(Categories.Cli);
+    public static LogChannel Core { get; } = new(Categories.Core);
+    public static LogChannel Daemon { get; } = new(Categories.Daemon);
+    public static LogChannel Jobs { get; } = new(Categories.Jobs);
+    public static LogChannel Soulseek { get; } = new(Categories.Soulseek);
 
     private static readonly object Sync = new();
     private static readonly List<RoutingLoggerProvider> Providers = new();
@@ -33,6 +41,20 @@ public static class SockseekLog
     public static ILogger CreateLogger(string categoryName) => Factory.CreateLogger(categoryName);
 
     public static ILogger<T> CreateLogger<T>() => Factory.CreateLogger<T>();
+
+    public sealed class LogChannel(string categoryName)
+    {
+        public string CategoryName { get; } = categoryName;
+
+        public void Trace(string message, ConsoleColor? color = null) => SockseekLog.Trace(message, color, CategoryName);
+        public void Debug(string message, ConsoleColor? color = null) => SockseekLog.Debug(message, color, CategoryName);
+        public void Info(string message, ConsoleColor? color = null) => SockseekLog.Info(message, color, CategoryName);
+        public void Warn(string message, ConsoleColor? color = null) => SockseekLog.Warn(message, color, CategoryName);
+        public void Error(string message, ConsoleColor? color = null) => SockseekLog.Error(message, color, CategoryName);
+        public void Fatal(string message, ConsoleColor? color = null) => SockseekLog.Fatal(message, color, CategoryName);
+        public void LogNonConsole(LogLevel level, string message) => SockseekLog.LogNonConsole(level, message, CategoryName);
+        public void LogConsoleOnly(LogLevel level, string message, ConsoleColor? color = null) => SockseekLog.LogConsoleOnly(level, message, color, CategoryName);
+    }
 
     public static void AddConsole(
         LogLevel minimumLevel = LogLevel.Information,
@@ -148,13 +170,13 @@ public static class SockseekLog
     private static void NonConsoleCritical(Exception exception, string message)
     {
         foreach (var provider in SnapshotProviders().Where(provider => !provider.IsConsoleOutput))
-            provider.Write(LogLevel.Critical, "Sockseek.core", $"{message}. {exception}", null);
+            provider.Write(LogLevel.Critical, Categories.Core, $"{message}. {exception}", null);
     }
 
     private static void NonConsoleCritical(string message, object? arg)
     {
         foreach (var provider in SnapshotProviders().Where(provider => !provider.IsConsoleOutput))
-            provider.Write(LogLevel.Critical, "Sockseek.core", string.Format(message.Replace("{ExceptionObject}", "{0}"), arg), null);
+            provider.Write(LogLevel.Critical, Categories.Core, string.Format(message.Replace("{ExceptionObject}", "{0}"), arg), null);
     }
 
     private static void Log(

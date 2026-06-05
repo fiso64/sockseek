@@ -137,11 +137,11 @@ public partial class Searcher
         song.Discovery ??= new DiscoverySummary();
         song.Discovery.ResultCount = session.Results.Count;
 
-        SockseekLog.Debug($"{session.Results.Count} results found: {song}");
+        SockseekLog.Soulseek.Debug($"{session.Results.Count} results found: {song}");
 
         if (!session.Results.IsEmpty)
         {
-            SockseekLog.Debug(string.Join("\n", session.Results.Select(r => $"  {r.Value.Item1.Username}: {r.Value.Item2.Filename}")));
+            SockseekLog.Soulseek.Debug(string.Join("\n", session.Results.Select(r => $"  {r.Value.Item1.Username}: {r.Value.Item2.Filename}")));
         }
 
         song.Candidates = SearchResultProjector.SortedTrackCandidates(
@@ -229,7 +229,7 @@ public partial class Searcher
                 allFiles = await GetAllFilesInFolder(folder.Username, folder.FolderPath, ct);
             }
             catch (OperationCanceledException) { throw; }
-            catch (Exception e) { SockseekLog.Error($"Error getting all files in '{folder.FolderPath}': {e}"); return 0; }
+            catch (Exception e) { SockseekLog.Soulseek.Error($"Error getting all files in '{folder.FolderPath}': {e}"); return 0; }
 
             var existing = folder.Files
                 .Select(f => f.ResolvedTarget!.Filename.Replace('/', '\\'))
@@ -258,7 +258,7 @@ public partial class Searcher
         }
         catch (Exception ex)
         {
-            SockseekLog.Error($"Error completing folder: {ex}");
+            SockseekLog.Soulseek.Error($"Error completing folder: {ex}");
         }
         return newFiles;
     }

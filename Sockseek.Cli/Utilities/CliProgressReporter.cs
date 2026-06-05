@@ -91,11 +91,11 @@ public class CliProgressReporter
         if (LiveMode)
         {
             _live!.Log(new TerminalLogLine(TerminalLogKind.JobFailed, Guid.Empty.ToString(), displayId, jobType, msg));
-            SockseekLog.LogNonConsole(LogLevel.Information, $"[{displayId:000}] {jobType}: {msg}");
+            SockseekLog.Jobs.LogNonConsole(LogLevel.Information, $"[{displayId:000}] {jobType}: {msg}");
         }
         else
         {
-            SockseekLog.Info($"[{displayId:000}] {jobType}: {msg}");
+            SockseekLog.Jobs.Info($"[{displayId:000}] {jobType}: {msg}");
         }
     }
 
@@ -916,7 +916,7 @@ public class CliProgressReporter
 
         if (PlainMode)
         {
-            SockseekLog.Error($"[{failure.DisplayId}] SongJob: {message}");
+            SockseekLog.Jobs.Error($"[{failure.DisplayId}] SongJob: {message}");
             return;
         }
 
@@ -926,7 +926,7 @@ public class CliProgressReporter
             return;
         }
 
-        SockseekLog.LogNonConsole(LogLevel.Error, $"[{failure.DisplayId}] SongJob: {message}");
+        SockseekLog.Jobs.LogNonConsole(LogLevel.Error, $"[{failure.DisplayId}] SongJob: {message}");
     }
 
     private void ReportStateChanged(SongStateChangedEventDto song)

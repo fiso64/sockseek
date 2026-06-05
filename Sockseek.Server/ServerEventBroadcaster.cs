@@ -12,6 +12,8 @@ public sealed class ServerEventBroadcaster : IDisposable
     private readonly ServerEventCoalescer coalescer;
     private long nextSequence;
 
+    public event Action<ServerEventEnvelopeDto>? EventPublished;
+
     public ServerEventBroadcaster(EngineStateStore stateStore, EngineSupervisor supervisor, IHubContext<ServerEventHub> hubContext)
     {
         this.stateStore = stateStore;
@@ -39,6 +41,8 @@ public sealed class ServerEventBroadcaster : IDisposable
             descriptor.SnapshotInvalidation,
             GetWorkflowId(payload),
             payload);
+
+        EventPublished?.Invoke(envelope);
 
         _ = descriptor.Category != ServerEventCatalog.StateCategory && envelope.WorkflowId is Guid workflowId
             ? hubContext.Clients

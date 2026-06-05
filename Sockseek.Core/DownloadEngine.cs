@@ -71,6 +71,7 @@ public class DownloadEngine
 
         if (activeDownloads.Count > 0)
         {
+            SockseekLog.Jobs.Info($"[{job.DisplayId}] {JobLogKind(job)}: trying next candidate; cancelling {activeDownloads.Count} active download{(activeDownloads.Count == 1 ? "" : "s")}: {job}");
             foreach (var ad in activeDownloads)
             {
                 ad.IsManuallySkipped = true;
@@ -197,10 +198,10 @@ public class DownloadEngine
         bool servicesInitialized = false;
         var rootTasks = new List<Task>();
 
-        SockseekLog.Trace("RunAsync: Starting to read from job channel.");
+        SockseekLog.Jobs.Trace("RunAsync: Starting to read from job channel.");
         await foreach (var (rootJob, settings) in _jobChannel.Reader.ReadAllAsync(ct))
         {
-            SockseekLog.Trace($"RunAsync: Read root job {rootJob.DisplayId} from channel.");
+            SockseekLog.Jobs.Trace($"RunAsync: Read root job {rootJob.DisplayId} from channel.");
             Queue.Jobs.Add(rootJob);
 
             foreach (var (id, ctx) in JobPreparer.PrepareSubtree(rootJob, settings, _jobSettingsResolver))
@@ -214,28 +215,28 @@ public class DownloadEngine
                 }
                 catch (Exception ex)
                 {
-                    SockseekLog.Error($"Initial Soulseek login failed: {ex.Message}. Reconnection will be attempted automatically in the background.");
+                    SockseekLog.Soulseek.Error($"Initial Soulseek login failed: {ex.Message}. Reconnection will be attempted automatically in the background.");
                 }
 
                 await _clientManager.WaitUntilReadyAsync(ct);
                 searcher = new Searcher(Client!, _registry, _registry, Events, engineSettings.SearchesPerTime, engineSettings.SearchRenewTime, engineSettings.ConcurrentSearches);
                 downloader = new Downloader(Client!, _clientManager, _registry, Events);
                 _ = Task.Run(() => UpdateLoop(appCts.Token), appCts.Token);
-                SockseekLog.Debug("Update task started");
+                SockseekLog.Jobs.Debug("Update task started");
                 servicesInitialized = true;
             }
 
             rootTasks.Add(ProcessJob(rootJob));
         }
 
-        SockseekLog.Trace("RunAsync: Channel fully drained. Waiting for rootTasks to complete.");
+        SockseekLog.Jobs.Trace("RunAsync: Channel fully drained. Waiting for rootTasks to complete.");
         await Task.WhenAll(rootTasks);
-        SockseekLog.Trace("RunAsync: All rootTasks completed.");
+        SockseekLog.Jobs.Trace("RunAsync: All rootTasks completed.");
 
         if (Queue.Jobs.Count > 0 && !Queue.Jobs[^1].Config!.DoNotDownload)
             Events.RaiseEngineCompleted(Queue);
 
-        SockseekLog.Debug("Exiting RunAsync");
+        SockseekLog.Jobs.Debug("Exiting RunAsync");
         appCts.Cancel();
     }
 
@@ -262,7 +263,7 @@ public class DownloadEngine
         // recursing into its Result so that the Result is a sibling, not a child, in the hierarchy.
         job.Cts = CancellationTokenSource.CreateLinkedTokenSource(appCts.Token, parentToken);
 
-        SockseekLog.Trace($"ProcessJob: Starting job {job.DisplayId} ({job.GetType().Name})");
+        SockseekLog.Jobs.Trace($"ProcessJob: Starting job {job.DisplayId} ({job.GetType().Name})");
         try
         {
             // ── ExtractJob: run extractor, set Result, recurse ───────────────────
@@ -302,8 +303,6 @@ public class DownloadEngine
                 }
 
                 ej.Result = extracted;
-
-                SockseekLog.Debug("Got tracks");
 
                 // Post-extraction transforms — album/aggregate upgrades and name assignment
                 if (extracted is IUpgradeable upgradeable)
@@ -367,6 +366,7 @@ public class DownloadEngine
 
                 // Report the initial track list.
                 var allSongs = (extracted is JobList jlr ? jlr.AllSongs() : extracted is SongJob sjs ? new[] { sjs }.AsEnumerable() : Enumerable.Empty<SongJob>()).ToList();
+                SockseekLog.Jobs.Debug($"[{ej.DisplayId}] ExtractJob: extracted {DescribeExtractedResult(extracted, allSongs.Count)}: {ej.Input}");
                 if (allSongs.Count > 0)
                     Events.RaiseTrackListReady(allSongs);
 
@@ -381,16 +381,16 @@ public class DownloadEngine
                 // Pass parentToken (not ej.Cts.Token): the Result is a sibling of the ExtractJob in
                 // the CTS hierarchy. Cancelling the ExtractJob after extraction completes has no effect
                 // on the already-running Result; the Result can be cancelled independently.
-                SockseekLog.Trace($"ProcessJob (ExtractJob {job.DisplayId}): Processing extracted job {extracted.DisplayId}");
+                SockseekLog.Jobs.Trace($"ProcessJob (ExtractJob {job.DisplayId}): Processing extracted job {extracted.DisplayId}");
                 await ProcessJob(extracted, ex, parentToken, parentJob);
 
                 // For single extracted jobs with a source line (e.g. a lone AlbumJob from a CSV row),
                 // trigger removal now that processing is complete. Multi-item results use LineNumber=0
                 // (no source line of their own) and handle per-child removal inside ProcessJob.
-                SockseekLog.Trace($"ProcessJob (ExtractJob {job.DisplayId}): Calling MaybeRemoveFromSource");
+                SockseekLog.Jobs.Trace($"ProcessJob (ExtractJob {job.DisplayId}): Calling MaybeRemoveFromSource");
                 await MaybeRemoveFromSource(extracted, ex, ej.Config.Extraction);
 
-                SockseekLog.Trace($"ProcessJob (ExtractJob {job.DisplayId}): Extracted job processing complete.");
+                SockseekLog.Jobs.Trace($"ProcessJob (ExtractJob {job.DisplayId}): Extracted job processing complete.");
                 return;
             }
 
@@ -499,7 +499,7 @@ public class DownloadEngine
         }
         finally
         {
-            SockseekLog.Trace($"ProcessJob: Finished job {job.DisplayId} ({job.GetType().Name}). Raising execution completed.");
+            SockseekLog.Jobs.Trace($"ProcessJob: Finished job {job.DisplayId} ({job.GetType().Name}). Raising execution completed.");
             RaiseJobExecutionCompleted();
         }
     }
@@ -550,9 +550,9 @@ public class DownloadEngine
         if (job.LineNumber == 0) return;
         if (!IsSubtreeSuccessful(job)) return;
         
-        SockseekLog.Debug($"RemoveFromSource: '{job}' (LineNumber={job.LineNumber})");
+        SockseekLog.Jobs.Debug($"RemoveFromSource: '{job}' (LineNumber={job.LineNumber})");
         try { await extractor.RemoveFromSource(job); }
-        catch (Exception ex) { SockseekLog.Error($"Error removing from source: {ex.Message}"); }
+        catch (Exception ex) { SockseekLog.Jobs.Error($"Error removing from source: {ex.Message}"); }
     }
 
     async Task ProcessLeafJob(Job job)
@@ -574,7 +574,7 @@ public class DownloadEngine
         {
             if (TrySetNotFoundLastTimeForJob(job))
             {
-                SockseekLog.Info($"Download '{job.ToString(true)}' was not found during a prior run, skipping");
+                SockseekLog.Jobs.Info($"Download '{job.ToString(true)}' was not found during a prior run, skipping");
                 return;
             }
         }
@@ -862,7 +862,7 @@ public class DownloadEngine
                 job.Fail(FailureReason.Cancelled);
         }
 
-        SockseekLog.Trace($"ProcessLeafJob: finished for job {job.DisplayId} ({job.GetType().Name})");
+        SockseekLog.Jobs.Trace($"ProcessLeafJob: finished for job {job.DisplayId} ({job.GetType().Name})");
     }
 
     static bool HasPreResolvedAlbumResults(Job job)
@@ -885,7 +885,7 @@ public class DownloadEngine
         await DownloadSong(job, job, config, organizer, cts,
             cancelOnFail: false, organize: true);
 
-        SockseekLog.Trace($"ProcessSongJob finished for {job.DisplayId}. Calling IndexEditor Update ({(ctx.IndexEditor != null ? "Yes" : "No")}) and PlaylistEditor Update ({(ctx.PlaylistEditor != null ? "Yes" : "No")})");
+        SockseekLog.Jobs.Trace($"ProcessSongJob finished for {job.DisplayId}. Calling IndexEditor Update ({(ctx.IndexEditor != null ? "Yes" : "No")}) and PlaylistEditor Update ({(ctx.PlaylistEditor != null ? "Yes" : "No")})");
         ctx.IndexEditor?.Update();
         ctx.PlaylistEditor?.Update();
     }
@@ -980,7 +980,7 @@ public class DownloadEngine
                         retrievedFolders.Add(chosenFolder.FolderPath);
                     else
                     {
-                        SockseekLog.Info("Album track count verification was cancelled, skipping folder.");
+                        SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: album track count verification was cancelled, skipping folder: {chosenFolder.FolderPath}");
                         if (wasPreselected)
                         {
                             job.Fail(FailureReason.NoSuitableFileFound);
@@ -990,7 +990,7 @@ public class DownloadEngine
                         job.Results.RemoveAt(index);
                         if (--albumTrackCountRetries <= 0)
                         {
-                            SockseekLog.Info($"Failed album track count condition {config.Transfer.AlbumTrackCountMaxRetries} times, skipping album.");
+                            SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: failed album track count condition {config.Transfer.AlbumTrackCountMaxRetries} times, skipping album: {job}");
                             job.Fail(FailureReason.NoSuitableFileFound);
                             break;
                         }
@@ -1001,15 +1001,15 @@ public class DownloadEngine
 
                 bool trackCountFailed = false;
                 if (folderCond.MaxTrackCount is { } maxTrackCount and > 0 && knownCount > maxTrackCount)
-                { SockseekLog.Info($"New file count ({knownCount}) above maximum ({folderCond.MaxTrackCount}), skipping folder"); trackCountFailed = true; }
+                { SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: file count ({knownCount}) above maximum ({maxTrackCount}), skipping folder: {chosenFolder.FolderPath}"); trackCountFailed = true; }
                 if (folderCond.MinTrackCount is { } minTrackCount and > 0 && knownCount < minTrackCount)
-                { SockseekLog.Info($"New file count ({knownCount}) below minimum ({folderCond.MinTrackCount}), skipping folder"); trackCountFailed = true; }
+                { SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: file count ({knownCount}) below minimum ({minTrackCount}), skipping folder: {chosenFolder.FolderPath}"); trackCountFailed = true; }
 
                 if (trackCountFailed)
                 {
                     if (wasPreselected)
                     {
-                        SockseekLog.Info("Preselected album failed album track count condition, skipping album.");
+                        SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: preselected folder failed album track count condition, skipping album: {chosenFolder.FolderPath}");
                         job.Fail(FailureReason.NoSuitableFileFound);
                         break;
                     }
@@ -1017,7 +1017,7 @@ public class DownloadEngine
                     job.Results.RemoveAt(index);
                     if (--albumTrackCountRetries <= 0)
                     {
-                        SockseekLog.Info($"Failed album track count condition {config.Transfer.AlbumTrackCountMaxRetries} times, skipping album.");
+                        SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: failed album track count condition {config.Transfer.AlbumTrackCountMaxRetries} times, skipping album: {job}");
                         job.Fail(FailureReason.NoSuitableFileFound);
                         break;
                     }
@@ -1124,7 +1124,7 @@ public class DownloadEngine
 
         if (config.Output.AlbumArtOnly || (succeeded && config.Output.AlbumArtOption != AlbumArtOption.Default))
         {
-            SockseekLog.Info("Downloading additional images:");
+            SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: downloading additional images: {job}");
             additionalImages = await DownloadImages(job, ctx, organizer, job.ResolvedTarget);
 
             if (chosenFiles != null && additionalImages?.Count > 0)
@@ -1187,9 +1187,9 @@ public class DownloadEngine
             catch (Exception ex)
             {
                 if (ex is not OperationCanceledException)
-                    SockseekLog.Debug($"{ex}");
+                    SockseekLog.Jobs.Debug($"{ex}");
                 else
-                    SockseekLog.Debug($"Cancelled: {song}");
+                    SockseekLog.Jobs.Debug($"Cancelled: {song}");
 
                 if (!_clientManager.IsConnectedAndLoggedIn)
                 {
@@ -1253,6 +1253,19 @@ public class DownloadEngine
     static string? DownloadFailureMessage(Exception ex)
         => ex.InnerException?.Message ?? (string.IsNullOrWhiteSpace(ex.Message) ? null : ex.Message);
 
+    static string JobLogKind(Job job) => job switch
+    {
+        SongJob => "SongJob",
+        AlbumJob => "AlbumJob",
+        AlbumAggregateJob => "AlbumAggregateJob",
+        AggregateJob => "AggregateJob",
+        SearchJob => "SearchJob",
+        RetrieveFolderJob => "RetrieveFolderJob",
+        ExtractJob => "ExtractJob",
+        JobList => "Job List",
+        _ => job.GetType().Name,
+    };
+
 
     /// <summary>
     /// Searches for candidates for <paramref name="song"/> then downloads the best one.
@@ -1287,7 +1300,7 @@ public class DownloadEngine
                     {
                         if (fastDownloadTask == null)
                         {
-                            SockseekLog.Debug($"Fast-search: starting provisional download from {fc.Username}");
+                            SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: fast-search starting provisional download from {fc.Username}\\{fc.Filename}: {song}");
                             string outputPath = organizer.GetSavePath(fc.Filename);
                             
                             // Use the main job CTS for the download so cancelling the search doesn't kill the download.
@@ -1319,11 +1332,11 @@ public class DownloadEngine
                         try { await searchTask; } catch (OperationCanceledException) { }
                         
                         _registry.UserSuccessCounts.AddOrUpdate(fastCandidate.Username, 1, (_, c) => c + 1);
-                        SockseekLog.Debug("Fast-search: provisional download succeeded");
+                        SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: fast-search provisional download succeeded from {fastCandidate.Username}\\{fastCandidate.Filename}: {song}");
                         return (fastPath, fastCandidate.File);
                     }
                     
-                    SockseekLog.Debug("Fast-search: provisional download failed, waiting for full search to complete");
+                    SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: fast-search provisional download failed, waiting for full search to complete: {song}");
                     await searchTask;
                 }
                 else
@@ -1337,6 +1350,7 @@ public class DownloadEngine
 
         if (candidates == null || candidates.Count == 0)
         {
+            SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: no suitable candidates after search: {song}");
             throw new NoSuitableFileFoundException();
         }
 
@@ -1354,18 +1368,19 @@ public class DownloadEngine
                 // ReportDownloadStart is called inside DownloadFile (via Downloader).
                 await downloader!.DownloadFile(candidate, outputPath, song, config.Transfer, config.Output.ParentDir, cts.Token);
                 _registry.UserSuccessCounts.AddOrUpdate(candidate.Username, 1, (_, c) => c + 1);
+                SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: download succeeded from {candidate.Username}\\{candidate.Filename} to '{outputPath}': {song}");
                 return (outputPath, candidate.File);
             }
             catch (ManuallySkippedException)
             {
-                SockseekLog.Debug($"Manually skipped candidate: {candidate.Username}\\{candidate.Filename}");
+                SockseekLog.Jobs.Debug($"Manually skipped candidate: {candidate.Username}\\{candidate.Filename}");
                 tried--;
                 continue;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 lastDownloadException = ex;
-                SockseekLog.Debug($"Download attempt {tried} failed for '{candidate.Username}\\{candidate.Filename}' to '{outputPath}': {ex.Message}");
+                SockseekLog.Jobs.Debug($"Download attempt {tried} failed for '{candidate.Username}\\{candidate.Filename}' to '{outputPath}': {ex.Message}");
                 if (tried >= candidates.Count || tried >= config.Transfer.MaxDownloadRetries)
                 {
                     throw new AllDownloadsFailedException(ex);
@@ -1399,7 +1414,7 @@ public class DownloadEngine
         {
             if (!jobCtx.MusicDirSkipper.IndexIsBuilt)
             {
-                SockseekLog.Info("Building music directory index..");
+                SockseekLog.Jobs.Info("Building music directory index..");
                 jobCtx.MusicDirSkipper.BuildIndex();
             }
             jobCtx.MusicDirSkipper.SongExists(song, skipCtx, out path);
@@ -1408,6 +1423,7 @@ public class DownloadEngine
         if (path != null)
         {
             song.SetAlreadyExists(path);
+            SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: skipped because matching file already exists at '{path}': {song}");
         }
 
         return path != null;
@@ -1434,7 +1450,7 @@ public class DownloadEngine
             {
                 if (!ctx.MusicDirSkipper.IndexIsBuilt)
                 {
-                    SockseekLog.Info("Building music directory index..");
+                    SockseekLog.Jobs.Info("Building music directory index..");
                     ctx.MusicDirSkipper.BuildIndex();
                 }
                 ctx.MusicDirSkipper.AlbumExists(aj, skipCtx, out path);
@@ -1452,6 +1468,7 @@ public class DownloadEngine
             else
                 job.SetAlreadyExists();
             ctx.IndexEditor?.NotifyJobDownloadPath(job.Id, path);
+            SockseekLog.Jobs.Debug($"[{job.DisplayId}] {JobLogKind(job)}: skipped because matching output already exists at '{path}': {job}");
         }
 
         return path != null;
@@ -1465,6 +1482,7 @@ public class DownloadEngine
         if (prev.FailureReason == FailureReason.NoSuitableFileFound || prev.State == JobState.NotFoundLastTime)
         {
             song.SetSkipped(JobState.NotFoundLastTime);
+            SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: skipped because prior index entry was {prev.State}/{prev.FailureReason}: {song}");
             return true;
         }
         return false;
@@ -1485,6 +1503,7 @@ public class DownloadEngine
         if (prev.FailureReason == FailureReason.NoSuitableFileFound || prev.State == JobState.NotFoundLastTime)
         {
             job.SetSkipped(job is SongJob ? JobState.NotFoundLastTime : JobState.Skipped, FailureReason.NoSuitableFileFound);
+            SockseekLog.Jobs.Debug($"[{job.DisplayId}] {JobLogKind(job)}: skipped because prior index entry was {prev.State}/{prev.FailureReason}: {job}");
             return true;
         }
         return false;
@@ -1572,7 +1591,7 @@ public class DownloadEngine
         if (deleteDownloaded)
         {
             Events.RaiseJobStatus(job, "deleting files");
-            SockseekLog.LogNonConsole(LogLevel.Information, $"[{job.DisplayId}] AlbumJob: Deleting album files");
+            SockseekLog.Jobs.LogNonConsole(LogLevel.Information, $"[{job.DisplayId}] AlbumJob: Deleting album files");
         }
         else if (!string.IsNullOrEmpty(failedAlbumPath))
         {
@@ -1580,7 +1599,7 @@ public class DownloadEngine
                 throw new InvalidOperationException("Cannot move failed album files because Output.ParentDir is not set.");
 
             Events.RaiseJobStatus(job, $"moving to {failedAlbumPath}");
-            SockseekLog.LogNonConsole(LogLevel.Information, $"[{job.DisplayId}] AlbumJob: Moving album files to {failedAlbumPath}");
+            SockseekLog.Jobs.LogNonConsole(LogLevel.Information, $"[{job.DisplayId}] AlbumJob: Moving album files to {failedAlbumPath}");
         }
 
         foreach (var af in folder.Files)
@@ -1607,7 +1626,7 @@ public class DownloadEngine
             }
             catch (Exception e)
             {
-                SockseekLog.Error($"Error: Unable to move or delete file '{af.DownloadPath}' after album fail: {e}");
+                SockseekLog.Jobs.Error($"Error: Unable to move or delete file '{af.DownloadPath}' after album fail: {e}");
             }
         }
 
@@ -1628,6 +1647,7 @@ public class DownloadEngine
     {
         if (folder.IsFullyRetrieved)
         {
+            SockseekLog.Jobs.Debug($"[{parentJob.DisplayId}] {JobLogKind(parentJob)}: folder already fully retrieved: {folder.FolderPath}");
             var completedJob = new RetrieveFolderJob(folder)
             {
                 WorkflowId = parentJob.WorkflowId,
@@ -1641,6 +1661,7 @@ public class DownloadEngine
         rfJob.Cts = CancellationTokenSource.CreateLinkedTokenSource(appCts.Token, parentJob.Cts!.Token);
         RegisterJob(rfJob, parentJob);
         rfJob.UpdateState(JobState.Searching);
+        SockseekLog.Jobs.Debug($"[{rfJob.DisplayId}] RetrieveFolderJob: retrieving folder for parent [{parentJob.DisplayId}] {JobLogKind(parentJob)}: {folder.FolderPath}");
 
         int count = 0;
         try
@@ -1657,6 +1678,7 @@ public class DownloadEngine
             rfJob.NewFilesFoundCount = count;
             rfJob.RetrievalOutcome = FolderRetrievalOutcome.Completed;
             rfJob.SetDone();
+            SockseekLog.Jobs.Debug($"[{rfJob.DisplayId}] RetrieveFolderJob: retrieved folder with {count} new file{(count == 1 ? "" : "s")}: {folder.FolderPath}");
             return rfJob;
         }
         catch (OperationCanceledException)
@@ -1665,7 +1687,7 @@ public class DownloadEngine
             rfJob.RetrievalOutcome = FolderRetrievalOutcome.Cancelled;
             rfJob.Fail(FailureReason.Cancelled);
             Events.RaiseJobStatus(rfJob, "cancelled");
-            SockseekLog.LogNonConsole(LogLevel.Information, $"[{rfJob.DisplayId}] RetrieveFolderJob: Cancelled folder retrieval for {folder.FolderPath}");
+            SockseekLog.Jobs.LogNonConsole(LogLevel.Information, $"[{rfJob.DisplayId}] RetrieveFolderJob: Cancelled folder retrieval for {folder.FolderPath}");
             return rfJob;
         }
         finally
@@ -1706,10 +1728,10 @@ public class DownloadEngine
             .ToList();
 
         if (imageFolders.Count == 0)
-        { SockseekLog.Info("No images found"); return result; }
+        { SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: no images found: {job}"); return result; }
 
         if (imageFolders.Count == 1 && imageFolders[0].All(af => af.State != JobState.Pending))
-        { SockseekLog.Info("No additional images found"); return result; }
+        { SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: no additional images found: {job}"); return result; }
 
         if (option == AlbumArtOption.Largest)
         {
@@ -1751,7 +1773,8 @@ public class DownloadEngine
             if (imgs.All(af => af.State == JobState.Done || af.State == JobState.AlreadyExists)
                 || !needsDownload(imgs))
             {
-                SockseekLog.Info("Image requirements already satisfied.");
+                var imageFolderPath = Utils.GreatestCommonDirectorySlsk(imgs.Select(af => af.ResolvedTarget!.Filename));
+                SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: image requirements already satisfied: {imageFolderPath}");
                 return result;
             }
 
@@ -1820,6 +1843,25 @@ public class DownloadEngine
         }
     }
 
+    static string DescribeExtractedResult(Job result, int songCount)
+    {
+        var resultKind = result switch
+        {
+            JobList list => $"{list.Jobs.Count} jobs",
+            SongJob => "1 song",
+            AlbumJob => "album",
+            AlbumAggregateJob => "album aggregate",
+            SearchJob => "search",
+            RetrieveFolderJob => "folder retrieval",
+            ExtractJob => "extract job",
+            _ => result.GetType().Name,
+        };
+
+        return songCount > 0
+            ? $"{resultKind}, {songCount} songs"
+            : resultKind;
+    }
+
 
     // ── update / stale-detection loop ─────────────────────────────────────────
 
@@ -1852,7 +1894,7 @@ public class DownloadEngine
                         if (song.LastActivityTime.HasValue &&
                             (DateTime.Now - song.LastActivityTime.Value).TotalMilliseconds > maxStale)
                         {
-                            SockseekLog.Debug($"Cancelling stale download: {song}");
+                            SockseekLog.Jobs.Debug($"Cancelling stale download: {song}");
                             try { ad.Cts.Cancel(); } catch { }
                             _registry.Downloads.TryRemove(filename, out _);
                         }
@@ -1864,7 +1906,7 @@ public class DownloadEngine
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
-                SockseekLog.Error($"Error in update loop: {ex.Message}");
+                SockseekLog.Jobs.Error($"Error in update loop: {ex.Message}");
                 try { await Task.Delay(1000, cancellationToken); } catch { break; }
             }
         }

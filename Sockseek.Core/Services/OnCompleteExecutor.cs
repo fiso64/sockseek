@@ -84,7 +84,7 @@ public static class OnCompleteExecutor
             string preparedCommand = PrepareCommandString(config.Command, fmCtx, prevCommandResult, firstCommandResult);
             if (string.IsNullOrWhiteSpace(preparedCommand))
             {
-                SockseekLog.Warn($"Skipping on-complete action {i + 1} because the prepared command is empty after variable replacement.");
+                SockseekLog.Jobs.Warn($"{OnCompleteLogPrefix(job, song)} skipping on-complete action {i + 1} because the prepared command is empty after variable replacement.");
                 continue;
             }
 
@@ -98,12 +98,12 @@ public static class OnCompleteExecutor
             {
                 if (config.UseLocking)
                 {
-                    SockseekLog.Debug($"on-complete [{i + 1}/{job.Config.Output.OnComplete.Count}]: Waiting for lock...");
+                    SockseekLog.Jobs.Debug($"{OnCompleteLogPrefix(job, song)} on-complete [{i + 1}/{job.Config.Output.OnComplete.Count}]: waiting for lock");
                     await _lockingSemaphore.WaitAsync();
                     acquiredLock = true;
                 }
 
-                SockseekLog.Debug($"on-complete [{i + 1}/{job.Config.Output.OnComplete.Count}]: Executing: FileName='{startInfo.FileName}', Arguments='{startInfo.Arguments}', UseShellExecute={startInfo.UseShellExecute}, CreateNoWindow={startInfo.CreateNoWindow}, RedirectOutput={startInfo.RedirectStandardOutput}");
+                SockseekLog.Jobs.Debug($"{OnCompleteLogPrefix(job, song)} on-complete [{i + 1}/{job.Config.Output.OnComplete.Count}]: executing FileName='{startInfo.FileName}', Arguments='{startInfo.Arguments}', UseShellExecute={startInfo.UseShellExecute}, CreateNoWindow={startInfo.CreateNoWindow}, RedirectOutput={startInfo.RedirectStandardOutput}");
                 currentResult = await ExecuteProcessAsync(startInfo);
             }
             finally
@@ -114,14 +114,14 @@ public static class OnCompleteExecutor
 
             if (currentResult == null)
             {
-                SockseekLog.Error($"Execution failed for command {i + 1}. Stopping further on-complete actions for this item.");
+                SockseekLog.Jobs.Error($"{OnCompleteLogPrefix(job, song)} execution failed for on-complete command {i + 1}. Stopping further on-complete actions for this item.");
                 return;
             }
 
             prevCommandResult = currentResult;
             if (i == 0) firstCommandResult = currentResult;
 
-            if (ProcessCommandResult(currentResult.Value, config, song, job))
+            if (ProcessCommandResult(currentResult.Value, config, song, job, OnCompleteLogPrefix(job, song)))
                 needUpdateIndex = true;
         }
 
@@ -129,8 +129,22 @@ public static class OnCompleteExecutor
         {
             ctx.IndexEditor?.Update();
             ctx.PlaylistEditor?.Update();
-            SockseekLog.Debug($"Index/Playlist updated based on on-complete action output.");
+            SockseekLog.Jobs.Debug($"{OnCompleteLogPrefix(job, song)} index/playlist updated based on on-complete action output.");
         }
+    }
+
+    private static string OnCompleteLogPrefix(Job job, SongJob? song)
+    {
+        if (song != null)
+            return $"[{song.DisplayId}] SongJob:";
+
+        return job switch
+        {
+            AlbumJob => $"[{job.DisplayId}] AlbumJob:",
+            JobList => $"[{job.DisplayId}] Job List:",
+            SearchJob => $"[{job.DisplayId}] SearchJob:",
+            _ => $"[{job.DisplayId}] {job.GetType().Name}:",
+        };
     }
 
     private static CommandConfig ParseCommandFlags(string rawCommand)
@@ -371,7 +385,7 @@ public static class OnCompleteExecutor
     }
 
     // Returns true if the index needs updating.
-    private static bool ProcessCommandResult(ProcessResult result, CommandConfig config, SongJob? song, Job job)
+    private static bool ProcessCommandResult(ProcessResult result, CommandConfig config, SongJob? song, Job job, string logPrefix)
     {
         bool needsUpdate = false;
 
@@ -386,7 +400,7 @@ public static class OnCompleteExecutor
                 {
                     if (song.State != newState)
                     {
-                        SockseekLog.Info($"Updating song {song} state from {song.State} to {newState} based on stdout.");
+                        SockseekLog.Jobs.Debug($"{logPrefix} updating song state from {song.State} to {newState} based on stdout: {song}");
                         if (newState == JobState.Failed)
                             song.Fail(FailureReason.Other, "Failed via on-complete stdout");
                         else if (newState is JobState.Skipped or JobState.AlreadyExists or JobState.NotFoundLastTime)
@@ -401,7 +415,7 @@ public static class OnCompleteExecutor
                         string newPath = parts[1].Trim();
                         if (song.DownloadPath != newPath)
                         {
-                            SockseekLog.Info($"Updating song {song} path to '{newPath}' based on stdout.");
+                            SockseekLog.Jobs.Debug($"{logPrefix} updating song path from '{song.DownloadPath}' to '{newPath}' based on stdout: {song}");
                             song.DownloadPath = newPath;
                             needsUpdate = true;
                         }
@@ -410,12 +424,12 @@ public static class OnCompleteExecutor
             }
             else
             {
-                SockseekLog.Warn($"Could not parse new state from stdout. Stdout: '{result.Stdout}'");
+                SockseekLog.Jobs.Warn($"{logPrefix} could not parse new state from stdout. Stdout: '{result.Stdout}'");
             }
         }
 
         if (result.ExitCode != 0)
-            SockseekLog.Debug($"Command finished with non-zero exit code {result.ExitCode}. Stdout: '{result.Stdout ?? "N/A"}', Stderr: '{result.Stderr ?? "N/A"}'");
+            SockseekLog.Jobs.Debug($"{logPrefix} command finished with non-zero exit code {result.ExitCode}. Stdout: '{result.Stdout ?? "N/A"}', Stderr: '{result.Stderr ?? "N/A"}'");
 
         return needsUpdate;
     }

@@ -77,7 +77,7 @@ public sealed class EngineSupervisor
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 Interlocked.Increment(ref restartCount);
-                SockseekLog.Error($"Engine instance failed, restarting supervisor loop: {ex.Message}");
+                SockseekLog.Daemon.Error($"Engine instance failed, restarting supervisor loop: {ex.Message}");
                 StateStore.MarkActiveJobsInfrastructureFailed(ex.Message);
                 StateStore.DetachEngine(engine);
                 lock (engineGate)

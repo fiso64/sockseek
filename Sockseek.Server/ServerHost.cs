@@ -58,13 +58,13 @@ public static class ServerHost
         builder.Services.AddSingleton<EngineSupervisor>();
         builder.Services.AddSingleton(sp => sp.GetRequiredService<EngineSupervisor>().StateStore);
         builder.Services.AddSingleton<ServerEventBroadcaster>();
-        builder.Services.AddSingleton<ServerProgressLogReporter>();
+        builder.Services.AddSingleton<ServerActivityLogReporter>();
         builder.Services.AddHostedService<EngineRuntimeHostedService>();
 
         var app = builder.Build();
         CoreLoggerBridge.Configure(app.Services, (options ?? app.Services.GetRequiredService<IOptions<ServerOptions>>().Value).Engine.LogLevel);
         _ = app.Services.GetRequiredService<ServerEventBroadcaster>();
-        _ = app.Services.GetRequiredService<ServerProgressLogReporter>();
+        _ = app.Services.GetRequiredService<ServerActivityLogReporter>();
 
         app.MapOpenApi("/api/openapi.json");
         MapEndpoints(app);
@@ -524,7 +524,7 @@ public static class ServerHost
     private static IResult BadRequest(Exception ex)
     {
         TryCreateBadRequest(ex, out var error);
-        Sockseek.Core.SockseekLog.LogNonConsole(Microsoft.Extensions.Logging.LogLevel.Warning, $"Bad request: {error}");
+        Sockseek.Core.SockseekLog.Daemon.LogNonConsole(Microsoft.Extensions.Logging.LogLevel.Warning, $"Bad request: {error}");
         return Results.BadRequest(new ApiErrorDto(error));
     }
 
