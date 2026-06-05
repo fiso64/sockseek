@@ -404,6 +404,26 @@ namespace Tests.ResultSorterTests
         }
 
         [TestMethod]
+        public void OrderedResults_PrefersStrictArtistMatch_WhenPreferred()
+        {
+            var matchingArtist = TestHelpers.CreateSlFile("Music\\Right Artist\\Track.mp3", bitrate: 320, length: 200);
+            var titleOnly = TestHelpers.CreateSlFile("Music\\Wrong Artist\\Track.mp3", bitrate: 320, length: 200);
+            var matchingResponse = CreateResponse("artist-match", uploadSpeed: 100 * 1024, files: matchingArtist);
+            var titleOnlyResponse = CreateResponse("title-only", uploadSpeed: 800 * 1024, files: titleOnly);
+            var results = new List<(SearchResponse, File)> { (titleOnlyResponse, titleOnly), (matchingResponse, matchingArtist) };
+
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            config.Search.PreferredCond = new FileConditions { StrictArtist = true, StrictAlbum = true };
+            var counts = new ConcurrentDictionary<string, int>();
+            var track = TestHelpers.CreateQuery(artist: "Right Artist", title: "Track", album: "Missing Album");
+
+            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+
+            Assert.AreEqual(2, ordered.Count);
+            Assert.AreEqual("artist-match", ordered[0].response.Username);
+        }
+
+        [TestMethod]
         public void OrderedResults_DownranksUsersNotInNecessaryAllowedUsers()
         {
             var file1 = TestHelpers.CreateSlFile("Music\\Track.mp3", bitrate: 320, length: 200);

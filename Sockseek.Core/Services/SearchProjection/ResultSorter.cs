@@ -218,7 +218,7 @@ public static partial class ResultSorter
             bool preferredStrictArtistMatch = !Search.PreferredCond.StrictArtist
                 || StrictStringPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false);
             bool strictArtistMatch = !Search.PreferredCond.StrictArtist
-                || StrictStringPrepared(getStrictFullFilename(), strictTitle, boundarySkipWs: false);
+                || StrictStringPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false);
 
             bool lengthToleranceMatch = Search.PreferredCond.LengthToleranceSatisfies(file, Query.Length);
             bool formatMatch = Search.PreferredCond.FormatSatisfies(filename);
