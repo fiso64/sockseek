@@ -6,12 +6,22 @@ using SlFile = Soulseek.File;
 
 namespace Sockseek.Core.Services;
 
+public enum FolderSortMode
+{
+    AlbumRanked,
+    DeterministicUnranked,
+}
+
 public sealed class IncrementalAlbumFolderProjector
 {
     private readonly AlbumQuery query;
     private readonly SearchSettings search;
     private readonly SongQuery sortQuery;
-    private readonly IncrementalResultSorter sorter;
+    private readonly FolderSortMode sortMode;
+    private readonly IncrementalResultSorter? sorter;
+    private readonly ResultSorter.SortKeyContext? aggregateSortKeyContext;
+    private readonly List<(SearchResponse Response, SlFile File)> rawResults = [];
+    private readonly HashSet<string> seen = new(StringComparer.Ordinal);
     private readonly Dictionary<string, AlbumFolderSignature> previousSignatures = new(StringComparer.Ordinal);
     private List<AlbumFolder> previousSnapshot = [];
 
@@ -19,23 +29,59 @@ public sealed class IncrementalAlbumFolderProjector
         AlbumQuery query,
         SearchSettings search,
         ConcurrentDictionary<string, int>? userSuccessCounts = null,
-        bool ignoreStringConditions = false)
+        bool ignoreStringSortConditions = false,
+        FolderSortMode sortMode = FolderSortMode.AlbumRanked)
     {
         this.query = query;
         this.search = search;
+        this.sortMode = sortMode;
         sortQuery = SearchResultProjector.AlbumFileMatchQuery(query);
-        sorter = new IncrementalResultSorter(
-            sortQuery,
-            search,
-            userSuccessCounts ?? new ConcurrentDictionary<string, int>(),
-            albumMode: true,
-            ignoreStringConditions: ignoreStringConditions);
+        var successCounts = userSuccessCounts ?? new ConcurrentDictionary<string, int>();
+        if (sortMode == FolderSortMode.AlbumRanked)
+        {
+            sorter = new IncrementalResultSorter(
+                sortQuery,
+                search,
+                successCounts,
+                albumMode: true,
+                ignoreStringSortConditions: ignoreStringSortConditions);
+        }
+        else
+        {
+            aggregateSortKeyContext = ResultSorter.CreateSortKeyContext(
+                [],
+                sortQuery,
+                search,
+                successCounts,
+                useBracketCheck: false,
+                useInfer: false,
+                useLevenshtein: false,
+                albumMode: true,
+                ignoreStringSortConditions: ignoreStringSortConditions);
+        }
     }
 
-    public int Count => sorter.Count;
+    public int Count => sortMode == FolderSortMode.AlbumRanked ? sorter!.Count : rawResults.Count;
 
     public int AddRange(IEnumerable<(SearchResponse Response, SlFile File)> results)
-        => sorter.AddRange(results.Where(ProjectionFilter));
+    {
+        var filtered = results.Where(ProjectionFilter);
+        if (sortMode == FolderSortMode.AlbumRanked)
+            return sorter!.AddRange(filtered);
+
+        int added = 0;
+        foreach (var (response, file) in filtered)
+        {
+            string key = response.Username + '\\' + file.Filename;
+            if (!seen.Add(key))
+                continue;
+
+            rawResults.Add((response, file));
+            added++;
+        }
+
+        return added;
+    }
 
     // TODO: Revisit AlbumQuery.SearchHint semantics. It may be cleaner for the hint
     // to qualify folders that contain a matching track, while still showing all files
@@ -53,21 +99,31 @@ public sealed class IncrementalAlbumFolderProjector
 
     public void Clear()
     {
-        sorter.Clear();
+        sorter?.Clear();
+        rawResults.Clear();
+        seen.Clear();
         previousSignatures.Clear();
         previousSnapshot = [];
     }
 
-    // Incremental here means new raw search results are merged into a stable
-    // album-mode sorted list. Snapshot-time folder grouping is still rebuilt
-    // from that sorted list so child-directory merge semantics stay identical
-    // to SearchResultProjector.AlbumFolders.
+    // Ranked mode keeps a stable album-sort order before grouping. Unranked mode
+    // is for aggregate projections that only need deterministic grouping order.
     public List<AlbumFolder> Snapshot()
-        => SearchResultProjector.AlbumFoldersFromOrderedResults(
-            sorter.OrderedResults(),
+    {
+        if (sortMode == FolderSortMode.DeterministicUnranked)
+            return SearchResultProjector.AlbumFoldersFromResults(
+                rawResults,
+                query,
+                search,
+                rawResults.Count,
+                aggregateSortKeyContext: aggregateSortKeyContext);
+
+        return SearchResultProjector.AlbumFoldersFromOrderedResults(
+            sorter!.OrderedResults(),
             query,
             search,
             sorter.Count);
+    }
 
     public AlbumFolderProjectionChanges GetChanges()
     {

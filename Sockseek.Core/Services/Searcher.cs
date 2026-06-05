@@ -196,7 +196,10 @@ public partial class Searcher
         var searchJob = new SearchJob(job.Query);
         await Search(searchJob, search, responseData, ct);
         var folders = searchJob.GetAlbumFolders(
-            new FolderSearchProjection(job.Query, IgnoreStringConditions: true),
+            new FolderSearchProjection(
+                job.Query,
+                IgnoreStringSortConditions: true,
+                SortMode: FolderSortMode.DeterministicUnranked),
             search);
         return SearchResultProjector.AggregateAlbums(folders.Items, job.Query, search);
     }

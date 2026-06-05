@@ -1,4 +1,5 @@
 using Sockseek.Core.Jobs;
+using Sockseek.Core.Services;
 
 namespace Sockseek.Core.Models;
     public class AlbumFolder
@@ -12,6 +13,7 @@ namespace Sockseek.Core.Models;
         public string?       SearchRepresentativeAudioFilename { get; }
         public bool          HasSearchMetadata { get; }
         public bool          IsFullyRetrieved { get; set; }
+        internal ResultSorter.SortEntry? SearchAggregateSortEntry { get; }
 
         private readonly Lazy<List<SongJob>> files;
 
@@ -35,6 +37,7 @@ namespace Sockseek.Core.Models;
                 ?.ResolvedTarget!
                 .Filename;
             HasSearchMetadata = true;
+            SearchAggregateSortEntry = null;
         }
 
         public AlbumFolder(string username, string folderPath, Func<List<SongJob>> filesFactory)
@@ -61,7 +64,20 @@ namespace Sockseek.Core.Models;
             int searchAudioFileCount,
             int[] searchSortedAudioLengths,
             string? searchRepresentativeAudioFilename)
-            : this(username, folderPath, filesFactory, searchFileCount, searchAudioFileCount, searchSortedAudioLengths, searchRepresentativeAudioFilename, hasSearchMetadata: true)
+            : this(username, folderPath, filesFactory, searchFileCount, searchAudioFileCount, searchSortedAudioLengths, searchRepresentativeAudioFilename, hasSearchMetadata: true, searchAggregateSortEntry: null)
+        {
+        }
+
+        internal AlbumFolder(
+            string username,
+            string folderPath,
+            Func<List<SongJob>> filesFactory,
+            int searchFileCount,
+            int searchAudioFileCount,
+            int[] searchSortedAudioLengths,
+            string? searchRepresentativeAudioFilename,
+            ResultSorter.SortEntry? searchAggregateSortEntry)
+            : this(username, folderPath, filesFactory, searchFileCount, searchAudioFileCount, searchSortedAudioLengths, searchRepresentativeAudioFilename, hasSearchMetadata: true, searchAggregateSortEntry)
         {
         }
 
@@ -73,7 +89,8 @@ namespace Sockseek.Core.Models;
             int searchAudioFileCount,
             int[] searchSortedAudioLengths,
             string? searchRepresentativeAudioFilename,
-            bool hasSearchMetadata)
+            bool hasSearchMetadata,
+            ResultSorter.SortEntry? searchAggregateSortEntry = null)
         {
             Username = username;
             FolderPath = folderPath;
@@ -83,5 +100,6 @@ namespace Sockseek.Core.Models;
             SearchSortedAudioLengths = searchSortedAudioLengths;
             SearchRepresentativeAudioFilename = searchRepresentativeAudioFilename;
             HasSearchMetadata = hasSearchMetadata;
+            SearchAggregateSortEntry = searchAggregateSortEntry;
         }
     }

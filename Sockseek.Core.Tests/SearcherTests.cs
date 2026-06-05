@@ -316,6 +316,34 @@ namespace Tests.Unit
         }
 
         [TestMethod]
+        public void AlbumFolders_GroupsParentArtAndDiscSiblings_OrderIndependently()
+        {
+            var cover = TestHelpers.CreateSlFile(@"ELO\Time\cover.jpg", extension: ".jpg");
+            var disc1 = TestHelpers.CreateSlFile(@"ELO\Time\Disc 1\01. Prologue.flac", length: 60);
+            var disc2 = TestHelpers.CreateSlFile(@"ELO\Time\Disc 2\01. Twilight.flac", length: 209);
+            var response = new SearchResponse("User1", 1, true, 1000, 0, [cover, disc1, disc2]);
+            var query = new AlbumQuery { Artist = "ELO", Album = "Time" };
+            var search = TestHelpers.CreateDefaultSettings().Download.Search;
+
+            var forward = SearchResultProjector.AlbumFolders(
+                [(response, cover), (response, disc1), (response, disc2)],
+                query,
+                search);
+            var reversed = SearchResultProjector.AlbumFolders(
+                [(response, disc2), (response, disc1), (response, cover)],
+                query,
+                search);
+
+            Assert.AreEqual(1, forward.Count);
+            Assert.AreEqual(1, reversed.Count);
+            Assert.AreEqual(@"ELO\Time", forward[0].FolderPath);
+            Assert.AreEqual(@"ELO\Time", reversed[0].FolderPath);
+            CollectionAssert.AreEqual(
+                forward[0].Files.Select(x => x.ResolvedTarget!.Filename).ToList(),
+                reversed[0].Files.Select(x => x.ResolvedTarget!.Filename).ToList());
+        }
+
+        [TestMethod]
         public void SongUpgrade_ToAlbum_UsesSourceAlbumAndRequiresSourceTrackInFolder()
         {
             var song = new SongJob(new SongQuery
@@ -882,29 +910,26 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void AlbumAggregate_DoesNotSortBucketByStrictAlbum()
+        public void AlbumAggregate_RealProjection_RanksBucketByFormatButNotStrictAlbum()
         {
             var query = new AlbumQuery { Artist = "ELO", Album = "Time" };
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
             search.MinSharesAggregate = 1;
             search.PreferredCond.Formats = ["flac"];
             search.PreferredCond.StrictAlbum = true;
-            var folderProjector = new IncrementalAlbumFolderProjector(query, search, ignoreStringConditions: true);
-            var aggregateProjector = new IncrementalAlbumAggregateProjector(query, search);
+            var job = new SearchJob(query);
 
-            var opusTime = AlbumSearchResponse("OpusTimeUser", false, 1000, @"Music\ELO\Time [OPUS]", ".opus", [209, 200]);
-            var flacOther = AlbumSearchResponse("FlacOtherUser", true, 5000, @"Music\ELO\Other [FLAC]", ".flac", [209, 200]);
+            var opusStrictAlbum = AlbumSearchResponse("AOpusTimeUser", false, 1000, @"Music\ELO\Time [OPUS]", ".opus", [209, 200]);
+            var flacOtherAlbum = AlbumSearchResponse("ZFlacOtherUser", true, 5000, @"Music\ELO\Other [FLAC]", ".flac", [209, 200]);
 
-            foreach (var response in new[] { opusTime, flacOther })
-            {
-                var changes = folderProjector.AddRangeAndGetChanges(response.Files.Select(file => (response, file)));
-                aggregateProjector.ApplyChanges(changes);
-            }
+            job.Session.AddResponse(opusStrictAlbum);
+            job.Session.AddResponse(flacOtherAlbum);
 
-            var buckets = aggregateProjector.Snapshot();
+            var buckets = job.GetAggregateAlbums(search).Items;
 
             Assert.AreEqual(1, buckets.Count);
-            Assert.AreEqual("FlacOtherUser", buckets[0].Results[0].Username);
+            Assert.AreEqual("ZFlacOtherUser", buckets[0].Results[0].Username,
+                "The real album-aggregate projection should honor non-string preferences within a bucket while ignoring strict string ranking.");
 
             static SearchResponse AlbumSearchResponse(
                 string username,

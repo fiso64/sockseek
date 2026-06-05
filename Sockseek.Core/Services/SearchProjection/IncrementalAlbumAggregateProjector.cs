@@ -12,6 +12,7 @@ public sealed class IncrementalAlbumAggregateProjector
     private readonly Dictionary<int, Dictionary<int, List<AlbumAggregateBucket>>> byTrackCountAndFirstLength = [];
     private readonly Dictionary<AlbumFolder, SongQuery?> representativeQueries = [];
     private readonly Dictionary<string, int> folderOrder = new(StringComparer.Ordinal);
+    private readonly AlbumFolderAggregateComparer folderComparer;
     private readonly List<AlbumAggregateBucket> buckets = [];
     private readonly HashSet<string> seenFolders = new(StringComparer.Ordinal);
 
@@ -20,6 +21,7 @@ public sealed class IncrementalAlbumAggregateProjector
         this.query = query;
         this.search = search;
         maxDiff = search.AggregateLengthTol;
+        folderComparer = new AlbumFolderAggregateComparer(query, search, folderOrder);
     }
 
     public int Count => seenFolders.Count;
@@ -29,6 +31,7 @@ public sealed class IncrementalAlbumAggregateProjector
         byTrackCountAndFirstLength.Clear();
         representativeQueries.Clear();
         folderOrder.Clear();
+        folderComparer.ClearCache();
         buckets.Clear();
         seenFolders.Clear();
     }
@@ -152,21 +155,7 @@ public sealed class IncrementalAlbumAggregateProjector
     }
 
     private int CompareFolders(AlbumFolder x, AlbumFolder y)
-    {
-        int comparison = GetFolderOrder(x).CompareTo(GetFolderOrder(y));
-        if (comparison != 0)
-            return comparison;
-
-        comparison = string.Compare(x.Username, y.Username, StringComparison.Ordinal);
-        return comparison != 0
-            ? comparison
-            : string.Compare(x.FolderPath, y.FolderPath, StringComparison.Ordinal);
-    }
-
-    private int GetFolderOrder(AlbumFolder folder)
-        => folderOrder.TryGetValue(FolderKey(folder), out int order)
-            ? order
-            : int.MaxValue;
+        => folderComparer.Compare(x, y);
 
     private static string FolderKey(AlbumFolder folder)
         => folder.Username + '\\' + folder.FolderPath;

@@ -24,7 +24,7 @@ public sealed class IncrementalResultSorter
         bool useInfer = false,
         bool useLevenshtein = false,
         bool requireFileSatisfies = false,
-        bool ignoreStringConditions = false)
+        bool ignoreStringSortConditions = false)
     {
         this.query = query;
         this.search = search;
@@ -38,7 +38,7 @@ public sealed class IncrementalResultSorter
             useInfer,
             useLevenshtein,
             albumMode,
-            ignoreStringConditions);
+            ignoreStringSortConditions);
     }
 
     public int Count => entries.Count;

@@ -117,7 +117,7 @@ public sealed class IncrementalAggregateTrackProjector
                 search,
                 userSuccessCounts,
                 albumMode: false,
-                ignoreStringConditions: true);
+                ignoreStringSortConditions: true);
         }
 
         public void Add(SearchResponse response, SlFile file)

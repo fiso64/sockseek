@@ -49,7 +49,7 @@ public static partial class SearchResultProjector
                 useInfer: false,
                 useLevenshtein: false,
                 albumMode: false,
-                ignoreStringConditions: true)))
+                ignoreStringSortConditions: true)))
             .ToList();
 
         if (!search.Relax)
@@ -75,26 +75,54 @@ public static partial class SearchResultProjector
         AlbumQuery query,
         SearchSettings search,
         ConcurrentDictionary<string, int>? userSuccessCounts = null,
-        bool ignoreStringConditions = false)
+        bool ignoreStringSortConditions = false,
+        FolderSortMode sortMode = FolderSortMode.AlbumRanked)
     {
         var sortQuery = AlbumFileMatchQuery(query);
         var filteredResults = rawResults
             .Where(result =>
                 search.NecessaryCond.UserSatisfies(result.Response)
                 && (!Utils.IsMusicFile(result.File.Filename)
-                    || search.NecessaryCond.FileSatisfies(result.File, sortQuery, result.Response)));
-        var orderedResults = ResultSorter.OrderedResults(
-            filteredResults.Select(x => (x.Response, x.File)),
+                    || search.NecessaryCond.FileSatisfies(result.File, sortQuery, result.Response)))
+            .ToList();
+
+        int capacity = filteredResults.Count;
+        if (sortMode == FolderSortMode.AlbumRanked)
+        {
+            var orderedResults = ResultSorter.OrderedResults(
+                    filteredResults.Select(x => (x.Response, x.File)),
+                    sortQuery,
+                    search,
+                    userSuccessCounts ?? new ConcurrentDictionary<string, int>(),
+                    useInfer: false,
+                    useLevenshtein: false,
+                    albumMode: true,
+                    ignoreStringSortConditions: ignoreStringSortConditions);
+
+            return AlbumFoldersFromOrderedResults(
+                orderedResults.Select(x => (x.response, x.file)),
+                query,
+                search,
+                capacity);
+        }
+
+        var aggregateSortKeyContext = ResultSorter.CreateSortKeyContext(
+            [],
             sortQuery,
             search,
             userSuccessCounts ?? new ConcurrentDictionary<string, int>(),
+            useBracketCheck: false,
             useInfer: false,
             useLevenshtein: false,
             albumMode: true,
-            ignoreStringConditions: ignoreStringConditions);
+            ignoreStringSortConditions: ignoreStringSortConditions);
 
-        int capacity = rawResults.TryGetNonEnumeratedCount(out int resultCount) ? resultCount : 0;
-        return AlbumFoldersFromOrderedResults(orderedResults.Select(x => (x.response, x.file)), query, search, capacity);
+        return AlbumFoldersFromResults(
+            filteredResults,
+            query,
+            search,
+            capacity,
+            aggregateSortKeyContext: aggregateSortKeyContext);
     }
 
     internal static List<AlbumFolder> AlbumFoldersFromOrderedResults(
@@ -102,14 +130,23 @@ public static partial class SearchResultProjector
         AlbumQuery query,
         SearchSettings search,
         int capacity = 0)
+        => AlbumFoldersFromResults(orderedResults, query, search, capacity, sortByResultOrder: true);
+
+    internal static List<AlbumFolder> AlbumFoldersFromResults(
+        IEnumerable<(SearchResponse Response, Soulseek.File File)> results,
+        AlbumQuery query,
+        SearchSettings search,
+        int capacity = 0,
+        bool sortByResultOrder = false,
+        ResultSorter.SortKeyContext? aggregateSortKeyContext = null)
     {
         bool canMatchDisc = !DiscPatternRegex().IsMatch(query.Album) && !DiscPatternRegex().IsMatch(query.Artist);
         var dirStructure = capacity > 0
             ? new Dictionary<string, AlbumFolderBuilder>(capacity)
             : new Dictionary<string, AlbumFolderBuilder>();
-        int idx = 0;
 
-        foreach (var (response, file) in orderedResults)
+        int resultIndex = 0;
+        foreach (var (response, file) in results)
         {
             string username = response.Username;
             string folderPath = file.Filename[..file.Filename.LastIndexOf('\\')];
@@ -121,15 +158,23 @@ public static partial class SearchResultProjector
             string key = username + '\\' + folderPath;
             bool isMusic = Utils.IsMusicFile(file.Filename);
             var folderFile = new AlbumFolderFile(response, file, isMusic);
+            var aggregateSortEntry = aggregateSortKeyContext == null
+                ? null
+                : ResultSorter.CreateSortEntry(response, file, aggregateSortKeyContext, resultIndex);
+            int rank = sortByResultOrder ? resultIndex : int.MaxValue;
             if (!dirStructure.TryGetValue(key, out var value))
-                dirStructure[key] = new AlbumFolderBuilder(username, folderPath, folderFile, idx);
+                dirStructure[key] = new AlbumFolderBuilder(username, folderPath, folderFile, rank, aggregateSortEntry);
             else
+            {
                 value.Add(folderFile);
+                value.AddRank(rank);
+                value.AddAggregateSortEntry(aggregateSortEntry);
+            }
 
-            idx++;
+            resultIndex++;
         }
 
-        MergeChildDirectories(dirStructure);
+        bool rankOrderMayChange = MergeChildDirectories(dirStructure);
 
         int? min = search.NecessaryFolderCond.MinTrackCount;
         int? max = search.NecessaryFolderCond.MaxTrackCount;
@@ -138,7 +183,26 @@ public static partial class SearchResultProjector
         var folders = new List<AlbumFolder>();
         var inferDefault = new SongQuery { Artist = query.Artist, Album = query.Album };
 
-        foreach (var (_, folder) in dirStructure)
+        IEnumerable<AlbumFolderBuilder> orderedFolders;
+        if (!sortByResultOrder)
+        {
+            orderedFolders = dirStructure.Values
+                .OrderBy(x => x.Username, StringComparer.Ordinal)
+                .ThenBy(x => x.FolderPath, StringComparer.Ordinal);
+        }
+        else if (rankOrderMayChange)
+        {
+            orderedFolders = dirStructure.Values
+                .OrderBy(x => x.FirstRank)
+                .ThenBy(x => x.Username, StringComparer.Ordinal)
+                .ThenBy(x => x.FolderPath, StringComparer.Ordinal);
+        }
+        else
+        {
+            orderedFolders = dirStructure.Values;
+        }
+
+        foreach (var folder in orderedFolders)
         {
             if (folder.MusicCount == 0) continue;
             // Search results can prove a folder has at least the visible audio files.
@@ -161,7 +225,8 @@ public static partial class SearchResultProjector
                 folder.Files.Count,
                 folder.MusicCount,
                 SortedAudioLengths(folder.Files),
-                RepresentativeAudioFilename(folder.Files)));
+                RepresentativeAudioFilename(folder.Files),
+                folder.AggregateSortEntry));
         }
 
         return folders;
@@ -256,25 +321,22 @@ public static partial class SearchResultProjector
         var byTrackCountAndFirstLength = new Dictionary<int, Dictionary<int, List<AlbumAggregateBucket>>>();
         var buckets = new List<AlbumAggregateBucket>();
         var representativeQueries = new Dictionary<AlbumFolder, SongQuery?>();
-        var folderOrder = new Dictionary<AlbumFolder, int>();
+        var folderOrder = new Dictionary<string, int>(StringComparer.Ordinal);
+        var folderComparer = new AlbumFolderAggregateComparer(
+            query,
+            search,
+            folderOrder);
         int folderIndex = 0;
 
         int CompareFolders(AlbumFolder x, AlbumFolder y)
-        {
-            int comparison = folderOrder.GetValueOrDefault(x, int.MaxValue)
-                .CompareTo(folderOrder.GetValueOrDefault(y, int.MaxValue));
-            if (comparison != 0)
-                return comparison;
+            => folderComparer.Compare(x, y);
 
-            comparison = string.Compare(x.Username, y.Username, StringComparison.Ordinal);
-            return comparison != 0
-                ? comparison
-                : string.Compare(x.FolderPath, y.FolderPath, StringComparison.Ordinal);
-        }
+        string FolderKey(AlbumFolder folder)
+            => folder.Username + '\\' + folder.FolderPath;
 
         foreach (var folder in albums)
         {
-            folderOrder[folder] = folderIndex++;
+            folderOrder[FolderKey(folder)] = folderIndex++;
             var sortedLengths = GetSearchSortedAudioLengths(folder);
             if (sortedLengths.Length == 0) continue;
 
@@ -385,64 +447,89 @@ public static partial class SearchResultProjector
             ArtistMaybeWrong = query.ArtistMaybeWrong,
         };
 
-    // TODO [PERFORMANCE]: Keys are already alphabetically sorted.
-    // Check if this can be made O(n) (might be more nuanced)
-    private static void MergeChildDirectories(Dictionary<string, AlbumFolderBuilder> dirStructure)
+    private static bool MergeChildDirectories(Dictionary<string, AlbumFolderBuilder> dirStructure)
     {
-        var sortedKeys = dirStructure.Keys.OrderBy(k => k).ToList();
+        var sortedKeys = dirStructure.Keys
+            .OrderByDescending(k => k.Count(c => c == '\\'))
+            .ThenBy(k => k, StringComparer.Ordinal)
+            .ToList();
         var toRemove = new HashSet<string>();
+        bool rankOrderMayChange = false;
 
-        for (int i = 0; i < sortedKeys.Count; i++)
+        foreach (var key in sortedKeys)
         {
-            var key = sortedKeys[i];
             if (toRemove.Contains(key)) continue;
-            for (int j = i + 1; j < sortedKeys.Count; j++)
-            {
-                var key2 = sortedKeys[j];
-                if (toRemove.Contains(key2)) continue;
-                if (IsDescendantOrSamePrefix(key2, key))
-                {
-                    if (dirStructure[key].FirstIndex <= dirStructure[key2].FirstIndex)
-                    {
-                        dirStructure[key].AddRange(dirStructure[key2]);
-                        toRemove.Add(key2);
-                    }
-                    else
-                    {
-                        dirStructure[key2].AddRange(dirStructure[key]);
-                        toRemove.Add(key);
-                        key = key2;
-                    }
-                }
-                else if (!HasSortedPrefix(key2, key)) break;
-            }
+            string? parentKey = FindNearestExistingAncestor(key, dirStructure, toRemove);
+            if (parentKey == null)
+                continue;
+
+            rankOrderMayChange |= dirStructure[parentKey].FirstRank > dirStructure[key].FirstRank;
+            dirStructure[parentKey].AddRange(dirStructure[key]);
+            toRemove.Add(key);
         }
-        foreach (var key in toRemove) dirStructure.Remove(key);
+        foreach (var key in toRemove)
+            dirStructure.Remove(key);
+
+        return rankOrderMayChange;
     }
 
-    private static bool IsDescendantOrSamePrefix(string possibleChild, string parent)
-        => possibleChild.Length > parent.Length
-            && possibleChild[parent.Length] == '\\'
-            && possibleChild.StartsWith(parent, StringComparison.Ordinal);
+    private static string? FindNearestExistingAncestor(
+        string key,
+        Dictionary<string, AlbumFolderBuilder> dirStructure,
+        HashSet<string> toRemove)
+    {
+        int usernameEnd = key.IndexOf('\\');
+        if (usernameEnd < 0)
+            return null;
 
-    private static bool HasSortedPrefix(string value, string prefix)
-        => value.StartsWith(prefix, StringComparison.Ordinal);
+        int slash = key.LastIndexOf('\\');
+        while (slash > usernameEnd)
+        {
+            string parentKey = key[..slash];
+            if (!toRemove.Contains(parentKey) && dirStructure.ContainsKey(parentKey))
+                return parentKey;
+
+            slash = key.LastIndexOf('\\', slash - 1);
+        }
+
+        return null;
+    }
 
     private sealed class AlbumFolderBuilder
     {
         public string Username { get; }
         public string FolderPath { get; }
         public List<AlbumFolderFile> Files { get; }
-        public int FirstIndex { get; }
+        public int FirstRank { get; private set; }
         public int MusicCount { get; private set; }
+        public ResultSorter.SortEntry? AggregateSortEntry { get; private set; }
 
-        public AlbumFolderBuilder(string username, string folderPath, AlbumFolderFile file, int firstIndex)
+        public AlbumFolderBuilder(
+            string username,
+            string folderPath,
+            AlbumFolderFile file,
+            int firstRank,
+            ResultSorter.SortEntry? aggregateSortEntry)
         {
             Username = username;
             FolderPath = folderPath;
             Files = [file];
-            FirstIndex = firstIndex;
+            FirstRank = firstRank;
             MusicCount = file.IsMusic ? 1 : 0;
+            AggregateSortEntry = aggregateSortEntry;
+        }
+
+        public void AddRank(int rank)
+            => FirstRank = Math.Min(FirstRank, rank);
+
+        public void AddAggregateSortEntry(ResultSorter.SortEntry? entry)
+        {
+            if (!entry.HasValue)
+                return;
+
+            if (!AggregateSortEntry.HasValue
+                || ResultSorter.SortEntryComparer.Instance.Compare(entry.Value, AggregateSortEntry.Value) < 0)
+                AggregateSortEntry = entry;
         }
 
         public void Add(AlbumFolderFile file)
@@ -455,6 +542,8 @@ public static partial class SearchResultProjector
         public void AddRange(AlbumFolderBuilder other)
         {
             Files.AddRange(other.Files);
+            AddRank(other.FirstRank);
+            AddAggregateSortEntry(other.AggregateSortEntry);
             MusicCount += other.MusicCount;
         }
     }

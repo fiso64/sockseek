@@ -16,9 +16,9 @@ public static partial class ResultSorter
         bool useInfer = false,
         bool useLevenshtein = true,
         bool albumMode = false,
-        bool ignoreStringConditions = false)
+        bool ignoreStringSortConditions = false)
     {
-        return OrderedResults(results.Select(x => x.Value), query, search, userSuccessCounts, useInfer, useLevenshtein, albumMode, ignoreStringConditions);
+        return OrderedResults(results.Select(x => x.Value), query, search, userSuccessCounts, useInfer, useLevenshtein, albumMode, ignoreStringSortConditions);
     }
 
     public static IEnumerable<(SearchResponse response, Soulseek.File file)> OrderedResults(
@@ -29,7 +29,7 @@ public static partial class ResultSorter
         bool useInfer = false,
         bool useLevenshtein = true,
         bool albumMode = false,
-        bool ignoreStringConditions = false)
+        bool ignoreStringSortConditions = false)
     {
         bool useBracketCheck = !albumMode;
         useInfer = false;
@@ -44,7 +44,7 @@ public static partial class ResultSorter
             useInfer,
             useLevenshtein,
             albumMode,
-            ignoreStringConditions);
+            ignoreStringSortConditions);
     }
 
     private static IEnumerable<(SearchResponse response, Soulseek.File file)> OrderedResultsCore(
@@ -56,7 +56,7 @@ public static partial class ResultSorter
         bool useInfer,
         bool useLevenshtein,
         bool albumMode,
-        bool ignoreStringConditions)
+        bool ignoreStringSortConditions)
     {
         var keyContext = new SortKeyContext(
             results,
@@ -67,7 +67,7 @@ public static partial class ResultSorter
             useInfer,
             useLevenshtein,
             albumMode,
-            ignoreStringConditions);
+            ignoreStringSortConditions);
         var sortableResults = keyContext.SortableResults;
         int capacity = sortableResults.TryGetNonEnumeratedCount(out int resultCount) ? resultCount : 0;
         List<SortEntry> entries = capacity > 0 ? new List<SortEntry>(capacity) : new List<SortEntry>();
@@ -93,8 +93,8 @@ public static partial class ResultSorter
         bool useInfer,
         bool useLevenshtein,
         bool albumMode,
-        bool ignoreStringConditions = false)
-        => new(results, query, search, userSuccessCounts, useBracketCheck, useInfer, useLevenshtein, albumMode, ignoreStringConditions);
+        bool ignoreStringSortConditions = false)
+        => new(results, query, search, userSuccessCounts, useBracketCheck, useInfer, useLevenshtein, albumMode, ignoreStringSortConditions);
 
     internal static SortEntry? CreateSortEntry(
         SearchResponse response,
@@ -164,7 +164,7 @@ public static partial class ResultSorter
         private readonly FileConditions preferredCond;
         private readonly SongQuery emptyQuery = new();
         private readonly bool queryTitleAllowsBrackets;
-        private readonly bool ignoreStringConditions;
+        private readonly bool ignoreStringSortConditions;
         private string? normalizedQueryTitle;
         private Dictionary<string, int>? levenshteinScores;
 
@@ -177,7 +177,7 @@ public static partial class ResultSorter
             bool useInfer,
             bool useLevenshtein,
             bool albumMode,
-            bool ignoreStringConditions)
+            bool ignoreStringSortConditions)
         {
             Query = query;
             Search = search;
@@ -186,7 +186,7 @@ public static partial class ResultSorter
             UseInfer = useInfer;
             UseLevenshtein = useLevenshtein;
             AlbumMode = albumMode;
-            this.ignoreStringConditions = ignoreStringConditions;
+            this.ignoreStringSortConditions = ignoreStringSortConditions;
 
             var resultList = useInfer ? results.ToList() : null;
             SortableResults = resultList ?? results;
@@ -197,10 +197,10 @@ public static partial class ResultSorter
             strictTitle = FileConditions.StrictStringPreprocess(query.Title);
             strictArtist = FileConditions.StrictStringPreprocess(query.Artist);
             strictAlbum = FileConditions.StrictStringPreprocess(query.Album);
-            necessaryCond = ignoreStringConditions
+            necessaryCond = ignoreStringSortConditions
                 ? WithoutStringConditions(search.NecessaryCond)
                 : search.NecessaryCond;
-            preferredCond = ignoreStringConditions
+            preferredCond = ignoreStringSortConditions
                 ? WithoutStringConditions(search.PreferredCond)
                 : search.PreferredCond;
             queryTitleAllowsBrackets = query.Title.RemoveFt().Replace('[', '(').Contains('(');
@@ -228,13 +228,13 @@ public static partial class ResultSorter
             string getStrictFilenameNoExt() => strictFilenameNoExt ??= FileConditions.StrictStringPreprocess(Utils.GetFileNameWithoutExtSlsk(filename));
             string getStrictDirectoryName() => strictDirectoryName ??= FileConditions.StrictStringPreprocess(Utils.GetDirectoryNameSlsk(filename));
 
-            bool strictTitleMatch = ignoreStringConditions || !preferredCond.StrictTitle
+            bool strictTitleMatch = ignoreStringSortConditions || !preferredCond.StrictTitle
                 || StrictStringPrepared(getStrictFilenameNoExt(), strictTitle);
-            bool strictAlbumMatch = ignoreStringConditions || !preferredCond.StrictAlbum
+            bool strictAlbumMatch = ignoreStringSortConditions || !preferredCond.StrictAlbum
                 || StrictStringPrepared(getStrictDirectoryName(), strictAlbum);
-            bool preferredStrictArtistMatch = ignoreStringConditions || !preferredCond.StrictArtist
+            bool preferredStrictArtistMatch = ignoreStringSortConditions || !preferredCond.StrictArtist
                 || StrictStringPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false);
-            bool strictArtistMatch = ignoreStringConditions || !preferredCond.StrictArtist
+            bool strictArtistMatch = ignoreStringSortConditions || !preferredCond.StrictArtist
                 || StrictStringPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false);
 
             bool lengthToleranceMatch = preferredCond.LengthToleranceSatisfies(file, Query.Length);
@@ -270,9 +270,9 @@ public static partial class ResultSorter
                     && bitDepthMatch,
                 response.HasFreeUploadSlot,
                 response.UploadSpeed / 1024 / 650,
-                ignoreStringConditions || AlbumMode || StrictStringPrepared(getStrictFullFilename(), strictTitle),
-                ignoreStringConditions || !AlbumMode || StrictStringPrepared(getStrictDirectoryName(), strictAlbum),
-                ignoreStringConditions || StrictStringPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false),
+                ignoreStringSortConditions || AlbumMode || StrictStringPrepared(getStrictFullFilename(), strictTitle),
+                ignoreStringSortConditions || !AlbumMode || StrictStringPrepared(getStrictDirectoryName(), strictAlbum),
+                ignoreStringSortConditions || StrictStringPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false),
                 UseInfer ? getInferred().Count : 0,
                 response.UploadSpeed / 1024 / 350,
                 (file.BitRate ?? 0) / 80,
