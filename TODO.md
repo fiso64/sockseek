@@ -23,6 +23,8 @@
     - Consider storing errors on the job objects and DTOs
     - or even full per-job logs?
 
+- Do the `TODO [ARCHITECTURE]: Standardize on the Result/Outcome pattern across all job processors.`.
+
 ### Later
 
 - Add `q` to quit. When any jobs are running or pending, prompt if should cancel [Y/n/Esc]. In local mode, n=Esc="do not cancel, keep running". In remote mode, n="exit without cancelling workflow remotely" and Esc="cancel prompt, keep running" (the prompt should be different depending on if local or remote mode for clarity).

@@ -671,6 +671,7 @@ public partial class Searcher
 // - Eliminate boilerplate exceptions and stack-trace overhead for expected domain outcomes.
 // - Decouple execution from state mutation.
 // - Fix race conditions in EngineEvents by localizing Job state mutation to the main orchestration loop.
+// The old exception types should be removed.
 
 public abstract class SearchAndDownloadException : Exception
 {

@@ -163,7 +163,7 @@ public class SoulseekClientManager : IDisposable
         }
         else
         {
-            SockseekLog.Soulseek.Debug("Configuring real Soulseek Client connection options.");
+            SockseekLog.Soulseek.Debug("Configuring Soulseek Client connection options.");
             var serverConnectionOptions = new ConnectionOptions(
             connectTimeout: settings.ConnectTimeout,
             configureSocket: (socket) =>
