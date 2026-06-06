@@ -125,6 +125,43 @@ public class CliProgressReporterTests
         StringAssert.StartsWith(sinkMessages[0], @"[jobs] [9] SongJob: downloading: Artist - Song: user\Music\Artist\Song.flac");
     }
 
+
+    [TestMethod]
+    public void EventLogger_FailedAlbumUpsertThenStateChanged_PrintsOneTerminalLine()
+    {
+        SockseekLog.RemoveNonFileOutputs();
+        var messages = new List<string>();
+        SockseekLog.AddConsole(writer: (message, _) => messages.Add(message));
+
+        var albumId = Guid.NewGuid();
+        var summary = CreateAlbumSummary(albumId, ServerProtocol.JobStates.Failed, ServerProtocol.FailureReasons.Cancelled);
+        var eventLogger = new EventLogger(null!, liveMode: false);
+
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("job.upserted", summary));
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("album.state-changed", new AlbumStateChangedEventDto(summary)));
+
+        Assert.AreEqual(1, messages.Count);
+        Assert.AreEqual("[6] AlbumJob: failed [Cancelled]: Artist Album", messages[0]);
+    }
+
+    [TestMethod]
+    public void EventLogger_FailedAlbumStateChangedThenUpsert_PrintsOneTerminalLine()
+    {
+        SockseekLog.RemoveNonFileOutputs();
+        var messages = new List<string>();
+        SockseekLog.AddConsole(writer: (message, _) => messages.Add(message));
+
+        var albumId = Guid.NewGuid();
+        var summary = CreateAlbumSummary(albumId, ServerProtocol.JobStates.Failed, ServerProtocol.FailureReasons.Cancelled);
+        var eventLogger = new EventLogger(null!, liveMode: false);
+
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("album.state-changed", new AlbumStateChangedEventDto(summary)));
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("job.upserted", summary));
+
+        Assert.AreEqual(1, messages.Count);
+        Assert.AreEqual("failed [Cancelled]: Artist Album", messages[0]);
+    }
+
     [TestMethod]
     public void DownloadStart_NoProgress_CreatesStateTracking()
     {
@@ -444,7 +481,7 @@ public class CliProgressReporterTests
                 State = ServerProtocol.JobStates.Failed,
                 FailureReason = ServerProtocol.FailureReasons.Cancelled,
             };
-            InvokePrivate(reporter, "ReportAlbumDownloadCompleted", new AlbumDownloadCompletedEventDto(failedSummary));
+            InvokePrivate(reporter, "ReportAlbumStateChanged", new AlbumStateChangedEventDto(failedSummary));
 
             Assert.IsFalse(
                 HasBackendBarData(reporter, fileJobId),
@@ -480,7 +517,7 @@ public class CliProgressReporterTests
 
             Assert.IsFalse(
                 HasBackendBarData(reporter, fileJobId),
-                "Terminal album job upserts should reconcile leftover requested bars even if album.download-completed has not arrived.");
+                "Terminal album job upserts should reconcile leftover requested bars even if album.state-changed has not arrived.");
         }
         finally
         {

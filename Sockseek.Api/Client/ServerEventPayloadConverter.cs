@@ -29,7 +29,7 @@ public static class ServerEventPayloadConverter
             "song.state-changed" => Deserialize<SongStateChangedEventDto>(payload, options),
             "album.download-started" => Deserialize<AlbumDownloadStartedEventDto>(payload, options),
             "album.track-download-started" => Deserialize<AlbumTrackDownloadStartedEventDto>(payload, options),
-            "album.download-completed" => Deserialize<AlbumDownloadCompletedEventDto>(payload, options),
+            "album.state-changed" => Deserialize<AlbumStateChangedEventDto>(payload, options),
             "on-complete.started" => Deserialize<OnCompleteStartedEventDto>(payload, options),
             "on-complete.ended" => Deserialize<OnCompleteEndedEventDto>(payload, options),
             "search.rate-limited" => Deserialize<SearchRateLimitedEventDto>(payload, options),

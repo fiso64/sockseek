@@ -9,6 +9,7 @@ internal enum TerminalLogKind
     JobSucceeded,
     JobFailed,
     JobCancelled,
+    JobAlreadyExists,
     SongDownloaded,
     SongAlreadyExists,
     SongSkipped,
@@ -715,13 +716,14 @@ internal sealed class TerminalLiveRenderer : IDisposable
     {
         TerminalLogKind.SongDownloaded or TerminalLogKind.AlbumTrackDownloaded
             or TerminalLogKind.JobSucceeded or TerminalLogKind.PlaylistCompleted
-            or TerminalLogKind.AggregateCompleted or TerminalLogKind.SongAlreadyExists
+            or TerminalLogKind.AggregateCompleted
             => "green",
         TerminalLogKind.SongFailed or TerminalLogKind.AlbumTrackFailed
             or TerminalLogKind.JobFailed
             => "red",
         TerminalLogKind.SongSkipped or TerminalLogKind.AlbumTrackSkipped
-            or TerminalLogKind.JobCancelled
+            or TerminalLogKind.JobCancelled or TerminalLogKind.SongAlreadyExists
+            or TerminalLogKind.JobAlreadyExists
             => "grey",
         _ => null,
     };

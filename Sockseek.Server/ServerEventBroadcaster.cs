@@ -96,7 +96,7 @@ public sealed class ServerEventBroadcaster : IDisposable
             SongStateChangedEventDto e => e.WorkflowId,
             AlbumDownloadStartedEventDto e => e.Summary.WorkflowId,
             AlbumTrackDownloadStartedEventDto e => e.Summary.WorkflowId,
-            AlbumDownloadCompletedEventDto e => e.Summary.WorkflowId,
+            AlbumStateChangedEventDto e => e.Summary.WorkflowId,
             JobFolderRetrievingEventDto e => e.Summary.WorkflowId,
             OnCompleteStartedEventDto e => e.WorkflowId,
             OnCompleteEndedEventDto e => e.WorkflowId,

@@ -56,8 +56,8 @@ public sealed class EngineEventDtoAdapter
                         ToAlbumFolderDto(folder, includeFiles: false),
                         folder.Files.Select(ToSongJobPayloadDto).ToList()));
                 }
-                else if (state is JobState.Done or JobState.AlreadyExists)
-                    publish("album.download-completed", new AlbumDownloadCompletedEventDto(getSummary(job), albumJob.DownloadPath));
+                else if (state is JobState.Done or JobState.AlreadyExists or JobState.Failed or JobState.Skipped)
+                    publish("album.state-changed", new AlbumStateChangedEventDto(getSummary(job), albumJob.DownloadPath));
             }
             else if (job is ExtractJob extractJob)
             {

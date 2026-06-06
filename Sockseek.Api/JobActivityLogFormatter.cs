@@ -20,7 +20,7 @@ public sealed class JobActivityLogFormatter
         "job.upserted",
         "album.download-started",
         "album.track-download-started",
-        "album.download-completed",
+        "album.state-changed",
         "download.started",
         "on-complete.started",
         "on-complete.ended",
@@ -35,6 +35,7 @@ public sealed class JobActivityLogFormatter
     private readonly Dictionary<Guid, ServerJobKind> jobKinds = [];
     private readonly Dictionary<Guid, Guid> parentJobIds = [];
     private readonly Dictionary<Guid, JobSummaryDto> albumSummaries = [];
+    private readonly HashSet<Guid> loggedTerminalAlbumIds = [];
     private readonly Dictionary<Guid, string> lastMessages = [];
     private readonly object sync = new();
 
@@ -47,7 +48,7 @@ public sealed class JobActivityLogFormatter
                 "job.upserted" when envelope.Payload is JobSummaryDto payload => HandleJobUpserted(payload),
                 "album.download-started" when envelope.Payload is AlbumDownloadStartedEventDto payload => HandleAlbumDownloadStarted(payload),
                 "album.track-download-started" when envelope.Payload is AlbumTrackDownloadStartedEventDto payload => HandleAlbumTrackDownloadStarted(payload),
-                "album.download-completed" when envelope.Payload is AlbumDownloadCompletedEventDto payload => HandleAlbumDownloadCompleted(payload),
+                "album.state-changed" when envelope.Payload is AlbumStateChangedEventDto payload => HandleAlbumStateChanged(payload),
                 "download.started" when envelope.Payload is DownloadStartedEventDto payload => HandleDownloadStart(payload),
                 "on-complete.started" when envelope.Payload is OnCompleteStartedEventDto payload => Log(payload.JobId, $"OnComplete start: [{payload.DisplayId}] {SongQueryText(payload.Query)}"),
                 "on-complete.ended" when envelope.Payload is OnCompleteEndedEventDto payload => Log(payload.JobId, $"OnComplete end: [{payload.DisplayId}] {SongQueryText(payload.Query)}"),
@@ -112,6 +113,8 @@ public sealed class JobActivityLogFormatter
                 if (IsSuccessfulTerminalState(summary.State))
                     return null;
                 albumSummaries.Remove(summary.JobId);
+                if (!loggedTerminalAlbumIds.Add(summary.JobId))
+                    return null;
             }
 
             return Log(summary.JobId, JobStatusLine(summary, label));
@@ -150,8 +153,14 @@ public sealed class JobActivityLogFormatter
         return Log(job.Summary.JobId, $"[{job.Summary.DisplayId}] AlbumJob: downloading tracks: {job.Summary.QueryText} - {folderName}");
     }
 
-    private ActivityLogEntry? HandleAlbumDownloadCompleted(AlbumDownloadCompletedEventDto job)
+    private ActivityLogEntry? HandleAlbumStateChanged(AlbumStateChangedEventDto job)
     {
+        if (!loggedTerminalAlbumIds.Add(job.Summary.JobId))
+        {
+            albumSummaries.Remove(job.Summary.JobId);
+            return null;
+        }
+
         albumSummaries.TryGetValue(job.Summary.JobId, out var album);
         var entry = Log(job.Summary.JobId, AlbumCompletedLogMessage(album ?? job.Summary, null, job.DownloadPath));
         albumSummaries.Remove(job.Summary.JobId);

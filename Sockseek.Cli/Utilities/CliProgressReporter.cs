@@ -161,8 +161,8 @@ public class CliProgressReporter
                 case "album.track-download-started" when envelope.Payload is AlbumTrackDownloadStartedEventDto e:
                     ReportAlbumTrackDownloadStarted(e);
                     break;
-                case "album.download-completed" when envelope.Payload is AlbumDownloadCompletedEventDto e:
-                    ReportAlbumDownloadCompleted(e);
+                case "album.state-changed" when envelope.Payload is AlbumStateChangedEventDto e:
+                    ReportAlbumStateChanged(e);
                     break;
                 case "on-complete.started" when envelope.Payload is OnCompleteStartedEventDto e:
                     ReportOnCompleteStart(e);
@@ -493,11 +493,13 @@ public class CliProgressReporter
     private static TerminalLogKind TerminalKind(JobSummaryDto summary)
         => summary.Kind switch
         {
-            ServerJobKind.JobList when summary.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists
+            _ when summary.State is ServerProtocol.JobStates.AlreadyExists
+                => TerminalLogKind.JobAlreadyExists,
+            ServerJobKind.JobList when summary.State is ServerProtocol.JobStates.Done
                 => TerminalLogKind.PlaylistCompleted,
-            ServerJobKind.Aggregate when summary.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists
+            ServerJobKind.Aggregate when summary.State is ServerProtocol.JobStates.Done
                 => TerminalLogKind.AggregateCompleted,
-            _ when summary.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists
+            _ when summary.State is ServerProtocol.JobStates.Done
                 => TerminalLogKind.JobSucceeded,
             _ when summary.FailureReason == ServerProtocol.FailureReasons.Cancelled
                 => TerminalLogKind.JobCancelled,
@@ -1193,7 +1195,7 @@ public class CliProgressReporter
         UpsertLiveAlbum(job.Summary.JobId, _albumBlocks[job.Summary.JobId]);
     }
 
-    private void ReportAlbumDownloadCompleted(AlbumDownloadCompletedEventDto job)
+    private void ReportAlbumStateChanged(AlbumStateChangedEventDto job)
     {
         string? remoteFolderDisplay = null;
         if (_albumBlocks.TryRemove(job.Summary.JobId, out var liveBlock))
@@ -1214,9 +1216,10 @@ public class CliProgressReporter
         }
         RemoveLiveJob(job.Summary.JobId);
         _jobStatuses.TryRemove(job.Summary.JobId, out _);
-        LogLive(job.Summary.State == ServerProtocol.JobStates.Done ? TerminalLogKind.JobSucceeded : TerminalLogKind.JobFailed,
-            job.Summary,
-            AlbumCompletedLogMessage(job.Summary, remoteFolderDisplay, job.DownloadPath));
+        if (_liveTerminalParentLogs.TryAdd(job.Summary.JobId, 0))
+            LogLive(TerminalKind(job.Summary),
+                job.Summary,
+                AlbumCompletedLogMessage(job.Summary, remoteFolderDisplay, job.DownloadPath));
     }
 
     private void CompleteAlbumBlock(Guid albumJobId, AlbumBlock block, JobSummaryDto summary)

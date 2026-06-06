@@ -155,9 +155,10 @@ public sealed record AlbumTrackDownloadStartedEventDto(
     IReadOnlyList<SongJobPayloadDto>? Tracks = null);
 
 /// <summary>
-/// Activity event emitted when album download processing completes.
+/// Activity event emitted when an album job reaches a terminal state
+/// (Done, AlreadyExists, Failed, Skipped). Mirrors SongStateChangedEventDto.
 /// </summary>
-public sealed record AlbumDownloadCompletedEventDto(
+public sealed record AlbumStateChangedEventDto(
     JobSummaryDto Summary,
     string? DownloadPath = null);
 
