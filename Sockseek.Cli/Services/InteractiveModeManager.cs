@@ -136,13 +136,15 @@ public class InteractiveModeManager
                     goto Loop;
 
                 case "s":
+                    Printing.WriteLine($"Skipped: {job.ToString(noInfo: true)}", ConsoleColor.Yellow, force: true);
                     return new RunResult(-1, null, false, false, null);
 
                 case "q":
                     return new RunResult(-2, null, false, false, null);
 
                 case "y":
-                    Console.WriteLine("Exiting interactive mode");
+                    Printing.WriteLine($"Downloading: {folder.FolderPath}", ConsoleColor.Green, force: true);
+                    Printing.WriteLine("Exiting interactive mode", ConsoleColor.Gray, force: true);
                     // job.PrintLines(); // Removed as logging is handled centrally now
                     return new RunResult(index, folder, true, ExitInteractiveMode: true, filterStr);
 
@@ -218,7 +220,10 @@ public class InteractiveModeManager
                 // TODO: BUG: This does not work. InteractiveCliCoordinator downloads everything regardless.
                 case "d":
                     if (options.Length == 0)
+                    {
+                        Printing.WriteLine($"Downloading: {folder.FolderPath}", ConsoleColor.Green, force: true);
                         return new RunResult(index, folder, true, false, filterStr);
+                    }
                     try
                     {
                         var indices = options.Split(',')
@@ -239,6 +244,7 @@ public class InteractiveModeManager
                         // Build a trimmed folder containing only the selected files.
                         var selectedFiles   = indices.Select(i => folder.Files[i - 1]).ToList();
                         var trimmedFolder   = new AlbumFolder(folder.Username, folder.FolderPath, selectedFiles);
+                        Printing.WriteLine($"Downloading: {folder.FolderPath} ({selectedFiles.Count} selected files)", ConsoleColor.Green, force: true);
                         return new RunResult(index, trimmedFolder, false, false, filterStr);
                     }
                     catch
@@ -281,6 +287,7 @@ public class InteractiveModeManager
                     goto Loop;
 
                 case "":
+                    Printing.WriteLine($"Downloading: {folder.FolderPath}", ConsoleColor.Green, force: true);
                     return new RunResult(index, folder, true, false, filterStr);
 
                 default:

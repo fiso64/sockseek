@@ -267,7 +267,7 @@ public partial class FileManager
 
                 string old = match.Groups[1].Value;
                 old = old.StartsWith("{{") ? old[1..] : old;
-                newName = newName.Replace(old, chosenOpt);
+                newName = newName.Replace(old, EscapeFormatLiteralBraces(chosenOpt));
             }
 
             matches = VariableRegex().Matches(newName);
@@ -275,6 +275,7 @@ public partial class FileManager
 
         if (newName != format)
         {
+            newName = UnescapeFormatLiteralBraces(newName);
             char dirsep = Path.DirectorySeparatorChar;
             newName = newName.Replace('/', dirsep).Replace('\\', dirsep);
             var x = newName.Split(dirsep, StringSplitOptions.RemoveEmptyEntries);
@@ -284,6 +285,12 @@ public partial class FileManager
 
         return format;
     }
+
+    private static string EscapeFormatLiteralBraces(string value)
+        => value.Replace("{", "\uE000").Replace("}", "\uE001");
+
+    private static string UnescapeFormatLiteralBraces(string value)
+        => value.Replace("\uE000", "{").Replace("\uE001", "}");
 
     // Key: variable name. Value: (ctx, tagFile) → string.
     private static readonly Dictionary<string, Func<FileManagerContext, TagLib.File?, string>> VarExtractors = new()

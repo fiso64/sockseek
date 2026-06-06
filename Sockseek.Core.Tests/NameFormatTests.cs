@@ -97,6 +97,27 @@ namespace Tests.NameFormat
             Assert.AreEqual("missing-tags/test/testfile", result3!.Replace('\\', '/'));
         }
 
+        [TestMethod]
+        public void FolderAndFilenameFormat_PreservesBracesFromRemoteNames()
+        {
+            var cfg = new DownloadSettings();
+            cfg.Output.NameFormat = "{foldername}/{filename}";
+
+            var slFile = new Soulseek.File(0, @"music\Album {CAT001}\Track {DISC1}.flac", 1, ".flac");
+            var ctx = MakeCtx(slFile: slFile);
+
+            var method = typeof(FileManager).GetMethod("ApplyNameFormatInternal", BindingFlags.NonPublic | BindingFlags.Static);
+
+            var result = (string?)method!.Invoke(null, new object[] {
+                cfg.Output.NameFormat,
+                cfg.Output.InvalidReplaceStr,
+                ctx,
+                (Func<TagLib.File?>)(() => null),
+            });
+
+            Assert.AreEqual("Album {CAT001}/Track {DISC1}", result!.Replace('\\', '/'));
+        }
+
         [TestCleanup]
         public void Cleanup()
         {
