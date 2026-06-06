@@ -324,16 +324,6 @@ public class DownloadEngine
 
                 AssignWorkflowId(extracted, ej.WorkflowId);
 
-                Events.RaiseJobResultCreated(ej, extracted);
-                ej.SetDone();
-
-                // ExtractJob completion moment:
-                // - extraction work is finished
-                // - the result job now exists
-                // - the ExtractJob itself is complete
-                // Any later automatic processing of the result job is separate execution.
-                RaiseJobExecutionCompleted();
-
                 // Propagate provenance from ExtractJob to the extracted result,
                 // but don't overwrite a LineNumber already set by the extractor (e.g. CSV parsing).
                 if (extracted.LineNumber == 0)
@@ -374,6 +364,16 @@ public class DownloadEngine
                 var newContexts = JobPreparer.PrepareSubtree(extracted, ej.Config, _jobSettingsResolver, parentJob as JobList, Ctx(ej));
                 foreach (var (id, ctx) in newContexts)
                     _contexts[id] = ctx;
+
+                Events.RaiseJobResultCreated(ej, extracted);
+                ej.SetDone();
+
+                // ExtractJob completion moment:
+                // - extraction work is finished
+                // - the result job now exists and has inherited row-level conditions
+                // - the ExtractJob itself is complete
+                // Any later automatic processing of the result job is separate execution.
+                RaiseJobExecutionCompleted();
 
                 if (!ej.AutoProcessResult)
                     return;

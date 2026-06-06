@@ -106,34 +106,42 @@ public abstract record JobDraftDto;
 public sealed record ExtractJobDraftDto(
     string Input,
     string? InputType = null,
-    bool? AutoStartExtractedResult = null) : JobDraftDto;
+    bool? AutoStartExtractedResult = null,
+    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
 
 public sealed record TrackSearchJobDraftDto(
     SongQueryDto SongQuery,
-    bool IncludeFullResults = false) : JobDraftDto;
+    bool IncludeFullResults = false,
+    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
 
 public sealed record AlbumSearchJobDraftDto(
-    AlbumQueryDto AlbumQuery) : JobDraftDto;
+    AlbumQueryDto AlbumQuery,
+    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
 
 public sealed record SongJobDraftDto(
     SongQueryDto SongQuery,
-    DownloadBehaviorPolicyDto? DownloadBehavior = null) : JobDraftDto;
+    DownloadBehaviorPolicyDto? DownloadBehavior = null,
+    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
 
 public sealed record AlbumJobDraftDto(
     AlbumQueryDto AlbumQuery,
-    DownloadBehaviorPolicyDto? DownloadBehavior = null) : JobDraftDto;
+    DownloadBehaviorPolicyDto? DownloadBehavior = null,
+    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
 
 public sealed record AggregateJobDraftDto(
     SongQueryDto SongQuery,
-    DownloadBehaviorPolicyDto? DownloadBehavior = null) : JobDraftDto;
+    DownloadBehaviorPolicyDto? DownloadBehavior = null,
+    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
 
 public sealed record AlbumAggregateJobDraftDto(
     AlbumQueryDto AlbumQuery,
-    DownloadBehaviorPolicyDto? DownloadBehavior = null) : JobDraftDto;
+    DownloadBehaviorPolicyDto? DownloadBehavior = null,
+    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
 
 public sealed record JobListJobDraftDto(
     string? Name,
-    IReadOnlyList<JobDraftDto> Jobs) : JobDraftDto;
+    IReadOnlyList<JobDraftDto> Jobs,
+    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
 
 /// <summary>
 /// Controls automatic versus caller-selected downloads for download-capable jobs.

@@ -233,7 +233,7 @@ public class SoulseekClientManager : IDisposable
         }
 
         string displayUser = settings.UseRandomLogin ? "[Random]" : user;
-        SockseekLog.Soulseek.Info($"Login {displayUser}");
+        SockseekLog.Soulseek.Info($"Logging in as {displayUser}..");
 
         cancellationToken.ThrowIfCancellationRequested();
         await client.ConnectAsync(user, pass);
@@ -243,7 +243,7 @@ public class SoulseekClientManager : IDisposable
             SockseekLog.Soulseek.Debug($"Setting share count for {displayUser}");
             await client.SetSharedCountsAsync(settings.SharedFiles, settings.SharedFolders, cancellationToken);
         }
-        SockseekLog.Soulseek.Debug($"Logged in {displayUser}");
+        SockseekLog.Soulseek.Debug($"Logged in as {displayUser}");
     }
 
     public void Dispose()

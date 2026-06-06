@@ -75,6 +75,101 @@ public class LocalCliBackendTests
     }
 
     [TestMethod]
+    public async Task InteractiveCliCoordinator_FromListPreservesLineConditionsBeforePrompt()
+    {
+        string inputPath = Path.Combine(Path.GetTempPath(), "Sockseek-local-interactive-cond-" + Guid.NewGuid() + ".txt");
+        string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-local-interactive-cond-music-" + Guid.NewGuid());
+        string outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-local-interactive-cond-out-" + Guid.NewGuid());
+        string albumDir = Path.Combine(musicRoot, "Album Artist", "Album Name");
+        Directory.CreateDirectory(albumDir);
+        Directory.CreateDirectory(outputDir);
+
+        File.WriteAllText(Path.Combine(albumDir, "01. file1.mp3"), "a");
+        File.WriteAllLines(inputPath, ["a:\"Album Name\"                 strict-album=true;format=flac"]);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+
+        try
+        {
+            var engineSettings = new EngineSettings
+            {
+                MockFilesDir = musicRoot,
+                MockFilesReadTags = false,
+            };
+            var downloadSettings = new DownloadSettings
+            {
+                Output =
+                {
+                    ParentDir = outputDir,
+                    NameFormat = "{foldername}/{filename}",
+                },
+            };
+
+            var clientManager = new SoulseekClientManager(engineSettings);
+            string[] args =
+            [
+                inputPath,
+                "--input-type", "list",
+                "--mock-files-dir", musicRoot,
+                "--mock-files-no-read-tags",
+                "-p", outputDir,
+                "--name-format", "{foldername}/{filename}",
+                "--no-progress",
+                "-t",
+            ];
+            var resolver = new SubmissionOptionsJobSettingsResolver(
+                ConfigManager.CreateJobSettingsResolver(new ConfigFile("none", []), args, new CliSettings { InteractiveMode = true, NoProgress = true }),
+                normalize: settings => SettingsNormalizer.NormalizeDownloadPaths(settings, settings.RuntimePathContext));
+            var engine = new DownloadEngine(engineSettings, clientManager, resolver);
+            var backend = new LocalCliBackend(engine, downloadSettings, resolver);
+            var engineTask = engine.RunAsync(cts.Token);
+
+            int pickerCalls = 0;
+            var coordinator = new InteractiveCliCoordinator(
+                backend,
+                new CliSettings { InteractiveMode = true, NoProgress = true },
+                cts.Token,
+                request =>
+                {
+                    Interlocked.Increment(ref pickerCalls);
+                    var folder = request.Folders.FirstOrDefault();
+                    return Task.FromResult(new InteractiveModeManager.RunResult(
+                        folder == null ? -1 : 0,
+                        folder,
+                        RetrieveCurrentFolder: true,
+                        ExitInteractiveMode: false,
+                        request.FilterStr));
+                },
+                pollInterval: TimeSpan.FromMilliseconds(10));
+
+            var summary = await coordinator.StartAsync(
+                new SubmitExtractJobRequestDto(
+                    inputPath,
+                    "List",
+                    Options: new SubmissionOptionsDto(Guid.NewGuid())),
+                cts.Token);
+
+            await coordinator.RunUntilCompleteAsync(summary.WorkflowId, cts.Token);
+
+            Assert.AreEqual(0, pickerCalls, "The MP3 folder must be filtered out by the list-line FLAC condition before prompting.");
+            Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length);
+
+            engine.CompleteEnqueue();
+            await engineTask;
+        }
+        finally
+        {
+            cts.Cancel();
+            if (File.Exists(inputPath))
+                File.Delete(inputPath);
+            if (Directory.Exists(musicRoot))
+                Directory.Delete(musicRoot, true);
+            if (Directory.Exists(outputDir))
+                Directory.Delete(outputDir, true);
+        }
+    }
+
+    [TestMethod]
     public async Task LocalCliBackend_RetrieveFolderAndWaitAsync_ReturnsNewFilesFoundCount()
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-cli-backend-retrieve-" + Guid.NewGuid());

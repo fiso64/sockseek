@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Settings;
@@ -12,9 +11,7 @@ internal sealed class ServerJobSettingsResolver : IJobSettingsResolver
     private readonly ProfileCatalog catalog;
     private readonly DownloadSettingsPatchDto? launchDownloadSettings;
     private readonly PathVariableContext pathContext;
-    private readonly ConcurrentDictionary<Guid, SubmissionOptionsDto> workflowOptions = new();
-    private readonly ConcurrentDictionary<Guid, SubmissionOptionsDto> jobOptions = new();
-    private readonly ConcurrentDictionary<Guid, string> jobOutputParentDirs = new();
+    private readonly SubmissionOptionsStore submissionOptions = new();
 
     public ServerJobSettingsResolver(
         DownloadSettings baseDefaults,
@@ -32,35 +29,20 @@ internal sealed class ServerJobSettingsResolver : IJobSettingsResolver
     }
 
     public void SetWorkflowOptions(Guid workflowId, SubmissionOptionsDto? options)
-    {
-        if (options == null)
-        {
-            workflowOptions.TryAdd(workflowId, new SubmissionOptionsDto());
-            return;
-        }
-
-        if (IsWorkflowOnly(options) && workflowOptions.ContainsKey(workflowId))
-            return;
-
-        workflowOptions[workflowId] = options;
-    }
+        => submissionOptions.SetWorkflowOptions(workflowId, options);
 
     public void SetJobOutputParentDir(Guid jobId, string? outputParentDir)
-    {
-        if (!string.IsNullOrWhiteSpace(outputParentDir))
-            jobOutputParentDirs[jobId] = outputParentDir;
-    }
+        => submissionOptions.SetJobOutputParentDir(jobId, outputParentDir);
 
     public void SetJobOptions(Guid jobId, SubmissionOptionsDto? options)
-        => jobOptions[jobId] = options ?? new SubmissionOptionsDto();
+        => submissionOptions.SetJobOptions(jobId, options);
 
     public DownloadSettings Resolve(DownloadSettings inherited, Job job)
     {
         if (inherited.PrintOption != PrintOption.None)
             return SettingsCloner.Clone(inherited);
 
-        if (!jobOptions.TryGetValue(job.Id, out var options))
-            workflowOptions.TryGetValue(job.WorkflowId, out options);
+        var options = submissionOptions.GetOptions(job);
         var context = ToProfileContext(options?.ProfileContext);
 
         var matchingAutoProfiles = catalog.AutoProfiles
@@ -79,13 +61,7 @@ internal sealed class ServerJobSettingsResolver : IJobSettingsResolver
             profile.Download.ApplyTo(settings);
 
         DownloadSettingsPatchDtoMapper.ApplyTo(settings, launchDownloadSettings);
-        DownloadSettingsPatchDtoMapper.ApplyTo(settings, options?.DownloadSettings);
-
-        if (!string.IsNullOrWhiteSpace(options?.OutputParentDir))
-            settings.Output.ParentDir = options.OutputParentDir;
-
-        if (jobOutputParentDirs.TryGetValue(job.Id, out var outputParentDir))
-            settings.Output.ParentDir = outputParentDir;
+        submissionOptions.ApplyTo(settings, options, job.Id);
 
         settings.AppliedAutoProfiles = [.. matchingAutoProfiles.Select(p => p.Name)];
         NormalizeForServer(settings, pathContext);
@@ -111,13 +87,7 @@ internal sealed class ServerJobSettingsResolver : IJobSettingsResolver
             profile.Download.ApplyTo(settings);
 
         DownloadSettingsPatchDtoMapper.ApplyTo(settings, launchDownloadSettings);
-        DownloadSettingsPatchDtoMapper.ApplyTo(settings, options?.DownloadSettings);
-
-        if (!string.IsNullOrWhiteSpace(options?.OutputParentDir))
-            settings.Output.ParentDir = options.OutputParentDir;
-
-        if (jobOutputParentDirs.TryGetValue(job.Id, out var outputParentDir))
-            settings.Output.ParentDir = outputParentDir;
+        submissionOptions.ApplyTo(settings, options, job.Id);
 
         settings.AppliedAutoProfiles = [.. matchingAutoProfiles.Select(p => p.Name)];
         NormalizeForServer(settings, pathContext);
@@ -141,9 +111,4 @@ internal sealed class ServerJobSettingsResolver : IJobSettingsResolver
         return context;
     }
 
-    private static bool IsWorkflowOnly(SubmissionOptionsDto options)
-        => options.OutputParentDir == null
-        && options.ProfileNames == null
-        && options.ProfileContext == null
-        && options.DownloadSettings == null;
 }

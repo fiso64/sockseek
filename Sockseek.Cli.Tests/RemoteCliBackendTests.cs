@@ -410,6 +410,94 @@ public class RemoteCliBackendTests
     }
 
     [TestMethod]
+    public async Task InteractiveCliCoordinator_FromListPreservesLineConditionsBeforePrompt()
+    {
+        string inputPath = Path.Combine(Path.GetTempPath(), "Sockseek-remote-interactive-cond-" + Guid.NewGuid() + ".txt");
+        string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-remote-interactive-cond-music-" + Guid.NewGuid());
+        string outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-remote-interactive-cond-out-" + Guid.NewGuid());
+        string albumDir = Path.Combine(musicRoot, "Album Artist", "Album Name");
+        Directory.CreateDirectory(albumDir);
+        Directory.CreateDirectory(outputDir);
+
+        File.WriteAllText(Path.Combine(albumDir, "01. file1.mp3"), "a");
+        File.WriteAllLines(inputPath, ["a:\"Album Name\"                 strict-album=true;format=flac"]);
+
+        int port = GetFreeTcpPort();
+        string url = $"http://127.0.0.1:{port}";
+        await using var app = ServerHost.Build([], new ServerOptions
+        {
+            Engine = new EngineSettings
+            {
+                MockFilesDir = musicRoot,
+                MockFilesReadTags = false,
+            },
+            DefaultDownload = new DownloadSettings
+            {
+                Output =
+                {
+                    ParentDir = outputDir,
+                    NameFormat = "{foldername}/{filename}",
+                },
+                Search =
+                {
+                    NoBrowseFolder = true,
+                },
+            },
+            Profiles = ProfileCatalog.Empty,
+        }, url);
+
+        try
+        {
+            await app.StartAsync();
+            await using var backend = new RemoteCliBackend(url);
+            await backend.StartAsync();
+
+            int pickerCalls = 0;
+            var coordinator = new InteractiveCliCoordinator(
+                backend,
+                new CliSettings { InteractiveMode = true, NoProgress = true },
+                CancellationToken.None,
+                request =>
+                {
+                    Interlocked.Increment(ref pickerCalls);
+                    var folder = request.Folders.FirstOrDefault();
+                    return Task.FromResult(new InteractiveModeManager.RunResult(
+                        folder == null ? -1 : 0,
+                        folder,
+                        RetrieveCurrentFolder: true,
+                        ExitInteractiveMode: false,
+                        request.FilterStr));
+                },
+                pollInterval: TimeSpan.FromMilliseconds(10));
+
+            var summary = await coordinator.StartAsync(
+                new SubmitExtractJobRequestDto(
+                    inputPath,
+                    "List",
+                    Options: new SubmissionOptionsDto(
+                        OutputParentDir: outputDir,
+                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch([inputPath, "--input-type", "list", "--no-browse-folder"]))),
+                CancellationToken.None);
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await coordinator.RunUntilCompleteAsync(summary.WorkflowId, timeout.Token);
+
+            Assert.AreEqual(0, pickerCalls, "The MP3 folder must be filtered out by the list-line FLAC condition before prompting.");
+            Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length);
+        }
+        finally
+        {
+            await app.StopAsync();
+            if (File.Exists(inputPath))
+                File.Delete(inputPath);
+            if (Directory.Exists(musicRoot))
+                Directory.Delete(musicRoot, true);
+            if (Directory.Exists(outputDir))
+                Directory.Delete(outputDir, true);
+        }
+    }
+
+    [TestMethod]
     public async Task InteractiveCliCoordinator_AlbumAggregatePromptsEachBucket()
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-remote-interactive-agg-music-" + Guid.NewGuid());

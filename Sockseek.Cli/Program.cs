@@ -153,8 +153,11 @@ internal static partial class Program
             return;
         }
 
-        var engine = new DownloadEngine(engineSettings, clientManager, jobSettingsResolver);
-        var backend = new LocalCliBackend(engine, rootSettings);
+        var localSubmissionOptionsResolver = new SubmissionOptionsJobSettingsResolver(
+            jobSettingsResolver,
+            normalize: settings => SettingsNormalizer.NormalizeDownloadPaths(settings, settings.RuntimePathContext));
+        var engine = new DownloadEngine(engineSettings, clientManager, localSubmissionOptionsResolver);
+        var backend = new LocalCliBackend(engine, rootSettings, localSubmissionOptionsResolver);
 
         CliProgressReporter? cliReporter = null;
         if (cliSettings.ProgressJson)

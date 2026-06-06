@@ -13,14 +13,19 @@ internal sealed class LocalCliBackend
 {
     private readonly DownloadEngine engine;
     private readonly DownloadSettings? defaultSubmitSettings;
+    private readonly SubmissionOptionsJobSettingsResolver? submissionOptionsResolver;
     private readonly EngineStateStore stateStore = new();
     private long nextSequence;
 
     public event Action<ServerEventEnvelopeDto>? EventReceived;
 
-    public LocalCliBackend(DownloadEngine engine, DownloadSettings? defaultSubmitSettings = null)
+    public LocalCliBackend(
+        DownloadEngine engine,
+        DownloadSettings? defaultSubmitSettings = null,
+        SubmissionOptionsJobSettingsResolver? submissionOptionsResolver = null)
     {
         this.engine = engine;
+        this.submissionOptionsResolver = submissionOptionsResolver;
         this.defaultSubmitSettings = defaultSubmitSettings != null
             ? SettingsCloner.Clone(defaultSubmitSettings)
             : null;
@@ -79,9 +84,10 @@ internal sealed class LocalCliBackend
         if (options?.WorkflowId is Guid workflowId)
             job.WorkflowId = workflowId;
 
+        submissionOptionsResolver?.SetJobOptions(job.Id, options);
+
         var settings = SettingsCloner.Clone(defaultSubmitSettings);
-        if (!string.IsNullOrWhiteSpace(options?.OutputParentDir))
-            settings.Output.ParentDir = options.OutputParentDir;
+        ApplySubmissionOptionsToInheritedSettings(settings, options);
         NormalizeLocalSettings(settings);
 
         engine.Enqueue(job, settings);
@@ -368,6 +374,7 @@ internal sealed class LocalCliBackend
             if (!manualSong.Candidates.Contains(candidate))
                 manualSong.Candidates.Insert(0, candidate);
             manualSong.UpdateState(JobState.Pending);
+            submissionOptionsResolver?.SetJobOptions(manualSong.Id, request.Options);
             engine.Enqueue(manualSong, settings);
             summaries.Add(stateStore.GetJobSummary(manualSong.Id) ?? BuildSubmittedJobSummary(manualSong));
             return Task.FromResult<IReadOnlyList<JobSummaryDto>?>(summaries);
@@ -398,6 +405,7 @@ internal sealed class LocalCliBackend
             };
 
             stateStore.SetSourceJob(followUpSongJob.Id, sourceJobId);
+            submissionOptionsResolver?.SetJobOptions(followUpSongJob.Id, request.Options);
             engine.Enqueue(followUpSongJob, settings);
             summaries.Add(stateStore.GetJobSummary(followUpSongJob.Id) ?? BuildSubmittedJobSummary(followUpSongJob, sourceJobId));
         }
@@ -428,6 +436,7 @@ internal sealed class LocalCliBackend
             if (!manualAlbum.Results.Contains(folder))
                 manualAlbum.Results.Insert(0, folder);
             manualAlbum.UpdateState(JobState.Pending);
+            submissionOptionsResolver?.SetJobOptions(manualAlbum.Id, request.Options);
             engine.Enqueue(manualAlbum, settings);
             return Task.FromResult<JobSummaryDto?>(stateStore.GetJobSummary(manualAlbum.Id) ?? BuildSubmittedJobSummary(manualAlbum));
         }
@@ -458,6 +467,7 @@ internal sealed class LocalCliBackend
         JobRequestMapper.ApplyFolderDownloadSelection(followUpAlbumJob, request.Selection);
 
         stateStore.SetSourceJob(followUpAlbumJob.Id, sourceJobId);
+        submissionOptionsResolver?.SetJobOptions(followUpAlbumJob.Id, request.Options);
         engine.Enqueue(followUpAlbumJob, settings);
         return Task.FromResult<JobSummaryDto?>(stateStore.GetJobSummary(followUpAlbumJob.Id) ?? BuildSubmittedJobSummary(followUpAlbumJob, sourceJobId));
     }
@@ -477,11 +487,19 @@ internal sealed class LocalCliBackend
     private DownloadSettings BuildFollowUpSettings(Job sourceJob, SubmissionOptionsDto? options)
     {
         var settings = SettingsCloner.Clone(defaultSubmitSettings ?? sourceJob.Config);
+        ApplySubmissionOptionsToInheritedSettings(settings, options);
+        NormalizeLocalSettings(settings);
+        return settings;
+    }
+
+    private void ApplySubmissionOptionsToInheritedSettings(DownloadSettings settings, SubmissionOptionsDto? options)
+    {
+        if (submissionOptionsResolver != null)
+            return;
+
         DownloadSettingsPatchDtoMapper.ApplyTo(settings, options?.DownloadSettings);
         if (!string.IsNullOrWhiteSpace(options?.OutputParentDir))
             settings.Output.ParentDir = options.OutputParentDir;
-        NormalizeLocalSettings(settings);
-        return settings;
     }
 
     private static void NormalizeLocalSettings(DownloadSettings settings)

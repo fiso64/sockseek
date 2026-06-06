@@ -32,7 +32,7 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
     <RemoveDir Directories="$(PublishDir)" Condition="Exists('$(PublishDir)')" />
     <MakeDir Directories="$(PublishDir);$(PackageDir)" />
 
-    <Exec Command="dotnet publish &quot;$(CliProject)&quot; -c Release -f $(Framework) -r $(RID) -o &quot;$(PublishDir)&quot; -p:PublishSingleFile=true -p:PublishTrimmed=$(Trimmed) -p:DebugType=embedded -p:DebugSymbols=true -p:IncludeSymbolsInSingleFile=false -p:PathMap=&quot;$(RepoRoot)=/_/&quot; --self-contained=$(SelfContained)" />
+    <Exec Command="dotnet publish &quot;$(CliProject)&quot; -c Release -f $(Framework) -r $(RID) -o &quot;$(PublishDir)&quot; -p:PublishSingleFile=true -p:PublishTrimmed=$(Trimmed) -p:DebugType=embedded -p:DebugSymbols=true -p:IncludeSymbolsInSingleFile=false -p:OpenApiGenerateDocuments=false -p:PathMap=&quot;$(RepoRoot)=/_/&quot; --self-contained=$(SelfContained)" />
 
     <Copy SourceFiles="$(RepoRoot)/LICENSE"
           DestinationFolder="$(PublishDir)"

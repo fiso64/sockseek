@@ -33,6 +33,8 @@ A smart and configurable downloader for Soulseek. Built with Soulseek.NET.
 > [!NOTE]
 > Because it's not possible to run the same account on two separate clients simultaneously, it is recommended to use Sockseek with a **separate Soulseek account** to avoid connection problems.
 
+Also: This project was formerly named `sldl` (and `slsk-batchdl` before that). [Why rename?](https://github.com/fiso64/sldl/releases/)
+
 ## Index
  - [Options](#options)
  - [Input types](#input-types)

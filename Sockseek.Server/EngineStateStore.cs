@@ -2,6 +2,7 @@ using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
+using Sockseek.Core.Settings;
 using Soulseek;
 using Sockseek.Api;
 
@@ -577,7 +578,7 @@ public sealed class EngineStateStore
                 extractJob.Input,
                 extractJob.InputType?.ToString(),
                 extractJob.Result?.Id,
-                ToJobDraft(extractJob.Result)),
+                ToJobDraft(extractJob.Result, extractJob.Config)),
             SearchJob searchJob => new SearchJobPayloadDto(
                 searchJob.QueryText,
                 searchJob.DefaultFileProjection != null
@@ -635,27 +636,51 @@ public sealed class EngineStateStore
             _ => new GenericJobPayloadDto(job.ToString(noInfo: true))
         };
 
-    private static JobDraftDto? ToJobDraft(Job? job)
+    private static JobDraftDto? ToJobDraft(Job? job, DownloadSettings? inheritedConfig = null)
         => job switch
         {
             null => null,
             ExtractJob extract => new ExtractJobDraftDto(
                 extract.Input,
                 extract.InputType?.ToString(),
-                extract.AutoProcessResult),
+                extract.AutoProcessResult,
+                SettingsDelta(inheritedConfig, extract.Config)),
             SearchJob search when search.DefaultFolderProjection != null =>
-                new AlbumSearchJobDraftDto(ToAlbumQueryDto(search.DefaultFolderProjection.Query)),
+                new AlbumSearchJobDraftDto(
+                    ToAlbumQueryDto(search.DefaultFolderProjection.Query),
+                    SettingsDelta(inheritedConfig, search.Config)),
             SearchJob search when search.DefaultFileProjection != null =>
                 new TrackSearchJobDraftDto(
                     ToSongQueryDto(search.DefaultFileProjection.Query),
-                    search.DefaultFileProjection.IncludeFullResults),
-            SongJob song => new SongJobDraftDto(ToSongQueryDto(song.Query), ToDownloadBehaviorPolicyDto(song.DownloadBehaviorPolicy)),
-            AlbumJob album => new AlbumJobDraftDto(ToAlbumQueryDto(album.Query), ToDownloadBehaviorPolicyDto(album.DownloadBehaviorPolicy)),
-            AggregateJob aggregate => new AggregateJobDraftDto(ToSongQueryDto(aggregate.Query), ToDownloadBehaviorPolicyDto(aggregate.DownloadBehaviorPolicy)),
-            AlbumAggregateJob aggregate => new AlbumAggregateJobDraftDto(ToAlbumQueryDto(aggregate.Query), ToDownloadBehaviorPolicyDto(aggregate.DownloadBehaviorPolicy)),
-            JobList list => new JobListJobDraftDto(list.ItemName, list.Jobs.Select(ToJobDraft).OfType<JobDraftDto>().ToList()),
+                    search.DefaultFileProjection.IncludeFullResults,
+                    SettingsDelta(inheritedConfig, search.Config)),
+            SongJob song => new SongJobDraftDto(
+                ToSongQueryDto(song.Query),
+                ToDownloadBehaviorPolicyDto(song.DownloadBehaviorPolicy),
+                SettingsDelta(inheritedConfig, song.Config)),
+            AlbumJob album => new AlbumJobDraftDto(
+                ToAlbumQueryDto(album.Query),
+                ToDownloadBehaviorPolicyDto(album.DownloadBehaviorPolicy),
+                SettingsDelta(inheritedConfig, album.Config)),
+            AggregateJob aggregate => new AggregateJobDraftDto(
+                ToSongQueryDto(aggregate.Query),
+                ToDownloadBehaviorPolicyDto(aggregate.DownloadBehaviorPolicy),
+                SettingsDelta(inheritedConfig, aggregate.Config)),
+            AlbumAggregateJob aggregate => new AlbumAggregateJobDraftDto(
+                ToAlbumQueryDto(aggregate.Query),
+                ToDownloadBehaviorPolicyDto(aggregate.DownloadBehaviorPolicy),
+                SettingsDelta(inheritedConfig, aggregate.Config)),
+            JobList list => new JobListJobDraftDto(
+                list.ItemName,
+                list.Jobs.Select(child => ToJobDraft(child, list.Config)).OfType<JobDraftDto>().ToList(),
+                SettingsDelta(inheritedConfig, list.Config)),
             _ => null,
         };
+
+    private static DownloadSettingsPatchDto? SettingsDelta(DownloadSettings? inheritedConfig, DownloadSettings? effectiveConfig)
+        => inheritedConfig != null && effectiveConfig != null
+            ? DownloadSettingsPatchDtoMapper.FromDifference(inheritedConfig, effectiveConfig)
+            : null;
 
     private static DownloadBehaviorPolicyDto ToDownloadBehaviorPolicyDto(DownloadBehaviorPolicy policy)
         => new(policy.Default, policy.Song, policy.Album, policy.Aggregate, policy.AlbumAggregate);

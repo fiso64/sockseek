@@ -2486,6 +2486,16 @@
                 "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
               }
             ]
+          },
+          "downloadSettings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+              }
+            ]
           }
         }
       },
@@ -2510,6 +2520,16 @@
               },
               {
                 "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
+              }
+            ]
+          },
+          "downloadSettings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
               }
             ]
           }
@@ -2538,6 +2558,16 @@
                 "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
               }
             ]
+          },
+          "downloadSettings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+              }
+            ]
           }
         }
       },
@@ -2554,6 +2584,16 @@
           },
           "albumQuery": {
             "$ref": "#/components/schemas/AlbumQueryDto"
+          },
+          "downloadSettings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+              }
+            ]
           }
         }
       },
@@ -2582,6 +2622,16 @@
               "null",
               "boolean"
             ]
+          },
+          "downloadSettings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+              }
+            ]
           }
         }
       },
@@ -2608,6 +2658,16 @@
             "items": {
               "$ref": "#/components/schemas/JobDraftDto"
             }
+          },
+          "downloadSettings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+              }
+            ]
           }
         }
       },
@@ -2634,6 +2694,16 @@
                 "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
               }
             ]
+          },
+          "downloadSettings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+              }
+            ]
           }
         }
       },
@@ -2654,6 +2724,16 @@
           "includeFullResults": {
             "type": "boolean",
             "default": false
+          },
+          "downloadSettings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+              }
+            ]
           }
         }
       },
