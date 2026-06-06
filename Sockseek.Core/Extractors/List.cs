@@ -9,6 +9,17 @@ namespace Sockseek.Core.Extractors;
     {
         string? listFilePath = null;
         readonly object fileLock = new object();
+        private readonly PathVariableContext pathVariables;
+
+        public ListExtractor()
+            : this(PathVariableContext.Empty)
+        {
+        }
+
+        public ListExtractor(PathVariableContext pathVariables)
+        {
+            this.pathVariables = pathVariables;
+        }
 
         public static bool InputMatches(string input)
         {
@@ -21,7 +32,7 @@ namespace Sockseek.Core.Extractors;
             var offset    = extraction.Offset;
             var reverse   = extraction.Reverse;
 
-            listFilePath = Utils.ExpandVariables(input);
+            listFilePath = Utils.ExpandVariables(input, pathVariables);
 
             if (!File.Exists(listFilePath))
                 throw new FileNotFoundException($"List file '{listFilePath}' not found");

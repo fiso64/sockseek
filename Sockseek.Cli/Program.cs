@@ -1008,6 +1008,7 @@ internal static partial class Program
             DefaultDownload = SettingsCloner.Clone(rootSettings),
             LaunchDownloadSettings = ConfigManager.CreateCliDownloadSettingsPatch(args),
             Profiles = ConfigManager.CreateProfileCatalog(configFile),
+            ConfigDir = configFile.ConfigDir,
         };
 
         var app = ServerHost.Build(args, options, url);

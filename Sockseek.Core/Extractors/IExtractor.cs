@@ -33,14 +33,14 @@ namespace Sockseek.Core.Extractors;
         // The order determines which extractor has priority when input matches multiple and no explicit inputType is provided
         static readonly List<IEntry> extractors =
         [
-            new Entry<CsvExtractor>        (InputType.CSV,         dl => new CsvExtractor(dl.Csv)),
+            new Entry<CsvExtractor>        (InputType.CSV,         dl => new CsvExtractor(dl.Csv, dl.RuntimePathContext)),
             new Entry<YouTubeExtractor>    (InputType.YouTube,     dl => new YouTubeExtractor(dl.YouTube)),
             new Entry<SpotifyExtractor>    (InputType.Spotify,     dl => new SpotifyExtractor(dl.Spotify)),
             new Entry<BandcampExtractor>   (InputType.Bandcamp,    dl => new BandcampExtractor(dl.Bandcamp)),
             new Entry<MusicBrainzExtractor>(InputType.MusicBrainz, _ => new MusicBrainzExtractor()),
             new Entry<SoulseekExtractor>   (InputType.Soulseek,    _ => new SoulseekExtractor()),
             new Entry<StringExtractor>     (InputType.String,      _ => new StringExtractor()),
-            new Entry<ListExtractor>       (InputType.List,        _ => new ListExtractor()), // never reached without inputType=List hint
+            new Entry<ListExtractor>       (InputType.List,        dl => new ListExtractor(dl.RuntimePathContext)), // never reached without inputType=List hint
         ];
 
         public static (InputType, IExtractor) GetMatchingExtractor(string input, InputType inputType, DownloadSettings dl)

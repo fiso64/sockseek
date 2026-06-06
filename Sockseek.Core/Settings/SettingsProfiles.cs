@@ -191,6 +191,44 @@ public static class SettingsNormalizer
 
         dl.Output.NameFormat = dl.Output.NameFormat.Trim();
     }
+
+    public static void NormalizeDownloadPaths(DownloadSettings dl)
+        => NormalizeDownloadPaths(dl, PathVariableContext.Empty);
+
+    public static void NormalizeDownloadPaths(DownloadSettings dl, PathVariableContext pathContext)
+    {
+        Normalize(dl);
+        dl.RuntimePathContext = pathContext;
+
+        if (string.IsNullOrWhiteSpace(dl.Output.ParentDir))
+            dl.Output.ParentDir = Directory.GetCurrentDirectory();
+
+        dl.Output.ParentDir = Utils.GetFullPath(Utils.ExpandVariables(dl.Output.ParentDir, pathContext));
+        dl.Output.NameFormat = dl.Output.NameFormat.Trim();
+
+        if (dl.Output.M3uFilePath != null)
+            dl.Output.M3uFilePath = Utils.GetFullPath(Utils.ExpandVariables(dl.Output.M3uFilePath, pathContext));
+        if (dl.Output.IndexFilePath != null)
+            dl.Output.IndexFilePath = Utils.GetFullPath(Utils.ExpandVariables(dl.Output.IndexFilePath, pathContext));
+        if (dl.Skip.SkipMusicDir != null)
+            dl.Skip.SkipMusicDir = Utils.GetFullPath(Utils.ExpandVariables(dl.Skip.SkipMusicDir, pathContext));
+
+        if (dl.Output.FailedAlbumPath == null)
+            dl.Output.FailedAlbumPath = Path.Join(dl.Output.ParentDir, "failed");
+        else if (dl.Output.FailedAlbumPath is not ("disable" or "delete"))
+            dl.Output.FailedAlbumPath = Utils.GetFullPath(Utils.ExpandVariables(dl.Output.FailedAlbumPath, pathContext));
+    }
+
+    public static void NormalizeEnginePaths(EngineSettings engine)
+        => NormalizeEnginePaths(engine, PathVariableContext.Empty);
+
+    public static void NormalizeEnginePaths(EngineSettings engine, PathVariableContext pathContext)
+    {
+        if (engine.LogFilePath != null)
+            engine.LogFilePath = Utils.GetFullPath(Utils.ExpandVariables(engine.LogFilePath, pathContext));
+        if (engine.MockFilesDir != null)
+            engine.MockFilesDir = Utils.GetFullPath(Utils.ExpandVariables(engine.MockFilesDir, pathContext));
+    }
 }
 
 public static partial class ProfileConditionEvaluator
@@ -335,6 +373,7 @@ public static class SettingsCloner
         Bandcamp = Clone(source.Bandcamp),
         PrintOption = source.PrintOption,
         AppliedAutoProfiles = [.. source.AppliedAutoProfiles],
+        RuntimePathContext = source.RuntimePathContext,
     };
 
     public static OutputSettings Clone(OutputSettings source) => new()

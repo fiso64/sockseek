@@ -75,6 +75,22 @@ namespace Tests.ExtractorTests2
             Assert.AreEqual(10,  ej.ExtractorFolderCond.MaxTrackCount);
             Assert.IsTrue(ej.ExtractorCond?.StrictAlbum == true);
         }
+
+        [TestMethod]
+        public async Task GetTracks_ConfigDirVariable_ResolvesListPath()
+        {
+            var configDir = Path.GetDirectoryName(_tempList)!;
+            var listName = Path.GetFileName(_tempList);
+            File.WriteAllText(_tempList, "Title");
+
+            var extractor = new ListExtractor(new PathVariableContext(ConfigDir: configDir));
+            var config = TestHelpers.CreateDefaultSettings().Download;
+
+            var result = await extractor.GetTracks("{configdir}/" + listName, config.Extraction);
+            var jobList = (JobList)result;
+
+            Assert.AreEqual(1, jobList.Jobs.Count);
+        }
     }
 
 
@@ -312,6 +328,23 @@ namespace Tests.ExtractorTests2
             var songs = ((JobList)result).AllSongs().ToList();
 
             Assert.AreEqual(200, songs[0].Query.Length);
+        }
+
+        [TestMethod]
+        public async Task GetTracks_ConfigDirVariable_ResolvesCsvPath()
+        {
+            var configDir = Path.GetDirectoryName(_tempCsv)!;
+            var csvName = Path.GetFileName(_tempCsv);
+            File.WriteAllText(_tempCsv, "artist,title\nArtist,Title\n");
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            var extractor = new CsvExtractor(config.Csv, new PathVariableContext(ConfigDir: configDir));
+
+            var result = await extractor.GetTracks("{configdir}/" + csvName, config.Extraction);
+            var songs = ((JobList)result).AllSongs().ToList();
+
+            Assert.AreEqual(1, songs.Count);
+            Assert.AreEqual("Artist", songs[0].Query.Artist);
+            Assert.AreEqual("Title", songs[0].Query.Title);
         }
     }
 

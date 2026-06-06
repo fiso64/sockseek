@@ -16,8 +16,18 @@ namespace Sockseek.Core.Extractors;
         private static partial Regex NonWordRegex();
 
         private readonly CsvSettings _csv;
+        private readonly PathVariableContext pathVariables;
 
-        public CsvExtractor(CsvSettings csv) { _csv = csv; }
+        public CsvExtractor(CsvSettings csv)
+            : this(csv, PathVariableContext.Empty)
+        {
+        }
+
+        public CsvExtractor(CsvSettings csv, PathVariableContext pathVariables)
+        {
+            _csv = csv;
+            this.pathVariables = pathVariables;
+        }
 
         string? csvFilePath = null;
         int csvColumnCount = -1;
@@ -35,7 +45,7 @@ namespace Sockseek.Core.Extractors;
             var offset    = extraction.Offset;
             var reverse   = extraction.Reverse;
 
-            csvFilePath = Utils.ExpandVariables(input);
+            csvFilePath = Utils.ExpandVariables(input, pathVariables);
 
             if (!File.Exists(csvFilePath))
                 throw new FileNotFoundException($"CSV file '{csvFilePath}' not found");

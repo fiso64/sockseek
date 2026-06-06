@@ -82,7 +82,7 @@ internal sealed class LocalCliBackend
         var settings = SettingsCloner.Clone(defaultSubmitSettings);
         if (!string.IsNullOrWhiteSpace(options?.OutputParentDir))
             settings.Output.ParentDir = options.OutputParentDir;
-        SettingsNormalizer.Normalize(settings);
+        NormalizeLocalSettings(settings);
 
         engine.Enqueue(job, settings);
         return Task.FromResult(stateStore.GetJobSummary(job.Id) ?? BuildSubmittedJobSummary(job));
@@ -480,8 +480,13 @@ internal sealed class LocalCliBackend
         DownloadSettingsPatchDtoMapper.ApplyTo(settings, options?.DownloadSettings);
         if (!string.IsNullOrWhiteSpace(options?.OutputParentDir))
             settings.Output.ParentDir = options.OutputParentDir;
-        SettingsNormalizer.Normalize(settings);
+        NormalizeLocalSettings(settings);
         return settings;
+    }
+
+    private static void NormalizeLocalSettings(DownloadSettings settings)
+    {
+        SettingsNormalizer.NormalizeDownloadPaths(settings, settings.RuntimePathContext);
     }
 
     public Task<bool> CancelJobAsync(Guid jobId, CancellationToken ct = default)

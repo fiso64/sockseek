@@ -172,6 +172,20 @@ namespace Tests.FileManagerTests
             Assert.IsTrue(found);
             Assert.AreEqual("My Track", res);
         }
+
+        [TestMethod]
+        public void ReplaceVariables_OutputDirAndConfigDir_ReplacesLiteralPaths()
+        {
+            var ctx = MakeCtx() with
+            {
+                OutputDir = @"C:\Music\Output",
+                ConfigDir = @"C:\Users\me\.config\sockseek",
+            };
+
+            string result = FileManager.ReplaceVariables("{outputdir}|{configdir}", ctx, null);
+
+            Assert.AreEqual(@"C:\Music\Output|C:\Users\me\.config\sockseek", result);
+        }
     }
 
     [TestClass]

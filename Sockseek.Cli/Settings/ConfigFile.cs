@@ -7,7 +7,19 @@ public record ConfigFile(
     string Path,
     Dictionary<string, ProfileEntry> Profiles,
     bool HasAutoProfiles = false
-);
+)
+{
+    public string? ConfigDir
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(Path) || Path == "none" || !File.Exists(Path))
+                return null;
+
+            return System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(Path));
+        }
+    }
+}
 
 /// One profile's typed Core patch plus optional CLI-only settings patch.
 public record ProfileEntry(

@@ -36,9 +36,10 @@ public sealed class EngineSupervisor
 
         engineSettings = SettingsCloner.Clone(this.options.Engine);
         defaultDownloadSettings = SettingsCloner.Clone(this.options.DefaultDownload);
-        ServerJobSettingsResolver.NormalizeForServer(defaultDownloadSettings);
+        var pathContext = new PathVariableContext(ConfigDir: this.options.ConfigDir);
+        ServerJobSettingsResolver.NormalizeForServer(defaultDownloadSettings, pathContext);
         profileCatalog = this.options.Profiles ?? ProfileCatalog.Empty;
-        jobSettingsResolver = new ServerJobSettingsResolver(defaultDownloadSettings, profileCatalog, this.options.LaunchDownloadSettings);
+        jobSettingsResolver = new ServerJobSettingsResolver(defaultDownloadSettings, profileCatalog, this.options.LaunchDownloadSettings, pathContext);
 
         StateStore = new EngineStateStore();
     }

@@ -143,5 +143,13 @@ namespace Tests.StringUtils
         {
             Assert.AreEqual("a--b--c", "a:b/c".ReplaceSpecialChars("--"));
         }
+
+        [TestMethod]
+        public void ExpandVariables_ConfigDirPrefix_ResolvesAgainstContext()
+        {
+            var result = Utils.ExpandVariables("{configdir}/lists/tracks.txt", new PathVariableContext(ConfigDir: @"C:\Sockseek\Config"));
+
+            Assert.AreEqual(Path.Join(@"C:\Sockseek\Config", "lists", "tracks.txt"), result);
+        }
     }
 }

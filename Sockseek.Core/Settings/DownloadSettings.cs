@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Sockseek.Core;
 
 namespace Sockseek.Core.Settings;
@@ -34,6 +35,10 @@ public class DownloadSettings
 
     /// Tracks which auto-profiles were applied by the job settings resolver.
     public HashSet<string> AppliedAutoProfiles { get; set; } = [];
+
+    /// Runtime path expansion context. This is not a user-facing setting.
+    [JsonIgnore]
+    public PathVariableContext RuntimePathContext { get; set; } = PathVariableContext.Empty;
 
     // ── Computed properties ───────────────────────────────────────────────────
 

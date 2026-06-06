@@ -11,6 +11,7 @@ internal sealed class ServerJobSettingsResolver : IJobSettingsResolver
     private readonly DownloadSettings baseDefaults;
     private readonly ProfileCatalog catalog;
     private readonly DownloadSettingsPatchDto? launchDownloadSettings;
+    private readonly PathVariableContext pathContext;
     private readonly ConcurrentDictionary<Guid, SubmissionOptionsDto> workflowOptions = new();
     private readonly ConcurrentDictionary<Guid, SubmissionOptionsDto> jobOptions = new();
     private readonly ConcurrentDictionary<Guid, string> jobOutputParentDirs = new();
@@ -18,11 +19,13 @@ internal sealed class ServerJobSettingsResolver : IJobSettingsResolver
     public ServerJobSettingsResolver(
         DownloadSettings baseDefaults,
         ProfileCatalog catalog,
-        DownloadSettingsPatchDto? launchDownloadSettings = null)
+        DownloadSettingsPatchDto? launchDownloadSettings = null,
+        PathVariableContext? pathContext = null)
     {
         this.baseDefaults = SettingsCloner.Clone(baseDefaults);
         this.catalog = catalog;
         this.launchDownloadSettings = launchDownloadSettings;
+        this.pathContext = pathContext ?? PathVariableContext.Empty;
 
         foreach (var profile in catalog.AutoProfiles.Where(p => p.HasEngineSettings))
             throw new Exception($"Input error: Auto-profile '{profile.Name}' contains engine settings, which cannot be applied per job");
@@ -85,7 +88,7 @@ internal sealed class ServerJobSettingsResolver : IJobSettingsResolver
             settings.Output.ParentDir = outputParentDir;
 
         settings.AppliedAutoProfiles = [.. matchingAutoProfiles.Select(p => p.Name)];
-        NormalizeForServer(settings);
+        NormalizeForServer(settings, pathContext);
         return settings;
     }
 
@@ -117,31 +120,13 @@ internal sealed class ServerJobSettingsResolver : IJobSettingsResolver
             settings.Output.ParentDir = outputParentDir;
 
         settings.AppliedAutoProfiles = [.. matchingAutoProfiles.Select(p => p.Name)];
-        NormalizeForServer(settings);
+        NormalizeForServer(settings, pathContext);
         return settings;
     }
 
-    public static void NormalizeForServer(DownloadSettings settings)
+    public static void NormalizeForServer(DownloadSettings settings, PathVariableContext? pathContext = null)
     {
-        SettingsNormalizer.Normalize(settings);
-
-        if (string.IsNullOrWhiteSpace(settings.Output.ParentDir))
-            settings.Output.ParentDir = Directory.GetCurrentDirectory();
-
-        settings.Output.ParentDir = Utils.GetFullPath(Utils.ExpandVariables(settings.Output.ParentDir));
-        settings.Output.NameFormat = settings.Output.NameFormat.Trim();
-
-        if (settings.Output.M3uFilePath != null)
-            settings.Output.M3uFilePath = Utils.GetFullPath(Utils.ExpandVariables(settings.Output.M3uFilePath));
-        if (settings.Output.IndexFilePath != null)
-            settings.Output.IndexFilePath = Utils.GetFullPath(Utils.ExpandVariables(settings.Output.IndexFilePath));
-        if (settings.Skip.SkipMusicDir != null)
-            settings.Skip.SkipMusicDir = Utils.GetFullPath(Utils.ExpandVariables(settings.Skip.SkipMusicDir));
-
-        if (settings.Output.FailedAlbumPath == null)
-            settings.Output.FailedAlbumPath = Path.Join(settings.Output.ParentDir, "failed");
-        else if (settings.Output.FailedAlbumPath is not ("disable" or "delete"))
-            settings.Output.FailedAlbumPath = Utils.GetFullPath(Utils.ExpandVariables(settings.Output.FailedAlbumPath));
+        SettingsNormalizer.NormalizeDownloadPaths(settings, pathContext ?? PathVariableContext.Empty);
     }
 
     private static ProfileContext ToProfileContext(IReadOnlyDictionary<string, bool>? values)

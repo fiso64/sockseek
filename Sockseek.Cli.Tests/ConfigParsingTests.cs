@@ -346,6 +346,43 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
+        public void ConfigDirVariable_ConfigAndEnginePaths_ResolveAgainstConfigFileDirectory()
+        {
+            string tempDir = Path.Join(Path.GetTempPath(), "sockseek-configdir-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            string configPath = Path.Join(tempDir, "Sockseek.conf");
+
+            try
+            {
+                File.WriteAllText(configPath, string.Join(Environment.NewLine,
+                    "path = {configdir}/downloads",
+                    "playlist-path = {configdir}/playlists/out.m3u",
+                    "index-path = {configdir}/indexes/index.json",
+                    "skip-music-dir = {configdir}/skip",
+                    "failed-album-path = {configdir}/failed",
+                    "log-file = {configdir}/logs/sockseek.log",
+                    "mock-files-dir = {configdir}/mock"));
+
+                var file = ConfigManager.Load(configPath);
+                var (engine, download, _) = ConfigManager.Bind(file, ["input"]);
+
+                Assert.AreEqual(tempDir, download.RuntimePathContext.ConfigDir);
+                Assert.AreEqual(Path.GetFullPath(Path.Join(tempDir, "downloads")), download.Output.ParentDir);
+                Assert.AreEqual(Path.GetFullPath(Path.Join(tempDir, "playlists", "out.m3u")), download.Output.M3uFilePath);
+                Assert.AreEqual(Path.GetFullPath(Path.Join(tempDir, "indexes", "index.json")), download.Output.IndexFilePath);
+                Assert.AreEqual(Path.GetFullPath(Path.Join(tempDir, "skip")), download.Skip.SkipMusicDir);
+                Assert.AreEqual(Path.GetFullPath(Path.Join(tempDir, "failed")), download.Output.FailedAlbumPath);
+                Assert.AreEqual(Path.GetFullPath(Path.Join(tempDir, "logs", "sockseek.log")), engine.LogFilePath);
+                Assert.AreEqual(Path.GetFullPath(Path.Join(tempDir, "mock")), engine.MockFilesDir);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [TestMethod]
         public void RemotePatch_ExplicitDefaultBool_IsRepresented()
         {
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["x", "--skip-existing", "true"]);

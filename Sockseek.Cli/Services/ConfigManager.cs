@@ -80,7 +80,7 @@ public static partial class ConfigManager
 
         ApplyTokens(NormalizeArgs(cliArgs), engine, dl, cli, daemon, remote);
 
-        PostProcess(engine, dl);
+        PostProcess(engine, dl, file.ConfigDir);
 
         return (engine, dl, cli, daemon, remote);
     }
@@ -106,7 +106,7 @@ public static partial class ConfigManager
             namedProfiles,
             cliProfile,
             context,
-            normalize: PostProcessDownload,
+            normalize: settings => PostProcessDownload(settings, new PathVariableContext(ConfigDir: file.ConfigDir)),
             warn: msg => SockseekLog.Warn(msg));
     }
 
@@ -118,7 +118,7 @@ public static partial class ConfigManager
         var daemon = new DaemonSettings();
         var remote = new RemoteSettings();
         ApplyTokens(NormalizeArgs(cliArgs), engine, download, cli, daemon, remote);
-        NormalizeDownload(download);
+        SettingsNormalizer.NormalizeDownloadPaths(download);
         return download;
     }
 
@@ -306,40 +306,17 @@ public static partial class ConfigManager
 
     // ── Post-processing ───────────────────────────────────────────────────────
 
-    private static void PostProcess(EngineSettings engine, DownloadSettings dl)
+    private static void PostProcess(EngineSettings engine, DownloadSettings dl, string? configDir)
     {
-        PostProcessDownload(dl);
-
-        if (engine.LogFilePath != null)
-            engine.LogFilePath = Utils.GetFullPath(Utils.ExpandVariables(engine.LogFilePath));
-        if (engine.MockFilesDir != null)
-            engine.MockFilesDir = Utils.GetFullPath(Utils.ExpandVariables(engine.MockFilesDir));
+        var pathContext = new PathVariableContext(ConfigDir: configDir);
+        PostProcessDownload(dl, pathContext);
+        SettingsNormalizer.NormalizeEnginePaths(engine, pathContext);
     }
 
-    private static void PostProcessDownload(DownloadSettings dl)
+    private static void PostProcessDownload(DownloadSettings dl, PathVariableContext pathContext)
     {
-        NormalizeDownload(dl);
-
-        if (string.IsNullOrWhiteSpace(dl.Output.ParentDir))
-            dl.Output.ParentDir = Directory.GetCurrentDirectory();
-
-        dl.Output.ParentDir = Utils.GetFullPath(Utils.ExpandVariables(dl.Output.ParentDir));
-        dl.Output.NameFormat = dl.Output.NameFormat.Trim();
-
-        if (dl.Output.M3uFilePath != null)
-            dl.Output.M3uFilePath = Utils.GetFullPath(Utils.ExpandVariables(dl.Output.M3uFilePath));
-        if (dl.Output.IndexFilePath != null)
-            dl.Output.IndexFilePath = Utils.GetFullPath(Utils.ExpandVariables(dl.Output.IndexFilePath));
-        if (dl.Skip.SkipMusicDir != null)
-            dl.Skip.SkipMusicDir = Utils.GetFullPath(Utils.ExpandVariables(dl.Skip.SkipMusicDir));
-
-        if (dl.Output.FailedAlbumPath == null)
-            dl.Output.FailedAlbumPath = Path.Join(dl.Output.ParentDir, "failed");
-        else if (dl.Output.FailedAlbumPath is not ("disable" or "delete"))
-            dl.Output.FailedAlbumPath = Utils.GetFullPath(Utils.ExpandVariables(dl.Output.FailedAlbumPath));
+        SettingsNormalizer.NormalizeDownloadPaths(dl, pathContext);
     }
-
-    private static void NormalizeDownload(DownloadSettings dl) => SettingsNormalizer.Normalize(dl);
 
     // ── Config file parsing ───────────────────────────────────────────────────
 

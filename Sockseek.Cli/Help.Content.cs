@@ -462,6 +462,8 @@ Name format
     item-name                      Name of the playlist/source
     default-folder                 Default Sockseek folder name
     bindir                         Base application directory
+    outputdir                      Output directory (--path)
+    configdir                      Active config file directory
     path                           Download file path (or folder if album)
     path-noext                     Download file path without extension
     ext                            File extension";
@@ -487,8 +489,8 @@ Configuration
     fast-search = true
 
     Lines starting with hashtags # will be treated as comments. Tildes in paths are expanded as the
-    user directory (even on windows). The path variable {bindir} stores the directory of the
-    Sockseek binary.
+    user directory (even on windows). Path settings also support {bindir} for the Sockseek binary
+    directory and {configdir} for the directory containing the active config file.
 
   Configuration profiles
     Profiles are supported:

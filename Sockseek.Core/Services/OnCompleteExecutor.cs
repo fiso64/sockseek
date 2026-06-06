@@ -43,22 +43,23 @@ public static class OnCompleteExecutor
         string extractorName = job.Config.Extraction.InputType.ToString();
         string inputSource   = job.Config.Extraction.Input ?? "";
         string outputDir     = job.Config.Output.ParentDir ?? "";
+        string configDir     = job.Config.RuntimePathContext.ConfigDir ?? "";
 
         FileManagerContext fmCtx;
         if (song != null)
-            fmCtx = FileManagerContext.FromSongJob(song, job) with { ExtractorName = extractorName, InputSource = inputSource, OutputDir = outputDir };
+            fmCtx = FileManagerContext.FromSongJob(song, job) with { ExtractorName = extractorName, InputSource = inputSource, OutputDir = outputDir, ConfigDir = configDir };
         else if (job is AlbumJob albumJob && albumJob.ResolvedTarget != null)
         {
             // Use the first audio file in the chosen folder as representative context.
             var rep = albumJob.ResolvedTarget.Files.FirstOrDefault(f => !f.IsNotAudio);
             fmCtx = rep != null
-                ? FileManagerContext.FromSongJob(rep, job) with { ExtractorName = extractorName, InputSource = inputSource, OutputDir = outputDir }
-                : new FileManagerContext { Job = job, ExtractorName = extractorName, InputSource = inputSource, OutputDir = outputDir, Query = new SongQuery(), DownloadPath = albumJob.DownloadPath };
+                ? FileManagerContext.FromSongJob(rep, job) with { ExtractorName = extractorName, InputSource = inputSource, OutputDir = outputDir, ConfigDir = configDir }
+                : new FileManagerContext { Job = job, ExtractorName = extractorName, InputSource = inputSource, OutputDir = outputDir, ConfigDir = configDir, Query = new SongQuery(), DownloadPath = albumJob.DownloadPath };
         }
         else
         {
             string? dp = (job as AlbumJob)?.DownloadPath;
-            fmCtx = new FileManagerContext { Job = job, ExtractorName = extractorName, InputSource = inputSource, OutputDir = outputDir, Query = new SongQuery(), DownloadPath = dp };
+            fmCtx = new FileManagerContext { Job = job, ExtractorName = extractorName, InputSource = inputSource, OutputDir = outputDir, ConfigDir = configDir, Query = new SongQuery(), DownloadPath = dp };
         }
 
         // Derive JobState for RequiredState matching.

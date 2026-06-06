@@ -10,4 +10,5 @@ public sealed class ServerOptions
     public DownloadSettings DefaultDownload { get; set; } = new();
     public DownloadSettingsPatchDto? LaunchDownloadSettings { get; set; }
     public ProfileCatalog Profiles { get; set; } = ProfileCatalog.Empty;
+    public string? ConfigDir { get; set; }
 }

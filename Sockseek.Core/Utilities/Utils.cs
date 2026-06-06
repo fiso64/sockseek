@@ -125,6 +125,9 @@ public static partial class Utils
     }
 
     public static string ExpandVariables(string path)
+        => ExpandVariables(path, PathVariableContext.Empty);
+
+    public static string ExpandVariables(string path, PathVariableContext context)
     {
         if (string.IsNullOrWhiteSpace(path))
             return path;
@@ -137,15 +140,26 @@ public static partial class Utils
         if (path[0] == '~' && (path.Length == 1 || path[1] == '/'))
         {
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            path = Path.Join(home, path[1..].TrimStart('/'));
+            path = JoinPathPrefix(home, path[1..]);
         }
         else if (path.StartsWith("{bindir}") && (path.Length == 8 || path[8] == '/'))
         {
             string bindir = AppDomain.CurrentDomain.BaseDirectory;
-            path = Path.Join(bindir, path[8..].TrimStart('/'));
+            path = JoinPathPrefix(bindir, path[8..]);
+        }
+        else if (!string.IsNullOrWhiteSpace(context.ConfigDir)
+            && path.StartsWith("{configdir}") && (path.Length == 11 || path[11] == '/'))
+        {
+            path = JoinPathPrefix(context.ConfigDir, path[11..]);
         }
 
         return path;
+    }
+
+    private static string JoinPathPrefix(string prefix, string suffix)
+    {
+        var parts = suffix.TrimStart('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 0 ? prefix : Path.Join([prefix, .. parts]);
     }
 
     public static List<string> FromCsv(string csvLine)

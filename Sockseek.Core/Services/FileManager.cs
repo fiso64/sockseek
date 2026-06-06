@@ -16,6 +16,7 @@ public struct FileManagerContext
     public string ExtractorName;  // {extractor}
     public string InputSource;    // {input}
     public string OutputDir;      // {output-dir}
+    public string ConfigDir;      // {configdir}
     public SongQuery Query;         // artist, title, album, length, uri, artistMaybeWrong
     public FileCandidate? Candidate;    // slsk-filename, slsk-foldername
     public string? DownloadPath;  // path, path-noext, ext
@@ -167,6 +168,7 @@ public partial class FileManager
                 ExtractorName = extraction.InputType.ToString(),
                 InputSource   = extraction.Input ?? "",
                 OutputDir     = output.ParentDir ?? "",
+                ConfigDir     = job.Config?.RuntimePathContext.ConfigDir ?? "",
             });
             string newFilePath = Path.Join(output.ParentDir, pathPart + Path.GetExtension(song.DownloadPath));
 
@@ -338,6 +340,8 @@ public partial class FileManager
         { "item-name",      (ctx, _) => ctx.Job.ItemNameOrSource() },
         { "default-folder", (ctx, _) => ctx.Job.DefaultFolderName() },
         { "output-dir",     (ctx, _) => ctx.OutputDir },
+        { "outputdir",      (ctx, _) => ctx.OutputDir },
+        { "configdir",      (ctx, _) => ctx.ConfigDir },
 
         // Local path vars (from the downloaded file's local path)
         { "path",      (ctx, _) => (ctx.DownloadPath ?? "").TrimEnd('/').TrimEnd('\\') },
@@ -357,6 +361,9 @@ public partial class FileManager
         "path",
         "path-noext",
         "bindir",
+        "output-dir",
+        "outputdir",
+        "configdir",
     };
 
     private static readonly HashSet<string> TagVars = new()

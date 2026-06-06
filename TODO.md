@@ -2,9 +2,6 @@
 
 ### 3.0
 
-- Add {outputdir} and {configdir} variable. {configdir} resolves to the parent of the currently used config file location.
-    - Should work everywhere (input/config paths resolution, on-complete, name-format)
-
 - (breaking) Replace the --failed-album-path option by a new option called --album-fail-action. Can be
     - "" or "default" - move all album files to {configured output dir}/failed when not in interactive mode. In interactive mode, ask what to do, with the same default action.
     - "move:{path, with possible {} variables}" - move to specified path. 
