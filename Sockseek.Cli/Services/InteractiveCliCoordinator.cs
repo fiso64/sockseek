@@ -197,7 +197,7 @@ internal sealed class InteractiveCliCoordinator
 
         var selected = interactiveEnabled
             ? await PromptForAlbumSelectionAsync(session)
-            : folders[0];
+            : new InteractiveAlbumSelection(folders[0], RetrieveCurrentFolder: true, SkipTrackCountVerification: false);
 
         if (selected == null)
         {
@@ -243,7 +243,7 @@ internal sealed class InteractiveCliCoordinator
 
             var selected = interactiveEnabled
                 ? await PromptForAlbumSelectionAsync(session)
-                : folders[0];
+                : new InteractiveAlbumSelection(folders[0], RetrieveCurrentFolder: true, SkipTrackCountVerification: false);
 
             if (selected == null)
                 continue;
@@ -285,15 +285,32 @@ internal sealed class InteractiveCliCoordinator
 
     private async Task EnqueueInteractiveAlbumJobAsync(
         InteractiveAlbumSession session,
-        AlbumFolder selected,
+        InteractiveAlbumSelection selected,
         CancellationToken ct)
     {
+        var selectedFolder = selected.Folder;
+        bool exactFiles = !selected.RetrieveCurrentFolder;
+        var selectedFiles = !exactFiles
+            ? null
+            : selectedFolder.Files
+                .Select(song => song.ResolvedTarget)
+                .OfType<FileCandidate>()
+                .Select(candidate => new FileCandidateRefDto(candidate.Username, candidate.Filename))
+                .ToList();
+        var selection = selected.SkipTrackCountVerification || exactFiles
+            ? new AlbumFolderDownloadSelectionDto(
+                selectedFiles,
+                ExactFiles: exactFiles,
+                SkipTrackCountVerification: selected.SkipTrackCountVerification || exactFiles)
+            : null;
+
         var summary = await backend.StartFolderDownloadAsync(
             session.SourceSearchJobId,
             new StartFolderDownloadRequestDto(
-                new AlbumFolderRefDto(selected.Username, selected.FolderPath),
+                new AlbumFolderRefDto(selectedFolder.Username, selectedFolder.FolderPath),
                 Options: session.Options,
-                AlbumQuery: session.Query),
+                AlbumQuery: session.Query,
+                Selection: selection),
             ct);
 
         if (summary == null)
@@ -312,7 +329,7 @@ internal sealed class InteractiveCliCoordinator
         return newFiles;
     }
 
-    private async Task<AlbumFolder?> PromptForAlbumSelectionAsync(InteractiveAlbumSession session)
+    private async Task<InteractiveAlbumSelection?> PromptForAlbumSelectionAsync(InteractiveAlbumSession session)
     {
         var availableFolders = session.Folders
             .Where(folder => !session.ExcludedFolderKeys.Contains(FolderKey(folder)))
@@ -366,7 +383,7 @@ internal sealed class InteractiveCliCoordinator
             if (result.Index < 0 || result.Folder == null)
                 return null;
 
-            return result.Folder;
+            return new InteractiveAlbumSelection(result.Folder, result.RetrieveCurrentFolder, SkipTrackCountVerification: true);
         }
         finally
         {
@@ -527,3 +544,8 @@ internal sealed record InteractiveAlbumPromptRequest(
     List<AlbumFolder> Folders,
     HashSet<string> RetrievedFolders,
     string? FilterStr);
+
+internal sealed record InteractiveAlbumSelection(
+    AlbumFolder Folder,
+    bool RetrieveCurrentFolder,
+    bool SkipTrackCountVerification);

@@ -217,41 +217,19 @@ public class InteractiveModeManager
                     }
                     goto Loop;
                 
-                // TODO: BUG: This does not work. InteractiveCliCoordinator downloads everything regardless.
                 case "d":
                     if (options.Length == 0)
                     {
                         Printing.WriteLine($"Downloading: {folder.FolderPath}", ConsoleColor.Green, force: true);
                         return new RunResult(index, folder, true, false, filterStr);
                     }
-                    try
+                    if (TryBuildSelectedFolder(folder, options, out var trimmedFolder, out var error))
                     {
-                        var indices = options.Split(',')
-                            .SelectMany(opt =>
-                            {
-                                if (opt.Contains('-'))
-                                {
-                                    var parts = opt.Split('-');
-                                    int start = string.IsNullOrEmpty(parts[0]) ? 1 : int.Parse(parts[0]);
-                                    int end   = string.IsNullOrEmpty(parts[1]) ? folder.Files.Count : int.Parse(parts[1]);
-                                    return Enumerable.Range(start, end - start + 1);
-                                }
-                                return new[] { int.Parse(opt) };
-                            })
-                            .Distinct()
-                            .ToArray();
-
-                        // Build a trimmed folder containing only the selected files.
-                        var selectedFiles   = indices.Select(i => folder.Files[i - 1]).ToList();
-                        var trimmedFolder   = new AlbumFolder(folder.Username, folder.FolderPath, selectedFiles);
-                        Printing.WriteLine($"Downloading: {folder.FolderPath} ({selectedFiles.Count} selected files)", ConsoleColor.Green, force: true);
+                        Printing.WriteLine($"Downloading: {folder.FolderPath} ({trimmedFolder.Files.Count} selected files)", ConsoleColor.Green, force: true);
                         return new RunResult(index, trimmedFolder, false, false, filterStr);
                     }
-                    catch
-                    {
-                        Console.WriteLine("Error: Invalid range");
-                        goto Loop;
-                    }
+                    Console.WriteLine($"Error: {error}");
+                    goto Loop;
 
                 case "f":
                     if (string.IsNullOrWhiteSpace(options))
@@ -313,7 +291,6 @@ public class InteractiveModeManager
             ConsoleInputManager.GlobalCancelEnabled = true;
         }
     }
-
 
     private async Task<string> InteractiveModeInput()
     {
@@ -391,6 +368,56 @@ public class InteractiveModeManager
 
     private static string? ReadFilterPrompt()
         => ConsoleInputManager.ReadPromptInput("Filter: ");
+
+    internal static bool TryBuildSelectedFolder(
+        AlbumFolder folder,
+        string options,
+        out AlbumFolder selectedFolder,
+        out string error)
+    {
+        selectedFolder = folder;
+        error = "";
+
+        try
+        {
+            var indices = options.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .SelectMany(option => ParseSelectionRange(option, folder.Files.Count))
+                .Distinct()
+                .ToArray();
+
+            if (indices.Length == 0 || indices.Any(i => i < 1 || i > folder.Files.Count))
+            {
+                error = "Invalid range";
+                return false;
+            }
+
+            var selectedFiles = indices.Select(i => folder.Files[i - 1]).ToList();
+            selectedFolder = new AlbumFolder(folder.Username, folder.FolderPath, selectedFiles);
+            return true;
+        }
+        catch
+        {
+            error = "Invalid range";
+            return false;
+        }
+    }
+
+    private static IEnumerable<int> ParseSelectionRange(string option, int fileCount)
+    {
+        if (!option.Contains('-'))
+            return [int.Parse(option)];
+
+        var parts = option.Split('-');
+        if (parts.Length != 2)
+            throw new FormatException("Invalid range");
+
+        int start = string.IsNullOrEmpty(parts[0]) ? 1 : int.Parse(parts[0]);
+        int end = string.IsNullOrEmpty(parts[1]) ? fileCount : int.Parse(parts[1]);
+        if (end < start)
+            throw new FormatException("Invalid range");
+
+        return Enumerable.Range(start, end - start + 1);
+    }
 
     private static void ClearCurrentLine()
     {

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Cli;
@@ -675,6 +676,74 @@ public class CliProgressReporterTests
             InvokePrivate(reporter, "ReportDownloadStart", new DownloadStartedEventDto(dynamicFileJobId, 8, workflowId, query, candidate));
 
             Assert.AreEqual(2, GetBackendAlbumTrackCount(reporter, albumJobId));
+        }
+        finally
+        {
+            reporter.Stop();
+        }
+    }
+
+    [TestMethod]
+    public void InlineAlbumChildAddedDuringAlbumProgress_DoesNotRaceAlbumSongEnumeration()
+    {
+        var reporter = new CliProgressReporter(new CliSettings());
+        try
+        {
+            var workflowId = Guid.NewGuid();
+            var albumJobId = Guid.NewGuid();
+            var initialFileJobId = Guid.NewGuid();
+            var albumSummary = CreateAlbumSummary(albumJobId, ServerProtocol.JobStates.Downloading, null) with
+            {
+                WorkflowId = workflowId,
+            };
+            var dynamicFileJobIds = Enumerable.Range(0, 250).Select(_ => Guid.NewGuid()).ToArray();
+
+            InvokePrivate(reporter, "ReportJobUpserted", albumSummary);
+            InvokePrivate(reporter, "ReportAlbumTrackDownloadStarted", new AlbumTrackDownloadStartedEventDto(
+                albumSummary,
+                CreateSingleFileAlbumFolder(initialFileJobId, ServerProtocol.JobStates.Pending, null),
+                [CreateSongPayload(initialFileJobId, ServerProtocol.JobStates.Pending, null)]));
+
+            var errors = new ConcurrentQueue<Exception>();
+            var addChildren = Task.Run(() =>
+            {
+                foreach (var fileJobId in dynamicFileJobIds)
+                {
+                    try
+                    {
+                        var summary = CreateSongSummary(fileJobId, workflowId, albumJobId);
+                        var query = new SongQueryDto("Artist", "Bonus", null, null, null, false);
+                        var candidate = CreateFileCandidate("local", $@"Artist\Album\Disc 2\{fileJobId:N}.flac");
+
+                        InvokePrivate(reporter, "ReportJobUpserted", summary);
+                        InvokePrivate(reporter, "ReportDownloadStart", new DownloadStartedEventDto(fileJobId, 8, workflowId, query, candidate));
+                    }
+                    catch (Exception ex)
+                    {
+                        errors.Enqueue(ex);
+                    }
+                }
+            });
+            var readAlbumCounts = Task.Run(() =>
+            {
+                for (int i = 0; i < dynamicFileJobIds.Length * 20; i++)
+                {
+                    try
+                    {
+                        _ = GetBackendAlbumDoneCount(reporter, albumJobId);
+                    }
+                    catch (Exception ex)
+                    {
+                        errors.Enqueue(ex);
+                    }
+                }
+            });
+
+            Task.WaitAll(addChildren, readAlbumCounts);
+
+            if (errors.TryPeek(out var first))
+                Assert.Fail(first.ToString());
+            Assert.AreEqual(dynamicFileJobIds.Length + 1, GetBackendAlbumTrackCount(reporter, albumJobId));
         }
         finally
         {

@@ -1,6 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
+using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Cli;
@@ -166,6 +167,82 @@ public class CliEndToEndTests
         finally
         {
             if (File.Exists(listPath)) File.Delete(listPath);
+            if (Directory.Exists(musicRoot)) Directory.Delete(musicRoot, true);
+            if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task InteractiveAlbumSelection_SelectedFiles_DownloadsOnlySelectedFiles()
+    {
+        var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-mock-music-interactive-selected-" + Guid.NewGuid());
+        var albumDir = Path.Combine(musicRoot, "Artist", "Album");
+        var outputDir = Path.Combine(Path.GetTempPath(), "slsk-mock-out-interactive-selected-" + Guid.NewGuid());
+
+        Directory.CreateDirectory(albumDir);
+        Directory.CreateDirectory(outputDir);
+
+        File.WriteAllBytes(Path.Combine(albumDir, "01. Artist - Track One.mp3"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(albumDir, "02. Artist - Track Two.mp3"), [4, 5, 6]);
+
+        try
+        {
+            var engineSettings = new EngineSettings
+            {
+                Username = "test_user",
+                Password = "test_pass",
+                MockFilesDir = musicRoot,
+                MockFilesReadTags = false,
+            };
+            var rootSettings = new DownloadSettings();
+            rootSettings.Extraction.Input = "Artist Album";
+            rootSettings.Extraction.InputType = InputType.String;
+            rootSettings.Search.NecessaryFolderCond.MinTrackCount = 2;
+            rootSettings.Output.ParentDir = outputDir;
+            rootSettings.Output.NameFormat = "{foldername}/{filename}";
+
+            var clientManager = new SoulseekClientManager(engineSettings);
+            var app = new DownloadEngine(engineSettings, clientManager);
+            var backend = new LocalCliBackend(app, rootSettings);
+            var coordinator = new InteractiveCliCoordinator(
+                backend,
+                new CliSettings { InteractiveMode = true, NoProgress = true },
+                CancellationToken.None,
+                request =>
+                {
+                    var folder = request.Folders.First();
+                    var selected = folder.Files
+                        .Where(song => song.ResolvedTarget?.Filename.EndsWith("Track Two.mp3", StringComparison.OrdinalIgnoreCase) == true)
+                        .ToList();
+
+                    return Task.FromResult(new InteractiveModeManager.RunResult(
+                        0,
+                        new AlbumFolder(folder.Username, folder.FolderPath, selected),
+                        RetrieveCurrentFolder: false,
+                        ExitInteractiveMode: false,
+                        request.FilterStr));
+                });
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var workflowId = Guid.NewGuid();
+            var submission = await coordinator.StartAsync(
+                new SubmitExtractJobRequestDto(rootSettings.Extraction.Input!, rootSettings.Extraction.InputType.ToString(), Options: new SubmissionOptionsDto(workflowId)),
+                cts.Token);
+            _ = coordinator.RunUntilCompleteAsync(submission.WorkflowId, cts.Token)
+                .ContinueWith(_ => app.CompleteEnqueue(), TaskScheduler.Default);
+            await app.RunAsync(cts.Token);
+
+            Assert.IsFalse(cts.IsCancellationRequested, "RunAsync timed out");
+
+            var files = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                .Select(GetSoulseekFileName)
+                .OrderBy(x => x)
+                .ToArray();
+
+            CollectionAssert.AreEqual(new[] { "02. Artist - Track Two.mp3" }, files);
+        }
+        finally
+        {
             if (Directory.Exists(musicRoot)) Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
         }

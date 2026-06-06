@@ -503,9 +503,12 @@ public sealed class EngineSupervisor
         if (folder == null)
             throw new ArgumentException("Requested folder was not found in this job's album candidates.");
 
+        folder = JobRequestMapper.ApplyFolderDownloadSelection(folder, request.Selection);
+
         if (sourceJob is AlbumJob manualAlbum && manualAlbum.State == JobState.AwaitingSelection)
         {
             manualAlbum.ResolvedTarget = folder;
+            JobRequestMapper.ApplyFolderDownloadSelection(manualAlbum, request.Selection);
             if (!manualAlbum.Results.Contains(folder))
                 manualAlbum.Results.Insert(0, folder);
             manualAlbum.UpdateState(JobState.Pending);
@@ -536,6 +539,7 @@ public sealed class EngineSupervisor
             ItemName = itemName,
             DownloadBehaviorPolicy = new DownloadBehaviorPolicy(),
         };
+        JobRequestMapper.ApplyFolderDownloadSelection(albumJob, request.Selection);
 
         var followUpSettings = jobSettingsResolver.ResolveFollowUp(albumJob, request.Options);
 

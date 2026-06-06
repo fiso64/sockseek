@@ -962,7 +962,9 @@ public class DownloadEngine
             // Search results can prove max overflow, but min underflow and hidden max
             // overflow require browsing unless the folder is already fully retrieved.
             var folderCond = config.Search.NecessaryFolderCond;
-            if (config.Transfer.AlbumTrackCountMaxRetries > 0
+            bool verifyTrackCount = !wasPreselected || !job.SkipResolvedTargetTrackCountVerification;
+            if (verifyTrackCount
+                && config.Transfer.AlbumTrackCountMaxRetries > 0
                 && ((folderCond.MaxTrackCount ?? 0) > 0 || (folderCond.MinTrackCount ?? 0) > 0))
             {
                 int KnownAudioCount() => chosenFolder.Files.Count(af => !af.IsNotAudio);

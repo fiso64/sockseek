@@ -178,7 +178,16 @@ public sealed record StartFileDownloadsRequestDto(
 public sealed record StartFolderDownloadRequestDto(
     AlbumFolderRefDto Folder,
     SubmissionOptionsDto? Options = null,
-    AlbumQueryDto? AlbumQuery = null);
+    AlbumQueryDto? AlbumQuery = null,
+    AlbumFolderDownloadSelectionDto? Selection = null);
+
+/// <summary>
+/// Describes how a selected album/folder should be downloaded.
+/// </summary>
+public sealed record AlbumFolderDownloadSelectionDto(
+    IReadOnlyList<FileCandidateRefDto>? Files = null,
+    bool ExactFiles = false,
+    bool SkipTrackCountVerification = false);
 
 /// <summary>
 /// Projection options for viewing search results as file candidates.

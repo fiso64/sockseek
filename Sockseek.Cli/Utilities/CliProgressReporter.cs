@@ -45,6 +45,7 @@ public class CliProgressReporter
     {
         public JobSummaryDto Summary = default!;
         public List<SongJobPayloadDto> Songs = new();
+        public readonly object SongsLock = new();
         public ConcurrentDictionary<Guid, byte> CompletedSongIds = new();
         public Guid?         LastUpdatedSongId;
         public int           LastDone = -1;
@@ -255,7 +256,7 @@ public class CliProgressReporter
     private int AlbumDoneCount(AlbumBlock block)
     {
         int done = 0;
-        foreach (var song in block.Songs)
+        foreach (var song in AlbumSongsSnapshot(block))
         {
             if (song.JobId is not Guid jobId)
                 continue;
@@ -268,6 +269,12 @@ public class CliProgressReporter
                 done++;
         }
         return done;
+    }
+
+    private static List<SongJobPayloadDto> AlbumSongsSnapshot(AlbumBlock block)
+    {
+        lock (block.SongsLock)
+            return block.Songs.ToList();
     }
 
     private static bool IsTerminalBar(BarData data)
@@ -314,23 +321,26 @@ public class CliProgressReporter
         block = foundBlock;
         _songToAlbum[songJobId] = albumId;
 
-        if (!block.Songs.Any(song => song.JobId == songJobId))
+        lock (block.SongsLock)
         {
-            block.Songs.Add(new SongJobPayloadDto(
-                query,
-                CandidateCount: candidate != null ? 1 : null,
-                DownloadPath: null,
-                ResolvedUsername: candidate?.Username,
-                ResolvedFilename: candidate?.Filename,
-                ResolvedHasFreeUploadSlot: candidate?.Peer.HasFreeUploadSlot,
-                ResolvedUploadSpeed: candidate?.Peer.UploadSpeed,
-                ResolvedSize: candidate?.Size,
-                ResolvedSampleRate: candidate?.SampleRate,
-                ResolvedExtension: candidate?.Extension,
-                ResolvedAttributes: candidate?.Attributes,
-                JobId: songJobId,
-                DisplayId: displayId,
-                State: ServerJobState.Pending));
+            if (!block.Songs.Any(song => song.JobId == songJobId))
+            {
+                block.Songs.Add(new SongJobPayloadDto(
+                    query,
+                    CandidateCount: candidate != null ? 1 : null,
+                    DownloadPath: null,
+                    ResolvedUsername: candidate?.Username,
+                    ResolvedFilename: candidate?.Filename,
+                    ResolvedHasFreeUploadSlot: candidate?.Peer.HasFreeUploadSlot,
+                    ResolvedUploadSpeed: candidate?.Peer.UploadSpeed,
+                    ResolvedSize: candidate?.Size,
+                    ResolvedSampleRate: candidate?.SampleRate,
+                    ResolvedExtension: candidate?.Extension,
+                    ResolvedAttributes: candidate?.Attributes,
+                    JobId: songJobId,
+                    DisplayId: displayId,
+                    State: ServerJobState.Pending));
+            }
         }
 
         var baseText = candidate != null
@@ -510,10 +520,11 @@ public class CliProgressReporter
         if (_live == null) return;
 
         int done = AlbumDoneCount(block);
-        int total = block.Songs.Count;
+        var songs = AlbumSongsSnapshot(block);
+        int total = songs.Count;
         _jobStatuses.TryGetValue(albumId, out var status);
 
-        var children = block.Songs
+        var children = songs
             .Where(song => song.JobId.HasValue && !block.CompletedSongIds.ContainsKey(song.JobId.Value))
             .Select(song =>
             {
@@ -1188,7 +1199,7 @@ public class CliProgressReporter
         if (_albumBlocks.TryRemove(job.Summary.JobId, out var liveBlock))
         {
             remoteFolderDisplay = liveBlock.RemoteFolderDisplay;
-            foreach (var song in liveBlock.Songs)
+            foreach (var song in AlbumSongsSnapshot(liveBlock))
                 if (song.JobId is Guid songJobId)
                 {
                     _songToAlbum.TryRemove(songJobId, out _);
@@ -1244,7 +1255,7 @@ public class CliProgressReporter
             RemoteFolderPrefix = string.IsNullOrWhiteSpace(remoteFolderPrefix) ? null : remoteFolderPrefix,
         };
 
-        foreach (var song in block.Songs.Where(s => s.JobId.HasValue))
+        foreach (var song in AlbumSongsSnapshot(block).Where(s => s.JobId.HasValue))
         {
             var songJobId = song.JobId!.Value;
             _songToAlbum[songJobId] = summary.JobId;
@@ -1259,7 +1270,7 @@ public class CliProgressReporter
 
     private void CompleteRemainingAlbumBars(AlbumBlock block, JobSummaryDto summary)
     {
-        foreach (var song in block.Songs.Where(song => song.JobId.HasValue))
+        foreach (var song in AlbumSongsSnapshot(block).Where(song => song.JobId.HasValue))
         {
             block.CompletedSongIds.TryAdd(song.JobId!.Value, 0);
 

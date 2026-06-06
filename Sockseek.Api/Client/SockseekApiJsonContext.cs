@@ -38,6 +38,7 @@ namespace Sockseek.Api;
 [JsonSerializable(typeof(RetrieveFolderRequestDto))]
 [JsonSerializable(typeof(StartFileDownloadsRequestDto))]
 [JsonSerializable(typeof(StartFolderDownloadRequestDto))]
+[JsonSerializable(typeof(AlbumFolderDownloadSelectionDto))]
 [JsonSerializable(typeof(FileSearchProjectionRequestDto))]
 [JsonSerializable(typeof(FolderSearchProjectionRequestDto))]
 [JsonSerializable(typeof(AggregateTrackProjectionRequestDto))]

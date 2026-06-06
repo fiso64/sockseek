@@ -36,6 +36,11 @@ namespace Sockseek.Core.Jobs;
         // folder for additional files during album download.
         public bool AllowBrowseResolvedTarget { get; set; } = true;
 
+        // When a folder is explicitly accepted by a user, the candidate has already passed
+        // the human selection step; hidden folder contents do not need to be browsed just
+        // to prove min/max track-count conditions before downloading.
+        public bool SkipResolvedTargetTrackCountVerification { get; set; }
+
         // Used by direct folder links: the target folder identity is known up front,
         // but its file list must be browsed before album download starts.
         public bool ResolvedTargetNeedsInitialFolderRetrieval { get; set; }

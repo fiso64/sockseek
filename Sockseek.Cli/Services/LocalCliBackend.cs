@@ -417,11 +417,14 @@ internal sealed class LocalCliBackend
         if (folder == null)
             throw new ArgumentException("Requested folder was not found in this job's album candidates.");
 
+        folder = JobRequestMapper.ApplyFolderDownloadSelection(folder, request.Selection);
+
         var settings = BuildFollowUpSettings(sourceJob, request.Options);
 
         if (sourceJob is AlbumJob manualAlbum && manualAlbum.State == JobState.AwaitingSelection)
         {
             manualAlbum.ResolvedTarget = folder;
+            JobRequestMapper.ApplyFolderDownloadSelection(manualAlbum, request.Selection);
             if (!manualAlbum.Results.Contains(folder))
                 manualAlbum.Results.Insert(0, folder);
             manualAlbum.UpdateState(JobState.Pending);
@@ -452,6 +455,7 @@ internal sealed class LocalCliBackend
             WorkflowId = sourceJob.WorkflowId,
             DownloadBehaviorPolicy = new DownloadBehaviorPolicy(),
         };
+        JobRequestMapper.ApplyFolderDownloadSelection(followUpAlbumJob, request.Selection);
 
         stateStore.SetSourceJob(followUpAlbumJob.Id, sourceJobId);
         engine.Enqueue(followUpAlbumJob, settings);

@@ -18,6 +18,7 @@
 - Skip retrieve full folder contents whenever it's already guaranteed to contain all files (e.g. when it was `cd`'d into).
 
 - Introduce a new state `pending search` (set unconditionally before waiting on the search rate & concurrency semaphores). `searching` state should only be set while actually searching.  
+    - At the same time, handle the todo starting with `TODO: Split this into lifecycle state`.
 
 - Do the `TODO [ARCHITECTURE]: Standardize on the Result/Outcome pattern across all job processors.`.
 

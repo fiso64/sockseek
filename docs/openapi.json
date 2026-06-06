@@ -1563,6 +1563,28 @@
       "AlbumArtOption": {
         "type": "integer"
       },
+      "AlbumFolderDownloadSelectionDto": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FileCandidateRefDto"
+            }
+          },
+          "exactFiles": {
+            "type": "boolean",
+            "default": false
+          },
+          "skipTrackCountVerification": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
       "AlbumFolderDto": {
         "required": [
           "ref",
@@ -4521,6 +4543,16 @@
               },
               {
                 "$ref": "#/components/schemas/AlbumQueryDto"
+              }
+            ]
+          },
+          "selection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AlbumFolderDownloadSelectionDto"
               }
             ]
           }

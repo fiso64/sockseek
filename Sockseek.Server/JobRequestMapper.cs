@@ -104,6 +104,38 @@ public static class JobRequestMapper
         return job;
     }
 
+    public static AlbumFolder ApplyFolderDownloadSelection(AlbumFolder folder, AlbumFolderDownloadSelectionDto? selection)
+    {
+        if (selection?.ExactFiles == true && selection.Files is not { Count: > 0 })
+            throw new ArgumentException("Exact folder downloads require at least one selected file.");
+
+        if (selection?.Files is not { Count: > 0 } selectedFiles)
+            return folder;
+
+        var selected = selectedFiles
+            .Select(file => (file.Username, file.Filename))
+            .ToHashSet();
+
+        var files = folder.Files
+            .Where(song => song.ResolvedTarget != null
+                && selected.Contains((song.ResolvedTarget.Username, song.ResolvedTarget.Filename)))
+            .ToList();
+
+        if (files.Count != selected.Count)
+            throw new ArgumentException("One or more selected files were not found in the requested folder.");
+
+        return new AlbumFolder(folder.Username, folder.FolderPath, files)
+        {
+            IsFullyRetrieved = folder.IsFullyRetrieved,
+        };
+    }
+
+    public static void ApplyFolderDownloadSelection(AlbumJob job, AlbumFolderDownloadSelectionDto? selection)
+    {
+        job.AllowBrowseResolvedTarget = selection?.ExactFiles != true;
+        job.SkipResolvedTargetTrackCountVerification = selection?.SkipTrackCountVerification == true;
+    }
+
     private static JobList CreateJobList(string? name, IReadOnlyList<JobDraftDto> jobs)
     {
         if (jobs.Count == 0)
