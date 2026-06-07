@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Globalization;
+using System.Text;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 
@@ -291,7 +293,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
             {
                 _printedLogHistory.Add(new PrintedLogLine.Structured(line));
                 var markup = FormatLogMarkup(line);
-                var visualLength = Markup.Remove(markup).Length;
+                var visualLength = CellCount(Markup.Remove(markup));
                 int width = LogLineWidth();
                 if (markup.Contains('\n') || (!Console.IsOutputRedirected && visualLength >= width))
                 {
@@ -328,7 +330,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
     private static void WriteStructuredLogLine(TerminalLogLine line)
     {
         var markup = FormatLogMarkup(line);
-        var visualLength = Markup.Remove(markup).Length;
+        var visualLength = CellCount(Markup.Remove(markup));
         int width = LogLineWidth();
         if (markup.Contains('\n') || (!Console.IsOutputRedirected && visualLength >= width))
         {
@@ -345,7 +347,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
         foreach (var line in normalized.Split('\n'))
         {
             foreach (var visualLine in WrapPlainLogLine(line))
-                AnsiConsole.WriteLine(visualLine + PaddingFor(visualLine.Length));
+                AnsiConsole.WriteLine(visualLine + PaddingFor(CellCount(visualLine)));
         }
     }
 
@@ -388,7 +390,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
             string contPrefixText = continuationPrefixText ?? continuationPrefix;
             string contPrefixMarkup = Markup.Escape(contPrefixText);
 
-            int lineWidth = LogLineWidth() - firstPrefixText.Length;
+            int lineWidth = LogLineWidth() - CellCount(firstPrefixText);
             var chunks = WrapContent(content, lineWidth).ToList();
 
             for (int i = 0; i < chunks.Count; i++)
@@ -399,7 +401,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
                 var prefixMarkupForChunk = isFirst ? firstPrefixMarkup : contPrefixMarkup;
 
                 string contentMarkup = (isFirst ? first : continuation)(chunk);
-                AnsiConsole.MarkupLine(prefixMarkupForChunk + contentMarkup + PaddingFor(prefixTextForChunk.Length + chunk.Length));
+                AnsiConsole.MarkupLine(prefixMarkupForChunk + contentMarkup + PaddingFor(CellCount(prefixTextForChunk) + CellCount(chunk)));
             }
         }
     }
@@ -421,13 +423,34 @@ internal sealed class TerminalLiveRenderer : IDisposable
         if (Console.IsOutputRedirected)
             return [content];
 
+        return WrapContentByCellWidth(content, availableWidth);
+    }
+
+    private static IEnumerable<string> WrapContentByCellWidth(string content, int availableWidth)
+    {
         int width = Math.Max(1, availableWidth);
-        if (content.Length < width)
+        if (CellCount(content) < width)
             return [content];
 
         var wrapped = new List<string>();
-        for (int offset = 0; offset < content.Length; offset += width)
-            wrapped.Add(content.Substring(offset, Math.Min(width, content.Length - offset)));
+        var current = new StringBuilder();
+        var currentWidth = 0;
+        foreach (var element in TextElements(content))
+        {
+            var elementWidth = CellCount(element);
+            if (current.Length > 0 && currentWidth + elementWidth > width)
+            {
+                wrapped.Add(current.ToString());
+                current.Clear();
+                currentWidth = 0;
+            }
+
+            current.Append(element);
+            currentWidth += elementWidth;
+        }
+
+        if (current.Length > 0)
+            wrapped.Add(current.ToString());
         return wrapped;
     }
 
@@ -437,17 +460,27 @@ internal sealed class TerminalLiveRenderer : IDisposable
             return [line];
 
         int width = LogLineWidth();
-        if (line.Length < width)
+        if (CellCount(line) < width)
             return [line];
 
-        var wrapped = new List<string>();
-        for (int offset = 0; offset < line.Length; offset += width)
-            wrapped.Add(line.Substring(offset, Math.Min(width, line.Length - offset)));
-        return wrapped;
+        return WrapContent(line, width);
     }
 
     private static string PaddingFor(int visualLength)
         => Console.IsOutputRedirected ? "" : new string(' ', Math.Max(0, LogLineWidth() - visualLength));
+
+    internal static int CellCount(string text)
+        => new Segment(text).CellCount();
+
+    internal static IReadOnlyList<string> WrapContentForWidth(string content, int availableWidth)
+        => WrapContentByCellWidth(content, availableWidth).ToList();
+
+    private static IEnumerable<string> TextElements(string text)
+    {
+        var enumerator = StringInfo.GetTextElementEnumerator(text);
+        while (enumerator.MoveNext())
+            yield return enumerator.GetTextElement();
+    }
 
     private static int LogLineWidth()
     {

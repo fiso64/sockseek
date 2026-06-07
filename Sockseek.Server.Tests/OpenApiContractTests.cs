@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core;
@@ -55,7 +56,7 @@ public class OpenApiContractTests
                 .GetProperty("version")
                 .GetString();
 
-            Assert.AreEqual("3.0.0-dev.10", version);
+            Assert.AreEqual(ExpectedOpenApiVersion(), version);
 
             StringAssert.Contains(json, nameof(JobSummaryDto));
             StringAssert.Contains(json, nameof(SubmitAlbumJobRequestDto));
@@ -74,6 +75,16 @@ public class OpenApiContractTests
             if (Directory.Exists(outputDir))
                 Directory.Delete(outputDir, recursive: true);
         }
+    }
+
+    private static string ExpectedOpenApiVersion()
+    {
+        var assemblyVersion = typeof(ServerHost).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? typeof(ServerHost).Assembly.GetName().Version?.ToString()
+            ?? "0.0.0";
+
+        var metadataIndex = assemblyVersion.IndexOf('+', StringComparison.Ordinal);
+        return metadataIndex >= 0 ? assemblyVersion[..metadataIndex] : assemblyVersion;
     }
 
     [TestMethod]

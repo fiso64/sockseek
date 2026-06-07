@@ -100,6 +100,20 @@ public class CliProgressReporterTests
     }
 
     [TestMethod]
+    public void TerminalLiveRenderer_WrapsWideUnicodeByCellWidth()
+    {
+        var text = "failed [No suitable file found]: サン";
+
+        Assert.IsTrue(TerminalLiveRenderer.CellCount(text) > text.Length,
+            "Japanese kana should count wider than one terminal cell per UTF-16 char.");
+
+        var wrapped = TerminalLiveRenderer.WrapContentForWidth(text, text.Length + 1);
+
+        Assert.IsTrue(wrapped.Count > 1,
+            "Live log wrapping must use terminal cell width, not string.Length, so wide Unicode does not wrap underneath Spectre.Live.");
+    }
+
+    [TestMethod]
     public void EventLogger_NoProgressMode_RoutesActivityLogsToConsoleAndNonConsole()
     {
         SockseekLog.RemoveNonFileOutputs();
