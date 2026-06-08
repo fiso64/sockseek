@@ -8,7 +8,6 @@ namespace Sockseek.Core.Extractors;
     public class ListExtractor : IExtractor, IInputMatcher
     {
         string? listFilePath = null;
-        readonly object fileLock = new object();
         private readonly PathVariableContext pathVariables;
 
         public ListExtractor()
@@ -94,6 +93,7 @@ namespace Sockseek.Core.Extractors;
                     EnablesIndexByDefault   = true,
                     LineNumber              = i + 1,
                     ItemNumber              = offset + added + 1,
+                    SourceMutation          = SourceMutation.ClearTextLine(listFilePath!, i + 1, offset + added + 1),
                 };
 
                 result.Jobs.Add(ej);
@@ -140,29 +140,4 @@ namespace Sockseek.Core.Extractors;
             return fields;
         }
 
-        public Task RemoveFromSource(Job job)
-        {
-            lock (fileLock)
-            {
-                if (File.Exists(listFilePath))
-                {
-                    try
-                    {
-                        string[] lines = File.ReadAllLines(listFilePath, Encoding.UTF8);
-                        int idx = job.LineNumber - 1;
-
-                        if (idx > -1 && idx < lines.Length)
-                        {
-                            lines[idx] = "";
-                            Utils.WriteAllLines(listFilePath, lines, '\n');
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        SockseekLog.Error($"Error removing from source: {e}");
-                    }
-                }
-            }
-            return Task.CompletedTask;
-        }
     }

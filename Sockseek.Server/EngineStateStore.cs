@@ -578,6 +578,7 @@ public sealed class EngineStateStore
                 extractJob.Input,
                 extractJob.InputType?.ToString(),
                 extractJob.Result?.Id,
+                extractJob.AutoProcessResult,
                 ToJobDraft(extractJob.Result, extractJob.Config)),
             SearchJob searchJob => new SearchJobPayloadDto(
                 searchJob.QueryText,
@@ -644,38 +645,63 @@ public sealed class EngineStateStore
                 extract.Input,
                 extract.InputType?.ToString(),
                 extract.AutoProcessResult,
-                SettingsDelta(inheritedConfig, extract.Config)),
+                SettingsDelta(inheritedConfig, extract.Config),
+                extract.ResultDownloadBehaviorPolicy != null ? ToDownloadBehaviorPolicyDto(extract.ResultDownloadBehaviorPolicy) : null,
+                ToProvenanceDto(extract)),
             SearchJob search when search.DefaultFolderProjection != null =>
                 new AlbumSearchJobDraftDto(
                     ToAlbumQueryDto(search.DefaultFolderProjection.Query),
-                    SettingsDelta(inheritedConfig, search.Config)),
+                    SettingsDelta(inheritedConfig, search.Config),
+                    ToProvenanceDto(search)),
             SearchJob search when search.DefaultFileProjection != null =>
                 new TrackSearchJobDraftDto(
                     ToSongQueryDto(search.DefaultFileProjection.Query),
                     search.DefaultFileProjection.IncludeFullResults,
-                    SettingsDelta(inheritedConfig, search.Config)),
+                    SettingsDelta(inheritedConfig, search.Config),
+                    ToProvenanceDto(search)),
             SongJob song => new SongJobDraftDto(
                 ToSongQueryDto(song.Query),
                 ToDownloadBehaviorPolicyDto(song.DownloadBehaviorPolicy),
-                SettingsDelta(inheritedConfig, song.Config)),
+                SettingsDelta(inheritedConfig, song.Config),
+                ToProvenanceDto(song)),
             AlbumJob album => new AlbumJobDraftDto(
                 ToAlbumQueryDto(album.Query),
                 ToDownloadBehaviorPolicyDto(album.DownloadBehaviorPolicy),
-                SettingsDelta(inheritedConfig, album.Config)),
+                SettingsDelta(inheritedConfig, album.Config),
+                ToProvenanceDto(album)),
             AggregateJob aggregate => new AggregateJobDraftDto(
                 ToSongQueryDto(aggregate.Query),
                 ToDownloadBehaviorPolicyDto(aggregate.DownloadBehaviorPolicy),
-                SettingsDelta(inheritedConfig, aggregate.Config)),
+                SettingsDelta(inheritedConfig, aggregate.Config),
+                ToProvenanceDto(aggregate)),
             AlbumAggregateJob aggregate => new AlbumAggregateJobDraftDto(
                 ToAlbumQueryDto(aggregate.Query),
                 ToDownloadBehaviorPolicyDto(aggregate.DownloadBehaviorPolicy),
-                SettingsDelta(inheritedConfig, aggregate.Config)),
+                SettingsDelta(inheritedConfig, aggregate.Config),
+                ToProvenanceDto(aggregate)),
             JobList list => new JobListJobDraftDto(
                 list.ItemName,
                 list.Jobs.Select(child => ToJobDraft(child, list.Config)).OfType<JobDraftDto>().ToList(),
-                SettingsDelta(inheritedConfig, list.Config)),
+                SettingsDelta(inheritedConfig, list.Config),
+                ToProvenanceDto(list)),
             _ => null,
         };
+
+    private static JobProvenanceDto? ToProvenanceDto(Job job)
+        => job.SourceMutation == null && job.LineNumber == 0 && job.ItemNumber == 1
+            ? null
+            : new JobProvenanceDto(job.ItemNumber, job.LineNumber, ToSourceMutationDto(job.SourceMutation));
+
+    private static SourceMutationDto? ToSourceMutationDto(SourceMutation? mutation)
+        => mutation == null
+            ? null
+            : new SourceMutationDto(
+                mutation.Kind.ToString(),
+                mutation.Source,
+                mutation.LineNumber,
+                mutation.ItemNumber,
+                mutation.CsvColumnCount,
+                mutation.TrackUri);
 
     private static DownloadSettingsPatchDto? SettingsDelta(DownloadSettings? inheritedConfig, DownloadSettings? effectiveConfig)
         => inheritedConfig != null && effectiveConfig != null

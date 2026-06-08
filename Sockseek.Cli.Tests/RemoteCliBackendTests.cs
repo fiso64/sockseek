@@ -191,6 +191,7 @@ public class RemoteCliBackendTests
             await WaitForJobStateAsync(backend, downloadSummary.JobId, ServerProtocol.JobStates.Done);
 
             var downloaded = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                .Where(path => string.Equals(Path.GetExtension(path), ".mp3", StringComparison.OrdinalIgnoreCase))
                 .Select(Path.GetFileName)
                 .OrderBy(x => x)
                 .ToArray();
@@ -258,6 +259,7 @@ public class RemoteCliBackendTests
                 "Timed out waiting for extracted album downloads to appear on disk.");
 
             var downloaded = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                .Where(path => string.Equals(Path.GetExtension(path), ".mp3", StringComparison.OrdinalIgnoreCase))
                 .Select(Path.GetFileName)
                 .OrderBy(x => x)
                 .ToArray();
@@ -392,6 +394,7 @@ public class RemoteCliBackendTests
             Assert.AreEqual(1, maxActivePickers, "Remote interactive album prompts must not overlap.");
 
             var downloaded = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                .Where(path => string.Equals(Path.GetExtension(path), ".mp3", StringComparison.OrdinalIgnoreCase))
                 .Select(Path.GetFileName)
                 .OrderBy(x => x)
                 .ToArray();
@@ -483,7 +486,8 @@ public class RemoteCliBackendTests
             await coordinator.RunUntilCompleteAsync(summary.WorkflowId, timeout.Token);
 
             Assert.AreEqual(0, pickerCalls, "The MP3 folder must be filtered out by the list-line FLAC condition before prompting.");
-            Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length);
+            Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                .Count(path => string.Equals(Path.GetExtension(path), ".mp3", StringComparison.OrdinalIgnoreCase)));
         }
         finally
         {
@@ -581,6 +585,7 @@ public class RemoteCliBackendTests
             Assert.IsTrue(promptedBuckets.Any(x => x.Contains("Discovery", StringComparison.OrdinalIgnoreCase)));
 
             var downloaded = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                .Where(path => string.Equals(Path.GetExtension(path), ".mp3", StringComparison.OrdinalIgnoreCase))
                 .Select(Path.GetFileName)
                 .OrderBy(x => x)
                 .ToArray();

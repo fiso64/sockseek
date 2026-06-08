@@ -17,8 +17,8 @@ namespace Sockseek.Core;
 
 
 // TODO [ARCHITECTURE]: Refactor DownloadEngine to alleviate "God Class" anti-pattern.
-// Currently, this class violates the Single Responsibility Principle by managing the queue, 
-// instantiating concrete dependencies (new Searcher(), new Downloader()), managing cancellation 
+// Currently, this class violates the Single Responsibility Principle by managing the queue,
+// instantiating concrete dependencies (new Searcher(), new Downloader()), managing cancellation
 // hierarchies, and polling for stale downloads.
 // We should adopt Microsoft.Extensions.DependencyInjection:
 // 1. Break this class into isolated services (e.g., IJobPipeline, IStaleMonitor, IQueueOrchestrator).
@@ -40,6 +40,8 @@ public class DownloadEngine
     public JobList Queue { get; } = new();
 
     private readonly ConcurrentDictionary<Guid, JobContext> _contexts = new();
+    private readonly ConcurrentDictionary<string, byte> _appliedSourceMutations = new(StringComparer.Ordinal);
+    private readonly SourceMutationExecutor _sourceMutationExecutor = new();
 
     private readonly ConcurrentDictionary<Guid, Job> _jobById = new();
     private readonly ConcurrentDictionary<int, Job> _jobByDisplayId = new();
@@ -57,7 +59,7 @@ public class DownloadEngine
         if (job == null) return false;
 
         var activeDownloads = _registry.Downloads.Values.Where(d => d.Song == job).ToList();
-        
+
         if (job is AlbumJob albumJob && albumJob.ResolvedTarget != null)
         {
             var songIds = albumJob.ResolvedTarget.Files.Select(f => f.Id).ToHashSet();
@@ -243,7 +245,7 @@ public class DownloadEngine
 
     // ── recursive job processor ───────────────────────────────────────────────
 
-    async Task ProcessJob(Job job, IExtractor? extractor = null, CancellationToken parentToken = default, Job? parentJob = null)
+    async Task ProcessJob(Job job, CancellationToken parentToken = default, Job? parentJob = null)
     {
         RegisterJob(job, parentJob);
         bool executionCompletedRaised = false;
@@ -323,13 +325,16 @@ public class DownloadEngine
                 }
 
                 AssignWorkflowId(extracted, ej.WorkflowId);
+                if (ej.ResultDownloadBehaviorPolicy != null)
+                    ApplyDownloadBehaviorPolicy(extracted, ej.ResultDownloadBehaviorPolicy);
 
                 // Propagate provenance from ExtractJob to the extracted result,
                 // but don't overwrite a LineNumber already set by the extractor (e.g. CSV parsing).
                 if (extracted.LineNumber == 0)
                     extracted.LineNumber = ej.LineNumber;
                 extracted.ItemNumber = ej.ItemNumber;
-                
+                extracted.SourceMutation ??= ej.SourceMutation;
+
                 if (ej.EnablesIndexByDefault)
                     extracted.EnablesIndexByDefault = true;
 
@@ -342,14 +347,15 @@ public class DownloadEngine
                 extracted.ExtractorFolderCond     = FolderConditionPatch.Merge(extracted.ExtractorFolderCond, ej.ExtractorFolderCond);
                 extracted.ExtractorPrefFolderCond = FolderConditionPatch.Merge(extracted.ExtractorPrefFolderCond, ej.ExtractorPrefFolderCond);
 
-                // For a single-song JobList, also stamp the inner song (used by RemoveTrackFromSource),
-                // but only if it doesn't already have a LineNumber from extraction (e.g. CSV parsing).
+                // For a single-song JobList, also stamp the inner song, but only if it
+                // doesn't already have provenance from extraction (e.g. CSV parsing).
                 if (extracted is JobList ejl && ejl.Jobs.Count == 1 && ejl.Jobs[0] is SongJob innerSong
                     && innerSong.LineNumber == 0)
                 {
                     innerSong.LineNumber = ej.LineNumber;
                     innerSong.ItemNumber = ej.ItemNumber;
-                    
+                    innerSong.SourceMutation ??= ej.SourceMutation;
+
                     if (ej.EnablesIndexByDefault)
                         innerSong.EnablesIndexByDefault = true;
                 }
@@ -382,13 +388,13 @@ public class DownloadEngine
                 // the CTS hierarchy. Cancelling the ExtractJob after extraction completes has no effect
                 // on the already-running Result; the Result can be cancelled independently.
                 SockseekLog.Jobs.Trace($"ProcessJob (ExtractJob {job.DisplayId}): Processing extracted job {extracted.DisplayId}");
-                await ProcessJob(extracted, ex, parentToken, parentJob);
+                await ProcessJob(extracted, parentToken, parentJob);
 
                 // For single extracted jobs with a source line (e.g. a lone AlbumJob from a CSV row),
                 // trigger removal now that processing is complete. Multi-item results use LineNumber=0
                 // (no source line of their own) and handle per-child removal inside ProcessJob.
                 SockseekLog.Jobs.Trace($"ProcessJob (ExtractJob {job.DisplayId}): Calling MaybeRemoveFromSource");
-                await MaybeRemoveFromSource(extracted, ex, ej.Config.Extraction);
+                await MaybeRemoveFromSource(extracted, ej.Config);
 
                 SockseekLog.Jobs.Trace($"ProcessJob (ExtractJob {job.DisplayId}): Extracted job processing complete.");
                 return;
@@ -432,13 +438,13 @@ public class DownloadEngine
                         notFound);
 
                     foreach (var song in existing)
-                        await MaybeRemoveFromSource(song, extractor, config.Extraction);
+                        await MaybeRemoveFromSource(song, config);
                 }
 
                 if (config.PrintTracks)
                 {
                     if (directSongs.Count == 0)
-                        await Task.WhenAll(jl.Jobs.ToList().Select(child => ProcessJob(child, extractor, jl.Cts!.Token, jl)));
+                        await Task.WhenAll(jl.Jobs.ToList().Select(child => ProcessJob(child, jl.Cts!.Token, jl)));
 
                     jl.PrintLines();
                     return;
@@ -459,7 +465,7 @@ public class DownloadEngine
                         await Task.WhenAll(jl.Jobs.ToList().Select(async child =>
                         {
                             bool wasInitial = child is SongJob s && s.State == JobState.Pending;
-                            await ProcessJob(child, extractor, jl.Cts!.Token, jl);
+                            await ProcessJob(child, jl.Cts!.Token, jl);
 
                             if (wasInitial && child is SongJob song)
                             {
@@ -470,7 +476,7 @@ public class DownloadEngine
                                 int fl = directSongs.Count(s => s.State == JobState.Failed);
                                 Events.RaiseOverallProgress(dl, fl, directSongs.Count);
 
-                                await MaybeRemoveFromSource(song, extractor, config.Extraction);
+                                await MaybeRemoveFromSource(song, config);
                             }
                         }));
 
@@ -480,10 +486,10 @@ public class DownloadEngine
                     }
                     else
                     {
-                        await Task.WhenAll(jl.Jobs.ToList().Select(child => ProcessJob(child, extractor, jl.Cts!.Token, jl)));
+                        await Task.WhenAll(jl.Jobs.ToList().Select(child => ProcessJob(child, jl.Cts!.Token, jl)));
 
                         foreach (var child in jl.Jobs)
-                            await MaybeRemoveFromSource(child, extractor, config.Extraction);
+                            await MaybeRemoveFromSource(child, config);
                     }
                 }
                 catch (OperationCanceledException) when (jl.Cts?.IsCancellationRequested == true)
@@ -499,8 +505,37 @@ public class DownloadEngine
         }
         finally
         {
+            if (job.Config != null)
+                await MaybeRemoveFromSource(job, job.Config);
+
             SockseekLog.Jobs.Trace($"ProcessJob: Finished job {job.DisplayId} ({job.GetType().Name}). Raising execution completed.");
             RaiseJobExecutionCompleted();
+        }
+    }
+
+    static void ApplyDownloadBehaviorPolicy(Job job, DownloadBehaviorPolicy policy)
+    {
+        job.DownloadBehaviorPolicy = policy;
+
+        switch (job)
+        {
+            case JobList list:
+                foreach (var child in list.Jobs)
+                    ApplyDownloadBehaviorPolicy(child, policy);
+                break;
+            case ExtractJob extract:
+                extract.ResultDownloadBehaviorPolicy = policy;
+                if (extract.Result != null)
+                    ApplyDownloadBehaviorPolicy(extract.Result, policy);
+                break;
+            case AggregateJob aggregate:
+                foreach (var song in aggregate.Songs)
+                    ApplyDownloadBehaviorPolicy(song, policy);
+                break;
+            case AlbumAggregateJob aggregate:
+                foreach (var album in aggregate.Albums)
+                    ApplyDownloadBehaviorPolicy(album, policy);
+                break;
         }
     }
 
@@ -544,14 +579,16 @@ public class DownloadEngine
         };
     }
 
-    static async Task MaybeRemoveFromSource(Job job, IExtractor? extractor, ExtractionSettings config)
+    async Task MaybeRemoveFromSource(Job job, DownloadSettings config)
     {
-        if (extractor == null || !config.RemoveTracksFromSource) return;
-        if (job.LineNumber == 0) return;
+        if (!config.Extraction.RemoveTracksFromSource) return;
+        if (job is SearchJob or RetrieveFolderJob) return;
+        if (job.SourceMutation == null) return;
         if (!IsSubtreeSuccessful(job)) return;
-        
-        SockseekLog.Jobs.Debug($"RemoveFromSource: '{job}' (LineNumber={job.LineNumber})");
-        try { await extractor.RemoveFromSource(job); }
+        if (!_appliedSourceMutations.TryAdd(job.SourceMutation.Key, 0)) return;
+
+        SockseekLog.Jobs.Debug($"RemoveFromSource: '{job}' ({job.SourceMutation.Kind}, source='{job.SourceMutation.Source}', line={job.SourceMutation.LineNumber})");
+        try { await _sourceMutationExecutor.ApplyAsync(job.SourceMutation, config); }
         catch (Exception ex) { SockseekLog.Jobs.Error($"Error removing from source: {ex.Message}"); }
     }
 
@@ -765,7 +802,7 @@ public class DownloadEngine
 
                     RegisterJob(albumList, job);
                     job.UpdateState(JobState.Running);
-                    await ProcessJob(albumList, null, job.Cts!.Token, job);
+                    await ProcessJob(albumList, job.Cts!.Token, job);
                     if (job.Cts?.IsCancellationRequested == true || albumList.FailureReason == FailureReason.Cancelled)
                         job.Fail(FailureReason.Cancelled);
                     else
@@ -778,10 +815,10 @@ public class DownloadEngine
                 return;
             }
 
-            job.Discovery = new DiscoverySummary 
-            { 
-                ResultCount = job switch { SongJob s => s.Candidates?.Count ?? 0, AlbumJob a => a.Results.Count, _ => foundSomething ? 1 : 0 }, 
-                LockedFileCount = responseData.lockedFilesCount 
+            job.Discovery = new DiscoverySummary
+            {
+                ResultCount = job switch { SongJob s => s.Candidates?.Count ?? 0, AlbumJob a => a.Results.Count, _ => foundSomething ? 1 : 0 },
+                LockedFileCount = responseData.lockedFilesCount
             };
 
             if (!foundSomething)
@@ -1084,7 +1121,7 @@ public class DownloadEngine
 
                 job.ResolvedTarget = null;
                 job.Results.RemoveAt(index);
-                
+
                 // Reset state so the next iteration transitions to Downloading naturally
                 job.UpdateState(JobState.Pending);
             }
@@ -1304,7 +1341,7 @@ public class DownloadEngine
                         {
                             SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: fast-search starting provisional download from {fc.Username}\\{fc.Filename}: {song}");
                             string outputPath = organizer.GetSavePath(fc.Filename);
-                            
+
                             // Use the main job CTS for the download so cancelling the search doesn't kill the download.
                             fastDownloadTask = downloader!
                                 .DownloadFile(fc, outputPath, song, config.Transfer, config.Output.ParentDir, cts.Token)
@@ -1332,12 +1369,12 @@ public class DownloadEngine
                         // Fast download won — cancel the search.
                         searchCts.Cancel();
                         try { await searchTask; } catch (OperationCanceledException) { }
-                        
+
                         _registry.UserSuccessCounts.AddOrUpdate(fastCandidate.Username, 1, (_, c) => c + 1);
                         SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: fast-search provisional download succeeded from {fastCandidate.Username}\\{fastCandidate.Filename}: {song}");
                         return (fastPath, fastCandidate.File);
                     }
-                    
+
                     SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: fast-search provisional download failed, waiting for full search to complete: {song}");
                     await searchTask;
                 }
@@ -1868,9 +1905,9 @@ public class DownloadEngine
     // ── update / stale-detection loop ─────────────────────────────────────────
 
     // TODO: Replace this while-true polling loop with a PeriodicTimer or scheduled callbacks.
-    // Iterating over every active download every 100ms to check for stale states burns CPU cycles. 
-    // Stale detection should ideally be handled by CancellationTokens with timeouts (e.g., CancelAfter) 
-    // attached directly to the network streams, or by using a System.Threading.PeriodicTimer for 
+    // Iterating over every active download every 100ms to check for stale states burns CPU cycles.
+    // Stale detection should ideally be handled by CancellationTokens with timeouts (e.g., CancelAfter)
+    // attached directly to the network streams, or by using a System.Threading.PeriodicTimer for
     // better async hygiene and less GC pressure.
     async Task UpdateLoop(CancellationToken cancellationToken)
     {

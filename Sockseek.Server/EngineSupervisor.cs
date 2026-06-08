@@ -329,10 +329,11 @@ public sealed class EngineSupervisor
         if (albumJob == null)
             return null;
 
+        var folders = JobRequestMapper.ProjectAlbumJobFolders(albumJob, GetCurrentEngineUserSuccessCounts());
         return new SearchResultSnapshotDto<AlbumFolderDto>(
             Revision: 0,
             IsComplete: albumJob.State is not (JobState.Pending or JobState.Searching),
-            Items: albumJob.Results.Select(folder => ToAlbumFolderDto(folder, includeFiles)).ToList());
+            Items: folders.Select(folder => ToAlbumFolderDto(folder, includeFiles)).ToList());
     }
 
     public SearchResultSnapshotDto<AggregateTrackCandidateDto>? GetAggregateTrackResults(Guid jobId)
@@ -524,6 +525,7 @@ public sealed class EngineSupervisor
             : sourceJob switch
             {
                 SearchJob searchJob => searchJob.DefaultFolderProjection?.Query,
+                AlbumJob album => album.Query,
                 AlbumAggregateJob aggregate => aggregate.Query,
                 _ => null,
             };
@@ -557,7 +559,10 @@ public sealed class EngineSupervisor
         if (job == null || job.State != JobState.AwaitingSelection)
             return false;
 
-        job.SetDone();
+        if (job is AlbumAggregateJob)
+            job.SetDone();
+        else
+            job.Fail(FailureReason.NoSuitableFileFound);
         return true;
     }
 
@@ -682,7 +687,8 @@ public sealed class EngineSupervisor
         }
 
         if (sourceJob is AlbumJob albumJob)
-            return albumJob.Results.FirstOrDefault(folder => Matches(folder, folderRef));
+            return JobRequestMapper.FindProjectedAlbumFolder(albumJob, folderRef, GetCurrentEngineUserSuccessCounts())
+                ?? albumJob.Results.FirstOrDefault(folder => Matches(folder, folderRef));
 
         if (sourceJob is AlbumAggregateJob aggregateJob)
             return aggregateJob.Albums
@@ -774,12 +780,17 @@ public sealed class EngineSupervisor
         CancellationToken ct)
     {
         followUpJob.WorkflowId = sourceJob.WorkflowId;
+        if (ShouldPropagateSourceMutationToFollowUp(sourceJob))
+            followUpJob.CopySourceMutationFrom(sourceJob);
         StateStore.SetSourceJob(followUpJob.Id, sourceJobId);
         if (isolateOptions)
             jobSettingsResolver.SetJobOptions(followUpJob.Id, options);
         await submissionChannel.Writer.WriteAsync(new QueuedSubmission(followUpJob, settings), ct);
         return StateStore.GetJobSummary(followUpJob.Id) ?? BuildSubmittedJobSummary(followUpJob, sourceJobId);
     }
+
+    private static bool ShouldPropagateSourceMutationToFollowUp(Job sourceJob)
+        => sourceJob is not AlbumAggregateJob;
 
     private sealed record QueuedSubmission(Job Job, DownloadSettings Settings);
 }

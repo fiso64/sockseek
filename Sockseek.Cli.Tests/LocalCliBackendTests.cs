@@ -152,7 +152,8 @@ public class LocalCliBackendTests
             await coordinator.RunUntilCompleteAsync(summary.WorkflowId, cts.Token);
 
             Assert.AreEqual(0, pickerCalls, "The MP3 folder must be filtered out by the list-line FLAC condition before prompting.");
-            Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length);
+            Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                .Count(path => string.Equals(Path.GetExtension(path), ".mp3", StringComparison.OrdinalIgnoreCase)));
 
             engine.CompleteEnqueue();
             await engineTask;

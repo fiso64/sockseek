@@ -32,6 +32,7 @@ public sealed record ExtractJobPayloadDto(
     string Input,
     string? InputType,
     Guid? ResultJobId,
+    bool AutoProcessResult,
     JobDraftDto? ResultDraft) : JobPayloadDto;
 
 /// <summary>

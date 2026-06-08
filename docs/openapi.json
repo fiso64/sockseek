@@ -2496,6 +2496,16 @@
                 "$ref": "#/components/schemas/DownloadSettingsPatchDto"
               }
             ]
+          },
+          "provenance": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobProvenanceDto"
+              }
+            ]
           }
         }
       },
@@ -2530,6 +2540,16 @@
               },
               {
                 "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+              }
+            ]
+          },
+          "provenance": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobProvenanceDto"
               }
             ]
           }
@@ -2568,6 +2588,16 @@
                 "$ref": "#/components/schemas/DownloadSettingsPatchDto"
               }
             ]
+          },
+          "provenance": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobProvenanceDto"
+              }
+            ]
           }
         }
       },
@@ -2592,6 +2622,16 @@
               },
               {
                 "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+              }
+            ]
+          },
+          "provenance": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobProvenanceDto"
               }
             ]
           }
@@ -2632,6 +2672,26 @@
                 "$ref": "#/components/schemas/DownloadSettingsPatchDto"
               }
             ]
+          },
+          "resultDownloadBehavior": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
+              }
+            ]
+          },
+          "provenance": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobProvenanceDto"
+              }
+            ]
           }
         }
       },
@@ -2666,6 +2726,16 @@
               },
               {
                 "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+              }
+            ]
+          },
+          "provenance": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobProvenanceDto"
               }
             ]
           }
@@ -2704,6 +2774,16 @@
                 "$ref": "#/components/schemas/DownloadSettingsPatchDto"
               }
             ]
+          },
+          "provenance": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobProvenanceDto"
+              }
+            ]
           }
         }
       },
@@ -2732,6 +2812,16 @@
               },
               {
                 "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+              }
+            ]
+          },
+          "provenance": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobProvenanceDto"
               }
             ]
           }
@@ -2977,6 +3067,7 @@
           "input",
           "inputType",
           "resultJobId",
+          "autoProcessResult",
           "resultDraft"
         ],
         "properties": {
@@ -3001,6 +3092,9 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "autoProcessResult": {
+            "type": "boolean"
           },
           "resultDraft": {
             "oneOf": [
@@ -3375,6 +3469,39 @@
             "type": [
               "null",
               "string"
+            ]
+          }
+        }
+      },
+      "JobProvenanceDto": {
+        "type": "object",
+        "properties": {
+          "itemNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 1
+          },
+          "lineNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
+          },
+          "sourceMutation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SourceMutationDto"
+              }
             ]
           }
         }
@@ -4544,6 +4671,54 @@
           }
         }
       },
+      "SourceMutationDto": {
+        "required": [
+          "kind",
+          "source"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "lineNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
+          },
+          "itemNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 1
+          },
+          "csvColumnCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
+          },
+          "trackUri": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "SpotifySettingsPatchDto": {
         "type": "object",
         "properties": {
@@ -4826,6 +5001,16 @@
               },
               {
                 "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            ]
+          },
+          "resultDownloadBehavior": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
               }
             ]
           }

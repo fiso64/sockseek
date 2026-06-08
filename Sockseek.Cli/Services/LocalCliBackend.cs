@@ -202,26 +202,11 @@ internal sealed class LocalCliBackend
         if (albumJob == null)
             return Task.FromResult<SearchResultSnapshotDto<AlbumFolderDto>?>(null);
 
+        var folders = JobRequestMapper.ProjectAlbumJobFolders(albumJob, engine.UserSuccessCounts);
         return Task.FromResult<SearchResultSnapshotDto<AlbumFolderDto>?>(new(
             Revision: 0,
             IsComplete: albumJob.State is not (JobState.Pending or JobState.Searching),
-            Items: albumJob.Results.Select(folder => new AlbumFolderDto(
-                new AlbumFolderRefDto(folder.Username, folder.FolderPath),
-                folder.Username,
-                folder.FolderPath,
-                new PeerInfoDto(
-                    folder.Username,
-                    folder.Files.FirstOrDefault()?.ResolvedTarget?.Response.HasFreeUploadSlot,
-                    folder.Files.FirstOrDefault()?.ResolvedTarget?.Response.UploadSpeed),
-                folder.SearchFileCount,
-                folder.SearchAudioFileCount,
-                includeFiles
-                    ? folder.Files
-                        .Where(song => song.ResolvedTarget != null)
-                        .Select(song => ToFileCandidateDto(song.ResolvedTarget!))
-                        .ToList()
-                    : null,
-                folder.IsFullyRetrieved)).ToList()));
+            Items: folders.Select(folder => ToAlbumFolderDto(folder, includeFiles)).ToList()));
     }
 
     public Task<SearchResultSnapshotDto<AggregateTrackCandidateDto>?> GetAggregateTrackResultsAsync(Guid jobId, CancellationToken ct = default)
@@ -404,6 +389,8 @@ internal sealed class LocalCliBackend
                 WorkflowId = sourceJob.WorkflowId,
             };
 
+            if (ShouldPropagateSourceMutationToFollowUp(sourceJob))
+                followUpSongJob.CopySourceMutationFrom(sourceJob);
             stateStore.SetSourceJob(followUpSongJob.Id, sourceJobId);
             submissionOptionsResolver?.SetJobOptions(followUpSongJob.Id, request.Options);
             engine.Enqueue(followUpSongJob, settings);
@@ -465,6 +452,8 @@ internal sealed class LocalCliBackend
             DownloadBehaviorPolicy = new DownloadBehaviorPolicy(),
         };
         JobRequestMapper.ApplyFolderDownloadSelection(followUpAlbumJob, request.Selection);
+        if (ShouldPropagateSourceMutationToFollowUp(sourceJob))
+            followUpAlbumJob.CopySourceMutationFrom(sourceJob);
 
         stateStore.SetSourceJob(followUpAlbumJob.Id, sourceJobId);
         submissionOptionsResolver?.SetJobOptions(followUpAlbumJob.Id, request.Options);
@@ -480,9 +469,15 @@ internal sealed class LocalCliBackend
         if (job == null || job.State != JobState.AwaitingSelection)
             return Task.FromResult(false);
 
-        job.SetDone();
+        if (job is AlbumAggregateJob)
+            job.SetDone();
+        else
+            job.Fail(FailureReason.NoSuitableFileFound);
         return Task.FromResult(true);
     }
+
+    private static bool ShouldPropagateSourceMutationToFollowUp(Job sourceJob)
+        => sourceJob is not AlbumAggregateJob;
 
     private DownloadSettings BuildFollowUpSettings(Job sourceJob, SubmissionOptionsDto? options)
     {
@@ -596,7 +591,8 @@ internal sealed class LocalCliBackend
         }
 
         if (sourceJob is AlbumJob albumJob)
-            return albumJob.Results.FirstOrDefault(folder => Matches(folder, folderRef));
+            return JobRequestMapper.FindProjectedAlbumFolder(albumJob, folderRef, engine.UserSuccessCounts)
+                ?? albumJob.Results.FirstOrDefault(folder => Matches(folder, folderRef));
 
         if (sourceJob is AlbumAggregateJob aggregateJob)
             return aggregateJob.Albums

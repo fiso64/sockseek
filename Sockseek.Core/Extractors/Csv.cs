@@ -31,8 +31,6 @@ namespace Sockseek.Core.Extractors;
 
         string? csvFilePath = null;
         int csvColumnCount = -1;
-        private readonly SemaphoreSlim csvLock = new(1, 1);
-
         public static bool InputMatches(string input)
         {
             input = input.ToLower();
@@ -64,35 +62,6 @@ namespace Sockseek.Core.Extractors;
 
         private static IEnumerable<Job> BuildJobs(IEnumerable<object> rows)
             => rows.OfType<Job>();
-
-        public async Task RemoveFromSource(Job job)
-        {
-            await csvLock.WaitAsync();
-            try
-            {
-                if (File.Exists(csvFilePath))
-                {
-                    try
-                    {
-                        string[] lines = await File.ReadAllLinesAsync(csvFilePath, System.Text.Encoding.UTF8);
-                        int idx = job.LineNumber - 1;
-                        if (idx > -1 && idx < lines.Length)
-                        {
-                            lines[idx] = new string(',', Math.Max(0, csvColumnCount - 1));
-                            await Utils.WriteAllLinesAsync(csvFilePath, lines, '\n');
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        SockseekLog.Error($"Error removing from source: {e}");
-                    }
-                }
-            }
-            finally
-            {
-                csvLock.Release();
-            }
-        }
 
         // Returns a list of rows — either SongJob (song row) or AlbumJob (album row).
         async Task<List<object>> ParseCsvRows(string path, string artistCol = "", string trackCol = "",
@@ -218,10 +187,12 @@ namespace Sockseek.Core.Extractors;
                         Album         = album,
                         URI           = uri,
                     };
+                    var itemNumber = rows.Count + 1;
                     rows.Add(new AlbumJob(query)
                     {
-                        ItemNumber = rows.Count + 1,
+                        ItemNumber = itemNumber,
                         LineNumber = index,
+                        SourceMutation = SourceMutation.ClearCsvRow(csvFilePath!, index, itemNumber, csvColumnCount),
                         ExtractorFolderCond = new FolderConditionPatch
                         {
                             MinTrackCount = minAlbumTrackCount >= 0 ? minAlbumTrackCount : null,
@@ -234,12 +205,19 @@ namespace Sockseek.Core.Extractors;
                     var song = await YouTube.ParseSongInfo(title, artist, uri, length, desc);
                     song.ItemNumber = rows.Count + 1;
                     song.LineNumber = index;
+                    song.SourceMutation = SourceMutation.ClearCsvRow(csvFilePath!, index, song.ItemNumber, csvColumnCount);
                     rows.Add(song);
                 }
                 else
                 {
                     var query = new SongQuery { Artist = artist, Title = title, Album = album, URI = uri, Length = length };
-                    rows.Add(new SongJob(query) { ItemNumber = rows.Count + 1, LineNumber = index });
+                    var itemNumber = rows.Count + 1;
+                    rows.Add(new SongJob(query)
+                    {
+                        ItemNumber = itemNumber,
+                        LineNumber = index,
+                        SourceMutation = SourceMutation.ClearCsvRow(csvFilePath!, index, itemNumber, csvColumnCount),
+                    });
                 }
             }
 

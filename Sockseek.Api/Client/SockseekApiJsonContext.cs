@@ -47,6 +47,8 @@ namespace Sockseek.Api;
 [JsonSerializable(typeof(DownloadBehaviorPolicyDto))]
 [JsonSerializable(typeof(Sockseek.Core.DownloadBehavior))]
 
+[JsonSerializable(typeof(JobProvenanceDto))]
+[JsonSerializable(typeof(SourceMutationDto))]
 [JsonSerializable(typeof(JobDraftDto))]
 [JsonSerializable(typeof(ExtractJobDraftDto))]
 [JsonSerializable(typeof(TrackSearchJobDraftDto))]

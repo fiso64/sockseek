@@ -161,7 +161,9 @@ public class CliEndToEndTests
             Assert.AreEqual(2, pickerCalls, "Both list album jobs should reach the interactive picker");
             Assert.AreEqual(1, maxActivePickers, "Interactive album prompts must not overlap");
 
-            var files = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories);
+            var files = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                .Where(path => string.Equals(Path.GetExtension(path), ".mp3", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
             Assert.AreEqual(2, files.Length, "Both selected albums should download.");
         }
         finally
@@ -413,11 +415,11 @@ public class CliEndToEndTests
             await app.RunAsync(CancellationToken.None);
 
             Assert.AreEqual(2, pickerCalls, "A failed chosen album should reopen the picker with remaining candidates.");
-            
+
             var albumJob = app.Queue.Jobs.OfType<AlbumJob>().LastOrDefault();
             Assert.IsNotNull(albumJob);
             Assert.AreEqual(JobState.Done, albumJob.State, "Album should eventually succeed with the remaining folder.");
-            
+
             var files = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories);
             Assert.AreEqual(1, files.Length, "Only the retry selection should complete.");
             Assert.IsTrue(files[0].EndsWith("Track.mp3"));
@@ -428,4 +430,100 @@ public class CliEndToEndTests
             if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
         }
     }
+    [TestMethod]
+    public async Task InteractiveCsvAlbumSelection_RemoveFromSource_ClearsSuccessfulAlbumRows()
+    {
+        var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-mock-music-interactive-csv-rfs-" + Guid.NewGuid());
+        var outputDir = Path.Combine(Path.GetTempPath(), "slsk-mock-out-interactive-csv-rfs-" + Guid.NewGuid());
+        var csvPath = Path.Combine(Path.GetTempPath(), "slsk-albums-" + Guid.NewGuid() + ".csv");
+
+        Directory.CreateDirectory(Path.Combine(musicRoot, "Sonic Youth", "Daydream Nation"));
+        Directory.CreateDirectory(Path.Combine(musicRoot, "Mitski", "Be the Cowboy"));
+        Directory.CreateDirectory(outputDir);
+
+        for (var i = 1; i <= 8; i++)
+            File.WriteAllBytes(Path.Combine(musicRoot, "Sonic Youth", "Daydream Nation", $"{i:00}. Sonic Youth - Track {i}.mp3"), [1, 2, 3]);
+        for (var i = 1; i <= 12; i++)
+            File.WriteAllBytes(Path.Combine(musicRoot, "Mitski", "Be the Cowboy", $"{i:00}. Mitski - Track {i}.mp3"), [4, 5, 6]);
+
+        File.WriteAllText(csvPath,
+            "Artist,Album,TrackCount\n" +
+            "Sonic Youth,Daydream Nation,8\n" +
+            "Mitski,Be the Cowboy,12\n" +
+            "Talking Heads,Remain in Light,7\n");
+
+        try
+        {
+            var engineSettings = new EngineSettings
+            {
+                Username = "test_user",
+                Password = "test_pass",
+                MockFilesDir = musicRoot,
+                MockFilesReadTags = false,
+            };
+            var rootSettings = new DownloadSettings();
+            rootSettings.Extraction.Input = csvPath;
+            rootSettings.Extraction.InputType = InputType.None;
+            rootSettings.Extraction.RemoveTracksFromSource = true;
+            rootSettings.Csv.ArtistCol = "Artist";
+            rootSettings.Csv.AlbumCol = "Album";
+            rootSettings.Csv.TrackCountCol = "TrackCount";
+            rootSettings.Search.NoBrowseFolder = true;
+            rootSettings.Output.ParentDir = outputDir;
+            rootSettings.Output.NameFormat = "{foldername}/{filename}";
+
+            var cliSettings = new CliSettings { InteractiveMode = true, NoProgress = true };
+            var clientManager = new SoulseekClientManager(engineSettings);
+            var app = new DownloadEngine(engineSettings, clientManager);
+            var backend = new LocalCliBackend(app, rootSettings);
+
+            var pickerCalls = 0;
+            var coordinator = new InteractiveCliCoordinator(
+                backend,
+                cliSettings,
+                CancellationToken.None,
+                request =>
+                {
+                    pickerCalls++;
+                    var folder = request.Folders.FirstOrDefault();
+                    return Task.FromResult(new InteractiveModeManager.RunResult(
+                        folder == null ? -1 : 0,
+                        folder,
+                        RetrieveCurrentFolder: true,
+                        ExitInteractiveMode: false,
+                        request.FilterStr));
+                });
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            var workflowId = Guid.NewGuid();
+            var submission = await coordinator.StartAsync(
+                new SubmitExtractJobRequestDto(csvPath, InputType.None.ToString(), Options: new SubmissionOptionsDto(workflowId)),
+                cts.Token);
+            _ = coordinator.RunUntilCompleteAsync(submission.WorkflowId, cts.Token)
+                .ContinueWith(_ => app.CompleteEnqueue(), TaskScheduler.Default);
+            await app.RunAsync(cts.Token);
+
+            Assert.IsFalse(cts.IsCancellationRequested, "RunAsync timed out");
+            Assert.AreEqual(2, pickerCalls, "Only the two found albums should reach the interactive picker.");
+
+            var lines = File.ReadAllLines(csvPath);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "Artist,Album,TrackCount",
+                    ",,",
+                    ",,",
+                    "Talking Heads,Remain in Light,7",
+                },
+                lines,
+                "Interactive mode must clear successful CSV album rows using the original extracted jobs.");
+        }
+        finally
+        {
+            if (File.Exists(csvPath)) File.Delete(csvPath);
+            if (Directory.Exists(musicRoot)) Directory.Delete(musicRoot, true);
+            if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+        }
+    }
+
 }

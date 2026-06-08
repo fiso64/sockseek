@@ -10,7 +10,6 @@ namespace Sockseek.Core.Extractors;
     public interface IExtractor
     {
         Task<Job> GetTracks(string input, ExtractionSettings extraction);
-        Task RemoveFromSource(Job job) => Task.CompletedTask;
     }
 
     public static class ExtractorRegistry

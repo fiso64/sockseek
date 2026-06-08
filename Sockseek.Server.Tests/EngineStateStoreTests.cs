@@ -142,6 +142,44 @@ public class EngineStateStoreTests
         Assert.AreEqual((TransferStates.Queued | TransferStates.Remotely).ToString(), tracks[1].TransferState);
     }
 
+
+    [TestMethod]
+    public void ResultDraft_RoundTripsSourceMutationProvenance()
+    {
+        var store = new EngineStateStore();
+        var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
+        {
+            ItemNumber = 2,
+            LineNumber = 4,
+            SourceMutation = SourceMutation.ClearCsvRow("input.csv", 4, 2, 3),
+        };
+        var extract = new ExtractJob("input.csv", InputType.CSV)
+        {
+            AutoProcessResult = false,
+            Result = album,
+        };
+
+        Register(store, extract);
+
+        var payload = store.GetJobDetail(extract.Id)?.Payload as ExtractJobPayloadDto;
+        Assert.IsNotNull(payload);
+        var draft = payload.ResultDraft as AlbumJobDraftDto;
+        Assert.IsNotNull(draft);
+        Assert.IsNotNull(draft.Provenance);
+        Assert.AreEqual(2, draft.Provenance.ItemNumber);
+        Assert.AreEqual(4, draft.Provenance.LineNumber);
+        Assert.AreEqual(nameof(SourceMutationKind.ClearCsvRow), draft.Provenance.SourceMutation?.Kind);
+        Assert.AreEqual("input.csv", draft.Provenance.SourceMutation?.Source);
+        Assert.AreEqual(3, draft.Provenance.SourceMutation?.CsvColumnCount);
+
+        var roundTripped = JobRequestMapper.CreateJob(draft);
+        Assert.AreEqual(2, roundTripped.ItemNumber);
+        Assert.AreEqual(4, roundTripped.LineNumber);
+        Assert.AreEqual(SourceMutationKind.ClearCsvRow, roundTripped.SourceMutation?.Kind);
+        Assert.AreEqual("input.csv", roundTripped.SourceMutation?.Source);
+        Assert.AreEqual(3, roundTripped.SourceMutation?.CsvColumnCount);
+    }
+
     private static void Register(EngineStateStore store, Job job, Job? parent = null)
     {
         typeof(EngineStateStore)

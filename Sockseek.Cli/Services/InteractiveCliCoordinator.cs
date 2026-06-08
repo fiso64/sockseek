@@ -17,11 +17,9 @@ internal sealed class InteractiveCliCoordinator
     private readonly Func<InteractiveAlbumPromptRequest, Task<InteractiveModeManager.RunResult>>? promptOverride;
     private readonly TimeSpan pollInterval;
     private readonly SemaphoreSlim promptSemaphore = new(1, 1);
-    private readonly HashSet<Guid> startedExtractResults = [];
     private readonly HashSet<Guid> handledAlbumSearches = [];
     private readonly HashSet<Guid> handledManualSelections = [];
     private readonly Dictionary<Guid, InteractiveAlbumSession> interactiveAlbumSessions = [];
-    private readonly Dictionary<Guid, SubmissionOptionsDto> submittedDraftOptions = [];
     private SubmissionOptionsDto? rootOptions;
     private bool interactiveEnabled;
 
@@ -44,7 +42,11 @@ internal sealed class InteractiveCliCoordinator
     {
         ct.ThrowIfCancellationRequested();
         rootOptions = request.Options;
-        return await backend.SubmitExtractJobAsync(request with { AutoStartExtractedResult = false }, ct);
+        return await backend.SubmitExtractJobAsync(request with
+        {
+            AutoStartExtractedResult = true,
+            ResultDownloadBehavior = InteractiveDownloadBehavior(request.ResultDownloadBehavior),
+        }, ct);
     }
 
     public async Task RunUntilCompleteAsync(Guid workflowId, CancellationToken ct = default)
@@ -76,35 +78,6 @@ internal sealed class InteractiveCliCoordinator
         foreach (var summary in summaries.OrderBy(job => job.DisplayId))
         {
             ct.ThrowIfCancellationRequested();
-            if (summary.Kind == ServerJobKind.Extract
-                && IsCompleted(summary.State)
-                && summary.ResultJobId != null
-                && startedExtractResults.Add(summary.JobId))
-            {
-                var detail = await backend.GetJobDetailAsync(summary.JobId, ct);
-                if (detail?.Payload is ExtractJobPayloadDto { ResultDraft: not null } extract)
-                {
-                    var draft = ToInteractiveDraft(extract.ResultDraft);
-                    var options = OptionsForSummary(summary);
-                    var resultOptions = OptionsForDraft(options, draft);
-                    if (summary.ResultJobId is Guid resultJobId)
-                        submittedDraftOptions[resultJobId] = resultOptions;
-
-                    if (draft is JobListJobDraftDto list)
-                    {
-                        var listOptions = resultOptions;
-                        foreach (var child in list.Jobs)
-                            await SubmitDraftAsync(child, listOptions, ct);
-                    }
-                    else
-                    {
-                        await SubmitDraftAsync(draft, resultOptions, ct);
-                    }
-
-                    startedFollowUp = true;
-                }
-            }
-
             if (summary.Kind == ServerJobKind.Search
                 && IsCompleted(summary.State)
                 && handledAlbumSearches.Add(summary.JobId))
@@ -422,61 +395,6 @@ internal sealed class InteractiveCliCoordinator
         return job;
     }
 
-    private async Task<JobSummaryDto> SubmitDraftAsync(JobDraftDto draft, SubmissionOptionsDto options, CancellationToken ct)
-    {
-        var draftOptions = OptionsForDraft(options, draft);
-        var summary = draft switch
-        {
-            ExtractJobDraftDto extract => await backend.SubmitExtractJobAsync(
-                new SubmitExtractJobRequestDto(extract.Input, extract.InputType, extract.AutoStartExtractedResult, draftOptions),
-                ct),
-            TrackSearchJobDraftDto search => await backend.SubmitTrackSearchJobAsync(
-                new SubmitTrackSearchJobRequestDto(search.SongQuery, search.IncludeFullResults, draftOptions),
-                ct),
-            AlbumSearchJobDraftDto search => await backend.SubmitAlbumSearchJobAsync(
-                new SubmitAlbumSearchJobRequestDto(search.AlbumQuery, draftOptions),
-                ct),
-            SongJobDraftDto song => await backend.SubmitSongJobAsync(
-                new SubmitSongJobRequestDto(song.SongQuery, draftOptions, song.DownloadBehavior),
-                ct),
-            AlbumJobDraftDto album => await backend.SubmitAlbumJobAsync(
-                new SubmitAlbumJobRequestDto(album.AlbumQuery, draftOptions, album.DownloadBehavior),
-                ct),
-            AggregateJobDraftDto aggregateTrack => await backend.SubmitAggregateJobAsync(
-                new SubmitAggregateJobRequestDto(aggregateTrack.SongQuery, draftOptions, aggregateTrack.DownloadBehavior),
-                ct),
-            AlbumAggregateJobDraftDto aggregateAlbum => await backend.SubmitAlbumAggregateJobAsync(
-                new SubmitAlbumAggregateJobRequestDto(aggregateAlbum.AlbumQuery, draftOptions, aggregateAlbum.DownloadBehavior),
-                ct),
-            JobListJobDraftDto list => await backend.SubmitJobListAsync(
-                new SubmitJobListRequestDto(list.Name, list.Jobs, draftOptions),
-                ct),
-            _ => throw new InvalidOperationException($"Unsupported extracted job draft type '{draft.GetType().Name}'."),
-        };
-
-        submittedDraftOptions[summary.JobId] = draftOptions;
-        return summary;
-    }
-
-    private static JobDraftDto ToInteractiveDraft(JobDraftDto draft)
-        => draft switch
-        {
-            AlbumJobDraftDto album =>
-                album with { DownloadBehavior = InteractiveDownloadBehavior(album.DownloadBehavior) },
-            AlbumAggregateJobDraftDto aggregate =>
-                aggregate with { DownloadBehavior = InteractiveDownloadBehavior(aggregate.DownloadBehavior) },
-            ExtractJobDraftDto extract =>
-                extract with { AutoStartExtractedResult = false },
-            JobListJobDraftDto list =>
-                list with { Jobs = list.Jobs.Select(ToInteractiveDraft).ToList() },
-            _ => draft,
-        };
-
-    private static DownloadBehaviorPolicyDto InteractiveDownloadBehavior(DownloadBehaviorPolicyDto? existing)
-        => existing == null
-            ? new DownloadBehaviorPolicyDto(Album: DownloadBehavior.Manual, AlbumAggregate: DownloadBehavior.Manual)
-            : existing with { Album = DownloadBehavior.Manual, AlbumAggregate = DownloadBehavior.Manual };
-
     internal static string FolderKey(AlbumFolder folder)
         => folder.Username + "\\" + folder.FolderPath;
 
@@ -508,52 +426,13 @@ internal sealed class InteractiveCliCoordinator
         return new SongJob(query) { ResolvedTarget = candidate };
     }
 
-    private SubmissionOptionsDto OptionsForSummary(JobSummaryDto summary)
-    {
-        if (submittedDraftOptions.TryGetValue(summary.JobId, out var options)
-            || (summary.SourceJobId is Guid sourceJobId && submittedDraftOptions.TryGetValue(sourceJobId, out options))
-            || (summary.ParentJobId is Guid parentJobId && submittedDraftOptions.TryGetValue(parentJobId, out options)))
-        {
-            return options with { WorkflowId = summary.WorkflowId };
-        }
-
-        return OptionsForWorkflow(summary.WorkflowId);
-    }
+    private static DownloadBehaviorPolicyDto InteractiveDownloadBehavior(DownloadBehaviorPolicyDto? existing)
+        => existing == null
+            ? new DownloadBehaviorPolicyDto(Album: DownloadBehavior.Manual, AlbumAggregate: DownloadBehavior.Manual)
+            : existing with { Album = DownloadBehavior.Manual, AlbumAggregate = DownloadBehavior.Manual };
 
     private SubmissionOptionsDto OptionsForWorkflow(Guid workflowId)
         => (rootOptions ?? new SubmissionOptionsDto()) with { WorkflowId = workflowId };
-
-    private static SubmissionOptionsDto OptionsForDraft(SubmissionOptionsDto options, JobDraftDto draft)
-        => GetDraftSettings(draft) is { } settings
-            ? options with { DownloadSettings = MergeSettings(options.DownloadSettings, settings) }
-            : options;
-
-    private static DownloadSettingsPatchDto? GetDraftSettings(JobDraftDto draft)
-        => draft switch
-        {
-            ExtractJobDraftDto extract => extract.DownloadSettings,
-            TrackSearchJobDraftDto search => search.DownloadSettings,
-            AlbumSearchJobDraftDto search => search.DownloadSettings,
-            SongJobDraftDto song => song.DownloadSettings,
-            AlbumJobDraftDto album => album.DownloadSettings,
-            AggregateJobDraftDto aggregate => aggregate.DownloadSettings,
-            AlbumAggregateJobDraftDto aggregate => aggregate.DownloadSettings,
-            JobListJobDraftDto list => list.DownloadSettings,
-            _ => null,
-        };
-
-    private static DownloadSettingsPatchDto? MergeSettings(DownloadSettingsPatchDto? first, DownloadSettingsPatchDto? second)
-    {
-        if (first == null)
-            return second;
-        if (second == null)
-            return first;
-
-        var settings = new DownloadSettings();
-        DownloadSettingsPatchDtoMapper.ApplyTo(settings, first);
-        DownloadSettingsPatchDtoMapper.ApplyTo(settings, second);
-        return DownloadSettingsPatchDtoMapper.FromDifference(new DownloadSettings(), settings);
-    }
 
     private static bool IsActive(ServerJobState state)
         => state is ServerProtocol.JobStates.Pending

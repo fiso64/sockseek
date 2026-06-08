@@ -1,6 +1,8 @@
+using System.Collections.Concurrent;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
+using Sockseek.Core.Services;
 using Sockseek.Api;
 
 namespace Sockseek.Server;
@@ -23,6 +25,8 @@ public static class JobRequestMapper
         var job = new ExtractJob(request.Input, inputType);
         if (request.AutoStartExtractedResult.HasValue)
             job.AutoProcessResult = request.AutoStartExtractedResult.Value;
+        if (request.ResultDownloadBehavior != null)
+            job.ResultDownloadBehaviorPolicy = ToDownloadBehaviorPolicy(request.ResultDownloadBehavior);
 
         return job;
     }
@@ -73,19 +77,42 @@ public static class JobRequestMapper
     public static Job CreateJob(JobDraftDto item)
         => item switch
         {
-            ExtractJobDraftDto extract => CreateExtractJob(new SubmitExtractJobRequestDto(
+            ExtractJobDraftDto extract => ApplyProvenance(CreateExtractJob(new SubmitExtractJobRequestDto(
                 extract.Input,
                 extract.InputType,
-                extract.AutoStartExtractedResult)),
-            TrackSearchJobDraftDto search => new SearchJob(ToSongQuery(search.SongQuery), search.IncludeFullResults),
-            AlbumSearchJobDraftDto search => new SearchJob(ToAlbumQuery(search.AlbumQuery)),
-            SongJobDraftDto song => ApplyDownloadBehavior(new SongJob(ToSongQuery(song.SongQuery)), song.DownloadBehavior),
-            AlbumJobDraftDto album => ApplyDownloadBehavior(new AlbumJob(ToAlbumQuery(album.AlbumQuery)), album.DownloadBehavior),
-            AggregateJobDraftDto aggregate => ApplyDownloadBehavior(new AggregateJob(ToSongQuery(aggregate.SongQuery)), aggregate.DownloadBehavior),
-            AlbumAggregateJobDraftDto aggregate => ApplyDownloadBehavior(new AlbumAggregateJob(ToAlbumQuery(aggregate.AlbumQuery)), aggregate.DownloadBehavior),
-            JobListJobDraftDto list => CreateJobList(list.Name, list.Jobs),
+                extract.AutoStartExtractedResult,
+                ResultDownloadBehavior: extract.ResultDownloadBehavior)), extract.Provenance),
+            TrackSearchJobDraftDto search => ApplyProvenance(new SearchJob(ToSongQuery(search.SongQuery), search.IncludeFullResults), search.Provenance),
+            AlbumSearchJobDraftDto search => ApplyProvenance(new SearchJob(ToAlbumQuery(search.AlbumQuery)), search.Provenance),
+            SongJobDraftDto song => ApplyProvenance(ApplyDownloadBehavior(new SongJob(ToSongQuery(song.SongQuery)), song.DownloadBehavior), song.Provenance),
+            AlbumJobDraftDto album => ApplyProvenance(ApplyDownloadBehavior(new AlbumJob(ToAlbumQuery(album.AlbumQuery)), album.DownloadBehavior), album.Provenance),
+            AggregateJobDraftDto aggregate => ApplyProvenance(ApplyDownloadBehavior(new AggregateJob(ToSongQuery(aggregate.SongQuery)), aggregate.DownloadBehavior), aggregate.Provenance),
+            AlbumAggregateJobDraftDto aggregate => ApplyProvenance(ApplyDownloadBehavior(new AlbumAggregateJob(ToAlbumQuery(aggregate.AlbumQuery)), aggregate.DownloadBehavior), aggregate.Provenance),
+            JobListJobDraftDto list => ApplyProvenance(CreateJobList(list.Name, list.Jobs), list.Provenance),
             _ => throw new ArgumentException($"Unsupported job draft type '{item.GetType().Name}'")
         };
+
+    private static TJob ApplyProvenance<TJob>(TJob job, JobProvenanceDto? provenance)
+        where TJob : Job
+    {
+        if (provenance == null)
+            return job;
+
+        job.ItemNumber = provenance.ItemNumber;
+        job.LineNumber = provenance.LineNumber;
+        job.SourceMutation = ToSourceMutation(provenance.SourceMutation);
+        return job;
+    }
+
+    private static SourceMutation? ToSourceMutation(SourceMutationDto? dto)
+    {
+        if (dto == null)
+            return null;
+        if (!Enum.TryParse<SourceMutationKind>(dto.Kind, ignoreCase: true, out var kind))
+            throw new ArgumentException($"Unsupported source mutation kind '{dto.Kind}'");
+
+        return new SourceMutation(kind, dto.Source, dto.LineNumber, dto.ItemNumber, dto.CsvColumnCount, dto.TrackUri);
+    }
 
     public static DownloadBehaviorPolicy ToDownloadBehaviorPolicy(DownloadBehaviorPolicyDto dto) => new()
     {
@@ -103,6 +130,34 @@ public static class JobRequestMapper
             job.DownloadBehaviorPolicy = ToDownloadBehaviorPolicy(policy);
         return job;
     }
+
+
+    public static List<AlbumFolder> ProjectAlbumJobFolders(AlbumJob albumJob, ConcurrentDictionary<string, int>? userSuccessCounts = null)
+    {
+        if (albumJob.Config == null || albumJob.Results.Count == 0)
+            return albumJob.Results.ToList();
+
+        var rawResults = albumJob.Results
+            .SelectMany(folder => folder.Files)
+            .Select(song => song.ResolvedTarget)
+            .OfType<FileCandidate>()
+            .Select(candidate => (Response: candidate.Response, File: candidate.File))
+            .ToList();
+
+        if (rawResults.Count == 0)
+            return [];
+
+        return SearchResultProjector.AlbumFolders(
+            rawResults,
+            albumJob.Query,
+            albumJob.Config.Search,
+            userSuccessCounts);
+    }
+
+    public static AlbumFolder? FindProjectedAlbumFolder(AlbumJob albumJob, AlbumFolderRefDto folderRef, ConcurrentDictionary<string, int>? userSuccessCounts = null)
+        => ProjectAlbumJobFolders(albumJob, userSuccessCounts)
+            .FirstOrDefault(folder => string.Equals(folder.Username, folderRef.Username, StringComparison.Ordinal)
+                && string.Equals(folder.FolderPath, folderRef.FolderPath, StringComparison.Ordinal));
 
     public static AlbumFolder ApplyFolderDownloadSelection(AlbumFolder folder, AlbumFolderDownloadSelectionDto? selection)
     {

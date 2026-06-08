@@ -89,6 +89,12 @@ namespace Sockseek.Core.Extractors;
                     else throw;
                 }
 
+                if (!string.IsNullOrWhiteSpace(playlistUri))
+                {
+                    foreach (var s in songs.Where(s => !string.IsNullOrWhiteSpace(s.Query.URI)))
+                        s.SourceMutation = SourceMutation.RemoveSpotifyPlaylistTrack(playlistUri, s.Query.URI, s.ItemNumber);
+                }
+
                 var slj = new JobList { ItemName = playlistName, EnablesIndexByDefault = true };
                 foreach (var s in songs) slj.Jobs.Add(s);
                 result = slj;
@@ -109,19 +115,6 @@ namespace Sockseek.Core.Extractors;
             return result;
         }
 
-        public async Task RemoveFromSource(Job job)
-        {
-            if (job is not SongJob song) return;
-            try
-            {
-                if (playlistUri.Length > 0 && song.Query.URI.Length > 0)
-                    await spotifyClient.RemoveTrackFromPlaylist(playlistUri, song.Query.URI);
-            }
-            catch (Exception e)
-            {
-                SockseekLog.Error($"Error removing from source: {e}");
-            }
-        }
     }
 
 

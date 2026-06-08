@@ -10,7 +10,8 @@ public sealed record SubmitExtractJobRequestDto(
     string Input,
     string? InputType = null,
     bool? AutoStartExtractedResult = null,
-    SubmissionOptionsDto? Options = null);
+    SubmissionOptionsDto? Options = null,
+    DownloadBehaviorPolicyDto? ResultDownloadBehavior = null);
 
 /// <summary>
 /// Starts a generic Soulseek discovery job from raw query text.
@@ -89,6 +90,19 @@ public sealed record SubmitJobListRequestDto(
     IReadOnlyList<JobDraftDto> Jobs,
     SubmissionOptionsDto? Options = null);
 
+public sealed record SourceMutationDto(
+    string Kind,
+    string Source,
+    int LineNumber = 0,
+    int ItemNumber = 1,
+    int CsvColumnCount = 0,
+    string? TrackUri = null);
+
+public sealed record JobProvenanceDto(
+    int ItemNumber = 1,
+    int LineNumber = 0,
+    SourceMutationDto? SourceMutation = null);
+
 /// <summary>
 /// Reusable job shape returned by extraction and accepted inside job-list submissions.
 /// </summary>
@@ -107,41 +121,50 @@ public sealed record ExtractJobDraftDto(
     string Input,
     string? InputType = null,
     bool? AutoStartExtractedResult = null,
-    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
+    DownloadSettingsPatchDto? DownloadSettings = null,
+    DownloadBehaviorPolicyDto? ResultDownloadBehavior = null,
+    JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 public sealed record TrackSearchJobDraftDto(
     SongQueryDto SongQuery,
     bool IncludeFullResults = false,
-    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
+    DownloadSettingsPatchDto? DownloadSettings = null,
+    JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 public sealed record AlbumSearchJobDraftDto(
     AlbumQueryDto AlbumQuery,
-    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
+    DownloadSettingsPatchDto? DownloadSettings = null,
+    JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 public sealed record SongJobDraftDto(
     SongQueryDto SongQuery,
     DownloadBehaviorPolicyDto? DownloadBehavior = null,
-    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
+    DownloadSettingsPatchDto? DownloadSettings = null,
+    JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 public sealed record AlbumJobDraftDto(
     AlbumQueryDto AlbumQuery,
     DownloadBehaviorPolicyDto? DownloadBehavior = null,
-    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
+    DownloadSettingsPatchDto? DownloadSettings = null,
+    JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 public sealed record AggregateJobDraftDto(
     SongQueryDto SongQuery,
     DownloadBehaviorPolicyDto? DownloadBehavior = null,
-    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
+    DownloadSettingsPatchDto? DownloadSettings = null,
+    JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 public sealed record AlbumAggregateJobDraftDto(
     AlbumQueryDto AlbumQuery,
     DownloadBehaviorPolicyDto? DownloadBehavior = null,
-    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
+    DownloadSettingsPatchDto? DownloadSettings = null,
+    JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 public sealed record JobListJobDraftDto(
     string? Name,
     IReadOnlyList<JobDraftDto> Jobs,
-    DownloadSettingsPatchDto? DownloadSettings = null) : JobDraftDto;
+    DownloadSettingsPatchDto? DownloadSettings = null,
+    JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 /// <summary>
 /// Controls automatic versus caller-selected downloads for download-capable jobs.

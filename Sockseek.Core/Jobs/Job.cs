@@ -13,14 +13,14 @@ namespace Sockseek.Core.Jobs;
     }
 
     // TODO [ARCHITECTURE]: Convert Job models to immutable types and implement Unidirectional Data Flow.
-    // Currently, Jobs act as globally mutable state containers. Properties like `State`, `BytesTransferred`, 
+    // Currently, Jobs act as globally mutable state containers. Properties like `State`, `BytesTransferred`,
     // and `DownloadPath` are mutated directly by Downloader/Searcher on background threads.
-    // Because INotifyPropertyChanged fires on the mutating thread, this forces the UI/CLI layers to use 
+    // Because INotifyPropertyChanged fires on the mutating thread, this forces the UI/CLI layers to use
     // liberal lock() statements to avoid race conditions and visual tearing.
     // Refactor:
     // 1. Make Job a C# `record` with `init` only properties.
     // 2. Background workers should yield `ProgressEvent` structs to a Channel.
-    // 3. A central reducer reads the channel, creates a *new* copy of the Job via the `with` expression, 
+    // 3. A central reducer reads the channel, creates a *new* copy of the Job via the `with` expression,
     //    and pushes the unified snapshot to the UI.
     public abstract class Job : INotifyPropertyChanged
     {
@@ -76,6 +76,11 @@ namespace Sockseek.Core.Jobs;
         // Source provenance (position in the input file / playlist)
         public int ItemNumber { get; set; } = 1;
         public int LineNumber { get; set; } = 0;
+
+        // Durable source mutation to apply after this job succeeds. This is job metadata, not
+        // call-stack state, so manual/interactive pause-resume and follow-up submissions do not
+        // lose remove-from-source behavior.
+        public SourceMutation? SourceMutation { get; set; }
 
         // Discovery results (populated during Search or Folder Retrieval phases)
         public DiscoverySummary? Discovery { get; set; }
@@ -167,6 +172,15 @@ namespace Sockseek.Core.Jobs;
 
         public virtual string ToString(bool noInfo) => ItemName ?? QueryTrack?.ToString(noInfo) ?? "";
 
+        public void CopySourceMutationFrom(Job src)
+        {
+            if (LineNumber == 0)
+                LineNumber = src.LineNumber;
+            if (ItemNumber == 1)
+                ItemNumber = src.ItemNumber;
+            SourceMutation ??= src.SourceMutation;
+        }
+
         public void CopySharedFieldsFrom(Job src)
         {
             ExtractorCond             = src.ExtractorCond;
@@ -177,6 +191,7 @@ namespace Sockseek.Core.Jobs;
             EnablesIndexByDefault = src.EnablesIndexByDefault;
             ItemNumber            = src.ItemNumber;
             LineNumber            = src.LineNumber;
+            SourceMutation        = src.SourceMutation;
             CanBeSkippedOverride  = src.CanBeSkippedOverride;
             WorkflowId            = src.WorkflowId;
             DownloadBehaviorPolicy = src.DownloadBehaviorPolicy;
