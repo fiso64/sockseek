@@ -82,13 +82,13 @@ namespace Sockseek.Core.Extractors;
 
             string[] cols = [artistCol, albumCol, trackCol, lengthCol, descCol, ytIdCol, trackCountCol];
             string[][] aliases = [
-                ["artist", "artist name", "artists", "artist names"],
-                ["album", "album name", "album title"],
-                ["title", "song", "track title", "track name", "song name", "track"],
-                ["length", "duration", "track length", "track duration", "song length", "song duration"],
-                ["description", "youtube description"],
-                ["url", "track url", "uri", "id", "youtube id"],
-                ["track count", "album track count"]
+                ["artist", "artistname", "artists", "artistnames"],
+                ["album", "albumname", "albumtitle"],
+                ["title", "song", "tracktitle", "trackname", "songname", "track"],
+                ["length", "duration", "tracklength", "trackduration", "songlength", "songduration"],
+                ["description", "youtubedescription"],
+                ["url", "trackurl", "uri", "id", "youtubeid"],
+                ["trackcount", "albumtrackcount"]
             ];
 
             string usingColumns = "";
@@ -96,7 +96,7 @@ namespace Sockseek.Core.Extractors;
             {
                 if (string.IsNullOrEmpty(cols[i]))
                 {
-                    string? res = header.FirstOrDefault(h => ParenthesesRegex().Replace(h, "").Trim().EqualsAny(aliases[i], StringComparison.OrdinalIgnoreCase));
+                    string? res = header.FirstOrDefault(h => ParenthesesRegex().Replace(h, "").Replace(" ", "").EqualsAny(aliases[i], StringComparison.OrdinalIgnoreCase));
                     if (!string.IsNullOrEmpty(res))
                     {
                         cols[i] = res;
