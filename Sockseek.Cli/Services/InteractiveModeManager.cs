@@ -73,8 +73,8 @@ public class InteractiveModeManager
             string retrieveAll1 = canRetrieve ? "| [r]           " : "";
             string retrieveAll2 = canRetrieve ? "| Load All Files" : "";
             Console.WriteLine();
-        Printing.WriteLine($" [Up/p] | [Down/n] | [Enter] {retrieveAll1} | [s]  | [Esc/q] | [h]", ConsoleColor.Green, force: true);
-        Printing.WriteLine($" Prev   | Next     | Accept  {retrieveAll2} | Skip | Quit    | Help", ConsoleColor.Green, force: true);
+        Printing.WriteLine($" [Up/p] | [Down/n] | [Enter] {retrieveAll1} | [s]  | [Esc/q] | [h]", ConsoleColor.Cyan, force: true);
+        Printing.WriteLine($" Prev   | Next     | Accept  {retrieveAll2} | Skip | Quit    | Help", ConsoleColor.Cyan, force: true);
 
         Console.WriteLine();
         savedPos = Console.CursorTop;

@@ -668,57 +668,51 @@ internal static partial class Program
         if (workflow == null)
             return;
 
+        var summaries = workflow.Jobs
+            .OrderBy(job => job.DisplayId)
+            .ToArray();
+        var jobsById = summaries.ToDictionary(job => job.JobId);
+        var supersededSourceJobIds = summaries
+            .Select(job => job.SourceJobId)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .ToHashSet();
+
         int successes = 0;
         int fails = 0;
-
-        foreach (var summary in workflow.Jobs.OrderBy(job => job.DisplayId))
-        {
-            var counts = await CountRemoteCompletedSongsAsync(backend, summary, ct);
-            successes += counts.Successes;
-            fails += counts.Fails;
-        }
+        foreach (var summary in summaries)
+            CountRemoteUserFacingCompletion(summary, jobsById, supersededSourceJobIds, ref successes, ref fails);
 
         Printing.PrintComplete(successes, fails);
     }
 
-    private static async Task<(int Successes, int Fails)> CountRemoteCompletedSongsAsync(
-        ICliBackend backend,
+    private static void CountRemoteUserFacingCompletion(
         JobSummaryDto summary,
-        CancellationToken ct)
-        => await CountRemoteCompletedSongsAsync(backend, summary, new HashSet<Guid>(), ct);
-
-    private static async Task<(int Successes, int Fails)> CountRemoteCompletedSongsAsync(
-        ICliBackend backend,
-        JobSummaryDto summary,
-        HashSet<Guid> visited,
-        CancellationToken ct)
+        IReadOnlyDictionary<Guid, JobSummaryDto> jobsById,
+        IReadOnlySet<Guid> supersededSourceJobIds,
+        ref int successes,
+        ref int fails)
     {
-        if (!visited.Add(summary.JobId))
-            return (0, 0);
+        if (supersededSourceJobIds.Contains(summary.JobId))
+            return;
 
-        if (summary.Kind == ServerJobKind.Song)
+        if (IsRemoteInfrastructureJobKind(summary.Kind))
+            return;
+
+        if (summary.Kind == ServerJobKind.Song
+            && summary.ParentJobId is Guid parentId
+            && jobsById.TryGetValue(parentId, out var parent)
+            && parent.Kind == ServerJobKind.Album)
         {
-            int successes = 0;
-            int fails = 0;
-            CountSummary(summary, ref successes, ref fails);
-            return (successes, fails);
+            return;
         }
 
-        var detail = await backend.GetJobDetailAsync(summary.JobId, ct);
-        if (detail == null)
-            return (0, 0);
-
-        int childSuccesses = 0;
-        int childFails = 0;
-        foreach (var child in detail.Children.OrderBy(job => job.DisplayId))
-        {
-            var counts = await CountRemoteCompletedSongsAsync(backend, child, visited, ct);
-            childSuccesses += counts.Successes;
-            childFails += counts.Fails;
-        }
-
-        return (childSuccesses, childFails);
+        CountSummary(summary, ref successes, ref fails);
     }
+
+    private static bool IsRemoteInfrastructureJobKind(ServerJobKind kind)
+        => kind is ServerJobKind.Extract or ServerJobKind.JobList or ServerJobKind.RetrieveFolder
+            or ServerJobKind.Aggregate or ServerJobKind.AlbumAggregate;
 
     private static void CountSong(SongJobPayloadDto song, JobSummaryDto? summary, ref int successes, ref int fails)
     {

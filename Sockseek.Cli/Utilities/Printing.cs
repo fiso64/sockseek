@@ -457,35 +457,67 @@ public static class Printing
 
     public static void PrintComplete(JobList queue)
     {
-        int successes = 0, fails = 0;
-        foreach (var job in queue.Jobs)
-        {
-            IEnumerable<SongJob> songs = job switch
-            {
-                JobList jl      => jl.Jobs.OfType<SongJob>(),
-                AggregateJob ag => ag.Songs,
-                _               => Enumerable.Empty<SongJob>(),
-            };
-            foreach (var s in songs)
-            {
-                if (IsSuccessfulCompletion(s.State)) successes++;
-                else if (s.State == JobState.Failed) fails++;
-            }
-            if (job is AlbumJob albumJob && albumJob.ResolvedTarget != null)
-            {
-                foreach (var f in albumJob.ResolvedTarget.Files.Where(f => !f.IsNotAudio))
-                {
-                    if (IsSuccessfulCompletion(f.State)) successes++;
-                    else if (f.State == JobState.Failed) fails++;
-                }
-            }
-        }
+        var (successes, fails) = CountUserFacingCompletions(queue);
         PrintComplete(successes, fails);
+    }
+
+    internal static (int Successes, int Fails) CountUserFacingCompletions(JobList queue)
+    {
+        int successes = 0, fails = 0;
+        var visited = new HashSet<Guid>();
+
+        foreach (var job in queue.Jobs)
+            CountUserFacingCompletion(job, parent: null, visited, ref successes, ref fails);
+
+        return (successes, fails);
+    }
+
+    private static void CountUserFacingCompletion(
+        Job job,
+        Job? parent,
+        ISet<Guid> visited,
+        ref int successes,
+        ref int fails)
+    {
+        if (!visited.Add(job.Id))
+            return;
+
+        switch (job)
+        {
+            case ExtractJob extractJob:
+                if (extractJob.Result != null)
+                    CountUserFacingCompletion(extractJob.Result, parent: null, visited, ref successes, ref fails);
+                return;
+
+            case JobList jobList:
+                foreach (var child in jobList.Jobs)
+                    CountUserFacingCompletion(child, jobList, visited, ref successes, ref fails);
+                return;
+
+            case AggregateJob aggregateJob:
+                foreach (var song in aggregateJob.Songs)
+                    CountUserFacingCompletion(song, aggregateJob, visited, ref successes, ref fails);
+                return;
+
+            case AlbumAggregateJob albumAggregateJob:
+                foreach (var album in albumAggregateJob.Albums)
+                    CountUserFacingCompletion(album, albumAggregateJob, visited, ref successes, ref fails);
+                return;
+
+            case RetrieveFolderJob:
+                return;
+        }
+
+        if (job is SongJob && parent is AlbumJob)
+            return;
+
+        if (IsSuccessfulCompletion(job.State)) successes++;
+        else if (job.State == JobState.Failed) fails++;
     }
 
     public static void PrintComplete(int successes, int fails)
     {
-        if (successes + fails > 1)
+        if (successes + fails > 1 || fails > 0)
         {
             WriteLine();
             SockseekLog.Info($"Completed: {successes} succeeded, {fails} failed.");

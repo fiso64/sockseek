@@ -7,7 +7,6 @@ using Sockseek.Server;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
-using System.Text.RegularExpressions;
 
 namespace Tests.Cli;
 
@@ -270,7 +269,10 @@ public class RemoteCliBackendTests
             SockseekLog.AddConsole(writer: (message, _) => Console.WriteLine(message));
             SockseekLog.SetConsoleLogLevel(LogLevel.Information);
             await Sockseek.Cli.Program.PrintRemoteCompleteAsync(backend, summary.WorkflowId, CancellationToken.None);
-            StringAssert.Contains(output.ToString(), "Completed: 2 succeeded, 0 failed.");
+            Assert.AreEqual(
+                string.Empty,
+                output.ToString(),
+                "A single successful user-facing album completion is intentionally not summarized.");
         }
         finally
         {
@@ -609,7 +611,7 @@ public class RemoteCliBackendTests
     }
 
     [TestMethod]
-    public async Task RemoteCliBackend_PrintCompleteCountsCancelledAlbumPayloadFiles()
+    public async Task RemoteCliBackend_PrintCompleteCountsCancelledAlbumAsUserFacingFailure()
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-remote-cancel-music-" + Guid.NewGuid());
         string outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-remote-cancel-out-" + Guid.NewGuid());
@@ -685,12 +687,10 @@ public class RemoteCliBackendTests
             await Sockseek.Cli.Program.PrintRemoteCompleteAsync(backend, downloadSummary.WorkflowId, CancellationToken.None);
 
             string rendered = output.ToString();
-            var match = Regex.Match(rendered, @"Completed:\s+(\d+) succeeded,\s+(\d+) failed\.");
-            Assert.IsTrue(match.Success, "Remote completion output should include the final succeeded/failed counts.");
-            Assert.AreEqual(
-                12,
-                int.Parse(match.Groups[1].Value) + int.Parse(match.Groups[2].Value),
-                "Remote completion should count every audio file in a cancelled album as either succeeded or failed.");
+            StringAssert.Contains(
+                rendered,
+                "Completed: 0 succeeded, 1 failed.",
+                "Remote completion output should match the live renderer's user-facing job counts.");
         }
         finally
         {

@@ -1052,4 +1052,44 @@ public class CliProgressReporterTests
             Length: null,
             Extension: ".flac",
             Attributes: null);
+    [TestMethod]
+    public void Printing_PrintComplete_CountsUserFacingJobsNotAlbumFiles()
+    {
+        SockseekLog.RemoveNonFileOutputs();
+        var messages = new List<string>();
+        SockseekLog.AddConsole(writer: (message, _) => messages.Add(message));
+
+        var first = CompletedAlbum("Artist One", "Album One", 8);
+        var second = CompletedAlbum("Artist Two", "Album Two", 12);
+        var failed = new AlbumJob(new AlbumQuery { Artist = "Artist Three", Album = "Album Three" });
+        failed.Fail(FailureReason.NoSuitableFileFound);
+
+        var queue = new JobList("root", [first, second, failed]);
+
+        Printing.PrintComplete(queue);
+
+        Assert.IsTrue(
+            messages.Any(message => message.Contains("Completed: 2 succeeded, 1 failed.", StringComparison.Ordinal)),
+            string.Join(Environment.NewLine, messages));
+    }
+
+    private static AlbumJob CompletedAlbum(string artist, string album, int trackCount)
+    {
+        var files = Enumerable.Range(1, trackCount)
+            .Select(i =>
+            {
+                var song = new SongJob(new SongQuery { Artist = artist, Title = $"Track {i}" });
+                song.SetDone();
+                return song;
+            })
+            .ToList();
+
+        var job = new AlbumJob(new AlbumQuery { Artist = artist, Album = album })
+        {
+            ResolvedTarget = new AlbumFolder("local", $@"{artist}\{album}", files),
+        };
+        job.SetDone(Path.Combine("output", album));
+        return job;
+    }
+
 }
