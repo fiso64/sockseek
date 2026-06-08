@@ -72,12 +72,13 @@ public class InteractiveModeManager
             int aidx = 0;
             string retrieveAll1 = canRetrieve ? "| [r]           " : "";
             string retrieveAll2 = canRetrieve ? "| Load All Files" : "";
+            string? statusLine = null;
             Console.WriteLine();
         Printing.WriteLine($" [Up/p] | [Down/n] | [Enter] {retrieveAll1} | [s]  | [Esc/q] | [h]", ConsoleColor.Cyan, force: true);
         Printing.WriteLine($" Prev   | Next     | Accept  {retrieveAll2} | Skip | Quit    | Help", ConsoleColor.Cyan, force: true);
 
         Console.WriteLine();
-        savedPos = Console.CursorTop;
+        savedPos = GetCursorTopOrDefault();
 
         while (true)
         {
@@ -97,6 +98,12 @@ public class InteractiveModeManager
             Printing.WriteLine($"[{aidx + 1} / {filterList.Count}]", ConsoleColor.DarkGray, force: true);
             Printing.PrintAlbum(folder, indices: true, force: true);
             Console.WriteLine();
+            if (statusLine != null)
+            {
+                Printing.WriteLine(statusLine, ConsoleColor.Green, force: true);
+                Console.WriteLine();
+                statusLine = null;
+            }
 
         Loop:
             string userInputStr = (await InteractiveModeInput()).Trim();
@@ -198,21 +205,18 @@ public class InteractiveModeManager
                         {
                             int newFiles = await retrieveFolderCallback(folder);
                             retrievedFolders.Add(folderKey);
-                            if (newFiles == 0)
-                            {
-                                goto Loop;
-                            }
-                            else
-                            {
-                                Console.WriteLine($"Found {newFiles} more files in the folder:");
-                                ClearOutput(savedPos);
-                                break;
-                            }
+                            statusLine = newFiles == 0
+                                ? "Retrieved folder: no new files found."
+                                : $"Retrieved folder: found {newFiles} more {(newFiles == 1 ? "file" : "files")}.";
+
+                            ClearOutput(savedPos);
+                            break;
                         }
                         else
                         {
-                            Console.WriteLine("Already retrieved this folder.");
-                            goto Loop;
+                            statusLine = "Already retrieved this folder.";
+                            ClearOutput(savedPos);
+                            break;
                         }
                     }
                     goto Loop;
@@ -419,24 +423,78 @@ public class InteractiveModeManager
         return Enumerable.Range(start, end - start + 1);
     }
 
+    private static int GetCursorTopOrDefault()
+    {
+        try
+        {
+            return Console.CursorTop;
+        }
+        catch (IOException)
+        {
+            return 0;
+        }
+        catch (InvalidOperationException)
+        {
+            return 0;
+        }
+    }
+
+    private static bool TryGetCursorTop(out int top)
+    {
+        try
+        {
+            top = Console.CursorTop;
+            return true;
+        }
+        catch (IOException)
+        {
+            top = 0;
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            top = 0;
+            return false;
+        }
+    }
+
     private static void ClearCurrentLine()
     {
-        int line = Console.CursorTop;
-        Console.SetCursorPosition(0, Console.CursorTop);
-        Console.Write(new string(' ', Console.BufferWidth));
-        Console.SetCursorPosition(0, line);
+        if (!TryGetCursorTop(out int line)) return;
+
+        try
+        {
+            Console.SetCursorPosition(0, line);
+            Console.Write(new string(' ', Console.BufferWidth));
+            Console.SetCursorPosition(0, line);
+        }
+        catch (IOException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
     }
 
     private static void ClearOutput(int toPos)
     {
-        if (Console.IsOutputRedirected) return;
-        int pos = Console.CursorTop;
-        while (pos > toPos && pos > 0)
+        if (Console.IsOutputRedirected || !TryGetCursorTop(out int pos)) return;
+
+        try
         {
-            Console.SetCursorPosition(0, pos - 1);
-            ClearCurrentLine();
-            pos--;
+            while (pos > toPos && pos > 0)
+            {
+                Console.SetCursorPosition(0, pos - 1);
+                ClearCurrentLine();
+                pos--;
+            }
+            Console.SetCursorPosition(0, toPos);
         }
-        Console.SetCursorPosition(0, toPos);
+        catch (IOException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
     }
 }

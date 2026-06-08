@@ -147,11 +147,32 @@ public static class JobRequestMapper
         if (rawResults.Count == 0)
             return [];
 
-        return SearchResultProjector.AlbumFolders(
+        var projected = SearchResultProjector.AlbumFolders(
             rawResults,
             albumJob.Query,
             albumJob.Config.Search,
             userSuccessCounts);
+
+        // Once a folder has been explicitly browsed, preserve the full browsed contents
+        // in result projections. Re-projecting the raw files through the original search
+        // conditions can hide the newly discovered files, which makes interactive `r`
+        // appear to do nothing even though retrieval succeeded.
+        foreach (var retrieved in albumJob.Results.Where(folder => folder.IsFullyRetrieved))
+        {
+            var fullFolder = new AlbumFolder(retrieved.Username, retrieved.FolderPath, retrieved.Files.ToList())
+            {
+                IsFullyRetrieved = true,
+            };
+            int index = projected.FindIndex(folder =>
+                string.Equals(folder.Username, retrieved.Username, StringComparison.Ordinal)
+                && string.Equals(folder.FolderPath, retrieved.FolderPath, StringComparison.Ordinal));
+            if (index >= 0)
+                projected[index] = fullFolder;
+            else
+                projected.Add(fullFolder);
+        }
+
+        return projected;
     }
 
     public static AlbumFolder? FindProjectedAlbumFolder(AlbumJob albumJob, AlbumFolderRefDto folderRef, ConcurrentDictionary<string, int>? userSuccessCounts = null)

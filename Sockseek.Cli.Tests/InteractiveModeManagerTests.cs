@@ -41,6 +41,56 @@ public class InteractiveModeManagerTests
         Assert.AreEqual("Invalid range", error);
     }
 
+    [TestMethod]
+    public async Task RetrieveFolder_RedrawsUpdatedFolderWithoutTransientFoundLine()
+    {
+        var folder = new AlbumFolder(
+            "local",
+            @"Artist\Album",
+            [CreateSong(@"Artist\Album\01. Artist - One.mp3")]);
+
+        using var output = new StringWriter();
+        var originalOut = Console.Out;
+        Console.SetOut(output);
+        try
+        {
+            var manager = new InteractiveModeManager(
+                new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" }),
+                new JobList(),
+                [folder],
+                canRetrieve: true,
+                retrievedFolders: [],
+                retrieveFolderCallback: f =>
+                {
+                    f.Files.Add(CreateSong(@"Artist\Album\02. Artist - Two.mp3"));
+                    f.IsFullyRetrieved = true;
+                    return Task.FromResult(1);
+                });
+
+            EnqueueKey('r');
+            EnqueueKey('\r', ConsoleKey.Enter);
+
+            var result = await manager.Run();
+
+            Assert.AreEqual(0, result.Index);
+            Assert.IsNotNull(result.Folder);
+            Assert.AreEqual(2, result.Folder.Files.Count);
+            Assert.IsFalse(output.ToString().Contains("more files in the folder", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+    }
+
+    private static void EnqueueKey(char keyChar, ConsoleKey key = default)
+    {
+        var field = typeof(ConsoleInputManager).GetField("_keyChannel", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.IsNotNull(field);
+        var channel = (System.Threading.Channels.Channel<ConsoleKeyInfo>)field.GetValue(null)!;
+        channel.Writer.TryWrite(new ConsoleKeyInfo(keyChar, key == default ? (ConsoleKey)char.ToUpperInvariant(keyChar) : key, false, false, false));
+    }
+
     private static SongJob CreateSong(string filename)
     {
         var response = new Soulseek.SearchResponse("local", 1, true, 100, 0, []);

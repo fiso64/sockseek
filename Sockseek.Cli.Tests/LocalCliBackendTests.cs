@@ -243,6 +243,84 @@ public class LocalCliBackendTests
         }
     }
 
+
+    [TestMethod]
+    public async Task LocalCliBackend_RetrieveFolderAndWaitAsync_UpdatesManualAlbumJobResults()
+    {
+        string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-cli-backend-album-retrieve-" + Guid.NewGuid());
+        string albumDir = Path.Combine(musicRoot, "Artist", "Album");
+        Directory.CreateDirectory(albumDir);
+        File.WriteAllText(Path.Combine(albumDir, "01. Artist - Track One.mp3"), "a");
+        File.WriteAllText(Path.Combine(albumDir, "02. Artist - Track Two.mp3"), "b");
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+
+        try
+        {
+            var engineSettings = new EngineSettings
+            {
+                MockFilesDir = musicRoot,
+                MockFilesReadTags = false,
+            };
+            var downloadSettings = new DownloadSettings
+            {
+                Output =
+                {
+                    ParentDir = musicRoot,
+                    FailedAlbumPath = Path.Combine(musicRoot, "failed"),
+                },
+            };
+            downloadSettings.Search.NecessaryCond.StrictTitle = true;
+
+            var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
+            var backend = new LocalCliBackend(engine);
+
+            var albumJob = new AlbumJob(new AlbumQuery
+            {
+                Artist = "Artist",
+                Album = "Album",
+                SearchHint = "Track One",
+            })
+            {
+                DownloadBehaviorPolicy = new DownloadBehaviorPolicy { Album = DownloadBehavior.Manual },
+            };
+
+            engine.Enqueue(albumJob, downloadSettings);
+            var runTask = engine.RunAsync(cts.Token);
+
+            await WaitForConditionAsync(
+                () => albumJob.State == JobState.AwaitingSelection,
+                "Timed out waiting for the manual album job to reach the picker.");
+
+            var initialProjection = await backend.GetFolderResultsAsync(albumJob.Id, includeFiles: true, cts.Token);
+            Assert.IsNotNull(initialProjection);
+            Assert.AreEqual(1, initialProjection.Items.Count);
+            Assert.AreEqual(1, initialProjection.Items[0].Files?.Count);
+            Assert.AreEqual(1, albumJob.Results[0].Files.Count);
+
+            var foundCount = await backend.RetrieveFolderAndWaitAsync(
+                albumJob.Id,
+                new RetrieveFolderRequestDto(initialProjection.Items[0].Ref),
+                cts.Token);
+
+            Assert.AreEqual(1, foundCount);
+            Assert.AreEqual(2, albumJob.Results[0].Files.Count, "Folder retrieval must update the canonical AlbumJob results, not only a projected copy.");
+
+            var expandedProjection = await backend.GetFolderResultsAsync(albumJob.Id, includeFiles: true, cts.Token);
+            Assert.IsNotNull(expandedProjection);
+            Assert.AreEqual(2, expandedProjection.Items[0].Files?.Count);
+
+            engine.CompleteEnqueue();
+            await runTask;
+        }
+        finally
+        {
+            cts.Cancel();
+            if (Directory.Exists(musicRoot))
+                Directory.Delete(musicRoot, true);
+        }
+    }
+
     [TestMethod]
     public async Task LocalCliBackend_PublishesSharedProgressEvents_ForSongDownload()
     {

@@ -305,7 +305,7 @@ internal sealed class LocalCliBackend
         if (sourceJob?.Config == null)
             return Task.FromResult<JobSummaryDto?>(null);
 
-        var folder = FindAlbumFolder(sourceJob, request.Folder, request.AlbumQuery);
+        var folder = FindAlbumFolderForRetrieval(sourceJob, request.Folder, request.AlbumQuery);
         if (folder == null)
             throw new ArgumentException("Requested folder was not found in this job's album candidates.");
 
@@ -323,7 +323,7 @@ internal sealed class LocalCliBackend
         if (sourceJob?.Config == null)
             return 0;
 
-        var folder = FindAlbumFolder(sourceJob, request.Folder, request.AlbumQuery);
+        var folder = FindAlbumFolderForRetrieval(sourceJob, request.Folder, request.AlbumQuery);
         if (folder == null)
             throw new ArgumentException("Requested folder was not found in this job's album candidates.");
 
@@ -560,6 +560,19 @@ internal sealed class LocalCliBackend
             SearchUpdatedDto update => update.WorkflowId,
             _ => null,
         };
+
+    private AlbumFolder? FindAlbumFolderForRetrieval(Job sourceJob, AlbumFolderRefDto folderRef, AlbumQueryDto? albumQuery = null)
+    {
+        static bool Matches(AlbumFolder folder, AlbumFolderRefDto folderRef)
+            => string.Equals(folder.Username, folderRef.Username, StringComparison.Ordinal)
+                && string.Equals(folder.FolderPath, folderRef.FolderPath, StringComparison.Ordinal);
+
+        if (sourceJob is AlbumJob albumJob)
+            return albumJob.Results.FirstOrDefault(folder => Matches(folder, folderRef))
+                ?? FindAlbumFolder(sourceJob, folderRef, albumQuery);
+
+        return FindAlbumFolder(sourceJob, folderRef, albumQuery);
+    }
 
     private AlbumFolder? FindAlbumFolder(Job sourceJob, AlbumFolderRefDto folderRef, AlbumQueryDto? albumQuery = null)
     {

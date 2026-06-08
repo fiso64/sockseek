@@ -144,7 +144,8 @@ internal sealed class InteractiveCliCoordinator
             promptJob,
             search.DefaultFolderProjection.AlbumQuery,
             folders,
-            OptionsForWorkflow(detail.Summary.WorkflowId));
+            OptionsForWorkflow(detail.Summary.WorkflowId),
+            InteractiveAlbumResultKind.Folder);
         var selected = await PromptForAlbumSelectionAsync(session);
         if (selected == null)
             return;
@@ -173,7 +174,8 @@ internal sealed class InteractiveCliCoordinator
             new AlbumJob(ToAlbumQuery(album.Query)) { ItemName = detail.Summary.ItemName, Results = folders },
             album.Query,
             folders,
-            OptionsForWorkflow(detail.Summary.WorkflowId));
+            OptionsForWorkflow(detail.Summary.WorkflowId),
+            InteractiveAlbumResultKind.Folder);
 
         var selected = interactiveEnabled
             ? await PromptForAlbumSelectionAsync(session)
@@ -219,7 +221,8 @@ internal sealed class InteractiveCliCoordinator
                 new AlbumJob(ToAlbumQuery(bucket.Query)) { ItemName = bucket.ItemName, Results = folders },
                 bucket.Query,
                 folders,
-                OptionsForWorkflow(detail.Summary.WorkflowId));
+                OptionsForWorkflow(detail.Summary.WorkflowId),
+                InteractiveAlbumResultKind.AggregateAlbum);
 
             var selected = interactiveEnabled
                 ? await PromptForAlbumSelectionAsync(session)
@@ -300,14 +303,68 @@ internal sealed class InteractiveCliCoordinator
         interactiveAlbumSessions[summary.JobId] = session;
     }
 
-    private static async Task<int> RunPromptRetrieveFolderAsync(AlbumFolder folder, Func<Task<int>> retrieve)
+    private async Task<int> RunPromptRetrieveFolderAsync(InteractiveAlbumSession session, AlbumFolder folder, CancellationToken ct)
     {
         Printing.WriteLine($"RetrieveFolderJob: retrieving folder: {folder.FolderPath}", ConsoleColor.Gray, force: true);
-        int newFiles = await retrieve();
+
+        int newFiles = await backend.RetrieveFolderAndWaitAsync(
+            session.SourceSearchJobId,
+            new RetrieveFolderRequestDto(
+                new AlbumFolderRefDto(folder.Username, folder.FolderPath),
+                session.Query),
+            ct);
+
+        await RefreshRetrievedFolderAsync(session, folder, ct);
         folder.IsFullyRetrieved = true;
-        string status = newFiles > 0 ? "found additional files in" : "no additional files found";
-        Printing.WriteLine($"RetrieveFolderJob: {status}: {folder.FolderPath}", ConsoleColor.Gray, force: true);
         return newFiles;
+    }
+
+    private async Task RefreshRetrievedFolderAsync(InteractiveAlbumSession session, AlbumFolder folder, CancellationToken ct)
+    {
+        AlbumFolder? refreshed = session.ResultKind switch
+        {
+            InteractiveAlbumResultKind.Folder => await RefreshFolderProjectionAsync(session, folder, ct),
+            InteractiveAlbumResultKind.AggregateAlbum => await RefreshAggregateAlbumProjectionAsync(session, folder, ct),
+            _ => null,
+        };
+
+        if (refreshed == null)
+            return;
+
+        MergeFolderInPlace(folder, refreshed);
+        var idx = session.Folders.FindIndex(candidate => FolderKey(candidate).Equals(FolderKey(folder), StringComparison.OrdinalIgnoreCase));
+        if (idx >= 0)
+            session.Folders[idx] = folder;
+    }
+
+    private async Task<AlbumFolder?> RefreshFolderProjectionAsync(InteractiveAlbumSession session, AlbumFolder folder, CancellationToken ct)
+    {
+        var projection = await backend.GetFolderResultsAsync(
+            session.SourceSearchJobId,
+            new FolderSearchProjectionRequestDto(session.Query, IncludeFiles: true),
+            ct);
+        return projection?.Items
+            .Select(ToAlbumFolder)
+            .FirstOrDefault(candidate => FolderKey(candidate).Equals(FolderKey(folder), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task<AlbumFolder?> RefreshAggregateAlbumProjectionAsync(InteractiveAlbumSession session, AlbumFolder folder, CancellationToken ct)
+    {
+        var projection = await backend.GetAggregateAlbumResultsAsync(
+            session.SourceSearchJobId,
+            new AggregateAlbumProjectionRequestDto(session.Query, IncludeFolders: true),
+            ct);
+        return projection?.Items
+            .SelectMany(album => album.Folders ?? [])
+            .Select(ToAlbumFolder)
+            .FirstOrDefault(candidate => FolderKey(candidate).Equals(FolderKey(folder), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static void MergeFolderInPlace(AlbumFolder target, AlbumFolder refreshed)
+    {
+        target.Files.Clear();
+        target.Files.AddRange(refreshed.Files);
+        target.IsFullyRetrieved = refreshed.IsFullyRetrieved;
     }
 
     private async Task<InteractiveAlbumSelection?> PromptForAlbumSelectionAsync(InteractiveAlbumSession session)
@@ -341,14 +398,7 @@ internal sealed class InteractiveCliCoordinator
                     availableFolders,
                     canRetrieve: true,
                     retrievedFolders: session.RetrievedFolders,
-                    retrieveFolderCallback: async folder => await RunPromptRetrieveFolderAsync(
-                        folder,
-                        async () => await backend.RetrieveFolderAndWaitAsync(
-                            session.SourceSearchJobId,
-                            new RetrieveFolderRequestDto(
-                                new AlbumFolderRefDto(folder.Username, folder.FolderPath),
-                                session.Query),
-                            appToken)),
+                    retrieveFolderCallback: async folder => await RunPromptRetrieveFolderAsync(session, folder, appToken),
                     filterStr: session.FilterStr);
 
                 result = await interactive.Run();
@@ -447,6 +497,12 @@ internal sealed class InteractiveCliCoordinator
         => state is ServerProtocol.JobStates.Done
             or ServerProtocol.JobStates.AlreadyExists;
 
+    private enum InteractiveAlbumResultKind
+    {
+        Folder,
+        AggregateAlbum,
+    }
+
     private sealed class InteractiveAlbumSession
     {
         public Guid SourceSearchJobId { get; }
@@ -454,6 +510,7 @@ internal sealed class InteractiveCliCoordinator
         public AlbumQueryDto Query { get; }
         public List<AlbumFolder> Folders { get; }
         public SubmissionOptionsDto Options { get; }
+        public InteractiveAlbumResultKind ResultKind { get; }
         public HashSet<string> ExcludedFolderKeys { get; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> RetrievedFolders { get; } = new(StringComparer.OrdinalIgnoreCase);
         public string? FilterStr { get; set; }
@@ -463,13 +520,15 @@ internal sealed class InteractiveCliCoordinator
             Job promptJob,
             AlbumQueryDto query,
             List<AlbumFolder> folders,
-            SubmissionOptionsDto options)
+            SubmissionOptionsDto options,
+            InteractiveAlbumResultKind resultKind)
         {
             SourceSearchJobId = sourceSearchJobId;
             PromptJob = promptJob;
             Query = query;
             Folders = folders;
             Options = options;
+            ResultKind = resultKind;
         }
     }
 }
