@@ -385,7 +385,7 @@ file containing lines of the following form:
 # Album download shorthand:
 a:"Artist - Album"              format=flac
 # Add strict-* conditions depending on the name 
-a:"Another Album"               strict-album=true
+a:"Another Album"               strict-album=true;album-track-count=13
 ```
 The inputs can be any of the above input types, including links. The conditions are added on top of the
 configured conditions and can be omitted. 
