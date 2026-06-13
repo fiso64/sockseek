@@ -70,12 +70,12 @@ namespace Tests.Playlist
 
             var agg = new AggregateJob(new SongQuery { Artist = "Artist", Title = "Title" });
             var variant1 = new SongJob(new SongQuery { Artist = "Artist", Title = "Title" });
-            variant1.Fail(FailureReason.NoSuitableFileFound);
+            variant1.Fail(JobFailureReason.NoSuitableFileFound);
             var variant2 = new SongJob(new SongQuery { Artist = "Artist", Title = "Title (Remix)" });
             variant2.SetDone();
             variant2.DownloadPath = "Artist/Title (Remix).mp3";
             var variant3 = new SongJob(new SongQuery { Artist = "Artist", Title = "Title (Live)" });
-            variant3.Fail(FailureReason.AllDownloadsFailed);
+            variant3.Fail(JobFailureReason.AllDownloadsFailed);
 
             agg.Songs.AddRange([variant1, variant2, variant3]);
             agg.SetDone();

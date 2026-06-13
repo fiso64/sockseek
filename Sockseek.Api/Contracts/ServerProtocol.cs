@@ -37,34 +37,78 @@ public enum ServerJobKind
     Generic,
 }
 
-/// <summary>
-/// Runtime job state returned by job, workflow, and event DTOs.
-/// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ServerJobState>))]
-public enum ServerJobState
+/// <summary>High-level runtime lifecycle returned by job, workflow, and event DTOs.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ServerJobLifecycleState>))]
+public enum ServerJobLifecycleState
 {
-    /// <summary>Job has not started running yet.</summary>
     Pending,
-    /// <summary>Job completed successfully.</summary>
-    Done,
-    /// <summary>Job completed unsuccessfully.</summary>
-    Failed,
-    /// <summary>Job was skipped because the target already exists.</summary>
-    AlreadyExists,
-    /// <summary>Job was skipped because the item was previously marked not found.</summary>
-    NotFoundLastTime,
-    /// <summary>Job was skipped by user or configuration decision.</summary>
-    Skipped,
-    /// <summary>Job is searching Soulseek results.</summary>
-    Searching,
-    /// <summary>Job is downloading.</summary>
-    Downloading,
-    /// <summary>Job is extracting input into follow-up jobs.</summary>
-    Extracting,
-    /// <summary>Container job has active descendants.</summary>
     Running,
-    /// <summary>Job has projected candidates and is waiting for caller selection.</summary>
     AwaitingSelection,
+    Terminal,
+}
+
+/// <summary>Current runtime activity for non-terminal jobs.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ServerJobActivityPhase>))]
+public enum ServerJobActivityPhase
+{
+    None,
+    WaitingForSearchConcurrency,
+    SearchRateLimited,
+    Searching,
+    ProcessingSearchResults,
+    Extracting,
+    Downloading,
+    RetrievingFolder,
+    RunningChildren,
+    Organizing,
+    RunningOnComplete,
+}
+
+/// <summary>Terminal result for completed jobs.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ServerJobTerminalOutcome>))]
+public enum ServerJobTerminalOutcome
+{
+    None,
+    Succeeded,
+    Failed,
+    Skipped,
+    Cancelled,
+    PartialSuccess,
+}
+
+/// <summary>Reason a terminal job was skipped.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ServerJobSkipReason>))]
+public enum ServerJobSkipReason
+{
+    None,
+    AlreadyExists,
+    NotFoundLastTime,
+    Manual,
+    Filtered,
+}
+
+/// <summary>
+/// Source of a terminal cancellation outcome. This is job-level provenance, not every
+/// lower-level cancellation token used by a download attempt.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ServerJobCancellationSource>))]
+public enum ServerJobCancellationSource
+{
+    /// <summary>The job is not cancelled, or the source was not assigned.</summary>
+    None,
+    /// <summary>The user explicitly cancelled this single job.</summary>
+    UserRequestedJob,
+    /// <summary>The job was cancelled because its parent job was cancelled.</summary>
+    ParentJob,
+    /// <summary>The user cancelled the workflow that owns this job.</summary>
+    UserRequestedWorkflow,
+    /// <summary>The user requested global cancellation of all engine jobs.</summary>
+    UserRequestedAllJobs,
+    /// <summary>
+    /// The engine cancelled the job internally, for example because an engine-owned
+    /// timeout/watchdog caused a terminal cancellation.
+    /// </summary>
+    InternalEngine,
 }
 
 /// <summary>
@@ -87,8 +131,8 @@ public enum ServerWorkflowState
 /// <summary>
 /// Stable failure reason returned by job and event DTOs.
 /// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ServerFailureReason>))]
-public enum ServerFailureReason
+[JsonConverter(typeof(JsonStringEnumConverter<ServerJobFailureReason>))]
+public enum ServerJobFailureReason
 {
     /// <summary>No failure reason.</summary>
     None,
@@ -106,6 +150,8 @@ public enum ServerFailureReason
     ExtractionFailed,
     /// <summary>Job was cancelled.</summary>
     Cancelled,
+    /// <summary>One or more child jobs failed and no child completed successfully.</summary>
+    ChildJobsFailed,
 }
 
 /// <summary>
@@ -187,38 +233,20 @@ public static class ServerProtocol
     }
 
     /// <summary>
-    /// Compatibility aliases for <see cref="ServerJobState"/> values.
-    /// Prefer <see cref="ServerJobState"/> directly in new .NET code.
-    /// </summary>
-    public static class JobStates
-    {
-        public const ServerJobState Pending = ServerJobState.Pending;
-        public const ServerJobState Done = ServerJobState.Done;
-        public const ServerJobState Failed = ServerJobState.Failed;
-        public const ServerJobState AlreadyExists = ServerJobState.AlreadyExists;
-        public const ServerJobState NotFoundLastTime = ServerJobState.NotFoundLastTime;
-        public const ServerJobState Skipped = ServerJobState.Skipped;
-        public const ServerJobState Searching = ServerJobState.Searching;
-        public const ServerJobState Downloading = ServerJobState.Downloading;
-        public const ServerJobState Extracting = ServerJobState.Extracting;
-        public const ServerJobState Running = ServerJobState.Running;
-        public const ServerJobState AwaitingSelection = ServerJobState.AwaitingSelection;
-    }
-
-    /// <summary>
-    /// Compatibility aliases for <see cref="ServerFailureReason"/> values.
-    /// Prefer <see cref="ServerFailureReason"/> directly in new .NET code.
+    /// Compatibility aliases for <see cref="ServerJobFailureReason"/> values.
+    /// Prefer <see cref="ServerJobFailureReason"/> directly in new .NET code.
     /// </summary>
     public static class FailureReasons
     {
-        public const ServerFailureReason None = ServerFailureReason.None;
-        public const ServerFailureReason InvalidSearchString = ServerFailureReason.InvalidSearchString;
-        public const ServerFailureReason OutOfDownloadRetries = ServerFailureReason.OutOfDownloadRetries;
-        public const ServerFailureReason NoSuitableFileFound = ServerFailureReason.NoSuitableFileFound;
-        public const ServerFailureReason AllDownloadsFailed = ServerFailureReason.AllDownloadsFailed;
-        public const ServerFailureReason Other = ServerFailureReason.Other;
-        public const ServerFailureReason ExtractionFailed = ServerFailureReason.ExtractionFailed;
-        public const ServerFailureReason Cancelled = ServerFailureReason.Cancelled;
+        public const ServerJobFailureReason None = ServerJobFailureReason.None;
+        public const ServerJobFailureReason InvalidSearchString = ServerJobFailureReason.InvalidSearchString;
+        public const ServerJobFailureReason OutOfDownloadRetries = ServerJobFailureReason.OutOfDownloadRetries;
+        public const ServerJobFailureReason NoSuitableFileFound = ServerJobFailureReason.NoSuitableFileFound;
+        public const ServerJobFailureReason AllDownloadsFailed = ServerJobFailureReason.AllDownloadsFailed;
+        public const ServerJobFailureReason Other = ServerJobFailureReason.Other;
+        public const ServerJobFailureReason ExtractionFailed = ServerJobFailureReason.ExtractionFailed;
+        public const ServerJobFailureReason Cancelled = ServerJobFailureReason.Cancelled;
+        public const ServerJobFailureReason ChildJobsFailed = ServerJobFailureReason.ChildJobsFailed;
     }
 
     /// <summary>

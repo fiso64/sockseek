@@ -101,10 +101,24 @@
         "description": "Default results contain only execution roots where ParentJobId is null. Set includeAll=true for a flat list of every matching job.",
         "parameters": [
           {
-            "name": "state",
+            "name": "lifecycleState",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/ServerJobState"
+              "$ref": "#/components/schemas/ServerJobLifecycleState"
+            }
+          },
+          {
+            "name": "terminalOutcome",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ServerJobTerminalOutcome"
+            }
+          },
+          {
+            "name": "skipReason",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ServerJobSkipReason"
             }
           },
           {
@@ -3403,13 +3417,50 @@
               "$ref": "#/components/schemas/FileCandidateDto"
             }
           },
-          "state": {
+          "lifecycleState": {
             "oneOf": [
               {
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerJobState"
+                "$ref": "#/components/schemas/ServerJobLifecycleState"
+              }
+            ]
+          },
+          "activityPhase": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerJobActivityPhase"
+              }
+            ]
+          },
+          "activityUntilUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "terminalOutcome": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerJobTerminalOutcome"
+              }
+            ]
+          },
+          "skipReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerJobSkipReason"
               }
             ]
           },
@@ -3419,7 +3470,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerFailureReason"
+                "$ref": "#/components/schemas/ServerJobFailureReason"
               }
             ]
           },
@@ -3470,6 +3521,9 @@
               "null",
               "string"
             ]
+          },
+          "cancellationSource": {
+            "$ref": "#/components/schemas/ServerJobCancellationSource"
           }
         }
       },
@@ -3507,24 +3561,6 @@
         }
       },
       "JobSummaryDto": {
-        "required": [
-          "jobId",
-          "displayId",
-          "workflowId",
-          "kind",
-          "state",
-          "itemName",
-          "queryText",
-          "failureReason",
-          "failureMessage",
-          "parentJobId",
-          "resultJobId",
-          "sourceJobId",
-          "discoveryResultCount",
-          "discoveryLockedFileCount",
-          "appliedAutoProfiles",
-          "availableActions"
-        ],
         "type": "object",
         "properties": {
           "jobId": {
@@ -3546,8 +3582,24 @@
           "kind": {
             "$ref": "#/components/schemas/ServerJobKind"
           },
-          "state": {
-            "$ref": "#/components/schemas/ServerJobState"
+          "lifecycleState": {
+            "$ref": "#/components/schemas/ServerJobLifecycleState"
+          },
+          "activityPhase": {
+            "$ref": "#/components/schemas/ServerJobActivityPhase"
+          },
+          "activityUntilUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "terminalOutcome": {
+            "$ref": "#/components/schemas/ServerJobTerminalOutcome"
+          },
+          "skipReason": {
+            "$ref": "#/components/schemas/ServerJobSkipReason"
           },
           "itemName": {
             "type": [
@@ -3567,7 +3619,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerFailureReason"
+                "$ref": "#/components/schemas/ServerJobFailureReason"
               }
             ]
           },
@@ -3633,6 +3685,9 @@
               "null",
               "string"
             ]
+          },
+          "cancellationSource": {
+            "$ref": "#/components/schemas/ServerJobCancellationSource"
           }
         }
       },
@@ -4261,19 +4316,6 @@
           }
         }
       },
-      "ServerFailureReason": {
-        "enum": [
-          "None",
-          "InvalidSearchString",
-          "OutOfDownloadRetries",
-          "NoSuitableFileFound",
-          "AllDownloadsFailed",
-          "Other",
-          "ExtractionFailed",
-          "Cancelled",
-          null
-        ]
-      },
       "ServerFolderRetrievalOutcome": {
         "enum": [
           "none",
@@ -4302,6 +4344,45 @@
           }
         }
       },
+      "ServerJobActivityPhase": {
+        "enum": [
+          "None",
+          "WaitingForSearchConcurrency",
+          "SearchRateLimited",
+          "Searching",
+          "ProcessingSearchResults",
+          "Extracting",
+          "Downloading",
+          "RetrievingFolder",
+          "RunningChildren",
+          "Organizing",
+          "RunningOnComplete"
+        ]
+      },
+      "ServerJobCancellationSource": {
+        "enum": [
+          "None",
+          "UserRequestedJob",
+          "ParentJob",
+          "UserRequestedWorkflow",
+          "UserRequestedAllJobs",
+          "InternalEngine"
+        ]
+      },
+      "ServerJobFailureReason": {
+        "enum": [
+          "None",
+          "InvalidSearchString",
+          "OutOfDownloadRetries",
+          "NoSuitableFileFound",
+          "AllDownloadsFailed",
+          "Other",
+          "ExtractionFailed",
+          "Cancelled",
+          "ChildJobsFailed",
+          null
+        ]
+      },
       "ServerJobKind": {
         "enum": [
           "extract",
@@ -4315,19 +4396,31 @@
           "generic"
         ]
       },
-      "ServerJobState": {
+      "ServerJobLifecycleState": {
         "enum": [
           "Pending",
-          "Done",
-          "Failed",
+          "Running",
+          "AwaitingSelection",
+          "Terminal"
+        ]
+      },
+      "ServerJobSkipReason": {
+        "enum": [
+          "None",
           "AlreadyExists",
           "NotFoundLastTime",
+          "Manual",
+          "Filtered"
+        ]
+      },
+      "ServerJobTerminalOutcome": {
+        "enum": [
+          "None",
+          "Succeeded",
+          "Failed",
           "Skipped",
-          "Searching",
-          "Downloading",
-          "Extracting",
-          "Running",
-          "AwaitingSelection"
+          "Cancelled",
+          "PartialSuccess"
         ]
       },
       "ServerResourceActionKind": {
@@ -4551,13 +4644,50 @@
             "format": "int32"
           },
           "candidates": { },
-          "state": {
+          "lifecycleState": {
             "oneOf": [
               {
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerJobState"
+                "$ref": "#/components/schemas/ServerJobLifecycleState"
+              }
+            ]
+          },
+          "activityPhase": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerJobActivityPhase"
+              }
+            ]
+          },
+          "activityUntilUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "terminalOutcome": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerJobTerminalOutcome"
+              }
+            ]
+          },
+          "skipReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerJobSkipReason"
               }
             ]
           },
@@ -4567,7 +4697,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerFailureReason"
+                "$ref": "#/components/schemas/ServerJobFailureReason"
               }
             ]
           },
@@ -4610,6 +4740,9 @@
               "null",
               "string"
             ]
+          },
+          "cancellationSource": {
+            "$ref": "#/components/schemas/ServerJobCancellationSource"
           }
         }
       },

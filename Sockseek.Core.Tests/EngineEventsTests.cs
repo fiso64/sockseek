@@ -55,7 +55,7 @@ namespace Tests.Eventing
                 var engine = new DownloadEngine(engineSettings, clientManager);
 
                 var registered = new List<(Job Job, Job? Parent)>();
-                var stateChanges = new List<(Job Job, JobState State)>();
+                var stateChanges = new List<(Job Job, JobLifecycleState LifecycleState, JobActivityPhase ActivityPhase, JobTerminalOutcome TerminalOutcome, JobSkipReason SkipReason)>();
                 var createdResults = new List<(ExtractJob ExtractJob, Job Result)>();
                 var executionCompleted = new List<Job>();
                 JobList? completedQueue = null;
@@ -65,9 +65,9 @@ namespace Tests.Eventing
                 {
                     lock (gate) registered.Add((job, parent));
                 };
-                engine.Events.JobStateChanged += (job, state) =>
+                engine.Events.JobStateChanged += job =>
                 {
-                    lock (gate) stateChanges.Add((job, state));
+                    lock (gate) stateChanges.Add((job, job.LifecycleState, job.ActivityPhase, job.TerminalOutcome, job.SkipReason));
                 };
                 engine.Events.JobResultCreated += (extractJob, result) =>
                 {
@@ -110,11 +110,11 @@ namespace Tests.Eventing
                 Assert.IsTrue(childExtracts.All(child => createdResults.Any(e => ReferenceEquals(e.ExtractJob, child) && ReferenceEquals(e.Result, child.Result))),
                     "JobResultCreated should link each child ExtractJob to its extracted SongJob.");
 
-                Assert.IsTrue(stateChanges.Any(e => ReferenceEquals(e.Job, rootExtract) && e.State == JobState.Extracting),
+                Assert.IsTrue(stateChanges.Any(e => ReferenceEquals(e.Job, rootExtract) && e.ActivityPhase == JobActivityPhase.Extracting),
                     "JobStateChanged should report Extracting for the root ExtractJob.");
-                Assert.IsTrue(stateChanges.Any(e => ReferenceEquals(e.Job, rootExtract) && e.State == JobState.Done),
+                Assert.IsTrue(stateChanges.Any(e => ReferenceEquals(e.Job, rootExtract) && e.TerminalOutcome == JobTerminalOutcome.Succeeded),
                     "JobStateChanged should report Done for the root ExtractJob.");
-                Assert.IsTrue(childSongs.All(song => stateChanges.Any(e => ReferenceEquals(e.Job, song) && e.State == JobState.Failed)),
+                Assert.IsTrue(childSongs.All(song => stateChanges.Any(e => ReferenceEquals(e.Job, song) && e.Job.IsUnsuccessfulTerminal)),
                     "JobStateChanged should report the terminal state for child SongJobs.");
                 Assert.IsTrue(executionCompleted.Contains(rootExtract), "Root ExtractJob should raise JobExecutionCompleted.");
                 Assert.IsTrue(executionCompleted.Contains(rootList), "Root JobList should raise JobExecutionCompleted.");
@@ -229,19 +229,19 @@ namespace Tests.Eventing
                 int maxActive = 0;
                 object gate = new();
 
-                engine.Events.JobStateChanged += (job, state) =>
+                engine.Events.JobStateChanged += job =>
                 {
                     if (job is not SongJob)
                         return;
 
                     lock (gate)
                     {
-                        if (state is JobState.Searching or JobState.Downloading)
+                        if (job.ActivityPhase is JobActivityPhase.Searching or JobActivityPhase.Downloading)
                         {
                             activeSongs.Add(job.Id);
                             maxActive = Math.Max(maxActive, activeSongs.Count);
                         }
-                        else if (state is JobState.Done or JobState.AlreadyExists or JobState.Failed or JobState.Skipped or JobState.NotFoundLastTime)
+                        else if (job.IsTerminal)
                         {
                             activeSongs.Remove(job.Id);
                         }
@@ -258,7 +258,7 @@ namespace Tests.Eventing
                 await CompleteRunWithBlockedDownloads(downloadGate, runTask);
 
                 Assert.AreEqual(1, maxActive, "--concurrent-jobs=1 should serialize concurrently fanned-out song work.");
-                Assert.IsTrue(list.Jobs.OfType<SongJob>().All(song => song.State == JobState.Done));
+                Assert.IsTrue(list.Jobs.OfType<SongJob>().All(song => song.TerminalOutcome == JobTerminalOutcome.Succeeded));
             }
             finally
             {
@@ -341,19 +341,19 @@ namespace Tests.Eventing
                 int maxActiveAlbums = 0;
                 object gate = new();
 
-                engine.Events.JobStateChanged += (job, state) =>
+                engine.Events.JobStateChanged += job =>
                 {
                     if (job is not AlbumJob)
                         return;
 
                     lock (gate)
                     {
-                        if (state == JobState.Downloading)
+                        if (job.ActivityPhase == JobActivityPhase.Downloading)
                         {
                             activeAlbums.Add(job.Id);
                             maxActiveAlbums = Math.Max(maxActiveAlbums, activeAlbums.Count);
                         }
-                        else if (state is JobState.Done or JobState.AlreadyExists or JobState.Failed or JobState.Skipped or JobState.NotFoundLastTime)
+                        else if (job.IsTerminal)
                         {
                             activeAlbums.Remove(job.Id);
                         }
@@ -370,8 +370,8 @@ namespace Tests.Eventing
                 await CompleteRunWithBlockedDownloads(downloadGate, runTask);
 
                 Assert.AreEqual(1, maxActiveAlbums, "--concurrent-jobs=1 should allow only one album job to download at a time.");
-                Assert.IsTrue(new[] { album1, album2 }.All(album => album.State == JobState.Done));
-                Assert.IsTrue(new[] { album1, album2 }.SelectMany(album => album.ResolvedTarget!.Files).All(song => song.State == JobState.Done));
+                Assert.IsTrue(new[] { album1, album2 }.All(album => album.TerminalOutcome == JobTerminalOutcome.Succeeded));
+                Assert.IsTrue(new[] { album1, album2 }.SelectMany(album => album.ResolvedTarget!.Files).All(song => song.TerminalOutcome == JobTerminalOutcome.Succeeded));
             }
             finally
             {
@@ -440,19 +440,19 @@ namespace Tests.Eventing
                 int maxActiveSongs = 0;
                 object gate = new();
 
-                engine.Events.JobStateChanged += (job, state) =>
+                engine.Events.JobStateChanged += job =>
                 {
                     if (job is not SongJob)
                         return;
 
                     lock (gate)
                     {
-                        if (state == JobState.Downloading)
+                        if (job.ActivityPhase == JobActivityPhase.Downloading)
                         {
                             activeSongs.Add(job.Id);
                             maxActiveSongs = Math.Max(maxActiveSongs, activeSongs.Count);
                         }
-                        else if (state is JobState.Done or JobState.AlreadyExists or JobState.Failed or JobState.Skipped or JobState.NotFoundLastTime)
+                        else if (job.IsTerminal)
                         {
                             activeSongs.Remove(job.Id);
                         }
@@ -470,7 +470,7 @@ namespace Tests.Eventing
 
                 Assert.IsTrue(aggregateJob.Songs.Count >= 2, "Aggregate should produce multiple song jobs for this test.");
                 Assert.AreEqual(1, maxActiveSongs, "--concurrent-jobs=1 should allow only one aggregate child song to download at a time.");
-                Assert.IsTrue(aggregateJob.Songs.All(song => song.State == JobState.Done));
+                Assert.IsTrue(aggregateJob.Songs.All(song => song.TerminalOutcome == JobTerminalOutcome.Succeeded));
             }
             finally
             {
@@ -541,19 +541,19 @@ namespace Tests.Eventing
                 int maxActiveAlbums = 0;
                 object gate = new();
 
-                engine.Events.JobStateChanged += (job, state) =>
+                engine.Events.JobStateChanged += job =>
                 {
                     if (job is not AlbumJob)
                         return;
 
                     lock (gate)
                     {
-                        if (state == JobState.Downloading)
+                        if (job.ActivityPhase == JobActivityPhase.Downloading)
                         {
                             activeAlbums.Add(job.Id);
                             maxActiveAlbums = Math.Max(maxActiveAlbums, activeAlbums.Count);
                         }
-                        else if (state is JobState.Done or JobState.AlreadyExists or JobState.Failed or JobState.Skipped or JobState.NotFoundLastTime)
+                        else if (job.IsTerminal)
                         {
                             activeAlbums.Remove(job.Id);
                         }
@@ -571,7 +571,7 @@ namespace Tests.Eventing
 
                 Assert.IsTrue(aggregateJob.Albums.Count >= 2, "Album aggregate should produce multiple album jobs for this test.");
                 Assert.AreEqual(1, maxActiveAlbums, "--concurrent-jobs=1 should allow only one album-aggregate child album to download at a time.");
-                Assert.IsTrue(aggregateJob.Albums.All(album => album.State == JobState.Done));
+                Assert.IsTrue(aggregateJob.Albums.All(album => album.TerminalOutcome == JobTerminalOutcome.Succeeded));
             }
             finally
             {
@@ -632,12 +632,12 @@ namespace Tests.Eventing
 
                     if (shouldDownload)
                     {
-                        Assert.AreEqual(JobState.Done, album.State, $"{caseName}: album should download after browse confirms the track count.");
+                        Assert.AreEqual(JobTerminalOutcome.Succeeded, album.TerminalOutcome, $"{caseName}: album should download after browse confirms the track count.");
                         Assert.AreEqual(fullCount, downloadsStarted, $"{caseName}: browse should reveal and download the full matching folder.");
                     }
                     else
                     {
-                        Assert.AreEqual(JobState.Failed, album.State, $"{caseName}: album should fail track-count verification before any download starts.");
+                        Assert.IsTrue(album.IsUnsuccessfulTerminal, $"{caseName}: album should fail track-count verification before any download starts.");
                         Assert.AreEqual(0, downloadsStarted, $"{caseName}: failed track-count verification must prevent downloads.");
                         Assert.AreEqual(0, client.DownloadCallCount, $"{caseName}: failed track-count verification must prevent download calls.");
                     }
@@ -724,12 +724,12 @@ namespace Tests.Eventing
 
                     if (shouldDownload)
                     {
-                        Assert.AreEqual(JobState.Done, album.State, $"{caseName}: album should download.");
+                        Assert.AreEqual(JobTerminalOutcome.Succeeded, album.TerminalOutcome, $"{caseName}: album should download.");
                         Assert.AreEqual(visibleCount, downloadsStarted, $"{caseName}: NoBrowseFolder should keep download limited to the known files when no correctness browse is needed.");
                     }
                     else
                     {
-                        Assert.AreEqual(JobState.Failed, album.State, $"{caseName}: album should fail before download.");
+                        Assert.IsTrue(album.IsUnsuccessfulTerminal, $"{caseName}: album should fail before download.");
                         Assert.AreEqual(0, downloadsStarted, $"{caseName}: failed track-count verification must prevent downloads.");
                     }
                 }
@@ -819,7 +819,7 @@ namespace Tests.Eventing
                 client.BrowseStarted = () =>
                 {
                     if (client.BrowseCallCount == 1)
-                        retrieveJobs.Single().Cancel();
+                        retrieveJobs.Single().Cancel(JobCancellationSource.UserRequestedJob);
                 };
 
                 engine.Enqueue(album, downloadSettings);
@@ -827,13 +827,13 @@ namespace Tests.Eventing
 
                 await engine.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobState.Done, album.State, "Cancelling one verification browse should not cancel the whole album when another folder can match.");
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, album.TerminalOutcome, "Cancelling one verification browse should not cancel the whole album when another folder can match.");
                 Assert.AreEqual(matchingFolder, album.ResolvedTarget, "The cancelled folder must be skipped instead of downloaded without a verified max count.");
                 Assert.AreEqual(2, downloadsStarted, "Only the verified matching folder should download.");
                 Assert.AreEqual(2, client.DownloadCallCount, "The cancelled folder must not start any downloads.");
                 Assert.AreEqual(2, client.BrowseCallCount, "The cancelled folder and then the matching folder should each be browsed.");
-                Assert.AreEqual(JobState.Failed, retrieveJobs[0].State, "The cancelled browse job should be failed.");
-                Assert.AreEqual(FailureReason.Cancelled, retrieveJobs[0].FailureReason, "The cancelled browse job should preserve its cancellation reason.");
+                Assert.IsTrue(retrieveJobs[0].IsUnsuccessfulTerminal, "The cancelled browse job should be failed.");
+                Assert.AreEqual(JobFailureReason.Cancelled, retrieveJobs[0].FailureReason, "The cancelled browse job should preserve its cancellation reason.");
                 Assert.AreEqual(FolderRetrievalOutcome.Cancelled, retrieveJobs[0].RetrievalOutcome, "The cancelled browse job should expose its retrieval outcome.");
                 Assert.AreEqual(FolderRetrievalOutcome.Completed, retrieveJobs[1].RetrievalOutcome, "The successful browse job should expose its retrieval outcome.");
                 Assert.IsTrue(completedRetrieveJobs.Contains(retrieveJobs[0]), "Embedded retrieve jobs should report execution completion after cancellation.");
@@ -902,9 +902,9 @@ namespace Tests.Eventing
 
             AlbumFolder? capturedFolder = null;
 
-            engine.Events.JobStateChanged += (job, state) =>
+            engine.Events.JobStateChanged += job =>
             {
-                if (state == JobState.Downloading && job is AlbumJob aj)
+                if (job.ActivityPhase == JobActivityPhase.Downloading && job is AlbumJob aj)
                 {
                     capturedFolder = aj.ResolvedTarget;
                 }
@@ -915,7 +915,7 @@ namespace Tests.Eventing
 
             await engine.RunAsync(CancellationToken.None);
 
-            Assert.IsNotNull(capturedFolder, "ResolvedTarget should be populated when JobState.Downloading is reported.");
+            Assert.IsNotNull(capturedFolder, "ResolvedTarget should be populated when Downloading activity is reported.");
             Assert.AreEqual("C:\\Music\\Album One", capturedFolder.FolderPath);
         }
         [TestMethod]
@@ -923,22 +923,22 @@ namespace Tests.Eventing
         {
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" });
             DiscoverySummary? capturedDiscovery = null;
-            JobState? capturedState = null;
+            JobActivityPhase capturedActivity = JobActivityPhase.None;
 
             var events = new EngineEvents();
-            events.JobStateChanged += (j, s) =>
+            events.JobStateChanged += j =>
             {
                 capturedDiscovery = j.Discovery;
-                capturedState = s;
+                capturedActivity = j.ActivityPhase;
             };
 
             song.Discovery = new DiscoverySummary { ResultCount = 5, LockedFileCount = 2 };
-            song.UpdateState(JobState.Downloading);
+            song.UpdateActivity(JobActivityPhase.Downloading);
 
             var raiseMethod = typeof(EngineEvents).GetMethod("RaiseJobStateChanged", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            raiseMethod?.Invoke(events, [song, JobState.Downloading]);
+            raiseMethod?.Invoke(events, [song]);
 
-            Assert.AreEqual(JobState.Downloading, capturedState);
+            Assert.AreEqual(JobActivityPhase.Downloading, capturedActivity);
             Assert.IsNotNull(capturedDiscovery);
             Assert.AreEqual(5, capturedDiscovery.ResultCount);
             Assert.AreEqual(2, capturedDiscovery.LockedFileCount);
@@ -952,14 +952,14 @@ namespace Tests.Eventing
             bool sub2SawIt = false;
 
             var events = new EngineEvents();
-            events.JobStateChanged += (j, s) => sub1SawIt = j.Discovery != null;
-            events.JobStateChanged += (j, s) => sub2SawIt = j.Discovery != null;
+            events.JobStateChanged += j => sub1SawIt = j.Discovery != null;
+            events.JobStateChanged += j => sub2SawIt = j.Discovery != null;
 
             song.Discovery = new DiscoverySummary { ResultCount = 1 };
-            song.UpdateState(JobState.Downloading);
+            song.UpdateActivity(JobActivityPhase.Downloading);
 
             var raiseMethod = typeof(EngineEvents).GetMethod("RaiseJobStateChanged", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            raiseMethod?.Invoke(events, [song, JobState.Downloading]);
+            raiseMethod?.Invoke(events, [song]);
 
             Assert.IsTrue(sub1SawIt, "First subscriber should see metadata");
             Assert.IsTrue(sub2SawIt, "Second subscriber should see metadata (not consumed)");
@@ -977,13 +977,13 @@ namespace Tests.Eventing
             var clientManager = TestHelpers.CreateMockClientManager(client, engineSettings);
             var engine = new DownloadEngine(engineSettings, clientManager);
 
-            FailureReason capturedReason = FailureReason.None;
+            JobFailureReason capturedReason = JobFailureReason.None;
             string? capturedDetail = null;
             bool failedFired = false;
 
-            engine.Events.JobStateChanged += (job, state) =>
+            engine.Events.JobStateChanged += job =>
             {
-                if (ReferenceEquals(job, extractJob) && state == JobState.Failed)
+                if (ReferenceEquals(job, extractJob) && job.IsUnsuccessfulTerminal)
                 {
                     failedFired = true;
                     capturedReason = job.FailureReason;
@@ -996,8 +996,8 @@ namespace Tests.Eventing
 
             await engine.RunAsync(CancellationToken.None);
 
-            Assert.IsTrue(failedFired, "JobStateChanged should fire with JobState.Failed.");
-            Assert.AreEqual(FailureReason.ExtractionFailed, capturedReason, 
+            Assert.IsTrue(failedFired, "JobStateChanged should fire for a failed terminal outcome.");
+            Assert.AreEqual(JobFailureReason.ExtractionFailed, capturedReason, 
                 "FailureReason must be populated BEFORE the JobStateChanged event is fired for ExtractJobs.");
             StringAssert.Contains(capturedDetail, nameof(FileNotFoundException));
         }
@@ -1013,12 +1013,12 @@ namespace Tests.Eventing
             var clientManager = TestHelpers.CreateMockClientManager(client, engineSettings);
             var engine = new DownloadEngine(engineSettings, clientManager);
 
-            FailureReason capturedReason = FailureReason.None;
+            JobFailureReason capturedReason = JobFailureReason.None;
             bool failedFired = false;
 
-            engine.Events.JobStateChanged += (job, state) =>
+            engine.Events.JobStateChanged += job =>
             {
-                if (ReferenceEquals(job, songJob) && state == JobState.Failed)
+                if (ReferenceEquals(job, songJob) && job.IsUnsuccessfulTerminal)
                 {
                     failedFired = true;
                     capturedReason = job.FailureReason;
@@ -1030,8 +1030,8 @@ namespace Tests.Eventing
 
             await engine.RunAsync(CancellationToken.None);
 
-            Assert.IsTrue(failedFired, "JobStateChanged should fire with JobState.Failed.");
-            Assert.AreEqual(FailureReason.NoSuitableFileFound, capturedReason, 
+            Assert.IsTrue(failedFired, "JobStateChanged should fire for a failed terminal outcome.");
+            Assert.AreEqual(JobFailureReason.NoSuitableFileFound, capturedReason, 
                 "FailureReason must be populated BEFORE the JobStateChanged event is fired for not found items.");
         }
 
@@ -1052,12 +1052,12 @@ namespace Tests.Eventing
             var clientManager = TestHelpers.CreateMockClientManager(client, engineSettings);
             var engine = new DownloadEngine(engineSettings, clientManager);
 
-            FailureReason capturedReason = FailureReason.None;
+            JobFailureReason capturedReason = JobFailureReason.None;
             bool failedFired = false;
 
-            engine.Events.JobStateChanged += (job, state) =>
+            engine.Events.JobStateChanged += job =>
             {
-                if (ReferenceEquals(job, songJob) && state == JobState.Failed)
+                if (ReferenceEquals(job, songJob) && job.IsUnsuccessfulTerminal)
                 {
                     failedFired = true;
                     capturedReason = job.FailureReason;
@@ -1069,8 +1069,8 @@ namespace Tests.Eventing
 
             await engine.RunAsync(CancellationToken.None);
 
-            Assert.IsTrue(failedFired, "JobStateChanged should fire with JobState.Failed.");
-            Assert.AreEqual(FailureReason.AllDownloadsFailed, capturedReason, 
+            Assert.IsTrue(failedFired, "JobStateChanged should fire for a failed terminal outcome.");
+            Assert.AreEqual(JobFailureReason.AllDownloadsFailed, capturedReason, 
                 "FailureReason must be populated BEFORE the JobStateChanged event is fired for download failures.");
         }
     }

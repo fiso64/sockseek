@@ -66,8 +66,8 @@ namespace Tests.EndToEnd
                 // It will be 'Downloaded' instead of 'AlreadyExists' because it wasn't skipped.
                 // (Or it might fail during download if it tries to overwrite or something, 
                 // but the goal is to see it skipped before it even tries to download).
-                Assert.AreEqual(JobState.AlreadyExists, song.State, 
-                    $"Song should have been skipped. Current state: {song.State}. Failure reason: {song.FailureReason}");
+                Assert.IsTrue(song.IsSkippedAlreadyExists,
+                    $"Song should have been skipped. Outcome: {song.TerminalOutcome}. Skip reason: {song.SkipReason}. Failure reason: {song.FailureReason}");
             }
             finally
             {
@@ -115,7 +115,7 @@ namespace Tests.EndToEnd
                 await app1.RunAsync(CancellationToken.None);
 
                 var aggJob1 = app1.Queue.AllJobs().OfType<AggregateJob>().FirstOrDefault();
-                Assert.AreEqual(JobState.Done, aggJob1!.Songs[0].State);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, aggJob1!.Songs[0].TerminalOutcome);
                 int linesRun1 = File.ReadAllLines(dl.Output.IndexFilePath).Length;
 
                 // Run 2: 181s (Within tolerance, should be skipped)
@@ -128,7 +128,7 @@ namespace Tests.EndToEnd
                 var aggJob2 = app2.Queue.AllJobs().OfType<AggregateJob>().FirstOrDefault();
                 Assert.IsNotNull(aggJob2);
                 Assert.AreEqual(1, aggJob2.Songs.Count);
-                Assert.AreEqual(JobState.AlreadyExists, aggJob2.Songs[0].State, "Aggregate job should skip existing files on rerun if within length tolerance.");
+                Assert.IsTrue(aggJob2.Songs[0].IsSkippedAlreadyExists, "Aggregate job should skip existing files on rerun if within length tolerance.");
                 int linesRun2 = File.ReadAllLines(dl.Output.IndexFilePath).Length;
                 Assert.AreEqual(linesRun1, linesRun2, "Index file should not duplicate entries when skipping within tolerance.");
 
@@ -142,7 +142,7 @@ namespace Tests.EndToEnd
                 var aggJob3 = app3.Queue.AllJobs().OfType<AggregateJob>().FirstOrDefault();
                 Assert.IsNotNull(aggJob3);
                 Assert.AreEqual(1, aggJob3.Songs.Count);
-                Assert.AreEqual(JobState.Done, aggJob3.Songs[0].State, "Aggregate job should NOT skip if the length is outside the aggregate tolerance.");
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, aggJob3.Songs[0].TerminalOutcome, "Aggregate job should NOT skip if the length is outside the aggregate tolerance.");
                 int linesRun3 = File.ReadAllLines(dl.Output.IndexFilePath).Length;
                 Assert.IsTrue(linesRun3 > linesRun2, "Index file should append new entry for track outside tolerance.");
             }
@@ -193,7 +193,7 @@ namespace Tests.EndToEnd
                 var aggJob1 = app1.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
                 Assert.IsNotNull(aggJob1);
                 Assert.AreEqual(2, aggJob1.Albums.Count, "Both albums should be found.");
-                Assert.IsTrue(aggJob1.Albums.All(a => a.State == JobState.Done), "Both albums should download on first run.");
+                Assert.IsTrue(aggJob1.Albums.All(a => a.TerminalOutcome == JobTerminalOutcome.Succeeded), "Both albums should download on first run.");
 
                 // Run 2: both albums should be skipped.
                 var app2 = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
@@ -204,8 +204,8 @@ namespace Tests.EndToEnd
                 var aggJob2 = app2.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
                 Assert.IsNotNull(aggJob2);
                 Assert.AreEqual(2, aggJob2.Albums.Count, "Both albums should be found on second run.");
-                Assert.IsTrue(aggJob2.Albums.All(a => a.State == JobState.AlreadyExists),
-                    $"Both albums should be skipped on rerun. States: {string.Join(", ", aggJob2.Albums.Select(a => $"{a.ItemName}={a.State}"))}");
+                Assert.IsTrue(aggJob2.Albums.All(a => a.IsSkippedAlreadyExists),
+                    $"Both albums should be skipped on rerun. Outcomes: {string.Join(", ", aggJob2.Albums.Select(a => $"{a.ItemName}={a.TerminalOutcome}/{a.SkipReason}"))}");
             }
             finally
             {
@@ -260,7 +260,7 @@ namespace Tests.EndToEnd
                 var aggJob3 = app3.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
                 Assert.IsNotNull(aggJob3);
                 Assert.AreEqual(1, aggJob3.Albums.Count);
-                Assert.AreEqual(JobState.AlreadyExists, aggJob3.Albums[0].State,
+                Assert.IsTrue(aggJob3.Albums[0].IsSkippedAlreadyExists,
                     "Album skipped on run 2 must still be skipped on run 3 (index state must not be corrupted).");
             }
             finally
@@ -309,7 +309,7 @@ namespace Tests.EndToEnd
                 var aggJob = app2.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
                 Assert.IsNotNull(aggJob);
                 Assert.AreEqual(1, aggJob.Albums.Count);
-                Assert.AreEqual(JobState.AlreadyExists, aggJob.Albums[0].State, "AlbumAggregate job should skip existing albums on rerun.");
+                Assert.IsTrue(aggJob.Albums[0].IsSkippedAlreadyExists, "AlbumAggregate job should skip existing albums on rerun.");
             }
             finally
             {
@@ -342,8 +342,8 @@ namespace Tests.EndToEnd
                 firstRun.Enqueue(missingAlbum, missingAlbumSettings);
                 firstRun.CompleteEnqueue();
                 await firstRun.RunAsync(CancellationToken.None);
-                Assert.AreEqual(JobState.Failed, missingAlbum.State);
-                Assert.AreEqual(FailureReason.NoSuitableFileFound, missingAlbum.FailureReason);
+                Assert.IsTrue(missingAlbum.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.NoSuitableFileFound, missingAlbum.FailureReason);
 
                 var aggregateSettings = new DownloadSettings();
                 aggregateSettings.Extraction.Input = "artist=Artist";
@@ -364,8 +364,10 @@ namespace Tests.EndToEnd
                 var aggJob = secondRun.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
                 Assert.IsNotNull(aggJob);
                 Assert.AreEqual(1, aggJob.Albums.Count);
-                Assert.AreEqual(JobState.Skipped, aggJob.Albums[0].State);
-                Assert.AreEqual(JobState.Skipped, aggJob.State, "Parent AlbumAggregateJob should not report Done when its only generated child was skipped.");
+                Assert.AreEqual(JobTerminalOutcome.Skipped, aggJob.Albums[0].TerminalOutcome);
+                Assert.AreEqual(JobSkipReason.NotFoundLastTime, aggJob.Albums[0].SkipReason);
+                Assert.AreEqual(JobTerminalOutcome.Skipped, aggJob.TerminalOutcome, "Parent AlbumAggregateJob should not report Done when its only generated child was skipped.");
+                Assert.AreEqual(JobSkipReason.NotFoundLastTime, aggJob.SkipReason);
             }
             finally
             {
@@ -406,7 +408,7 @@ namespace Tests.EndToEnd
                 await app1.RunAsync(CancellationToken.None);
 
                 var songJob1 = app1.Queue.AllJobs().OfType<SongJob>().FirstOrDefault();
-                Assert.AreEqual(JobState.Done, songJob1!.State);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, songJob1!.TerminalOutcome);
 
                 // RUN 2: Try to download with query length 182
                 var dl2 = new DownloadSettings();
@@ -431,7 +433,7 @@ namespace Tests.EndToEnd
                 Assert.IsNotNull(songJob2);
                 
                 // It should download again (Done), NOT AlreadyExists, because normal tolerance (1) applies.
-                Assert.AreEqual(JobState.Done, songJob2.State, "Normal job should NOT use AggregateLengthTol to skip.");
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, songJob2.TerminalOutcome, "Normal job should NOT use AggregateLengthTol to skip.");
             }
             finally
             {

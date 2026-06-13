@@ -85,6 +85,34 @@ namespace Tests.Unit
         }
 
         [TestMethod]
+        public async Task SearchSong_UpdatesActivityPhaseThroughSearchAndProjection()
+        {
+            var client = CreateMockClient(TestHelpers.CreateTestIndex());
+            var settings = TestHelpers.CreateDefaultSettings().Download;
+            var registry = TestHelpers.CreateSessionRegistry();
+            var searcher = new Searcher(client, registry, registry, new EngineEvents(), 10, 10);
+            var song = new SongJob(new SongQuery { Artist = "testartist", Title = "testsong" });
+            var phases = new List<JobActivityPhase>();
+
+            song.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(Job.ActivityPhase))
+                    phases.Add(song.ActivityPhase);
+            };
+
+            await searcher.SearchSong(song, settings.Search, new ResponseData(), CancellationToken.None);
+
+            AssertPhaseOrder(
+                phases,
+                JobActivityPhase.WaitingForSearchConcurrency,
+                JobActivityPhase.Searching,
+                JobActivityPhase.ProcessingSearchResults);
+            Assert.AreEqual(JobLifecycleState.Running, song.LifecycleState);
+            Assert.AreEqual(JobActivityPhase.ProcessingSearchResults, song.ActivityPhase);
+            Assert.AreEqual(JobTerminalOutcome.None, song.TerminalOutcome);
+        }
+
+        [TestMethod]
         public void AlbumFolders_PreservesAlbumModeSorterOrder()
         {
             var badResponse = new SearchResponse("SlowUser", 1, false, 1, 10,
@@ -1251,9 +1279,26 @@ namespace Tests.Unit
 
             // onWaiting fires synchronously before WaitAsync yields, so fired is already true
             Assert.IsTrue(fired, "SearchRateLimited should fire when the rate semaphore is exhausted.");
+            Assert.AreEqual(JobActivityPhase.SearchRateLimited, song2.ActivityPhase);
+            Assert.IsTrue(song2.ActivityUntilUtc.HasValue);
 
             cts.Cancel();
             await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await task2);
+        }
+
+        private static void AssertPhaseOrder(IReadOnlyList<JobActivityPhase> phases, params JobActivityPhase[] expected)
+        {
+            var nextSearchIndex = 0;
+            foreach (var phase in phases)
+            {
+                if (nextSearchIndex < expected.Length && phase == expected[nextSearchIndex])
+                    nextSearchIndex++;
+            }
+
+            Assert.AreEqual(
+                expected.Length,
+                nextSearchIndex,
+                $"Expected phases in order: {string.Join(", ", expected)}. Actual: {string.Join(", ", phases)}");
         }
     }
 }

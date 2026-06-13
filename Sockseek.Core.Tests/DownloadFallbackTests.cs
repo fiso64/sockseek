@@ -41,7 +41,7 @@ namespace Tests.Core
 
                 var songJob = app.Queue.AllSongs().FirstOrDefault();
                 Assert.IsNotNull(songJob);
-                Assert.AreEqual(JobState.Done, songJob.State);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, songJob.TerminalOutcome);
                 Assert.AreEqual("gooduser", songJob.ChosenCandidate?.Username, "SongJob should have fallen back to gooduser after failuser failed.");
             }
             finally
@@ -76,7 +76,7 @@ namespace Tests.Core
 
                 var songJob = app.Queue.AllSongs().FirstOrDefault();
                 Assert.IsNotNull(songJob);
-                Assert.AreEqual(JobState.Done, songJob.State);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, songJob.TerminalOutcome);
                 Assert.AreEqual("flakyuser", songJob.ChosenCandidate?.Username);
                 Assert.IsTrue(testClient.DownloadCallCount >= 2, "Disconnect retry should attempt the same candidate again after reconnect.");
             }
@@ -111,7 +111,7 @@ namespace Tests.Core
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobState.Done, albumJob.State);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, albumJob.TerminalOutcome);
                 Assert.IsTrue(testClient.SearchCallCount >= 2, "Search should be retried after reconnect instead of becoming a terminal domain failure.");
             }
             finally
@@ -150,7 +150,7 @@ namespace Tests.Core
 
                 var songs = app.Queue.AllSongs().ToList();
                 Assert.AreEqual(2, songs.Count);
-                Assert.IsTrue(songs.All(song => song.State == JobState.Done));
+                Assert.IsTrue(songs.All(song => song.TerminalOutcome == JobTerminalOutcome.Succeeded));
                 Assert.AreEqual(1, testClient.DownloadCallCount, "Second duplicate should copy/reuse the first final organized path, not redownload.");
                 Assert.IsTrue(System.IO.File.Exists(songs[0].DownloadPath), "First song should point at the organized file.");
                 Assert.IsTrue(System.IO.File.Exists(songs[1].DownloadPath), "Second song should copy from the organized cache path.");
@@ -191,8 +191,8 @@ namespace Tests.Core
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobState.Done, firstAlbum.State);
-                Assert.AreEqual(JobState.Done, secondAlbum.State);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, firstAlbum.TerminalOutcome);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, secondAlbum.TerminalOutcome);
                 Assert.AreEqual(2, testClient.DownloadCallCount, "Second album should reuse both the audio and cover from their final organized paths.");
                 Assert.IsTrue(firstAlbum.ResolvedTarget?.Files.Any(file => file.IsNotAudio && System.IO.File.Exists(file.DownloadPath)) == true);
                 Assert.IsTrue(secondAlbum.ResolvedTarget?.Files.Any(file => file.IsNotAudio && System.IO.File.Exists(file.DownloadPath)) == true);
@@ -234,7 +234,7 @@ namespace Tests.Core
 
                 var albumJob = app.Queue.AllJobs().OfType<AlbumJob>().FirstOrDefault();
                 Assert.IsNotNull(albumJob);
-                Assert.AreEqual(JobState.Done, albumJob.State);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, albumJob.TerminalOutcome);
                 Assert.AreEqual("gooduser", albumJob.ResolvedTarget?.Username, "AlbumJob should have fallen back to gooduser's folder after failuser failed.");
             }
             finally
@@ -276,7 +276,7 @@ namespace Tests.Core
                 Assert.IsNotNull(aggJob);
                 var song = aggJob.Songs.FirstOrDefault();
                 Assert.IsNotNull(song);
-                Assert.AreEqual(JobState.Done, song.State);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, song.TerminalOutcome);
                 Assert.AreEqual("gooduser", song.ChosenCandidate?.Username, "Aggregate song bucket should have fallen back to gooduser.");
             }
             finally
@@ -315,7 +315,7 @@ namespace Tests.Core
 
                 var songJob = app.Queue.AllSongs().FirstOrDefault();
                 Assert.IsNotNull(songJob);
-                Assert.AreEqual(JobState.Failed, songJob.State, "SongJob should fail since MaxDownloadRetries was 1 and the first candidate failed.");
+                Assert.IsTrue(songJob.IsUnsuccessfulTerminal, "SongJob should fail since MaxDownloadRetries was 1 and the first candidate failed.");
             }
             finally
             {
@@ -355,7 +355,7 @@ namespace Tests.Core
 
                 var albumJob = app.Queue.AllJobs().OfType<AlbumJob>().FirstOrDefault();
                 Assert.IsNotNull(albumJob);
-                Assert.AreEqual(JobState.Failed, albumJob.State, "AlbumJob should fail since MaxDownloadRetries was 1 and the first folder failed.");
+                Assert.IsTrue(albumJob.IsUnsuccessfulTerminal, "AlbumJob should fail since MaxDownloadRetries was 1 and the first folder failed.");
             }
             finally
             {
@@ -398,7 +398,7 @@ namespace Tests.Core
                 Assert.IsNotNull(aggAlbumJob);
                 var albumJob = aggAlbumJob.Albums.FirstOrDefault();
                 Assert.IsNotNull(albumJob);
-                Assert.AreEqual(JobState.Done, albumJob.State);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, albumJob.TerminalOutcome);
                 Assert.AreEqual("gooduser", albumJob.ResolvedTarget?.Username, "Aggregate album bucket should have fallen back to gooduser.");
             }
             finally
@@ -437,14 +437,112 @@ namespace Tests.Core
 
                 var aggAlbumJob = app.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
                 Assert.IsNotNull(aggAlbumJob);
-                Assert.AreEqual(JobState.Failed, aggAlbumJob.State);
-                Assert.AreEqual(FailureReason.AllDownloadsFailed, aggAlbumJob.FailureReason);
-                Assert.IsTrue(aggAlbumJob.Albums.Any(album => album.State == JobState.Failed));
+                Assert.IsTrue(aggAlbumJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.AllDownloadsFailed, aggAlbumJob.FailureReason);
+                Assert.IsTrue(aggAlbumJob.Albums.Any(album => album.IsUnsuccessfulTerminal));
             }
             finally
             {
                 if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
             }
+        }
+
+        [TestMethod]
+        public async Task AggregateJob_MixedChildOutcomes_CompletesWithPartialSuccess()
+        {
+            var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-partial-aggregate-" + Guid.NewGuid());
+            Directory.CreateDirectory(outputDir);
+
+            var goodFile = TestHelpers.CreateSlFile(@"Music\Artist - Good.mp3", length: 180);
+            var failingFile = TestHelpers.CreateSlFile(@"Music\Artist - Bad.mp3", length: 181);
+            var goodResponse = new SearchResponse("gooduser", 1, true, 100, 0, [goodFile]);
+            var failingResponse = new SearchResponse("failuser", 2, true, 100, 0, [failingFile]);
+            var testClient = new ClientTests.MockSoulseekClient([goodResponse, failingResponse], failingUsers: ["failuser"]);
+
+            try
+            {
+                var eng = new EngineSettings { Username = "u", Password = "p" };
+                var dl = new DownloadSettings();
+                dl.Search.MinSharesAggregate = 1;
+                dl.Transfer.MaxDownloadRetries = 1;
+                dl.Output.ParentDir = outputDir;
+
+                var aggregate = new AggregateJob(new SongQuery { Artist = "Artist" });
+                var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                app.Enqueue(aggregate, dl);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                Assert.AreEqual(JobTerminalOutcome.PartialSuccess, aggregate.TerminalOutcome);
+                Assert.IsTrue(aggregate.Songs.Any(song => song.TerminalOutcome == JobTerminalOutcome.Succeeded));
+                Assert.IsTrue(aggregate.Songs.Any(song => song.TerminalOutcome == JobTerminalOutcome.Failed));
+            }
+            finally
+            {
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+            }
+        }
+
+        [TestMethod]
+        public async Task AlbumAggregateJob_MixedChildOutcomes_CompletesWithPartialSuccess()
+        {
+            var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-partial-albumaggregate-" + Guid.NewGuid());
+            Directory.CreateDirectory(outputDir);
+
+            var goodFile = TestHelpers.CreateSlFile(@"Music\Artist\Album One\01. Artist - Good.mp3", length: 180);
+            var failingFile = TestHelpers.CreateSlFile(@"Music\Artist\Album Two\01. Artist - Bad.mp3", length: 181);
+            var goodResponse = new SearchResponse("gooduser", 1, true, 100, 0, [goodFile]);
+            var failingResponse = new SearchResponse("failuser", 2, true, 100, 0, [failingFile]);
+            var testClient = new ClientTests.MockSoulseekClient([goodResponse, failingResponse], failingUsers: ["failuser"]);
+
+            try
+            {
+                var eng = new EngineSettings { Username = "u", Password = "p" };
+                var dl = new DownloadSettings();
+                dl.Search.MinSharesAggregate = 1;
+                dl.Search.NoBrowseFolder = true;
+                dl.Transfer.MaxDownloadRetries = 1;
+                dl.Output.ParentDir = outputDir;
+
+                var aggregate = new AlbumAggregateJob(new AlbumQuery { Artist = "Artist" });
+                var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                app.Enqueue(aggregate, dl);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                Assert.AreEqual(JobTerminalOutcome.PartialSuccess, aggregate.TerminalOutcome);
+                Assert.IsTrue(aggregate.Albums.Any(album => album.TerminalOutcome == JobTerminalOutcome.Succeeded));
+                Assert.IsTrue(aggregate.Albums.Any(album => album.TerminalOutcome == JobTerminalOutcome.Failed));
+            }
+            finally
+            {
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+            }
+        }
+
+        [TestMethod]
+        public async Task JobList_AllChildrenFail_UsesChildJobsFailedReason()
+        {
+            var eng = new EngineSettings { Username = "u", Password = "p" };
+            var dl = new DownloadSettings();
+            var list = new JobList("wishlist", new Job[]
+            {
+                new SongJob(new SongQuery { Artist = "Missing Artist", Title = "Missing One" }),
+                new SongJob(new SongQuery { Artist = "Missing Artist", Title = "Missing Two" }),
+            });
+            var client = new ClientTests.MockSoulseekClient([]);
+            var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(client, eng));
+
+            app.Enqueue(list, dl);
+            app.CompleteEnqueue();
+
+            await app.RunAsync(CancellationToken.None);
+
+            Assert.AreEqual(JobTerminalOutcome.Failed, list.TerminalOutcome);
+            Assert.AreEqual(JobFailureReason.ChildJobsFailed, list.FailureReason);
+            Assert.AreEqual("One or more child jobs failed.", list.FailureMessage);
         }
     }
 }

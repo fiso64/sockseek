@@ -202,7 +202,7 @@ public sealed class EngineSupervisor
         if (job == null)
             return false;
 
-        job.Cancel();
+        job.Cancel(JobCancellationSource.UserRequestedJob);
         return true;
     }
 
@@ -216,7 +216,7 @@ public sealed class EngineSupervisor
         if (job == null || job.WorkflowId != workflowId)
             return false;
 
-        job.Cancel();
+        job.Cancel(JobCancellationSource.UserRequestedJob);
         return true;
     }
 
@@ -302,7 +302,7 @@ public sealed class EngineSupervisor
 
         return new SearchResultSnapshotDto<FileCandidateDto>(
             Revision: 0,
-            IsComplete: songJob.State is not (JobState.Pending or JobState.Searching),
+            IsComplete: songJob.LifecycleState is not (JobLifecycleState.Pending or JobLifecycleState.Running),
             Items: songJob.Candidates?.Select(ToFileCandidateDto).ToList() ?? []);
     }
 
@@ -339,7 +339,7 @@ public sealed class EngineSupervisor
         var folders = JobRequestMapper.ProjectAlbumJobFolders(albumJob, GetCurrentEngineUserSuccessCounts());
         return new SearchResultSnapshotDto<AlbumFolderDto>(
             Revision: 0,
-            IsComplete: albumJob.State is not (JobState.Pending or JobState.Searching),
+            IsComplete: albumJob.LifecycleState is not (JobLifecycleState.Pending or JobLifecycleState.Running),
             Items: folders.Select(folder => ToAlbumFolderDto(folder, includeFiles)).ToList());
     }
 
@@ -375,7 +375,7 @@ public sealed class EngineSupervisor
         bool includeAggregateCandidates = projection?.IncludeCandidates ?? false;
         return new SearchResultSnapshotDto<AggregateTrackCandidateDto>(
             Revision: 0,
-            IsComplete: aggregateJob.State is not (JobState.Pending or JobState.Searching),
+            IsComplete: aggregateJob.LifecycleState is not (JobLifecycleState.Pending or JobLifecycleState.Running),
             Items: aggregateJob.Songs.Select(song => new AggregateTrackCandidateDto(
                 ToSongQuery(song.Query),
                 song.ItemName,
@@ -417,7 +417,7 @@ public sealed class EngineSupervisor
         bool includeAggregateFolders = projection?.IncludeFolders ?? false;
         return new SearchResultSnapshotDto<AggregateAlbumCandidateDto>(
             Revision: 0,
-            IsComplete: albumAggregateJob.State is not (JobState.Pending or JobState.Searching),
+            IsComplete: albumAggregateJob.LifecycleState is not (JobLifecycleState.Pending or JobLifecycleState.Running),
             Items: albumAggregateJob.Albums.Select(album => new AggregateAlbumCandidateDto(
                 ToAlbumQuery(album.Query),
                 album.ItemName,
@@ -452,7 +452,7 @@ public sealed class EngineSupervisor
 
         var summaries = new List<JobSummaryDto>();
 
-        if (sourceJob is SongJob manualSong && manualSong.State == JobState.AwaitingSelection)
+        if (sourceJob is SongJob manualSong && manualSong.IsAwaitingSelection)
         {
             if (request.Files.Count != 1)
                 throw new ArgumentException("Manual song jobs require exactly one selected file.");
@@ -465,7 +465,7 @@ public sealed class EngineSupervisor
             manualSong.Candidates ??= [candidate];
             if (!manualSong.Candidates.Contains(candidate))
                 manualSong.Candidates.Insert(0, candidate);
-            manualSong.UpdateState(JobState.Pending);
+            manualSong.ResetToPending();
 
             await submissionChannel.Writer.WriteAsync(QueuedSubmission.Resume(manualSong), ct);
             return new List<JobSummaryDto> { StateStore.GetJobSummary(manualSong.Id) ?? BuildSubmittedJobSummary(manualSong, sourceJobId) };
@@ -594,7 +594,11 @@ public sealed class EngineSupervisor
             job.DisplayId,
             job.WorkflowId,
             EngineStateStore.GetJobKind(job),
-            EngineStateStore.ToServerJobState(job.State),
+            EngineStateStore.ToServerJobLifecycleState(job.LifecycleState),
+            EngineStateStore.ToServerJobActivityPhase(job.ActivityPhase),
+            job.ActivityUntilUtc,
+            EngineStateStore.ToServerJobTerminalOutcome(job.TerminalOutcome),
+            EngineStateStore.ToServerJobSkipReason(job.SkipReason),
             job.ItemName,
             job.ToString(noInfo: true),
             EngineStateStore.ToServerFailureReason(job.FailureReason),
@@ -605,7 +609,8 @@ public sealed class EngineSupervisor
             job.Discovery?.ResultCount,
             job.Discovery?.LockedFileCount,
             job.Config?.AppliedAutoProfiles?.ToList() ?? [],
-            []);
+            [],
+            CancellationSource: EngineStateStore.ToServerJobCancellationSource(job.CancellationSource));
 
     private static SearchRawResultDto ToSearchRawResultDto(SearchRawResult result)
         => new(

@@ -68,7 +68,7 @@ namespace Tests.FastSearch
                     System.IO.Directory.Delete(outputDir, true);
             }
 
-            Assert.AreEqual(JobState.Done, app.Queue.AllSongs().Single().State,
+            Assert.AreEqual(JobTerminalOutcome.Succeeded, app.Queue.AllSongs().Single().TerminalOutcome,
                 "Song should be downloaded via fast-search");
             Assert.AreEqual(1, client.SearchesCancelledMidDelay,
                 "Background search should have been cancelled once the fast download succeeded");
@@ -116,7 +116,7 @@ namespace Tests.FastSearch
             }
 
             var song = app.Queue.AllSongs().Single();
-            Assert.AreEqual(JobState.Done, song.State,
+            Assert.AreEqual(JobTerminalOutcome.Succeeded, song.TerminalOutcome,
                 "Should fall back to full candidate list and succeed via gooduser");
             Assert.AreEqual("gooduser", song.ChosenCandidate?.Username,
                 "Should have downloaded from gooduser after fast-user failed");
@@ -158,7 +158,7 @@ namespace Tests.FastSearch
                     System.IO.Directory.Delete(outputDir, true);
             }
 
-            Assert.AreEqual(JobState.Done, app.Queue.AllSongs().Single().State,
+            Assert.AreEqual(JobTerminalOutcome.Succeeded, app.Queue.AllSongs().Single().TerminalOutcome,
                 "Song should be downloaded successfully");
             Assert.AreEqual(1, client.DownloadCallCount,
                 "Should only call DownloadAsync once. The engine should wait for the provisional download to finish rather than falling through to the fallback list.");

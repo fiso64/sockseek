@@ -75,6 +75,34 @@ public class ArchitectureTests
         }
     }
 
+    [TestMethod]
+    public void CancellationOutcomeTripwire_DoesNotCommitSourceLessCancellations()
+    {
+        var root = FindRepositoryRoot();
+        var sources = new[]
+        {
+            Path.Combine(root, "Sockseek.Core", "DownloadEngine.cs"),
+            Path.Combine(root, "Sockseek.Core", "Services", "Searcher.cs"),
+        };
+
+        string[] sourceLessCancellationPatterns =
+        [
+            "JobOutcome.Failed(JobFailureReason.Cancelled",
+            ".Fail(JobFailureReason.Cancelled",
+        ];
+
+        foreach (var sourcePath in sources)
+        {
+            var source = File.ReadAllText(sourcePath);
+            foreach (var pattern in sourceLessCancellationPatterns)
+            {
+                Assert.IsFalse(
+                    source.Contains(pattern, StringComparison.Ordinal),
+                    $"{Path.GetFileName(sourcePath)} should use JobOutcome.Cancelled(source) / SetCancelled(source) instead of {pattern}");
+            }
+        }
+    }
+
     private static string FindRepositoryRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

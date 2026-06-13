@@ -54,7 +54,7 @@ public class LocalCliBackendTests
 
             await engine.RunAsync(cts.Token);
 
-            var jobs = await backend.GetJobsAsync(new JobQuery(null, ServerJobKind.Search, null, IncludeAll: true));
+            var jobs = await backend.GetJobsAsync(new JobQuery(null, null, ServerJobKind.Search, null, IncludeAll: true));
             Assert.AreEqual(1, jobs.Count);
             Assert.AreEqual(submitted.JobId, jobs[0].JobId);
 
@@ -213,7 +213,7 @@ public class LocalCliBackendTests
             var runTask = engine.RunAsync(cts.Token);
 
             await WaitForConditionAsync(
-                () => searchJob.State == JobState.Done,
+                () => searchJob.TerminalOutcome == JobTerminalOutcome.Succeeded,
                 "Timed out waiting for the album search to complete.");
 
             var initialProjection = await backend.GetFolderResultsAsync(searchJob.Id, includeFiles: true, cts.Token);
@@ -289,7 +289,7 @@ public class LocalCliBackendTests
             var runTask = engine.RunAsync(cts.Token);
 
             await WaitForConditionAsync(
-                () => albumJob.State == JobState.AwaitingSelection,
+                () => albumJob.IsAwaitingSelection,
                 "Timed out waiting for the manual album job to reach the picker.");
 
             var initialProjection = await backend.GetFolderResultsAsync(albumJob.Id, includeFiles: true, cts.Token);
@@ -410,7 +410,7 @@ public class LocalCliBackendTests
             var runTask = engine.RunAsync(cts.Token);
 
             await WaitForConditionAsync(
-                () => searchJob.State == JobState.Done,
+                () => searchJob.TerminalOutcome == JobTerminalOutcome.Succeeded,
                 "Timed out waiting for aggregate track search to complete.");
 
             var result = await backend.GetAggregateTrackResultsAsync(
@@ -466,7 +466,7 @@ public class LocalCliBackendTests
             var runTask = engine.RunAsync(cts.Token);
 
             await WaitForConditionAsync(
-                () => searchJob.State == JobState.Done,
+                () => searchJob.TerminalOutcome == JobTerminalOutcome.Succeeded,
                 "Timed out waiting for aggregate album search to complete.");
 
             var result = await backend.GetAggregateAlbumResultsAsync(

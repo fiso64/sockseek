@@ -21,31 +21,37 @@ public sealed class EngineEventDtoAdapter
     {
         events.JobStatus += (job, status) => publish("job.status", new JobStatusEventDto(getSummary(job), status));
         events.JobMessage += (job, level, source, message) => publish("job.message", new JobMessageEventDto(getSummary(job), level.ToString(), source, message));
-        events.JobStateChanged += (job, state) =>
+        events.JobActivityChanged += (job, _, _) => publish("job.activity-changed", new JobActivityChangedEventDto(getSummary(job)));
+        events.JobStateChanged += job =>
         {
             if (job is SongJob song)
             {
-                if (state == JobState.Searching)
+                if (song.ActivityPhase == JobActivityPhase.Searching)
                     publish("song.searching", new SongSearchingEventDto(song.Id, song.DisplayId, song.WorkflowId, ToSongQueryDto(song.Query)));
-                else if (state is JobState.Done or JobState.Failed or JobState.AlreadyExists or JobState.Skipped or JobState.NotFoundLastTime)
+                else if (song.IsTerminal)
                     publish("song.state-changed", new SongStateChangedEventDto(
                         song.Id,
                         song.DisplayId,
                         song.WorkflowId,
                         ToSongQueryDto(song.Query),
-                        EngineStateStore.ToServerJobState(song.State),
+                        EngineStateStore.ToServerJobLifecycleState(song.LifecycleState),
+                        EngineStateStore.ToServerJobActivityPhase(song.ActivityPhase),
+                        song.ActivityUntilUtc,
+                        EngineStateStore.ToServerJobTerminalOutcome(song.TerminalOutcome),
+                        EngineStateStore.ToServerJobSkipReason(song.SkipReason),
                         EngineStateStore.ToServerFailureReason(song.FailureReason),
                         song.DownloadPath,
                         song.ChosenCandidate != null ? ToFileCandidateDto(song.ChosenCandidate) : null,
                         song.Discovery?.ResultCount,
                         song.Discovery?.LockedFileCount,
-                        song.FailureMessage));
+                        song.FailureMessage,
+                        EngineStateStore.ToServerJobCancellationSource(song.CancellationSource)));
             }
             else if (job is AlbumJob albumJob)
             {
-                if (state == JobState.Searching)
+                if (albumJob.ActivityPhase == JobActivityPhase.Searching)
                     publish("job.started", new JobStartedEventDto(getSummary(job)));
-                else if (state == JobState.Downloading && albumJob.ResolvedTarget != null)
+                else if (albumJob.ActivityPhase == JobActivityPhase.Downloading && albumJob.ResolvedTarget != null)
                 {
                     var folder = albumJob.ResolvedTarget;
                     publish("album.download-started", new AlbumDownloadStartedEventDto(
@@ -57,29 +63,29 @@ public sealed class EngineEventDtoAdapter
                         ToAlbumFolderDto(folder, includeFiles: false),
                         folder.Files.Select(ToSongJobPayloadDto).ToList()));
                 }
-                else if (state is JobState.Done or JobState.AlreadyExists or JobState.Failed or JobState.Skipped)
+                else if (albumJob.IsTerminal)
                     publish("album.state-changed", new AlbumStateChangedEventDto(getSummary(job), albumJob.DownloadPath));
             }
             else if (job is ExtractJob extractJob)
             {
-                if (state == JobState.Extracting)
+                if (extractJob.ActivityPhase == JobActivityPhase.Extracting)
                     publish("extraction.started", new ExtractionStartedEventDto(
                         getSummary(extractJob),
                         extractJob.Input,
                         extractJob.InputType?.ToString(),
                         ExtractionSource(extractJob)));
-                else if (state == JobState.Failed)
+                else if (extractJob.IsUnsuccessfulTerminal)
                     publish("extraction.failed", new ExtractionFailedEventDto(
                         getSummary(extractJob),
                         extractJob.FailureMessage ?? "Extraction failed",
                         ExtractionSource(extractJob)));
             }
-            else if (job is AggregateJob ag && state == JobState.Running)
+            else if (job is AggregateJob ag && ag.ActivityPhase == JobActivityPhase.RunningChildren)
             {
                 publish("job.status", new JobStatusEventDto(getSummary(job), "running"));
-                var pending   = ag.Songs.Where(s => s.State == JobState.Pending).ToList();
-                var existing  = ag.Songs.Where(s => s.State == JobState.AlreadyExists).ToList();
-                var notFound  = ag.Songs.Where(s => s.FailureReason == FailureReason.NoSuitableFileFound).ToList();
+                var pending   = ag.Songs.Where(s => s.IsPending).ToList();
+                var existing  = ag.Songs.Where(s => s.TerminalOutcome == JobTerminalOutcome.Skipped && s.SkipReason == JobSkipReason.AlreadyExists).ToList();
+                var notFound  = ag.Songs.Where(s => s.FailureReason == JobFailureReason.NoSuitableFileFound).ToList();
                 publish("track-batch.resolved", new TrackBatchResolvedEventDto(
                     getSummary(job),
                     false,
@@ -91,17 +97,17 @@ public sealed class EngineEventDtoAdapter
                     [.. SelectTrackBatchRows(existing, job.Config.PrintOption, limit: 20)],
                     [.. SelectTrackBatchRows(notFound, job.Config.PrintOption, limit: 20)]));
             }
-            else if (job is AggregateJob && state == JobState.Done)
+            else if (job is AggregateJob && job.TerminalOutcome == JobTerminalOutcome.Succeeded)
             {
                 publish("job.status", new JobStatusEventDto(getSummary(job), "done"));
             }
             else
             {
-                if (state == JobState.Searching)
+                if (job.ActivityPhase == JobActivityPhase.Searching)
                     publish("job.started", new JobStartedEventDto(getSummary(job)));
             }
 
-            PublishDiagnosticErrorIfNeeded(job, state);
+            PublishDiagnosticErrorIfNeeded(job);
         };
         events.DownloadStarted += (song, candidate) => publish("download.started", new DownloadStartedEventDto(song.Id, song.DisplayId, song.WorkflowId, ToSongQueryDto(song.Query), ToFileCandidateDto(candidate)));
         events.DownloadProgress += (song, transferred, total) => publish("download.progress", new DownloadProgressEventDto(song.Id, song.WorkflowId, transferred, total));
@@ -134,9 +140,9 @@ public sealed class EngineEventDtoAdapter
             [.. SelectTrackBatchRows(notFound, job.Config.PrintOption, limit: 20)]));
     }
 
-    private void PublishDiagnosticErrorIfNeeded(Job job, JobState state)
+    private void PublishDiagnosticErrorIfNeeded(Job job)
     {
-        if (state != JobState.Failed || string.IsNullOrWhiteSpace(job.FailureDetail))
+        if (job.TerminalOutcome != JobTerminalOutcome.Failed || string.IsNullOrWhiteSpace(job.FailureDetail))
             return;
 
         var summary = getSummary(job);
@@ -210,9 +216,14 @@ public sealed class EngineEventDtoAdapter
             song.Id,
             song.DisplayId,
             null,
-            EngineStateStore.ToServerJobState(song.State),
+            EngineStateStore.ToServerJobLifecycleState(song.LifecycleState),
+            EngineStateStore.ToServerJobActivityPhase(song.ActivityPhase),
+            song.ActivityUntilUtc,
+            EngineStateStore.ToServerJobTerminalOutcome(song.TerminalOutcome),
+            EngineStateStore.ToServerJobSkipReason(song.SkipReason),
             EngineStateStore.ToServerFailureReason(song.FailureReason),
-            song.FailureMessage);
+            song.FailureMessage,
+            CancellationSource: EngineStateStore.ToServerJobCancellationSource(song.CancellationSource));
 
     public static AlbumFolderDto ToAlbumFolderDto(AlbumFolder folder, bool includeFiles)
         => new(

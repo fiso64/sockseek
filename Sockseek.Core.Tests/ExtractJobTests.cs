@@ -33,14 +33,14 @@ public class ExtractJobTests
 
             await engine.RunAsync(CancellationToken.None);
 
-            Assert.AreEqual(JobState.Done, extractJob.State);
+            Assert.AreEqual(JobTerminalOutcome.Succeeded, extractJob.TerminalOutcome);
             Assert.IsNotNull(extractJob.Result);
             Assert.IsInstanceOfType(extractJob.Result, typeof(JobList));
 
             var extractedList = (JobList)extractJob.Result;
             var childExtract = extractedList.Jobs.OfType<ExtractJob>().Single();
             Assert.IsNull(childExtract.Result, "Detached extraction should not recurse into the extracted result.");
-            Assert.AreEqual(JobState.Pending, childExtract.State);
+            Assert.AreEqual(JobLifecycleState.Pending, childExtract.LifecycleState);
         }
         finally
         {

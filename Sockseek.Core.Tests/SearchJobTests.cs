@@ -150,6 +150,32 @@ namespace Tests.Unit
         }
 
         [TestMethod]
+        public async Task SearchJob_LazyProjectionAfterTerminal_DoesNotMutateActivity()
+        {
+            var index = new List<SearchResponse>
+            {
+                new("User1", 1, true, 100, 0,
+                [
+                    TestHelpers.CreateSlFile(@"Music\Artist\Track.mp3", bitrate: 320, length: 180),
+                ]),
+            };
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            var registry = TestHelpers.CreateSessionRegistry();
+            var searcher = new Searcher(new ClientTests.MockSoulseekClient(index), registry, registry, new EngineEvents(), 10, 10);
+            var job = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" });
+
+            await searcher.Search(job, config.Search, new ResponseData(), CancellationToken.None);
+            job.SetDone();
+
+            var snapshot = job.GetSortedTrackCandidates(config.Search, new ConcurrentDictionary<string, int>());
+
+            Assert.AreEqual(1, snapshot.Items.Count);
+            Assert.AreEqual(JobLifecycleState.Terminal, job.LifecycleState);
+            Assert.AreEqual(JobActivityPhase.None, job.ActivityPhase);
+            Assert.AreEqual(JobTerminalOutcome.Succeeded, job.TerminalOutcome);
+        }
+
+        [TestMethod]
         public void SearchJob_TypedAlbumProjection_ReturnsAlbumFolders()
         {
             var job = new SearchJob(new AlbumQuery { Artist = "ELO", Album = "Time" });
@@ -252,7 +278,7 @@ namespace Tests.Unit
 
             await engine.RunAsync(CancellationToken.None);
 
-            Assert.AreEqual(JobState.Done, job.State);
+            Assert.AreEqual(JobTerminalOutcome.Succeeded, job.TerminalOutcome);
             Assert.IsTrue(job.IsComplete);
             Assert.AreEqual(1, job.ResultCount);
         }
@@ -289,7 +315,7 @@ namespace Tests.Unit
             await engine.RunAsync(CancellationToken.None);
             await readerTask.WaitAsync(TimeSpan.FromSeconds(2));
 
-            Assert.AreEqual(JobState.Done, job.State);
+            Assert.AreEqual(JobTerminalOutcome.Succeeded, job.TerminalOutcome);
             Assert.IsTrue(job.IsComplete);
             Assert.IsTrue(client.SearchCallCount >= 2, "Search should retry after reconnect.");
             Assert.AreEqual(1, streamed.Count, "The live raw-results stream should not complete before the retry succeeds.");
@@ -320,8 +346,8 @@ namespace Tests.Unit
             await engine.RunAsync(CancellationToken.None);
             await readerTask.WaitAsync(TimeSpan.FromSeconds(2));
 
-            Assert.AreEqual(JobState.Failed, job.State);
-            Assert.AreEqual(FailureReason.Other, job.FailureReason);
+            Assert.IsTrue(job.IsUnsuccessfulTerminal);
+            Assert.AreEqual(JobFailureReason.Other, job.FailureReason);
             Assert.IsTrue(job.IsComplete, "Terminal search failures should close live raw-result streams.");
             Assert.AreEqual(0, streamed.Count);
         }

@@ -90,6 +90,7 @@ internal sealed record TerminalJobRecord(
     int DisplayId,
     string Kind,
     string State,
+    CliJobStatusCategory Category,
     string? ParentId);
 
 internal sealed class TerminalLiveRenderer : IDisposable
@@ -174,20 +175,31 @@ internal sealed class TerminalLiveRenderer : IDisposable
                 && IsAlbumKind(parent.Kind);
 
             if (_knownJobs.TryGetValue(job.Id, out var old))
-                ApplyCountDelta(old.State, -1, isAlbumChild);
+                ApplyCountDelta(old.Category, -1, isAlbumChild);
 
             _knownJobs[job.Id] = job;
-            ApplyCountDelta(job.State, +1, isAlbumChild);
+            ApplyCountDelta(job.Category, +1, isAlbumChild);
         }
     }
 
-    private void ApplyCountDelta(string state, int delta, bool isAlbumChild)
+    private void ApplyCountDelta(CliJobStatusCategory category, int delta, bool isAlbumChild)
     {
         if (isAlbumChild) return;
-        if (IsQueuedState(state))                  _countQueued    += delta;
-        else if (IsSuccessfulTerminalState(state)) _countCompleted += delta;
-        else if (IsFailedTerminalState(state))     _countFailed    += delta;
-        else if (IsLiveState(state))               _countActive    += delta;
+        switch (category)
+        {
+            case CliJobStatusCategory.Queued:
+                _countQueued += delta;
+                break;
+            case CliJobStatusCategory.Active:
+                _countActive += delta;
+                break;
+            case CliJobStatusCategory.Succeeded:
+                _countCompleted += delta;
+                break;
+            case CliJobStatusCategory.Failed:
+                _countFailed += delta;
+                break;
+        }
     }
 
     public void Remove(string id)
@@ -778,8 +790,11 @@ internal sealed class TerminalLiveRenderer : IDisposable
             && !string.Equals(state, "succeeded", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(state, "already exists", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(state, "failed", StringComparison.OrdinalIgnoreCase)
+            && !state.StartsWith("failed [", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(state, "cancelled", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(state, "skipped", StringComparison.OrdinalIgnoreCase);
+            && !string.Equals(state, "skipped", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(state, "not found", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(state, "partial", StringComparison.OrdinalIgnoreCase);
 
     private (int Active, int Queued, int Completed, int Failed) CountKnownJobs()
     {
@@ -814,10 +829,13 @@ internal sealed class TerminalLiveRenderer : IDisposable
             || string.Equals(state, "alreadyexists", StringComparison.OrdinalIgnoreCase)
             || string.Equals(state, "already exists", StringComparison.OrdinalIgnoreCase)
             || string.Equals(state, "skipped", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(state, "not found", StringComparison.OrdinalIgnoreCase)
             || string.Equals(state, "notfoundlasttime", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsFailedTerminalState(string state)
         => string.Equals(state, "failed", StringComparison.OrdinalIgnoreCase)
+            || state.StartsWith("failed [", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(state, "partial", StringComparison.OrdinalIgnoreCase)
             || string.Equals(state, "cancelled", StringComparison.OrdinalIgnoreCase);
 
     private static int MaxLiveRows()
@@ -858,6 +876,9 @@ internal sealed class TerminalLiveRenderer : IDisposable
             return "yellow";
         if (string.Equals(state, "searching", StringComparison.OrdinalIgnoreCase))
             return "cyan";
+        if (string.Equals(state, "waiting search", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(state, "rate limited", StringComparison.OrdinalIgnoreCase))
+            return "grey";
         if (string.Equals(state, "on-complete", StringComparison.OrdinalIgnoreCase))
             return "magenta";
         if (string.Equals(state, "retrieving folder", StringComparison.OrdinalIgnoreCase)

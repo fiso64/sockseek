@@ -22,6 +22,7 @@ public static class ServerEventPayloadConverter
             "job.started" => Deserialize<JobStartedEventDto>(payload, options),
             "job.status" => Deserialize<JobStatusEventDto>(payload, options),
             "job.message" => Deserialize<JobMessageEventDto>(payload, options),
+            "job.activity-changed" => Deserialize<JobActivityChangedEventDto>(payload, options),
             "job.folder-retrieving" => Deserialize<JobFolderRetrievingEventDto>(payload, options),
             "song.searching" => Deserialize<SongSearchingEventDto>(payload, options),
             "download.started" => Deserialize<DownloadStartedEventDto>(payload, options),

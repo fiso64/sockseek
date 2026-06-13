@@ -1,4 +1,5 @@
 using Sockseek.Core;
+using System.Text.Json.Serialization;
 
 namespace Sockseek.Api;
 
@@ -92,6 +93,12 @@ public sealed record JobMessageEventDto(
     string Message);
 
 /// <summary>
+/// Activity event emitted when a job changes its current phase.
+/// </summary>
+public sealed record JobActivityChangedEventDto(
+    JobSummaryDto Summary);
+
+/// <summary>
 /// Activity event emitted when a song search begins.
 /// </summary>
 public sealed record SongSearchingEventDto(
@@ -153,13 +160,73 @@ public sealed record SongStateChangedEventDto(
     int DisplayId,
     Guid WorkflowId,
     SongQueryDto Query,
-    ServerJobState State,
-    ServerFailureReason? FailureReason,
+    ServerJobLifecycleState LifecycleState,
+    ServerJobActivityPhase ActivityPhase,
+    DateTimeOffset? ActivityUntilUtc,
+    ServerJobTerminalOutcome TerminalOutcome,
+    ServerJobSkipReason SkipReason,
+    ServerJobFailureReason? FailureReason,
     string? DownloadPath,
     FileCandidateDto? ChosenCandidate,
     int? DiscoveryResultCount = null,
     int? DiscoveryLockedFileCount = null,
-    string? FailureMessage = null);
+    string? FailureMessage = null,
+    ServerJobCancellationSource CancellationSource = ServerJobCancellationSource.None)
+{
+    public SongStateChangedEventDto()
+        : this(
+            Guid.Empty,
+            0,
+            Guid.Empty,
+            new SongQueryDto(null, null, null, null, null, false),
+            ServerJobLifecycleState.Pending,
+            ServerJobActivityPhase.None,
+            null,
+            ServerJobTerminalOutcome.None,
+            ServerJobSkipReason.None,
+            null,
+            null,
+            null)
+    {
+    }
+
+    public SongStateChangedEventDto(
+        Guid JobId,
+        int DisplayId,
+        Guid WorkflowId,
+        SongQueryDto Query,
+        ServerJobLifecycleState LifecycleState,
+        ServerJobActivityPhase ActivityPhase,
+        DateTimeOffset? ActivityUntilUtc,
+        ServerJobTerminalOutcome TerminalOutcome,
+        ServerJobFailureReason? FailureReason,
+        string? DownloadPath,
+        FileCandidateDto? ChosenCandidate,
+        int? DiscoveryResultCount = null,
+        int? DiscoveryLockedFileCount = null,
+        string? FailureMessage = null,
+        ServerJobCancellationSource CancellationSource = ServerJobCancellationSource.None)
+        : this(
+            JobId,
+            DisplayId,
+            WorkflowId,
+            Query,
+            LifecycleState,
+            ActivityPhase,
+            ActivityUntilUtc,
+            TerminalOutcome,
+            ServerJobSkipReason.None,
+            FailureReason,
+            DownloadPath,
+            ChosenCandidate,
+            DiscoveryResultCount,
+            DiscoveryLockedFileCount,
+            FailureMessage,
+            CancellationSource)
+    {
+    }
+
+}
 
 /// <summary>
 /// Activity event emitted when an album download begins for a selected folder.

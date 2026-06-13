@@ -81,14 +81,19 @@ public sealed record SongJobPayloadDto(
     Guid? JobId = null,
     int? DisplayId = null,
     IReadOnlyList<FileCandidateDto>? Candidates = null,
-    ServerJobState? State = null,
-    ServerFailureReason? FailureReason = null,
+    ServerJobLifecycleState? LifecycleState = null,
+    ServerJobActivityPhase? ActivityPhase = null,
+    DateTimeOffset? ActivityUntilUtc = null,
+    ServerJobTerminalOutcome? TerminalOutcome = null,
+    ServerJobSkipReason? SkipReason = null,
+    ServerJobFailureReason? FailureReason = null,
     string? FailureMessage = null,
     long? BytesTransferred = null,
     long? TotalBytes = null,
     double? ProgressPercent = null,
     IReadOnlyList<ResourceActionDto>? AvailableActions = null,
-    string? TransferState = null) : JobPayloadDto;
+    string? TransferState = null,
+    ServerJobCancellationSource CancellationSource = ServerJobCancellationSource.None) : JobPayloadDto;
 
 /// <summary>
 /// Payload for album search/download jobs.

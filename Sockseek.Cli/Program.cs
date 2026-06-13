@@ -753,26 +753,32 @@ internal static partial class Program
 
     private static void CountSong(SongJobPayloadDto song, JobSummaryDto? summary, ref int successes, ref int fails)
     {
-        var serverState = song.State ?? summary?.State;
-        if (!TryToCoreJobState(serverState, out var state))
-            return;
+        var outcome = song.TerminalOutcome ?? summary?.TerminalOutcome ?? ServerJobTerminalOutcome.None;
+        var skipReason = song.SkipReason ?? summary?.SkipReason ?? ServerJobSkipReason.None;
 
-        if (Printing.IsSuccessfulCompletion(state))
+        if (IsSuccessfulRemoteOutcome(outcome, skipReason))
             successes++;
-        else if (state == JobState.Failed)
+        else if (IsFailedRemoteOutcome(outcome, skipReason))
             fails++;
     }
 
     private static void CountSummary(JobSummaryDto summary, ref int successes, ref int fails)
     {
-        if (!TryToCoreJobState(summary.State, out var state))
-            return;
-
-        if (Printing.IsSuccessfulCompletion(state))
+        if (IsSuccessfulRemoteOutcome(summary.TerminalOutcome, summary.SkipReason))
             successes++;
-        else if (state == JobState.Failed)
+        else if (IsFailedRemoteOutcome(summary.TerminalOutcome, summary.SkipReason))
             fails++;
     }
+
+    private static bool IsSuccessfulRemoteOutcome(ServerJobTerminalOutcome outcome, ServerJobSkipReason skipReason)
+        => outcome == ServerJobTerminalOutcome.Succeeded
+            || (outcome == ServerJobTerminalOutcome.Skipped && skipReason == ServerJobSkipReason.AlreadyExists);
+
+    private static bool IsFailedRemoteOutcome(ServerJobTerminalOutcome outcome, ServerJobSkipReason skipReason)
+        => (outcome is ServerJobTerminalOutcome.Failed
+                or ServerJobTerminalOutcome.Cancelled
+                or ServerJobTerminalOutcome.PartialSuccess)
+            || (outcome == ServerJobTerminalOutcome.Skipped && skipReason != ServerJobSkipReason.AlreadyExists);
 
     private static IEnumerable<SongJobPayloadDto> ResolvedAlbumSongs(AlbumJobPayloadDto album)
         => album.Tracks?.Where(song => Utils.IsMusicFile(song.ResolvedFilename ?? "")) ?? [];
@@ -1079,11 +1085,11 @@ internal static partial class Program
             Candidates = song.Candidates?.Select(ToFileCandidate).ToList(),
         };
 
-        ApplyJobOutcome(job, song.State, song.FailureReason, song.FailureMessage);
+        ApplyJobOutcome(job, song.LifecycleState, song.ActivityPhase, song.TerminalOutcome, song.SkipReason, song.FailureReason, song.FailureMessage, song.CancellationSource);
 
         if (summary != null)
         {
-            ApplyJobOutcome(job, summary.State, summary.FailureReason, summary.FailureMessage);
+            ApplyJobOutcome(job, summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason, summary.FailureReason, summary.FailureMessage, summary.CancellationSource);
         }
 
         if (!string.IsNullOrWhiteSpace(song.ResolvedUsername)
@@ -1117,7 +1123,7 @@ internal static partial class Program
         };
 
         if (summary != null)
-            ApplyJobOutcome(job, summary.State, summary.FailureReason, summary.FailureMessage);
+            ApplyJobOutcome(job, summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason, summary.FailureReason, summary.FailureMessage, summary.CancellationSource);
 
         return job;
     }
@@ -1132,51 +1138,87 @@ internal static partial class Program
     {
         var job = new AlbumAggregateJob(ToAlbumQuery(albumAggregate.Query));
         if (summary != null)
-            ApplyJobOutcome(job, summary.State, summary.FailureReason, summary.FailureMessage);
+            ApplyJobOutcome(job, summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason, summary.FailureReason, summary.FailureMessage, summary.CancellationSource);
         return job;
     }
 
-    private static void ApplyJobOutcome(Job job, ServerJobState? state, ServerFailureReason? failureReason, string? failureMessage)
+    private static void ApplyJobOutcome(
+        Job job,
+        ServerJobLifecycleState? lifecycleState,
+        ServerJobActivityPhase? activityPhase,
+        ServerJobTerminalOutcome? terminalOutcome,
+        ServerJobSkipReason? skipReason,
+        ServerJobFailureReason? failureReason,
+        string? failureMessage,
+        ServerJobCancellationSource cancellationSource)
     {
-        if (!TryToCoreJobState(state, out var parsedState))
+        if (lifecycleState == ServerJobLifecycleState.AwaitingSelection)
+        {
+            job.SetAwaitingSelection();
+            return;
+        }
+
+        if (lifecycleState is ServerJobLifecycleState.Running or ServerJobLifecycleState.Pending)
+        {
+            ApplyJobActivity(job, lifecycleState.Value, activityPhase ?? ServerJobActivityPhase.None);
+            return;
+        }
+
+        if (lifecycleState != ServerJobLifecycleState.Terminal || terminalOutcome is null or ServerJobTerminalOutcome.None)
             return;
 
         TryToCoreFailureReason(failureReason, out var parsedFailureReason);
 
-        if (parsedState == JobState.Failed)
+        switch (terminalOutcome.Value)
         {
-            job.Fail(parsedFailureReason, failureMessage);
-        }
-        else if (parsedState is JobState.Skipped or JobState.NotFoundLastTime)
-        {
-            job.SetSkipped(parsedState, parsedFailureReason);
-        }
-        else if (parsedState == JobState.AlreadyExists)
-        {
-            job.SetAlreadyExists();
-        }
-        else if (parsedState == JobState.Done)
-        {
-            job.SetDone();
-        }
-        else
-        {
-            job.UpdateState(parsedState);
+            case ServerJobTerminalOutcome.Succeeded:
+                job.SetDone();
+                break;
+            case ServerJobTerminalOutcome.Skipped:
+                job.SetSkipped(ToCoreSkipReason(skipReason), parsedFailureReason);
+                break;
+            case ServerJobTerminalOutcome.PartialSuccess:
+                job.SetPartialSuccess(failureMessage);
+                break;
+            case ServerJobTerminalOutcome.Cancelled:
+                job.SetCancelled(ToCoreCancellationSource(cancellationSource), failureMessage);
+                break;
+            case ServerJobTerminalOutcome.Failed:
+                job.Fail(parsedFailureReason, failureMessage);
+                break;
         }
     }
 
-    private static bool TryToCoreJobState(ServerJobState? state, out JobState coreState)
+    private static void ApplyJobActivity(Job job, ServerJobLifecycleState lifecycleState, ServerJobActivityPhase activityPhase)
     {
-        if (state == null)
+        if (lifecycleState == ServerJobLifecycleState.Pending)
         {
-            coreState = default;
-            return false;
+            job.ResetToPending();
+            return;
         }
 
-        return Enum.TryParse(state.Value.ToString(), out coreState);
+        var corePhase = activityPhase switch
+        {
+            ServerJobActivityPhase.Extracting => JobActivityPhase.Extracting,
+            ServerJobActivityPhase.Downloading => JobActivityPhase.Downloading,
+            ServerJobActivityPhase.RetrievingFolder => JobActivityPhase.RetrievingFolder,
+            ServerJobActivityPhase.RunningChildren => JobActivityPhase.RunningChildren,
+            ServerJobActivityPhase.Searching => JobActivityPhase.Searching,
+            ServerJobActivityPhase.WaitingForSearchConcurrency => JobActivityPhase.WaitingForSearchConcurrency,
+            ServerJobActivityPhase.SearchRateLimited => JobActivityPhase.SearchRateLimited,
+            ServerJobActivityPhase.ProcessingSearchResults => JobActivityPhase.ProcessingSearchResults,
+            ServerJobActivityPhase.Organizing => JobActivityPhase.Organizing,
+            ServerJobActivityPhase.RunningOnComplete => JobActivityPhase.RunningOnComplete,
+            _ => JobActivityPhase.None,
+        };
+
+        if (corePhase == JobActivityPhase.None)
+            job.UpdateActivity(JobActivityPhase.RunningChildren);
+        else
+            job.UpdateActivity(corePhase);
     }
 
-    private static bool TryToCoreFailureReason(ServerFailureReason? reason, out FailureReason coreReason)
+    private static bool TryToCoreFailureReason(ServerJobFailureReason? reason, out JobFailureReason coreReason)
     {
         if (reason == null)
         {
@@ -1186,6 +1228,20 @@ internal static partial class Program
 
         return Enum.TryParse(reason.Value.ToString(), out coreReason);
     }
+
+    private static JobSkipReason ToCoreSkipReason(ServerJobSkipReason? reason)
+        => reason == null
+            ? JobSkipReason.None
+            : Enum.TryParse(reason.Value.ToString(), out JobSkipReason coreReason)
+                ? coreReason
+                : JobSkipReason.None;
+
+    private static JobCancellationSource ToCoreCancellationSource(ServerJobCancellationSource source)
+        => source == ServerJobCancellationSource.None
+            ? JobCancellationSource.InternalEngine
+            : Enum.TryParse(source.ToString(), out JobCancellationSource coreSource)
+                ? coreSource
+                : JobCancellationSource.InternalEngine;
 
     private static AlbumFolder ToAlbumFolder(AlbumFolderDto folder)
         => new(

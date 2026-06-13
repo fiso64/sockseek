@@ -289,9 +289,9 @@ public class CliEndToEndTests
             string? cancelledFolderKey = null;
             var cancellationIssued = 0;
 
-            app.Events.JobStateChanged += (job, state) =>
+            app.Events.JobStateChanged += job =>
             {
-                if (state != JobState.Downloading || job is not AlbumJob albumJob || albumJob.ResolvedTarget == null || cancelledFolderKey == null)
+                if (job.ActivityPhase != JobActivityPhase.Downloading || job is not AlbumJob albumJob || albumJob.ResolvedTarget == null || cancelledFolderKey == null)
                     return;
 
                 var key = albumJob.ResolvedTarget.Username + "\\" + albumJob.ResolvedTarget.FolderPath;
@@ -301,7 +301,7 @@ public class CliEndToEndTests
                 if (Interlocked.Exchange(ref cancellationIssued, 1) != 0)
                     return;
 
-                albumJob.Cancel();
+                albumJob.Cancel(JobCancellationSource.UserRequestedJob);
             };
 
             var backend = new LocalCliBackend(app, rootSettings);
@@ -419,7 +419,7 @@ public class CliEndToEndTests
             var albumJobs = app.Queue.AllJobs().OfType<AlbumJob>().ToList();
             Assert.AreEqual(1, albumJobs.Count, "Interactive retry should reuse the extracted AlbumJob instead of creating a follow-up root job.");
             var albumJob = albumJobs[0];
-            Assert.AreEqual(JobState.Done, albumJob.State, "Album should eventually succeed with the remaining folder.");
+            Assert.AreEqual(JobTerminalOutcome.Succeeded, albumJob.TerminalOutcome, "Album should eventually succeed with the remaining folder.");
 
             var files = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories);
             Assert.AreEqual(1, files.Length, "Only the retry selection should complete.");

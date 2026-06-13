@@ -62,7 +62,11 @@ public sealed class ServerEventBroadcaster : IDisposable
             job.DisplayId,
             job.WorkflowId,
             EngineStateStore.GetJobKind(job),
-            EngineStateStore.ToServerJobState(job.State),
+            EngineStateStore.ToServerJobLifecycleState(job.LifecycleState),
+            EngineStateStore.ToServerJobActivityPhase(job.ActivityPhase),
+            job.ActivityUntilUtc,
+            EngineStateStore.ToServerJobTerminalOutcome(job.TerminalOutcome),
+            EngineStateStore.ToServerJobSkipReason(job.SkipReason),
             job.ItemName,
             job.ToString(noInfo: true),
             EngineStateStore.ToServerFailureReason(job.FailureReason),
@@ -74,7 +78,8 @@ public sealed class ServerEventBroadcaster : IDisposable
             job.Discovery?.LockedFileCount,
             job.Config?.AppliedAutoProfiles?.ToList() ?? [],
             [],
-            job.FailureDetail);
+            job.FailureDetail,
+            EngineStateStore.ToServerJobCancellationSource(job.CancellationSource));
 
     private static Guid? GetWorkflowId(object payload)
         => payload switch
@@ -90,6 +95,7 @@ public sealed class ServerEventBroadcaster : IDisposable
             JobStartedEventDto e => e.Summary.WorkflowId,
             JobStatusEventDto e => e.Summary.WorkflowId,
             JobMessageEventDto e => e.Summary.WorkflowId,
+            JobActivityChangedEventDto e => e.Summary.WorkflowId,
             SongSearchingEventDto e => e.WorkflowId,
             DownloadStartedEventDto e => e.WorkflowId,
             DownloadProgressEventDto e => e.WorkflowId,

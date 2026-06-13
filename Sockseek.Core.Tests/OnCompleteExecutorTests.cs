@@ -62,15 +62,6 @@ namespace Tests.OnCompleteExecutorTests
         }
 
         [TestMethod]
-        public void ParseCommandFlags_StateFlag_SetsRequiredJobState()
-        {
-            var result = InvokeParseCommandFlags("1:mycommand");
-            var state = (int?)obj_get(result, "RequiredState");
-            Assert.AreEqual(1, state);
-            Assert.AreEqual("mycommand", Get<string>(result, "Command"));
-        }
-
-        [TestMethod]
         public void ParseCommandFlags_UpdateIndexFlag_SetsUseOutputToUpdateIndex()
         {
             var result = InvokeParseCommandFlags("u:mycommand");
@@ -99,7 +90,7 @@ namespace Tests.OnCompleteExecutorTests
     [TestClass]
     public class ShouldExecuteCommandTests
     {
-        private static bool InvokeShouldExecute(bool onlyTrack, bool onlyAlbum, int? requiredState, JobState currentState, bool isAlbum)
+        private static bool InvokeShouldExecute(bool onlyTrack, bool onlyAlbum, bool isAlbum)
         {
             var method = typeof(OnCompleteExecutor).GetMethod("ShouldExecuteCommand", BindingFlags.NonPublic | BindingFlags.Static)!;
 
@@ -108,52 +99,39 @@ namespace Tests.OnCompleteExecutorTests
             var config = Activator.CreateInstance(configType)!;
             configType.GetProperty("OnlyTrackOnComplete")!.SetValue(config, onlyTrack);
             configType.GetProperty("OnlyAlbumOnComplete")!.SetValue(config, onlyAlbum);
-            configType.GetProperty("RequiredState")!.SetValue(config, requiredState);
 
-            return (bool)method.Invoke(null, new object[] { config, currentState, isAlbum })!;
+            return (bool)method.Invoke(null, new object[] { config, isAlbum })!;
         }
 
         [TestMethod]
         public void ShouldExecute_NoFlags_AlwaysTrue()
         {
-            Assert.IsTrue(InvokeShouldExecute(false, false, null, JobState.Done, false));
-            Assert.IsTrue(InvokeShouldExecute(false, false, null, JobState.Done, true));
+            Assert.IsTrue(InvokeShouldExecute(false, false, false));
+            Assert.IsTrue(InvokeShouldExecute(false, false, true));
         }
 
         [TestMethod]
         public void ShouldExecute_TrackOnly_OnAlbum_ReturnsFalse()
         {
-            Assert.IsFalse(InvokeShouldExecute(true, false, null, JobState.Done, true));
+            Assert.IsFalse(InvokeShouldExecute(true, false, true));
         }
 
         [TestMethod]
         public void ShouldExecute_TrackOnly_OnTrack_ReturnsTrue()
         {
-            Assert.IsTrue(InvokeShouldExecute(true, false, null, JobState.Done, false));
+            Assert.IsTrue(InvokeShouldExecute(true, false, false));
         }
 
         [TestMethod]
         public void ShouldExecute_AlbumOnly_OnTrack_ReturnsFalse()
         {
-            Assert.IsFalse(InvokeShouldExecute(false, true, null, JobState.Done, false));
+            Assert.IsFalse(InvokeShouldExecute(false, true, false));
         }
 
         [TestMethod]
         public void ShouldExecute_AlbumOnly_OnAlbum_ReturnsTrue()
         {
-            Assert.IsTrue(InvokeShouldExecute(false, true, null, JobState.Done, true));
-        }
-
-        [TestMethod]
-        public void ShouldExecute_RequiredState_Matches_ReturnsTrue()
-        {
-            Assert.IsTrue(InvokeShouldExecute(false, false, (int)JobState.Done, JobState.Done, false));
-        }
-
-        [TestMethod]
-        public void ShouldExecute_RequiredState_Mismatch_ReturnsFalse()
-        {
-            Assert.IsFalse(InvokeShouldExecute(false, false, (int)JobState.Done, JobState.Failed, false));
+            Assert.IsTrue(InvokeShouldExecute(false, true, true));
         }
     }
 

@@ -495,13 +495,13 @@ namespace Tests.EndToEnd
 
                 // Assertions
                 Console.WriteLine($"[Trace] outputDir contents: {string.Join(", ", System.IO.Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Select(f => f.Replace(outputDir, "")))}");
-                Console.WriteLine($"[Trace] Queue jobs: {app.Queue.Jobs.Count}, states: {string.Join(", ", app.Queue.Jobs.Select(j => $"{j.GetType().Name}:{j.State}"))}");
+                Console.WriteLine($"[Trace] Queue jobs: {app.Queue.Jobs.Count}, states: {string.Join(", ", app.Queue.Jobs.Select(j => $"{j.GetType().Name}:{j.LifecycleState}/{j.ActivityPhase}/{j.TerminalOutcome}/{j.SkipReason}"))}");
                 var albumJob2 = app.Queue.Jobs.OfType<AlbumJob>().FirstOrDefault();
                 if (albumJob2 != null)
                 {
-                    Console.WriteLine($"[Trace] AlbumJob state={albumJob2.State} failureReason={albumJob2.FailureReason} resolvedTarget={albumJob2.ResolvedTarget?.FolderPath} results={albumJob2.Results.Count}");
+                    Console.WriteLine($"[Trace] AlbumJob state={albumJob2.LifecycleState}/{albumJob2.ActivityPhase}/{albumJob2.TerminalOutcome}/{albumJob2.SkipReason} failureReason={albumJob2.FailureReason} resolvedTarget={albumJob2.ResolvedTarget?.FolderPath} results={albumJob2.Results.Count}");
                     foreach (var f in albumJob2.Results.SelectMany(r => r.Files))
-                        Console.WriteLine($"[Trace]   file: {f.Query.Title} state={f.State} dp={f.DownloadPath} candidates={f.Candidates?.Count} rt={f.ResolvedTarget?.Filename}");
+                        Console.WriteLine($"[Trace]   file: {f.Query.Title} state={f.LifecycleState}/{f.ActivityPhase}/{f.TerminalOutcome}/{f.SkipReason} dp={f.DownloadPath} candidates={f.Candidates?.Count} rt={f.ResolvedTarget?.Filename}");
                 }
                 var downloadedFiles = System.IO.Directory.GetFiles(Path.Combine(outputDir, "(2011) testalbum [MP3]"), "*", SearchOption.AllDirectories);
                 Assert.AreEqual(4, downloadedFiles.Length, "Should download 4 files for the album.");
@@ -729,7 +729,7 @@ namespace Tests.EndToEnd
                     .ToList();
 
                 Assert.IsNotNull(albumJob, "The list input should produce an album job.");
-                Assert.AreEqual(JobState.Done, albumJob.State);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, albumJob.TerminalOutcome);
                 Assert.IsNotNull(albumJob.ResolvedTarget, "The album job should resolve to the one folder satisfying both conditions.");
                 Assert.AreEqual("both-pass", albumJob.ResolvedTarget!.Username,
                     $"Wrong album source selected. Candidates: {string.Join(", ", albumJob.Results.Select(r => $"{r.Username}:{r.FolderPath}"))}");
@@ -824,8 +824,8 @@ namespace Tests.EndToEnd
                     .ToList();
 
                 Assert.IsNotNull(albumJob, "The list input should produce an album job.");
-                Assert.AreEqual(JobState.Failed, albumJob.State);
-                Assert.AreEqual(FailureReason.NoSuitableFileFound, albumJob.FailureReason);
+                Assert.IsTrue(albumJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.NoSuitableFileFound, albumJob.FailureReason);
                 Assert.AreEqual(0, testClient.BrowseCallCount,
                     "Normal album searches should filter visible min-count underflow before the slow full-user browse.");
                 Assert.AreEqual(0, downloadedFiles.Count,
@@ -886,7 +886,7 @@ namespace Tests.EndToEnd
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobState.Done, concreteJob.State);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, concreteJob.TerminalOutcome);
                 var downloadedFiles = Directory.GetFiles(Path.Combine(outputDir, "Chosen Album"), "*", SearchOption.AllDirectories);
                 Assert.AreEqual(2, downloadedFiles.Length);
                 Assert.IsTrue(downloadedFiles.Any(f => f.EndsWith("01. Artist - Track One.mp3")));
@@ -943,7 +943,7 @@ namespace Tests.EndToEnd
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobState.Done, concreteJob.State);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, concreteJob.TerminalOutcome);
                 var downloadedFiles = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories);
                 Assert.AreEqual(1, downloadedFiles.Length);
                 Assert.IsTrue(downloadedFiles.Any(f => f.EndsWith("Artist - Real Track.mp3")));
@@ -977,7 +977,7 @@ namespace Tests.EndToEnd
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobState.Done, songJob.State);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, songJob.TerminalOutcome);
                 Assert.IsTrue(songJob.Candidates?.Count > 0, "Print-results mode should populate song candidates.");
                 Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length,
                     "Print-results mode should not download files.");
@@ -1068,9 +1068,9 @@ namespace Tests.EndToEnd
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
                 var app = new DownloadEngine(engineSettings, clientManager);
                 var searchedAlbumJobs = 0;
-                app.Events.JobStateChanged += (job, state) =>
+                app.Events.JobStateChanged += job =>
                 {
-                    if (state == JobState.Searching && job is AlbumJob)
+                    if (job.ActivityPhase == JobActivityPhase.Searching && job is AlbumJob)
                         searchedAlbumJobs++;
                 };
                 app.Enqueue(aggregateJob, rootSettings);
@@ -1078,7 +1078,7 @@ namespace Tests.EndToEnd
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobState.Done, aggregateJob.State);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, aggregateJob.TerminalOutcome);
                 Assert.IsTrue(aggregateJob.Albums.Count > 0, "Print-results mode should retain album-aggregate candidates for printing.");
                 Assert.AreEqual(0, searchedAlbumJobs, "Print-results mode should not re-search album-aggregate candidate albums.");
                 Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length,
@@ -1137,11 +1137,11 @@ namespace Tests.EndToEnd
                 var app = new DownloadEngine(engineSettings, clientManager);
                 var searchedAlbumJobs = 0;
                 var albumDownloadsStarted = 0;
-                app.Events.JobStateChanged += (job, state) =>
+                app.Events.JobStateChanged += job =>
                 {
-                    if (state == JobState.Searching && job is AlbumJob)
+                    if (job.ActivityPhase == JobActivityPhase.Searching && job is AlbumJob)
                         searchedAlbumJobs++;
-                    else if (state == JobState.Downloading && job is AlbumJob)
+                    else if (job.ActivityPhase == JobActivityPhase.Downloading && job is AlbumJob)
                         albumDownloadsStarted++;
                 };
                 app.Enqueue(aggregateJob, rootSettings);
@@ -1149,7 +1149,7 @@ namespace Tests.EndToEnd
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobState.Done, aggregateJob.State);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, aggregateJob.TerminalOutcome);
                 Assert.IsTrue(aggregateJob.Albums.Count > 0, "Album aggregate should produce resolved album candidates.");
                 Assert.AreEqual(0, searchedAlbumJobs, "Resolved album-aggregate candidates should not run a second album search.");
                 Assert.IsTrue(albumDownloadsStarted > 0, "Resolved album-aggregate candidates should still enter album download.");
@@ -1254,7 +1254,7 @@ namespace Tests.EndToEnd
             }
         }
 
-        // Bug: the fan-out branch only called MaybeRemoveFromSource on JobState.Done, not AlreadyExists.
+        // Bug: the fan-out branch only called MaybeRemoveFromSource on succeeded jobs, not already-existing skips.
         // Songs that are skipped because they already exist on disk were never removed from the CSV.
         [TestMethod]
         public async Task CsvInput_SongAlreadyExists_RemoveFromSource_ClearsSongRow()
@@ -1400,8 +1400,8 @@ namespace Tests.EndToEnd
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobState.Failed, aggregateJob.State);
-                Assert.AreEqual(FailureReason.NoSuitableFileFound, aggregateJob.FailureReason);
+                Assert.IsTrue(aggregateJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.NoSuitableFileFound, aggregateJob.FailureReason);
                 Assert.AreEqual(0, aggregateJob.Albums.Count);
             }
             finally
@@ -1456,9 +1456,9 @@ namespace Tests.EndToEnd
 
                 var songSearchesStarted = 0;
                 var downloadsStarted = 0;
-                app.Events.JobStateChanged += (job, state) =>
+                app.Events.JobStateChanged += job =>
                 {
-                    if (job is SongJob && state == JobState.Searching)
+                    if (job is SongJob && job.ActivityPhase == JobActivityPhase.Searching)
                         songSearchesStarted++;
                 };
                 app.Events.DownloadStarted += (_, _) => downloadsStarted++;

@@ -342,7 +342,7 @@ namespace Sockseek.Core.Services;
         {
             foundPath = null;
             var t = context.indexEditor?.PreviousRunResult(song, context.searchSettings);
-            if (t == null || (t.State != JobState.Done && t.State != JobState.AlreadyExists))
+            if (t == null || (t.State != JobStateOld.Done && t.State != JobStateOld.AlreadyExists))
                 return false;
 
             if (context.checkFileExists)
@@ -359,7 +359,7 @@ namespace Sockseek.Core.Services;
         {
             foundPath = null;
             var t = context.indexEditor?.PreviousRunResult(job);
-            if (t == null || (t.State != JobState.Done && t.State != JobState.AlreadyExists))
+            if (t == null || (t.State != JobStateOld.Done && t.State != JobStateOld.AlreadyExists))
                 return false;
 
             if (context.checkFileExists)

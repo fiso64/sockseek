@@ -106,12 +106,14 @@ public static class ServerHost
 
         app.MapGet("/api/jobs", (
             EngineStateStore stateStore,
-            ServerJobState? state,
+            ServerJobLifecycleState? lifecycleState,
+            ServerJobTerminalOutcome? terminalOutcome,
+            ServerJobSkipReason? skipReason,
             ServerJobKind? kind,
             Guid? workflowId,
             bool includeAll = false) =>
         {
-            var jobs = stateStore.GetJobs(new JobQuery(state, kind, workflowId, includeAll));
+            var jobs = stateStore.GetJobs(new JobQuery(lifecycleState, terminalOutcome, kind, workflowId, includeAll, skipReason));
             return Results.Ok(jobs);
         })
             .WithTags("Jobs")

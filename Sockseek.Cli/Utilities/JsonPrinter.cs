@@ -79,14 +79,23 @@ public class TrackJson
 
     // Preserved for JSON backward-compat: 0 = Normal (song), 1 = Album.
     [JsonConverter(typeof(JsonStringEnumConverter))]
-    public TrackType Type { get; set; } = TrackType.Normal;
+    public TrackTypeOld Type { get; set; } = TrackTypeOld.Normal;
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public FailureReason? FailureReason { get; set; }
+    public JobFailureReason? FailureReason { get; set; }
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
-    public JobState State { get; set; } = JobState.Pending;
+    public JobLifecycleState LifecycleState { get; set; } = JobLifecycleState.Pending;
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public JobActivityPhase ActivityPhase { get; set; } = JobActivityPhase.None;
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public JobTerminalOutcome TerminalOutcome { get; set; } = JobTerminalOutcome.None;
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public JobSkipReason SkipReason { get; set; } = JobSkipReason.None;
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Path { get; set; }
@@ -100,9 +109,12 @@ public class TrackJson
         Album         = string.IsNullOrEmpty(song.Query.Album)  ? null : song.Query.Album;
         Path          = string.IsNullOrEmpty(song.DownloadPath) ? null : song.DownloadPath?.Replace('\\', '/');
         Length        = song.Query.Length == -1 ? null : (int?)song.Query.Length;
-        Type          = TrackType.Normal;
-        FailureReason = song.FailureReason == Sockseek.Core.FailureReason.None ? null : song.FailureReason;
-        State         = song.State;
+        Type          = TrackTypeOld.Normal;
+        FailureReason = song.FailureReason == Sockseek.Core.JobFailureReason.None ? null : song.FailureReason;
+        LifecycleState = song.LifecycleState;
+        ActivityPhase = song.ActivityPhase;
+        TerminalOutcome = song.TerminalOutcome;
+        SkipReason = song.SkipReason;
     }
 
     public TrackJson(IndexEntry entry)
@@ -112,10 +124,25 @@ public class TrackJson
         Album         = string.IsNullOrEmpty(entry.Album)        ? null : entry.Album;
         Path          = string.IsNullOrEmpty(entry.DownloadPath) ? null : entry.DownloadPath.Replace('\\', '/');
         Length        = entry.Length == -1 ? null : (int?)entry.Length;
-        Type          = entry.IsAlbum ? TrackType.Album : TrackType.Normal;
-        FailureReason = entry.FailureReason == Sockseek.Core.FailureReason.None ? null : entry.FailureReason;
-        State         = entry.State;
+        Type          = entry.IsAlbum ? TrackTypeOld.Album : TrackTypeOld.Normal;
+        FailureReason = entry.FailureReason == Sockseek.Core.JobFailureReason.None ? null : entry.FailureReason;
+        (LifecycleState, ActivityPhase, TerminalOutcome, SkipReason) = SplitIndexState(entry.State, entry.FailureReason);
     }
+
+    private static (JobLifecycleState Lifecycle, JobActivityPhase Activity, JobTerminalOutcome Outcome, JobSkipReason SkipReason) SplitIndexState(
+        JobStateOld state,
+        JobFailureReason failureReason)
+        => state switch
+        {
+            JobStateOld.Pending => (JobLifecycleState.Pending, JobActivityPhase.None, JobTerminalOutcome.None, JobSkipReason.None),
+            JobStateOld.Done => (JobLifecycleState.Terminal, JobActivityPhase.None, JobTerminalOutcome.Succeeded, JobSkipReason.None),
+            JobStateOld.AlreadyExists => (JobLifecycleState.Terminal, JobActivityPhase.None, JobTerminalOutcome.Skipped, JobSkipReason.AlreadyExists),
+            JobStateOld.NotFoundLastTime => (JobLifecycleState.Terminal, JobActivityPhase.None, JobTerminalOutcome.Skipped, JobSkipReason.NotFoundLastTime),
+            JobStateOld.Failed when failureReason == Sockseek.Core.JobFailureReason.Cancelled
+                => (JobLifecycleState.Terminal, JobActivityPhase.None, JobTerminalOutcome.Cancelled, JobSkipReason.None),
+            JobStateOld.Failed => (JobLifecycleState.Terminal, JobActivityPhase.None, JobTerminalOutcome.Failed, JobSkipReason.None),
+            _ => (JobLifecycleState.Pending, JobActivityPhase.None, JobTerminalOutcome.None, JobSkipReason.None),
+        };
 }
 
 public class AggregateTrackJson

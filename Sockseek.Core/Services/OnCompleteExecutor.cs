@@ -19,7 +19,6 @@ public static class OnCompleteExecutor
         public bool    OnlyAlbumOnComplete    { get; set; }
         public bool    ReadOutput             { get; set; }
         public bool    UseOutputToUpdateIndex { get; set; }
-        public int?    RequiredState     { get; set; }
         public bool    UseLocking             { get; set; }
     }
 
@@ -62,11 +61,6 @@ public static class OnCompleteExecutor
             fmCtx = new FileManagerContext { Job = job, ExtractorName = extractorName, InputSource = inputSource, OutputDir = outputDir, ConfigDir = configDir, Query = new SongQuery(), DownloadPath = dp };
         }
 
-        // Derive JobState for RequiredState matching.
-        JobState currentState = song != null
-            ? song.State
-            : job.State;
-
         bool needUpdateIndex    = false;
         ProcessResult? firstCommandResult = null;
         ProcessResult? prevCommandResult  = null;
@@ -79,7 +73,7 @@ public static class OnCompleteExecutor
 
             CommandConfig config = ParseCommandFlags(rawCommand);
 
-            if (!ShouldExecuteCommand(config, currentState, isAlbumOnComplete))
+            if (!ShouldExecuteCommand(config, isAlbumOnComplete))
                 continue;
 
             string preparedCommand = PrepareCommandString(config.Command, fmCtx, prevCommandResult, firstCommandResult);
@@ -167,26 +161,16 @@ public static class OnCompleteExecutor
                 case 'r': config.ReadOutput             = true; config.Command = remaining; break;
                 case 'l': config.UseLocking             = true; config.Command = remaining; break;
                 default:
-                    if (char.IsDigit(flag) && int.TryParse(flag.ToString(), out int state))
-                    {
-                        config.RequiredState = state;
-                        config.Command = remaining;
-                    }
-                    else
-                    {
-                        return config;
-                    }
-                    break;
+                    return config;
             }
         }
         return config;
     }
 
-    private static bool ShouldExecuteCommand(CommandConfig config, JobState currentState, bool isAlbum)
+    private static bool ShouldExecuteCommand(CommandConfig config, bool isAlbum)
     {
         if (config.OnlyTrackOnComplete && isAlbum)  return false;
         if (config.OnlyAlbumOnComplete && !isAlbum) return false;
-        if (config.RequiredState.HasValue && (int)currentState != config.RequiredState.Value) return false;
         return true;
     }
 
@@ -393,39 +377,19 @@ public static class OnCompleteExecutor
         if (config.UseOutputToUpdateIndex && !string.IsNullOrWhiteSpace(result.Stdout))
         {
             string[] parts = result.Stdout.Split(';', 2);
-            if (int.TryParse(parts[0], out int newStateInt))
+            if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]) && song != null)
             {
-                var newState = (JobState)newStateInt;
-
-                if (song != null)
+                string newPath = parts[1].Trim();
+                if (song.DownloadPath != newPath)
                 {
-                    if (song.State != newState)
-                    {
-                        SockseekLog.Jobs.Debug($"{logPrefix} updating song state from {song.State} to {newState} based on stdout: {song}");
-                        if (newState == JobState.Failed)
-                            song.Fail(FailureReason.Other, "Failed via on-complete stdout");
-                        else if (newState is JobState.Skipped or JobState.AlreadyExists or JobState.NotFoundLastTime)
-                            song.SetSkipped(newState);
-                        else
-                            song.UpdateState(newState);
-                        needsUpdate = true;
-                    }
-
-                    if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]))
-                    {
-                        string newPath = parts[1].Trim();
-                        if (song.DownloadPath != newPath)
-                        {
-                            SockseekLog.Jobs.Debug($"{logPrefix} updating song path from '{song.DownloadPath}' to '{newPath}' based on stdout: {song}");
-                            song.DownloadPath = newPath;
-                            needsUpdate = true;
-                        }
-                    }
+                    SockseekLog.Jobs.Debug($"{logPrefix} updating song path from '{song.DownloadPath}' to '{newPath}' based on stdout: {song}");
+                    song.DownloadPath = newPath;
+                    needsUpdate = true;
                 }
             }
-            else
+            else if (!string.IsNullOrWhiteSpace(result.Stdout))
             {
-                SockseekLog.Jobs.Warn($"{logPrefix} could not parse new state from stdout. Stdout: '{result.Stdout}'");
+                SockseekLog.Jobs.Warn($"{logPrefix} ignored on-complete stdout for index update. In 3.0 stdout can update the path using '<ignored>;<path>', but cannot mutate job state. Stdout: '{result.Stdout}'");
             }
         }
 

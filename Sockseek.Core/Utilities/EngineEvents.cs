@@ -12,7 +12,7 @@ namespace Sockseek.Core;
 /// CLI reporters and the future Server/SignalR hub both subscribe here.
 /// 
 /// TODO: Architectural Issue - Mutable Event Payloads
-/// Currently, events pass mutable Job objects by reference (e.g., Action<Job, JobState>).
+/// Currently, events pass mutable Job objects by reference.
 /// This causes race conditions for async consumers (like the local CLI progress reporter), 
 /// because the Job's properties (like ResolvedTarget) can mutate before the consumer processes the event.
 /// The Server/Remote CLI mode mitigates this by immediately projecting the Job into an immutable DTO 
@@ -23,7 +23,8 @@ public class EngineEvents
 {
     // ── Graph / lifecycle ───────────────────────────────────────────────────
     public event Action<Job, Job?>? JobRegistered;       // job, parent (if any)
-    public event Action<Job, JobState>? JobStateChanged;     // job, new state
+    public event Action<Job>? JobStateChanged;     // job split-state fields changed
+    public event Action<Job, JobActivityPhase, DateTimeOffset?>? JobActivityChanged; // job, phase, until
     // Fired when a job's own execution path is finished.
     // For ExtractJob this is raised immediately after the result job has been produced,
     // not after any optional automatic processing of that result.
@@ -72,7 +73,9 @@ public class EngineEvents
 
     // ── Internal raise methods (same assembly only) ──────────────────────────
     internal void RaiseJobRegistered(Job job, Job? parent) => JobRegistered?.Invoke(job, parent);
-    internal void RaiseJobStateChanged(Job job, JobState state) => JobStateChanged?.Invoke(job, state);
+    internal void RaiseJobStateChanged(Job job) => JobStateChanged?.Invoke(job);
+    internal void RaiseJobActivityChanged(Job job, JobActivityPhase phase, DateTimeOffset? untilUtc)
+        => JobActivityChanged?.Invoke(job, phase, untilUtc);
     internal void RaiseJobExecutionCompleted(Job job) => JobExecutionCompleted?.Invoke(job);
     internal void RaiseJobResultCreated(ExtractJob job, Job result) => JobResultCreated?.Invoke(job, result);
     internal void RaiseEngineCompleted(JobList queue) => EngineCompleted?.Invoke(queue);

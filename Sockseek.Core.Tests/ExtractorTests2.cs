@@ -466,6 +466,10 @@ namespace Tests.ExtractorTests2
                 app.CompleteEnqueue();
                 await app.RunAsync(CancellationToken.None);
 
+                var listJob = app.Queue.AllJobs().OfType<JobList>().FirstOrDefault();
+                Assert.IsNotNull(listJob);
+                Assert.AreEqual(JobTerminalOutcome.PartialSuccess, listJob.TerminalOutcome);
+
                 var lines = File.ReadAllLines(_tempList);
                 Assert.AreEqual(2, lines.Length, "File should retain its physical lines (cleared lines become empty string).");
                 Assert.AreEqual("", lines[0], "Successful song row should be cleared.");
@@ -504,6 +508,10 @@ namespace Tests.ExtractorTests2
                 app.Enqueue(new ExtractJob(_tempList, InputType.List), dl);
                 app.CompleteEnqueue();
                 await app.RunAsync(CancellationToken.None);
+
+                Assert.IsTrue(
+                    app.Queue.AllJobs().OfType<JobList>().Any(job => job.TerminalOutcome == JobTerminalOutcome.PartialSuccess),
+                    "The nested CSV job list should be marked partial when some extracted children succeed and others fail.");
 
                 var csvLines = File.ReadAllLines(csvPath);
                 Assert.AreEqual("artist,title", csvLines[0]);
@@ -551,7 +559,7 @@ namespace Tests.ExtractorTests2
 
                 var aggregateJob = app.Queue.AllJobs().OfType<AggregateJob>().FirstOrDefault();
                 Assert.IsNotNull(aggregateJob);
-                Assert.AreEqual(JobState.Failed, aggregateJob.State);
+                Assert.IsTrue(aggregateJob.IsUnsuccessfulTerminal);
 
                 var lines = File.ReadAllLines(csvPath);
                 Assert.AreEqual("artist,title", lines[0]);
@@ -597,7 +605,7 @@ namespace Tests.ExtractorTests2
                 var aggregateJob = app.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
                 Assert.IsNotNull(aggregateJob);
                 Assert.IsTrue(
-                    aggregateJob.Albums.Any(album => album.State == JobState.Failed),
+                    aggregateJob.Albums.Any(album => album.IsUnsuccessfulTerminal),
                     "At least one generated album child should have failed.");
 
                 var lines = File.ReadAllLines(csvPath);

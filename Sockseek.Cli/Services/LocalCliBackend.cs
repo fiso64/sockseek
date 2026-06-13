@@ -150,7 +150,7 @@ internal sealed class LocalCliBackend
 
         return Task.FromResult<SearchResultSnapshotDto<FileCandidateDto>?>(new(
             Revision: 0,
-            IsComplete: songJob.State is not (JobState.Pending or JobState.Searching),
+            IsComplete: songJob.LifecycleState is not (JobLifecycleState.Pending or JobLifecycleState.Running),
             Items: songJob.Candidates?.Select(ToFileCandidateDto).ToList() ?? []));
     }
 
@@ -205,7 +205,7 @@ internal sealed class LocalCliBackend
         var folders = JobRequestMapper.ProjectAlbumJobFolders(albumJob, engine.UserSuccessCounts);
         return Task.FromResult<SearchResultSnapshotDto<AlbumFolderDto>?>(new(
             Revision: 0,
-            IsComplete: albumJob.State is not (JobState.Pending or JobState.Searching),
+            IsComplete: albumJob.LifecycleState is not (JobLifecycleState.Pending or JobLifecycleState.Running),
             Items: folders.Select(folder => ToAlbumFolderDto(folder, includeFiles)).ToList()));
     }
 
@@ -243,7 +243,7 @@ internal sealed class LocalCliBackend
         bool includeAggregateCandidates = request.IncludeCandidates;
         return Task.FromResult<SearchResultSnapshotDto<AggregateTrackCandidateDto>?>(new(
             Revision: 0,
-            IsComplete: aggregateJob.State is not (JobState.Pending or JobState.Searching),
+            IsComplete: aggregateJob.LifecycleState is not (JobLifecycleState.Pending or JobLifecycleState.Running),
             Items: aggregateJob.Songs.Select(song => new AggregateTrackCandidateDto(
                 ToSongQueryDto(song.Query),
                 song.ItemName,
@@ -290,7 +290,7 @@ internal sealed class LocalCliBackend
         bool includeAggregateFolders = request?.IncludeFolders ?? false;
         return Task.FromResult<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?>(new(
             Revision: 0,
-            IsComplete: albumAggregateJob.State is not (JobState.Pending or JobState.Searching),
+            IsComplete: albumAggregateJob.LifecycleState is not (JobLifecycleState.Pending or JobLifecycleState.Running),
             Items: albumAggregateJob.Albums.Select(album => new AggregateAlbumCandidateDto(
                 ToAlbumQueryDto(album.Query),
                 album.ItemName,
@@ -345,7 +345,7 @@ internal sealed class LocalCliBackend
         var summaries = new List<JobSummaryDto>();
         var settings = BuildFollowUpSettings(sourceJob, request.Options);
 
-        if (sourceJob is SongJob manualSong && manualSong.State == JobState.AwaitingSelection)
+        if (sourceJob is SongJob manualSong && manualSong.IsAwaitingSelection)
         {
             if (request.Files.Count != 1)
                 throw new ArgumentException("Manual song jobs require exactly one selected file.");
@@ -358,7 +358,7 @@ internal sealed class LocalCliBackend
             manualSong.Candidates ??= [candidate];
             if (!manualSong.Candidates.Contains(candidate))
                 manualSong.Candidates.Insert(0, candidate);
-            manualSong.UpdateState(JobState.Pending);
+            manualSong.ResetToPending();
             engine.Resume(manualSong);
             summaries.Add(stateStore.GetJobSummary(manualSong.Id) ?? BuildSubmittedJobSummary(manualSong));
             return Task.FromResult<IReadOnlyList<JobSummaryDto>?>(summaries);
@@ -501,7 +501,7 @@ internal sealed class LocalCliBackend
         if (job == null)
             return Task.FromResult(false);
 
-        job.Cancel();
+        job.Cancel(JobCancellationSource.UserRequestedJob);
         return Task.FromResult(true);
     }
 
@@ -513,7 +513,7 @@ internal sealed class LocalCliBackend
         if (job == null || (workflowId.HasValue && job.WorkflowId != workflowId.Value))
             return false;
 
-        job.Cancel();
+        job.Cancel(JobCancellationSource.UserRequestedJob);
         return await Task.FromResult(true);
     }
 
@@ -684,7 +684,11 @@ internal sealed class LocalCliBackend
             job.DisplayId,
             job.WorkflowId,
             EngineStateStore.GetJobKind(job),
-            EngineStateStore.ToServerJobState(job.State),
+            EngineStateStore.ToServerJobLifecycleState(job.LifecycleState),
+            EngineStateStore.ToServerJobActivityPhase(job.ActivityPhase),
+            job.ActivityUntilUtc,
+            EngineStateStore.ToServerJobTerminalOutcome(job.TerminalOutcome),
+            EngineStateStore.ToServerJobSkipReason(job.SkipReason),
             job.ItemName,
             job.ToString(noInfo: true),
             EngineStateStore.ToServerFailureReason(job.FailureReason),
@@ -696,7 +700,8 @@ internal sealed class LocalCliBackend
             job.Discovery?.LockedFileCount,
             job.Config?.AppliedAutoProfiles?.ToList() ?? [],
             [],
-            job.FailureDetail);
+            job.FailureDetail,
+            EngineStateStore.ToServerJobCancellationSource(job.CancellationSource));
 
     private JobSummaryDto GetSummary(Job job)
         => stateStore.GetJobSummary(job.Id) ?? BuildSubmittedJobSummary(job);
@@ -742,9 +747,14 @@ internal sealed class LocalCliBackend
             song.Id,
             song.DisplayId,
             song.Candidates?.Select(ToFileCandidateDto).ToList(),
-            EngineStateStore.ToServerJobState(song.State),
+            EngineStateStore.ToServerJobLifecycleState(song.LifecycleState),
+            EngineStateStore.ToServerJobActivityPhase(song.ActivityPhase),
+            song.ActivityUntilUtc,
+            EngineStateStore.ToServerJobTerminalOutcome(song.TerminalOutcome),
+            EngineStateStore.ToServerJobSkipReason(song.SkipReason),
             EngineStateStore.ToServerFailureReason(song.FailureReason),
-            song.FailureMessage);
+            song.FailureMessage,
+            CancellationSource: EngineStateStore.ToServerJobCancellationSource(song.CancellationSource));
 
     private static AlbumFolderDto ToAlbumFolderDto(AlbumFolder folder, bool includeFiles)
         => new(

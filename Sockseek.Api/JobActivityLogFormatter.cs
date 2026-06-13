@@ -56,6 +56,7 @@ public sealed class JobActivityLogFormatter
         "job.started",
         "job.folder-retrieving",
         "job.message",
+        "job.activity-changed",
         "song.searching",
     };
 
@@ -86,6 +87,7 @@ public sealed class JobActivityLogFormatter
                 "job.started" when envelope.Payload is JobStartedEventDto payload => HandleJobStarted(payload),
                 "job.folder-retrieving" when envelope.Payload is JobFolderRetrievingEventDto payload => HandleJobFolderRetrieving(payload),
                 "job.message" when envelope.Payload is JobMessageEventDto payload => HandleJobMessage(payload),
+                "job.activity-changed" when envelope.Payload is JobActivityChangedEventDto payload => HandleJobActivityChanged(payload),
                 "song.searching" when envelope.Payload is SongSearchingEventDto payload => LogJob(payload.JobId, payload.DisplayId, "SongJob", $"searching: {SongQueryText(payload.Query)}", showInLive: false),
                 _ => null,
             };
@@ -142,7 +144,7 @@ public sealed class JobActivityLogFormatter
         if (job.Summary.Kind == ServerJobKind.Song)
             return null;
 
-        string status = job.Summary.Kind == ServerJobKind.RetrieveFolder ? "retrieving folder" : "searching";
+        string status = job.Summary.Kind == ServerJobKind.RetrieveFolder ? "retrieving folder" : StatusLabel(job.Summary);
         return LogJob(job.Summary, status, showInLive: false);
     }
 
@@ -169,34 +171,60 @@ public sealed class JobActivityLogFormatter
     {
         RememberStructure(summary);
 
+        if (summary.Kind == ServerJobKind.Album)
+            albumSummaries[summary.JobId] = summary;
+
+        bool isTerminal = IsTerminal(summary);
+        string label = StatusLabel(summary);
+        var kind = DisplayKindForSummary(summary);
+
+        if (!isTerminal && IsDebugOnlyLifecycleActivity(summary))
+            return LogJob(summary, label, level: LogLevel.Debug, showInLive: false);
+
         if (summary.Kind == ServerJobKind.Extract)
             return null;
         if (summary.Kind == ServerJobKind.Song)
             return null;
         if (IsInlineChild(summary.JobId, summary.Kind))
             return null;
-        if (summary.Kind == ServerJobKind.Album)
-            albumSummaries[summary.JobId] = summary;
-
-        bool isTerminal = IsTerminalJobState(summary.State);
-        string label = TerminalStatusLabel(summary.State, summary.FailureReason);
-        var kind = DisplayKindForState(summary.State, summary.FailureReason);
 
         if (isTerminal)
         {
             if (summary.Kind == ServerJobKind.Album)
             {
-                if (IsSuccessfulTerminalState(summary.State))
+                if (IsSuccessfulTerminalOutcome(summary.TerminalOutcome, summary.SkipReason))
                     return null;
                 albumSummaries.Remove(summary.JobId);
                 if (!loggedTerminalAlbumIds.Add(summary.JobId))
                     return null;
             }
 
-            return LogJob(summary, label, kind: kind, showInLive: ShowTerminalKindInLive(kind));
+            return LogJob(
+                summary,
+                label,
+                level: LogLevelForTerminalSummary(summary),
+                kind: kind,
+                showInLive: ShowTerminalKindInLive(kind));
         }
 
-        return LogJob(summary, label, showInLive: false);
+        return LogJob(summary, label, level: LogLevelForNonTerminalSummary(summary), showInLive: false);
+    }
+
+    private ActivityLogEntry? HandleJobActivityChanged(JobActivityChangedEventDto activity)
+    {
+        var summary = activity.Summary;
+        RememberStructure(summary);
+
+        if (IsTerminal(summary))
+            return HandleJobUpserted(summary);
+        if (!ShouldLogActivityChanged(summary))
+            return null;
+
+        return LogJob(
+            summary,
+            StatusLabel(summary),
+            level: LogLevelForNonTerminalSummary(summary),
+            showInLive: false);
     }
 
     private ActivityLogEntry? HandleAlbumDownloadStarted(AlbumDownloadStartedEventDto job)
@@ -239,8 +267,8 @@ public sealed class JobActivityLogFormatter
 
         albumSummaries.TryGetValue(job.Summary.JobId, out var album);
         var summary = album ?? job.Summary;
-        var status = TerminalStatusLabel(summary.State, summary.FailureReason);
-        var kind = DisplayKindForState(summary.State, summary.FailureReason);
+        var status = StatusLabel(summary);
+        var kind = DisplayKindForSummary(summary);
         var entry = LogJob(
             summary.JobId,
             summary.DisplayId,
@@ -258,10 +286,10 @@ public sealed class JobActivityLogFormatter
 
     private ActivityLogEntry? HandleSongStateChanged(SongStateChangedEventDto song)
     {
-        string label = TerminalStatusLabel(song.State, song.FailureReason);
-        var kind = DisplayKindForState(song.State, song.FailureReason);
+        string label = StatusLabel(song);
+        var kind = DisplayKindForSong(song);
         string detail = SongQueryText(song.Query);
-        if (IsTerminalJobState(song.State) && song.ChosenCandidate is FileCandidateDto candidate)
+        if (IsTerminal(song) && song.ChosenCandidate is FileCandidateDto candidate)
             detail = WithName(detail, CandidateDisplayShort(candidate.Ref));
 
         string prefix = "SongJob: ";
@@ -269,7 +297,8 @@ public sealed class JobActivityLogFormatter
             && parentJobIds.TryGetValue(song.JobId, out var parentId)
             && albumSummaries.TryGetValue(parentId, out var album))
         {
-            if (IsTerminalJobState(song.State))
+            prefix = "AlbumJob: ";
+            if (IsTerminal(song))
             {
                 string itemName = song.ChosenCandidate?.Ref.Filename != null
                     ? Utils.GetFileNameSlsk(song.ChosenCandidate.Ref.Filename)
@@ -280,6 +309,7 @@ public sealed class JobActivityLogFormatter
                     album.DisplayId,
                     "Album Track",
                     $"{label}: {WithName(albumName, itemName)}",
+                    level: LogLevelForTerminalSong(song),
                     kind: AlbumTrackDisplayKind(kind),
                     highlight: label,
                     showInLive: ShowTerminalKindInLive(kind));
@@ -296,6 +326,7 @@ public sealed class JobActivityLogFormatter
             song.DisplayId,
             jobType,
             line,
+            level: LogLevelForTerminalSong(song),
             kind: kind,
             highlight: label,
             showInLive: ShowSongTerminalStatusInLive(song));
@@ -364,14 +395,64 @@ public sealed class JobActivityLogFormatter
             && jobKinds.TryGetValue(parentId, out var parentKind)
             && parentKind == ServerJobKind.Album;
 
-    private static bool IsTerminalJobState(ServerJobState state)
-        => state is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists or ServerProtocol.JobStates.Failed or ServerProtocol.JobStates.Skipped or ServerProtocol.JobStates.NotFoundLastTime;
+    private static bool IsTerminal(JobSummaryDto summary)
+        => summary.LifecycleState == ServerJobLifecycleState.Terminal;
 
-    private static bool IsSuccessfulTerminalState(ServerJobState state)
-        => state is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists;
+    private static bool IsTerminal(SongStateChangedEventDto song)
+        => song.LifecycleState == ServerJobLifecycleState.Terminal;
+
+    private static bool IsSuccessfulTerminalOutcome(ServerJobTerminalOutcome outcome, ServerJobSkipReason skipReason = ServerJobSkipReason.None)
+        => outcome == ServerJobTerminalOutcome.Succeeded
+            || (outcome == ServerJobTerminalOutcome.Skipped && skipReason == ServerJobSkipReason.AlreadyExists);
 
     private static bool IsErrorLevel(LogLevel level)
         => level is LogLevel.Error or LogLevel.Critical;
+
+    private static LogLevel? LogLevelForTerminalSummary(JobSummaryDto summary)
+        => IsCascadeCancellation(summary.TerminalOutcome, summary.FailureReason, summary.CancellationSource)
+            ? LogLevel.Debug
+            : null;
+
+    private static LogLevel? LogLevelForTerminalSong(SongStateChangedEventDto song)
+        => IsCascadeCancellation(song.TerminalOutcome, song.FailureReason, song.CancellationSource)
+            ? LogLevel.Debug
+            : null;
+
+    private static bool IsCascadeCancellation(
+        ServerJobTerminalOutcome outcome,
+        ServerJobFailureReason? failureReason,
+        ServerJobCancellationSource source)
+        => IsCancellationOutcome(outcome, failureReason)
+            && source is ServerJobCancellationSource.ParentJob
+                or ServerJobCancellationSource.UserRequestedWorkflow
+                or ServerJobCancellationSource.UserRequestedAllJobs
+                or ServerJobCancellationSource.InternalEngine;
+
+    private static bool IsCancellationOutcome(ServerJobTerminalOutcome outcome, ServerJobFailureReason? failureReason)
+        => outcome == ServerJobTerminalOutcome.Cancelled
+            || (outcome == ServerJobTerminalOutcome.Failed && failureReason == ServerProtocol.FailureReasons.Cancelled);
+
+    private static LogLevel LogLevelForNonTerminalSummary(JobSummaryDto summary)
+        => IsDebugOnlyLifecycleActivity(summary) ? LogLevel.Debug : LogLevel.Information;
+
+    private static bool IsDebugOnlyLifecycleActivity(JobSummaryDto summary)
+        => summary.LifecycleState == ServerJobLifecycleState.Pending
+            || summary.ActivityPhase is ServerJobActivityPhase.WaitingForSearchConcurrency
+                or ServerJobActivityPhase.SearchRateLimited;
+
+    private bool ShouldLogActivityChanged(JobSummaryDto summary)
+    {
+        if (IsDebugOnlyLifecycleActivity(summary))
+            return true;
+        if (summary.Kind == ServerJobKind.Extract)
+            return false;
+        if (summary.Kind == ServerJobKind.Song)
+            return false;
+        if (IsInlineChild(summary.JobId, summary.Kind))
+            return false;
+
+        return true;
+    }
 
     private static ActivityLogDisplayKind DisplayKindForStatus(string status)
     {
@@ -383,18 +464,31 @@ public sealed class JobActivityLogFormatter
             return ActivityLogDisplayKind.AlreadyExists;
         if (status.StartsWith("skipped", StringComparison.OrdinalIgnoreCase))
             return ActivityLogDisplayKind.Skipped;
+        if (status.StartsWith("cancelled", StringComparison.OrdinalIgnoreCase))
+            return ActivityLogDisplayKind.Cancelled;
 
         return ActivityLogDisplayKind.Status;
     }
 
-    private static ActivityLogDisplayKind DisplayKindForState(ServerJobState state, ServerFailureReason? failureReason)
-        => state switch
+    private static ActivityLogDisplayKind DisplayKindForSummary(JobSummaryDto summary)
+        => DisplayKindForTerminal(summary.TerminalOutcome, summary.SkipReason, summary.FailureReason);
+
+    private static ActivityLogDisplayKind DisplayKindForSong(SongStateChangedEventDto song)
+        => DisplayKindForTerminal(song.TerminalOutcome, song.SkipReason, song.FailureReason);
+
+    private static ActivityLogDisplayKind DisplayKindForTerminal(
+        ServerJobTerminalOutcome outcome,
+        ServerJobSkipReason skipReason,
+        ServerJobFailureReason? failureReason)
+        => outcome switch
         {
-            ServerProtocol.JobStates.Done => ActivityLogDisplayKind.Succeeded,
-            ServerProtocol.JobStates.AlreadyExists => ActivityLogDisplayKind.AlreadyExists,
-            ServerProtocol.JobStates.Skipped or ServerProtocol.JobStates.NotFoundLastTime => ActivityLogDisplayKind.Skipped,
-            ServerProtocol.JobStates.Failed when failureReason == ServerProtocol.FailureReasons.Cancelled => ActivityLogDisplayKind.Cancelled,
-            ServerProtocol.JobStates.Failed => ActivityLogDisplayKind.Failed,
+            ServerJobTerminalOutcome.Succeeded => ActivityLogDisplayKind.Succeeded,
+            ServerJobTerminalOutcome.Skipped when skipReason == ServerJobSkipReason.AlreadyExists => ActivityLogDisplayKind.AlreadyExists,
+            ServerJobTerminalOutcome.Skipped => ActivityLogDisplayKind.Skipped,
+            ServerJobTerminalOutcome.Cancelled => ActivityLogDisplayKind.Cancelled,
+            ServerJobTerminalOutcome.Failed when failureReason == ServerProtocol.FailureReasons.Cancelled => ActivityLogDisplayKind.Cancelled,
+            ServerJobTerminalOutcome.Failed => ActivityLogDisplayKind.Failed,
+            ServerJobTerminalOutcome.PartialSuccess => ActivityLogDisplayKind.Failed,
             _ => ActivityLogDisplayKind.Status,
         };
 
@@ -415,10 +509,7 @@ public sealed class JobActivityLogFormatter
         if (!IsJobListChild(song.JobId))
             return true;
 
-        return song.State is not (
-            ServerProtocol.JobStates.AlreadyExists
-            or ServerProtocol.JobStates.Skipped
-            or ServerProtocol.JobStates.NotFoundLastTime);
+        return song.TerminalOutcome != ServerJobTerminalOutcome.Skipped;
     }
 
     private bool IsJobListChild(Guid jobId)
@@ -431,31 +522,55 @@ public sealed class JobActivityLogFormatter
             ? parsed
             : LogLevel.Information;
 
-    private static string TerminalStatusLabel(ServerJobState state, ServerFailureReason? reason)
-        => state switch
-        {
-            ServerProtocol.JobStates.Done => "succeeded",
-            ServerProtocol.JobStates.AlreadyExists => "already exists",
-            ServerProtocol.JobStates.Pending => "pending",
-            ServerProtocol.JobStates.Searching => "searching",
-            ServerProtocol.JobStates.Downloading => "downloading",
-            ServerProtocol.JobStates.Extracting => "extracting",
-            ServerProtocol.JobStates.Running => "running",
-            ServerProtocol.JobStates.Skipped => "skipped",
-            _ => reason != null ? $"failed [{FailureReasonLabel(reason)}]" : "failed",
-        };
+    private static string StatusLabel(JobSummaryDto summary)
+        => StatusLabel(summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason, summary.FailureReason);
 
-    private static string FailureReasonLabel(ServerFailureReason? reason) => reason switch
+    private static string StatusLabel(SongStateChangedEventDto song)
+        => StatusLabel(song.LifecycleState, song.ActivityPhase, song.TerminalOutcome, song.SkipReason, song.FailureReason);
+
+    private static string StatusLabel(
+        ServerJobLifecycleState lifecycle,
+        ServerJobActivityPhase activity,
+        ServerJobTerminalOutcome outcome,
+        ServerJobSkipReason skipReason,
+        ServerJobFailureReason? reason)
     {
-        ServerFailureReason.NoSuitableFileFound => "No suitable file found",
-        ServerFailureReason.InvalidSearchString => "Invalid search string",
-        ServerFailureReason.OutOfDownloadRetries => "Out of download retries",
-        ServerFailureReason.AllDownloadsFailed => "All downloads failed",
-        ServerFailureReason.ExtractionFailed => "Extraction failed",
-        ServerFailureReason.Cancelled => "Cancelled",
-        ServerFailureReason.Other => "Unknown error",
-        _ => "",
-    };
+        if (lifecycle == ServerJobLifecycleState.Terminal)
+            return TerminalStatusLabel(outcome, skipReason, reason);
+
+        return activity switch
+        {
+            ServerJobActivityPhase.WaitingForSearchConcurrency => "waiting search",
+            ServerJobActivityPhase.SearchRateLimited => "rate limited",
+            ServerJobActivityPhase.Searching => "searching",
+            ServerJobActivityPhase.ProcessingSearchResults => "processing results",
+            ServerJobActivityPhase.Extracting => "extracting",
+            ServerJobActivityPhase.Downloading => "downloading",
+            ServerJobActivityPhase.RetrievingFolder => "retrieving folder",
+            ServerJobActivityPhase.RunningChildren => "running",
+            ServerJobActivityPhase.Organizing => "organizing",
+            ServerJobActivityPhase.RunningOnComplete => "running hook",
+            _ => lifecycle switch
+            {
+                ServerJobLifecycleState.Pending => "pending",
+                ServerJobLifecycleState.AwaitingSelection => "awaiting selection",
+                _ => "running",
+            },
+        };
+    }
+
+    private static string TerminalStatusLabel(ServerJobTerminalOutcome outcome, ServerJobSkipReason skipReason, ServerJobFailureReason? reason)
+        => outcome switch
+        {
+            ServerJobTerminalOutcome.Succeeded => "succeeded",
+            ServerJobTerminalOutcome.Skipped when skipReason == ServerJobSkipReason.AlreadyExists => "already exists",
+            ServerJobTerminalOutcome.Skipped when skipReason == ServerJobSkipReason.NotFoundLastTime => "not found",
+            ServerJobTerminalOutcome.Skipped => "skipped",
+            ServerJobTerminalOutcome.Cancelled => "cancelled",
+            ServerJobTerminalOutcome.PartialSuccess => "partial",
+            ServerJobTerminalOutcome.Failed => ServerFailureReasonDisplay.FailedLabel(reason),
+            _ => "failed",
+        };
 
     private static string JobStatusBody(JobSummaryDto summary, string status)
     {
@@ -463,7 +578,9 @@ public sealed class JobActivityLogFormatter
         var detail = summary.QueryText ?? name;
         var line = $"{status}: {WithName(name, detail)}" + ProfileSuffix(summary);
 
-        if (summary.State == ServerProtocol.JobStates.Done && summary.Kind == ServerJobKind.Search && summary.DiscoveryResultCount.HasValue)
+        if (summary.TerminalOutcome == ServerJobTerminalOutcome.Succeeded
+            && summary.Kind == ServerJobKind.Search
+            && summary.DiscoveryResultCount.HasValue)
             line += $": Found {summary.DiscoveryResultCount.Value} files";
 
         if (!string.IsNullOrEmpty(summary.FailureMessage))
@@ -481,14 +598,11 @@ public sealed class JobActivityLogFormatter
             _ => $"{char.ToUpperInvariant(kind.ToWireString()[0])}{kind.ToWireString()[1..]}Job",
         };
 
-    private static string JobStatusPrefix(ServerJobKind kind)
-        => $"{JobTypeLabel(kind)}: ";
-
     private static string AlbumCompletedLogMessage(JobSummaryDto summary, string? remoteFolderDisplay, string? completedPath)
     {
         var albumName = summary.QueryText ?? summary.ItemName ?? "";
-        var status = TerminalStatusLabel(summary.State, summary.FailureReason);
-        bool succeeded = summary.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists;
+        var status = StatusLabel(summary);
+        bool succeeded = IsSuccessfulTerminalOutcome(summary.TerminalOutcome, summary.SkipReason);
 
         if (succeeded && !string.IsNullOrWhiteSpace(remoteFolderDisplay))
             return $"{status}: {WithName(albumName, remoteFolderDisplay)}" + ProfileSuffix(summary);
@@ -541,5 +655,4 @@ public sealed class JobActivityLogFormatter
 
     private static string IndentContinuationLines(string value, string indent)
         => string.Join('\n', value.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').Select(line => indent + line));
-
 }

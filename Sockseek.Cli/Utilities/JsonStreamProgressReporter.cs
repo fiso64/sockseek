@@ -34,13 +34,13 @@ public class JsonStreamProgressReporter
     public void Attach(EngineEvents events)
     {
         events.TrackListReady     += songs => ReportTrackList(songs);
-        events.JobStateChanged    += (job, state) =>
+        events.JobStateChanged    += job =>
         {
             if (job is SongJob song)
             {
-                if (state == JobState.Searching)
+                if (song.ActivityPhase == JobActivityPhase.Searching)
                     ReportSearchStart(song);
-                else if (state is JobState.Done or JobState.Failed or JobState.AlreadyExists or JobState.Skipped or JobState.NotFoundLastTime)
+                else if (song.IsTerminal)
                     ReportStateChanged(song);
             }
         };
@@ -48,9 +48,9 @@ public class JsonStreamProgressReporter
         events.DownloadProgress   += ReportDownloadProgress;
         events.OverallProgress    += ReportOverallProgress;
         events.ListProgress       += ReportListProgress;
-        events.JobStateChanged    += (job, state) =>
+        events.JobStateChanged    += job =>
         {
-            if (state == JobState.Failed && job is ExtractJob ej)
+            if (job is ExtractJob ej && ej.IsUnsuccessfulTerminal)
                 ReportExtractionFailed(ej, ej.FailureMessage ?? "Extraction failed");
         };
     }
@@ -97,7 +97,9 @@ public class JsonStreamProgressReporter
                 title  = s.Query.Title,
                 album  = s.Query.Album,
                 length = s.Query.Length,
-                state  = s.State.ToString(),
+                lifecycleState  = s.LifecycleState.ToString(),
+                activityPhase   = s.ActivityPhase.ToString(),
+                terminalOutcome = s.TerminalOutcome.ToString(),
             }).ToList(),
         };
         WriteEvent("track_list", data);
@@ -184,21 +186,27 @@ public class JsonStreamProgressReporter
 
     private void ReportStateChanged(SongJob song)
     {
-        var chosen = song.State is JobState.Done or JobState.AlreadyExists ? song.ChosenCandidate : null;
+        var chosen = song.TerminalOutcome == JobTerminalOutcome.Succeeded
+            || (song.TerminalOutcome == JobTerminalOutcome.Skipped && song.SkipReason == JobSkipReason.AlreadyExists)
+                ? song.ChosenCandidate
+                : null;
         WriteEvent("track_state", new
         {
-            artist        = song.Query.Artist,
-            title         = song.Query.Title,
-            state         = song.State.ToString(),
-            failureReason = song.FailureReason != FailureReason.None ? song.FailureReason.ToString() : null,
-            downloadPath  = !string.IsNullOrEmpty(song.DownloadPath) ? song.DownloadPath : null,
-            username      = chosen?.Username,
-            filename      = chosen?.Filename,
-            size          = chosen?.File.Size,
-            bitRate       = chosen?.File.BitRate,
-            extension     = chosen != null ? GetExtension(chosen.Filename) : null,
-            resultCount   = song.Discovery?.ResultCount,
-            lockedCount   = song.Discovery?.LockedFileCount,
+            artist          = song.Query.Artist,
+            title           = song.Query.Title,
+            lifecycleState  = song.LifecycleState.ToString(),
+            activityPhase   = song.ActivityPhase.ToString(),
+            terminalOutcome = song.TerminalOutcome.ToString(),
+            skipReason      = song.SkipReason != JobSkipReason.None ? song.SkipReason.ToString() : null,
+            failureReason   = song.FailureReason != JobFailureReason.None ? song.FailureReason.ToString() : null,
+            downloadPath    = !string.IsNullOrEmpty(song.DownloadPath) ? song.DownloadPath : null,
+            username        = chosen?.Username,
+            filename        = chosen?.Filename,
+            size            = chosen?.File.Size,
+            bitRate         = chosen?.File.BitRate,
+            extension       = chosen != null ? GetExtension(chosen.Filename) : null,
+            resultCount     = song.Discovery?.ResultCount,
+            lockedCount     = song.Discovery?.LockedFileCount,
         });
     }
 
@@ -208,7 +216,10 @@ public class JsonStreamProgressReporter
         {
             artist = song.Query.Artist,
             title = song.Query.Title,
-            state = song.State,
+            lifecycleState = song.LifecycleState,
+            activityPhase = song.ActivityPhase,
+            terminalOutcome = song.TerminalOutcome,
+            skipReason = song.SkipReason,
             failureReason = song.FailureReason,
             downloadPath = song.DownloadPath,
             username = song.ChosenCandidate?.Username,
@@ -241,7 +252,18 @@ public class JsonStreamProgressReporter
                 title = s.Query.Title,
                 album = s.Query.Album,
                 length = s.Query.Length,
-                state = pending.Contains(s) ? "Pending" : existing.Contains(s) ? "AlreadyExists" : "Failed",
+                lifecycleState = s.LifecycleState,
+                activityPhase = s.ActivityPhase,
+                terminalOutcome = pending.Contains(s)
+                    ? ServerJobTerminalOutcome.None
+                    : existing.Contains(s)
+                        ? ServerJobTerminalOutcome.Skipped
+                        : ServerJobTerminalOutcome.Skipped,
+                skipReason = pending.Contains(s)
+                    ? ServerJobSkipReason.None
+                    : existing.Contains(s)
+                        ? ServerJobSkipReason.AlreadyExists
+                        : ServerJobSkipReason.NotFoundLastTime,
             }).ToList(),
         };
         WriteEvent("track_list", data);

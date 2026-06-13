@@ -44,7 +44,7 @@ public class CliBackendParityTests
                         DownloadBehavior: new DownloadBehaviorPolicyDto(Album: DownloadBehavior.Manual)),
                     ctx.Token);
 
-                await WaitForJobStateAsync(ctx.Backend, summary.JobId, ServerProtocol.JobStates.AwaitingSelection);
+                await WaitForJobStateAsync(ctx.Backend, summary.JobId, ExpectedJobStatus.AwaitingSelection);
 
                 var folders = await ctx.Backend.GetFolderResultsAsync(summary.JobId, includeFiles: true, ctx.Token);
                 Assert.IsNotNull(folders, ctx.Name);
@@ -58,7 +58,7 @@ public class CliBackendParityTests
                 Assert.IsNotNull(download, ctx.Name);
                 Assert.AreEqual(summary.JobId, download.JobId, ctx.Name);
 
-                await WaitForJobStateAsync(ctx.Backend, summary.JobId, ServerProtocol.JobStates.Done);
+                await WaitForJobStateAsync(ctx.Backend, summary.JobId, ExpectedJobStatus.Succeeded);
                 await WaitForWorkflowStateAsync(ctx.Backend, summary.WorkflowId, ServerWorkflowState.Completed);
 
                 CollectionAssert.AreEqual(
@@ -94,7 +94,7 @@ public class CliBackendParityTests
                         DownloadBehavior: new DownloadBehaviorPolicyDto(AlbumAggregate: DownloadBehavior.Manual)),
                     ctx.Token);
 
-                await WaitForJobStateAsync(ctx.Backend, summary.JobId, ServerProtocol.JobStates.AwaitingSelection);
+                await WaitForJobStateAsync(ctx.Backend, summary.JobId, ExpectedJobStatus.AwaitingSelection);
 
                 var aggregate = await ctx.Backend.GetAggregateAlbumResultsAsync(
                     summary.JobId,
@@ -118,11 +118,11 @@ public class CliBackendParityTests
                     Assert.AreEqual(summary.WorkflowId, download.WorkflowId, ctx.Name);
                     Assert.AreEqual(summary.JobId, download.SourceJobId, ctx.Name);
 
-                    await WaitForJobStateAsync(ctx.Backend, download.JobId, ServerProtocol.JobStates.Done);
+                    await WaitForJobStateAsync(ctx.Backend, download.JobId, ExpectedJobStatus.Succeeded);
                 }
 
                 Assert.IsTrue(await ctx.Backend.CompleteManualSelectionAsync(summary.JobId, ctx.Token), ctx.Name);
-                await WaitForJobStateAsync(ctx.Backend, summary.JobId, ServerProtocol.JobStates.Done);
+                await WaitForJobStateAsync(ctx.Backend, summary.JobId, ExpectedJobStatus.Succeeded);
                 await WaitForWorkflowStateAsync(ctx.Backend, summary.WorkflowId, ServerWorkflowState.Completed);
 
                 CollectionAssert.AreEqual(
@@ -155,7 +155,7 @@ public class CliBackendParityTests
                     new SubmitAlbumSearchJobRequestDto(albumQuery),
                     ctx.Token);
 
-                await WaitForJobStateAsync(ctx.Backend, search.JobId, ServerProtocol.JobStates.Done);
+                await WaitForJobStateAsync(ctx.Backend, search.JobId, ExpectedJobStatus.Succeeded);
 
                 var folders = await ctx.Backend.GetFolderResultsAsync(
                     search.JobId,
@@ -172,7 +172,7 @@ public class CliBackendParityTests
                 Assert.IsNotNull(download, ctx.Name);
                 Assert.AreEqual(search.JobId, download.SourceJobId, ctx.Name);
 
-                await WaitForJobStateAsync(ctx.Backend, download.JobId, ServerProtocol.JobStates.Done);
+                await WaitForJobStateAsync(ctx.Backend, download.JobId, ExpectedJobStatus.Succeeded);
                 await WaitForWorkflowStateAsync(ctx.Backend, search.WorkflowId, ServerWorkflowState.Completed);
 
                 CollectionAssert.AreEqual(
@@ -351,21 +351,21 @@ public class CliBackendParityTests
             },
         };
 
-    private static async Task WaitForJobStateAsync(ICliBackend backend, Guid jobId, ServerJobState expectedState, int timeoutMs = 5000)
+    private static async Task WaitForJobStateAsync(ICliBackend backend, Guid jobId, ExpectedJobStatus expectedState, int timeoutMs = 5000)
     {
         using var timeout = new CancellationTokenSource(timeoutMs);
 
         while (!timeout.IsCancellationRequested)
         {
             var detail = await backend.GetJobDetailAsync(jobId, CancellationToken.None);
-            if (detail?.Summary.State == expectedState)
+            if (detail?.Summary is { } summary && ProjectState(summary) == expectedState)
                 return;
 
             await Task.Delay(50, CancellationToken.None);
         }
 
         var finalDetail = await backend.GetJobDetailAsync(jobId, CancellationToken.None);
-        Assert.Fail($"Timed out waiting for job {jobId} to reach state '{expectedState}'. Final state: {finalDetail?.Summary.State.ToString() ?? "<missing>"}.");
+        Assert.Fail($"Timed out waiting for job {jobId} to reach state '{expectedState}'. Final state: {FormatState(finalDetail?.Summary)}.");
     }
 
     private static async Task WaitForWorkflowStateAsync(ICliBackend backend, Guid workflowId, ServerWorkflowState expectedState, int timeoutMs = 5000)
@@ -384,9 +384,42 @@ public class CliBackendParityTests
         var finalDetail = await backend.GetWorkflowAsync(workflowId, CancellationToken.None);
         string jobs = finalDetail == null
             ? "<missing>"
-            : string.Join(", ", finalDetail.Jobs.Select(job => $"[{job.DisplayId}] {job.Kind}:{job.State} parent={job.ParentJobId?.ToString() ?? "-"} result={job.ResultJobId?.ToString() ?? "-"}"));
+            : string.Join(", ", finalDetail.Jobs.Select(job => $"[{job.DisplayId}] {job.Kind}:{ProjectState(job)} parent={job.ParentJobId?.ToString() ?? "-"} result={job.ResultJobId?.ToString() ?? "-"}"));
         Assert.Fail($"Timed out waiting for workflow {workflowId} to reach state '{expectedState}'. Jobs: {jobs}");
     }
+
+    private static ExpectedJobStatus ProjectState(JobSummaryDto summary)
+        => ProjectState(summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason);
+
+    private static ExpectedJobStatus ProjectState(
+        ServerJobLifecycleState lifecycle,
+        ServerJobActivityPhase activity,
+        ServerJobTerminalOutcome outcome,
+        ServerJobSkipReason skipReason = ServerJobSkipReason.None)
+        => lifecycle switch
+        {
+            ServerJobLifecycleState.Pending => ExpectedJobStatus.Pending,
+            ServerJobLifecycleState.AwaitingSelection => ExpectedJobStatus.AwaitingSelection,
+            ServerJobLifecycleState.Terminal => outcome switch
+            {
+                ServerJobTerminalOutcome.Succeeded => ExpectedJobStatus.Succeeded,
+                ServerJobTerminalOutcome.Skipped when skipReason == ServerJobSkipReason.AlreadyExists => ExpectedJobStatus.AlreadyExists,
+                ServerJobTerminalOutcome.Skipped when skipReason == ServerJobSkipReason.NotFoundLastTime => ExpectedJobStatus.NotFoundLastTime,
+                ServerJobTerminalOutcome.Skipped => ExpectedJobStatus.Skipped,
+                _ => ExpectedJobStatus.Failed,
+            },
+            _ => activity switch
+            {
+                ServerJobActivityPhase.Extracting => ExpectedJobStatus.Extracting,
+                ServerJobActivityPhase.Downloading => ExpectedJobStatus.Downloading,
+                ServerJobActivityPhase.RunningChildren => ExpectedJobStatus.RunningChildren,
+                ServerJobActivityPhase.None => ExpectedJobStatus.RunningChildren,
+                _ => ExpectedJobStatus.Searching,
+            },
+        };
+
+    private static string FormatState(JobSummaryDto? summary)
+        => summary == null ? "<missing>" : ProjectState(summary).ToString();
 
     private static string CreateTempDir(string prefix)
     {

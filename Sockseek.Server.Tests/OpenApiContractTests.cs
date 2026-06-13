@@ -64,8 +64,23 @@ public class OpenApiContractTests
             StringAssert.Contains(json, nameof(FileCandidateDto));
             StringAssert.Contains(json, nameof(WorkflowTreeDto));
             StringAssert.Contains(json, nameof(ApiErrorDto));
+            StringAssert.Contains(json, "lifecycleState");
+            StringAssert.Contains(json, "activityPhase");
+            StringAssert.Contains(json, "terminalOutcome");
             StringAssert.Contains(json, "discriminator");
             StringAssert.Contains(json, "kind");
+
+            var jobListParameterNames = document.RootElement
+                .GetProperty("paths")
+                .GetProperty("/api/jobs")
+                .GetProperty("get")
+                .GetProperty("parameters")
+                .EnumerateArray()
+                .Select(parameter => parameter.GetProperty("name").GetString())
+                .ToList();
+            CollectionAssert.Contains(jobListParameterNames, "lifecycleState");
+            CollectionAssert.Contains(jobListParameterNames, "terminalOutcome");
+            Assert.IsFalse(jobListParameterNames.Contains("state"), "/api/jobs should not expose the old flattened state filter.");
         }
         finally
         {

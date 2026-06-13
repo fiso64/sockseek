@@ -26,21 +26,31 @@ public class IntervalProgressReporter
 
         foreach (var song in songs)
         {
-            if (song.State == JobState.Done || song.State == JobState.AlreadyExists)
+            if (song.TerminalOutcome == JobTerminalOutcome.Succeeded
+                || (song.TerminalOutcome == JobTerminalOutcome.Skipped && song.SkipReason == JobSkipReason.AlreadyExists))
                 downloadedCount++;
-            else if (song.State == JobState.Failed || song.State == JobState.NotFoundLastTime)
+            else if (song.TerminalOutcome is JobTerminalOutcome.Failed
+                or JobTerminalOutcome.Cancelled
+                or JobTerminalOutcome.PartialSuccess)
+                failedCount++;
+            else if (song.TerminalOutcome == JobTerminalOutcome.Skipped)
                 failedCount++;
             totalCount++;
         }
     }
 
-    public void MaybeReport(JobState state)
+    public void MaybeReport(SongJob song)
     {
         lock (_reportLock)
         {
-            if (state == JobState.Done)
+            if (song.TerminalOutcome == JobTerminalOutcome.Succeeded
+                || (song.TerminalOutcome == JobTerminalOutcome.Skipped && song.SkipReason == JobSkipReason.AlreadyExists))
                 downloadedCount++;
-            else if (state == JobState.Failed)
+            else if (song.TerminalOutcome is JobTerminalOutcome.Failed
+                or JobTerminalOutcome.Cancelled
+                or JobTerminalOutcome.PartialSuccess)
+                failedCount++;
+            else if (song.TerminalOutcome == JobTerminalOutcome.Skipped)
                 failedCount++;
             else
                 return;

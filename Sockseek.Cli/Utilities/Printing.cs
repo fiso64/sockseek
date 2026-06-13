@@ -173,11 +173,11 @@ public static class Printing
         }
         else if (job is AggregateJob ag)
         {
-            var existing = ag.Songs.Where(s => s.State == JobState.AlreadyExists).ToList();
-            var notFound = ag.Songs.Where(s => s.FailureReason == FailureReason.NoSuitableFileFound).ToList();
+            var existing = ag.Songs.Where(IsAlreadyExistingPlannedJob).ToList();
+            var notFound = ag.Songs.Where(s => s.FailureReason == JobFailureReason.NoSuitableFileFound).ToList();
             if (printOption.HasFlag(PrintOption.Json))
             {
-                JsonPrinter.PrintAggregateJson(ag.Songs.Where(s => s.State == JobState.Pending));
+                JsonPrinter.PrintAggregateJson(ag.Songs.Where(s => s.IsPending));
             }
             else if (printOption.HasFlag(PrintOption.Link))
             {
@@ -188,7 +188,7 @@ public static class Printing
             else
             {
                 WriteLine($"Results for aggregate {job.ToString(true)}:");
-                PrintTracksTbd(ag.Songs.Where(s => s.State == JobState.Pending).ToList(), existing, notFound, false, printOption);
+                PrintTracksTbd(ag.Songs.Where(s => s.IsPending).ToList(), existing, notFound, false, printOption);
             }
         }
         else if (job is AlbumJob albumJob)
@@ -352,9 +352,9 @@ public static class Printing
 
         if (songs.Count > 0)
         {
-            var existing = songs.Where(s => s.State == JobState.AlreadyExists).ToList();
-            var notFound = songs.Where(s => s.FailureReason == FailureReason.NoSuitableFileFound).ToList();
-            PrintTracksTbd(songs.Where(s => s.State == JobState.Pending).ToList(), existing, notFound, true, config.PrintOption);
+            var existing = songs.Where(IsAlreadyExistingPlannedJob).ToList();
+            var notFound = songs.Where(s => s.FailureReason == JobFailureReason.NoSuitableFileFound).ToList();
+            PrintTracksTbd(songs.Where(s => s.IsPending).ToList(), existing, notFound, true, config.PrintOption);
         }
 
         var existingJobs = otherJobs.Where(IsAlreadyExistingPlannedJob).ToList();
@@ -442,12 +442,12 @@ public static class Printing
     }
 
     private static bool IsAlreadyExistingPlannedJob(Job job)
-        => job.State == JobState.AlreadyExists
-        || job.State == JobState.Skipped && !string.IsNullOrWhiteSpace(GetPlannedJobDownloadPath(job));
+        => job.TerminalOutcome == JobTerminalOutcome.Skipped && job.SkipReason == JobSkipReason.AlreadyExists
+        || job.TerminalOutcome == JobTerminalOutcome.Skipped && !string.IsNullOrWhiteSpace(GetPlannedJobDownloadPath(job));
 
     private static bool IsNotFoundPlannedJob(Job job)
-        => job.State == JobState.NotFoundLastTime
-        || job.FailureReason == FailureReason.NoSuitableFileFound;
+        => job.TerminalOutcome == JobTerminalOutcome.Skipped && job.SkipReason == JobSkipReason.NotFoundLastTime
+        || job.FailureReason == JobFailureReason.NoSuitableFileFound;
 
     private static string? GetPlannedJobDownloadPath(Job job)
         => job switch
@@ -514,8 +514,8 @@ public static class Printing
         if (job is SongJob && parent is AlbumJob)
             return;
 
-        if (IsSuccessfulCompletion(job.State)) successes++;
-        else if (job.State == JobState.Failed) fails++;
+        if (IsSuccessfulCompletion(job)) successes++;
+        else if (job.IsUnsuccessfulTerminal) fails++;
     }
 
     public static void PrintComplete(int successes, int fails)
@@ -527,8 +527,8 @@ public static class Printing
         }
     }
 
-    public static bool IsSuccessfulCompletion(JobState state)
-        => state is JobState.Done or JobState.AlreadyExists;
+    public static bool IsSuccessfulCompletion(Job job)
+        => job.IsSuccessfulTerminal;
 
 
     public static void PrintTracksTbd(List<SongJob> toBeDownloaded, List<SongJob> existing, List<SongJob> notFound,

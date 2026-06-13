@@ -88,7 +88,9 @@ public sealed class SockseekApiClient
     {
         var url = "api/jobs"
             + $"?includeAll={query.IncludeAll.ToString().ToLowerInvariant()}"
-            + QueryPart("state", query.State?.ToString())
+            + QueryPart("lifecycleState", query.LifecycleState?.ToString())
+            + QueryPart("terminalOutcome", query.TerminalOutcome?.ToString())
+            + QueryPart("skipReason", query.SkipReason?.ToString())
             + QueryPart("kind", query.Kind?.ToWireString())
             + QueryPart("workflowId", query.WorkflowId?.ToString());
 
@@ -206,7 +208,7 @@ public sealed class SockseekApiClient
         {
             ct.ThrowIfCancellationRequested();
             var detail = await GetJobDetailAsync(summary.JobId, ct);
-            if (detail == null || IsActiveState(detail.Summary.State))
+            if (detail == null || IsActiveLifecycle(detail.Summary.LifecycleState))
             {
                 await Task.Delay(100, ct);
                 continue;
@@ -253,7 +255,7 @@ public sealed class SockseekApiClient
             return true;
         }
 
-        var jobs = await GetJobsAsync(new JobQuery(null, null, null, IncludeAll: true), ct);
+        var jobs = await GetJobsAsync(new JobQuery(null, null, null, null, IncludeAll: true), ct);
         var match = jobs.FirstOrDefault(job => job.DisplayId == displayId);
         return match != null && await CancelJobAsync(match.JobId, ct);
     }
@@ -289,7 +291,7 @@ public sealed class SockseekApiClient
             return true;
         }
 
-        var jobs = await GetJobsAsync(new JobQuery(null, null, null, IncludeAll: true), ct);
+        var jobs = await GetJobsAsync(new JobQuery(null, null, null, null, IncludeAll: true), ct);
         var match = jobs.FirstOrDefault(job => job.DisplayId == displayId);
         return match != null && await TryNextCandidateAsync(match.JobId, ct);
     }
@@ -342,10 +344,6 @@ public sealed class SockseekApiClient
     private static string QueryPart(string name, string? value)
         => string.IsNullOrWhiteSpace(value) ? "" : $"&{Uri.EscapeDataString(name)}={Uri.EscapeDataString(value)}";
 
-    private static bool IsActiveState(ServerJobState state)
-        => state is ServerJobState.Pending
-            or ServerJobState.Searching
-            or ServerJobState.Downloading
-            or ServerJobState.Extracting
-            or ServerJobState.Running;
+    private static bool IsActiveLifecycle(ServerJobLifecycleState state)
+        => state != ServerJobLifecycleState.Terminal;
 }

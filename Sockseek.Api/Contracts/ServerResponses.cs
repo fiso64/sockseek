@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Sockseek.Api;
 
 /// <summary>
@@ -67,8 +69,12 @@ public sealed record ResourceActionDto(
 /// Lightweight job list item. Fetch JobDetailDto for a selected job's typed payload.
 /// </summary>
 /// <param name="Kind">Stable job kind.</param>
-/// <param name="State">Stable job state.</param>
-/// <param name="FailureReason">Stable failure reason when State is failed.</param>
+/// <param name="LifecycleState">High-level lifecycle state.</param>
+/// <param name="ActivityPhase">Current activity phase for non-terminal jobs.</param>
+/// <param name="TerminalOutcome">Terminal result when LifecycleState is Terminal.</param>
+/// <param name="SkipReason">Reason when TerminalOutcome is Skipped.</param>
+/// <param name="FailureReason">Stable failure reason when TerminalOutcome is failed or cancelled.</param>
+/// <param name="CancellationSource">Source of a cancellation outcome, when known.</param>
 /// <param name="ParentJobId">Execution parent. Parent cancellation propagates to this job.</param>
 /// <param name="ResultJobId">For extract jobs, the semantic result job produced by extraction.</param>
 /// <param name="SourceJobId">Provenance link for independently submitted follow-up jobs, such as downloads started from search results.</param>
@@ -78,10 +84,14 @@ public sealed record JobSummaryDto(
     int DisplayId,
     Guid WorkflowId,
     ServerJobKind Kind,
-    ServerJobState State,
+    ServerJobLifecycleState LifecycleState,
+    ServerJobActivityPhase ActivityPhase,
+    DateTimeOffset? ActivityUntilUtc,
+    ServerJobTerminalOutcome TerminalOutcome,
+    ServerJobSkipReason SkipReason,
     string? ItemName,
     string? QueryText,
-    ServerFailureReason? FailureReason,
+    ServerJobFailureReason? FailureReason,
     string? FailureMessage,
     Guid? ParentJobId,
     Guid? ResultJobId,
@@ -90,7 +100,83 @@ public sealed record JobSummaryDto(
     int? DiscoveryLockedFileCount,
     IReadOnlyList<string> AppliedAutoProfiles,
     IReadOnlyList<ResourceActionDto> AvailableActions,
-    string? FailureDetail = null);
+    string? FailureDetail = null,
+    ServerJobCancellationSource CancellationSource = ServerJobCancellationSource.None)
+{
+    public JobSummaryDto()
+        : this(
+            Guid.Empty,
+            0,
+            Guid.Empty,
+            ServerJobKind.Generic,
+            ServerJobLifecycleState.Pending,
+            ServerJobActivityPhase.None,
+            null,
+            ServerJobTerminalOutcome.None,
+            ServerJobSkipReason.None,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            [],
+            [],
+            null,
+            ServerJobCancellationSource.None)
+    {
+    }
+
+    public JobSummaryDto(
+        Guid JobId,
+        int DisplayId,
+        Guid WorkflowId,
+        ServerJobKind Kind,
+        ServerJobLifecycleState LifecycleState,
+        ServerJobActivityPhase ActivityPhase,
+        DateTimeOffset? ActivityUntilUtc,
+        ServerJobTerminalOutcome TerminalOutcome,
+        string? ItemName,
+        string? QueryText,
+        ServerJobFailureReason? FailureReason,
+        string? FailureMessage,
+        Guid? ParentJobId,
+        Guid? ResultJobId,
+        Guid? SourceJobId,
+        int? DiscoveryResultCount,
+        int? DiscoveryLockedFileCount,
+        IReadOnlyList<string> AppliedAutoProfiles,
+        IReadOnlyList<ResourceActionDto> AvailableActions,
+        string? FailureDetail = null)
+        : this(
+            JobId,
+            DisplayId,
+            WorkflowId,
+            Kind,
+            LifecycleState,
+            ActivityPhase,
+            ActivityUntilUtc,
+            TerminalOutcome,
+            ServerJobSkipReason.None,
+            ItemName,
+            QueryText,
+            FailureReason,
+            FailureMessage,
+            ParentJobId,
+            ResultJobId,
+            SourceJobId,
+            DiscoveryResultCount,
+            DiscoveryLockedFileCount,
+            AppliedAutoProfiles,
+            AvailableActions,
+            FailureDetail)
+    {
+    }
+
+}
 
 /// <summary>
 /// Selected-job snapshot: summary, typed payload, and direct child summaries for client navigation.
@@ -140,7 +226,10 @@ public sealed record WorkflowTreeDto(
 /// When true, includes every matching job as a flat list. Default lists return only execution roots where ParentJobId is null.
 /// </param>
 public sealed record JobQuery(
-    ServerJobState? State,
+    ServerJobLifecycleState? LifecycleState,
+    ServerJobTerminalOutcome? TerminalOutcome,
     ServerJobKind? Kind,
     Guid? WorkflowId,
-    bool IncludeAll);
+    bool IncludeAll,
+    ServerJobSkipReason? SkipReason = null);
+

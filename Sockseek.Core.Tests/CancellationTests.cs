@@ -118,20 +118,20 @@ namespace Tests.Cancellation
 
                 var rootExtract = (ExtractJob)engine.Queue.Jobs[0];
 
-                await WaitForAsync(() => rootExtract.State == JobState.Done);
+                await WaitForAsync(() => rootExtract.TerminalOutcome == JobTerminalOutcome.Succeeded);
 
                 var rootList = (JobList)rootExtract.Result!;
                 var songs    = rootList.AllSongs().ToList();
                 Assert.AreEqual(2, songs.Count);
 
                 // Wait until both songs are concurrently Searching.
-                await WaitForAsync(() => songs.All(s => s.State == JobState.Searching));
+                await WaitForAsync(() => songs.All(s => s.ActivityPhase == JobActivityPhase.Searching));
 
                 Assert.IsNotNull(rootList.Cts, "JobList.Cts must be set");
                 Assert.IsTrue(songs.All(s => s.Cts != null), "All child SongJob.Cts must be set");
 
                 // Cancel the list — both songs' CTSes are linked to it.
-                rootList.Cancel();
+                rootList.Cancel(JobCancellationSource.UserRequestedJob);
 
                 // RunAsync should abort well before the search delay expires.
                 var completed = await Task.WhenAny(runTask, Task.Delay(SearchDelay / 2)) == runTask;
@@ -141,9 +141,9 @@ namespace Tests.Cancellation
                     "RunAsync should have aborted quickly after cancelling the list, not waited the full search delay");
                 Assert.IsTrue(songs.All(s => s.Cts!.IsCancellationRequested),
                     "All child song CTSes should be cancelled");
-                Assert.AreEqual(JobState.Failed, rootList.State,
+                Assert.IsTrue(rootList.IsUnsuccessfulTerminal,
                     "A cancelled JobList should not be left as a completed-running container.");
-                Assert.AreEqual(FailureReason.Cancelled, rootList.FailureReason);
+                Assert.AreEqual(JobFailureReason.Cancelled, rootList.FailureReason);
             }
             finally
             {
@@ -184,18 +184,21 @@ namespace Tests.Cancellation
 
                 var runTask = engine.RunAsync(CancellationToken.None);
 
-                await WaitForAsync(() => first.State == JobState.Searching && second.State == JobState.Pending);
+                await WaitForAsync(() => first.ActivityPhase == JobActivityPhase.Searching && second.IsPending);
 
-                list.Cancel();
+                list.Cancel(JobCancellationSource.UserRequestedJob);
                 await IgnoreCancellation(runTask);
 
-                Assert.AreEqual(JobState.Failed, first.State);
-                Assert.AreEqual(FailureReason.Cancelled, first.FailureReason);
-                Assert.AreEqual(JobState.Failed, second.State,
+                Assert.AreEqual(JobTerminalOutcome.Cancelled, first.TerminalOutcome);
+                Assert.AreEqual(JobFailureReason.Cancelled, first.FailureReason);
+                Assert.AreEqual(JobCancellationSource.ParentJob, first.CancellationSource);
+                Assert.AreEqual(JobTerminalOutcome.Cancelled, second.TerminalOutcome,
                     "A child cancelled while waiting for a job slot must not be left Pending and projected as Done.");
-                Assert.AreEqual(FailureReason.Cancelled, second.FailureReason);
-                Assert.AreEqual(JobState.Failed, list.State);
-                Assert.AreEqual(FailureReason.Cancelled, list.FailureReason);
+                Assert.AreEqual(JobFailureReason.Cancelled, second.FailureReason);
+                Assert.AreEqual(JobCancellationSource.ParentJob, second.CancellationSource);
+                Assert.AreEqual(JobTerminalOutcome.Cancelled, list.TerminalOutcome);
+                Assert.AreEqual(JobFailureReason.Cancelled, list.FailureReason);
+                Assert.AreEqual(JobCancellationSource.UserRequestedJob, list.CancellationSource);
             }
             finally
             {
@@ -229,28 +232,28 @@ namespace Tests.Cancellation
                 var runTask = engine.RunAsync(CancellationToken.None);
 
                 var rootExtract = (ExtractJob)engine.Queue.Jobs[0];
-                await WaitForAsync(() => rootExtract.State == JobState.Done);
+                await WaitForAsync(() => rootExtract.TerminalOutcome == JobTerminalOutcome.Succeeded);
 
                 var songs = ((JobList)rootExtract.Result!).AllSongs().ToList();
                 Assert.AreEqual(2, songs.Count);
 
                 // Wait until both songs are concurrently Searching.
-                await WaitForAsync(() => songs.All(s => s.State == JobState.Searching));
+                await WaitForAsync(() => songs.All(s => s.ActivityPhase == JobActivityPhase.Searching));
 
                 var song1 = songs[0];
                 var song2 = songs[1];
 
                 // Cancel only song1 — song2 must be unaffected.
-                song1.Cancel();
+                song1.Cancel(JobCancellationSource.UserRequestedJob);
                 Assert.IsFalse(song2.Cts!.IsCancellationRequested,
                     "song2.Cts must NOT be cancelled when only song1 is cancelled");
 
                 // Let the engine run to completion.
                 await IgnoreCancellation(runTask);
 
-                Assert.AreEqual(JobState.Failed, song1.State,
+                Assert.IsTrue(song1.IsUnsuccessfulTerminal,
                     "song1 should be Failed after being cancelled mid-search");
-                Assert.AreEqual(JobState.Done, song2.State,
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, song2.TerminalOutcome,
                     "song2 should be Done — it was not cancelled and found a match");
             }
             finally
@@ -281,14 +284,14 @@ namespace Tests.Cancellation
                 var extractJob = (ExtractJob)engine.Queue.Jobs[0];
 
                 // Extraction (StringExtractor) is synchronous — Done almost immediately.
-                await WaitForAsync(() => extractJob.State == JobState.Done);
+                await WaitForAsync(() => extractJob.TerminalOutcome == JobTerminalOutcome.Succeeded);
                 var songJob = (SongJob)extractJob.Result!;
 
                 // Wait for the song to enter Searching so its Cts is live.
-                await WaitForAsync(() => songJob.State == JobState.Searching);
+                await WaitForAsync(() => songJob.ActivityPhase == JobActivityPhase.Searching);
 
                 // Cancel the already-Done ExtractJob.
-                extractJob.Cancel();
+                extractJob.Cancel(JobCancellationSource.UserRequestedJob);
 
                 // The song's CTS is NOT linked to the ExtractJob's CTS.
                 Assert.IsTrue(extractJob.Cts!.IsCancellationRequested,
@@ -380,9 +383,9 @@ namespace Tests.Cancellation
 
                 var runTask = engine.RunAsync(CancellationToken.None);
 
-                await WaitForAsync(() => first.State == JobState.Searching
-                    && second.State == JobState.Searching
-                    && third.State == JobState.Searching);
+                await WaitForAsync(() => first.LifecycleState == JobLifecycleState.Running
+                    && second.LifecycleState == JobLifecycleState.Running
+                    && third.LifecycleState == JobLifecycleState.Running);
 
                 var cancelled = engine.CancelWorkflow(workflowId);
 
@@ -393,9 +396,9 @@ namespace Tests.Cancellation
 
                 await IgnoreCancellation(runTask);
 
-                Assert.AreEqual(JobState.Failed, first.State, "Cancelled workflow jobs should fail as cancelled.");
-                Assert.AreEqual(JobState.Failed, second.State, "Cancelled workflow jobs should fail as cancelled.");
-                Assert.AreEqual(JobState.Done, third.State, "The unrelated workflow job should still complete.");
+                Assert.IsTrue(first.IsUnsuccessfulTerminal, "Cancelled workflow jobs should fail as cancelled.");
+                Assert.IsTrue(second.IsUnsuccessfulTerminal, "Cancelled workflow jobs should fail as cancelled.");
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, third.TerminalOutcome, "The unrelated workflow job should still complete.");
             }
             finally
             {
@@ -435,13 +438,13 @@ namespace Tests.Cancellation
                 app.CompleteEnqueue();
 
                 SongJob? songJob = null;
-                app.Events.JobStateChanged += (job, state) =>
+                app.Events.JobStateChanged += job =>
                 {
-                    if (state == JobState.Downloading && job is SongJob sj)
+                    if (job.ActivityPhase == JobActivityPhase.Downloading && job is SongJob sj)
                     {
                         songJob = sj;
                         // Cancel as soon as downloading starts
-                        sj.Cancel();
+                        sj.Cancel(JobCancellationSource.UserRequestedJob);
                     }
                 };
 
@@ -449,8 +452,8 @@ namespace Tests.Cancellation
                 await IgnoreCancellation(runTask);
 
                 Assert.IsNotNull(songJob);
-                Assert.AreEqual(JobState.Failed, songJob.State);
-                Assert.AreEqual(FailureReason.Cancelled, songJob.FailureReason);
+                Assert.IsTrue(songJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.Cancelled, songJob.FailureReason);
                 Assert.AreEqual(1, testClient.DownloadCallCount, "Should only attempt the first candidate before cancellation takes effect.");
             }
             finally
@@ -491,13 +494,13 @@ namespace Tests.Cancellation
                 app.CompleteEnqueue();
 
                 AlbumJob? albumJob = null;
-                app.Events.JobStateChanged += (job, state) =>
+                app.Events.JobStateChanged += job =>
                 {
-                    if (state == JobState.Downloading && job is AlbumJob aj)
+                    if (job.ActivityPhase == JobActivityPhase.Downloading && job is AlbumJob aj)
                     {
                         albumJob = aj;
                         // Cancel as soon as downloading starts
-                        aj.Cancel();
+                        aj.Cancel(JobCancellationSource.UserRequestedJob);
                     }
                 };
 
@@ -505,8 +508,8 @@ namespace Tests.Cancellation
                 await IgnoreCancellation(runTask);
 
                 Assert.IsNotNull(albumJob);
-                Assert.AreEqual(JobState.Failed, albumJob.State);
-                Assert.AreEqual(FailureReason.Cancelled, albumJob.FailureReason);
+                Assert.IsTrue(albumJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.Cancelled, albumJob.FailureReason);
                 
                 // Assuming only 1 file in the album, max 1 download call
                 Assert.IsTrue(testClient.DownloadCallCount <= 1, $"Should only attempt the first folder. Calls: {testClient.DownloadCallCount}");
@@ -544,10 +547,10 @@ namespace Tests.Cancellation
                 var client = new ClientTests.MockSoulseekClient([response]);
                 var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
 
-                engine.Events.JobStateChanged += (job, state) =>
+                engine.Events.JobStateChanged += job =>
                 {
-                    if (ReferenceEquals(job, albumJob) && state == JobState.Searching)
-                        job.Cancel();
+                    if (ReferenceEquals(job, albumJob) && job.LifecycleState == JobLifecycleState.Running)
+                        job.Cancel(JobCancellationSource.UserRequestedJob);
                 };
 
                 engine.Enqueue(albumJob, downloadSettings);
@@ -556,8 +559,8 @@ namespace Tests.Cancellation
                 var runTask = engine.RunAsync(CancellationToken.None);
                 await IgnoreCancellation(runTask);
 
-                Assert.AreEqual(JobState.Failed, albumJob.State);
-                Assert.AreEqual(FailureReason.Cancelled, albumJob.FailureReason);
+                Assert.IsTrue(albumJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.Cancelled, albumJob.FailureReason);
             }
             finally
             {
@@ -594,10 +597,10 @@ namespace Tests.Cancellation
                 var client = new ClientTests.MockSoulseekClient([response]);
                 var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
 
-                engine.Events.JobStateChanged += (job, state) =>
+                engine.Events.JobStateChanged += job =>
                 {
-                    if (ReferenceEquals(job, aggregateJob) && state == JobState.Searching)
-                        job.Cancel();
+                    if (ReferenceEquals(job, aggregateJob) && job.LifecycleState == JobLifecycleState.Running)
+                        job.Cancel(JobCancellationSource.UserRequestedJob);
                 };
 
                 engine.Enqueue(aggregateJob, downloadSettings);
@@ -606,8 +609,8 @@ namespace Tests.Cancellation
                 var runTask = engine.RunAsync(CancellationToken.None);
                 await IgnoreCancellation(runTask);
 
-                Assert.AreEqual(JobState.Failed, aggregateJob.State);
-                Assert.AreEqual(FailureReason.Cancelled, aggregateJob.FailureReason);
+                Assert.IsTrue(aggregateJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.Cancelled, aggregateJob.FailureReason);
             }
             finally
             {
@@ -647,10 +650,10 @@ namespace Tests.Cancellation
                 var client = new ClientTests.MockSoulseekClient([response]);
                 var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
 
-                engine.Events.JobStateChanged += (job, state) =>
+                engine.Events.JobStateChanged += job =>
                 {
-                    if (ReferenceEquals(job, songJob) && state == JobState.Searching)
-                        job.Cancel();
+                    if (ReferenceEquals(job, songJob) && job.LifecycleState == JobLifecycleState.Running)
+                        job.Cancel(JobCancellationSource.UserRequestedJob);
                 };
 
                 engine.Enqueue(songJob, downloadSettings);
@@ -659,8 +662,8 @@ namespace Tests.Cancellation
                 var runTask = engine.RunAsync(CancellationToken.None);
                 await IgnoreCancellation(runTask);
 
-                Assert.AreEqual(JobState.Failed, songJob.State);
-                Assert.AreEqual(FailureReason.Cancelled, songJob.FailureReason);
+                Assert.IsTrue(songJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.Cancelled, songJob.FailureReason);
             }
             finally
             {
@@ -686,10 +689,10 @@ namespace Tests.Cancellation
                 var client = new ClientTests.MockSoulseekClient([]);
                 var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
 
-                engine.Events.JobStateChanged += (job, state) =>
+                engine.Events.JobStateChanged += job =>
                 {
-                    if (ReferenceEquals(job, extractJob) && state == JobState.Extracting)
-                        job.Cancel();
+                    if (ReferenceEquals(job, extractJob) && job.ActivityPhase == JobActivityPhase.Extracting)
+                        job.Cancel(JobCancellationSource.UserRequestedJob);
                 };
 
                 engine.Enqueue(extractJob, downloadSettings);
@@ -698,8 +701,8 @@ namespace Tests.Cancellation
                 var runTask = engine.RunAsync(CancellationToken.None);
                 await IgnoreCancellation(runTask);
 
-                Assert.AreEqual(JobState.Failed, extractJob.State);
-                Assert.AreEqual(FailureReason.Cancelled, extractJob.FailureReason);
+                Assert.IsTrue(extractJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.Cancelled, extractJob.FailureReason);
                 Assert.IsNull(extractJob.Result);
             }
             finally
@@ -744,9 +747,9 @@ namespace Tests.Cancellation
 
                 AlbumJob? albumJob = null;
                 AlbumFolder? folder = null;
-                engine.Events.JobStateChanged += (job, state) =>
+                engine.Events.JobStateChanged += job =>
                 {
-                    if (state == JobState.Downloading && job is AlbumJob aj)
+                    if (job.ActivityPhase == JobActivityPhase.Downloading && job is AlbumJob aj)
                     {
                         albumJob = aj;
                         folder = aj.ResolvedTarget;
@@ -757,23 +760,23 @@ namespace Tests.Cancellation
                 engine.CompleteEnqueue();
                 var runTask = engine.RunAsync(CancellationToken.None);
 
-                await WaitForAsync(() => folder != null && folder.Files.Any(song => song.State == JobState.Downloading), 5000);
+                await WaitForAsync(() => folder != null && folder.Files.Any(song => song.ActivityPhase == JobActivityPhase.Downloading), 5000);
 
-                albumJob!.Cancel();
+                albumJob!.Cancel(JobCancellationSource.UserRequestedJob);
                 await IgnoreCancellation(runTask);
 
                 Assert.IsNotNull(folder);
                 Assert.IsFalse(
-                    folder!.Files.Any(song => song.State is JobState.Pending or JobState.Searching or JobState.Downloading),
+                    folder!.Files.Any(song => song.LifecycleState == JobLifecycleState.Pending || song.ActivityPhase is JobActivityPhase.Searching or JobActivityPhase.Downloading),
                     "Cancelling an album should not leave unresolved folder files in active states.");
                 Assert.IsTrue(
-                    folder.Files.Any(song => song.State == JobState.Failed && song.FailureReason == FailureReason.Cancelled),
+                    folder.Files.Any(song => song.IsUnsuccessfulTerminal && song.FailureReason == JobFailureReason.Cancelled),
                     "At least one unfinished album file should be marked as cancelled.");
 
                 Assert.IsNotNull(albumJob);
                 var resolved = albumJob!.ResolvedTarget ?? folder;
                 Assert.IsFalse(
-                    resolved.Files.Any(song => song.State is JobState.Pending or JobState.Searching or JobState.Downloading),
+                    resolved.Files.Any(song => song.LifecycleState == JobLifecycleState.Pending || song.ActivityPhase is JobActivityPhase.Searching or JobActivityPhase.Downloading),
                     "The album's resolved folder should not expose stale active child states after cancellation.");
             }
             finally
@@ -844,10 +847,10 @@ namespace Tests.Cancellation
                     if (parent == aggregateJob && job is JobList list)
                         aggregateList = list;
                 };
-                engine.Events.JobStateChanged += (job, state) =>
+                engine.Events.JobStateChanged += job =>
                 {
-                    if (ReferenceEquals(job, aggregateList) && state == JobState.Running)
-                        job.Cancel();
+                    if (ReferenceEquals(job, aggregateList) && job.ActivityPhase == JobActivityPhase.RunningChildren)
+                        job.Cancel(JobCancellationSource.UserRequestedJob);
                 };
 
                 engine.Enqueue(aggregateJob, downloadSettings);
@@ -857,10 +860,10 @@ namespace Tests.Cancellation
                 await IgnoreCancellation(runTask);
 
                 Assert.IsNotNull(aggregateList, "AlbumAggregate should process matching albums through a registered JobList.");
-                Assert.AreEqual(JobState.Failed, aggregateList!.State);
-                Assert.AreEqual(FailureReason.Cancelled, aggregateList.FailureReason);
-                Assert.AreEqual(JobState.Failed, aggregateJob.State);
-                Assert.AreEqual(FailureReason.Cancelled, aggregateJob.FailureReason);
+                Assert.IsTrue(aggregateList!.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.Cancelled, aggregateList.FailureReason);
+                Assert.IsTrue(aggregateJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.Cancelled, aggregateJob.FailureReason);
             }
             finally
             {

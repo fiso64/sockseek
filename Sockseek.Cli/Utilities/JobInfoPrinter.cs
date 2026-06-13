@@ -12,25 +12,16 @@ internal static class JobInfoPrinter
     {
         var s = detail.Summary;
 
-        string stateLabel = s.State.ToString();
-        ConsoleColor stateColor = StateColor(s.State);
-
-        if (detail.Payload is SongJobPayloadDto songPayload)
-        {
-            var tsLabel = TransferStateLabel(songPayload.TransferState);
-            if (tsLabel != null)
-            {
-                stateLabel = tsLabel;
-                stateColor = TransferStateLabelColor(tsLabel);
-            }
-        }
+        var status = CliJobStatusPresenter.ForSummary(
+            s,
+            detail.Payload is SongJobPayloadDto songPayload ? songPayload.TransferState : null);
 
         Printing.WriteLine(force: true);
         Printing.Write($"[{s.DisplayId:000}] {s.Kind}", ConsoleColor.White, force: true);
         Printing.Write(" • ", ConsoleColor.DarkGray, force: true);
 
-        // TODO: When state = failed, should also print failure reason.
-        Printing.WriteLine(stateLabel, stateColor, force: true);
+        Printing.WriteLine(status.Label, status.Color, force: true);
+        PrintSplitState(s);
 
         switch (detail.Payload)
         {
@@ -199,11 +190,7 @@ internal static class JobInfoPrinter
 
     private static void PrintAlbumTrack(SongJobPayloadDto track, string? folderPath)
     {
-        var transferStateLabel = TransferStateLabel(track.TransferState);
-        var stateLabel = transferStateLabel ?? track.State?.ToString() ?? "Pending";
-        var stateColor = transferStateLabel != null ? TransferStateLabelColor(transferStateLabel)
-            : track.State.HasValue ? StateColor(track.State.Value)
-            : ConsoleColor.Gray;
+        var status = CliJobStatusPresenter.ForSongPayload(track);
 
         var name = TrackRelativeName(track.ResolvedFilename, folderPath)
             ?? FormatSongQuery(track.Query)
@@ -215,7 +202,7 @@ internal static class JobInfoPrinter
             Printing.Write($"    [{id:000}] ", ConsoleColor.DarkGray, force: true);
         else
             Printing.Write($"    ", force: true);
-        Printing.Write($"{stateLabel,-14}", stateColor, force: true);
+        Printing.Write($"{status.Label,-18}", status.Color, force: true);
         Printing.Write(": ", ConsoleColor.DarkGray, force: true);
         Printing.Write(name, ConsoleColor.White, force: true);
         if (meta != null)
@@ -260,11 +247,30 @@ internal static class JobInfoPrinter
 
     private static void PrintChildSummary(JobSummaryDto child)
     {
-        var stateColor = StateColor(child.State);
+        var status = CliJobStatusPresenter.ForSummary(child);
         var name = child.ItemName ?? child.QueryText ?? child.JobId.ToString("D");
         Printing.Write($"    [{child.DisplayId:000}] ", ConsoleColor.DarkGray, force: true);
-        Printing.Write($"{child.State,-14}", stateColor, force: true);
+        Printing.Write($"{status.Label,-18}", status.Color, force: true);
         Printing.WriteLine(name, ConsoleColor.White, force: true);
+    }
+
+    private static void PrintSplitState(JobSummaryDto s)
+    {
+        Field("Lifecycle", s.LifecycleState.ToString(), ConsoleColor.Gray);
+        if (s.ActivityPhase != ServerJobActivityPhase.None)
+            Field("Activity", s.ActivityPhase.ToString(), ConsoleColor.Cyan);
+        if (s.ActivityUntilUtc is DateTimeOffset until)
+            Field("Activity until", until.ToLocalTime().ToString("u"), ConsoleColor.DarkCyan);
+        if (s.TerminalOutcome != ServerJobTerminalOutcome.None)
+            Field("Outcome", s.TerminalOutcome.ToString(),
+                s.TerminalOutcome == ServerJobTerminalOutcome.Succeeded
+                    || (s.TerminalOutcome == ServerJobTerminalOutcome.Skipped && s.SkipReason == ServerJobSkipReason.AlreadyExists)
+                    ? ConsoleColor.Green
+                    : ConsoleColor.Yellow);
+        if (s.SkipReason != ServerJobSkipReason.None)
+            Field("Skip reason", s.SkipReason.ToString(), ConsoleColor.DarkGray);
+        if (s.FailureReason is { } reason)
+            Field("Failure reason", CliJobStatusPresenter.FailureReasonLabel(reason), ConsoleColor.Yellow);
     }
 
     private static void Field(string label, string value, ConsoleColor valueColor = ConsoleColor.White)
@@ -340,13 +346,4 @@ internal static class JobInfoPrinter
         _                                           => ConsoleColor.Gray,
     };
 
-    private static ConsoleColor StateColor(ServerJobState state) => state switch
-    {
-        ServerJobState.Done or ServerJobState.AlreadyExists          => ConsoleColor.Green,
-        ServerJobState.Failed                                         => ConsoleColor.Red,
-        ServerJobState.Downloading or ServerJobState.Searching
-            or ServerJobState.Running or ServerJobState.Extracting   => ConsoleColor.Cyan,
-        ServerJobState.Skipped or ServerJobState.NotFoundLastTime     => ConsoleColor.DarkGray,
-        _                                                             => ConsoleColor.Gray,
-    };
 }

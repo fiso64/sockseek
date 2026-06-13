@@ -20,8 +20,11 @@ public struct FileManagerContext
     public SongQuery Query;         // artist, title, album, length, uri, artistMaybeWrong
     public FileCandidate? Candidate;    // slsk-filename, slsk-foldername
     public string? DownloadPath;  // path, path-noext, ext
-    public JobState State;
-    public FailureReason FailureReason;
+    public JobLifecycleState LifecycleState;
+    public JobActivityPhase ActivityPhase;
+    public JobTerminalOutcome TerminalOutcome;
+    public JobSkipReason SkipReason;
+    public JobFailureReason FailureReason;
     public bool IsNotAudio;
     public int LineNumber;
     public int ItemNumber;
@@ -35,7 +38,10 @@ public struct FileManagerContext
             Query = song.Query,
             Candidate = song.ChosenCandidate ?? song.Candidates?.FirstOrDefault(),
             DownloadPath = song.DownloadPath,
-            State = song.State,
+            LifecycleState = song.LifecycleState,
+            ActivityPhase = song.ActivityPhase,
+            TerminalOutcome = song.TerminalOutcome,
+            SkipReason = song.SkipReason,
             FailureReason = song.FailureReason,
             IsNotAudio = false,
             LineNumber = song.LineNumber,
@@ -138,7 +144,7 @@ public partial class FileManager
 
             string parent = Utils.GreatestCommonDirectory(
                 allFiles
-                    .Where(f => !f.IsNotAudio && f.State == JobState.Done && f.DownloadPath?.Length > 0)
+                    .Where(f => !f.IsNotAudio && f.TerminalOutcome == JobTerminalOutcome.Succeeded && f.DownloadPath?.Length > 0)
                     .Select(f => f.DownloadPath));
 
             foreach (var file in nonAudioToOrganize)
@@ -320,7 +326,11 @@ public partial class FileManager
 
         // Download state
         { "type",             (ctx, _) => ctx.Job.GetType().Name.Replace("Job", "") },
-        { "state",            (ctx, _) => ctx.State.ToString() },
+        { "state",            (ctx, _) => FormatSplitState(ctx) },
+        { "lifecycle-state",  (ctx, _) => ctx.LifecycleState.ToString() },
+        { "activity-phase",   (ctx, _) => ctx.ActivityPhase.ToString() },
+        { "terminal-outcome", (ctx, _) => ctx.TerminalOutcome.ToString() },
+        { "skip-reason",      (ctx, _) => ctx.SkipReason.ToString() },
         { "is-audio",         (ctx, _) => (!ctx.IsNotAudio).ToString().ToLower() },
         { "failure-reason",   (ctx, _) => ctx.FailureReason.ToString() },
         { "artist-maybe-wrong", (ctx, _) => ctx.Query.ArtistMaybeWrong.ToString().ToLower() },
@@ -376,6 +386,17 @@ public partial class FileManager
     {
         return TagVars.Any(v => x.Contains($"{{{v}}}"));
     }
+
+    private static string FormatSplitState(FileManagerContext ctx)
+        => ctx.LifecycleState switch
+        {
+            JobLifecycleState.Pending => nameof(JobLifecycleState.Pending),
+            JobLifecycleState.AwaitingSelection => nameof(JobLifecycleState.AwaitingSelection),
+            JobLifecycleState.Terminal => ctx.TerminalOutcome == JobTerminalOutcome.Skipped && ctx.SkipReason != JobSkipReason.None
+                ? ctx.SkipReason.ToString()
+                : ctx.TerminalOutcome.ToString(),
+            _ => ctx.ActivityPhase != JobActivityPhase.None ? ctx.ActivityPhase.ToString() : ctx.LifecycleState.ToString(),
+        };
 
     private static string GetFolderName(Soulseek.File? slfile, string? remoteBaseDir)
     {

@@ -40,10 +40,17 @@ public partial class Searcher
 
     // ── raw search job ──────────────────────────────────────────────────────
 
-    public async Task<JobOutcome> Search(SearchJob job, SearchSettings search, ResponseData responseData, CancellationToken ct, Action? onSearch = null, bool completeSessionOnError = true)
+    public async Task<JobOutcome> Search(
+        SearchJob job,
+        SearchSettings search,
+        ResponseData responseData,
+        CancellationToken ct,
+        Action? onSearch = null,
+        bool completeSessionOnError = true,
+        Job? phaseOwner = null)
     {
         var session = job.Session;
-        job.UpdateState(JobState.Searching);
+        var activityJob = phaseOwner ?? job;
 
         try
         {
@@ -56,10 +63,12 @@ public partial class Searcher
                     responseFilter: _ => true,
                     fileFilter: _ => true);
 
+            activityJob.UpdateActivity(JobActivityPhase.WaitingForSearchConcurrency);
             await concurrencySemaphore.WaitAsync(ct);
-            try { await RunSearches(job.NetworkQuery, session.Results, getOpts, session.AddResponse, search, ct, onSearch); }
+            try { await RunSearches(job.NetworkQuery, session.Results, getOpts, session.AddResponse, search, ct, onSearch, activityJob); }
             finally { concurrencySemaphore.Release(); }
 
+            activityJob.UpdateActivity(JobActivityPhase.ProcessingSearchResults);
             responseData.lockedFilesCount += session.LockedFileCount;
             job.Discovery = new DiscoverySummary { ResultCount = session.Results.Count, LockedFileCount = session.LockedFileCount };
             session.Complete();
@@ -68,7 +77,7 @@ public partial class Searcher
         catch (OperationCanceledException)
         {
             session.Complete();
-            return JobOutcome.Failed(FailureReason.Cancelled);
+            throw;
         }
         catch
         {
@@ -118,11 +127,11 @@ public partial class Searcher
                 responseFilter: r => r.UploadSpeed > 0 && nec.UserSatisfies(r),
                 fileFilter: f => nec.FileSatisfies(f, song.Query, null));
 
-        song.UpdateState(JobState.Searching);
+        song.UpdateActivity(JobActivityPhase.WaitingForSearchConcurrency);
         await concurrencySemaphore.WaitAsync(ct);
         try
         {
-            await RunSearches(song.Query, session.Results, getOpts, responseHandler, search, ct, onSearch);
+            await RunSearches(song.Query, session.Results, getOpts, responseHandler, search, ct, onSearch, song);
         }
         finally
         {
@@ -130,6 +139,7 @@ public partial class Searcher
             searchRegistry.Searches.TryRemove(song, out _);
         }
 
+        song.UpdateActivity(JobActivityPhase.ProcessingSearchResults);
         responseData.lockedFilesCount += session.LockedFileCount;
 
         song.Discovery ??= new DiscoverySummary();
@@ -157,11 +167,11 @@ public partial class Searcher
     public async Task<JobOutcome?> SearchAlbum(AlbumJob job, SearchSettings search, ResponseData responseData, CancellationToken ct)
     {
         var searchJob = new SearchJob(job.Query);
-        job.UpdateState(JobState.Searching);
-        var outcome = await Search(searchJob, search, responseData, ct);
-        if (outcome.State == JobState.Failed)
+        var outcome = await Search(searchJob, search, responseData, ct, phaseOwner: job);
+        if (outcome.TerminalOutcome is JobTerminalOutcome.Failed or JobTerminalOutcome.Cancelled)
             return outcome;
 
+        job.UpdateActivity(JobActivityPhase.ProcessingSearchResults);
         job.Results = searchJob.GetAlbumFolders(search).Items.ToList();
         return null;
     }
@@ -182,19 +192,13 @@ public partial class Searcher
                 responseFilter: r => r.UploadSpeed > 0 && nec.UserSatisfies(r),
                 fileFilter: f => nec.FileSatisfies(f, job.Query, null));
 
-        try
-        {
-            job.UpdateState(JobState.Searching);
-            await concurrencySemaphore.WaitAsync(ct);
-            try { await RunSearches(job.Query, session.Results, getOpts, session.AddResponse, search, ct); }
-            finally { concurrencySemaphore.Release(); }
-        }
-        catch (OperationCanceledException)
-        {
-            return JobOutcome.Failed(FailureReason.Cancelled);
-        }
+        job.UpdateActivity(JobActivityPhase.WaitingForSearchConcurrency);
+        await concurrencySemaphore.WaitAsync(ct);
+        try { await RunSearches(job.Query, session.Results, getOpts, session.AddResponse, search, ct, ownerJob: job); }
+        finally { concurrencySemaphore.Release(); }
 
         responseData.lockedFilesCount += session.LockedFileCount;
+        job.UpdateActivity(JobActivityPhase.ProcessingSearchResults);
         job.Songs = SearchResultProjector.AggregateTracks(session.Snapshot(), job.Query, search, userStats.UserSuccessCounts);
         return null;
     }
@@ -202,12 +206,12 @@ public partial class Searcher
     // Returns new AlbumJobs (one per distinct album version found on the network).
     public async Task<(List<AlbumJob> Albums, JobOutcome? Outcome)> SearchAggregateAlbum(AlbumAggregateJob job, SearchSettings search, ResponseData responseData, CancellationToken ct)
     {
-        job.UpdateState(JobState.Searching);
         var searchJob = new SearchJob(job.Query);
-        var outcome = await Search(searchJob, search, responseData, ct);
-        if (outcome.State == JobState.Failed)
+        var outcome = await Search(searchJob, search, responseData, ct, phaseOwner: job);
+        if (outcome.TerminalOutcome is JobTerminalOutcome.Failed or JobTerminalOutcome.Cancelled)
             return ([], outcome);
 
+        job.UpdateActivity(JobActivityPhase.ProcessingSearchResults);
         var folders = searchJob.GetAlbumFolders(
             new FolderSearchProjection(
                 job.Query,
@@ -508,7 +512,7 @@ public partial class Searcher
     public async Task RunSearches(SongQuery query, SlDictionary results,
         Func<int, FileConditions, FileConditions, SearchOptions> getSearchOptions,
         Action<SearchResponse> responseHandler, SearchSettings search,
-        CancellationToken? ct = null, Action? onSearch = null)
+        CancellationToken? ct = null, Action? onSearch = null, Job? ownerJob = null)
     {
         bool artist = query.Artist.Length > 0;
         bool title = query.Title.Length > 0;
@@ -519,10 +523,10 @@ public partial class Searcher
         bool noRemoveSpecialChars = search.NoRemoveSpecialChars;
 
         var defaultOpts = getSearchOptions(search.SearchTimeout, search.NecessaryCond, search.PreferredCond);
-        searchTasks.Add(DoSearch(searchStr, defaultOpts, responseHandler, noRemoveSpecialChars, ct, onSearch));
+        searchTasks.Add(DoSearch(searchStr, defaultOpts, responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
 
         if (searchStr.RemoveDiacriticsIfExist(out string noDiacr) && !query.ArtistMaybeWrong)
-            searchTasks.Add(DoSearch(noDiacr, defaultOpts, responseHandler, noRemoveSpecialChars, ct, onSearch));
+            searchTasks.Add(DoSearch(noDiacr, defaultOpts, responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
 
         await Task.WhenAll(searchTasks);
 
@@ -531,7 +535,7 @@ public partial class Searcher
             var inferred = InferSongQuery(query.Title, new SongQuery());
             var cond = new FileConditions(search.NecessaryCond) { StrictTitle = inferred.Title == query.Title, StrictArtist = false };
             var opts = getSearchOptions(Math.Min(search.SearchTimeout, 5000), cond, search.PreferredCond);
-            searchTasks.Add(DoSearch($"{inferred.Artist} {inferred.Title}", opts, responseHandler, noRemoveSpecialChars, ct, onSearch));
+            searchTasks.Add(DoSearch($"{inferred.Artist} {inferred.Title}", opts, responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
         }
 
         if (search.DesperateSearch)
@@ -545,14 +549,14 @@ public partial class Searcher
                     var cond = new FileConditions(search.NecessaryCond) { StrictTitle = true, StrictAlbum = true };
                     searchTasks.Add(DoSearch($"{query.Artist} {query.Album}",
                         getSearchOptions(Math.Min(search.SearchTimeout, 5000), cond, search.PreferredCond),
-                        responseHandler, noRemoveSpecialChars, ct, onSearch));
+                        responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
                 }
                 if (artist && title && query.Length != -1 && search.NecessaryCond.LengthTolerance != -1)
                 {
                     var cond = new FileConditions(search.NecessaryCond) { LengthTolerance = -1, StrictTitle = true, StrictArtist = true };
                     searchTasks.Add(DoSearch($"{query.Artist} {query.Title}",
                         getSearchOptions(Math.Min(search.SearchTimeout, 5000), cond, search.PreferredCond),
-                        responseHandler, noRemoveSpecialChars, ct, onSearch));
+                        responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
                 }
             }
 
@@ -567,21 +571,21 @@ public partial class Searcher
                     var cond = new FileConditions(search.NecessaryCond)
                     { StrictAlbum = true, StrictTitle = !query.ArtistMaybeWrong, StrictArtist = !query.ArtistMaybeWrong, LengthTolerance = -1 };
                     searchTasks.Add(DoSearch(query.Album, getSearchOptions(Math.Min(search.SearchTimeout, 5000), cond, search.PreferredCond),
-                        responseHandler, noRemoveSpecialChars, ct, onSearch));
+                        responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
                 }
                 if (q2.Title.Length > 3 && artist)
                 {
                     var cond = new FileConditions(search.NecessaryCond)
                     { StrictTitle = !query.ArtistMaybeWrong, StrictArtist = !query.ArtistMaybeWrong, LengthTolerance = -1 };
                     searchTasks.Add(DoSearch(q2.Title, getSearchOptions(Math.Min(search.SearchTimeout, 5000), cond, search.PreferredCond),
-                        responseHandler, noRemoveSpecialChars, ct, onSearch));
+                        responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
                 }
                 if (q2.Artist.Length > 3 && title)
                 {
                     var cond = new FileConditions(search.NecessaryCond)
                     { StrictTitle = !query.ArtistMaybeWrong, StrictArtist = !query.ArtistMaybeWrong, LengthTolerance = -1 };
                     searchTasks.Add(DoSearch(q2.Artist, getSearchOptions(Math.Min(search.SearchTimeout, 5000), cond, search.PreferredCond),
-                        responseHandler, noRemoveSpecialChars, ct, onSearch));
+                        responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
                 }
             }
         }
@@ -590,11 +594,24 @@ public partial class Searcher
     }
 
     private async Task DoSearch(string search, SearchOptions opts, Action<SearchResponse> rHandler,
-        bool noRemoveSpecialChars, CancellationToken? ct = null, Action? onSearch = null)
+        bool noRemoveSpecialChars, CancellationToken? ct = null, Action? onSearch = null, Job? ownerJob = null)
     {
-        await rateSemaphore.WaitAsync(() => events.RaiseSearchRateLimited(rateSemaphore.NextResetTime), events.RaiseSearchResumed, ct ?? CancellationToken.None);
+        await rateSemaphore.WaitAsync(
+            () =>
+            {
+                ownerJob?.UpdateActivity(JobActivityPhase.SearchRateLimited, rateSemaphore.NextResetTime);
+                events.RaiseSearchRateLimited(rateSemaphore.NextResetTime);
+            },
+            () =>
+            {
+                if (ownerJob?.ActivityPhase == JobActivityPhase.SearchRateLimited)
+                    ownerJob.UpdateActivity(JobActivityPhase.Searching);
+                events.RaiseSearchResumed();
+            },
+            ct ?? CancellationToken.None);
         search = CleanSearchString(search, !noRemoveSpecialChars);
         var q = SearchQuery.FromText(search);
+        ownerJob?.UpdateActivity(JobActivityPhase.Searching);
         onSearch?.Invoke();
         await client.SearchAsync(q, options: opts, cancellationToken: ct, responseHandler: rHandler);
     }

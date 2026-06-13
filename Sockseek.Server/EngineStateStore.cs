@@ -104,8 +104,14 @@ public sealed class EngineStateStore
             if (query.Kind.HasValue)
                 filtered = filtered.Where(record => record.Summary.Kind == query.Kind.Value);
 
-            if (query.State.HasValue)
-                filtered = filtered.Where(record => record.Summary.State == query.State.Value);
+            if (query.LifecycleState.HasValue)
+                filtered = filtered.Where(record => record.Summary.LifecycleState == query.LifecycleState.Value);
+
+            if (query.TerminalOutcome.HasValue)
+                filtered = filtered.Where(record => record.Summary.TerminalOutcome == query.TerminalOutcome.Value);
+
+            if (query.SkipReason.HasValue)
+                filtered = filtered.Where(record => record.Summary.SkipReason == query.SkipReason.Value);
 
             var summaries = filtered
                 .OrderBy(record => record.Summary.DisplayId)
@@ -197,7 +203,7 @@ public sealed class EngineStateStore
         {
             foreach (var job in jobs.Values.Where(IsActiveJob))
             {
-                job.Fail(FailureReason.Other, "Infrastructure failure: " + reason, detail);
+                job.Fail(JobFailureReason.Other, "Infrastructure failure: " + reason, detail);
                 infrastructureFailedJobs.Add(job.Id);
                 UpdateJobRecord(job);
             }
@@ -284,13 +290,13 @@ public sealed class EngineStateStore
         PublishJobAndWorkflowUpserts(changedJobs, workflowSummary != null ? [workflowSummary] : []);
     }
 
-    private void OnJobStateChanged(Job job, JobState _)
+    private void OnJobStateChanged(Job job)
     {
         List<JobSummaryDto> summaries;
         List<WorkflowSummaryDto> workflowSummaries;
         lock (gate)
         {
-            if (IsActiveJobState(job.State) && job.State != JobState.AwaitingSelection)
+            if (IsRunningOrPending(job))
                 executionCompletedJobs.Remove(job.Id);
 
             if (!jobs.ContainsKey(job.Id))
@@ -450,11 +456,11 @@ public sealed class EngineStateStore
             ?? workflowJobs.First().Summary.Kind.ToWireString();
 
         int active = workflowJobs.Count(IsActiveRecord);
-        int failed = workflowJobs.Count(record => IsState(record, JobState.Failed));
+        int failed = workflowJobs.Count(IsFailedRecord);
         int completed = workflowJobs.Count(record => !IsActiveRecord(record));
 
         var state = active > 0 ? ServerWorkflowState.Active
-            : failed == workflowJobs.Count ? ServerWorkflowState.Failed
+            : failed > 0 ? ServerWorkflowState.Failed
             : ServerWorkflowState.Completed;
 
         return new WorkflowSummaryDto(workflow.Key, title, state, roots, active, failed, completed);
@@ -557,7 +563,11 @@ public sealed class EngineStateStore
             job.DisplayId,
             job.WorkflowId,
             GetJobKind(job),
-            EffectiveServerState(job),
+            EffectiveServerLifecycleState(job),
+            EffectiveServerActivityPhase(job),
+            EffectiveActivityUntilUtc(job),
+            EffectiveServerTerminalOutcome(job),
+            ToServerJobSkipReason(job.SkipReason),
             job.ItemName,
             job.ToString(noInfo: true),
             ToServerFailureReason(job.FailureReason),
@@ -569,7 +579,8 @@ public sealed class EngineStateStore
             job.Discovery?.LockedFileCount,
             job.Config?.AppliedAutoProfiles?.OrderBy(x => x).ToList() ?? [],
             BuildActions(job),
-            job.FailureDetail);
+            job.FailureDetail,
+            ToServerJobCancellationSource(job.CancellationSource));
     }
 
     private JobPayloadDto BuildPayload(Job job)
@@ -713,7 +724,7 @@ public sealed class EngineStateStore
         => new(policy.Default, policy.Song, policy.Album, policy.Aggregate, policy.AlbumAggregate);
 
     private static IReadOnlyList<ResourceActionDto> BuildActions(Job job)
-        => IsActiveJobState(job.State) && job.Cts != null && !job.Cts.IsCancellationRequested
+        => job.LifecycleState != JobLifecycleState.Terminal && job.Cts != null && !job.Cts.IsCancellationRequested
             ? [CancelAction(job.Id)]
             : [];
 
@@ -742,14 +753,19 @@ public sealed class EngineStateStore
             song.Id,
             song.DisplayId,
             null,
-            ToServerJobState(song.State),
+            ToServerJobLifecycleState(song.LifecycleState),
+            ToServerJobActivityPhase(song.ActivityPhase),
+            song.ActivityUntilUtc,
+            ToServerJobTerminalOutcome(song.TerminalOutcome),
+            ToServerJobSkipReason(song.SkipReason),
             ToServerFailureReason(song.FailureReason),
             song.FailureMessage,
             song.BytesTransferred,
             totalBytes,
             progressPercent,
             BuildActions(song),
-            transferState);
+            transferState,
+            ToServerJobCancellationSource(song.CancellationSource));
     }
 
     private static SongQueryDto ToSongQueryDto(SongQuery query) => new(
@@ -804,18 +820,39 @@ public sealed class EngineStateStore
                 : null,
             folder.IsFullyRetrieved);
 
-    private JobState EffectiveState(Job job)
+    private JobLifecycleState EffectiveLifecycleState(Job job)
         => executionCompletedJobs.Contains(job.Id)
-            && IsActiveJobState(job.State)
-            && job.State != JobState.AwaitingSelection
-                ? JobState.Done
-                : job.State;
+            && IsRunningOrPending(job)
+                ? JobLifecycleState.Terminal
+                : job.LifecycleState;
 
-    private ServerJobState EffectiveServerState(Job job)
-        => ToServerJobState(EffectiveState(job));
+    private JobActivityPhase EffectiveActivityPhase(Job job)
+        => EffectiveLifecycleState(job) == JobLifecycleState.Terminal
+            ? JobActivityPhase.None
+            : job.ActivityPhase;
+
+    private DateTimeOffset? EffectiveActivityUntilUtc(Job job)
+        => EffectiveActivityPhase(job) == JobActivityPhase.None
+            ? null
+            : job.ActivityUntilUtc;
+
+    private JobTerminalOutcome EffectiveTerminalOutcome(Job job)
+        => executionCompletedJobs.Contains(job.Id)
+            && IsRunningOrPending(job)
+                ? JobTerminalOutcome.Succeeded
+                : job.TerminalOutcome;
+
+    private ServerJobLifecycleState EffectiveServerLifecycleState(Job job)
+        => ToServerJobLifecycleState(EffectiveLifecycleState(job));
+
+    private ServerJobActivityPhase EffectiveServerActivityPhase(Job job)
+        => ToServerJobActivityPhase(EffectiveActivityPhase(job));
+
+    private ServerJobTerminalOutcome EffectiveServerTerminalOutcome(Job job)
+        => ToServerJobTerminalOutcome(EffectiveTerminalOutcome(job));
 
     private bool IsActiveJob(Job job)
-        => IsActiveJobState(EffectiveState(job));
+        => EffectiveLifecycleState(job) != JobLifecycleState.Terminal;
 
     private int CountDescendants(Guid parentId, ServerJobKind? kind = null)
     {
@@ -831,55 +868,66 @@ public sealed class EngineStateStore
     }
 
     private static bool IsActiveRecord(JobRecord record)
-        => IsActiveServerJobState(record.Summary.State);
+        => record.Summary.LifecycleState != ServerJobLifecycleState.Terminal;
 
-    private static bool IsState(JobRecord record, JobState state)
-        => record.Summary.State == ToServerJobState(state);
+    private static bool IsFailedRecord(JobRecord record)
+        => record.Summary.TerminalOutcome is ServerJobTerminalOutcome.Failed
+            or ServerJobTerminalOutcome.Cancelled
+            or ServerJobTerminalOutcome.PartialSuccess
+            || (record.Summary.TerminalOutcome == ServerJobTerminalOutcome.Skipped
+                && record.Summary.SkipReason != ServerJobSkipReason.AlreadyExists);
 
-    private static bool IsActiveServerJobState(ServerJobState state)
-        => state is ServerJobState.Pending
-            or ServerJobState.Searching
-            or ServerJobState.Downloading
-            or ServerJobState.Extracting
-            or ServerJobState.Running
-            or ServerJobState.AwaitingSelection;
+    public static ServerJobLifecycleState ToServerJobLifecycleState(JobLifecycleState state)
+        => Enum.Parse<ServerJobLifecycleState>(state.ToString());
 
-    public static ServerJobState ToServerJobState(JobState state)
-        => Enum.Parse<ServerJobState>(state.ToString());
+    public static ServerJobActivityPhase ToServerJobActivityPhase(JobActivityPhase phase)
+        => Enum.Parse<ServerJobActivityPhase>(phase.ToString());
 
-    public static ServerFailureReason? ToServerFailureReason(FailureReason reason)
-        => reason == FailureReason.None
+    public static ServerJobTerminalOutcome ToServerJobTerminalOutcome(JobTerminalOutcome outcome)
+        => Enum.Parse<ServerJobTerminalOutcome>(outcome.ToString());
+
+    public static ServerJobSkipReason ToServerJobSkipReason(JobSkipReason reason)
+        => Enum.Parse<ServerJobSkipReason>(reason.ToString());
+
+    public static ServerJobFailureReason? ToServerFailureReason(JobFailureReason reason)
+        => reason == JobFailureReason.None
             ? null
-            : Enum.Parse<ServerFailureReason>(reason.ToString());
+            : Enum.Parse<ServerJobFailureReason>(reason.ToString());
+
+    public static ServerJobCancellationSource ToServerJobCancellationSource(JobCancellationSource source)
+        => Enum.Parse<ServerJobCancellationSource>(source.ToString());
 
     public static ServerFolderRetrievalOutcome ToServerFolderRetrievalOutcome(FolderRetrievalOutcome outcome)
         => Enum.Parse<ServerFolderRetrievalOutcome>(outcome.ToString());
 
-    private static bool IsActiveJobState(JobState state)
-        => state is JobState.Pending
-            or JobState.Searching
-            or JobState.Downloading
-            or JobState.Extracting
-            or JobState.Running
-            or JobState.AwaitingSelection;
+    private static bool IsRunningOrPending(Job job)
+        => job.LifecycleState is JobLifecycleState.Pending or JobLifecycleState.Running;
 
     private static bool IsTerminalJob(Job job)
-        => !IsActiveJobState(job.State);
+        => job.LifecycleState == JobLifecycleState.Terminal;
 
     private static bool IsSuccessfulJob(Job job)
-        => job.State is JobState.Done or JobState.AlreadyExists;
+        => job.TerminalOutcome == JobTerminalOutcome.Succeeded
+            || (job.TerminalOutcome == JobTerminalOutcome.Skipped && job.SkipReason == JobSkipReason.AlreadyExists);
 
     private static bool IsFailedOrSkippedJob(Job job)
-        => job.State is JobState.Failed or JobState.Skipped or JobState.NotFoundLastTime;
+        => job.TerminalOutcome is JobTerminalOutcome.Failed
+                or JobTerminalOutcome.Cancelled
+                or JobTerminalOutcome.PartialSuccess
+            || (job.TerminalOutcome == JobTerminalOutcome.Skipped && job.SkipReason != JobSkipReason.AlreadyExists);
 
     private static bool IsTerminalSong(SongJob song)
-        => IsSuccessfulSong(song) || IsFailedOrSkippedSong(song);
+        => song.LifecycleState == JobLifecycleState.Terminal;
 
     private static bool IsSuccessfulSong(SongJob song)
-        => song.State is JobState.Done or JobState.AlreadyExists;
+        => song.TerminalOutcome == JobTerminalOutcome.Succeeded
+            || (song.TerminalOutcome == JobTerminalOutcome.Skipped && song.SkipReason == JobSkipReason.AlreadyExists);
 
     private static bool IsFailedOrSkippedSong(SongJob song)
-        => song.State is JobState.Failed or JobState.Skipped or JobState.NotFoundLastTime;
+        => song.TerminalOutcome is JobTerminalOutcome.Failed
+                or JobTerminalOutcome.Cancelled
+                or JobTerminalOutcome.PartialSuccess
+            || (song.TerminalOutcome == JobTerminalOutcome.Skipped && song.SkipReason != JobSkipReason.AlreadyExists);
 
     private sealed record JobRecord(
         Guid Id,

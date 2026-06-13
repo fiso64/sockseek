@@ -3,7 +3,7 @@
 The daemon exposes an HTTP API for durable state plus a SignalR hub for live invalidation/progress events.
 
 ## .NET clients
-A .NET consumers should prefer `Sockseek.Api.SockseekApiClient` over hand-written endpoint calls.
+.NET consumers should prefer `Sockseek.Api.SockseekApiClient` over hand-written endpoint calls.
 
 ## OpenAPI
 

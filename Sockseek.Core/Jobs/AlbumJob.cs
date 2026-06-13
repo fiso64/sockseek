@@ -77,7 +77,7 @@ namespace Sockseek.Core.Jobs;
         public bool IsStale(int maxStaleTimeMs)
         {
             if (_resolvedTarget == null) return false;
-            var inProgress = _resolvedTarget.Files.Where(f => f.State == JobState.Pending).ToList();
+            var inProgress = _resolvedTarget.Files.Where(f => f.IsPending).ToList();
             if (inProgress.Count == 0) return false;
             return inProgress.All(f =>
                 f.LastActivityTime.HasValue &&
@@ -88,7 +88,7 @@ namespace Sockseek.Core.Jobs;
         {
             if (_resolvedTarget == null) return new();
             return _resolvedTarget.Files
-                .Where(f => f.State == JobState.Pending
+                .Where(f => f.IsPending
                     && f.LastActivityTime.HasValue
                     && (DateTime.Now - f.LastActivityTime.Value).TotalMilliseconds > maxStaleTimeMs)
                 .ToList();

@@ -79,14 +79,14 @@ internal sealed class InteractiveCliCoordinator
         {
             ct.ThrowIfCancellationRequested();
             if (summary.Kind == ServerJobKind.Search
-                && IsCompleted(summary.State)
+                && IsCompleted(summary.TerminalOutcome, summary.SkipReason)
                 && handledAlbumSearches.Add(summary.JobId))
             {
                 await HandleCompletedSearchAsync(summary.JobId, ct);
                 startedFollowUp = true;
             }
 
-            if (summary.State == ServerProtocol.JobStates.AwaitingSelection
+            if (summary.LifecycleState == ServerJobLifecycleState.AwaitingSelection
                 && handledManualSelections.Add(summary.JobId))
             {
                 if (summary.Kind == ServerJobKind.Album)
@@ -102,7 +102,7 @@ internal sealed class InteractiveCliCoordinator
             }
 
             if (summary.Kind == ServerJobKind.Album
-                && !IsActive(summary.State)
+                && !IsActive(summary.LifecycleState)
                 && interactiveAlbumSessions.TryGetValue(summary.JobId, out var session))
             {
                 interactiveAlbumSessions.Remove(summary.JobId);
@@ -115,7 +115,7 @@ internal sealed class InteractiveCliCoordinator
     }
 
     private async Task<IReadOnlyList<JobSummaryDto>> GetWorkflowJobsAsync(Guid workflowId, CancellationToken ct)
-        => await backend.GetJobsAsync(new JobQuery(null, null, workflowId, IncludeAll: true), ct);
+        => await backend.GetJobsAsync(new JobQuery(null, null, null, workflowId, IncludeAll: true), ct);
 
     private async Task HandleCompletedSearchAsync(Guid searchJobId, CancellationToken ct)
     {
@@ -246,7 +246,7 @@ internal sealed class InteractiveCliCoordinator
             return;
 
         var detail = await backend.GetJobDetailAsync(albumJobId, ct);
-        if (detail?.Summary.State == ServerProtocol.JobStates.Done)
+        if (detail?.Summary is { } summary && IsCompleted(summary.TerminalOutcome, summary.SkipReason))
             return;
 
         if (detail?.Summary.FailureReason == ServerProtocol.FailureReasons.Cancelled)
@@ -485,17 +485,12 @@ internal sealed class InteractiveCliCoordinator
     private SubmissionOptionsDto OptionsForWorkflow(Guid workflowId)
         => (rootOptions ?? new SubmissionOptionsDto()) with { WorkflowId = workflowId };
 
-    private static bool IsActive(ServerJobState state)
-        => state is ServerProtocol.JobStates.Pending
-            or ServerProtocol.JobStates.Extracting
-            or ServerProtocol.JobStates.Searching
-            or ServerProtocol.JobStates.Downloading
-            or ServerProtocol.JobStates.Running
-            or ServerProtocol.JobStates.AwaitingSelection;
+    private static bool IsActive(ServerJobLifecycleState state)
+        => state != ServerJobLifecycleState.Terminal;
 
-    private static bool IsCompleted(ServerJobState state)
-        => state is ServerProtocol.JobStates.Done
-            or ServerProtocol.JobStates.AlreadyExists;
+    private static bool IsCompleted(ServerJobTerminalOutcome outcome, ServerJobSkipReason skipReason = ServerJobSkipReason.None)
+        => outcome == ServerJobTerminalOutcome.Succeeded
+            || (outcome == ServerJobTerminalOutcome.Skipped && skipReason == ServerJobSkipReason.AlreadyExists);
 
     private enum InteractiveAlbumResultKind
     {

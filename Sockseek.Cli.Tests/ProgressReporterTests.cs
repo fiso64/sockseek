@@ -61,14 +61,14 @@ public class CliProgressReporterTests
         var songId = Guid.NewGuid();
         var query = new SongQueryDto("Artist", "Song", null, null, null, false);
         var candidate = CreateFileCandidate("user", @"Music\Artist\Song.flac");
-        var extractSummary = CreateExtractSummary(Guid.NewGuid(), workflowId, ServerProtocol.JobStates.Extracting, null);
+        var extractSummary = CreateExtractSummary(Guid.NewGuid(), workflowId, ExpectedJobStatus.Extracting, null);
 
         InvokePrivate(eventLogger, "HandleEvent", Envelope("download.started", new DownloadStartedEventDto(songId, 9, workflowId, query, candidate)));
         InvokePrivate(eventLogger, "HandleEvent", Envelope("on-complete.started", new OnCompleteStartedEventDto(songId, 9, workflowId, query)));
         InvokePrivate(eventLogger, "HandleEvent", Envelope("on-complete.ended", new OnCompleteEndedEventDto(songId, 9, workflowId, query)));
         InvokePrivate(eventLogger, "HandleEvent", Envelope("extraction.started", new ExtractionStartedEventDto(extractSummary, "input.txt", "List")));
         InvokePrivate(eventLogger, "HandleEvent", Envelope("extraction.failed", new ExtractionFailedEventDto(
-            extractSummary with { State = ServerProtocol.JobStates.Failed },
+            WithState(extractSummary, ExpectedJobStatus.Failed),
             "Could not parse input")));
 
         Assert.AreEqual(5, messages.Count);
@@ -88,7 +88,7 @@ public class CliProgressReporterTests
 
         var eventLogger = new EventLogger(null!);
         var workflowId = Guid.NewGuid();
-        var extractSummary = CreateExtractSummary(Guid.NewGuid(), workflowId, ServerProtocol.JobStates.Extracting, null);
+        var extractSummary = CreateExtractSummary(Guid.NewGuid(), workflowId, ExpectedJobStatus.Extracting, null);
 
         InvokePrivate(eventLogger, "HandleEvent", Envelope("job.message", new JobMessageEventDto(
             extractSummary,
@@ -117,7 +117,7 @@ public class CliProgressReporterTests
         var extractSummary = CreateExtractSummary(
             Guid.NewGuid(),
             workflowId,
-            ServerProtocol.JobStates.Failed,
+            ExpectedJobStatus.Failed,
             ServerProtocol.FailureReasons.ExtractionFailed) with
         {
             FailureMessage = "Could not parse input",
@@ -144,7 +144,7 @@ public class CliProgressReporterTests
         var extractSummary = CreateExtractSummary(
             Guid.NewGuid(),
             workflowId,
-            ServerProtocol.JobStates.Failed,
+            ExpectedJobStatus.Failed,
             ServerProtocol.FailureReasons.ExtractionFailed);
 
         InvokePrivate(eventLogger, "HandleEvent", Envelope("extraction.started", new ExtractionStartedEventDto(
@@ -183,7 +183,7 @@ public class CliProgressReporterTests
         var extractSummary = CreateExtractSummary(
             Guid.NewGuid(),
             workflowId,
-            ServerProtocol.JobStates.Failed,
+            ExpectedJobStatus.Failed,
             ServerProtocol.FailureReasons.ExtractionFailed);
 
         InvokePrivate(eventLogger, "HandleEvent", Envelope("extraction.failed", new ExtractionFailedEventDto(
@@ -216,7 +216,7 @@ public class CliProgressReporterTests
         var eventLogger = new EventLogger(null!);
         var summary = CreateAlbumSummary(
             Guid.NewGuid(),
-            ServerProtocol.JobStates.Failed,
+            ExpectedJobStatus.Failed,
             ServerProtocol.FailureReasons.Other) with
         {
             FailureMessage = "Infrastructure failure: engine crashed",
@@ -259,18 +259,15 @@ public class CliProgressReporterTests
             9,
             workflowId,
             query,
-            ServerProtocol.JobStates.Failed,
+            ServerJobLifecycleState.Terminal,
+            ServerJobActivityPhase.None,
+            ActivityUntilUtc: null,
+            ServerJobTerminalOutcome.Failed,
             ServerProtocol.FailureReasons.Other,
             DownloadPath: null,
             ChosenCandidate: null,
             FailureMessage: "Unhandled song failure")));
-        var summary = CreateSongSummary(songId, workflowId, null) with
-        {
-            DisplayId = 9,
-            State = ServerProtocol.JobStates.Failed,
-            FailureReason = ServerProtocol.FailureReasons.Other,
-            FailureMessage = "Unhandled song failure",
-        };
+        var summary = WithState(CreateSongSummary(songId, workflowId, null) with { DisplayId = 9 }, ExpectedJobStatus.Failed, ServerProtocol.FailureReasons.Other, "Unhandled song failure");
         InvokePrivate(eventLogger, "HandleEvent", Envelope("diagnostic.error", new DiagnosticErrorEventDto(
             "job",
             "Unhandled song failure",
@@ -298,7 +295,7 @@ public class CliProgressReporterTests
         var eventLogger = new EventLogger(null!, includeDiagnosticDetails: false);
         var summary = CreateAlbumSummary(
             Guid.NewGuid(),
-            ServerProtocol.JobStates.Failed,
+            ExpectedJobStatus.Failed,
             ServerProtocol.FailureReasons.Other);
 
         InvokePrivate(eventLogger, "HandleEvent", Envelope("diagnostic.error", new DiagnosticErrorEventDto(
@@ -348,7 +345,7 @@ public class CliProgressReporterTests
         var extractSummary = CreateExtractSummary(
             Guid.NewGuid(),
             workflowId,
-            ServerProtocol.JobStates.Failed,
+            ExpectedJobStatus.Failed,
             ServerProtocol.FailureReasons.ExtractionFailed);
 
         InvokePrivate(eventLogger, "HandleEvent", Envelope("extraction.failed", new ExtractionFailedEventDto(
@@ -381,7 +378,10 @@ public class CliProgressReporterTests
             9,
             workflowId,
             query,
-            ServerProtocol.JobStates.Done,
+            ServerJobLifecycleState.Terminal,
+            ServerJobActivityPhase.None,
+            ActivityUntilUtc: null,
+            ServerJobTerminalOutcome.Succeeded,
             FailureReason: null,
             DownloadPath: null,
             ChosenCandidate: candidate)));
@@ -409,7 +409,10 @@ public class CliProgressReporterTests
             DisplayId: 5,
             WorkflowId: workflowId,
             Kind: ServerJobKind.JobList,
-            State: ServerProtocol.JobStates.Running,
+            LifecycleState: ServerJobLifecycleState.Running,
+            ActivityPhase: ServerJobActivityPhase.RunningChildren,
+            ActivityUntilUtc: null,
+            TerminalOutcome: ServerJobTerminalOutcome.None,
             ItemName: "playlist",
             QueryText: "playlist",
             FailureReason: null,
@@ -434,7 +437,11 @@ public class CliProgressReporterTests
             9,
             workflowId,
             query,
-            ServerProtocol.JobStates.AlreadyExists,
+            ServerJobLifecycleState.Terminal,
+            ServerJobActivityPhase.None,
+            ActivityUntilUtc: null,
+            ServerJobTerminalOutcome.Skipped,
+            ServerJobSkipReason.AlreadyExists,
             FailureReason: null,
             DownloadPath: null,
             ChosenCandidate: candidate)));
@@ -456,7 +463,7 @@ public class CliProgressReporterTests
         var workflowId = Guid.NewGuid();
         var albumJobId = Guid.NewGuid();
         var fileJobId = Guid.NewGuid();
-        var albumSummary = CreateAlbumSummary(albumJobId, ServerProtocol.JobStates.Downloading, null) with
+        var albumSummary = CreateAlbumSummary(albumJobId, ExpectedJobStatus.Downloading, null) with
         {
             WorkflowId = workflowId,
         };
@@ -468,8 +475,8 @@ public class CliProgressReporterTests
         InvokePrivate(eventLogger, "HandleEvent", Envelope("job.upserted", childSummary));
         InvokePrivate(eventLogger, "HandleEvent", Envelope("album.track-download-started", new AlbumTrackDownloadStartedEventDto(
             albumSummary,
-            CreateSingleFileAlbumFolder(fileJobId, ServerProtocol.JobStates.Pending, null),
-            [CreateSongPayload(fileJobId, ServerProtocol.JobStates.Pending, null)])));
+            CreateSingleFileAlbumFolder(fileJobId, ExpectedJobStatus.Pending, null),
+            [CreateSongPayload(fileJobId, ExpectedJobStatus.Pending, null)])));
         entries.Clear();
 
         InvokePrivate(eventLogger, "HandleEvent", Envelope("song.state-changed", new SongStateChangedEventDto(
@@ -477,7 +484,10 @@ public class CliProgressReporterTests
             7,
             workflowId,
             query,
-            ServerProtocol.JobStates.Done,
+            ServerJobLifecycleState.Terminal,
+            ServerJobActivityPhase.None,
+            ActivityUntilUtc: null,
+            ServerJobTerminalOutcome.Succeeded,
             FailureReason: null,
             DownloadPath: @"out\Track.flac",
             ChosenCandidate: candidate)));
@@ -539,6 +549,79 @@ public class CliProgressReporterTests
     }
 
     [TestMethod]
+    public void LiveSummaryVisibility_IncludesSearchWaitAndRateLimitButNotPending()
+    {
+        var summary = CreateSongSummary(Guid.NewGuid(), Guid.NewGuid(), parentJobId: null);
+
+        var pending = summary with
+        {
+            LifecycleState = ServerJobLifecycleState.Pending,
+            ActivityPhase = ServerJobActivityPhase.None,
+        };
+        Assert.IsFalse(CliProgressReporter.ShouldShowStandaloneSummaryInLiveTable(
+            pending,
+            CliJobStatusPresenter.ForSummary(pending)));
+
+        var waiting = summary with
+        {
+            LifecycleState = ServerJobLifecycleState.Running,
+            ActivityPhase = ServerJobActivityPhase.WaitingForSearchConcurrency,
+        };
+        Assert.IsTrue(CliProgressReporter.ShouldShowStandaloneSummaryInLiveTable(
+            waiting,
+            CliJobStatusPresenter.ForSummary(waiting)));
+
+        var rateLimited = summary with
+        {
+            LifecycleState = ServerJobLifecycleState.Running,
+            ActivityPhase = ServerJobActivityPhase.SearchRateLimited,
+        };
+        Assert.IsTrue(CliProgressReporter.ShouldShowStandaloneSummaryInLiveTable(
+            rateLimited,
+            CliJobStatusPresenter.ForSummary(rateLimited)));
+    }
+
+    [TestMethod]
+    public void EventLogger_JobActivityChanged_DoesNotPrintPlainStatusLine()
+    {
+        SockseekLog.RemoveNonFileOutputs();
+        var messages = new List<string>();
+        SockseekLog.AddConsole(writer: (message, _) => messages.Add(message));
+
+        var summary = CreateAlbumSummary(Guid.NewGuid(), ExpectedJobStatus.Searching, null) with
+        {
+            ActivityPhase = ServerJobActivityPhase.SearchRateLimited,
+        };
+        var eventLogger = new EventLogger(null!);
+
+        InvokePrivate(eventLogger, "HandleEvent", Envelope(
+            "job.activity-changed",
+            new JobActivityChangedEventDto(summary)));
+
+        Assert.AreEqual(0, messages.Count);
+    }
+
+    [TestMethod]
+    public void ProgressReporter_SearchRateLimited_NoProgressPrintsGlobalPlainLine()
+    {
+        using var output = new StringWriter();
+        var originalOut = Console.Out;
+        Console.SetOut(output);
+        var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
+        try
+        {
+            InvokePrivate(reporter, "ReportSearchRateLimited", new SearchRateLimitedEventDto(DateTimeOffset.UtcNow.AddSeconds(30)));
+
+            StringAssert.Contains(output.ToString(), "Search rate limit reached, resuming in");
+        }
+        finally
+        {
+            reporter.Stop();
+            Console.SetOut(originalOut);
+        }
+    }
+
+    [TestMethod]
     public void EventLogger_NoProgressMode_RoutesActivityLogsToConsoleAndNonConsole()
     {
         SockseekLog.RemoveNonFileOutputs();
@@ -573,14 +656,14 @@ public class CliProgressReporterTests
         SockseekLog.AddConsole(writer: (message, _) => messages.Add(message));
 
         var albumId = Guid.NewGuid();
-        var summary = CreateAlbumSummary(albumId, ServerProtocol.JobStates.Failed, ServerProtocol.FailureReasons.Cancelled);
+        var summary = CreateAlbumSummary(albumId, ExpectedJobStatus.Failed, ServerProtocol.FailureReasons.Cancelled);
         var eventLogger = new EventLogger(null!);
 
         InvokePrivate(eventLogger, "HandleEvent", Envelope("job.upserted", summary));
         InvokePrivate(eventLogger, "HandleEvent", Envelope("album.state-changed", new AlbumStateChangedEventDto(summary)));
 
         Assert.AreEqual(1, messages.Count);
-        Assert.AreEqual(JobLog("[6] AlbumJob: failed [Cancelled]: Artist Album"), messages[0]);
+        Assert.AreEqual(JobLog("[6] AlbumJob: cancelled: Artist Album"), messages[0]);
     }
 
     [TestMethod]
@@ -591,14 +674,14 @@ public class CliProgressReporterTests
         SockseekLog.AddConsole(writer: (message, _) => messages.Add(message));
 
         var albumId = Guid.NewGuid();
-        var summary = CreateAlbumSummary(albumId, ServerProtocol.JobStates.Failed, ServerProtocol.FailureReasons.Cancelled);
+        var summary = CreateAlbumSummary(albumId, ExpectedJobStatus.Failed, ServerProtocol.FailureReasons.Cancelled);
         var eventLogger = new EventLogger(null!);
 
         InvokePrivate(eventLogger, "HandleEvent", Envelope("album.state-changed", new AlbumStateChangedEventDto(summary)));
         InvokePrivate(eventLogger, "HandleEvent", Envelope("job.upserted", summary));
 
         Assert.AreEqual(1, messages.Count);
-        Assert.AreEqual(JobLog("[6] AlbumJob: failed [Cancelled]: Artist Album"), messages[0]);
+        Assert.AreEqual(JobLog("[6] AlbumJob: cancelled: Artist Album"), messages[0]);
     }
 
     [TestMethod]
@@ -702,7 +785,11 @@ public class CliProgressReporterTests
             var eventLogger = new EventLogger(null!);
             InvokePrivate(eventLogger, "HandleEvent", Envelope("download.started", new DownloadStartedEventDto(song.Id, song.DisplayId, workflowId, query, candidateDto)));
             InvokePrivate(eventLogger, "HandleEvent", Envelope("song.state-changed", new SongStateChangedEventDto(
-                song.Id, song.DisplayId, workflowId, query, ServerProtocol.JobStates.Done,
+                song.Id, song.DisplayId, workflowId, query,
+                ServerJobLifecycleState.Terminal,
+                ServerJobActivityPhase.None,
+                null,
+                ServerJobTerminalOutcome.Succeeded,
                 null, null, candidateDto)));
 
             Assert.AreEqual(2, messages.Count);
@@ -731,21 +818,21 @@ public class CliProgressReporterTests
             var candidate = CreateFileCandidate("user", @"Music\Artist\Song.flac");
 
             var eventLogger = new EventLogger(null!);
-            var summary = CreateSongSummary(songId, workflowId, null) with
+            var summary = WithState(CreateSongSummary(songId, workflowId, null) with
             {
                 DisplayId = 12,
                 ItemName = "Artist - Song",
                 QueryText = "Artist - Song",
-                State = ServerProtocol.JobStates.Failed,
-                FailureReason = ServerProtocol.FailureReasons.AllDownloadsFailed,
-                FailureMessage = "Connection reset by peer"
-            };
+            }, ExpectedJobStatus.Failed, ServerProtocol.FailureReasons.AllDownloadsFailed, "Connection reset by peer");
             InvokePrivate(eventLogger, "HandleEvent", Envelope("song.state-changed", new SongStateChangedEventDto(
                 songId,
                 DisplayId: 12,
                 workflowId,
                 query,
-                ServerProtocol.JobStates.Failed,
+                ServerJobLifecycleState.Terminal,
+                ServerJobActivityPhase.None,
+                ActivityUntilUtc: null,
+                ServerJobTerminalOutcome.Failed,
                 ServerProtocol.FailureReasons.AllDownloadsFailed,
                 DownloadPath: null,
                 ChosenCandidate: candidate,
@@ -814,7 +901,7 @@ public class CliProgressReporterTests
             {
                 ResolvedTarget = candidate,
             };
-            song.Fail(FailureReason.Cancelled);
+            song.SetCancelled(JobCancellationSource.ParentJob);
 
             var workflowId = Guid.NewGuid();
             var query = new SongQueryDto("Artist", "Song", null, null, null, false);
@@ -833,12 +920,15 @@ public class CliProgressReporterTests
                 song.DisplayId,
                 workflowId,
                 query,
-                ServerProtocol.JobStates.Failed,
+                ServerJobLifecycleState.Terminal,
+                ServerJobActivityPhase.None,
+                ActivityUntilUtc: null,
+                ServerJobTerminalOutcome.Cancelled,
                 ServerProtocol.FailureReasons.Cancelled,
                 DownloadPath: null,
                 ChosenCandidate: candidateDto));
 
-            Assert.AreEqual("failed [Cancelled]", GetField<string>(barData, "StateLabel"));
+            Assert.AreEqual("cancelled", GetField<string>(barData, "StateLabel"));
             Assert.AreNotEqual(100, GetField<int>(barData, "Pct"));
         }
         finally
@@ -888,7 +978,10 @@ public class CliProgressReporterTests
                 DisplayId: 6,
                 WorkflowId: workflowId,
                 Kind: ServerJobKind.Album,
-                State: ServerProtocol.JobStates.Downloading,
+                LifecycleState: ServerJobLifecycleState.Running,
+                ActivityPhase: ServerJobActivityPhase.Downloading,
+                ActivityUntilUtc: null,
+                TerminalOutcome: ServerJobTerminalOutcome.None,
                 ItemName: "Artist Album",
                 QueryText: "Artist Album",
                 FailureReason: null,
@@ -912,12 +1005,15 @@ public class CliProgressReporterTests
             InvokePrivate(reporter, "ReportAlbumTrackDownloadStarted", new AlbumTrackDownloadStartedEventDto(
                 summary,
                 folder,
-                [CreateSongPayload(fileJobId, ServerProtocol.JobStates.Pending, null)]));
+                [CreateSongPayload(fileJobId, ExpectedJobStatus.Pending, null)]));
             Assert.IsTrue(HasBackendBarData(reporter, fileJobId));
 
             var failedSummary = summary with
             {
-                State = ServerProtocol.JobStates.Failed,
+                LifecycleState = ServerJobLifecycleState.Terminal,
+                ActivityPhase = ServerJobActivityPhase.None,
+                ActivityUntilUtc = null,
+                TerminalOutcome = ServerJobTerminalOutcome.Cancelled,
                 FailureReason = ServerProtocol.FailureReasons.Cancelled,
             };
             InvokePrivate(reporter, "ReportAlbumStateChanged", new AlbumStateChangedEventDto(failedSummary));
@@ -940,19 +1036,19 @@ public class CliProgressReporterTests
         {
             var albumJobId = Guid.NewGuid();
             var fileJobId = Guid.NewGuid();
-            var summary = CreateAlbumSummary(albumJobId, ServerProtocol.JobStates.Downloading, null);
-            var folder = CreateSingleFileAlbumFolder(fileJobId, ServerProtocol.JobStates.Pending, null);
+            var summary = CreateAlbumSummary(albumJobId, ExpectedJobStatus.Downloading, null);
+            var folder = CreateSingleFileAlbumFolder(fileJobId, ExpectedJobStatus.Pending, null);
 
             InvokePrivate(reporter, "ReportAlbumTrackDownloadStarted", new AlbumTrackDownloadStartedEventDto(
                 summary,
                 folder,
-                [CreateSongPayload(fileJobId, ServerProtocol.JobStates.Pending, null)]));
+                [CreateSongPayload(fileJobId, ExpectedJobStatus.Pending, null)]));
             Assert.IsTrue(HasBackendBarData(reporter, fileJobId));
 
             InvokePrivate(
                 reporter,
                 "ReportJobUpserted",
-                CreateAlbumSummary(albumJobId, ServerProtocol.JobStates.Failed, ServerProtocol.FailureReasons.Cancelled));
+                CreateAlbumSummary(albumJobId, ExpectedJobStatus.Failed, ServerProtocol.FailureReasons.Cancelled));
 
             Assert.IsFalse(
                 HasBackendBarData(reporter, fileJobId),
@@ -974,7 +1070,7 @@ public class CliProgressReporterTests
             var workflowId = Guid.NewGuid();
             var albumJobId = Guid.NewGuid();
             var fileJobId = Guid.NewGuid();
-            var albumSummary = CreateAlbumSummary(albumJobId, ServerProtocol.JobStates.Downloading, null) with
+            var albumSummary = CreateAlbumSummary(albumJobId, ExpectedJobStatus.Downloading, null) with
             {
                 WorkflowId = workflowId,
             };
@@ -984,8 +1080,8 @@ public class CliProgressReporterTests
             InvokePrivate(reporter, "ReportJobUpserted", childSummary);
             InvokePrivate(reporter, "ReportAlbumTrackDownloadStarted", new AlbumTrackDownloadStartedEventDto(
                 albumSummary,
-                CreateSingleFileAlbumFolder(fileJobId, ServerProtocol.JobStates.Pending, null),
-                [CreateSongPayload(fileJobId, ServerProtocol.JobStates.Pending, null)]));
+                CreateSingleFileAlbumFolder(fileJobId, ExpectedJobStatus.Pending, null),
+                [CreateSongPayload(fileJobId, ExpectedJobStatus.Pending, null)]));
             InvokePrivate(reporter, "ReportDownloadStart", new DownloadStartedEventDto(
                 fileJobId,
                 DisplayId: 7,
@@ -1010,22 +1106,25 @@ public class CliProgressReporterTests
             var workflowId = Guid.NewGuid();
             var albumJobId = Guid.NewGuid();
             var fileJobId = Guid.NewGuid();
-            var albumSummary = CreateAlbumSummary(albumJobId, ServerProtocol.JobStates.Downloading, null) with
+            var albumSummary = CreateAlbumSummary(albumJobId, ExpectedJobStatus.Downloading, null) with
             {
                 WorkflowId = workflowId,
             };
 
             InvokePrivate(reporter, "ReportAlbumTrackDownloadStarted", new AlbumTrackDownloadStartedEventDto(
                 albumSummary,
-                CreateSingleFileAlbumFolder(fileJobId, ServerProtocol.JobStates.Pending, null),
-                [CreateSongPayload(fileJobId, ServerProtocol.JobStates.Pending, null)]));
+                CreateSingleFileAlbumFolder(fileJobId, ExpectedJobStatus.Pending, null),
+                [CreateSongPayload(fileJobId, ExpectedJobStatus.Pending, null)]));
 
             InvokePrivate(reporter, "ReportStateChanged", new SongStateChangedEventDto(
                 fileJobId,
                 DisplayId: 7,
                 workflowId,
                 new SongQueryDto("Artist", "Track", null, null, null, false),
-                ServerProtocol.JobStates.Done,
+                ServerJobLifecycleState.Terminal,
+                ServerJobActivityPhase.None,
+                ActivityUntilUtc: null,
+                ServerJobTerminalOutcome.Succeeded,
                 FailureReason: null,
                 DownloadPath: @"out\Track.flac",
                 ChosenCandidate: null));
@@ -1052,7 +1151,7 @@ public class CliProgressReporterTests
             var workflowId = Guid.NewGuid();
             var albumJobId = Guid.NewGuid();
             var fileJobId = Guid.NewGuid();
-            var albumSummary = CreateAlbumSummary(albumJobId, ServerProtocol.JobStates.Downloading, null) with
+            var albumSummary = CreateAlbumSummary(albumJobId, ExpectedJobStatus.Downloading, null) with
             {
                 WorkflowId = workflowId,
             };
@@ -1063,12 +1162,16 @@ public class CliProgressReporterTests
             var eventLogger = new EventLogger(null!);
             InvokePrivate(eventLogger, "HandleEvent", Envelope("album.track-download-started", new AlbumTrackDownloadStartedEventDto(
                 albumSummary,
-                CreateSingleFileAlbumFolder(fileJobId, ServerProtocol.JobStates.Pending, null),
-                [CreateSongPayload(fileJobId, ServerProtocol.JobStates.Pending, null)])));
+                CreateSingleFileAlbumFolder(fileJobId, ExpectedJobStatus.Pending, null),
+                [CreateSongPayload(fileJobId, ExpectedJobStatus.Pending, null)])));
             InvokePrivate(eventLogger, "HandleEvent", Envelope("job.upserted", songSummary));
             InvokePrivate(eventLogger, "HandleEvent", Envelope("download.started", new DownloadStartedEventDto(fileJobId, 7, workflowId, query, candidate)));
             InvokePrivate(eventLogger, "HandleEvent", Envelope("song.state-changed", new SongStateChangedEventDto(
-                fileJobId, 7, workflowId, query, ServerProtocol.JobStates.Done,
+                fileJobId, 7, workflowId, query,
+                ServerJobLifecycleState.Terminal,
+                ServerJobActivityPhase.None,
+                null,
+                ServerJobTerminalOutcome.Succeeded,
                 null, @"out\Track.flac", candidate)));
 
             Assert.AreEqual(3, messages.Count);
@@ -1090,18 +1193,18 @@ public class CliProgressReporterTests
         {
             var workflowId = Guid.NewGuid();
             var albumJobId = Guid.NewGuid();
-            var albumSummary = CreateAlbumSummary(albumJobId, ServerProtocol.JobStates.Downloading, null) with
+            var albumSummary = CreateAlbumSummary(albumJobId, ExpectedJobStatus.Downloading, null) with
             {
                 WorkflowId = workflowId,
             };
             var fileJobIds = Enumerable.Range(0, 32).Select(_ => Guid.NewGuid()).ToArray();
             var tracks = fileJobIds
-                .Select(id => CreateSongPayload(id, ServerProtocol.JobStates.Pending, null))
+                .Select(id => CreateSongPayload(id, ExpectedJobStatus.Pending, null))
                 .ToList();
 
             InvokePrivate(reporter, "ReportAlbumTrackDownloadStarted", new AlbumTrackDownloadStartedEventDto(
                 albumSummary,
-                CreateSingleFileAlbumFolder(fileJobIds[0], ServerProtocol.JobStates.Pending, null),
+                CreateSingleFileAlbumFolder(fileJobIds[0], ExpectedJobStatus.Pending, null),
                 tracks));
 
             Parallel.ForEach(fileJobIds, fileJobId =>
@@ -1111,7 +1214,10 @@ public class CliProgressReporterTests
                     DisplayId: 7,
                     workflowId,
                     new SongQueryDto("Artist", "Track", null, null, null, false),
-                    ServerProtocol.JobStates.Failed,
+                    ServerJobLifecycleState.Terminal,
+                    ServerJobActivityPhase.None,
+                    ActivityUntilUtc: null,
+                    ServerJobTerminalOutcome.Cancelled,
                     ServerProtocol.FailureReasons.Cancelled,
                     DownloadPath: null,
                     ChosenCandidate: null));
@@ -1135,7 +1241,7 @@ public class CliProgressReporterTests
             var albumJobId = Guid.NewGuid();
             var initialFileJobId = Guid.NewGuid();
             var dynamicFileJobId = Guid.NewGuid();
-            var albumSummary = CreateAlbumSummary(albumJobId, ServerProtocol.JobStates.Downloading, null) with
+            var albumSummary = CreateAlbumSummary(albumJobId, ExpectedJobStatus.Downloading, null) with
             {
                 WorkflowId = workflowId,
             };
@@ -1146,8 +1252,8 @@ public class CliProgressReporterTests
             InvokePrivate(reporter, "ReportJobUpserted", albumSummary);
             InvokePrivate(reporter, "ReportAlbumTrackDownloadStarted", new AlbumTrackDownloadStartedEventDto(
                 albumSummary,
-                CreateSingleFileAlbumFolder(initialFileJobId, ServerProtocol.JobStates.Pending, null),
-                [CreateSongPayload(initialFileJobId, ServerProtocol.JobStates.Pending, null)]));
+                CreateSingleFileAlbumFolder(initialFileJobId, ExpectedJobStatus.Pending, null),
+                [CreateSongPayload(initialFileJobId, ExpectedJobStatus.Pending, null)]));
             InvokePrivate(reporter, "ReportJobUpserted", dynamicSummary);
             InvokePrivate(reporter, "ReportDownloadStart", new DownloadStartedEventDto(dynamicFileJobId, 8, workflowId, query, candidate));
 
@@ -1168,7 +1274,7 @@ public class CliProgressReporterTests
             var workflowId = Guid.NewGuid();
             var albumJobId = Guid.NewGuid();
             var initialFileJobId = Guid.NewGuid();
-            var albumSummary = CreateAlbumSummary(albumJobId, ServerProtocol.JobStates.Downloading, null) with
+            var albumSummary = CreateAlbumSummary(albumJobId, ExpectedJobStatus.Downloading, null) with
             {
                 WorkflowId = workflowId,
             };
@@ -1177,8 +1283,8 @@ public class CliProgressReporterTests
             InvokePrivate(reporter, "ReportJobUpserted", albumSummary);
             InvokePrivate(reporter, "ReportAlbumTrackDownloadStarted", new AlbumTrackDownloadStartedEventDto(
                 albumSummary,
-                CreateSingleFileAlbumFolder(initialFileJobId, ServerProtocol.JobStates.Pending, null),
-                [CreateSongPayload(initialFileJobId, ServerProtocol.JobStates.Pending, null)]));
+                CreateSingleFileAlbumFolder(initialFileJobId, ExpectedJobStatus.Pending, null),
+                [CreateSongPayload(initialFileJobId, ExpectedJobStatus.Pending, null)]));
 
             var errors = new ConcurrentQueue<Exception>();
             var addChildren = Task.Run(() =>
@@ -1243,7 +1349,10 @@ public class CliProgressReporterTests
                 DisplayId: 5,
                 WorkflowId: workflowId,
                 Kind: ServerJobKind.AlbumAggregate,
-                State: ServerProtocol.JobStates.Running,
+                LifecycleState: ServerJobLifecycleState.Running,
+                ActivityPhase: ServerJobActivityPhase.RunningChildren,
+                ActivityUntilUtc: null,
+                TerminalOutcome: ServerJobTerminalOutcome.None,
                 ItemName: "squarepusher",
                 QueryText: "squarepusher",
                 FailureReason: null,
@@ -1260,7 +1369,10 @@ public class CliProgressReporterTests
                 DisplayId: 19,
                 WorkflowId: workflowId,
                 Kind: ServerJobKind.JobList,
-                State: ServerProtocol.JobStates.Running,
+                LifecycleState: ServerJobLifecycleState.Running,
+                ActivityPhase: ServerJobActivityPhase.RunningChildren,
+                ActivityUntilUtc: null,
+                TerminalOutcome: ServerJobTerminalOutcome.None,
                 ItemName: "squarepusher",
                 QueryText: "squarepusher",
                 FailureReason: null,
@@ -1272,7 +1384,7 @@ public class CliProgressReporterTests
                 DiscoveryLockedFileCount: null,
                 AppliedAutoProfiles: [],
                 AvailableActions: []));
-            InvokePrivate(reporter, "RememberStructure", CreateAlbumSummary(albumId, ServerProtocol.JobStates.Downloading, null) with
+            InvokePrivate(reporter, "RememberStructure", CreateAlbumSummary(albumId, ExpectedJobStatus.Downloading, null) with
             {
                 WorkflowId = workflowId,
                 ParentJobId = listId,
@@ -1378,13 +1490,18 @@ public class CliProgressReporterTests
         return (int)songs.GetType().GetProperty("Count")!.GetValue(songs)!;
     }
 
-    private static JobSummaryDto CreateAlbumSummary(Guid jobId, ServerJobState state, ServerFailureReason? failureReason)
-        => new(
+    private static JobSummaryDto CreateAlbumSummary(Guid jobId, ExpectedJobStatus state, ServerJobFailureReason? failureReason)
+    {
+        var split = Split(state, failureReason);
+        return new(
             jobId,
             DisplayId: 6,
             WorkflowId: Guid.NewGuid(),
             Kind: ServerJobKind.Album,
-            State: state,
+            LifecycleState: split.LifecycleState,
+            ActivityPhase: split.ActivityPhase,
+            ActivityUntilUtc: null,
+            TerminalOutcome: split.TerminalOutcome,
             ItemName: "Artist Album",
             QueryText: "Artist Album",
             FailureReason: failureReason,
@@ -1396,6 +1513,7 @@ public class CliProgressReporterTests
             DiscoveryLockedFileCount: null,
             AppliedAutoProfiles: [],
             AvailableActions: []);
+    }
 
     private static JobSummaryDto CreateSongSummary(Guid jobId, Guid workflowId, Guid? parentJobId)
         => new(
@@ -1403,7 +1521,10 @@ public class CliProgressReporterTests
             DisplayId: 7,
             WorkflowId: workflowId,
             Kind: ServerJobKind.Song,
-            State: ServerProtocol.JobStates.Searching,
+            LifecycleState: ServerJobLifecycleState.Running,
+            ActivityPhase: ServerJobActivityPhase.Searching,
+            ActivityUntilUtc: null,
+            TerminalOutcome: ServerJobTerminalOutcome.None,
             ItemName: "Artist - Track",
             QueryText: "Artist - Track",
             FailureReason: null,
@@ -1416,13 +1537,18 @@ public class CliProgressReporterTests
             AppliedAutoProfiles: [],
             AvailableActions: []);
 
-    private static JobSummaryDto CreateExtractSummary(Guid jobId, Guid workflowId, ServerJobState state, ServerFailureReason? failureReason)
-        => new(
+    private static JobSummaryDto CreateExtractSummary(Guid jobId, Guid workflowId, ExpectedJobStatus state, ServerJobFailureReason? failureReason)
+    {
+        var split = Split(state, failureReason);
+        return new(
             jobId,
             DisplayId: 11,
             WorkflowId: workflowId,
             Kind: ServerJobKind.Extract,
-            State: state,
+            LifecycleState: split.LifecycleState,
+            ActivityPhase: split.ActivityPhase,
+            ActivityUntilUtc: null,
+            TerminalOutcome: split.TerminalOutcome,
             ItemName: "input.txt",
             QueryText: "input.txt",
             FailureReason: failureReason,
@@ -1434,8 +1560,9 @@ public class CliProgressReporterTests
             DiscoveryLockedFileCount: null,
             AppliedAutoProfiles: [],
             AvailableActions: []);
+    }
 
-    private static AlbumFolderDto CreateSingleFileAlbumFolder(Guid fileJobId, ServerJobState state, ServerFailureReason? failureReason)
+    private static AlbumFolderDto CreateSingleFileAlbumFolder(Guid fileJobId, ExpectedJobStatus state, ServerJobFailureReason? failureReason)
         => new(
             new AlbumFolderRefDto("local", @"Artist\Album"),
             "local",
@@ -1445,8 +1572,10 @@ public class CliProgressReporterTests
             AudioFileCount: 1,
             Files: [CreateFileCandidate("local", @"Artist\Album\01. Artist - Track.flac")]);
 
-    private static SongJobPayloadDto CreateSongPayload(Guid fileJobId, ServerJobState state, ServerFailureReason? failureReason)
-        => new(
+    private static SongJobPayloadDto CreateSongPayload(Guid fileJobId, ExpectedJobStatus state, ServerJobFailureReason? failureReason)
+    {
+        var split = Split(state, failureReason);
+        return new(
             new SongQueryDto("Artist", "Track", null, null, null, false),
             CandidateCount: 1,
             DownloadPath: null,
@@ -1461,9 +1590,53 @@ public class CliProgressReporterTests
             JobId: fileJobId,
             DisplayId: 7,
             Candidates: null,
-            State: state,
+            LifecycleState: split.LifecycleState,
+            ActivityPhase: split.ActivityPhase,
+            ActivityUntilUtc: null,
+            TerminalOutcome: split.TerminalOutcome,
+            SkipReason: split.SkipReason,
             FailureReason: failureReason,
             FailureMessage: null);
+    }
+
+    private static JobSummaryDto WithState(
+        JobSummaryDto summary,
+        ExpectedJobStatus state,
+        ServerJobFailureReason? failureReason = null,
+        string? failureMessage = null)
+    {
+        var split = Split(state, failureReason);
+        return summary with
+        {
+            LifecycleState = split.LifecycleState,
+            ActivityPhase = split.ActivityPhase,
+            ActivityUntilUtc = null,
+            TerminalOutcome = split.TerminalOutcome,
+            SkipReason = split.SkipReason,
+            FailureReason = failureReason,
+            FailureMessage = failureMessage,
+        };
+    }
+
+    private static (ServerJobLifecycleState LifecycleState, ServerJobActivityPhase ActivityPhase, ServerJobTerminalOutcome TerminalOutcome, ServerJobSkipReason SkipReason) Split(
+        ExpectedJobStatus state,
+        ServerJobFailureReason? reason = null)
+        => state switch
+        {
+            ExpectedJobStatus.Pending => (ServerJobLifecycleState.Pending, ServerJobActivityPhase.None, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
+            ExpectedJobStatus.Searching => (ServerJobLifecycleState.Running, ServerJobActivityPhase.Searching, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
+            ExpectedJobStatus.Downloading => (ServerJobLifecycleState.Running, ServerJobActivityPhase.Downloading, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
+            ExpectedJobStatus.Extracting => (ServerJobLifecycleState.Running, ServerJobActivityPhase.Extracting, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
+            ExpectedJobStatus.RunningChildren => (ServerJobLifecycleState.Running, ServerJobActivityPhase.RunningChildren, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
+            ExpectedJobStatus.AwaitingSelection => (ServerJobLifecycleState.AwaitingSelection, ServerJobActivityPhase.None, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
+            ExpectedJobStatus.Succeeded => (ServerJobLifecycleState.Terminal, ServerJobActivityPhase.None, ServerJobTerminalOutcome.Succeeded, ServerJobSkipReason.None),
+            ExpectedJobStatus.AlreadyExists => (ServerJobLifecycleState.Terminal, ServerJobActivityPhase.None, ServerJobTerminalOutcome.Skipped, ServerJobSkipReason.AlreadyExists),
+            ExpectedJobStatus.Skipped => (ServerJobLifecycleState.Terminal, ServerJobActivityPhase.None, ServerJobTerminalOutcome.Skipped, ServerJobSkipReason.Manual),
+            ExpectedJobStatus.NotFoundLastTime => (ServerJobLifecycleState.Terminal, ServerJobActivityPhase.None, ServerJobTerminalOutcome.Skipped, ServerJobSkipReason.NotFoundLastTime),
+            ExpectedJobStatus.Failed when reason == ServerJobFailureReason.Cancelled => (ServerJobLifecycleState.Terminal, ServerJobActivityPhase.None, ServerJobTerminalOutcome.Cancelled, ServerJobSkipReason.None),
+            ExpectedJobStatus.Failed => (ServerJobLifecycleState.Terminal, ServerJobActivityPhase.None, ServerJobTerminalOutcome.Failed, ServerJobSkipReason.None),
+            _ => (ServerJobLifecycleState.Running, ServerJobActivityPhase.None, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
+        };
 
     private static FileCandidateDto CreateFileCandidate(string username, string filename)
         => new(
@@ -1487,7 +1660,7 @@ public class CliProgressReporterTests
         var first = CompletedAlbum("Artist One", "Album One", 8);
         var second = CompletedAlbum("Artist Two", "Album Two", 12);
         var failed = new AlbumJob(new AlbumQuery { Artist = "Artist Three", Album = "Album Three" });
-        failed.Fail(FailureReason.NoSuitableFileFound);
+        failed.Fail(JobFailureReason.NoSuitableFileFound);
 
         var queue = new JobList("root", [first, second, failed]);
 
@@ -1507,7 +1680,7 @@ public class CliProgressReporterTests
 
         var extract = new ExtractJob("input.txt", InputType.List);
         extract.Config = new DownloadSettings { PrintOption = PrintOption.Tracks };
-        extract.Fail(FailureReason.ExtractionFailed, "Could not parse input");
+        extract.Fail(JobFailureReason.ExtractionFailed, "Could not parse input");
         var queue = new JobList("root", [extract]);
 
         Printing.PrintPlannedOutput(queue);

@@ -37,7 +37,8 @@ public class EngineEventDtoAdapterTests
         var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Title", Album = "Album" });
         new EngineEventDtoAdapter(SummaryFor, (type, payload) => published.Add((type, payload))).Attach(events);
 
-        Raise(events, "RaiseJobStateChanged", song, JobState.Searching);
+        song.UpdateActivity(JobActivityPhase.Searching);
+        Raise(events, "RaiseJobStateChanged", song);
 
         Assert.AreEqual(1, published.Count);
         Assert.AreEqual("song.searching", published[0].Type);
@@ -54,7 +55,10 @@ public class EngineEventDtoAdapterTests
             job.DisplayId,
             job.WorkflowId,
             EngineStateStore.GetJobKind(job),
-            EngineStateStore.ToServerJobState(job.State),
+            EngineStateStore.ToServerJobLifecycleState(job.LifecycleState),
+            EngineStateStore.ToServerJobActivityPhase(job.ActivityPhase),
+            job.ActivityUntilUtc,
+            EngineStateStore.ToServerJobTerminalOutcome(job.TerminalOutcome),
             job.ItemName,
             job.ToString(noInfo: true),
             EngineStateStore.ToServerFailureReason(job.FailureReason),

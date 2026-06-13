@@ -34,7 +34,7 @@ namespace Sockseek.Cli;
                 var data = index.GetPreviousRunData();
 
                 if (printOption.HasFlag(PrintOption.IndexFailed))
-                    data = data.Where(e => e.State == JobState.Failed).ToList();
+                    data = data.Where(e => e.State == JobStateOld.Failed).ToList();
 
                 JsonPrinter.PrintIndexJson(data);
             }

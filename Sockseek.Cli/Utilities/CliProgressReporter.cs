@@ -143,6 +143,9 @@ public class CliProgressReporter
                 case "job.status" when envelope.Payload is JobStatusEventDto e:
                     ReportJobStatus(e);
                     break;
+                case "job.activity-changed" when envelope.Payload is JobActivityChangedEventDto e:
+                    ReportJobActivityChanged(e);
+                    break;
                 case "job.message" when envelope.Payload is JobMessageEventDto e:
                     ReportJobMessage(e);
                     break;
@@ -186,13 +189,7 @@ public class CliProgressReporter
                     ReportTrackBatchResolved(e);
                     break;
                 case "search.rate-limited" when envelope.Payload is SearchRateLimitedEventDto rl:
-                    if (LiveMode)
-                        _live!.SetRateLimited(rl.ResetsAt);
-                    else
-                    {
-                        int secs = Math.Max(0, (int)Math.Ceiling((rl.ResetsAt - DateTimeOffset.UtcNow).TotalSeconds));
-                        Printing.WriteLine($"Search rate limit reached, resuming in {secs}s", ConsoleColor.DarkGray);
-                    }
+                    ReportSearchRateLimited(rl);
                     break;
                 case "search.resumed":
                     _live?.SetRateLimited(null);
@@ -204,17 +201,19 @@ public class CliProgressReporter
     private void ReportJobUpserted(JobSummaryDto summary)
     {
         RememberStructure(summary);
+        var status = CliJobStatusPresenter.ForSummary(summary);
         if (!IsInfrastructureJobKind(summary.Kind))
             _live?.UpsertJob(new TerminalJobRecord(
                 summary.JobId.ToString(),
                 summary.DisplayId,
                 GetJobTypeLabel(summary.Kind),
-                summary.State.ToString(),
+                status.Label,
+                status.Category,
                 summary.ParentJobId?.ToString()));
 
-        if (IsTerminalJobState(summary.State))
+        if (status.IsTerminal)
         {
-            if (summary.Kind == ServerJobKind.Album && IsSuccessfulTerminalState(summary.State))
+            if (summary.Kind == ServerJobKind.Album && status.IsSuccessful)
                 return;
 
             RemoveLiveJob(summary.JobId);
@@ -246,7 +245,7 @@ public class CliProgressReporter
 
             _jobStatuses.TryGetValue(summary.JobId, out var containerStatus);
             if (LiveMode)
-                UpsertLiveJob(summary, containerStatus ?? summary.State.ToString().ToLowerInvariant());
+                UpsertLiveJob(summary, containerStatus ?? status.Label);
             return;
         }
 
@@ -254,6 +253,9 @@ public class CliProgressReporter
         {
             return;
         }
+
+        if (ShouldShowStandaloneSummaryInLiveTable(summary, status) && !IsInlineChild(summary))
+            UpsertLiveJob(summary, status.Label);
     }
 
     // ── album/track helpers ─────────────────────────────────────────────
@@ -344,7 +346,10 @@ public class CliProgressReporter
                     ResolvedAttributes: candidate?.Attributes,
                     JobId: songJobId,
                     DisplayId: displayId,
-                    State: ServerJobState.Pending));
+                    LifecycleState: ServerJobLifecycleState.Pending,
+                    ActivityPhase: ServerJobActivityPhase.None,
+                    TerminalOutcome: ServerJobTerminalOutcome.None,
+                    SkipReason: ServerJobSkipReason.None));
             }
         }
 
@@ -383,6 +388,11 @@ public class CliProgressReporter
 
     private static bool IsContainerJobKind(ServerJobKind kind)
         => kind is ServerJobKind.JobList or ServerJobKind.Aggregate or ServerJobKind.AlbumAggregate;
+
+    internal static bool ShouldShowStandaloneSummaryInLiveTable(JobSummaryDto summary, CliJobStatus status)
+        => !status.IsQueued
+            && !status.IsTerminal
+            && !IsInfrastructureJobKind(summary.Kind);
 
     private bool IsTransparentContainer(Guid jobId, ServerJobKind kind)
         => kind == ServerJobKind.JobList
@@ -434,7 +444,10 @@ public class CliProgressReporter
         var d = detail ?? summary.QueryText ?? name;
         string line = $"[{summary.DisplayId}] {GetJobTypePrefix(summary.Kind)}{status}: {WithName(name, d)}";
         
-        if (summary.State == ServerProtocol.JobStates.Done && summary.Kind == ServerJobKind.Search && summary.DiscoveryResultCount.HasValue)
+        if ((summary.TerminalOutcome == ServerJobTerminalOutcome.Succeeded
+                || summary.TerminalOutcome == ServerJobTerminalOutcome.Skipped && summary.SkipReason == ServerJobSkipReason.AlreadyExists)
+            && summary.Kind == ServerJobKind.Search
+            && summary.DiscoveryResultCount.HasValue)
             line += $": Found {summary.DiscoveryResultCount.Value} files";
             
         return line;
@@ -494,32 +507,19 @@ public class CliProgressReporter
                 return new JobChildView(
                     jobId.ToString(),
                     song.DisplayId ?? 0,
-                    LiveAlbumChildState(data?.StateLabel ?? song.State?.ToString() ?? "pending"),
+                    LiveAlbumChildState(data?.StateLabel ?? CliJobStatusPresenter.ForSongPayload(song).Label),
                     AlbumChildDisplay(block, data?.BaseText ?? song.ResolvedFilename ?? SongQueryText(song.Query)),
                     data?.Pct,
                     SpeedBytesPerSecond: data?.SpeedBps,
                     Metadata: data?.Metadata ?? SongPayloadMetadata(song),
                     IsMostRecent: block.LastUpdatedSongId == jobId);
             })
-            .Where(child => child.State is not "Pending")
+            .Where(child => !string.Equals(child.State, "queued", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         var albumName = block.Summary.QueryText ?? block.Summary.ItemName ?? "";
         UpsertLiveJob(block.Summary, status ?? "downloading", total > 0 ? done * 100 / total : null, done, total, children, AlbumDisplayName(albumName, block.RemoteFolderDisplay));
     }
-
-
-    static string FailureReasonLabel(ServerFailureReason? reason) => reason switch
-    {
-        ServerFailureReason.NoSuitableFileFound  => "No suitable file found",
-        ServerFailureReason.InvalidSearchString  => "Invalid search string",
-        ServerFailureReason.OutOfDownloadRetries => "Out of download retries",
-        ServerFailureReason.AllDownloadsFailed   => "All downloads failed",
-        ServerFailureReason.ExtractionFailed     => "Extraction failed",
-        ServerFailureReason.Cancelled            => "Cancelled",
-        ServerFailureReason.Other                => "Unknown error",
-        _                                        => "",
-    };
 
     private static string GetStateLabel(TransferStates s)
     {
@@ -544,16 +544,6 @@ public class CliProgressReporter
             "Pending" => "pending",
             _ => state,
         };
-
-    private static bool IsTerminalJobState(ServerJobState state)
-        => state is ServerProtocol.JobStates.Done
-            or ServerProtocol.JobStates.AlreadyExists
-            or ServerProtocol.JobStates.Failed
-            or ServerProtocol.JobStates.Skipped;
-
-    private static bool IsSuccessfulTerminalState(ServerJobState state)
-        => state is ServerProtocol.JobStates.Done
-            or ServerProtocol.JobStates.AlreadyExists;
 
     private void RememberStructure(JobSummaryDto summary)
     {
@@ -609,7 +599,8 @@ public class CliProgressReporter
         => WithLocalPath(SongDisplay(song, shortPath: true), song.DownloadPath);
 
     private static string SongTerminalDisplay(SongStateChangedEventDto song)
-        => song.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists
+        => song.TerminalOutcome == ServerJobTerminalOutcome.Succeeded
+            || (song.TerminalOutcome == ServerJobTerminalOutcome.Skipped && song.SkipReason == ServerJobSkipReason.AlreadyExists)
             ? SongCompletedDisplay(song)
             : WithFailureMessage(SongDisplay(song, shortPath: true), song.FailureMessage);
 
@@ -740,28 +731,25 @@ public class CliProgressReporter
         return query.Album ?? query.Uri ?? "";
     }
 
-    private static string TerminalStatusLabel(ServerJobState state, ServerFailureReason? reason, string fallbackStatus = "failed")
+    private static string TerminalStatusLabel(JobSummaryDto summary)
     {
-        if (state == ServerJobState.Done)
-            return "succeeded";
-        if (state == ServerJobState.AlreadyExists)
-            return "already exists";
-
-        var reasonLabel = FailureReasonLabel(reason);
-        if (reasonLabel.Length == 0) reasonLabel = "Unknown error";
-        return $"{fallbackStatus} [{reasonLabel}]";
+        var status = CliJobStatusPresenter.ForSummary(summary);
+        return status.Label;
     }
 
     private static string TerminalStatusLabel(SongStateChangedEventDto song)
     {
-        if (song.State == ServerProtocol.JobStates.Done)
-            return "succeeded";
-        if (song.State == ServerProtocol.JobStates.AlreadyExists)
-            return "already exists";
+        var status = CliJobStatusPresenter.ForSongEvent(song);
+        if (song.TerminalOutcome == ServerJobTerminalOutcome.Succeeded
+            || (song.TerminalOutcome == ServerJobTerminalOutcome.Skipped && song.SkipReason == ServerJobSkipReason.AlreadyExists)
+            || song.TerminalOutcome == ServerJobTerminalOutcome.Cancelled
+            || song.TerminalOutcome == ServerJobTerminalOutcome.PartialSuccess)
+            return status.Label;
 
-        var reason = FailureReasonLabel(song.FailureReason);
-        if (reason.Length == 0 && song.State is ServerProtocol.JobStates.Failed or ServerProtocol.JobStates.Skipped or ServerProtocol.JobStates.NotFoundLastTime)
-            reason = "Unknown error";
+        var reason = ServerFailureReasonDisplay.Label(song.FailureReason);
+        if (reason.Length == 0 && (song.TerminalOutcome is ServerJobTerminalOutcome.Failed
+                or ServerJobTerminalOutcome.Skipped))
+            reason = ServerFailureReasonDisplay.LabelOrUnknown(song.FailureReason);
 
         var discovery = song.DiscoveryLockedFileCount > 0
             ? $" (Found {song.DiscoveryLockedFileCount} locked files)"
@@ -890,8 +878,6 @@ public class CliProgressReporter
 
     private void ReportStateChanged(SongStateChangedEventDto song)
     {
-        bool songSucceeded = song.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists;
-
         MarkAlbumTrackCompleted(song.JobId);
         var candidate = song.ChosenCandidate;
         if ((TryGetAlbumParent(song.JobId, out var albumId) && _albumBlocks.TryGetValue(albumId, out var block))
@@ -951,6 +937,18 @@ public class CliProgressReporter
 
         LogGroup(batch.Existing, "tracks already exist");
         LogGroup(batch.NotFound, "tracks were not found in a prior run");
+    }
+
+    private void ReportSearchRateLimited(SearchRateLimitedEventDto rateLimit)
+    {
+        if (LiveMode)
+        {
+            _live!.SetRateLimited(rateLimit.ResetsAt);
+            return;
+        }
+
+        int secs = Math.Max(0, (int)Math.Ceiling((rateLimit.ResetsAt - DateTimeOffset.UtcNow).TotalSeconds));
+        Printing.WriteLine($"Search rate limit reached, resuming in {secs}s", ConsoleColor.DarkGray);
     }
 
     private void ReportExtractionStarted(ExtractionStartedEventDto job)
@@ -1077,6 +1075,9 @@ public class CliProgressReporter
             UpsertLiveJob(job.Summary, job.Status);
     }
 
+    private void ReportJobActivityChanged(JobActivityChangedEventDto job)
+        => ReportJobUpserted(job.Summary);
+
     private void ReportJobMessage(JobMessageEventDto job)
     {
         RememberStructure(job.Summary);
@@ -1177,23 +1178,18 @@ public class CliProgressReporter
             if (!_bars.TryGetValue(song.JobId!.Value, out var data))
                 continue;
 
-            bool albumSucceeded = summary.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists;
-            data.StateLabel = summary.State switch
-            {
-                ServerProtocol.JobStates.Done => "Succeeded",
-                ServerProtocol.JobStates.AlreadyExists => "Already exists",
-                _ => "Failed",
-            };
-            if (albumSucceeded)
+            var albumStatus = CliJobStatusPresenter.ForSummary(summary);
+            data.StateLabel = albumStatus.Label;
+            if (albumStatus.IsSuccessful)
             {
                 data.Pct = 100;
             }
             else
             {
-                var reason = FailureReasonLabel(summary.FailureReason) is { Length: > 0 } summaryReason
+                var reason = ServerFailureReasonDisplay.Label(summary.FailureReason) is { Length: > 0 } summaryReason
                     ? summaryReason
-                    : FailureReasonLabel(song.FailureReason);
-                if (reason.Length == 0) reason = "Unknown error";
+                    : ServerFailureReasonDisplay.Label(song.FailureReason);
+                if (reason.Length == 0) reason = ServerFailureReasonDisplay.LabelOrUnknown(summary.FailureReason ?? song.FailureReason);
                 if (!data.BaseText.Contains($"[{reason}]", StringComparison.Ordinal))
                     data.BaseText += $" [{reason}]";
             }
@@ -1237,31 +1233,22 @@ public class CliProgressReporter
 
     private static BarData ToBarData(SongJobPayloadDto song, string shortName)
     {
-        var data = new BarData { BaseText = shortName, StateLabel = "Pending", Pct = 0 };
+        var status = CliJobStatusPresenter.ForSongPayload(song);
+        var data = new BarData { BaseText = shortName, StateLabel = status.Label, Pct = 0 };
 
-        if (song.State == ServerProtocol.JobStates.Done)
+        if (song.TerminalOutcome == ServerJobTerminalOutcome.Succeeded)
         {
-            data.StateLabel = "Succeeded";
             data.Pct = 100;
         }
-        else if (song.State == ServerProtocol.JobStates.AlreadyExists)
+        else if (song.TerminalOutcome == ServerJobTerminalOutcome.Skipped && song.SkipReason == ServerJobSkipReason.AlreadyExists)
         {
-            data.StateLabel = "Already exists";
             data.Pct = 100;
         }
-        else if (song.State == ServerProtocol.JobStates.Failed)
+        else if (status.IsFailed)
         {
-            data.StateLabel = "Failed";
-            if (song.FailureReason != null)
-                data.BaseText += $" [{FailureReasonLabel(song.FailureReason)}]";
-        }
-        else if (song.State == ServerProtocol.JobStates.Downloading)
-        {
-            data.StateLabel = "InProgress";
-        }
-        else if (song.State == ServerProtocol.JobStates.Searching)
-        {
-            data.StateLabel = "Searching";
+            var reason = ServerFailureReasonDisplay.Label(song.FailureReason);
+            if (reason.Length > 0)
+                data.BaseText += $" [{reason}]";
         }
 
         return data;

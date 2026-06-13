@@ -21,7 +21,7 @@ public class EngineStateStoreTests
             BytesTransferred = 25,
             FileSize = 100,
         };
-        song.UpdateState(JobState.Downloading);
+        song.UpdateActivity(JobActivityPhase.Downloading);
 
         Register(store, song);
 
@@ -33,13 +33,63 @@ public class EngineStateStoreTests
     }
 
     [TestMethod]
+    public void JobSummary_ExposesLifecycleActivityAndTerminalOutcome()
+    {
+        var store = new EngineStateStore();
+        var until = DateTimeOffset.UtcNow.AddSeconds(30);
+        var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" });
+        song.UpdateActivity(JobActivityPhase.SearchRateLimited, until);
+
+        Register(store, song);
+
+        var summary = store.GetJobSummary(song.Id);
+        Assert.IsNotNull(summary);
+        Assert.AreEqual(ServerJobLifecycleState.Running, summary.LifecycleState);
+        Assert.AreEqual(ServerJobActivityPhase.SearchRateLimited, summary.ActivityPhase);
+        Assert.AreEqual(until, summary.ActivityUntilUtc);
+        Assert.AreEqual(ServerJobTerminalOutcome.None, summary.TerminalOutcome);
+    }
+
+    [TestMethod]
+    public void GetJobs_FiltersByLifecycleAndTerminalOutcome()
+    {
+        var store = new EngineStateStore();
+        var running = new SongJob(new SongQuery { Title = "Running" });
+        var done = new SongJob(new SongQuery { Title = "Done" });
+        var failed = new SongJob(new SongQuery { Title = "Failed" });
+        running.UpdateActivity(JobActivityPhase.Downloading);
+        done.SetDone();
+        failed.Fail(JobFailureReason.Other);
+
+        Register(store, running);
+        Register(store, done);
+        Register(store, failed);
+
+        var runningJobs = store.GetJobs(new JobQuery(
+            ServerJobLifecycleState.Running,
+            TerminalOutcome: null,
+            Kind: null,
+            WorkflowId: null,
+            IncludeAll: true));
+        CollectionAssert.AreEquivalent(new[] { running.Id }, runningJobs.Select(job => job.JobId).ToArray());
+
+        var failedJobs = store.GetJobs(new JobQuery(
+            ServerJobLifecycleState.Terminal,
+            ServerJobTerminalOutcome.Failed,
+            Kind: null,
+            WorkflowId: null,
+            IncludeAll: true));
+        CollectionAssert.AreEquivalent(new[] { failed.Id }, failedJobs.Select(job => job.JobId).ToArray());
+    }
+
+    [TestMethod]
     public void AggregatePayload_IncludesSongOutcomeCounts()
     {
         var store = new EngineStateStore();
         var aggregate = new AggregateJob(new SongQuery { Artist = "Artist" });
         var s1 = new SongJob(new SongQuery { Title = "One" }); s1.SetDone();
-        var s2 = new SongJob(new SongQuery { Title = "Two" }); s2.Fail(FailureReason.Other);
-        var s3 = new SongJob(new SongQuery { Title = "Three" }); s3.UpdateState(JobState.Downloading);
+        var s2 = new SongJob(new SongQuery { Title = "Two" }); s2.Fail(JobFailureReason.Other);
+        var s3 = new SongJob(new SongQuery { Title = "Three" }); s3.UpdateActivity(JobActivityPhase.Downloading);
         aggregate.Songs.Add(s1);
         aggregate.Songs.Add(s2);
         aggregate.Songs.Add(s3);
@@ -60,8 +110,8 @@ public class EngineStateStoreTests
         var store = new EngineStateStore();
         var list = new JobList("batch");
         var j1 = new SongJob(new SongQuery { Title = "One" }); j1.SetDone();
-        var j2 = new SongJob(new SongQuery { Title = "Two" }); j2.Fail(FailureReason.Other);
-        var j3 = new SongJob(new SongQuery { Title = "Three" }); j3.UpdateState(JobState.Searching);
+        var j2 = new SongJob(new SongQuery { Title = "Two" }); j2.Fail(JobFailureReason.Other);
+        var j3 = new SongJob(new SongQuery { Title = "Three" }); j3.UpdateActivity(JobActivityPhase.Searching);
         list.Add(j1);
         list.Add(j2);
         list.Add(j3);
@@ -88,12 +138,14 @@ public class EngineStateStoreTests
         Register(store, list);
         Register(store, child, list);
 
-        list.UpdateState(JobState.Running);
+        list.UpdateActivity(JobActivityPhase.RunningChildren);
         UpdateState(store, list);
 
         var summary = store.GetJobSummary(list.Id);
         Assert.IsNotNull(summary);
-        Assert.AreEqual(ServerJobState.Running, summary.State);
+        Assert.AreEqual(ServerJobLifecycleState.Running, summary.LifecycleState);
+        Assert.AreEqual(ServerJobActivityPhase.RunningChildren, summary.ActivityPhase);
+        Assert.AreEqual(ServerJobTerminalOutcome.None, summary.TerminalOutcome);
     }
 
     [TestMethod]
@@ -124,8 +176,8 @@ public class EngineStateStoreTests
         var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
         var song1 = new SongJob(new SongQuery { Title = "One" });
         var song2 = new SongJob(new SongQuery { Title = "Two" });
-        song1.UpdateState(JobState.Downloading);
-        song2.UpdateState(JobState.Downloading);
+        song1.UpdateActivity(JobActivityPhase.Downloading);
+        song2.UpdateActivity(JobActivityPhase.Downloading);
 
         Register(store, album);
         Register(store, song1, album);
@@ -191,7 +243,7 @@ public class EngineStateStoreTests
     {
         typeof(EngineStateStore)
             .GetMethod("OnJobStateChanged", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(store, [job, job.State]);
+            .Invoke(store, [job]);
     }
 
     private static void DownloadStateChanged(EngineStateStore store, SongJob song, TransferStates state)

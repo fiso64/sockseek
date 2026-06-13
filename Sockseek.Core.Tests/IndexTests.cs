@@ -56,19 +56,19 @@ namespace Tests.Index
             // Verify downloaded track
             editor.TryGetPreviousRunResult(songs[0], out var prev1);
             Assert.IsNotNull(prev1);
-            Assert.AreEqual(JobState.Done, prev1.State);
+            Assert.AreEqual(JobStateOld.Done, prev1.State);
             Assert.AreEqual("path/to/file1", prev1.DownloadPath);
 
             // Verify already-exists track
             editor.TryGetPreviousRunResult(songs[1], out var prev2);
             Assert.IsNotNull(prev2);
-            Assert.AreEqual(JobState.AlreadyExists, prev2.State);
+            Assert.AreEqual(JobStateOld.AlreadyExists, prev2.State);
 
             // Verify failed track
             editor.TryGetPreviousRunResult(songs[2], out var prev3);
             Assert.IsNotNull(prev3);
-            Assert.AreEqual(JobState.Failed, prev3.State);
-            Assert.AreEqual(FailureReason.NoSuitableFileFound, prev3.FailureReason);
+            Assert.AreEqual(JobStateOld.Failed, prev3.State);
+            Assert.AreEqual(JobFailureReason.NoSuitableFileFound, prev3.FailureReason);
         }
 
         [TestMethod]
@@ -82,7 +82,7 @@ namespace Tests.Index
             };
             songs[0].SetDone();
             songs[0].DownloadPath = "path/to/file1";
-            songs[1].Fail(FailureReason.NoSuitableFileFound);
+            songs[1].Fail(JobFailureReason.NoSuitableFileFound);
             // songs[2] stays Pending
 
             var (queue, _, _) = MakeSongQueue(songs);
@@ -98,14 +98,14 @@ namespace Tests.Index
             // Verify downloaded track round-tripped
             editor2.TryGetPreviousRunResult(lookupSongs[0], out var prev1);
             Assert.IsNotNull(prev1);
-            Assert.AreEqual(JobState.Done, prev1.State);
+            Assert.AreEqual(JobStateOld.Done, prev1.State);
             Assert.AreEqual("path/to/file1", prev1.DownloadPath);
 
             // Verify failed track round-tripped
             editor2.TryGetPreviousRunResult(lookupSongs[1], out var prev2);
             Assert.IsNotNull(prev2);
-            Assert.AreEqual(JobState.Failed, prev2.State);
-            Assert.AreEqual(FailureReason.NoSuitableFileFound, prev2.FailureReason);
+            Assert.AreEqual(JobStateOld.Failed, prev2.State);
+            Assert.AreEqual(JobFailureReason.NoSuitableFileFound, prev2.FailureReason);
 
             // Pending track should not be in previous run data (state is Pending, it was skipped)
             editor2.TryGetPreviousRunResult(lookupSongs[2], out var prev3);
@@ -151,8 +151,8 @@ namespace Tests.Index
             // Update album states
             albumJobs[0].SetDone();
             albumJobs[0].DownloadPath = "download/path";
-            albumJobs[1].Fail(FailureReason.NoSuitableFileFound);
-            albumJobs[2].SetSkipped(JobState.Skipped);
+            albumJobs[1].Fail(JobFailureReason.NoSuitableFileFound);
+            albumJobs[2].SetSkipped(JobSkipReason.Manual);
 
             editor.Update();
 
@@ -188,7 +188,7 @@ namespace Tests.Index
             };
             songs[0].SetDone();
             songs[0].DownloadPath = "path/file.mp3";
-            songs[1].Fail(FailureReason.AllDownloadsFailed);
+            songs[1].Fail(JobFailureReason.AllDownloadsFailed);
 
             var (queue, _, _) = MakeSongQueue(songs);
             File.WriteAllText(testM3uPath, "");
@@ -208,7 +208,7 @@ namespace Tests.Index
             editor2.TryGetPreviousRunResult(lookupSongs[1], out var prev2);
             Assert.IsNotNull(prev2);
             Assert.AreEqual("Artist; semi", prev2.Artist);
-            Assert.AreEqual(FailureReason.AllDownloadsFailed, prev2.FailureReason);
+            Assert.AreEqual(JobFailureReason.AllDownloadsFailed, prev2.FailureReason);
         }
 
         [TestMethod]
@@ -219,7 +219,7 @@ namespace Tests.Index
                 new SongJob(new SongQuery { Artist = "A1", Title = "T1" }),
                 new SongJob(new SongQuery { Artist = "A2", Title = "T2" }),
             };
-            songs[0].Fail(FailureReason.NoSuitableFileFound);
+            songs[0].Fail(JobFailureReason.NoSuitableFileFound);
             songs[1].SetDone();
             songs[1].DownloadPath = "p";
 
@@ -234,7 +234,7 @@ namespace Tests.Index
             var editor2 = new M3uEditor(testM3uPath, queue2, M3uOption.Index, true);
 
             Assert.IsTrue(editor2.TryGetFailureReason(lookupSongs[0], out var reason));
-            Assert.AreEqual(FailureReason.NoSuitableFileFound, reason);
+            Assert.AreEqual(JobFailureReason.NoSuitableFileFound, reason);
 
             Assert.IsFalse(editor2.TryGetFailureReason(lookupSongs[1], out _));
         }
