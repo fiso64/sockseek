@@ -12,7 +12,7 @@ namespace Sockseek.Core.Extractors;
             return input.StartsWith("slsk://", StringComparison.OrdinalIgnoreCase);
         }
 
-        public Task<Job> GetTracks(string input, ExtractionSettings extraction)
+        public Task<Job> GetTracks(string input, ExtractionSettings extraction, ExtractorContext? context = null)
         {
             var uri = HttpUtility.UrlDecode(input);
 

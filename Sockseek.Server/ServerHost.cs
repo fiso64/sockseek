@@ -524,7 +524,7 @@ public static class ServerHost
     private static IResult BadRequest(Exception ex)
     {
         TryCreateBadRequest(ex, out var error);
-        Sockseek.Core.SockseekLog.Daemon.LogNonConsole(Microsoft.Extensions.Logging.LogLevel.Warning, $"Bad request: {error}");
+        Sockseek.Core.SockseekLog.Daemon.Warn($"Bad request: {error}");
         return Results.BadRequest(new ApiErrorDto(error));
     }
 

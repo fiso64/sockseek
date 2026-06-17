@@ -10,7 +10,7 @@ namespace Sockseek.Core.Extractors;
             return !input.IsInternetUrl();
         }
 
-        public Task<Job> GetTracks(string input, ExtractionSettings extraction)
+        public Task<Job> GetTracks(string input, ExtractionSettings extraction, ExtractorContext? context = null)
         {
             bool isAlbum = extraction.IsAlbum;
 
@@ -24,10 +24,12 @@ namespace Sockseek.Core.Extractors;
             var expanded = Utils.ExpandVariables(input);
             if (File.Exists(expanded))
                 throw new ArgumentException($"Input is a local file. To read it as a track list, specify --input-type list or --input-type csv.");
+            context ??= ExtractorContext.None;
             ParseArgs(input, isAlbum,
                 out string artist, out string title, out string album, out string uri, out int length,
                 out bool artistMaybeWrong,
-                out int minAlbumTrackCount, out int maxAlbumTrackCount);
+                out int minAlbumTrackCount, out int maxAlbumTrackCount,
+                context.Log);
 
             bool treatAsAlbum = isAlbum || (title.Length == 0 && album.Length > 0);
 
@@ -70,8 +72,10 @@ namespace Sockseek.Core.Extractors;
         public static void ParseArgs(string input, bool isAlbum,
             out string artist, out string title, out string album, out string uri, out int length,
             out bool artistMaybeWrong,
-            out int minAlbumTrackCount, out int maxAlbumTrackCount)
+            out int minAlbumTrackCount, out int maxAlbumTrackCount,
+            IJobLog? log = null)
         {
+            log ??= ExtractorContext.None.Log;
             input = input.Trim();
             artist = ""; title = ""; album = ""; uri = "";
             length = -1; artistMaybeWrong = false;
@@ -158,7 +162,7 @@ namespace Sockseek.Core.Extractors;
 
             if (other.Length > 0 && (isAlbum && _album.Length > 0 || !isAlbum && _title.Length > 0))
             {
-                SockseekLog.Warn($"Warning: Input part '{other}' provided without a property name " +
+                log.Warn($"Warning: Input part '{other}' provided without a property name " +
                     $"and album or title is already set. Ignoring.");
             }
             else if (other.Length > 0)

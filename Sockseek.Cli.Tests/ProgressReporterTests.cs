@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Reflection;
+using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Cli;
 using Sockseek.Core;
@@ -14,6 +15,9 @@ namespace Tests.ProgressReporterTests;
 [TestClass]
 public class CliProgressReporterTests
 {
+    private static string JobLog(string message) => $"[jobs] {message}";
+    private static string ErrorJobLog(string message) => $"[error] [jobs] {message}";
+
     [TestCleanup]
     public void Cleanup()
     {
@@ -52,7 +56,7 @@ public class CliProgressReporterTests
         var messages = new List<string>();
         SockseekLog.AddConsole(writer: (message, _) => messages.Add(message));
 
-        var eventLogger = new EventLogger(null!, liveMode: false);
+        var eventLogger = new EventLogger(null!);
         var workflowId = Guid.NewGuid();
         var songId = Guid.NewGuid();
         var query = new SongQueryDto("Artist", "Song", null, null, null, false);
@@ -68,11 +72,37 @@ public class CliProgressReporterTests
             "Could not parse input")));
 
         Assert.AreEqual(5, messages.Count);
-        StringAssert.StartsWith(messages[0], @"[9] SongJob: downloading: Artist - Song: user\Music\Artist\Song.flac");
-        Assert.AreEqual("OnComplete start: [9] Artist - Song", messages[1]);
-        Assert.AreEqual("OnComplete end: [9] Artist - Song", messages[2]);
-        Assert.AreEqual("[11] ExtractJob: Input (List): input.txt", messages[3]);
-        Assert.AreEqual($"[11] ExtractJob: Failed: input.txt\n  Reason:    Could not parse input", messages[4]);
+        StringAssert.StartsWith(messages[0], JobLog(@"[9] SongJob: downloading: Artist - Song: user\Music\Artist\Song.flac"));
+        Assert.AreEqual(JobLog("OnComplete start: [9] Artist - Song"), messages[1]);
+        Assert.AreEqual(JobLog("OnComplete end: [9] Artist - Song"), messages[2]);
+        Assert.AreEqual(JobLog("[11] ExtractJob: List: Input: input.txt"), messages[3]);
+        Assert.AreEqual(ErrorJobLog("[11] ExtractJob: Failed: input.txt\n  Reason:    Could not parse input"), messages[4]);
+    }
+
+    [TestMethod]
+    public void EventLogger_JobMessage_RespectsLogLevelAndPrintsSource()
+    {
+        SockseekLog.RemoveNonFileOutputs();
+        var messages = new List<string>();
+        SockseekLog.AddConsole(writer: (message, _) => messages.Add(message));
+
+        var eventLogger = new EventLogger(null!);
+        var workflowId = Guid.NewGuid();
+        var extractSummary = CreateExtractSummary(Guid.NewGuid(), workflowId, ServerProtocol.JobStates.Extracting, null);
+
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("job.message", new JobMessageEventDto(
+            extractSummary,
+            LogLevel.Debug.ToString(),
+            "Spotify",
+            "Authorizing (login=False, modify=False)")));
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("job.message", new JobMessageEventDto(
+            extractSummary,
+            LogLevel.Information.ToString(),
+            "Spotify",
+            "Loading playlist")));
+
+        Assert.AreEqual(1, messages.Count);
+        Assert.AreEqual(JobLog("[11] ExtractJob: Spotify: Loading playlist"), messages[0]);
     }
 
     [TestMethod]
@@ -82,7 +112,7 @@ public class CliProgressReporterTests
         var messages = new List<string>();
         SockseekLog.AddConsole(writer: (message, _) => messages.Add(message));
 
-        var eventLogger = new EventLogger(null!, liveMode: false);
+        var eventLogger = new EventLogger(null!);
         var workflowId = Guid.NewGuid();
         var extractSummary = CreateExtractSummary(
             Guid.NewGuid(),
@@ -99,7 +129,46 @@ public class CliProgressReporterTests
             "Could not parse input")));
 
         Assert.AreEqual(1, messages.Count);
-        Assert.AreEqual("[11] ExtractJob: Failed: input.txt\n  Reason:    Could not parse input", messages[0]);
+        Assert.AreEqual(ErrorJobLog("[11] ExtractJob: Failed: input.txt\n  Reason:    Could not parse input"), messages[0]);
+    }
+
+    [TestMethod]
+    public void EventLogger_ExtractionEvents_PrintConsistentSourcePrefix()
+    {
+        SockseekLog.RemoveNonFileOutputs();
+        var messages = new List<string>();
+        SockseekLog.AddConsole(writer: (message, _) => messages.Add(message));
+
+        var eventLogger = new EventLogger(null!);
+        var workflowId = Guid.NewGuid();
+        var extractSummary = CreateExtractSummary(
+            Guid.NewGuid(),
+            workflowId,
+            ServerProtocol.JobStates.Failed,
+            ServerProtocol.FailureReasons.ExtractionFailed);
+
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("extraction.started", new ExtractionStartedEventDto(
+            extractSummary,
+            "https://open.spotify.com/playlist/123",
+            "Spotify",
+            "Spotify")));
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("extraction.failed", new ExtractionFailedEventDto(
+            extractSummary,
+            "HTTP 403 Forbidden",
+            "Spotify")));
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("diagnostic.error", new DiagnosticErrorEventDto(
+            "job",
+            "HTTP 403 Forbidden",
+            "Sockseek.Core.Extractors.SpotifyApiRequestException",
+            "Sockseek.Core.Extractors.SpotifyApiRequestException: HTTP 403 Forbidden",
+            extractSummary,
+            workflowId,
+            "Spotify")));
+
+        Assert.AreEqual(3, messages.Count);
+        Assert.AreEqual(JobLog("[11] ExtractJob: Spotify: Input: https://open.spotify.com/playlist/123"), messages[0]);
+        Assert.AreEqual(ErrorJobLog("[11] ExtractJob: Spotify: Failed: input.txt\n  Reason:    HTTP 403 Forbidden"), messages[1]);
+        StringAssert.Contains(messages[2], "[11] ExtractJob: Spotify: diagnostic: SpotifyApiRequestException");
     }
 
     [TestMethod]
@@ -109,7 +178,7 @@ public class CliProgressReporterTests
         var messages = new List<string>();
         SockseekLog.AddConsole(writer: (message, _) => messages.Add(message));
 
-        var eventLogger = new EventLogger(null!, liveMode: false);
+        var eventLogger = new EventLogger(null!);
         var workflowId = Guid.NewGuid();
         var extractSummary = CreateExtractSummary(
             Guid.NewGuid(),
@@ -131,7 +200,7 @@ public class CliProgressReporterTests
         Assert.AreEqual(2, messages.Count);
         StringAssert.Contains(messages[0], "Reason:    Object reference not set to an instance of an object.");
         Assert.IsFalse(messages[0].Contains("Exception:", StringComparison.Ordinal));
-        StringAssert.Contains(messages[1], "[11] ExtractJob: diagnostic: Object reference not set to an instance of an object.");
+        StringAssert.Contains(messages[1], "[11] ExtractJob: diagnostic: NullReferenceException");
         StringAssert.Contains(messages[1], "Exception:");
         StringAssert.Contains(messages[1], "System.NullReferenceException");
         StringAssert.Contains(messages[1], "at Sockseek.Core.Extractors.Spotify.GetTracks()");
@@ -144,7 +213,7 @@ public class CliProgressReporterTests
         var messages = new List<string>();
         SockseekLog.AddConsole(writer: (message, _) => messages.Add(message));
 
-        var eventLogger = new EventLogger(null!, liveMode: false);
+        var eventLogger = new EventLogger(null!);
         var summary = CreateAlbumSummary(
             Guid.NewGuid(),
             ServerProtocol.JobStates.Failed,
@@ -167,7 +236,7 @@ public class CliProgressReporterTests
         StringAssert.Contains(messages[0], "failed [Unknown error]: Artist Album");
         StringAssert.Contains(messages[0], "Error: Infrastructure failure: engine crashed");
         Assert.IsFalse(messages[0].Contains("Exception:", StringComparison.Ordinal));
-        StringAssert.Contains(messages[1], "[6] AlbumJob: diagnostic: Infrastructure failure: engine crashed");
+        StringAssert.Contains(messages[1], "[6] AlbumJob: diagnostic: InvalidOperationException");
         StringAssert.Contains(messages[1], "Exception:");
         StringAssert.Contains(messages[1], "System.InvalidOperationException");
         StringAssert.Contains(messages[1], "at Sockseek.Core.DownloadEngine.RunAsync()");
@@ -180,7 +249,7 @@ public class CliProgressReporterTests
         var messages = new List<string>();
         SockseekLog.AddConsole(writer: (message, _) => messages.Add(message));
 
-        var eventLogger = new EventLogger(null!, liveMode: false);
+        var eventLogger = new EventLogger(null!);
         var workflowId = Guid.NewGuid();
         var songId = Guid.NewGuid();
         var query = new SongQueryDto("Artist", "Song", null, null, null, false);
@@ -213,7 +282,7 @@ public class CliProgressReporterTests
         Assert.AreEqual(2, messages.Count);
         StringAssert.Contains(messages[0], "Error: Unhandled song failure");
         Assert.IsFalse(messages[0].Contains("Exception:", StringComparison.Ordinal));
-        StringAssert.Contains(messages[1], "[9] SongJob: diagnostic: Unhandled song failure");
+        StringAssert.Contains(messages[1], "[9] SongJob: diagnostic: InvalidOperationException");
         StringAssert.Contains(messages[1], "Exception:");
         StringAssert.Contains(messages[1], "System.InvalidOperationException");
         StringAssert.Contains(messages[1], "at Sockseek.Core.DownloadEngine.DownloadSong()");
@@ -226,7 +295,7 @@ public class CliProgressReporterTests
         var messages = new List<string>();
         SockseekLog.AddConsole(writer: (message, _) => messages.Add(message));
 
-        var eventLogger = new EventLogger(null!, liveMode: false, includeDiagnosticDetails: false);
+        var eventLogger = new EventLogger(null!, includeDiagnosticDetails: false);
         var summary = CreateAlbumSummary(
             Guid.NewGuid(),
             ServerProtocol.JobStates.Failed,
@@ -244,39 +313,14 @@ public class CliProgressReporterTests
     }
 
     [TestMethod]
-    public void CliProgressReporter_FailureDetailPolicy_IsExplicit()
-    {
-        var reporter = new CliProgressReporter(new CliSettings { NoProgress = true }, includeFailureDetails: true);
-
-        var withDetails = (string)InvokePrivate(
-            reporter,
-            "WithFailureDetail",
-            "failed: reason",
-            "System.InvalidOperationException: boom\n   at Test()",
-            true)!;
-        var withoutDetails = (string)InvokePrivate(
-            reporter,
-            "WithFailureDetail",
-            "failed: reason",
-            "System.InvalidOperationException: boom",
-            false)!;
-
-        StringAssert.Contains(withDetails, "Exception:");
-        StringAssert.Contains(withDetails, "System.InvalidOperationException");
-        Assert.AreEqual("failed: reason", withoutDetails);
-    }
-
-    [TestMethod]
-    public void EventLogger_LiveMode_RoutesActivityLogsToNonConsoleOnly()
+    public void EventLogger_RedundantActivityLogs_AreHiddenFromLiveRenderer()
     {
         SockseekLog.RemoveNonFileOutputs();
-        var consoleMessages = new List<string>();
-        var sinkMessages = new List<string>();
-        SockseekLog.AddConsole(writer: (message, _) => consoleMessages.Add(message));
-        SockseekLog.AddSink((_, message) => sinkMessages.Add(message));
+        var entries = new List<SockseekLog.StructuredLogEntry>();
+        SockseekLog.AddStructuredSink((entry, _) => entries.Add(entry));
 
         var workflowId = Guid.NewGuid();
-        var eventLogger = new EventLogger(null!, liveMode: true);
+        var eventLogger = new EventLogger(null!);
         InvokePrivate(eventLogger, "HandleEvent", Envelope(
             "download.started",
             new DownloadStartedEventDto(
@@ -286,9 +330,164 @@ public class CliProgressReporterTests
                 new SongQueryDto("Artist", "Song", null, null, null, false),
                 CreateFileCandidate("user", @"Music\Artist\Song.flac"))));
 
-        Assert.AreEqual(0, consoleMessages.Count);
-        Assert.AreEqual(1, sinkMessages.Count);
-        StringAssert.StartsWith(sinkMessages[0], @"[jobs] [9] SongJob: downloading: Artist - Song: user\Music\Artist\Song.flac");
+        Assert.AreEqual(1, entries.Count);
+        var line = (TerminalLogLine)entries[0].Context!;
+        Assert.IsFalse(line.ShowInLive);
+        Assert.AreEqual("downloading: Artist - Song: user\\Music\\Artist\\Song.flac", line.Message);
+    }
+
+    [TestMethod]
+    public void EventLogger_ErrorActivityLogs_AreShownInLiveRenderer()
+    {
+        SockseekLog.RemoveNonFileOutputs();
+        var entries = new List<SockseekLog.StructuredLogEntry>();
+        SockseekLog.AddStructuredSink((entry, _) => entries.Add(entry));
+
+        var eventLogger = new EventLogger(null!);
+        var workflowId = Guid.NewGuid();
+        var extractSummary = CreateExtractSummary(
+            Guid.NewGuid(),
+            workflowId,
+            ServerProtocol.JobStates.Failed,
+            ServerProtocol.FailureReasons.ExtractionFailed);
+
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("extraction.failed", new ExtractionFailedEventDto(
+            extractSummary,
+            "Could not parse input",
+            "List")));
+
+        Assert.AreEqual(1, entries.Count);
+        var line = (TerminalLogLine)entries[0].Context!;
+        Assert.IsTrue(line.ShowInLive);
+        Assert.AreEqual("List", line.Source);
+        Assert.AreEqual("Failed", line.Highlight);
+    }
+
+    [TestMethod]
+    public void EventLogger_SuccessfulTerminalActivityLogs_AreShownInLiveRenderer()
+    {
+        SockseekLog.RemoveNonFileOutputs();
+        var entries = new List<SockseekLog.StructuredLogEntry>();
+        SockseekLog.AddStructuredSink((entry, _) => entries.Add(entry));
+
+        var eventLogger = new EventLogger(null!);
+        var workflowId = Guid.NewGuid();
+        var songId = Guid.NewGuid();
+        var query = new SongQueryDto("Artist", "Song", null, null, null, false);
+        var candidate = CreateFileCandidate("user", @"Music\Artist\Song.flac");
+
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("song.state-changed", new SongStateChangedEventDto(
+            songId,
+            9,
+            workflowId,
+            query,
+            ServerProtocol.JobStates.Done,
+            FailureReason: null,
+            DownloadPath: null,
+            ChosenCandidate: candidate)));
+
+        Assert.AreEqual(1, entries.Count);
+        var line = (TerminalLogLine)entries[0].Context!;
+        Assert.IsTrue(line.ShowInLive);
+        Assert.AreEqual("succeeded", line.Highlight);
+        Assert.AreEqual("succeeded: Artist - Song: user\\Music\\Artist\\Song.flac", line.Message);
+    }
+
+    [TestMethod]
+    public void EventLogger_AlreadyExistingJobListChildren_AreHiddenFromLiveRenderer()
+    {
+        SockseekLog.RemoveNonFileOutputs();
+        var entries = new List<SockseekLog.StructuredLogEntry>();
+        SockseekLog.AddStructuredSink((entry, _) => entries.Add(entry));
+
+        var eventLogger = new EventLogger(null!);
+        var workflowId = Guid.NewGuid();
+        var listId = Guid.NewGuid();
+        var songId = Guid.NewGuid();
+        var listSummary = new JobSummaryDto(
+            listId,
+            DisplayId: 5,
+            WorkflowId: workflowId,
+            Kind: ServerJobKind.JobList,
+            State: ServerProtocol.JobStates.Running,
+            ItemName: "playlist",
+            QueryText: "playlist",
+            FailureReason: null,
+            FailureMessage: null,
+            ParentJobId: null,
+            ResultJobId: null,
+            SourceJobId: null,
+            DiscoveryResultCount: null,
+            DiscoveryLockedFileCount: null,
+            AppliedAutoProfiles: [],
+            AvailableActions: []);
+        var songSummary = CreateSongSummary(songId, workflowId, listId);
+        var query = new SongQueryDto("Artist", "Song", null, null, null, false);
+        var candidate = CreateFileCandidate("user", @"Music\Artist\Song.flac");
+
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("job.upserted", listSummary));
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("job.upserted", songSummary));
+        entries.Clear();
+
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("song.state-changed", new SongStateChangedEventDto(
+            songId,
+            9,
+            workflowId,
+            query,
+            ServerProtocol.JobStates.AlreadyExists,
+            FailureReason: null,
+            DownloadPath: null,
+            ChosenCandidate: candidate)));
+
+        Assert.AreEqual(1, entries.Count);
+        var line = (TerminalLogLine)entries[0].Context!;
+        Assert.IsFalse(line.ShowInLive);
+        Assert.AreEqual("already exists", line.Highlight);
+    }
+
+    [TestMethod]
+    public void EventLogger_AlbumTrackTerminalLogs_UseAlbumTrackDisplay()
+    {
+        SockseekLog.RemoveNonFileOutputs();
+        var entries = new List<SockseekLog.StructuredLogEntry>();
+        SockseekLog.AddStructuredSink((entry, _) => entries.Add(entry));
+
+        var eventLogger = new EventLogger(null!);
+        var workflowId = Guid.NewGuid();
+        var albumJobId = Guid.NewGuid();
+        var fileJobId = Guid.NewGuid();
+        var albumSummary = CreateAlbumSummary(albumJobId, ServerProtocol.JobStates.Downloading, null) with
+        {
+            WorkflowId = workflowId,
+        };
+        var childSummary = CreateSongSummary(fileJobId, workflowId, albumJobId);
+        var query = new SongQueryDto("Artist", "Track", null, null, null, false);
+        var candidate = CreateFileCandidate("local", @"Artist\Album\01. Artist - Track.flac");
+
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("job.upserted", albumSummary));
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("job.upserted", childSummary));
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("album.track-download-started", new AlbumTrackDownloadStartedEventDto(
+            albumSummary,
+            CreateSingleFileAlbumFolder(fileJobId, ServerProtocol.JobStates.Pending, null),
+            [CreateSongPayload(fileJobId, ServerProtocol.JobStates.Pending, null)])));
+        entries.Clear();
+
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("song.state-changed", new SongStateChangedEventDto(
+            fileJobId,
+            7,
+            workflowId,
+            query,
+            ServerProtocol.JobStates.Done,
+            FailureReason: null,
+            DownloadPath: @"out\Track.flac",
+            ChosenCandidate: candidate)));
+
+        Assert.AreEqual(1, entries.Count);
+        var line = (TerminalLogLine)entries[0].Context!;
+        Assert.AreEqual("Album Track", line.JobType);
+        Assert.AreEqual(TerminalLogKind.AlbumTrackDownloaded, line.Kind);
+        Assert.AreEqual("succeeded: Artist Album: 01. Artist - Track.flac", line.Message);
+        Assert.IsTrue(line.ShowInLive);
     }
 
     [TestMethod]
@@ -306,6 +505,40 @@ public class CliProgressReporterTests
     }
 
     [TestMethod]
+    public void TerminalLiveRenderer_DimsStructuredProcessLogPrefixes()
+    {
+        Assert.AreEqual(
+            "[grey][[debug]] [[soulseek]] [/]" + "Logging in",
+            TerminalLiveRenderer.FormatProcessLogMarkup(new TerminalProcessLogLine(
+                LogLevel.Debug,
+                SockseekLog.Categories.Soulseek,
+                "Logging in",
+                SockseekLog.LogRouting.All)));
+    }
+
+    [TestMethod]
+    public void TerminalLiveRenderer_ColorsStatusAfterStructuredSourcePrefix()
+    {
+        Assert.AreEqual(
+            "[grey][[002]] [/]" + "ExtractJob: Spotify: [red]Failed[/]: https://open.spotify.com/playlist/123",
+            TerminalLiveRenderer.FormatLogMarkup(new TerminalLogLine(
+                TerminalLogKind.JobFailed,
+                "",
+                2,
+                "ExtractJob",
+                "Failed: https://open.spotify.com/playlist/123",
+                "Spotify",
+                "Failed")));
+    }
+
+    [TestMethod]
+    public void TerminalLiveRenderer_SourcePrefixText_IsMeasuredSeparately()
+    {
+        Assert.AreEqual("Spotify: ", TerminalLiveRenderer.SourcePrefixText("Spotify"));
+        Assert.AreEqual("", TerminalLiveRenderer.SourcePrefixText(null));
+    }
+
+    [TestMethod]
     public void EventLogger_NoProgressMode_RoutesActivityLogsToConsoleAndNonConsole()
     {
         SockseekLog.RemoveNonFileOutputs();
@@ -315,7 +548,7 @@ public class CliProgressReporterTests
         SockseekLog.AddSink((_, message) => sinkMessages.Add(message));
 
         var workflowId = Guid.NewGuid();
-        var eventLogger = new EventLogger(null!, liveMode: false);
+        var eventLogger = new EventLogger(null!);
         InvokePrivate(eventLogger, "HandleEvent", Envelope(
             "download.started",
             new DownloadStartedEventDto(
@@ -327,7 +560,7 @@ public class CliProgressReporterTests
 
         Assert.AreEqual(1, consoleMessages.Count);
         Assert.AreEqual(1, sinkMessages.Count);
-        StringAssert.StartsWith(consoleMessages[0], @"[9] SongJob: downloading: Artist - Song: user\Music\Artist\Song.flac");
+        StringAssert.StartsWith(consoleMessages[0], JobLog(@"[9] SongJob: downloading: Artist - Song: user\Music\Artist\Song.flac"));
         StringAssert.StartsWith(sinkMessages[0], @"[jobs] [9] SongJob: downloading: Artist - Song: user\Music\Artist\Song.flac");
     }
 
@@ -341,13 +574,13 @@ public class CliProgressReporterTests
 
         var albumId = Guid.NewGuid();
         var summary = CreateAlbumSummary(albumId, ServerProtocol.JobStates.Failed, ServerProtocol.FailureReasons.Cancelled);
-        var eventLogger = new EventLogger(null!, liveMode: false);
+        var eventLogger = new EventLogger(null!);
 
         InvokePrivate(eventLogger, "HandleEvent", Envelope("job.upserted", summary));
         InvokePrivate(eventLogger, "HandleEvent", Envelope("album.state-changed", new AlbumStateChangedEventDto(summary)));
 
         Assert.AreEqual(1, messages.Count);
-        Assert.AreEqual("[6] AlbumJob: failed [Cancelled]: Artist Album", messages[0]);
+        Assert.AreEqual(JobLog("[6] AlbumJob: failed [Cancelled]: Artist Album"), messages[0]);
     }
 
     [TestMethod]
@@ -359,13 +592,13 @@ public class CliProgressReporterTests
 
         var albumId = Guid.NewGuid();
         var summary = CreateAlbumSummary(albumId, ServerProtocol.JobStates.Failed, ServerProtocol.FailureReasons.Cancelled);
-        var eventLogger = new EventLogger(null!, liveMode: false);
+        var eventLogger = new EventLogger(null!);
 
         InvokePrivate(eventLogger, "HandleEvent", Envelope("album.state-changed", new AlbumStateChangedEventDto(summary)));
         InvokePrivate(eventLogger, "HandleEvent", Envelope("job.upserted", summary));
 
         Assert.AreEqual(1, messages.Count);
-        Assert.AreEqual("failed [Cancelled]: Artist Album", messages[0]);
+        Assert.AreEqual(JobLog("[6] AlbumJob: failed [Cancelled]: Artist Album"), messages[0]);
     }
 
     [TestMethod]
@@ -413,7 +646,7 @@ public class CliProgressReporterTests
                 QueryText = "Artist - Song",
             };
 
-            var eventLogger = new EventLogger(null!, liveMode: false);
+            var eventLogger = new EventLogger(null!);
             var searching = Envelope("song.searching", new SongSearchingEventDto(
                 song.Id,
                 song.DisplayId,
@@ -423,7 +656,7 @@ public class CliProgressReporterTests
             InvokePrivate(eventLogger, "HandleEvent", searching);
 
             Assert.AreEqual(1, messages.Count);
-            Assert.AreEqual($"[{song.DisplayId}] SongJob: searching: Artist - Song", messages[0]);
+            Assert.AreEqual(JobLog($"[{song.DisplayId}] SongJob: searching: Artist - Song"), messages[0]);
         }
         finally
         {
@@ -466,15 +699,15 @@ public class CliProgressReporterTests
                 ItemName = "Artist - Song",
                 QueryText = "Artist - Song",
             };
-            var eventLogger = new EventLogger(null!, liveMode: false);
+            var eventLogger = new EventLogger(null!);
             InvokePrivate(eventLogger, "HandleEvent", Envelope("download.started", new DownloadStartedEventDto(song.Id, song.DisplayId, workflowId, query, candidateDto)));
             InvokePrivate(eventLogger, "HandleEvent", Envelope("song.state-changed", new SongStateChangedEventDto(
                 song.Id, song.DisplayId, workflowId, query, ServerProtocol.JobStates.Done,
                 null, null, candidateDto)));
 
             Assert.AreEqual(2, messages.Count);
-            StringAssert.StartsWith(messages[0], $"[{song.DisplayId}] SongJob: downloading: ");
-            StringAssert.StartsWith(messages[1], $"[{song.DisplayId}] SongJob: succeeded: ");
+            StringAssert.StartsWith(messages[0], JobLog($"[{song.DisplayId}] SongJob: downloading: "));
+            StringAssert.StartsWith(messages[1], JobLog($"[{song.DisplayId}] SongJob: succeeded: "));
         }
         finally
         {
@@ -497,7 +730,7 @@ public class CliProgressReporterTests
             var query = new SongQueryDto("Artist", "Song", null, null, null, false);
             var candidate = CreateFileCandidate("user", @"Music\Artist\Song.flac");
 
-            var eventLogger = new EventLogger(null!, liveMode: false);
+            var eventLogger = new EventLogger(null!);
             var summary = CreateSongSummary(songId, workflowId, null) with
             {
                 DisplayId = 12,
@@ -520,7 +753,7 @@ public class CliProgressReporterTests
  
             CollectionAssert.AreEqual(new[]
             {
-                $"[12] SongJob: failed [All downloads failed]: Artist - Song: user\\Music\\Artist\\Song.flac\n    Error: Connection reset by peer",
+                JobLog("[12] SongJob: failed [All downloads failed]: Artist - Song: user\\Music\\Artist\\Song.flac\n    Error: Connection reset by peer"),
             }, messages);
         }
         finally
@@ -559,7 +792,7 @@ public class CliProgressReporterTests
 
             CollectionAssert.AreEqual(new[]
             {
-                "[12] SongJob: download error: Artist - Song: user\\Music\\Artist\\Song.flac\n    Output: out\\Song.flac.incomplete\n    Attempt: 1/3\n    SoulseekClientException: Connection reset by peer\n    Soulseek.SoulseekClientException: Connection reset by peer",
+                ErrorJobLog("[12] SongJob: download error: Artist - Song: user\\Music\\Artist\\Song.flac\n    Output: out\\Song.flac.incomplete\n    Attempt: 1/3\n    SoulseekClientException: Connection reset by peer\n    Soulseek.SoulseekClientException: Connection reset by peer"),
             }, messages);
         }
         finally
@@ -827,7 +1060,7 @@ public class CliProgressReporterTests
             var query = new SongQueryDto("Artist", "Track", null, null, null, false);
             var candidate = CreateFileCandidate("local", @"Artist\Album\01. Artist - Track.flac");
 
-            var eventLogger = new EventLogger(null!, liveMode: false);
+            var eventLogger = new EventLogger(null!);
             InvokePrivate(eventLogger, "HandleEvent", Envelope("album.track-download-started", new AlbumTrackDownloadStartedEventDto(
                 albumSummary,
                 CreateSingleFileAlbumFolder(fileJobId, ServerProtocol.JobStates.Pending, null),
@@ -839,9 +1072,9 @@ public class CliProgressReporterTests
                 null, @"out\Track.flac", candidate)));
 
             Assert.AreEqual(3, messages.Count);
-            Assert.AreEqual(@"[6] AlbumJob: downloading tracks: Artist Album - Artist\Album", messages[0]);
-            Assert.AreEqual(@"[7] SongJob: downloading: Artist - Track: local\Artist\Album\01. Artist - Track.flac", messages[1]);
-            Assert.AreEqual(@"[6] AlbumJob: succeeded: 01. Artist - Track.flac", messages[2]);
+            Assert.AreEqual(JobLog(@"[6] AlbumJob: downloading tracks: Artist Album - Artist\Album"), messages[0]);
+            Assert.AreEqual(JobLog(@"[7] SongJob: downloading: Artist - Track: local\Artist\Album\01. Artist - Track.flac"), messages[1]);
+            Assert.AreEqual(JobLog(@"[6] Album Track: succeeded: Artist Album: 01. Artist - Track.flac"), messages[2]);
         }
         finally
         {

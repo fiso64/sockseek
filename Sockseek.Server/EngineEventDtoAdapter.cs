@@ -20,6 +20,7 @@ public sealed class EngineEventDtoAdapter
     public void Attach(EngineEvents events)
     {
         events.JobStatus += (job, status) => publish("job.status", new JobStatusEventDto(getSummary(job), status));
+        events.JobMessage += (job, level, source, message) => publish("job.message", new JobMessageEventDto(getSummary(job), level.ToString(), source, message));
         events.JobStateChanged += (job, state) =>
         {
             if (job is SongJob song)
@@ -62,11 +63,16 @@ public sealed class EngineEventDtoAdapter
             else if (job is ExtractJob extractJob)
             {
                 if (state == JobState.Extracting)
-                    publish("extraction.started", new ExtractionStartedEventDto(getSummary(extractJob), extractJob.Input, extractJob.InputType?.ToString()));
+                    publish("extraction.started", new ExtractionStartedEventDto(
+                        getSummary(extractJob),
+                        extractJob.Input,
+                        extractJob.InputType?.ToString(),
+                        ExtractionSource(extractJob)));
                 else if (state == JobState.Failed)
                     publish("extraction.failed", new ExtractionFailedEventDto(
                         getSummary(extractJob),
-                        extractJob.FailureMessage ?? "Extraction failed"));
+                        extractJob.FailureMessage ?? "Extraction failed",
+                        ExtractionSource(extractJob)));
             }
             else if (job is AggregateJob ag && state == JobState.Running)
             {
@@ -140,8 +146,12 @@ public sealed class EngineEventDtoAdapter
             ExceptionType(job.FailureDetail),
             job.FailureDetail,
             summary,
-            job.WorkflowId));
+            job.WorkflowId,
+            job is ExtractJob extractJob ? ExtractionSource(extractJob) : null));
     }
+
+    private static string? ExtractionSource(ExtractJob job)
+        => job.InputType?.ToString();
 
     private static string ExceptionType(string exceptionDetail)
     {

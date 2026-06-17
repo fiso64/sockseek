@@ -1,5 +1,9 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Net.Sockets;
+using System.Reflection;
 using Sockseek.Core;
+using Sockseek.Core.Extractors;
+using Sockseek.Core.Jobs;
 
 namespace Tests.Core;
 
@@ -30,6 +34,29 @@ public class SockseekLogTests
     }
 
     [TestMethod]
+    public void StructuredSink_ReceivesLogMetadataAndFormattedMessage()
+    {
+        var entries = new List<(SockseekLog.StructuredLogEntry Entry, string Message)>();
+        SockseekLog.AddStructuredSink((entry, message) => entries.Add((entry, message)), LogLevel.Debug, prependLogLevel: true);
+
+        SockseekLog.Soulseek.Debug("looking for file");
+        SockseekLog.Warn("cli warning", categoryName: SockseekLog.Categories.Cli);
+        SockseekLog.LogConsoleOnly(LogLevel.Information, "spotify-token=secret");
+
+        Assert.AreEqual(2, entries.Count);
+        Assert.AreEqual(LogLevel.Debug, entries[0].Entry.Level);
+        Assert.AreEqual(SockseekLog.Categories.Soulseek, entries[0].Entry.CategoryName);
+        Assert.AreEqual("looking for file", entries[0].Entry.Message);
+        Assert.AreEqual(SockseekLog.LogRouting.All, entries[0].Entry.Routing);
+        Assert.AreEqual("[debug] [soulseek] looking for file", entries[0].Message);
+
+        Assert.AreEqual(LogLevel.Warning, entries[1].Entry.Level);
+        Assert.AreEqual(SockseekLog.Categories.Cli, entries[1].Entry.CategoryName);
+        Assert.AreEqual("cli warning", entries[1].Entry.Message);
+        Assert.AreEqual("[warn] [cli] cli warning", entries[1].Message);
+    }
+
+    [TestMethod]
     public void NonConsoleLogs_IncludeExplicitCategoryAndLevel()
     {
         var sinkMessages = new List<string>();
@@ -52,17 +79,53 @@ public class SockseekLogTests
     }
 
     [TestMethod]
-    public void ConsoleLogs_OmitCategoryForCliRendering()
+    public void ConsoleLogs_IncludeCategoryAndOnlyNonInfoLevelByDefault()
     {
         var consoleMessages = new List<string>();
-        SockseekLog.AddConsole(prependLogLevel: true, writer: (message, _) => consoleMessages.Add(message));
+        SockseekLog.AddConsole(LogLevel.Debug, writer: (message, _) => consoleMessages.Add(message));
 
         SockseekLog.Info("plain output", categoryName: SockseekLog.Categories.Cli);
+        SockseekLog.Debug("debug output", categoryName: SockseekLog.Categories.Soulseek);
+        SockseekLog.Warn("warn output", categoryName: SockseekLog.Categories.Core);
 
         CollectionAssert.AreEqual(new[]
         {
-            "[info] plain output",
+            "[cli] plain output",
+            "[debug] [soulseek] debug output",
+            "[warn] [core] warn output",
         }, consoleMessages);
+    }
+
+    [TestMethod]
+    public void ConsoleOnlyLogs_RemainRawUserOutput()
+    {
+        var consoleMessages = new List<string>();
+        SockseekLog.AddConsole(writer: (message, _) => consoleMessages.Add(message));
+
+        SockseekLog.LogConsoleOnly(LogLevel.Information, "spotify-token=secret", categoryName: SockseekLog.Categories.Cli);
+
+        CollectionAssert.AreEqual(new[]
+        {
+            "spotify-token=secret",
+        }, consoleMessages);
+    }
+
+    [TestMethod]
+    public void ExtractorContext_LogEmitsExtractJobMessageEvent()
+    {
+        var events = new EngineEvents();
+        var job = new ExtractJob("spotify://playlist");
+        var messages = new List<(int DisplayId, LogLevel Level, string? Source, string Message)>();
+        events.JobMessage += (eventJob, level, source, message) => messages.Add((eventJob.DisplayId, level, source, message));
+
+        var context = ExtractorContext.ForExtractJob(job, events, "Spotify");
+
+        context.Log.Info("Loading Spotify playlist");
+
+        CollectionAssert.AreEqual(new[]
+        {
+            (job.DisplayId, LogLevel.Information, "Spotify", "Loading Spotify playlist"),
+        }, messages);
     }
 
     [TestMethod]
@@ -76,6 +139,26 @@ public class SockseekLogTests
         StringAssert.Contains(SockseekLog.ExceptionDetail(exception), "inner broke");
         StringAssert.Contains(SockseekLog.FormatException("Operation failed", exception), "Operation failed:");
         StringAssert.Contains(SockseekLog.FormatException("Operation failed", exception), nameof(ApplicationException));
+    }
+
+    [TestMethod]
+    public void ExpectedSoulseekPeerNetworkNoise_ClassifiesTimeoutAndSocketAbort()
+    {
+        var exception = new AggregateException(
+            new TimeoutException("Inactivity timeout of 15000 milliseconds was reached"),
+            new IOException(
+                "Unable to read data from the transport connection",
+                new SocketException((int)SocketError.OperationAborted)));
+
+        Assert.IsTrue(IsExpectedSoulseekPeerNetworkNoise(exception));
+    }
+
+    [TestMethod]
+    public void ExpectedSoulseekPeerNetworkNoise_DoesNotClassifyUnknownApplicationFailure()
+    {
+        var exception = new AggregateException(new InvalidOperationException("engine invariant broke"));
+
+        Assert.IsFalse(IsExpectedSoulseekPeerNetworkNoise(exception));
     }
 
     [TestMethod]
@@ -124,4 +207,9 @@ public class SockseekLogTests
                 File.Delete(logPath);
         }
     }
+
+    private static bool IsExpectedSoulseekPeerNetworkNoise(Exception exception)
+        => (bool)typeof(SockseekLog)
+            .GetMethod("IsExpectedSoulseekPeerNetworkNoise", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, [exception])!;
 }

@@ -22,8 +22,9 @@ namespace Sockseek.Core.Extractors;
             return input.IsInternetUrl() && input.Contains("bandcamp.com");
         }
 
-        public async Task<Job> GetTracks(string input, ExtractionSettings extraction)
+        public async Task<Job> GetTracks(string input, ExtractionSettings extraction, ExtractorContext? context = null)
         {
+            context ??= ExtractorContext.None;
             var maxTracks = extraction.MaxTracks;
             var offset    = extraction.Offset;
             var reverse   = extraction.Reverse;
@@ -36,7 +37,7 @@ namespace Sockseek.Core.Extractors;
 
             if (isWishlist)
             {
-                SockseekLog.Info("Retrieving bandcamp wishlist..");
+                context.Log.Info("Retrieving wishlist..");
                 HtmlDocument doc;
 
                 if (!string.IsNullOrEmpty(_bandcamp.HtmlFromFile))
@@ -80,7 +81,7 @@ namespace Sockseek.Core.Extractors;
             }
             else if (isArtist)
             {
-                SockseekLog.Info("Retrieving bandcamp artist discography..");
+                context.Log.Info("Retrieving artist discography..");
                 using var httpClient = new HttpClient();
                 string response;
 
@@ -123,7 +124,7 @@ namespace Sockseek.Core.Extractors;
             }
             else
             {
-                SockseekLog.Info("Retrieving bandcamp item..");
+                context.Log.Info("Retrieving item..");
                 HtmlDocument doc;
 
                 if (!string.IsNullOrEmpty(_bandcamp.HtmlFromFile))

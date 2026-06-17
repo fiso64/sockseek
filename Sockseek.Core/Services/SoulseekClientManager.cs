@@ -74,7 +74,7 @@ public class SoulseekClientManager : IDisposable
             {
                 if (!loginSettings.UseRandomLogin && (string.IsNullOrEmpty(loginSettings.Username) || string.IsNullOrEmpty(loginSettings.Password)))
                 {
-                    SockseekLog.Soulseek.Fatal("No soulseek username or password provided for login.");
+                    SockseekLog.Soulseek.Error("No soulseek username or password provided for login.");
                 }
 
                 await LoginInternalAsync(_client, loginSettings, cancellationToken);

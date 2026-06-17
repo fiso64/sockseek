@@ -25,7 +25,7 @@ namespace Sockseek.Core.Extractors;
             return !input.IsInternetUrl();
         }
 
-        public Task<Job> GetTracks(string input, ExtractionSettings extraction)
+        public Task<Job> GetTracks(string input, ExtractionSettings extraction, ExtractorContext? context = null)
         {
             var maxTracks = extraction.MaxTracks;
             var offset    = extraction.Offset;

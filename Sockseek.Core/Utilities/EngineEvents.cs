@@ -1,4 +1,5 @@
 using Soulseek;
+using Microsoft.Extensions.Logging;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 
@@ -35,6 +36,10 @@ public class EngineEvents
     // Fired for transient, human-readable status updates that don't warrant a formal state change
     // (e.g. "deleting files", "moving").
     public event Action<Job, string>? JobStatus;
+
+    // Fired for job-scoped log messages that should be rendered with the same prefix/color policy
+    // as other job activity.
+    public event Action<Job, LogLevel, string?, string>? JobMessage;
 
     // ── Search ───────────────────────────────────────────────────────────────
     // Fired once per rate-limit window when the search semaphore is exhausted.
@@ -74,6 +79,7 @@ public class EngineEvents
 
 
     internal void RaiseJobStatus(Job job, string status) => JobStatus?.Invoke(job, status);
+    internal void RaiseJobMessage(Job job, LogLevel level, string? source, string message) => JobMessage?.Invoke(job, level, source, message);
     internal void RaiseSearchRateLimited(DateTimeOffset resetsAt) => SearchRateLimited?.Invoke(resetsAt);
     internal void RaiseSearchResumed() => SearchResumed?.Invoke();
 

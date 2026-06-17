@@ -9,14 +9,12 @@ internal sealed class EventLogger
     internal static readonly IReadOnlySet<string> HandledEventTypes = JobActivityLogFormatter.HandledEventTypes;
 
     private readonly ICliBackend _backend;
-    private readonly bool _liveMode;
     private readonly bool _includeDiagnosticDetails;
     private readonly JobActivityLogFormatter _formatter = new();
 
-    public EventLogger(ICliBackend backend, bool liveMode, bool includeDiagnosticDetails = true)
+    public EventLogger(ICliBackend backend, bool includeDiagnosticDetails = true)
     {
         _backend = backend;
-        _liveMode = liveMode;
         _includeDiagnosticDetails = includeDiagnosticDetails;
     }
 
@@ -39,15 +37,28 @@ internal sealed class EventLogger
 
     private void Write(ActivityLogEntry entry)
     {
-        var level = entry.Severity == ActivityLogSeverity.Error
-            ? LogLevel.Error
-            : LogLevel.Information;
+        var context = entry.Display is { } display
+            ? new TerminalLogLine(TerminalKind(display.Kind), "", display.DisplayId, display.JobType, display.Message, display.Source, display.Highlight, display.ShowInLive)
+            : null;
 
-        if (_liveMode)
-            SockseekLog.LogNonConsole(level, entry.Message, entry.CategoryName);
-        else if (entry.Severity == ActivityLogSeverity.Error)
-            SockseekLog.Error(entry.Message, categoryName: entry.CategoryName);
-        else
-            SockseekLog.Info(entry.Message, categoryName: entry.CategoryName);
+        SockseekLog.Write(new SockseekLog.StructuredLogEntry(
+            entry.Level,
+            entry.CategoryName,
+            entry.Message,
+            Context: context));
     }
+
+    private static TerminalLogKind TerminalKind(ActivityLogDisplayKind kind)
+        => kind switch
+        {
+            ActivityLogDisplayKind.Failed => TerminalLogKind.JobFailed,
+            ActivityLogDisplayKind.Cancelled => TerminalLogKind.JobCancelled,
+            ActivityLogDisplayKind.Succeeded => TerminalLogKind.JobSucceeded,
+            ActivityLogDisplayKind.AlreadyExists => TerminalLogKind.JobAlreadyExists,
+            ActivityLogDisplayKind.Skipped => TerminalLogKind.SongSkipped,
+            ActivityLogDisplayKind.AlbumTrackSucceeded => TerminalLogKind.AlbumTrackDownloaded,
+            ActivityLogDisplayKind.AlbumTrackFailed => TerminalLogKind.AlbumTrackFailed,
+            ActivityLogDisplayKind.AlbumTrackSkipped => TerminalLogKind.AlbumTrackSkipped,
+            _ => TerminalLogKind.Status,
+        };
 }

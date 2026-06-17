@@ -48,7 +48,8 @@ public sealed record DiagnosticErrorEventDto(
     string ExceptionType,
     string Exception,
     JobSummaryDto? Summary = null,
-    Guid? WorkflowId = null);
+    Guid? WorkflowId = null,
+    string? Source = null);
 
 /// <summary>
 /// Activity event emitted when extraction starts.
@@ -56,14 +57,16 @@ public sealed record DiagnosticErrorEventDto(
 public sealed record ExtractionStartedEventDto(
     JobSummaryDto Summary,
     string Input,
-    string? InputType);
+    string? InputType,
+    string? Source = null);
 
 /// <summary>
 /// Activity event emitted when extraction fails before producing a result job.
 /// </summary>
 public sealed record ExtractionFailedEventDto(
     JobSummaryDto Summary,
-    string Reason);
+    string Reason,
+    string? Source = null);
 
 /// <summary>
 /// Activity event emitted when a job begins engine execution.
@@ -78,6 +81,15 @@ public sealed record JobStartedEventDto(
 public sealed record JobStatusEventDto(
     JobSummaryDto Summary,
     string Status);
+
+/// <summary>
+/// Activity event carrying a job-scoped log message.
+/// </summary>
+public sealed record JobMessageEventDto(
+    JobSummaryDto Summary,
+    string Level,
+    string? Source,
+    string Message);
 
 /// <summary>
 /// Activity event emitted when a song search begins.

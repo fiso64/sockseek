@@ -22,8 +22,9 @@ namespace Sockseek.Core.Extractors;
             return input == "spotify-likes" || input == "spotify-albums" || input.IsInternetUrl() && input.Contains("spotify.com");
         }
 
-        public async Task<Job> GetTracks(string input, ExtractionSettings extraction)
+        public async Task<Job> GetTracks(string input, ExtractionSettings extraction, ExtractorContext? context = null)
         {
+            context ??= ExtractorContext.None;
             var maxTracks = extraction.MaxTracks;
             var offset    = extraction.Offset;
             var reverse   = extraction.Reverse;
@@ -36,14 +37,14 @@ namespace Sockseek.Core.Extractors;
             if (string.IsNullOrEmpty(_spotify.ClientId) || string.IsNullOrEmpty(_spotify.ClientSecret))
                 throw new Exception("Spotify client ID and secret are required. Create a Spotify developer app and pass --spotify-id and --spotify-secret.");
 
-            spotifyClient = new Spotify(_spotify.ClientId ?? "", _spotify.ClientSecret ?? "", _spotify.Token ?? "", _spotify.Refresh ?? "");
+            spotifyClient = new Spotify(_spotify.ClientId ?? "", _spotify.ClientSecret ?? "", _spotify.Token ?? "", _spotify.Refresh ?? "", context.Log);
             await spotifyClient.Authorize(needLogin, extraction.RemoveTracksFromSource);
 
             Job result;
 
             if (input == "spotify-likes")
             {
-                SockseekLog.Info("Loading Spotify likes..");
+                context.Log.Info("Loading likes..");
                 var songs = await spotifyClient.GetLikes(max, off);
                 var slj   = new JobList { ItemName = "Spotify Likes", EnablesIndexByDefault = true };
                 foreach (var s in songs) slj.Jobs.Add(s);
@@ -51,7 +52,7 @@ namespace Sockseek.Core.Extractors;
             }
             else if (input == "spotify-albums")
             {
-                SockseekLog.Info("Loading Spotify liked albums..");
+                context.Log.Info("Loading liked albums..");
                 var albumList = await spotifyClient.GetAlbums(max, off);
                 albumList.ItemName              = "Spotify Liked Albums";
                 albumList.EnablesIndexByDefault = true;
@@ -59,7 +60,7 @@ namespace Sockseek.Core.Extractors;
             }
             else if (input.Contains("/album/"))
             {
-                SockseekLog.Info("Loading Spotify album..");
+                context.Log.Info("Loading album..");
                 result = await spotifyClient.GetAlbumJob(input, extraction);
             }
             else if (input.Contains("/artist/"))
@@ -73,7 +74,7 @@ namespace Sockseek.Core.Extractors;
 
                 try
                 {
-                    SockseekLog.Info("Loading Spotify playlist");
+                    context.Log.Info("Loading playlist");
                     (playlistName, playlistUri, songs) = await spotifyClient.GetPlaylist(input, max, off);
                 }
                 catch (APIException ex)
@@ -192,20 +193,22 @@ namespace Sockseek.Core.Extractors;
         private string _clientToken;
         private string _clientRefreshToken;
         private SpotifyClient? _client;
+        private readonly IJobLog _log;
         private bool loggedIn = false;
 
-        public Spotify(string clientId = "", string clientSecret = "", string token = "", string refreshToken = "")
+        public Spotify(string clientId = "", string clientSecret = "", string token = "", string refreshToken = "", IJobLog? log = null)
         {
             _clientId           = clientId ?? "";
             _clientSecret       = clientSecret ?? "";
             _clientToken        = token ?? "";
             _clientRefreshToken = refreshToken ?? "";
+            _log                = log ?? ExtractorContext.None.Log;
         }
 
         public async Task Authorize(bool login = false, bool needModify = false)
         {
             _client = null;
-            SockseekLog.Debug($"Spotify: Authorizing (login={login}, modify={needModify})");
+            _log.Debug($"Authorizing (login={login}, modify={needModify})");
 
             if (!login)
             {
@@ -219,7 +222,7 @@ namespace Sockseek.Core.Extractors;
                 Swan.Logging.Logger.NoLogging();
                 _server = new EmbedIOAuthServer(new Uri("http://127.0.0.1:48721/callback"), 48721);
                 await _server.Start();
-                SockseekLog.Debug($"Spotify: AuthServer started");
+                _log.Debug("Auth server started");
 
                 var existingOk = false;
                 if (_clientToken.Length != 0 || _clientRefreshToken.Length != 0)
@@ -246,7 +249,7 @@ namespace Sockseek.Core.Extractors;
 
                     var request = new LoginRequest(_server.BaseUri, _clientId, LoginRequest.ResponseType.Code) { Scope = scope };
                     try { BrowserUtil.Open(request.ToUri()); }
-                    catch (Exception) { SockseekLog.Info($"Unable to open URL, manually open: {request.ToUri()}"); }
+                    catch (Exception) { _log.Info($"Unable to open URL, manually open: {request.ToUri()}"); }
                 }
 
                 await IsClientReady();
@@ -257,59 +260,59 @@ namespace Sockseek.Core.Extractors;
         {
             if (_clientToken.Length != 0)
             {
-                SockseekLog.Debug("Testing Spotify access with existing token...");
+                _log.Debug("Testing access with existing token...");
                 var client = new SpotifyClient(_clientToken);
                 try
                 {
                     var me = await client.UserProfile.Current();
-                    SockseekLog.Debug("Spotify access is good!");
+                    _log.Debug("Access is good!");
                     _client = client;
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    SockseekLog.Info($"Could not make an API call with existing token: {ex.Message}");
+                    _log.Info($"Could not make an API call with existing token: {ex.Message}");
                 }
             }
 
             if (_clientRefreshToken.Length != 0)
             {
-                SockseekLog.Info("Trying to renew access with refresh token...");
+                _log.Info("Trying to renew access with refresh token...");
                 var refreshRequest = new AuthorizationCodeRefreshRequest(_clientId, _clientSecret, _clientRefreshToken);
                 try
                 {
                     var oauthClient    = new OAuthClient();
                     var refreshResponse = await oauthClient.RequestToken(refreshRequest);
-                    SockseekLog.Debug("Received refreshed Spotify access token.");
+                    _log.Debug("Received refreshed access token.");
                     _clientToken = refreshResponse.AccessToken;
                     _client      = new SpotifyClient(_clientToken);
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    SockseekLog.Info($"Could not refresh access token with refresh token: {ex}");
+                    _log.Info($"Could not refresh access token with refresh token: {ex}");
                 }
             }
             else
             {
-                SockseekLog.Info("No refresh token present, cannot refresh existing access");
+                _log.Info("No refresh token present, cannot refresh existing access");
             }
 
-            SockseekLog.Info("Not possible to access Spotify API without login! Falling back to login flow...");
+            _log.Info("Not possible to access API without login! Falling back to login flow...");
             return false;
         }
 
         private async Task OnAuthorizationCodeReceived(object sender, AuthorizationCodeResponse response)
         {
-            SockseekLog.Debug($"Spotify: Authorization code received");
+            _log.Debug("Authorization code received");
             await _server.Stop();
 
             var config        = SpotifyClientConfig.CreateDefault();
-            SockseekLog.Debug($"Spotify: Getting token response..");
+            _log.Debug("Getting token response..");
             var tokenResponse = await new OAuthClient(config).RequestToken(
                 new AuthorizationCodeTokenRequest(_clientId, _clientSecret, response.Code, new Uri("http://127.0.0.1:48721/callback")));
 
-            SockseekLog.Debug($"Spotify: Got token");
+            _log.Debug("Got token");
             SockseekLog.LogConsoleOnly(LogLevel.Information, "spotify-token=" + tokenResponse.AccessToken);
             _clientToken = tokenResponse.AccessToken;
             SockseekLog.LogConsoleOnly(LogLevel.Information, "");
@@ -322,7 +325,7 @@ namespace Sockseek.Core.Extractors;
 
         private async Task OnErrorReceived(object sender, string error, string state)
         {
-            SockseekLog.Debug($"Spotify: Auth error: {error}");
+            _log.Debug($"Auth error: {error}");
             await _server.Stop();
             throw new Exception($"Aborting authorization, error received: {error}");
         }
@@ -406,7 +409,7 @@ namespace Sockseek.Core.Extractors;
                 limit   = Math.Min(max - queue.Jobs.Count, 50);
             }
 
-            SockseekLog.Info($"Found {queue.Jobs.Count} liked albums on Spotify");
+            _log.Info($"Found {queue.Jobs.Count} liked albums");
             return queue;
         }
 

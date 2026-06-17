@@ -18,11 +18,17 @@ namespace Sockseek.Cli;
             if (printOption.HasFlag(PrintOption.Index))
             {
                 if (string.IsNullOrEmpty(indexFilePath))
-                { SockseekLog.Fatal("Error: No index file path provided"); return; }
+                {
+                    SockseekLog.Error("Error: No index file path provided");
+                    return;
+                }
 
                 var fullPath = Utils.GetFullPath(Utils.ExpandVariables(indexFilePath));
                 if (!System.IO.File.Exists(fullPath))
-                { SockseekLog.Fatal($"Error: Index file {fullPath} does not exist"); return; }
+                {
+                    SockseekLog.Error($"Error: Index file {fullPath} does not exist");
+                    return;
+                }
 
                 var index = new M3uEditor(fullPath, new JobList(), M3uOption.Index, true);
                 var data = index.GetPreviousRunData();

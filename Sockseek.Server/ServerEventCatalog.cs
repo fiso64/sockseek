@@ -21,6 +21,7 @@ public static class ServerEventCatalog
             Activity("extraction.failed", nameof(ExtractionFailedEventDto)),
             Activity("job.started", nameof(JobStartedEventDto)),
             Activity("job.status", nameof(JobStatusEventDto)),
+            Activity("job.message", nameof(JobMessageEventDto)),
             Activity("job.folder-retrieving", nameof(JobFolderRetrievingEventDto)),
             Activity("song.searching", nameof(SongSearchingEventDto)),
             Activity("download.started", nameof(DownloadStartedEventDto)),

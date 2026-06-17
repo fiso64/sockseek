@@ -37,8 +37,9 @@ namespace Sockseek.Core.Extractors;
             return !input.IsInternetUrl() && input.EndsWith(".csv");
         }
 
-        public async Task<Job> GetTracks(string input, ExtractionSettings extraction)
+        public async Task<Job> GetTracks(string input, ExtractionSettings extraction, ExtractorContext? context = null)
         {
+            context ??= ExtractorContext.None;
             var maxTracks = extraction.MaxTracks;
             var offset    = extraction.Offset;
             var reverse   = extraction.Reverse;
@@ -49,7 +50,7 @@ namespace Sockseek.Core.Extractors;
                 throw new FileNotFoundException($"CSV file '{csvFilePath}' not found");
 
             var rows = await ParseCsvRows(csvFilePath, _csv.ArtistCol, _csv.TitleCol, _csv.LengthCol,
-                _csv.AlbumCol, _csv.DescCol, _csv.YtIdCol, _csv.TrackCountCol, _csv.TimeUnit, _csv.YtParse);
+                _csv.AlbumCol, _csv.DescCol, _csv.YtIdCol, _csv.TrackCountCol, _csv.TimeUnit, _csv.YtParse, context.Log);
 
             if (reverse)
                 rows.Reverse();
@@ -66,8 +67,9 @@ namespace Sockseek.Core.Extractors;
         // Returns a list of rows — either SongJob (song row) or AlbumJob (album row).
         async Task<List<object>> ParseCsvRows(string path, string artistCol = "", string trackCol = "",
             string lengthCol = "", string albumCol = "", string descCol = "", string ytIdCol = "", string trackCountCol = "",
-            string timeUnit = "s", bool ytParse = false)
+            string timeUnit = "s", bool ytParse = false, IJobLog? log = null)
         {
+            log ??= ExtractorContext.None.Log;
             var rows = new List<object>();
             using var sr = new StreamReader(path, System.Text.Encoding.UTF8);
             var parser = new SmallestCSV.SmallestCSVParser(sr);
@@ -113,7 +115,7 @@ namespace Sockseek.Core.Extractors;
 
             int foundCount = cols.Count(col => col.Length > 0);
             if (!string.IsNullOrEmpty(usingColumns))
-                SockseekLog.Info($"Using columns: {usingColumns.TrimEnd(' ', ',')}.");
+                log.Info($"Using columns: {usingColumns.TrimEnd(' ', ',')}.");
             else if (foundCount == 0)
                 throw new Exception("No columns specified and couldn't determine automatically");
 
@@ -172,7 +174,7 @@ namespace Sockseek.Core.Extractors;
                 if (lengthIndex >= 0)
                 {
                     try { length = (int)ParseTrackLength(values[lengthIndex], timeUnit); }
-                    catch { SockseekLog.Warn($"Couldn't parse track length \"{values[lengthIndex]}\" with format \"{timeUnit}\""); }
+                    catch { log.Warn($"Couldn't parse track length \"{values[lengthIndex]}\" with format \"{timeUnit}\""); }
                 }
 
                 if (title.Length == 0 && album.Length == 0 && artist.Length == 0)
@@ -202,7 +204,7 @@ namespace Sockseek.Core.Extractors;
                 }
                 else if (ytParse)
                 {
-                    var song = await YouTube.ParseSongInfo(title, artist, uri, length, desc);
+                    var song = await YouTube.ParseSongInfo(title, artist, uri, length, desc, log: log);
                     song.ItemNumber = rows.Count + 1;
                     song.LineNumber = index;
                     song.SourceMutation = SourceMutation.ClearCsvRow(csvFilePath!, index, song.ItemNumber, csvColumnCount);

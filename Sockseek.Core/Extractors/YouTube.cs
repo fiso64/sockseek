@@ -25,8 +25,9 @@ namespace Sockseek.Core.Extractors;
             return input.IsInternetUrl() && (input.Contains("youtu.be") || input.Contains("youtube.com"));
         }
 
-        public async Task<Job> GetTracks(string input, ExtractionSettings extraction)
+        public async Task<Job> GetTracks(string input, ExtractionSettings extraction, ExtractorContext? context = null)
         {
+            context ??= ExtractorContext.None;
             var maxTracks = extraction.MaxTracks;
             var offset    = extraction.Offset;
             var reverse   = extraction.Reverse;
@@ -41,21 +42,21 @@ namespace Sockseek.Core.Extractors;
 
             if (_yt.GetDeleted)
             {
-                SockseekLog.Info("Getting deleted videos..");
-                var archive = new YouTube.YouTubeArchiveRetriever();
+                context.Log.Info("Getting deleted videos..");
+                var archive = new YouTube.YouTubeArchiveRetriever(context.Log);
                 deleted = await archive.RetrieveDeleted(input, printFailed: _yt.DeletedOnly);
             }
             if (!_yt.DeletedOnly)
             {
                 if (!string.IsNullOrEmpty(YouTube.ApiKey))
                 {
-                    SockseekLog.Info("Loading YouTube playlist (API)");
-                    (name, songs) = await YouTube.GetSongsApi(input, max, off);
+                    context.Log.Info("Loading playlist (API)");
+                    (name, songs) = await YouTube.GetSongsApi(input, max, off, context.Log);
                 }
                 else
                 {
-                    SockseekLog.Info("Loading YouTube playlist");
-                    (name, songs) = await YouTube.GetSongsYtExplode(input, max, off);
+                    context.Log.Info("Loading playlist");
+                    (name, songs) = await YouTube.GetSongsYtExplode(input, max, off, context.Log);
                 }
             }
             else
@@ -104,8 +105,9 @@ namespace Sockseek.Core.Extractors;
             }
         }
 
-        public static async Task<(string, List<SongJob>)> GetSongsApi(string url, int max = int.MaxValue, int offset = 0)
+        public static async Task<(string, List<SongJob>)> GetSongsApi(string url, int max = int.MaxValue, int offset = 0, IJobLog? log = null)
         {
+            log ??= ExtractorContext.None.Log;
             StartService();
 
             string playlistId = await UrlToId(url);
@@ -120,7 +122,7 @@ namespace Sockseek.Core.Extractors;
             playlistItemsRequest.PlaylistId = playlistId;
             playlistItemsRequest.MaxResults = Math.Min(max, 100);
 
-            var songsDict = await GetDictYtExplode(url, max, offset);
+            var songsDict = await GetDictYtExplode(url, max, offset, log);
             var songs = new List<SongJob>();
             int count = 0;
 
@@ -152,7 +154,7 @@ namespace Sockseek.Core.Extractors;
                             length = (int)XmlConvert.ToTimeSpan(videoResponse.Items[0].ContentDetails.Duration).TotalSeconds;
                             desc = videoResponse.Items[0].Snippet.Description;
 
-                            var song = await ParseSongInfo(title, uploader, playlistItem.Snippet.ResourceId.VideoId, length, desc);
+                            var song = await ParseSongInfo(title, uploader, playlistItem.Snippet.ResourceId.VideoId, length, desc, log: log);
                             song.ItemNumber = count + 1;
                             songs.Add(song);
                         }
@@ -170,13 +172,14 @@ namespace Sockseek.Core.Extractors;
             }
 
             if (songsDict.Count >= 200)
-                SockseekLog.Info($"Loaded: {songs.Count}");
+                log.Info($"Loaded: {songs.Count}");
             return (playlistName, songs);
         }
 
         // requestInfoIfNeeded=true is way too slow
-        public static async Task<SongJob> ParseSongInfo(string title, string uploader, string id, int length, string desc = "", bool requestInfoIfNeeded = false)
+        public static async Task<SongJob> ParseSongInfo(string title, string uploader, string id, int length, string desc = "", bool requestInfoIfNeeded = false, IJobLog? log = null)
         {
+            log ??= ExtractorContext.None.Log;
             (string title, string uploader, int length, string desc) info = ("", "", -1, "");
 
             string uri = id;
@@ -320,8 +323,9 @@ namespace Sockseek.Core.Extractors;
             youtubeService = null;
         }
 
-        public static async Task<Dictionary<string, SongJob>> GetDictYtExplode(string url, int max = int.MaxValue, int offset = 0)
+        public static async Task<Dictionary<string, SongJob>> GetDictYtExplode(string url, int max = int.MaxValue, int offset = 0, IJobLog? log = null)
         {
+            log ??= ExtractorContext.None.Log;
             var youtube = new YoutubeClient();
             var playlist = await youtube.Playlists.GetAsync(url);
             var songs = new Dictionary<string, SongJob>();
@@ -336,7 +340,7 @@ namespace Sockseek.Core.Extractors;
                     var ytId = video.Id.Value;
                     var length = (int)video.Duration.Value.TotalSeconds;
 
-                    var song = await ParseSongInfo(title, uploader, ytId, length);
+                    var song = await ParseSongInfo(title, uploader, ytId, length, log: log);
                     song.ItemNumber = count + 1;
                     songs[ytId] = song;
                 }
@@ -354,8 +358,9 @@ namespace Sockseek.Core.Extractors;
             return playlist.Title;
         }
 
-        public static async Task<(string, List<SongJob>)> GetSongsYtExplode(string url, int max = int.MaxValue, int offset = 0)
+        public static async Task<(string, List<SongJob>)> GetSongsYtExplode(string url, int max = int.MaxValue, int offset = 0, IJobLog? log = null)
         {
+            log ??= ExtractorContext.None.Log;
             var youtube = new YoutubeClient();
             var playlist = await youtube.Playlists.GetAsync(url);
             var playlistTitle = playlist.Title;
@@ -371,7 +376,7 @@ namespace Sockseek.Core.Extractors;
                     var ytId = video.Id.Value;
                     var length = (int)video.Duration.Value.TotalSeconds;
 
-                    var song = await ParseSongInfo(title, uploader, ytId, length);
+                    var song = await ParseSongInfo(title, uploader, ytId, length, log: log);
                     song.ItemNumber = count + 1;
                     songs.Add(song);
                 }
@@ -401,8 +406,9 @@ namespace Sockseek.Core.Extractors;
         [GeneratedRegex(@"document\.title\s*=\s*""(.+?) - YouTube"";")]
         private static partial Regex DocumentTitleRegex();
 
-        public static async Task<List<(int length, string id, string title)>> YtdlpSearch(SongQuery query)
+        public static async Task<List<(int length, string id, string title)>> YtdlpSearch(SongQuery query, IJobLog? log = null)
         {
+            log ??= ExtractorContext.None.Log;
             Process process = new Process();
             ProcessStartInfo startInfo = new ProcessStartInfo();
             startInfo.FileName = "yt-dlp";
@@ -412,10 +418,10 @@ namespace Sockseek.Core.Extractors;
             startInfo.RedirectStandardError = true;
             startInfo.UseShellExecute = false;
             process.StartInfo = startInfo;
-            process.OutputDataReceived += (sender, e) => { SockseekLog.Info(e.Data ?? ""); };
-            process.ErrorDataReceived += (sender, e) => { SockseekLog.Info(e.Data ?? ""); };
+            process.OutputDataReceived += (sender, e) => { log.Info(e.Data ?? ""); };
+            process.ErrorDataReceived += (sender, e) => { log.Info(e.Data ?? ""); };
 
-            SockseekLog.Debug($"{startInfo.FileName} {startInfo.Arguments}");
+            log.Debug($"{startInfo.FileName} {startInfo.Arguments}");
             process.Start();
 
             List<(int, string, string)> results = new List<(int, string, string)>();
@@ -436,8 +442,9 @@ namespace Sockseek.Core.Extractors;
             return results;
         }
 
-        public static async Task<string> YtdlpDownload(string id, string savePathNoExt, string ytdlpArgument = "")
+        public static async Task<string> YtdlpDownload(string id, string savePathNoExt, string ytdlpArgument = "", IJobLog? log = null)
         {
+            log ??= ExtractorContext.None.Log;
             var process = new Process();
             var startInfo = new ProcessStartInfo();
 
@@ -458,7 +465,7 @@ namespace Sockseek.Core.Extractors;
             startInfo.UseShellExecute = false;
             process.StartInfo = startInfo;
 
-            SockseekLog.Debug($"{startInfo.FileName} {startInfo.Arguments}");
+            log.Debug($"{startInfo.FileName} {startInfo.Arguments}");
             process.Start();
             process.WaitForExit();
 
@@ -481,7 +488,7 @@ namespace Sockseek.Core.Extractors;
             if (!musicFiles.Any())
             {
                 if (isCustomPath)
-                    SockseekLog.Debug($"Could not find yt-dlp output file. This is expected if using a custom output path argument.");
+                    log.Debug($"Could not find yt-dlp output file. This is expected if using a custom output path argument.");
                 else
                     throw new FileNotFoundException($"Could not find yt-dlp output file after download in {parentDirectory}/{fileName}.*");
             }
@@ -492,9 +499,11 @@ namespace Sockseek.Core.Extractors;
         public class YouTubeArchiveRetriever
         {
             private readonly HttpClient _client;
+            private readonly IJobLog _log;
 
-            public YouTubeArchiveRetriever()
+            public YouTubeArchiveRetriever(IJobLog? log = null)
             {
+                _log = log ?? ExtractorContext.None.Log;
                 _client = new HttpClient();
                 _client.Timeout = TimeSpan.FromSeconds(10);
             }
@@ -554,7 +563,7 @@ namespace Sockseek.Core.Extractors;
                                     var (title, uploader, duration) = await GetVideoDetails(waybackUrl);
                                     if (!string.IsNullOrWhiteSpace(title))
                                     {
-                                        var song = await ParseSongInfo(title, uploader, waybackUrl, duration);
+                                        var song = await ParseSongInfo(title, uploader, waybackUrl, duration, log: _log);
                                         song.Other = $"{{\"t\":\"{title.Trim()}\",\"u\":\"{uploader.Trim()}\"}}";
                                         songs.Add(song);
                                         good = true;
@@ -577,21 +586,21 @@ namespace Sockseek.Core.Extractors;
                 await Task.WhenAll(workers);
                 process.WaitForExit();
                 deletedVideoUrls.CompleteAdding();
-                SockseekLog.Info($"Deleted metadata total/archived/retrieved: {totalCount}/{archivedCount}/{songs.Count}");
+                _log.Info($"Deleted metadata total/archived/retrieved: {totalCount}/{archivedCount}/{songs.Count}");
 
                 if (printFailed)
                 {
                     if (archivedCount < totalCount)
                     {
-                        SockseekLog.Info("No archived version found for the following:");
-                        foreach (var x in noArchive) SockseekLog.Info($"  {x}");
-                        SockseekLog.Info("");
+                        _log.Info("No archived version found for the following:");
+                        foreach (var x in noArchive) _log.Info($"  {x}");
+                        _log.Info("");
                     }
                     if (songs.Count < archivedCount)
                     {
-                        SockseekLog.Info("Failed to parse archived version for the following:");
-                        foreach (var x in failRetrieve) SockseekLog.Info($"  {x}");
-                        SockseekLog.Info("");
+                        _log.Info("Failed to parse archived version for the following:");
+                        foreach (var x in failRetrieve) _log.Info($"  {x}");
+                        _log.Info("");
                     }
                 }
 

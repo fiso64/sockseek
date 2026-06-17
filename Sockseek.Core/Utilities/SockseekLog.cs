@@ -1,10 +1,25 @@
 using Microsoft.Extensions.Logging;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 
 namespace Sockseek.Core;
 
 public static class SockseekLog
 {
+    public enum LogRouting
+    {
+        All,
+        ConsoleOnly,
+    }
+
+    public sealed record StructuredLogEntry(
+        LogLevel Level,
+        string CategoryName,
+        string Message,
+        ConsoleColor? Color = null,
+        LogRouting Routing = LogRouting.All,
+        object? Context = null);
+
     public static class Categories
     {
         public const string Cli = "cli";
@@ -48,6 +63,15 @@ public static class SockseekLog
 
         TaskScheduler.UnobservedTaskException += (_, args) =>
         {
+            if (IsExpectedSoulseekPeerNetworkNoise(args.Exception))
+            {
+                args.SetObserved();
+                Trace(
+                    $"Ignored unobserved Soulseek peer-network task exception: {ExceptionSummary(args.Exception)}",
+                    categoryName: Categories.Core);
+                return;
+            }
+
             Critical(args.Exception, "Unobserved task exception");
         };
     }
@@ -68,7 +92,7 @@ public static class SockseekLog
         public void Fatal(string message, ConsoleColor? color = null) => SockseekLog.Fatal(message, color, CategoryName);
         public void Error(Exception exception, string message, ConsoleColor? color = null) => SockseekLog.Error(exception, message, color, CategoryName);
         public void Fatal(Exception exception, string message, ConsoleColor? color = null) => SockseekLog.Fatal(exception, message, color, CategoryName);
-        public void LogNonConsole(LogLevel level, string message) => SockseekLog.LogNonConsole(level, message, CategoryName);
+        public void Write(LogLevel level, string message, ConsoleColor? color = null) => SockseekLog.Write(level, message, color, CategoryName);
         public void LogConsoleOnly(LogLevel level, string message, ConsoleColor? color = null) => SockseekLog.LogConsoleOnly(level, message, color, CategoryName);
     }
 
@@ -92,7 +116,7 @@ public static class SockseekLog
             includeFile: false,
             prependDate,
             prependLogLevel,
-            (level, message, _) => write(message, useColors ? ColorFor(level) : ConsoleColor.Gray)));
+            (entry, message) => write(message, useColors ? entry.Color ?? ColorFor(entry.Level) : ConsoleColor.Gray)));
     }
 
     public static void AddSink(
@@ -107,7 +131,37 @@ public static class SockseekLog
             includeFile: false,
             prependDate,
             prependLogLevel,
-            (level, message, _) => output(level, message)));
+            (entry, message) => output(entry.Level, message)));
+    }
+
+    public static void AddStructuredSink(
+        Action<StructuredLogEntry, string> output,
+        LogLevel minimumLevel = LogLevel.Information,
+        bool prependDate = false,
+        bool prependLogLevel = false)
+    {
+        AddProvider(new RoutingLoggerProvider(
+            minimumLevel,
+            includeConsole: false,
+            includeFile: false,
+            prependDate,
+            prependLogLevel,
+            output));
+    }
+
+    public static void AddStructuredConsoleSink(
+        Action<StructuredLogEntry, string> output,
+        LogLevel minimumLevel = LogLevel.Information,
+        bool prependDate = false,
+        bool prependLogLevel = false)
+    {
+        AddProvider(new RoutingLoggerProvider(
+            minimumLevel,
+            includeConsole: true,
+            includeFile: false,
+            prependDate,
+            prependLogLevel,
+            output));
     }
 
     public static void AddOrReplaceFile(
@@ -129,7 +183,7 @@ public static class SockseekLog
                 includeFile: true,
                 prependDate,
                 prependLogLevel,
-                (_, message, _) => AppendLogFile(filePath, message)));
+                (_, message) => AppendLogFile(filePath, message)));
             RebuildFactory();
         }
     }
@@ -170,22 +224,28 @@ public static class SockseekLog
         }
     }
 
-    public static void LogNonConsole(LogLevel level, string message, string? categoryName = null, [CallerFilePath] string callerFilePath = "")
-        => Log(level, message, consoleOnly: false, nonConsoleOnly: true, categoryName: categoryName, callerFilePath: callerFilePath);
-
     public static void LogConsoleOnly(LogLevel level, string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "")
-        => Log(level, message, color, consoleOnly: true, nonConsoleOnly: false, categoryName: categoryName, callerFilePath: callerFilePath);
+        => Log(level, message, LogRouting.ConsoleOnly, color, categoryName: categoryName, callerFilePath: callerFilePath);
 
-    public static void Trace(string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "") => Log(LogLevel.Trace, message, color, categoryName: categoryName, callerFilePath: callerFilePath);
-    public static void Debug(string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "") => Log(LogLevel.Debug, message, color, categoryName: categoryName, callerFilePath: callerFilePath);
-    public static void Info(string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "") => Log(LogLevel.Information, message, color, categoryName: categoryName, callerFilePath: callerFilePath);
-    public static void Warn(string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "") => Log(LogLevel.Warning, message, color, categoryName: categoryName, callerFilePath: callerFilePath);
-    public static void Error(string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "") => Log(LogLevel.Error, message, color, categoryName: categoryName, callerFilePath: callerFilePath);
-    public static void Fatal(string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "") => Log(LogLevel.Critical, message, color, categoryName: categoryName, callerFilePath: callerFilePath);
+    public static void Write(LogLevel level, string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "")
+        => Log(level, message, LogRouting.All, color, categoryName: categoryName, callerFilePath: callerFilePath);
+
+    public static void Write(StructuredLogEntry entry)
+    {
+        foreach (var provider in SnapshotProviders())
+            provider.Write(entry);
+    }
+
+    public static void Trace(string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "") => Log(LogLevel.Trace, message, LogRouting.All, color, categoryName: categoryName, callerFilePath: callerFilePath);
+    public static void Debug(string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "") => Log(LogLevel.Debug, message, LogRouting.All, color, categoryName: categoryName, callerFilePath: callerFilePath);
+    public static void Info(string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "") => Log(LogLevel.Information, message, LogRouting.All, color, categoryName: categoryName, callerFilePath: callerFilePath);
+    public static void Warn(string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "") => Log(LogLevel.Warning, message, LogRouting.All, color, categoryName: categoryName, callerFilePath: callerFilePath);
+    public static void Error(string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "") => Log(LogLevel.Error, message, LogRouting.All, color, categoryName: categoryName, callerFilePath: callerFilePath);
+    public static void Fatal(string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "") => Log(LogLevel.Critical, message, LogRouting.All, color, categoryName: categoryName, callerFilePath: callerFilePath);
     public static void Error(Exception exception, string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "")
-        => Log(LogLevel.Error, FormatException(message, exception), color, categoryName: categoryName, callerFilePath: callerFilePath);
+        => Log(LogLevel.Error, FormatException(message, exception), LogRouting.All, color, categoryName: categoryName, callerFilePath: callerFilePath);
     public static void Fatal(Exception exception, string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "")
-        => Log(LogLevel.Critical, FormatException(message, exception), color, categoryName: categoryName, callerFilePath: callerFilePath);
+        => Log(LogLevel.Critical, FormatException(message, exception), LogRouting.All, color, categoryName: categoryName, callerFilePath: callerFilePath);
 
     public static string ExceptionSummary(Exception exception)
         => exception.InnerException?.Message
@@ -202,22 +262,59 @@ public static class SockseekLog
     private static void Critical(string message)
         => Log(LogLevel.Critical, message, categoryName: Categories.Core);
 
+    internal static bool IsExpectedSoulseekPeerNetworkNoise(Exception exception)
+    {
+        var flattened = exception is AggregateException aggregate
+            ? aggregate.Flatten().InnerExceptions
+            : [exception];
+
+        return flattened.Count > 0 && flattened.All(IsExpectedSoulseekPeerNetworkException);
+    }
+
+    private static bool IsExpectedSoulseekPeerNetworkException(Exception exception)
+    {
+        if (exception is TimeoutException or OperationCanceledException)
+            return true;
+
+        if (exception is SocketException socketException)
+            return socketException.SocketErrorCode is SocketError.OperationAborted
+                or SocketError.TimedOut
+                or SocketError.ConnectionAborted
+                or SocketError.ConnectionReset
+                or SocketError.HostUnreachable
+                or SocketError.NetworkUnreachable;
+
+        if (exception is IOException && exception.InnerException is { } ioInner)
+            return IsExpectedSoulseekPeerNetworkException(ioInner);
+
+        if (IsSoulseekNetworkException(exception))
+            return exception.InnerException == null || IsExpectedSoulseekPeerNetworkException(exception.InnerException);
+
+        return false;
+    }
+
+    private static bool IsSoulseekNetworkException(Exception exception)
+    {
+        var typeName = exception.GetType().FullName ?? exception.GetType().Name;
+        if (!typeName.StartsWith("Soulseek.", StringComparison.Ordinal))
+            return false;
+
+        return exception.GetType().Name is "ConnectionReadException" or "ConnectionException"
+            || exception.Message.Contains("Failed to read", StringComparison.OrdinalIgnoreCase)
+            || exception.Message.Contains("Transfer failed: Transfer complete", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static void Log(
         LogLevel level,
         string message,
+        LogRouting routing = LogRouting.All,
         ConsoleColor? color = null,
-        bool consoleOnly = false,
-        bool nonConsoleOnly = false,
         string? categoryName = null,
         string callerFilePath = "")
     {
         categoryName ??= CategoryFor(callerFilePath);
-        foreach (var provider in SnapshotProviders())
-        {
-            if (consoleOnly && !provider.IsConsoleOutput) continue;
-            if (nonConsoleOnly && provider.IsConsoleOutput) continue;
-            provider.Write(level, categoryName, message, color);
-        }
+        var entry = new StructuredLogEntry(level, categoryName, message, color, routing);
+        Write(entry);
     }
 
     private static string CategoryFor(string callerFilePath)
@@ -293,7 +390,7 @@ public static class SockseekLog
     {
         private readonly bool _prependDate;
         private readonly bool _prependLogLevel;
-        private readonly Action<LogLevel, string, ConsoleColor?> _write;
+        private readonly Action<StructuredLogEntry, string> _write;
 
         public RoutingLoggerProvider(
             LogLevel minimumLevel,
@@ -301,7 +398,7 @@ public static class SockseekLog
             bool includeFile,
             bool prependDate,
             bool prependLogLevel,
-            Action<LogLevel, string, ConsoleColor?> write)
+            Action<StructuredLogEntry, string> write)
         {
             MinimumLevel = minimumLevel;
             IsConsoleOutput = includeConsole;
@@ -321,13 +418,14 @@ public static class SockseekLog
         {
         }
 
-        public void Write(LogLevel level, string categoryName, string message, ConsoleColor? color)
+        public void Write(StructuredLogEntry entry)
         {
-            if (level < MinimumLevel) return;
+            if (entry.Level < MinimumLevel) return;
+            if (entry.Routing == LogRouting.ConsoleOnly && !IsConsoleOutput) return;
 
             try
             {
-                _write(level, Format(level, categoryName, message), color);
+                _write(entry, Format(entry));
             }
             catch (IOException)
             {
@@ -337,20 +435,22 @@ public static class SockseekLog
             }
         }
 
-        private string Format(LogLevel level, string categoryName, string message)
+        private string Format(StructuredLogEntry entry)
         {
+            if (entry.Routing == LogRouting.ConsoleOnly && IsConsoleOutput)
+                return entry.Message;
+
             var parts = new List<string>();
 
             if (_prependDate)
                 parts.Add($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}");
 
-            if (_prependLogLevel)
-                parts.Add($"[{ShortLevel(level)}]");
+            if (_prependLogLevel || (IsConsoleOutput && entry.Level != LogLevel.Information))
+                parts.Add($"[{ShortLevel(entry.Level)}]");
 
-            if (!IsConsoleOutput)
-                parts.Add($"[{categoryName}]");
+            parts.Add($"[{entry.CategoryName}]");
 
-            parts.Add(IsConsoleOutput ? message : message.TrimStart());
+            parts.Add(IsConsoleOutput ? entry.Message : entry.Message.TrimStart());
             return string.Join(" ", parts);
         }
 
@@ -390,7 +490,7 @@ public static class SockseekLog
                 var message = formatter(state, exception);
                 if (exception != null)
                     message = string.IsNullOrWhiteSpace(message) ? exception.ToString() : $"{message}: {exception}";
-                _provider.Write(logLevel, _categoryName, message, null);
+                _provider.Write(new StructuredLogEntry(logLevel, _categoryName, message));
             }
         }
     }

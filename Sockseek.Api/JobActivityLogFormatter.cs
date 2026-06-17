@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Sockseek.Core;
 
 namespace Sockseek.Api;
@@ -11,7 +12,31 @@ public enum ActivityLogSeverity
 public sealed record ActivityLogEntry(
     string CategoryName,
     ActivityLogSeverity Severity,
-    string Message);
+    LogLevel Level,
+    string Message,
+    ActivityLogDisplay? Display = null);
+
+public sealed record ActivityLogDisplay(
+    int DisplayId,
+    string JobType,
+    string Message,
+    ActivityLogDisplayKind Kind = ActivityLogDisplayKind.Status,
+    string? Source = null,
+    string? Highlight = null,
+    bool ShowInLive = true);
+
+public enum ActivityLogDisplayKind
+{
+    Status,
+    Succeeded,
+    Failed,
+    Cancelled,
+    AlreadyExists,
+    Skipped,
+    AlbumTrackSucceeded,
+    AlbumTrackFailed,
+    AlbumTrackSkipped,
+}
 
 public sealed class JobActivityLogFormatter
 {
@@ -30,6 +55,7 @@ public sealed class JobActivityLogFormatter
         "extraction.failed",
         "job.started",
         "job.folder-retrieving",
+        "job.message",
         "song.searching",
     };
 
@@ -59,7 +85,8 @@ public sealed class JobActivityLogFormatter
                 "extraction.failed" when envelope.Payload is ExtractionFailedEventDto payload => HandleExtractionFailed(payload),
                 "job.started" when envelope.Payload is JobStartedEventDto payload => HandleJobStarted(payload),
                 "job.folder-retrieving" when envelope.Payload is JobFolderRetrievingEventDto payload => HandleJobFolderRetrieving(payload),
-                "song.searching" when envelope.Payload is SongSearchingEventDto payload => Log(payload.JobId, $"[{payload.DisplayId}] SongJob: searching: {SongQueryText(payload.Query)}"),
+                "job.message" when envelope.Payload is JobMessageEventDto payload => HandleJobMessage(payload),
+                "song.searching" when envelope.Payload is SongSearchingEventDto payload => LogJob(payload.JobId, payload.DisplayId, "SongJob", $"searching: {SongQueryText(payload.Query)}", showInLive: false),
                 _ => null,
             };
         }
@@ -70,23 +97,41 @@ public sealed class JobActivityLogFormatter
         if (string.IsNullOrWhiteSpace(job.InputType))
             return null;
 
-        return Log(job.Summary.JobId, $"[{job.Summary.DisplayId}] ExtractJob: Input ({job.InputType}): {job.Input}" + ProfileSuffix(job.Summary));
+        return LogJob(job.Summary.JobId, job.Summary.DisplayId, "ExtractJob", $"Input: {job.Input}" + ProfileSuffix(job.Summary), source: job.Source ?? job.InputType);
     }
 
     private ActivityLogEntry? HandleExtractionFailed(ExtractionFailedEventDto job)
     {
-        var message = $"[{job.Summary.DisplayId}] ExtractJob: Failed: {job.Summary.QueryText}\n  Reason:    {job.Reason}";
-
-        return Log(job.Summary.JobId, message, ActivityLogSeverity.Error);
+        return LogJob(
+            job.Summary.JobId,
+            job.Summary.DisplayId,
+            "ExtractJob",
+            $"Failed: {job.Summary.QueryText}\n  Reason:    {job.Reason}",
+            ActivityLogSeverity.Error,
+            kind: ActivityLogDisplayKind.Failed,
+            source: job.Source,
+            highlight: "Failed");
     }
 
     private ActivityLogEntry? HandleDiagnosticError(DiagnosticErrorEventDto diagnostic)
     {
-        var message = diagnostic.Summary is { } summary
-            ? $"[{summary.DisplayId}] {JobStatusPrefix(summary.Kind)}diagnostic: {diagnostic.Message}\n  Exception:\n{IndentContinuationLines(diagnostic.Exception, "    ")}"
-            : $"Diagnostic error ({diagnostic.Scope}): {diagnostic.Message}\n  Exception:\n{IndentContinuationLines(diagnostic.Exception, "    ")}";
+        if (diagnostic.Summary is { } summary)
+        {
+            return LogJob(
+                summary.JobId,
+                summary.DisplayId,
+                JobTypeLabel(summary.Kind),
+                $"diagnostic: {DiagnosticHeadline(diagnostic)}\n  Exception:\n{IndentContinuationLines(diagnostic.Exception, "    ")}",
+                ActivityLogSeverity.Error,
+                kind: ActivityLogDisplayKind.Failed,
+                source: diagnostic.Source,
+                highlight: "diagnostic");
+        }
 
-        return Log(diagnostic.Summary?.JobId ?? diagnostic.WorkflowId ?? Guid.Empty, message, ActivityLogSeverity.Error);
+        return Log(
+            diagnostic.WorkflowId ?? Guid.Empty,
+            $"Diagnostic error ({diagnostic.Scope}): {DiagnosticHeadline(diagnostic)}\n  Exception:\n{IndentContinuationLines(diagnostic.Exception, "    ")}",
+            ActivityLogSeverity.Error);
     }
 
     private ActivityLogEntry? HandleJobStarted(JobStartedEventDto job)
@@ -98,11 +143,27 @@ public sealed class JobActivityLogFormatter
             return null;
 
         string status = job.Summary.Kind == ServerJobKind.RetrieveFolder ? "retrieving folder" : "searching";
-        return Log(job.Summary.JobId, JobStatusLine(job.Summary, status));
+        return LogJob(job.Summary, status, showInLive: false);
     }
 
     private ActivityLogEntry? HandleJobFolderRetrieving(JobFolderRetrievingEventDto job)
-        => Log(job.Summary.JobId, JobStatusLine(job.Summary, "retrieving folder"));
+        => LogJob(job.Summary, "retrieving folder", showInLive: false);
+
+    private ActivityLogEntry? HandleJobMessage(JobMessageEventDto job)
+    {
+        var level = ParseLogLevel(job.Level);
+
+        return LogJob(
+            job.Summary.JobId,
+            job.Summary.DisplayId,
+            JobTypeLabel(job.Summary.Kind),
+            job.Message,
+            IsErrorLevel(level) ? ActivityLogSeverity.Error : ActivityLogSeverity.Information,
+            level,
+            IsErrorLevel(level) ? ActivityLogDisplayKind.Failed : ActivityLogDisplayKind.Status,
+            job.Source,
+            highlight: IsErrorLevel(level) ? job.Message : null);
+    }
 
     private ActivityLogEntry? HandleJobUpserted(JobSummaryDto summary)
     {
@@ -119,6 +180,7 @@ public sealed class JobActivityLogFormatter
 
         bool isTerminal = IsTerminalJobState(summary.State);
         string label = TerminalStatusLabel(summary.State, summary.FailureReason);
+        var kind = DisplayKindForState(summary.State, summary.FailureReason);
 
         if (isTerminal)
         {
@@ -131,17 +193,17 @@ public sealed class JobActivityLogFormatter
                     return null;
             }
 
-            return Log(summary.JobId, JobStatusLine(summary, label));
+            return LogJob(summary, label, kind: kind, showInLive: ShowTerminalKindInLive(kind));
         }
 
-        return Log(summary.JobId, JobStatusLine(summary, label));
+        return LogJob(summary, label, showInLive: false);
     }
 
     private ActivityLogEntry? HandleAlbumDownloadStarted(AlbumDownloadStartedEventDto job)
     {
         RememberStructure(job.Summary);
         albumSummaries[job.Summary.JobId] = job.Summary;
-        return Log(job.Summary.JobId, JobStatusLine(job.Summary, "downloading"));
+        return LogJob(job.Summary, "downloading", showInLive: false);
     }
 
     private ActivityLogEntry? HandleAlbumTrackDownloadStarted(AlbumTrackDownloadStartedEventDto job)
@@ -164,7 +226,7 @@ public sealed class JobActivityLogFormatter
             }
         }
 
-        return Log(job.Summary.JobId, $"[{job.Summary.DisplayId}] AlbumJob: downloading tracks: {job.Summary.QueryText} - {folderName}");
+        return LogJob(job.Summary.JobId, job.Summary.DisplayId, "AlbumJob", $"downloading tracks: {job.Summary.QueryText} - {folderName}", showInLive: false);
     }
 
     private ActivityLogEntry? HandleAlbumStateChanged(AlbumStateChangedEventDto job)
@@ -176,17 +238,28 @@ public sealed class JobActivityLogFormatter
         }
 
         albumSummaries.TryGetValue(job.Summary.JobId, out var album);
-        var entry = Log(job.Summary.JobId, AlbumCompletedLogMessage(album ?? job.Summary, null, job.DownloadPath));
+        var summary = album ?? job.Summary;
+        var status = TerminalStatusLabel(summary.State, summary.FailureReason);
+        var kind = DisplayKindForState(summary.State, summary.FailureReason);
+        var entry = LogJob(
+            summary.JobId,
+            summary.DisplayId,
+            JobTypeLabel(summary.Kind),
+            AlbumCompletedLogMessage(summary, null, job.DownloadPath),
+            kind: kind,
+            highlight: status,
+            showInLive: ShowTerminalKindInLive(kind));
         albumSummaries.Remove(job.Summary.JobId);
         return entry;
     }
 
     private ActivityLogEntry? HandleDownloadStart(DownloadStartedEventDto song)
-        => Log(song.JobId, $"[{song.DisplayId}] SongJob: downloading: {WithName(SongQueryText(song.Query), CandidateDisplayShort(song.Candidate.Ref))}");
+        => LogJob(song.JobId, song.DisplayId, "SongJob", $"downloading: {WithName(SongQueryText(song.Query), CandidateDisplayShort(song.Candidate.Ref))}", showInLive: false);
 
     private ActivityLogEntry? HandleSongStateChanged(SongStateChangedEventDto song)
     {
         string label = TerminalStatusLabel(song.State, song.FailureReason);
+        var kind = DisplayKindForState(song.State, song.FailureReason);
         string detail = SongQueryText(song.Query);
         if (IsTerminalJobState(song.State) && song.ChosenCandidate is FileCandidateDto candidate)
             detail = WithName(detail, CandidateDisplayShort(candidate.Ref));
@@ -196,30 +269,86 @@ public sealed class JobActivityLogFormatter
             && parentJobIds.TryGetValue(song.JobId, out var parentId)
             && albumSummaries.TryGetValue(parentId, out var album))
         {
-            prefix = "AlbumJob: ";
             if (IsTerminalJobState(song.State))
             {
                 string itemName = song.ChosenCandidate?.Ref.Filename != null
                     ? Utils.GetFileNameSlsk(song.ChosenCandidate.Ref.Filename)
                     : detail;
-                return Log(song.JobId, $"[{album.DisplayId}] {prefix}{label}: {itemName}");
+                var albumName = album.QueryText ?? album.ItemName ?? "";
+                return LogJob(
+                    song.JobId,
+                    album.DisplayId,
+                    "Album Track",
+                    $"{label}: {WithName(albumName, itemName)}",
+                    kind: AlbumTrackDisplayKind(kind),
+                    highlight: label,
+                    showInLive: ShowTerminalKindInLive(kind));
             }
         }
 
-        string line = $"[{song.DisplayId}] {prefix}{label}: {detail}";
+        var jobType = prefix.TrimEnd().TrimEnd(':');
+        string line = $"{label}: {detail}";
         if (!string.IsNullOrEmpty(song.FailureMessage))
             line += "\n" + $"    Error: {song.FailureMessage}";
 
-        return Log(song.JobId, line);
+        return LogJob(
+            song.JobId,
+            song.DisplayId,
+            jobType,
+            line,
+            kind: kind,
+            highlight: label,
+            showInLive: ShowSongTerminalStatusInLive(song));
     }
 
-    private ActivityLogEntry? Log(Guid jobId, string message, ActivityLogSeverity severity = ActivityLogSeverity.Information)
+    private ActivityLogEntry? LogJob(
+        JobSummaryDto summary,
+        string status,
+        ActivityLogSeverity severity = ActivityLogSeverity.Information,
+        LogLevel? level = null,
+        ActivityLogDisplayKind? kind = null,
+        bool showInLive = true)
+    {
+        var body = JobStatusBody(summary, status);
+        var displayKind = kind ?? DisplayKindForStatus(status);
+        return LogJob(summary.JobId, summary.DisplayId, JobTypeLabel(summary.Kind), body, severity, level, displayKind, highlight: status, showInLive: showInLive);
+    }
+
+    private ActivityLogEntry? LogJob(
+        Guid jobId,
+        int displayId,
+        string jobType,
+        string body,
+        ActivityLogSeverity severity = ActivityLogSeverity.Information,
+        LogLevel? level = null,
+        ActivityLogDisplayKind kind = ActivityLogDisplayKind.Status,
+        string? source = null,
+        string? highlight = null,
+        bool showInLive = true)
+        => Log(
+            jobId,
+            $"[{displayId}] {jobType}: {SourcePrefix(source)}{body}",
+            severity,
+            level,
+            new ActivityLogDisplay(displayId, jobType, body, kind, source, highlight, showInLive));
+
+    private ActivityLogEntry? Log(
+        Guid jobId,
+        string message,
+        ActivityLogSeverity severity = ActivityLogSeverity.Information,
+        LogLevel? level = null,
+        ActivityLogDisplay? display = null)
     {
         if (lastMessages.TryGetValue(jobId, out var last) && last == message)
             return null;
 
         lastMessages[jobId] = message;
-        return new ActivityLogEntry(SockseekLog.Categories.Jobs, severity, message);
+        return new ActivityLogEntry(
+            SockseekLog.Categories.Jobs,
+            severity,
+            level ?? (severity == ActivityLogSeverity.Error ? LogLevel.Error : LogLevel.Information),
+            message,
+            display);
     }
 
     private void RememberStructure(JobSummaryDto summary)
@@ -236,10 +365,71 @@ public sealed class JobActivityLogFormatter
             && parentKind == ServerJobKind.Album;
 
     private static bool IsTerminalJobState(ServerJobState state)
-        => state is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists or ServerProtocol.JobStates.Failed or ServerProtocol.JobStates.Skipped;
+        => state is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists or ServerProtocol.JobStates.Failed or ServerProtocol.JobStates.Skipped or ServerProtocol.JobStates.NotFoundLastTime;
 
     private static bool IsSuccessfulTerminalState(ServerJobState state)
         => state is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists;
+
+    private static bool IsErrorLevel(LogLevel level)
+        => level is LogLevel.Error or LogLevel.Critical;
+
+    private static ActivityLogDisplayKind DisplayKindForStatus(string status)
+    {
+        if (status.StartsWith("failed", StringComparison.OrdinalIgnoreCase))
+            return ActivityLogDisplayKind.Failed;
+        if (status.StartsWith("succeeded", StringComparison.OrdinalIgnoreCase))
+            return ActivityLogDisplayKind.Succeeded;
+        if (status.StartsWith("already exists", StringComparison.OrdinalIgnoreCase))
+            return ActivityLogDisplayKind.AlreadyExists;
+        if (status.StartsWith("skipped", StringComparison.OrdinalIgnoreCase))
+            return ActivityLogDisplayKind.Skipped;
+
+        return ActivityLogDisplayKind.Status;
+    }
+
+    private static ActivityLogDisplayKind DisplayKindForState(ServerJobState state, ServerFailureReason? failureReason)
+        => state switch
+        {
+            ServerProtocol.JobStates.Done => ActivityLogDisplayKind.Succeeded,
+            ServerProtocol.JobStates.AlreadyExists => ActivityLogDisplayKind.AlreadyExists,
+            ServerProtocol.JobStates.Skipped or ServerProtocol.JobStates.NotFoundLastTime => ActivityLogDisplayKind.Skipped,
+            ServerProtocol.JobStates.Failed when failureReason == ServerProtocol.FailureReasons.Cancelled => ActivityLogDisplayKind.Cancelled,
+            ServerProtocol.JobStates.Failed => ActivityLogDisplayKind.Failed,
+            _ => ActivityLogDisplayKind.Status,
+        };
+
+    private static bool ShowTerminalKindInLive(ActivityLogDisplayKind kind)
+        => kind != ActivityLogDisplayKind.Status;
+
+    private static ActivityLogDisplayKind AlbumTrackDisplayKind(ActivityLogDisplayKind kind)
+        => kind switch
+        {
+            ActivityLogDisplayKind.Succeeded or ActivityLogDisplayKind.AlreadyExists => ActivityLogDisplayKind.AlbumTrackSucceeded,
+            ActivityLogDisplayKind.Skipped or ActivityLogDisplayKind.Cancelled => ActivityLogDisplayKind.AlbumTrackSkipped,
+            ActivityLogDisplayKind.Failed => ActivityLogDisplayKind.AlbumTrackFailed,
+            _ => kind,
+        };
+
+    private bool ShowSongTerminalStatusInLive(SongStateChangedEventDto song)
+    {
+        if (!IsJobListChild(song.JobId))
+            return true;
+
+        return song.State is not (
+            ServerProtocol.JobStates.AlreadyExists
+            or ServerProtocol.JobStates.Skipped
+            or ServerProtocol.JobStates.NotFoundLastTime);
+    }
+
+    private bool IsJobListChild(Guid jobId)
+        => parentJobIds.TryGetValue(jobId, out var parentId)
+            && jobKinds.TryGetValue(parentId, out var parentKind)
+            && parentKind == ServerJobKind.JobList;
+
+    private static LogLevel ParseLogLevel(string level)
+        => Enum.TryParse<LogLevel>(level, ignoreCase: true, out var parsed)
+            ? parsed
+            : LogLevel.Information;
 
     private static string TerminalStatusLabel(ServerJobState state, ServerFailureReason? reason)
         => state switch
@@ -267,12 +457,11 @@ public sealed class JobActivityLogFormatter
         _ => "",
     };
 
-    private static string JobStatusLine(JobSummaryDto summary, string status)
+    private static string JobStatusBody(JobSummaryDto summary, string status)
     {
         var name = summary.ItemName ?? "";
         var detail = summary.QueryText ?? name;
-        var prefix = JobStatusPrefix(summary.Kind);
-        var line = $"[{summary.DisplayId}] {prefix}{status}: {WithName(name, detail)}" + ProfileSuffix(summary);
+        var line = $"{status}: {WithName(name, detail)}" + ProfileSuffix(summary);
 
         if (summary.State == ServerProtocol.JobStates.Done && summary.Kind == ServerJobKind.Search && summary.DiscoveryResultCount.HasValue)
             line += $": Found {summary.DiscoveryResultCount.Value} files";
@@ -283,14 +472,17 @@ public sealed class JobActivityLogFormatter
         return line;
     }
 
-    private static string JobStatusPrefix(ServerJobKind kind)
+    private static string JobTypeLabel(ServerJobKind kind)
         => kind switch
         {
-            ServerJobKind.RetrieveFolder => "Retrieve Folder: ",
-            ServerJobKind.JobList => "Job List: ",
-            ServerJobKind.AlbumAggregate => "Album Aggregate: ",
-            _ => $"{char.ToUpperInvariant(kind.ToWireString()[0])}{kind.ToWireString()[1..]}Job: ",
+            ServerJobKind.RetrieveFolder => "Retrieve Folder",
+            ServerJobKind.JobList => "Job List",
+            ServerJobKind.AlbumAggregate => "Album Aggregate",
+            _ => $"{char.ToUpperInvariant(kind.ToWireString()[0])}{kind.ToWireString()[1..]}Job",
         };
+
+    private static string JobStatusPrefix(ServerJobKind kind)
+        => $"{JobTypeLabel(kind)}: ";
 
     private static string AlbumCompletedLogMessage(JobSummaryDto summary, string? remoteFolderDisplay, string? completedPath)
     {
@@ -319,6 +511,21 @@ public sealed class JobActivityLogFormatter
 
     private static string WithName(string name, string detail)
         => string.IsNullOrWhiteSpace(name) || name == detail ? detail : $"{name}: {detail}";
+
+    private static string DiagnosticHeadline(DiagnosticErrorEventDto diagnostic)
+    {
+        var headline = !string.IsNullOrWhiteSpace(diagnostic.ExceptionType)
+            ? diagnostic.ExceptionType
+            : diagnostic.Scope;
+        var lastDot = headline.LastIndexOf('.');
+        if (lastDot >= 0 && lastDot < headline.Length - 1)
+            headline = headline[(lastDot + 1)..];
+
+        return string.IsNullOrWhiteSpace(headline) ? diagnostic.Message : headline;
+    }
+
+    private static string SourcePrefix(string? source)
+        => string.IsNullOrWhiteSpace(source) ? "" : $"{source}: ";
 
     private static string ProfileSuffix(JobSummaryDto summary)
         => summary.AppliedAutoProfiles.Count > 0 ? $" [{string.Join(", ", summary.AppliedAutoProfiles)}]" : "";

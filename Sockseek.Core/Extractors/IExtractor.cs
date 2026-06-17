@@ -9,7 +9,7 @@ namespace Sockseek.Core.Extractors;
 
     public interface IExtractor
     {
-        Task<Job> GetTracks(string input, ExtractionSettings extraction);
+        Task<Job> GetTracks(string input, ExtractionSettings extraction, ExtractorContext? context = null);
     }
 
     public static class ExtractorRegistry

@@ -54,7 +54,7 @@ internal static partial class Program
         }
         catch (Exception ex) when (ex is ArgumentException || ex.Message.StartsWith("Input error:"))
         {
-            SockseekLog.Fatal(ex.Message);
+            SockseekLog.Error(ex.Message);
             return;
         }
 
@@ -83,7 +83,7 @@ internal static partial class Program
                     }
                     catch (Exception ex)
                     {
-                        SockseekLog.Fatal(ex, "Failed to retrieve profiles from remote daemon");
+                        SockseekLog.Error(ex, "Failed to retrieve profiles from remote daemon");
                     }
                 }
                 else
@@ -128,11 +128,11 @@ internal static partial class Program
         {
             try
             {
-                await RunRemoteAsync(bindArgs, rootSettings, cliSettings, remoteSettings, cts);
+                await RunRemoteAsync(bindArgs, engineSettings, rootSettings, cliSettings, remoteSettings, cts);
             }
             catch (SockseekApiRequestException ex)
             {
-                SockseekLog.Fatal(ex.Message);
+                SockseekLog.Error(ex.Message);
             }
             catch (Exception ex)
             {
@@ -152,12 +152,12 @@ internal static partial class Program
             }
             catch (Exception ex)
             {
-                SockseekLog.Fatal(ex, "Diagnostic action failed");
+                SockseekLog.Error(ex, "Diagnostic action failed");
             }
 
             if (!rootSettings.PrintOption.HasFlag(PrintOption.Index))
             {
-                SockseekLog.Fatal("Input error: No input provided.");
+                SockseekLog.Error("Input error: No input provided.");
                 Help.PrintAndExitIfNeeded([]);
             }
             return;
@@ -172,7 +172,7 @@ internal static partial class Program
         }
         catch (Exception ex) when (ex is ArgumentException || ex.Message.StartsWith("Input error:"))
         {
-            SockseekLog.Fatal(ex.Message);
+            SockseekLog.Error(ex.Message);
             return;
         }
 
@@ -187,11 +187,12 @@ internal static partial class Program
             new JsonStreamProgressReporter(Console.Out).Attach(backend);
         else if (ShouldAttachHumanProgressReporter(rootSettings.PrintOption))
         {
-            cliReporter = new CliProgressReporter(cliSettings, includeFailureDetails: true);
+            cliReporter = new CliProgressReporter(cliSettings);
+            AttachLiveLogSinkIfNeeded(cliReporter, engineSettings.LogLevel);
             cliReporter.Attach(backend);
         }
 
-        var eventLogger = new EventLogger(backend, ShouldUseLiveRendering(cliSettings), includeDiagnosticDetails: true);
+        var eventLogger = new EventLogger(backend, includeDiagnosticDetails: true);
         eventLogger.Attach();
 
         backend.EventReceived += envelope =>
@@ -245,7 +246,7 @@ internal static partial class Program
 
             if (result.Action == ConsoleInputManager.CancelPromptAction.CancelAll)
             {
-                SockseekLog.LogNonConsole(LogLevel.Information, "Cancelling all jobs...");
+                SockseekLog.Info("Cancelling all jobs...");
                 Printing.WriteLine("Cancelling all jobs...", ConsoleColor.Gray, force: true);
                 engine.Cancel();
                 return;
@@ -400,6 +401,7 @@ internal static partial class Program
 
     private static async Task RunRemoteAsync(
         string[] args,
+        EngineSettings engineSettings,
         DownloadSettings rootSettings,
         CliSettings cliSettings,
         RemoteSettings remoteSettings,
@@ -407,7 +409,7 @@ internal static partial class Program
     {
         if (string.IsNullOrWhiteSpace(rootSettings.Extraction.Input))
         {
-            SockseekLog.Fatal("Remote mode requires an input.");
+            SockseekLog.Error("Remote mode requires an input.");
             return;
         }
 
@@ -419,11 +421,12 @@ internal static partial class Program
             new JsonStreamProgressReporter(Console.Out).Attach(backend);
         else if (ShouldAttachHumanProgressReporter(rootSettings.PrintOption))
         {
-            cliReporter = new CliProgressReporter(cliSettings, includeFailureDetails: false);
+            cliReporter = new CliProgressReporter(cliSettings);
+            AttachLiveLogSinkIfNeeded(cliReporter, engineSettings.LogLevel);
             cliReporter.Attach(backend);
         }
 
-        var eventLogger = new EventLogger(backend, ShouldUseLiveRendering(cliSettings), includeDiagnosticDetails: false);
+        var eventLogger = new EventLogger(backend, includeDiagnosticDetails: false);
         eventLogger.Attach();
 
         backend.EventReceived += envelope =>
@@ -477,7 +480,7 @@ internal static partial class Program
 
                 if (result.Action == ConsoleInputManager.CancelPromptAction.CancelAll)
                 {
-                    SockseekLog.LogNonConsole(LogLevel.Information, "Cancelling workflow...");
+                    SockseekLog.Info("Cancelling workflow...");
                     Printing.WriteLine("Cancelling workflow...", ConsoleColor.Gray, force: true);
                     await backend.CancelWorkflowAsync(submission.WorkflowId, cts.Token);
                     return;
@@ -599,7 +602,7 @@ internal static partial class Program
             if (cliReporter != null)
                 cliReporter.ReportClientError(ex.Message);
             else
-                SockseekLog.Fatal(ex.Message);
+                SockseekLog.Error(ex.Message);
         }
         catch (Exception ex)
         {
@@ -1024,6 +1027,15 @@ internal static partial class Program
         => !cliSettings.NoProgress
             && !cliSettings.ProgressJson
             && !Console.IsOutputRedirected;
+
+    private static void AttachLiveLogSinkIfNeeded(CliProgressReporter reporter, LogLevel minimumLevel)
+    {
+        if (!reporter.UsesLiveRendering)
+            return;
+
+        SockseekLog.RemoveConsoleOutputs();
+        reporter.AttachLogSink(minimumLevel);
+    }
 
     private static async Task RunDaemonAsync(
         string[] args,

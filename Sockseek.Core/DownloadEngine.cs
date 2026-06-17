@@ -803,7 +803,7 @@ public class DownloadEngine
             {
                 job.UpdateState(JobState.Extracting);
                 job.Cts.Token.ThrowIfCancellationRequested();
-                extracted = await extractor.GetTracks(job.Input, job.Config.Extraction);
+                extracted = await extractor.GetTracks(job.Input, job.Config.Extraction, ExtractorContext.ForExtractJob(job, Events, ExtractorLogSource(inputType)));
                 job.Cts.Token.ThrowIfCancellationRequested();
             }
             finally
@@ -907,6 +907,9 @@ public class DownloadEngine
 
     static JobOutcome ExtractionFailedOutcome(Exception exception)
         => ExceptionFailureOutcome(FailureReason.ExtractionFailed, exception);
+
+    static string ExtractorLogSource(InputType inputType)
+        => inputType.ToString();
 
     static JobOutcome ExceptionFailureOutcome(FailureReason reason, Exception exception)
         => JobOutcome.Failed(
@@ -2347,7 +2350,7 @@ public class DownloadEngine
         if (deleteDownloaded)
         {
             Events.RaiseJobStatus(job, "deleting files");
-            SockseekLog.Jobs.LogNonConsole(LogLevel.Information, $"[{job.DisplayId}] AlbumJob: Deleting album files");
+            SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: Deleting album files");
         }
         else if (!string.IsNullOrEmpty(failedAlbumPath))
         {
@@ -2355,7 +2358,7 @@ public class DownloadEngine
                 throw new InvalidOperationException("Cannot move failed album files because Output.ParentDir is not set.");
 
             Events.RaiseJobStatus(job, $"moving to {failedAlbumPath}");
-            SockseekLog.Jobs.LogNonConsole(LogLevel.Information, $"[{job.DisplayId}] AlbumJob: Moving album files to {failedAlbumPath}");
+            SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: Moving album files to {failedAlbumPath}");
         }
 
         foreach (var af in folder.Files)
@@ -2443,7 +2446,7 @@ public class DownloadEngine
             rfJob.RetrievalOutcome = FolderRetrievalOutcome.Cancelled;
             rfJob.Fail(FailureReason.Cancelled);
             Events.RaiseJobStatus(rfJob, "cancelled");
-            SockseekLog.Jobs.LogNonConsole(LogLevel.Information, $"[{rfJob.DisplayId}] RetrieveFolderJob: Cancelled folder retrieval for {folder.FolderPath}");
+            SockseekLog.Jobs.Info($"[{rfJob.DisplayId}] RetrieveFolderJob: Cancelled folder retrieval for {folder.FolderPath}");
             return rfJob;
         }
         finally

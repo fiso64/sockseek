@@ -19,9 +19,6 @@ public sealed class ServerActivityLogReporter
         if (entry == null)
             return;
 
-        var level = entry.Severity == ActivityLogSeverity.Error
-            ? LogLevel.Error
-            : LogLevel.Information;
-        SockseekLog.LogNonConsole(level, entry.Message, entry.CategoryName);
+        SockseekLog.Write(entry.Level, entry.Message, categoryName: entry.CategoryName);
     }
 }

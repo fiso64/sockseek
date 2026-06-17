@@ -17,13 +17,14 @@ namespace Sockseek.Core.Extractors;
             return input.IsInternetUrl() && input.ToLower().Contains("musicbrainz.org");
         }
 
-        public async Task<Job> GetTracks(string input, ExtractionSettings extraction)
+        public async Task<Job> GetTracks(string input, ExtractionSettings extraction, ExtractorContext? context = null)
         {
+            context ??= ExtractorContext.None;
             var maxTracks = extraction.MaxTracks;
             var offset    = extraction.Offset;
             var reverse   = extraction.Reverse;
 
-            var musicBrainzClient = new MusicBrainzClient();
+            var musicBrainzClient = new MusicBrainzClient(context.Log);
 
             int max = reverse ? int.MaxValue : maxTracks;
             int off = reverse ? 0 : offset;
@@ -70,9 +71,11 @@ namespace Sockseek.Core.Extractors;
     public class MusicBrainzClient
     {
         private readonly HttpClient _httpClient;
+        private readonly IJobLog _log;
 
-        public MusicBrainzClient()
+        public MusicBrainzClient(IJobLog? log = null)
         {
+            _log = log ?? ExtractorContext.None.Log;
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Sockseek/1.0 ( https://github.com/fiso64/sockseek )");
             _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -84,7 +87,7 @@ namespace Sockseek.Core.Extractors;
             if (offset > 0 || max == 0)
                 return queue;
 
-            SockseekLog.Info("Loading MusicBrainz release...");
+            _log.Info("Loading release...");
             var url = $"https://musicbrainz.org/ws/2/release/{mbid}?inc=artist-credits+media&fmt=json";
             var response = await _httpClient.GetStringAsync(url);
             var release = JsonDocument.Parse(response).RootElement;
@@ -121,7 +124,7 @@ namespace Sockseek.Core.Extractors;
 
         public async Task<JobList> GetReleaseGroupAsAlbum(string mbid, int max, int offset, ExtractionSettings extraction)
         {
-            SockseekLog.Info("Loading MusicBrainz release group...");
+            _log.Info("Loading release group...");
             var url = $"https://musicbrainz.org/ws/2/release-group/{mbid}?inc=releases&fmt=json";
             var response = await _httpClient.GetStringAsync(url);
             var releaseGroup = JsonDocument.Parse(response).RootElement;
@@ -129,7 +132,7 @@ namespace Sockseek.Core.Extractors;
             var releases = releaseGroup.GetProperty("releases").EnumerateArray().ToList();
             if (releases.Count == 0)
             {
-                SockseekLog.Info("Release group contains no releases.");
+                _log.Info("Release group contains no releases.");
                 return new JobList();
             }
 
@@ -140,7 +143,7 @@ namespace Sockseek.Core.Extractors;
                 bestRelease = releases.First();
 
             var releaseMbid = bestRelease.GetProperty("id").GetString();
-            SockseekLog.Info($"Found release '{bestRelease.GetProperty("title").GetString()}' ({releaseMbid}) in release group. Getting album info...");
+            _log.Info($"Found release '{bestRelease.GetProperty("title").GetString()}' ({releaseMbid}) in release group. Getting album info...");
             return await GetReleaseAsAlbum(releaseMbid, max, offset, extraction, true);
         }
 
@@ -150,7 +153,7 @@ namespace Sockseek.Core.Extractors;
             var collectionInfoResponse = await _httpClient.GetStringAsync(collectionInfoUrl);
             var collectionInfo = JsonDocument.Parse(collectionInfoResponse).RootElement;
             var collectionName = collectionInfo.GetProperty("name").GetString();
-            SockseekLog.Info($"Loading releases from MusicBrainz collection '{collectionName}'...");
+            _log.Info($"Loading releases from collection '{collectionName}'...");
 
             var queue = new JobList();
             int limit = Math.Min(max, 100);
@@ -196,7 +199,7 @@ namespace Sockseek.Core.Extractors;
                 currentOffset += limit;
             }
 
-            SockseekLog.Info($"Found {queue.Jobs.Count} releases in MusicBrainz collection '{collectionName}'");
+            _log.Info($"Found {queue.Jobs.Count} releases in collection '{collectionName}'");
             return queue;
         }
     }

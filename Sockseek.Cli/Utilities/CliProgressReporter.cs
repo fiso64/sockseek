@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using Soulseek;
 using Sockseek.Core;
@@ -14,7 +15,6 @@ namespace Sockseek.Cli;
 public class CliProgressReporter
 {
     private readonly CliSettings _cli;
-    private readonly bool _includeFailureDetails;
     private readonly TerminalLiveRenderer? _live;
 
     private readonly ConcurrentDictionary<Guid, BarData> _bars = new();
@@ -74,10 +74,9 @@ public class CliProgressReporter
 
     public bool UsesLiveRendering => LiveMode;
 
-    public CliProgressReporter(CliSettings cli, bool includeFailureDetails = false)
+    public CliProgressReporter(CliSettings cli)
     {
         _cli = cli;
-        _includeFailureDetails = includeFailureDetails;
         if (!cli.NoProgress && !Console.IsOutputRedirected)
             _live = new TerminalLiveRenderer();
     }
@@ -87,32 +86,40 @@ public class CliProgressReporter
         _live?.Dispose();
     }
 
+    public void AttachLogSink(LogLevel minimumLevel)
+    {
+        if (_live == null)
+            return;
+
+        SockseekLog.AddStructuredConsoleSink(WriteLiveLog, minimumLevel);
+    }
+
+    private void WriteLiveLog(SockseekLog.StructuredLogEntry entry, string message)
+    {
+        if (_live == null)
+            return;
+
+        if (entry.Context is TerminalLogLine line)
+        {
+            if (!line.ShowInLive)
+                return;
+
+            _live.Log(line);
+            return;
+        }
+
+        _live.Log(entry);
+    }
+
     public void ReportSyntheticJobFailure(int displayId, string jobType, string name, string failureReason)
     {
         string msg = $"failed [{failureReason}]: {name}";
-
-        if (LiveMode)
-        {
-            _live!.Log(new TerminalLogLine(TerminalLogKind.JobFailed, Guid.Empty.ToString(), displayId, jobType, msg));
-            SockseekLog.Jobs.LogNonConsole(LogLevel.Information, $"[{displayId:000}] {jobType}: {msg}");
-        }
-        else
-        {
-            SockseekLog.Jobs.Info($"[{displayId:000}] {jobType}: {msg}");
-        }
+        SockseekLog.Jobs.Info($"[{displayId:000}] {jobType}: {msg}");
     }
 
     public void ReportClientError(string message)
     {
-        if (LiveMode)
-        {
-            _live!.Log(new TerminalLogLine(TerminalLogKind.JobFailed, Guid.Empty.ToString(), 0, "Remote", message));
-            SockseekLog.LogNonConsole(LogLevel.Error, message);
-        }
-        else
-        {
-            SockseekLog.Error(message);
-        }
+        SockseekLog.Error(message);
     }
 
     internal void Attach(ICliBackend backend)
@@ -135,6 +142,9 @@ public class CliProgressReporter
                     break;
                 case "job.status" when envelope.Payload is JobStatusEventDto e:
                     ReportJobStatus(e);
+                    break;
+                case "job.message" when envelope.Payload is JobMessageEventDto e:
+                    ReportJobMessage(e);
                     break;
                 case "job.folder-retrieving" when envelope.Payload is JobFolderRetrievingEventDto e:
                     ReportJobFolderRetrieving(e);
@@ -174,9 +184,6 @@ public class CliProgressReporter
                     break;
                 case "track-batch.resolved" when envelope.Payload is TrackBatchResolvedEventDto e:
                     ReportTrackBatchResolved(e);
-                    break;
-                case "diagnostic.error" when envelope.Payload is DiagnosticErrorEventDto e:
-                    ReportDiagnosticError(e);
                     break;
                 case "search.rate-limited" when envelope.Payload is SearchRateLimitedEventDto rl:
                     if (LiveMode)
@@ -221,19 +228,12 @@ public class CliProgressReporter
                     }
             }
 
-            if (summary.Kind != ServerJobKind.Song && _liveTerminalParentLogs.TryAdd(summary.JobId, 0))
+            if (summary.Kind != ServerJobKind.Song
+                && summary.Kind != ServerJobKind.Extract
+                && _liveTerminalParentLogs.TryAdd(summary.JobId, 0))
             {
-                var kind = TerminalKind(summary);
-                var label = TerminalStatusLabel(summary.State, summary.FailureReason);
-                var name = summary.ItemName ?? "";
-                var detail = summary.QueryText ?? name;
-                
-                string msg = $"{label}: {WithName(name, detail)}";
-                if (summary.State == ServerProtocol.JobStates.Done && summary.Kind == ServerJobKind.Search && summary.DiscoveryResultCount.HasValue)
-                    msg += $": Found {summary.DiscoveryResultCount.Value} files";
-
-                if (LiveMode)
-                    LogLive(kind, summary, msg);
+                // Activity logging is handled by EventLogger/SockseekLog. This branch only
+                // records that the live terminal line was accounted for.
             }
 
             return;
@@ -476,52 +476,6 @@ public class CliProgressReporter
 
     private void RemoveLiveJob(Guid jobId) => _live?.Remove(jobId.ToString());
 
-    private void LogLive(TerminalLogKind kind, JobSummaryDto summary, string message)
-        => _live?.Log(new TerminalLogLine(kind, summary.JobId.ToString(), summary.DisplayId, GetJobTypeLabel(summary.Kind), message));
-
-    private void LogLiveSong(TerminalLogKind kind, Guid jobId, int displayId, string message)
-        => _live?.Log(new TerminalLogLine(kind, jobId.ToString(), displayId, "Song", message));
-
-    private void LogLiveAlbumTrack(TerminalLogKind kind, JobSummaryDto summary, string message)
-        => _live?.Log(new TerminalLogLine(kind, summary.JobId.ToString(), summary.DisplayId, "Album Track", message));
-
-    private static TerminalLogKind TerminalKind(SongStateChangedEventDto song, bool albumTrack = false)
-        => song.State switch
-        {
-            ServerProtocol.JobStates.Done => albumTrack ? TerminalLogKind.AlbumTrackDownloaded : TerminalLogKind.SongDownloaded,
-            ServerProtocol.JobStates.AlreadyExists => albumTrack ? TerminalLogKind.AlbumTrackDownloaded : TerminalLogKind.SongAlreadyExists,
-            ServerProtocol.JobStates.Skipped or ServerProtocol.JobStates.NotFoundLastTime => albumTrack ? TerminalLogKind.AlbumTrackSkipped : TerminalLogKind.SongSkipped,
-            ServerProtocol.JobStates.Failed when song.FailureReason == ServerProtocol.FailureReasons.Cancelled => albumTrack ? TerminalLogKind.AlbumTrackSkipped : TerminalLogKind.JobCancelled,
-            _ => albumTrack ? TerminalLogKind.AlbumTrackFailed : TerminalLogKind.SongFailed,
-        };
-
-    private static TerminalLogKind TerminalKind(JobSummaryDto summary)
-        => summary.Kind switch
-        {
-            _ when summary.State is ServerProtocol.JobStates.AlreadyExists
-                => TerminalLogKind.JobAlreadyExists,
-            ServerJobKind.JobList when summary.State is ServerProtocol.JobStates.Done
-                => TerminalLogKind.PlaylistCompleted,
-            ServerJobKind.Aggregate when summary.State is ServerProtocol.JobStates.Done
-                => TerminalLogKind.AggregateCompleted,
-            _ when summary.State is ServerProtocol.JobStates.Done
-                => TerminalLogKind.JobSucceeded,
-            _ when summary.FailureReason == ServerProtocol.FailureReasons.Cancelled
-                => TerminalLogKind.JobCancelled,
-            _ => TerminalLogKind.JobFailed,
-        };
-
-    private bool ShouldLogLiveSongTerminal(SongStateChangedEventDto song)
-    {
-        if (!IsJobListChild(song.JobId))
-            return true;
-
-        return song.State is not (
-            ServerProtocol.JobStates.AlreadyExists
-            or ServerProtocol.JobStates.Skipped
-            or ServerProtocol.JobStates.NotFoundLastTime);
-    }
-
     private void UpsertLiveAlbum(Guid albumId, AlbumBlock block)
     {
         if (_live == null) return;
@@ -645,11 +599,6 @@ public class CliProgressReporter
     private static string WithFailureMessage(string display, string? failureMessage)
         => string.IsNullOrWhiteSpace(failureMessage) ? display : $"{display}\n    Error: {failureMessage}";
 
-    private static string WithFailureDetail(string display, string? failureDetail, bool includeFailureDetails)
-        => includeFailureDetails && !string.IsNullOrWhiteSpace(failureDetail)
-            ? $"{display}\n    Exception:\n{IndentContinuationLines(failureDetail, "        ")}"
-            : display;
-
     private static string IndentContinuationLines(string text, string indent)
     {
         var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
@@ -663,12 +612,6 @@ public class CliProgressReporter
         => song.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists
             ? SongCompletedDisplay(song)
             : WithFailureMessage(SongDisplay(song, shortPath: true), song.FailureMessage);
-
-    private string AlbumTrackLogMessage(AlbumBlock block, SongStateChangedEventDto song)
-    {
-        var albumName = block.Summary.QueryText ?? block.Summary.ItemName ?? "";
-        return $"{TerminalStatusLabel(song)}: {WithName(albumName, SongTerminalDisplay(song))}";
-    }
 
     private static string CandidateDisplay(FileCandidateRefDto candidate)
         => $"{candidate.Username}\\..\\{candidate.Filename.Replace('/', '\\').TrimStart('\\')}";
@@ -942,13 +885,7 @@ public class CliProgressReporter
             return;
         }
 
-        if (LiveMode)
-        {
-            LogLiveSong(TerminalLogKind.JobFailed, failure.JobId, failure.DisplayId, message);
-            return;
-        }
-
-        SockseekLog.Jobs.LogNonConsole(LogLevel.Error, $"[{failure.DisplayId}] SongJob: {message}");
+        SockseekLog.Jobs.Error($"[{failure.DisplayId}] SongJob: {message}");
     }
 
     private void ReportStateChanged(SongStateChangedEventDto song)
@@ -973,9 +910,6 @@ public class CliProgressReporter
             else
             {
                 UpsertLiveAlbum(albumId, block);
-                LogLiveAlbumTrack(TerminalKind(song, albumTrack: true),
-                    block.Summary,
-                    AlbumTrackLogMessage(block, song));
             }
         }
         else
@@ -991,11 +925,6 @@ public class CliProgressReporter
             {
                 RemoveLiveJob(song.JobId);
                 _liveSongInfo.TryRemove(song.JobId, out _);
-                if (ShouldLogLiveSongTerminal(song))
-                {
-                    var songDisplay = SongTerminalDisplay(song);
-                    LogLiveSong(TerminalKind(song), song.JobId, song.DisplayId, $"{TerminalStatusLabel(song)}: {WithName(SongQueryText(song.Query), songDisplay)}");
-                }
             }
         }
         _bars.TryRemove(song.JobId, out _);
@@ -1009,39 +938,19 @@ public class CliProgressReporter
     {
         const int max = 10;
 
-        if (LiveMode)
+        void LogGroup(IReadOnlyList<SongJobPayloadDto> songs, string label)
         {
-            void LogLiveGroup(IReadOnlyList<SongJobPayloadDto> songs, TerminalLogKind kind, string label)
-            {
-                if (songs.Count == 0) return;
-                var shown = songs.Take(max).ToList();
-                var more = songs.Count - shown.Count;
-                var msg = $"{songs.Count} {label}:\n"
-                    + string.Join('\n', shown.Select(s => $"    {SongQueryText(s.Query)}"))
-                    + (more > 0 ? $"\n    ... and {more} more" : "");
-                _live!.Log(new TerminalLogLine(kind, batch.Summary.JobId.ToString(), batch.Summary.DisplayId, GetJobTypeLabel(batch.Summary.Kind), msg));
-            }
-
-            LogLiveGroup(batch.Existing, TerminalLogKind.SongAlreadyExists, "tracks already exist");
-            LogLiveGroup(batch.NotFound, TerminalLogKind.SongSkipped,       "tracks were not found in a prior run");
+            if (songs.Count == 0) return;
+            var shown = songs.Take(max).ToList();
+            var more = songs.Count - shown.Count;
+            var msg = $"[{batch.Summary.DisplayId}] {GetJobTypeLabel(batch.Summary.Kind)}: {songs.Count} {label}:\n"
+                + string.Join('\n', shown.Select(s => $"    {SongQueryText(s.Query)}"))
+                + (more > 0 ? $"\n    ... and {more} more" : "");
+            SockseekLog.Jobs.Info(msg);
         }
-        else
-        {
-            void LogPlainGroup(IReadOnlyList<SongJobPayloadDto> songs, string label)
-            {
-                if (songs.Count == 0) return;
-                var shown = songs.Take(max).ToList();
-                var more = songs.Count - shown.Count;
-                SockseekLog.Info($"{songs.Count} {label}:");
-                foreach (var s in shown)
-                    SockseekLog.Info($"    {SongQueryText(s.Query)}");
-                if (more > 0)
-                    SockseekLog.Info($"    ... and {more} more");
-            }
 
-            LogPlainGroup(batch.Existing, "tracks already exist");
-            LogPlainGroup(batch.NotFound, "tracks were not found in a prior run");
-        }
+        LogGroup(batch.Existing, "tracks already exist");
+        LogGroup(batch.NotFound, "tracks were not found in a prior run");
     }
 
     private void ReportExtractionStarted(ExtractionStartedEventDto job)
@@ -1058,21 +967,8 @@ public class CliProgressReporter
         if (LiveMode)
         {
             RemoveLiveJob(job.Summary.JobId);
-            LogLive(TerminalLogKind.JobFailed, job.Summary, $"failed: {job.Reason}");
             return;
         }
-    }
-
-    private void ReportDiagnosticError(DiagnosticErrorEventDto diagnostic)
-    {
-        if (!LiveMode || !_includeFailureDetails)
-            return;
-
-        var message = WithFailureDetail($"diagnostic: {diagnostic.Message}", diagnostic.Exception, includeFailureDetails: true);
-        if (diagnostic.Summary is { } summary)
-            LogLive(TerminalLogKind.JobFailed, summary, message);
-        else
-            _live!.Log(new TerminalLogLine(TerminalLogKind.JobFailed, Guid.Empty.ToString(), 0, diagnostic.Scope, message));
     }
 
     private void ReportJobStarted(JobStartedEventDto job)
@@ -1181,6 +1077,11 @@ public class CliProgressReporter
             UpsertLiveJob(job.Summary, job.Status);
     }
 
+    private void ReportJobMessage(JobMessageEventDto job)
+    {
+        RememberStructure(job.Summary);
+    }
+
     private void ReportAlbumDownloadStarted(AlbumDownloadStartedEventDto job)
     {
         _jobStatuses[job.Summary.JobId] = "downloading";
@@ -1231,10 +1132,7 @@ public class CliProgressReporter
         }
         RemoveLiveJob(job.Summary.JobId);
         _jobStatuses.TryRemove(job.Summary.JobId, out _);
-        if (_liveTerminalParentLogs.TryAdd(job.Summary.JobId, 0))
-            LogLive(TerminalKind(job.Summary),
-                job.Summary,
-                AlbumCompletedLogMessage(job.Summary, remoteFolderDisplay, job.DownloadPath));
+        _liveTerminalParentLogs.TryAdd(job.Summary.JobId, 0);
     }
 
     private void CompleteAlbumBlock(Guid albumJobId, AlbumBlock block, JobSummaryDto summary)
@@ -1242,22 +1140,6 @@ public class CliProgressReporter
         CompleteRemainingAlbumBars(block, summary);
         _jobStatuses.TryRemove(albumJobId, out _);
     }
-
-    private string AlbumCompletedLogMessage(JobSummaryDto summary, string? remoteFolderDisplay, string? completedPath)
-    {
-        var albumName = summary.QueryText ?? summary.ItemName ?? "";
-        var status = TerminalStatusLabel(summary.State, summary.FailureReason);
-        bool succeeded = summary.State is ServerProtocol.JobStates.Done or ServerProtocol.JobStates.AlreadyExists;
-
-        if (succeeded && !string.IsNullOrWhiteSpace(remoteFolderDisplay))
-            return $"{status}: {WithName(albumName, WithLocalPath(remoteFolderDisplay, completedPath))}";
-
-        if (!string.IsNullOrWhiteSpace(completedPath))
-            return $"{status}: {WithName(albumName, $"completed at {completedPath}")}";
-
-        return $"{status}: {albumName}";
-    }
-
 
     private void InitializeAlbumBlock(
         JobSummaryDto summary,
