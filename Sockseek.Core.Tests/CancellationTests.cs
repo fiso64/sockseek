@@ -153,6 +153,57 @@ namespace Tests.Cancellation
             }
         }
 
+        [TestMethod]
+        public async Task CancelJobList_WithQueuedChildren_MarksUnstartedChildrenCancelled()
+        {
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-cancel-queued-" + Guid.NewGuid());
+            System.IO.Directory.CreateDirectory(outputDir);
+
+            try
+            {
+                var eng = new EngineSettings
+                {
+                    Username = "u",
+                    Password = "p",
+                    ConcurrentJobs = 1,
+                };
+                var dl = new DownloadSettings();
+                dl.Output.ParentDir = outputDir;
+
+                var clientManager = TestHelpers.CreateMockClientManager(
+                    new ClientTests.MockSoulseekClient(TestHelpers.CreateTestIndex(), searchDelayMs: SearchDelay),
+                    eng);
+                var engine = new DownloadEngine(eng, clientManager);
+
+                var first = new SongJob(new SongQuery { Artist = "testartist", Title = "testsong" });
+                var second = new SongJob(new SongQuery { Artist = "testartist", Title = "testsong2" });
+                var list = new JobList("cancel queued children", [first, second]);
+
+                engine.Enqueue(list, dl);
+                engine.CompleteEnqueue();
+
+                var runTask = engine.RunAsync(CancellationToken.None);
+
+                await WaitForAsync(() => first.State == JobState.Searching && second.State == JobState.Pending);
+
+                list.Cancel();
+                await IgnoreCancellation(runTask);
+
+                Assert.AreEqual(JobState.Failed, first.State);
+                Assert.AreEqual(FailureReason.Cancelled, first.FailureReason);
+                Assert.AreEqual(JobState.Failed, second.State,
+                    "A child cancelled while waiting for a job slot must not be left Pending and projected as Done.");
+                Assert.AreEqual(FailureReason.Cancelled, second.FailureReason);
+                Assert.AreEqual(JobState.Failed, list.State);
+                Assert.AreEqual(FailureReason.Cancelled, list.FailureReason);
+            }
+            finally
+            {
+                if (System.IO.Directory.Exists(outputDir))
+                    System.IO.Directory.Delete(outputDir, recursive: true);
+            }
+        }
+
 
         // ── Test 3: cancelling one song does not cancel its sibling ───────────
         // Each song in a JobList has an independent CTS (linked to the parent list,

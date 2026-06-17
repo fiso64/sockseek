@@ -439,6 +439,10 @@ public class DownloadEngine
             // ── Leaf jobs: skip checks, search, download ─────────────────────────
             await ProcessLeafJob(job);
         }
+        catch (OperationCanceledException) when (IsJobCancellationRequested(job, parentToken))
+        {
+            MarkCancelledIfActive(job);
+        }
         finally
         {
             if (job.Config != null)
@@ -453,6 +457,24 @@ public class DownloadEngine
             {
                 await TryFinalizeClosedManualAggregateSelectionAsync(aggregateJob);
             }
+        }
+    }
+
+    bool IsJobCancellationRequested(Job job, CancellationToken parentToken)
+        => appCts.IsCancellationRequested
+            || parentToken.IsCancellationRequested
+            || job.Cts?.IsCancellationRequested == true;
+
+    static void MarkCancelledIfActive(Job job)
+    {
+        if (job.State is JobState.Pending
+            or JobState.Extracting
+            or JobState.Searching
+            or JobState.Downloading
+            or JobState.Running
+            or JobState.AwaitingSelection)
+        {
+            CommitOutcome(job, JobOutcome.Failed(FailureReason.Cancelled));
         }
     }
 
