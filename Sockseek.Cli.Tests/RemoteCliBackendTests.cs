@@ -94,7 +94,9 @@ public class RemoteCliBackendTests
             await app.StartAsync();
             await using var backend = new RemoteCliBackend(url);
             var seenTypes = new ConcurrentBag<string>();
+            var seenWorkflowUpdates = new ConcurrentBag<WorkflowClientUpdate>();
             backend.EventReceived += envelope => seenTypes.Add(envelope.Type);
+            backend.WorkflowUpdated += update => seenWorkflowUpdates.Add(update);
             await backend.StartAsync();
 
             var searchSummary = await backend.SubmitTrackSearchJobAsync(
@@ -127,9 +129,15 @@ public class RemoteCliBackendTests
                 .ToArray();
             CollectionAssert.Contains(downloaded, "01. Artist - Track One.mp3");
 
+            await WaitForEventTypeAsync(seenTypes, "job.upserted");
+            await WaitForEventTypeAsync(seenTypes, "search.updated");
+            await WaitForEventTypeAsync(seenTypes, "download.started");
             Assert.IsTrue(seenTypes.Contains("job.upserted"));
             Assert.IsTrue(seenTypes.Contains("search.updated"));
             Assert.IsTrue(seenTypes.Contains("download.started"));
+            Assert.IsTrue(seenWorkflowUpdates.Any(update => update.JobUpserts.Any(job => job.JobId == searchSummary.JobId)));
+            Assert.IsTrue(seenWorkflowUpdates.Any(update => update.SearchUpdates.Any(search => search.JobId == searchSummary.JobId)));
+            Assert.IsTrue(seenWorkflowUpdates.Any(update => update.Activity.Any(envelope => envelope.Type == "download.started")));
         }
         finally
         {
@@ -1031,6 +1039,8 @@ public class RemoteCliBackendTests
 
             var jobs = await backend.GetJobsAsync(new JobQuery(null, null, null, summary.WorkflowId, IncludeAll: true));
             Assert.IsTrue(jobs.Any(job => job.Kind == ServerJobKind.JobList));
+            Assert.IsTrue(jobs.Any(job => job.Kind == ServerJobKind.Search));
+            Assert.IsTrue(jobs.All(job => job.WorkflowId == summary.WorkflowId));
         }
         finally
         {
@@ -1056,6 +1066,21 @@ public class RemoteCliBackendTests
         }
 
         Assert.Fail($"Timed out waiting for job {jobId} to reach state '{expectedState}'.");
+    }
+
+    private static async Task WaitForEventTypeAsync(ConcurrentBag<string> seenTypes, string eventType, int timeoutMs = 5000)
+    {
+        using var timeout = new CancellationTokenSource(timeoutMs);
+
+        while (!timeout.IsCancellationRequested)
+        {
+            if (seenTypes.Contains(eventType))
+                return;
+
+            await Task.Delay(25, CancellationToken.None);
+        }
+
+        Assert.Fail($"Timed out waiting for event '{eventType}'. Seen: {string.Join(", ", seenTypes.Distinct().OrderBy(x => x))}");
     }
 
     private static async Task WaitForWorkflowStateAsync(ICliBackend backend, Guid workflowId, ServerWorkflowState expectedState, int timeoutMs = 5000)

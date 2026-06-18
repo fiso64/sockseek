@@ -28,7 +28,7 @@ public sealed class EngineEventDtoAdapter
             {
                 if (song.ActivityPhase == JobActivityPhase.Searching)
                     publish("song.searching", new SongSearchingEventDto(song.Id, song.DisplayId, song.WorkflowId, ToSongQueryDto(song.Query)));
-                else if (song.IsTerminal)
+                else if (song.IsTerminal && ShouldPublishSongStateChanged(song))
                     publish("song.state-changed", new SongStateChangedEventDto(
                         song.Id,
                         song.DisplayId,
@@ -139,6 +139,12 @@ public sealed class EngineEventDtoAdapter
             [.. SelectTrackBatchRows(existing, job.Config.PrintOption, limit: 20)],
             [.. SelectTrackBatchRows(notFound, job.Config.PrintOption, limit: 20)]));
     }
+
+    private static bool ShouldPublishSongStateChanged(SongJob song)
+        => song.TerminalOutcome != JobTerminalOutcome.Cancelled
+            || song.CancellationSource is JobCancellationSource.UserRequestedJob
+                or JobCancellationSource.InternalEngine
+                or JobCancellationSource.None;
 
     private void PublishDiagnosticErrorIfNeeded(Job job)
     {

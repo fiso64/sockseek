@@ -44,7 +44,9 @@ public class LocalCliBackendTests
             var engine = new DownloadEngine(engineSettings, clientManager);
             var backend = new LocalCliBackend(engine, downloadSettings);
             var seenEvents = new ConcurrentBag<ServerEventEnvelopeDto>();
+            var seenWorkflowUpdates = new ConcurrentBag<WorkflowClientUpdate>();
             backend.EventReceived += envelope => seenEvents.Add(envelope);
+            backend.WorkflowUpdated += update => seenWorkflowUpdates.Add(update);
 
             var submitted = await backend.SubmitTrackSearchJobAsync(
                 new SubmitTrackSearchJobRequestDto(
@@ -65,6 +67,8 @@ public class LocalCliBackendTests
             Assert.IsTrue(seenEvents.Any(e => e.Type == "job.upserted"));
             Assert.IsTrue(seenEvents.Any(e => e.Type == "workflow.upserted"));
             Assert.IsTrue(seenEvents.Any(e => e.Type == "search.updated"));
+            Assert.IsTrue(seenWorkflowUpdates.Any(update => update.JobUpserts.Any(job => job.JobId == submitted.JobId)));
+            Assert.IsTrue(seenWorkflowUpdates.Any(update => update.SearchUpdates.Any(search => search.JobId == submitted.JobId)));
         }
         finally
         {

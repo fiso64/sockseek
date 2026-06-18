@@ -154,11 +154,55 @@ public class SockseekLogTests
     }
 
     [TestMethod]
+    public void ExpectedSoulseekPeerNetworkNoise_ClassifiesPeerConnectionRefusedAggregate()
+    {
+        var exception = new AggregateException(
+            new SocketException((int)SocketError.ConnectionRefused));
+
+        Assert.IsTrue(IsExpectedSoulseekPeerNetworkNoise(exception));
+    }
+
+    [TestMethod]
     public void ExpectedSoulseekPeerNetworkNoise_DoesNotClassifyUnknownApplicationFailure()
     {
         var exception = new AggregateException(new InvalidOperationException("engine invariant broke"));
 
         Assert.IsFalse(IsExpectedSoulseekPeerNetworkNoise(exception));
+    }
+
+    [TestMethod]
+    public void UnobservedTaskExceptionHandler_MarksExpectedPeerNetworkNoiseObservedAndLogsTrace()
+    {
+        var entries = new List<SockseekLog.StructuredLogEntry>();
+        SockseekLog.AddStructuredSink((entry, _) => entries.Add(entry), LogLevel.Trace);
+        var args = new UnobservedTaskExceptionEventArgs(new AggregateException(
+            new SocketException((int)SocketError.ConnectionRefused)));
+
+        HandleUnobservedTaskException(args);
+
+        Assert.IsTrue(args.Observed);
+        Assert.AreEqual(1, entries.Count);
+        Assert.AreEqual(LogLevel.Trace, entries[0].Level);
+        Assert.AreEqual(SockseekLog.Categories.Core, entries[0].CategoryName);
+        StringAssert.Contains(entries[0].Message, "Ignored unobserved Soulseek peer-network task exception");
+    }
+
+    [TestMethod]
+    public void UnobservedTaskExceptionHandler_MarksUnknownFailuresObservedAndLogsError()
+    {
+        var entries = new List<SockseekLog.StructuredLogEntry>();
+        SockseekLog.AddStructuredSink((entry, _) => entries.Add(entry), LogLevel.Trace);
+        var args = new UnobservedTaskExceptionEventArgs(new AggregateException(
+            new InvalidOperationException("engine invariant broke")));
+
+        HandleUnobservedTaskException(args);
+
+        Assert.IsTrue(args.Observed);
+        Assert.AreEqual(1, entries.Count);
+        Assert.AreEqual(LogLevel.Error, entries[0].Level);
+        Assert.AreEqual(SockseekLog.Categories.Core, entries[0].CategoryName);
+        StringAssert.Contains(entries[0].Message, "Unobserved task exception");
+        StringAssert.Contains(entries[0].Message, "engine invariant broke");
     }
 
     [TestMethod]
@@ -212,4 +256,9 @@ public class SockseekLogTests
         => (bool)typeof(SockseekLog)
             .GetMethod("IsExpectedSoulseekPeerNetworkNoise", BindingFlags.Static | BindingFlags.NonPublic)!
             .Invoke(null, [exception])!;
+
+    private static void HandleUnobservedTaskException(UnobservedTaskExceptionEventArgs args)
+        => typeof(SockseekLog)
+            .GetMethod("HandleUnobservedTaskException", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, [args]);
 }

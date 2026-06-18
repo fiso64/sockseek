@@ -6,6 +6,7 @@ namespace Sockseek.Cli;
 internal interface ICliBackend
 {
     event Action<ServerEventEnvelopeDto>? EventReceived;
+    event Action<WorkflowClientUpdate>? WorkflowUpdated;
 
     Task<JobSummaryDto> SubmitExtractJobAsync(SubmitExtractJobRequestDto request, CancellationToken ct = default);
     Task<JobSummaryDto> SubmitSearchJobAsync(SubmitSearchJobRequestDto request, CancellationToken ct = default);

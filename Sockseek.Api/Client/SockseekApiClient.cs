@@ -119,8 +119,11 @@ public sealed class SockseekApiClient
     }
 
     public async Task<WorkflowDetailDto?> GetWorkflowAsync(Guid workflowId, CancellationToken ct = default)
+        => await GetWorkflowAsync(workflowId, includeAll: false, ct);
+
+    public async Task<WorkflowDetailDto?> GetWorkflowAsync(Guid workflowId, bool includeAll, CancellationToken ct = default)
     {
-        using var response = await http.GetAsync($"api/workflows/{workflowId}", ct);
+        using var response = await http.GetAsync($"api/workflows/{workflowId}?includeAll={includeAll.ToString().ToLowerInvariant()}", ct);
         if (response.StatusCode == HttpStatusCode.NotFound)
             return null;
         await EnsureSuccessAsync(response, ct);

@@ -55,6 +55,30 @@ public static class JobRequestMapper
     public static JobList CreateJobList(SubmitJobListRequestDto request)
         => CreateJobList(request.Name, request.Jobs);
 
+    public static void AssignWorkflowId(Job job, Guid workflowId)
+    {
+        job.WorkflowId = workflowId;
+
+        switch (job)
+        {
+            case JobList list:
+                foreach (var child in list.Jobs)
+                    AssignWorkflowId(child, workflowId);
+                break;
+            case ExtractJob extract when extract.Result != null:
+                AssignWorkflowId(extract.Result, workflowId);
+                break;
+            case AggregateJob aggregate:
+                foreach (var song in aggregate.Songs)
+                    AssignWorkflowId(song, workflowId);
+                break;
+            case AlbumAggregateJob aggregate:
+                foreach (var album in aggregate.Albums)
+                    AssignWorkflowId(album, workflowId);
+                break;
+        }
+    }
+
     public static SongQuery ToSongQuery(SongQueryDto dto) => new()
     {
         Artist = dto.Artist ?? "",

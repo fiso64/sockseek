@@ -14,6 +14,7 @@ public static class ServerEventCatalog
         {
             State("job.upserted", nameof(JobSummaryDto)),
             State("workflow.upserted", nameof(WorkflowSummaryDto)),
+            State("workflow.update-batch", nameof(WorkflowUpdateBatchDto)),
             State("search.updated", nameof(SearchUpdatedDto)),
             Diagnostic("diagnostic.error", nameof(DiagnosticErrorEventDto)),
             Progress("download.progress", nameof(DownloadProgressEventDto)),

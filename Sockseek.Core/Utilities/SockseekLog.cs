@@ -61,19 +61,7 @@ public static class SockseekLog
                 Critical($"Unhandled exception: {args.ExceptionObject}");
         };
 
-        TaskScheduler.UnobservedTaskException += (_, args) =>
-        {
-            if (IsExpectedSoulseekPeerNetworkNoise(args.Exception))
-            {
-                args.SetObserved();
-                Trace(
-                    $"Ignored unobserved Soulseek peer-network task exception: {ExceptionSummary(args.Exception)}",
-                    categoryName: Categories.Core);
-                return;
-            }
-
-            Critical(args.Exception, "Unobserved task exception");
-        };
+        TaskScheduler.UnobservedTaskException += (_, args) => HandleUnobservedTaskException(args);
     }
 
     public static ILogger CreateLogger(string categoryName) => Factory.CreateLogger(categoryName);
@@ -262,6 +250,21 @@ public static class SockseekLog
     private static void Critical(string message)
         => Log(LogLevel.Critical, message, categoryName: Categories.Core);
 
+    private static void HandleUnobservedTaskException(UnobservedTaskExceptionEventArgs args)
+    {
+        args.SetObserved();
+
+        if (IsExpectedSoulseekPeerNetworkNoise(args.Exception))
+        {
+            Trace(
+                $"Ignored unobserved Soulseek peer-network task exception: {ExceptionSummary(args.Exception)}",
+                categoryName: Categories.Core);
+            return;
+        }
+
+        Error(args.Exception, "Unobserved task exception", categoryName: Categories.Core);
+    }
+
     internal static bool IsExpectedSoulseekPeerNetworkNoise(Exception exception)
     {
         var flattened = exception is AggregateException aggregate
@@ -280,6 +283,7 @@ public static class SockseekLog
             return socketException.SocketErrorCode is SocketError.OperationAborted
                 or SocketError.TimedOut
                 or SocketError.ConnectionAborted
+                or SocketError.ConnectionRefused
                 or SocketError.ConnectionReset
                 or SocketError.HostUnreachable
                 or SocketError.NetworkUnreachable;

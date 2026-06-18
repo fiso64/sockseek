@@ -124,78 +124,107 @@ public class CliProgressReporter
 
     internal void Attach(ICliBackend backend)
     {
+        backend.WorkflowUpdated += update =>
+        {
+            if (LiveMode)
+                ReportWorkflowUpdate(update);
+        };
+
         backend.EventReceived += envelope =>
         {
-            switch (envelope.Type)
-            {
-                case "job.upserted" when envelope.Payload is JobSummaryDto e:
-                    ReportJobUpserted(e);
-                    break;
-                case "extraction.started" when envelope.Payload is ExtractionStartedEventDto e:
-                    ReportExtractionStarted(e);
-                    break;
-                case "extraction.failed" when envelope.Payload is ExtractionFailedEventDto e:
-                    ReportExtractionFailed(e);
-                    break;
-                case "job.started" when envelope.Payload is JobStartedEventDto e:
-                    ReportJobStarted(e);
-                    break;
-                case "job.status" when envelope.Payload is JobStatusEventDto e:
-                    ReportJobStatus(e);
-                    break;
-                case "job.activity-changed" when envelope.Payload is JobActivityChangedEventDto e:
-                    ReportJobActivityChanged(e);
-                    break;
-                case "job.message" when envelope.Payload is JobMessageEventDto e:
-                    ReportJobMessage(e);
-                    break;
-                case "job.folder-retrieving" when envelope.Payload is JobFolderRetrievingEventDto e:
-                    ReportJobFolderRetrieving(e);
-                    break;
-                case "song.searching" when envelope.Payload is SongSearchingEventDto e:
-                    ReportSongSearching(e);
-                    break;
-                case "download.started" when envelope.Payload is DownloadStartedEventDto e:
-                    ReportDownloadStart(e);
-                    break;
-                case "download.progress" when envelope.Payload is DownloadProgressEventDto e:
-                    ReportDownloadProgress(e);
-                    break;
-                case "download.state-changed" when envelope.Payload is DownloadStateChangedEventDto e:
-                    ReportDownloadStateChanged(e);
-                    break;
-                case "download.attempt-failed" when envelope.Payload is DownloadAttemptFailedEventDto e:
-                    ReportDownloadAttemptFailed(e);
-                    break;
-                case "song.state-changed" when envelope.Payload is SongStateChangedEventDto e:
-                    ReportStateChanged(e);
-                    break;
-                case "album.download-started" when envelope.Payload is AlbumDownloadStartedEventDto e:
-                    ReportAlbumDownloadStarted(e);
-                    break;
-                case "album.track-download-started" when envelope.Payload is AlbumTrackDownloadStartedEventDto e:
-                    ReportAlbumTrackDownloadStarted(e);
-                    break;
-                case "album.state-changed" when envelope.Payload is AlbumStateChangedEventDto e:
-                    ReportAlbumStateChanged(e);
-                    break;
-                case "on-complete.started" when envelope.Payload is OnCompleteStartedEventDto e:
-                    ReportOnCompleteStart(e);
-                    break;
-                case "on-complete.ended" when envelope.Payload is OnCompleteEndedEventDto e:
-                    ReportOnCompleteEnd(e);
-                    break;
-                case "track-batch.resolved" when envelope.Payload is TrackBatchResolvedEventDto e:
-                    ReportTrackBatchResolved(e);
-                    break;
-                case "search.rate-limited" when envelope.Payload is SearchRateLimitedEventDto rl:
-                    ReportSearchRateLimited(rl);
-                    break;
-                case "search.resumed":
-                    _live?.SetRateLimited(null);
-                    break;
-            }
+            if (LiveMode && envelope.WorkflowId.HasValue)
+                return;
+
+            HandleEvent(envelope);
         };
+    }
+
+    private void ReportWorkflowUpdate(WorkflowClientUpdate update)
+    {
+        if (update.IsStale)
+            return;
+
+        foreach (var summary in update.JobUpserts)
+            ReportJobUpserted(summary);
+
+        foreach (var envelope in update.Activity)
+            HandleEvent(envelope);
+
+        foreach (var progress in update.Progress)
+            ReportDownloadProgress(progress);
+    }
+
+    private void HandleEvent(ServerEventEnvelopeDto envelope)
+    {
+        switch (envelope.Type)
+        {
+            case "job.upserted" when envelope.Payload is JobSummaryDto e:
+                ReportJobUpserted(e);
+                break;
+            case "extraction.started" when envelope.Payload is ExtractionStartedEventDto e:
+                ReportExtractionStarted(e);
+                break;
+            case "extraction.failed" when envelope.Payload is ExtractionFailedEventDto e:
+                ReportExtractionFailed(e);
+                break;
+            case "job.started" when envelope.Payload is JobStartedEventDto e:
+                ReportJobStarted(e);
+                break;
+            case "job.status" when envelope.Payload is JobStatusEventDto e:
+                ReportJobStatus(e);
+                break;
+            case "job.activity-changed" when envelope.Payload is JobActivityChangedEventDto e:
+                ReportJobActivityChanged(e);
+                break;
+            case "job.message" when envelope.Payload is JobMessageEventDto e:
+                ReportJobMessage(e);
+                break;
+            case "job.folder-retrieving" when envelope.Payload is JobFolderRetrievingEventDto e:
+                ReportJobFolderRetrieving(e);
+                break;
+            case "song.searching" when envelope.Payload is SongSearchingEventDto e:
+                ReportSongSearching(e);
+                break;
+            case "download.started" when envelope.Payload is DownloadStartedEventDto e:
+                ReportDownloadStart(e);
+                break;
+            case "download.progress" when envelope.Payload is DownloadProgressEventDto e:
+                ReportDownloadProgress(e);
+                break;
+            case "download.state-changed" when envelope.Payload is DownloadStateChangedEventDto e:
+                ReportDownloadStateChanged(e);
+                break;
+            case "download.attempt-failed" when envelope.Payload is DownloadAttemptFailedEventDto e:
+                ReportDownloadAttemptFailed(e);
+                break;
+            case "song.state-changed" when envelope.Payload is SongStateChangedEventDto e:
+                ReportStateChanged(e);
+                break;
+            case "album.download-started" when envelope.Payload is AlbumDownloadStartedEventDto e:
+                ReportAlbumDownloadStarted(e);
+                break;
+            case "album.track-download-started" when envelope.Payload is AlbumTrackDownloadStartedEventDto e:
+                ReportAlbumTrackDownloadStarted(e);
+                break;
+            case "album.state-changed" when envelope.Payload is AlbumStateChangedEventDto e:
+                ReportAlbumStateChanged(e);
+                break;
+            case "on-complete.started" when envelope.Payload is OnCompleteStartedEventDto e:
+                ReportOnCompleteStart(e);
+                break;
+            case "on-complete.ended" when envelope.Payload is OnCompleteEndedEventDto e:
+                ReportOnCompleteEnd(e);
+                break;
+            case "track-batch.resolved" when envelope.Payload is TrackBatchResolvedEventDto e:
+                ReportTrackBatchResolved(e);
+                break;
+            case "search.rate-limited" when envelope.Payload is SearchRateLimitedEventDto rl:
+                ReportSearchRateLimited(rl);
+                break;
+            case "search.resumed":
+                _live?.SetRateLimited(null);
+                break;
+        }
     }
 
     private void ReportJobUpserted(JobSummaryDto summary)

@@ -21,6 +21,20 @@ public sealed record ServerEventEnvelopeDto(
     object Payload);
 
 /// <summary>
+/// Batched workflow-scoped SignalR update. Clients should apply state fields first,
+/// activity entries second, and progress last.
+/// </summary>
+public sealed record WorkflowUpdateBatchDto(
+    long Sequence,
+    DateTimeOffset OccurredAtUtc,
+    Guid WorkflowId,
+    WorkflowSummaryDto? Workflow,
+    IReadOnlyList<JobSummaryDto> JobUpserts,
+    IReadOnlyList<SearchUpdatedDto> SearchUpdates,
+    IReadOnlyList<DownloadProgressEventDto> Progress,
+    IReadOnlyList<ServerEventEnvelopeDto> Activity);
+
+/// <summary>
 /// Machine-readable event catalog entry. SnapshotInvalidation=true means refresh the relevant
 /// HTTP snapshot instead of maintaining state from activity events.
 /// </summary>

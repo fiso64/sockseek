@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
@@ -15,9 +16,12 @@ internal sealed class LocalCliBackend
     private readonly DownloadSettings? defaultSubmitSettings;
     private readonly SubmissionOptionsJobSettingsResolver? submissionOptionsResolver;
     private readonly EngineStateStore stateStore = new();
+    private readonly WorkflowClientStore workflowStore = new();
+    private readonly ConcurrentDictionary<Guid, long> workflowUpdateSequences = [];
     private long nextSequence;
 
     public event Action<ServerEventEnvelopeDto>? EventReceived;
+    public event Action<WorkflowClientUpdate>? WorkflowUpdated;
 
     public LocalCliBackend(
         DownloadEngine engine,
@@ -83,6 +87,7 @@ internal sealed class LocalCliBackend
 
         if (options?.WorkflowId is Guid workflowId)
             job.WorkflowId = workflowId;
+        JobRequestMapper.AssignWorkflowId(job, job.WorkflowId);
 
         submissionOptionsResolver?.SetJobOptions(job.Id, options);
 
@@ -542,14 +547,79 @@ internal sealed class LocalCliBackend
     private void Publish(string type, object payload)
     {
         var descriptor = ServerEventCatalog.Describe(type);
-        EventReceived?.Invoke(new ServerEventEnvelopeDto(
+        var envelope = new ServerEventEnvelopeDto(
             Interlocked.Increment(ref nextSequence),
             type,
             DateTimeOffset.UtcNow,
             descriptor.Category,
             descriptor.SnapshotInvalidation,
             GetWorkflowId(payload),
-            payload));
+            payload);
+
+        PublishWorkflowUpdate(envelope);
+        EventReceived?.Invoke(envelope);
+    }
+
+    private void PublishWorkflowUpdate(ServerEventEnvelopeDto envelope)
+    {
+        if (envelope.WorkflowId is not Guid workflowId)
+            return;
+
+        var sequence = workflowUpdateSequences.AddOrUpdate(workflowId, 1, static (_, current) => current + 1);
+        var batch = envelope.Payload switch
+        {
+            JobSummaryDto summary => new WorkflowUpdateBatchDto(
+                sequence,
+                envelope.OccurredAtUtc,
+                workflowId,
+                Workflow: null,
+                JobUpserts: [summary],
+                SearchUpdates: [],
+                Progress: [],
+                Activity: []),
+
+            WorkflowSummaryDto summary => new WorkflowUpdateBatchDto(
+                sequence,
+                envelope.OccurredAtUtc,
+                workflowId,
+                summary,
+                JobUpserts: [],
+                SearchUpdates: [],
+                Progress: [],
+                Activity: []),
+
+            SearchUpdatedDto update => new WorkflowUpdateBatchDto(
+                sequence,
+                envelope.OccurredAtUtc,
+                workflowId,
+                Workflow: null,
+                JobUpserts: [],
+                SearchUpdates: [update],
+                Progress: [],
+                Activity: []),
+
+            DownloadProgressEventDto progress => new WorkflowUpdateBatchDto(
+                sequence,
+                envelope.OccurredAtUtc,
+                workflowId,
+                Workflow: null,
+                JobUpserts: [],
+                SearchUpdates: [],
+                Progress: [progress],
+                Activity: []),
+
+            _ => new WorkflowUpdateBatchDto(
+                sequence,
+                envelope.OccurredAtUtc,
+                workflowId,
+                Workflow: null,
+                JobUpserts: [],
+                SearchUpdates: [],
+                Progress: [],
+                Activity: [envelope]),
+        };
+
+        WorkflowUpdated?.Invoke(workflowStore.Apply(batch));
     }
 
     private static Guid? GetWorkflowId(object payload)
@@ -557,7 +627,29 @@ internal sealed class LocalCliBackend
         {
             JobSummaryDto summary => summary.WorkflowId,
             WorkflowSummaryDto summary => summary.WorkflowId,
+            WorkflowDetailDto detail => detail.Summary.WorkflowId,
+            WorkflowTreeDto workflow => workflow.Summary.WorkflowId,
+            JobDetailDto detail => detail.Summary.WorkflowId,
             SearchUpdatedDto update => update.WorkflowId,
+            ExtractionStartedEventDto e => e.Summary.WorkflowId,
+            ExtractionFailedEventDto e => e.Summary.WorkflowId,
+            JobStartedEventDto e => e.Summary.WorkflowId,
+            JobStatusEventDto e => e.Summary.WorkflowId,
+            JobMessageEventDto e => e.Summary.WorkflowId,
+            JobActivityChangedEventDto e => e.Summary.WorkflowId,
+            SongSearchingEventDto e => e.WorkflowId,
+            DownloadStartedEventDto e => e.WorkflowId,
+            DownloadProgressEventDto e => e.WorkflowId,
+            DownloadStateChangedEventDto e => e.WorkflowId,
+            DownloadAttemptFailedEventDto e => e.WorkflowId,
+            SongStateChangedEventDto e => e.WorkflowId,
+            AlbumDownloadStartedEventDto e => e.Summary.WorkflowId,
+            AlbumTrackDownloadStartedEventDto e => e.Summary.WorkflowId,
+            AlbumStateChangedEventDto e => e.Summary.WorkflowId,
+            JobFolderRetrievingEventDto e => e.Summary.WorkflowId,
+            OnCompleteStartedEventDto e => e.WorkflowId,
+            OnCompleteEndedEventDto e => e.WorkflowId,
+            TrackBatchResolvedEventDto e => e.Summary.WorkflowId,
             _ => null,
         };
 

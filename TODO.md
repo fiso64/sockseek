@@ -31,6 +31,15 @@
     - Connect like this when running in remote mode and no input is supplied/or an explicit flag is passed
     - Automatically `--idle-when-done` in this case
 
+- Preconditions before starting GUI work:
+    - Make daemon-wide monitoring, not just workflow monitoring. A GUI must be able to subscribe to and display all daemon jobs/workflows; the CLI should optionally support the same mode.
+    - Add GUI-friendly startup snapshot endpoints, e.g. a daemon snapshot containing workflows, jobs, current transfer/progress state, and enough metadata to hydrate `WorkflowClientStore` without relying on event replay.
+    - Add `WorkflowClientStore` APIs for daemon-wide views: all workflows, all jobs, grouped jobs, active jobs, terminal jobs, and workflow/job lookup.
+    - Define the `SubscribeAll` contract clearly: whether it means all workflow batches, global daemon batches, or both. Add parity tests for local/remote all-daemon monitoring.
+    - Consider a global daemon sequence or snapshot epoch in addition to per-workflow sequences, so all-daemon consumers can detect gaps and recover coherently.
+    - Keep SignalR as the primary live-update transport for GUI/remote CLI; use polling/HTTP snapshots for initial load and recovery, not as the main update loop.
+    - Keep durable state updates and ephemeral activity/log edges conceptually separate in the API/client store, even when they travel in the same batch.
+
 - Add a shortcut to submit another job during execution. Pressing `a` prompts for an input.
     - args supported. E.g. `a` -> type `Artist - Title --format flac` is valid. Do not require wrapping the input in quotes. Treat everything after `--` as args.
     - `a` prompt should not pause rendering (unlike the other prompts), unless using no-progress/plain mode. When using live mode, need to display the prompt below the status bar _inside_ the live section (otherwise will get overwritten/interleave).

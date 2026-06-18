@@ -4,6 +4,17 @@ namespace Sockseek.Api;
 
 public static class ServerEventPayloadConverter
 {
+    public static WorkflowUpdateBatchDto RehydrateBatch(WorkflowUpdateBatchDto batch, JsonSerializerOptions? options = null)
+    {
+        options ??= SockseekApiJson.CreateSerializerOptions();
+        return batch with
+        {
+            Activity = batch.Activity
+                .Select(envelope => RehydrateEnvelope(envelope, options))
+                .ToList(),
+        };
+    }
+
     public static ServerEventEnvelopeDto RehydrateEnvelope(ServerEventEnvelopeDto envelope, JsonSerializerOptions? options = null)
     {
         if (envelope.Payload is not JsonElement payload)

@@ -180,6 +180,7 @@ public sealed class EngineSupervisor
 
         if (options?.WorkflowId is Guid workflowId)
             job.WorkflowId = workflowId;
+        JobRequestMapper.AssignWorkflowId(job, job.WorkflowId);
         jobSettingsResolver.SetWorkflowOptions(job.WorkflowId, options);
 
         var settings = jobSettingsResolver.Resolve(defaultDownloadSettings, job);
