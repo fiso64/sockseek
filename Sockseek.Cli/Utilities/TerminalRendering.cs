@@ -439,7 +439,18 @@ internal sealed class TerminalLiveRenderer : IDisposable
         if (line.Routing == SockseekLog.LogRouting.ConsoleOnly)
             return "";
 
-        return $"[grey]{Markup.Escape(ProcessLogPrefixText(line))}[/]";
+        var categoryPrefix = $"[{line.CategoryName}] ";
+        if (line.Level == LogLevel.Information)
+            return $"[grey]{Markup.Escape(categoryPrefix)}[/]";
+
+        var levelPrefix = $"[{ShortLevel(line.Level)}] ";
+        var levelColor = ProcessLogLevelColor(line.Level);
+        if (levelColor == null)
+            return $"[grey]{Markup.Escape(ProcessLogPrefixText(line))}[/]";
+
+        var levelMarkup = $"[{levelColor}]{Markup.Escape(levelPrefix)}[/]";
+
+        return levelMarkup + $"[grey]{Markup.Escape(categoryPrefix)}[/]";
     }
 
     private static string ShortLevel(LogLevel level) => level switch
@@ -451,6 +462,14 @@ internal sealed class TerminalLiveRenderer : IDisposable
         LogLevel.Error => "error",
         LogLevel.Critical => "critical",
         _ => level.ToString().ToLowerInvariant(),
+    };
+
+    private static string? ProcessLogLevelColor(LogLevel level) => level switch
+    {
+        LogLevel.Warning => "yellow",
+        LogLevel.Error => "red",
+        LogLevel.Critical => "red",
+        _ => null,
     };
 
     private static void WriteMarkupLogLines(TerminalLogLine line)
