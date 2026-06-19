@@ -73,6 +73,7 @@
   </PropertyGroup>
 
   <Target Name="BuildHelpGenerator"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(SkipCompilerExecution)' != 'true'"
           Inputs="../Sockseek.HelpGenerator/Program.cs;../Sockseek.HelpGenerator/Sockseek.HelpGenerator.csproj"
           Outputs="$(HelpGeneratorDll)">
     <MSBuild Projects="$(HelpGeneratorProject)"
@@ -82,6 +83,7 @@
   </Target>
 
   <Target Name="GenerateHelpFile"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(SkipCompilerExecution)' != 'true'"
           BeforeTargets="CoreCompile"
           DependsOnTargets="BuildHelpGenerator"
           Inputs="../README.md;../Sockseek.HelpGenerator/Program.cs"
@@ -92,6 +94,7 @@
   </Target>
 
   <Target Name="ValidateGeneratedHelpFile"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(SkipCompilerExecution)' != 'true'"
           BeforeTargets="CoreCompile"
           DependsOnTargets="BuildHelpGenerator;GenerateHelpFile"
           Inputs="../README.md;../Sockseek.HelpGenerator/Program.cs;Help.Content.cs"

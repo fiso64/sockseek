@@ -16,7 +16,7 @@ if (!File.Exists(readmePath))
 
 var markdown = File.ReadAllText(readmePath);
 var topics = ExtractHelpTopics(markdown);
-var generatedContent = GenerateHelpCs(topics);
+var generatedContent = NormalizeNewlines(GenerateHelpCs(topics));
 
 if (args.Contains("--check", StringComparer.Ordinal))
 {
@@ -27,7 +27,7 @@ if (args.Contains("--check", StringComparer.Ordinal))
     }
 
     var existingContent = File.ReadAllText(helpCsPath);
-    if (!string.Equals(existingContent, generatedContent, StringComparison.Ordinal))
+    if (!string.Equals(NormalizeNewlines(existingContent), generatedContent, StringComparison.Ordinal))
     {
         Console.WriteLine("Error: Sockseek.Cli/Help.Content.cs is generated and does not match README.md.");
         Console.WriteLine("Update README.md instead of editing Help.Content.cs directly, then rebuild or run:");
@@ -267,3 +267,6 @@ static void WriteHelpCs(string filePath, string content)
 
     File.WriteAllText(filePath, content);
 }
+
+static string NormalizeNewlines(string text)
+    => text.Replace("\r\n", "\n").Replace('\r', '\n');

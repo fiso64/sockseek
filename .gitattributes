@@ -1,7 +1,8 @@
 ###############################################################################
-# Set default behavior to automatically normalize line endings.
+# Set default behavior to automatically normalize line endings and check text
+# files out with LF on every platform.
 ###############################################################################
-* text=auto
+* text=auto eol=lf
 
 ###############################################################################
 # Set default behavior for command prompt diff.
