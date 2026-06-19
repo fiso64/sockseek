@@ -567,6 +567,9 @@ On-Complete Actions
     - {first-exitcode} - First command's exit code
     - {first-stdout} - First command's stdout (requires r:)
     - {first-stderr} - First command's stderr (requires r:)
+    For album-only (a:) actions, tag variables such as {title}, {artist}, and {album} are read from
+    the first audio file in the album. Job/source/path variables such as {sartist}, {salbum}, and
+    {path} describe the album-level completion itself.
 
   Examples
     Send a Linux desktop notification for album downloads:

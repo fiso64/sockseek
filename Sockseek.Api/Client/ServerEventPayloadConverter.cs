@@ -44,8 +44,6 @@ public static class ServerEventPayloadConverter
             "album.download-started" => Deserialize<AlbumDownloadStartedEventDto>(payload, options),
             "album.track-download-started" => Deserialize<AlbumTrackDownloadStartedEventDto>(payload, options),
             "album.state-changed" => Deserialize<AlbumStateChangedEventDto>(payload, options),
-            "on-complete.started" => Deserialize<OnCompleteStartedEventDto>(payload, options),
-            "on-complete.ended" => Deserialize<OnCompleteEndedEventDto>(payload, options),
             "search.rate-limited" => Deserialize<SearchRateLimitedEventDto>(payload, options),
             "search.resumed" => Deserialize<SearchResumedEventDto>(payload, options),
             "track-batch.resolved" => Deserialize<TrackBatchResolvedEventDto>(payload, options),

@@ -209,8 +209,6 @@ public sealed class ServerEventCoalescer : IDisposable
             AlbumTrackDownloadStartedEventDto e => e.Summary.WorkflowId,
             AlbumStateChangedEventDto e => e.Summary.WorkflowId,
             JobFolderRetrievingEventDto e => e.Summary.WorkflowId,
-            OnCompleteStartedEventDto e => e.WorkflowId,
-            OnCompleteEndedEventDto e => e.WorkflowId,
             TrackBatchResolvedEventDto e => e.Summary.WorkflowId,
             _ => null,
         };
@@ -240,8 +238,6 @@ public sealed class ServerEventCoalescer : IDisposable
             AlbumTrackDownloadStartedEventDto e => e.Summary.JobId,
             AlbumStateChangedEventDto e => e.Summary.JobId,
             JobFolderRetrievingEventDto e => e.Summary.JobId,
-            OnCompleteStartedEventDto e => e.JobId,
-            OnCompleteEndedEventDto e => e.JobId,
             TrackBatchResolvedEventDto e => e.Summary.JobId,
             _ => null,
         };

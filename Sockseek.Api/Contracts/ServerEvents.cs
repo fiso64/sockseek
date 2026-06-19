@@ -283,24 +283,6 @@ public sealed record JobFolderRetrievingEventDto(
     JobSummaryDto Summary);
 
 /// <summary>
-/// Activity event emitted when on-complete work starts for a song.
-/// </summary>
-public sealed record OnCompleteStartedEventDto(
-    Guid JobId,
-    int DisplayId,
-    Guid WorkflowId,
-    SongQueryDto Query);
-
-/// <summary>
-/// Activity event emitted when on-complete work finishes for a song.
-/// </summary>
-public sealed record OnCompleteEndedEventDto(
-    Guid JobId,
-    int DisplayId,
-    Guid WorkflowId,
-    SongQueryDto Query);
-
-/// <summary>
 /// Activity event used by CLI-style track listing output after skip checks.
 /// </summary>
 public sealed record TrackBatchResolvedEventDto(

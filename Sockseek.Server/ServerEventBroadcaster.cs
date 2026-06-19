@@ -182,8 +182,6 @@ public sealed class ServerEventBroadcaster : IDisposable
             AlbumTrackDownloadStartedEventDto e => e.Summary.WorkflowId,
             AlbumStateChangedEventDto e => e.Summary.WorkflowId,
             JobFolderRetrievingEventDto e => e.Summary.WorkflowId,
-            OnCompleteStartedEventDto e => e.WorkflowId,
-            OnCompleteEndedEventDto e => e.WorkflowId,
             TrackBatchResolvedEventDto e => e.Summary.WorkflowId,
             _ => null,
         };

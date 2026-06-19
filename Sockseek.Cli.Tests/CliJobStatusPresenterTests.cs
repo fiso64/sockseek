@@ -46,6 +46,18 @@ public class CliJobStatusPresenterTests
     }
 
     [TestMethod]
+    public void ForSplit_RunningOnComplete_UsesOnCompleteLabel()
+    {
+        var status = CliJobStatusPresenter.ForSplit(
+            ServerJobLifecycleState.Running,
+            ServerJobActivityPhase.RunningOnComplete,
+            ServerJobTerminalOutcome.None);
+
+        Assert.AreEqual("on-complete", status.Label);
+        Assert.IsTrue(status.IsActive);
+    }
+
+    [TestMethod]
     public void ForSplit_ChildJobsFailed_UsesSpecificFailureLabel()
     {
         var status = CliJobStatusPresenter.ForSplit(

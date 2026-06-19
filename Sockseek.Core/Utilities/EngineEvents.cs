@@ -48,10 +48,6 @@ public class EngineEvents
     // Fired when the rate-limit window resets and searching resumes.
     public event Action? SearchResumed;
 
-    // ── Song-level ───────────────────────────────────────────────────────────
-    public event Action<SongJob>? OnCompleteStart;
-    public event Action<SongJob>? OnCompleteEnd;
-
     // ── Download ─────────────────────────────────────────────────────────────
     // TODO: Once the engine is refactored to use immutable state snapshots, this event should be removed
     // and consumers should just read the snapshot from a generic JobStateChanged/TargetChanged event.
@@ -85,9 +81,6 @@ public class EngineEvents
     internal void RaiseJobMessage(Job job, LogLevel level, string? source, string message) => JobMessage?.Invoke(job, level, source, message);
     internal void RaiseSearchRateLimited(DateTimeOffset resetsAt) => SearchRateLimited?.Invoke(resetsAt);
     internal void RaiseSearchResumed() => SearchResumed?.Invoke();
-
-    internal void RaiseOnCompleteStart(SongJob song) => OnCompleteStart?.Invoke(song);
-    internal void RaiseOnCompleteEnd(SongJob song) => OnCompleteEnd?.Invoke(song);
 
     internal void RaiseDownloadStarted(SongJob song, FileCandidate c) => DownloadStarted?.Invoke(song, c);
     internal void RaiseDownloadProgress(SongJob song, long xfer, long total) => DownloadProgress?.Invoke(song, xfer, total);

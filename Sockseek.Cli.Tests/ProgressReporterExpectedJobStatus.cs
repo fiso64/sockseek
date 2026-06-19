@@ -10,6 +10,7 @@ internal enum ExpectedJobStatus
     Skipped,
     Searching,
     Downloading,
+    RunningOnComplete,
     Extracting,
     RunningChildren,
     AwaitingSelection,

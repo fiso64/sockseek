@@ -209,12 +209,6 @@ public class CliProgressReporter
             case "album.state-changed" when envelope.Payload is AlbumStateChangedEventDto e:
                 ReportAlbumStateChanged(e);
                 break;
-            case "on-complete.started" when envelope.Payload is OnCompleteStartedEventDto e:
-                ReportOnCompleteStart(e);
-                break;
-            case "on-complete.ended" when envelope.Payload is OnCompleteEndedEventDto e:
-                ReportOnCompleteEnd(e);
-                break;
             case "track-batch.resolved" when envelope.Payload is TrackBatchResolvedEventDto e:
                 ReportTrackBatchResolved(e);
                 break;
@@ -1066,23 +1060,6 @@ public class CliProgressReporter
         }
         else if (_liveSongInfo.TryGetValue(song.JobId, out var info))
             UpsertLiveSong(song.JobId, info.DisplayId, info.Name, stateLabel.ToLowerInvariant(), metadata: info.Metadata);
-    }
-
-    private void ReportOnCompleteStart(OnCompleteStartedEventDto song)
-    {
-        if (PlainMode) return;
-
-        var name = SongQueryText(song.Query);
-        _liveSongInfo[song.JobId] = (song.DisplayId, name, null);
-        UpsertLiveSong(song.JobId, song.DisplayId, name, "on-complete");
-    }
-
-    private void ReportOnCompleteEnd(OnCompleteEndedEventDto song)
-    {
-        if (PlainMode) return;
-
-        if (_liveSongInfo.TryGetValue(song.JobId, out var info))
-            UpsertLiveSong(song.JobId, info.DisplayId, info.Name, "downloading", metadata: info.Metadata);
     }
 
     private void ReportJobStatus(JobStatusEventDto job)

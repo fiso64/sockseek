@@ -135,8 +135,6 @@ namespace Sockseek.Api;
 [JsonSerializable(typeof(SearchRateLimitedEventDto))]
 [JsonSerializable(typeof(SearchResumedEventDto))]
 [JsonSerializable(typeof(JobFolderRetrievingEventDto))]
-[JsonSerializable(typeof(OnCompleteStartedEventDto))]
-[JsonSerializable(typeof(OnCompleteEndedEventDto))]
 [JsonSerializable(typeof(TrackBatchResolvedEventDto))]
 
 [JsonSerializable(typeof(IReadOnlyList<ProfileSummaryDto>))]

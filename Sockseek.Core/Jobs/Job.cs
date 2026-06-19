@@ -12,14 +12,31 @@ namespace Sockseek.Core.Jobs;
         public int LockedFileCount { get; set; }
     }
 
-    // TODO [ARCHITECTURE]: Introduce an atomic job-state reducer boundary before immutable jobs.
-    // Currently, lifecycle/activity/outcome/failure fields are mutated through individual property
-    // setters. That makes correctness depend on setter order and can briefly expose incoherent
-    // snapshots such as Terminal + Searching. Add a JobStateTransition/JobStateSnapshot applier that
-    // updates lifecycle, activity, terminal outcome, skip reason, and failure data as one transition,
-    // then emits exactly one coherent state-change event. Illegal combinations should be rejected in
-    // that centralized transition path. This reducer can still mutate the existing Job instance at
-    // first; the important step is making transition ownership and event emission atomic.
+    public readonly record struct JobStateSnapshot(
+        JobLifecycleState LifecycleState,
+        JobActivityPhase ActivityPhase,
+        DateTimeOffset? ActivityUntilUtc,
+        JobTerminalOutcome TerminalOutcome,
+        JobSkipReason SkipReason,
+        JobCancellationSource CancellationSource,
+        JobFailureReason FailureReason,
+        string? FailureMessage,
+        string? FailureDetail);
+
+    public readonly record struct JobStateTransition(JobStateSnapshot Before, JobStateSnapshot After)
+    {
+        public bool Changed => Before != After;
+        public bool ActivityChanged =>
+            Before.ActivityPhase != After.ActivityPhase
+            || Before.ActivityUntilUtc != After.ActivityUntilUtc;
+    }
+
+    // TODO [ARCHITECTURE]: Harden the atomic job-state transition boundary into a real reducer.
+    // ApplyStateTransition now prevents observers from seeing half-applied lifecycle/activity/outcome
+    // snapshots, but callers still imperatively choose individual transitions and the reducer does not
+    // yet validate the full state machine. Next step: make transitions explicit command/result values,
+    // reject illegal state combinations centrally, and keep all lifecycle/activity/outcome/failure
+    // mutations inside that reducer before moving the Job model itself toward immutability.
     //
     // TODO [ARCHITECTURE]: Convert Job models to immutable types and implement Unidirectional Data Flow.
     // Jobs still act as globally mutable state containers. Properties like `BytesTransferred`
@@ -34,9 +51,22 @@ namespace Sockseek.Core.Jobs;
     public abstract class Job : INotifyPropertyChanged
     {
         public event PropertyChangedEventHandler? PropertyChanged;
+        public event Action<Job, JobStateTransition>? StateChanged;
+
+        private bool _deferPropertyChanged;
+        private readonly List<string> _deferredPropertyChanges = [];
 
         protected void OnPropertyChanged([CallerMemberName] string? name = null)
-            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        {
+            if (_deferPropertyChanged)
+            {
+                if (name != null && !_deferredPropertyChanges.Contains(name))
+                    _deferredPropertyChanges.Add(name);
+                return;
+            }
+
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
 
         private static int _nextDisplayId = 0;
 
@@ -171,15 +201,54 @@ namespace Sockseek.Core.Jobs;
         public string? FailureMessage { get; private set; }
         public string? FailureDetail { get; private set; }
 
+        public JobStateSnapshot StateSnapshot => new(
+            LifecycleState,
+            ActivityPhase,
+            ActivityUntilUtc,
+            TerminalOutcome,
+            SkipReason,
+            CancellationSource,
+            FailureReason,
+            FailureMessage,
+            FailureDetail);
+
+        private void ApplyStateTransition(Action mutate)
+        {
+            var before = StateSnapshot;
+            _deferPropertyChanged = true;
+            try
+            {
+                mutate();
+            }
+            finally
+            {
+                _deferPropertyChanged = false;
+            }
+
+            var after = StateSnapshot;
+            var changedProperties = _deferredPropertyChanges.ToArray();
+            _deferredPropertyChanges.Clear();
+
+            foreach (var propertyName in changedProperties)
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+
+            var transition = new JobStateTransition(before, after);
+            if (transition.Changed)
+                StateChanged?.Invoke(this, transition);
+        }
+
         public void Fail(JobFailureReason reason, string? message = null, string? detail = null)
         {
             if (reason == JobFailureReason.Cancelled)
                 throw new ArgumentException("Use SetCancelled(source) for cancellation terminal state.", nameof(reason));
 
-            FailureMessage = message;
-            FailureDetail = detail;
-            FailureReason = reason;
-            SetTerminal(JobTerminalOutcome.Failed);
+            ApplyStateTransition(() =>
+            {
+                FailureMessage = message;
+                FailureDetail = detail;
+                FailureReason = reason;
+                SetTerminalCore(JobTerminalOutcome.Failed);
+            });
         }
 
         public void SetCancelled(JobCancellationSource source, string? message = null, string? detail = null)
@@ -187,46 +256,51 @@ namespace Sockseek.Core.Jobs;
             if (source == JobCancellationSource.None)
                 throw new ArgumentException("Cancellation terminal state must include a non-None source.", nameof(source));
 
-            MarkCancellationSource(source);
-            FailureMessage = message;
-            FailureDetail = detail;
-            FailureReason = JobFailureReason.Cancelled;
-            SetTerminal(JobTerminalOutcome.Cancelled);
+            ApplyStateTransition(() =>
+            {
+                MarkCancellationSource(source);
+                FailureMessage = message;
+                FailureDetail = detail;
+                FailureReason = JobFailureReason.Cancelled;
+                SetTerminalCore(JobTerminalOutcome.Cancelled);
+            });
         }
 
         public void ClearFailure()
         {
-            FailureMessage = null;
-            FailureDetail = null;
-            FailureReason = JobFailureReason.None;
-            if (TerminalOutcome is JobTerminalOutcome.Failed or JobTerminalOutcome.Cancelled)
-                TerminalOutcome = JobTerminalOutcome.None;
+            ApplyStateTransition(ClearFailureCore);
         }
 
         public void UpdateActivity(JobActivityPhase phase, DateTimeOffset? untilUtc = null)
         {
-            if (phase == JobActivityPhase.None)
+            ApplyStateTransition(() =>
             {
-                ActivityPhase = JobActivityPhase.None;
-                ActivityUntilUtc = null;
-                return;
-            }
+                if (phase == JobActivityPhase.None)
+                {
+                    ActivityPhase = JobActivityPhase.None;
+                    ActivityUntilUtc = null;
+                    return;
+                }
 
-            if (LifecycleState != JobLifecycleState.AwaitingSelection)
-                LifecycleState = JobLifecycleState.Running;
-            TerminalOutcome = JobTerminalOutcome.None;
-            SkipReason = JobSkipReason.None;
-            ActivityPhase = phase;
-            ActivityUntilUtc = untilUtc;
+                if (LifecycleState != JobLifecycleState.AwaitingSelection)
+                    LifecycleState = JobLifecycleState.Running;
+                TerminalOutcome = JobTerminalOutcome.None;
+                SkipReason = JobSkipReason.None;
+                ActivityPhase = phase;
+                ActivityUntilUtc = untilUtc;
+            });
         }
 
         public void SetAwaitingSelection()
         {
-            ActivityPhase = JobActivityPhase.None;
-            ActivityUntilUtc = null;
-            TerminalOutcome = JobTerminalOutcome.None;
-            SkipReason = JobSkipReason.None;
-            LifecycleState = JobLifecycleState.AwaitingSelection;
+            ApplyStateTransition(() =>
+            {
+                ActivityPhase = JobActivityPhase.None;
+                ActivityUntilUtc = null;
+                TerminalOutcome = JobTerminalOutcome.None;
+                SkipReason = JobSkipReason.None;
+                LifecycleState = JobLifecycleState.AwaitingSelection;
+            });
         }
 
         public virtual void SetDone()
@@ -241,33 +315,54 @@ namespace Sockseek.Core.Jobs;
 
         public void SetSkipped(JobSkipReason skipReason = JobSkipReason.None, JobFailureReason reason = JobFailureReason.None)
         {
-            FailureReason = reason;
-            SkipReason = skipReason;
-            SetTerminal(JobTerminalOutcome.Skipped);
+            ApplyStateTransition(() =>
+            {
+                FailureReason = reason;
+                SkipReason = skipReason;
+                SetTerminalCore(JobTerminalOutcome.Skipped);
+            });
         }
 
         public void SetPartialSuccess(string? message = null, JobCancellationSource cancellationSource = JobCancellationSource.None)
         {
-            if (cancellationSource != JobCancellationSource.None)
-                MarkCancellationSource(cancellationSource);
+            ApplyStateTransition(() =>
+            {
+                if (cancellationSource != JobCancellationSource.None)
+                    MarkCancellationSource(cancellationSource);
 
-            FailureMessage = message;
-            FailureReason = JobFailureReason.Other;
-            SetTerminal(JobTerminalOutcome.PartialSuccess);
+                FailureMessage = message;
+                FailureReason = JobFailureReason.Other;
+                SetTerminalCore(JobTerminalOutcome.PartialSuccess);
+            });
         }
 
         public void ResetToPending()
         {
-            ActivityPhase = JobActivityPhase.None;
-            ActivityUntilUtc = null;
-            TerminalOutcome = JobTerminalOutcome.None;
-            SkipReason = JobSkipReason.None;
-            CancellationSource = JobCancellationSource.None;
-            ClearFailure();
-            LifecycleState = JobLifecycleState.Pending;
+            ApplyStateTransition(() =>
+            {
+                ActivityPhase = JobActivityPhase.None;
+                ActivityUntilUtc = null;
+                TerminalOutcome = JobTerminalOutcome.None;
+                SkipReason = JobSkipReason.None;
+                CancellationSource = JobCancellationSource.None;
+                ClearFailureCore();
+                LifecycleState = JobLifecycleState.Pending;
+            });
+        }
+
+        private void ClearFailureCore()
+        {
+            FailureMessage = null;
+            FailureDetail = null;
+            FailureReason = JobFailureReason.None;
+            if (TerminalOutcome is JobTerminalOutcome.Failed or JobTerminalOutcome.Cancelled)
+                TerminalOutcome = JobTerminalOutcome.None;
         }
 
         private void SetTerminal(JobTerminalOutcome outcome)
+            => ApplyStateTransition(() => SetTerminalCore(outcome));
+
+        private void SetTerminalCore(JobTerminalOutcome outcome)
         {
             ActivityPhase = JobActivityPhase.None;
             ActivityUntilUtc = null;

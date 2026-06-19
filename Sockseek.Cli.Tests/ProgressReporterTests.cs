@@ -40,8 +40,7 @@ public class CliProgressReporterTests
             new[]
             {
                 "download.started",
-                "on-complete.started",
-                "on-complete.ended",
+                "job.activity-changed",
                 "extraction.started",
                 "extraction.failed",
             },
@@ -61,22 +60,21 @@ public class CliProgressReporterTests
         var songId = Guid.NewGuid();
         var query = new SongQueryDto("Artist", "Song", null, null, null, false);
         var candidate = CreateFileCandidate("user", @"Music\Artist\Song.flac");
+        var songSummary = WithState(CreateSongSummary(songId, workflowId, null) with { DisplayId = 9 }, ExpectedJobStatus.RunningOnComplete);
         var extractSummary = CreateExtractSummary(Guid.NewGuid(), workflowId, ExpectedJobStatus.Extracting, null);
 
         InvokePrivate(eventLogger, "HandleEvent", Envelope("download.started", new DownloadStartedEventDto(songId, 9, workflowId, query, candidate)));
-        InvokePrivate(eventLogger, "HandleEvent", Envelope("on-complete.started", new OnCompleteStartedEventDto(songId, 9, workflowId, query)));
-        InvokePrivate(eventLogger, "HandleEvent", Envelope("on-complete.ended", new OnCompleteEndedEventDto(songId, 9, workflowId, query)));
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("job.activity-changed", new JobActivityChangedEventDto(songSummary)));
         InvokePrivate(eventLogger, "HandleEvent", Envelope("extraction.started", new ExtractionStartedEventDto(extractSummary, "input.txt", "List")));
         InvokePrivate(eventLogger, "HandleEvent", Envelope("extraction.failed", new ExtractionFailedEventDto(
             WithState(extractSummary, ExpectedJobStatus.Failed),
             "Could not parse input")));
 
-        Assert.AreEqual(5, messages.Count);
+        Assert.AreEqual(4, messages.Count);
         StringAssert.StartsWith(messages[0], JobLog(@"[9] SongJob: downloading: Artist - Song: user\Music\Artist\Song.flac"));
-        Assert.AreEqual(JobLog("OnComplete start: [9] Artist - Song"), messages[1]);
-        Assert.AreEqual(JobLog("OnComplete end: [9] Artist - Song"), messages[2]);
-        Assert.AreEqual(JobLog("[11] ExtractJob: List: Input: input.txt"), messages[3]);
-        Assert.AreEqual(ErrorJobLog("[11] ExtractJob: Failed: input.txt\n  Reason:    Could not parse input"), messages[4]);
+        Assert.AreEqual(JobLog("[9] SongJob: on-complete: Artist - Track"), messages[1]);
+        Assert.AreEqual(JobLog("[11] ExtractJob: List: Input: input.txt"), messages[2]);
+        Assert.AreEqual(ErrorJobLog("[11] ExtractJob: Failed: input.txt\n  Reason:    Could not parse input"), messages[3]);
     }
 
     [TestMethod]
@@ -1626,6 +1624,7 @@ public class CliProgressReporterTests
             ExpectedJobStatus.Pending => (ServerJobLifecycleState.Pending, ServerJobActivityPhase.None, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
             ExpectedJobStatus.Searching => (ServerJobLifecycleState.Running, ServerJobActivityPhase.Searching, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
             ExpectedJobStatus.Downloading => (ServerJobLifecycleState.Running, ServerJobActivityPhase.Downloading, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
+            ExpectedJobStatus.RunningOnComplete => (ServerJobLifecycleState.Running, ServerJobActivityPhase.RunningOnComplete, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
             ExpectedJobStatus.Extracting => (ServerJobLifecycleState.Running, ServerJobActivityPhase.Extracting, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
             ExpectedJobStatus.RunningChildren => (ServerJobLifecycleState.Running, ServerJobActivityPhase.RunningChildren, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
             ExpectedJobStatus.AwaitingSelection => (ServerJobLifecycleState.AwaitingSelection, ServerJobActivityPhase.None, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),

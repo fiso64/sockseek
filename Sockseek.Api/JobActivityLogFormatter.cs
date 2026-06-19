@@ -47,8 +47,6 @@ public sealed class JobActivityLogFormatter
         "album.track-download-started",
         "album.state-changed",
         "download.started",
-        "on-complete.started",
-        "on-complete.ended",
         "diagnostic.error",
         "song.state-changed",
         "extraction.started",
@@ -63,6 +61,7 @@ public sealed class JobActivityLogFormatter
     private readonly Dictionary<Guid, ServerJobKind> jobKinds = [];
     private readonly Dictionary<Guid, Guid> parentJobIds = [];
     private readonly Dictionary<Guid, JobSummaryDto> albumSummaries = [];
+    private readonly Dictionary<Guid, string> albumTrackDownloadFolders = [];
     private readonly HashSet<Guid> loggedTerminalAlbumIds = [];
     private readonly Dictionary<Guid, string> lastMessages = [];
     private readonly object sync = new();
@@ -78,8 +77,6 @@ public sealed class JobActivityLogFormatter
                 "album.track-download-started" when envelope.Payload is AlbumTrackDownloadStartedEventDto payload => HandleAlbumTrackDownloadStarted(payload),
                 "album.state-changed" when envelope.Payload is AlbumStateChangedEventDto payload => HandleAlbumStateChanged(payload),
                 "download.started" when envelope.Payload is DownloadStartedEventDto payload => HandleDownloadStart(payload),
-                "on-complete.started" when envelope.Payload is OnCompleteStartedEventDto payload => Log(payload.JobId, $"OnComplete start: [{payload.DisplayId}] {SongQueryText(payload.Query)}"),
-                "on-complete.ended" when envelope.Payload is OnCompleteEndedEventDto payload => Log(payload.JobId, $"OnComplete end: [{payload.DisplayId}] {SongQueryText(payload.Query)}"),
                 "diagnostic.error" when envelope.Payload is DiagnosticErrorEventDto payload => HandleDiagnosticError(payload),
                 "song.state-changed" when envelope.Payload is SongStateChangedEventDto payload => HandleSongStateChanged(payload),
                 "extraction.started" when envelope.Payload is ExtractionStartedEventDto payload => HandleExtractionStart(payload),
@@ -139,13 +136,7 @@ public sealed class JobActivityLogFormatter
     private ActivityLogEntry? HandleJobStarted(JobStartedEventDto job)
     {
         RememberStructure(job.Summary);
-        if (IsInlineChild(job.Summary.JobId, job.Summary.Kind))
-            return null;
-        if (job.Summary.Kind == ServerJobKind.Song)
-            return null;
-
-        string status = job.Summary.Kind == ServerJobKind.RetrieveFolder ? "retrieving folder" : StatusLabel(job.Summary);
-        return LogJob(job.Summary, status, showInLive: false);
+        return null;
     }
 
     private ActivityLogEntry? HandleJobFolderRetrieving(JobFolderRetrievingEventDto job)
@@ -178,8 +169,14 @@ public sealed class JobActivityLogFormatter
         string label = StatusLabel(summary);
         var kind = DisplayKindForSummary(summary);
 
-        if (!isTerminal && IsDebugOnlyLifecycleActivity(summary))
-            return LogJob(summary, label, level: LogLevel.Debug, showInLive: false);
+        if (!isTerminal)
+        {
+            if (summary.LifecycleState == ServerJobLifecycleState.Pending)
+                return LogJob(summary, label, level: LogLevel.Debug, showInLive: false);
+            if (summary.LifecycleState == ServerJobLifecycleState.AwaitingSelection)
+                return LogJob(summary, label, level: LogLevelForNonTerminalSummary(summary), showInLive: false);
+            return null;
+        }
 
         if (summary.Kind == ServerJobKind.Extract)
             return null;
@@ -231,7 +228,7 @@ public sealed class JobActivityLogFormatter
     {
         RememberStructure(job.Summary);
         albumSummaries[job.Summary.JobId] = job.Summary;
-        return LogJob(job.Summary, "downloading", showInLive: false);
+        return null;
     }
 
     private ActivityLogEntry? HandleAlbumTrackDownloadStarted(AlbumTrackDownloadStartedEventDto job)
@@ -241,6 +238,13 @@ public sealed class JobActivityLogFormatter
         string folderName = string.IsNullOrWhiteSpace(job.Folder.FolderPath)
             ? job.Summary.QueryText ?? ""
             : job.Folder.FolderPath;
+
+        if (albumTrackDownloadFolders.TryGetValue(job.Summary.JobId, out var previousFolder)
+            && string.Equals(previousFolder, folderName, StringComparison.Ordinal))
+        {
+            return null;
+        }
+        albumTrackDownloadFolders[job.Summary.JobId] = folderName;
 
         if (job.Tracks != null)
         {
@@ -278,6 +282,7 @@ public sealed class JobActivityLogFormatter
             highlight: status,
             showInLive: ShowTerminalKindInLive(kind));
         albumSummaries.Remove(job.Summary.JobId);
+        albumTrackDownloadFolders.Remove(job.Summary.JobId);
         return entry;
     }
 
@@ -442,11 +447,15 @@ public sealed class JobActivityLogFormatter
 
     private bool ShouldLogActivityChanged(JobSummaryDto summary)
     {
+        if (summary.ActivityPhase == ServerJobActivityPhase.RunningOnComplete)
+            return true;
         if (IsDebugOnlyLifecycleActivity(summary))
             return true;
         if (summary.Kind == ServerJobKind.Extract)
             return false;
         if (summary.Kind == ServerJobKind.Song)
+            return false;
+        if (summary.Kind == ServerJobKind.Album && summary.ActivityPhase == ServerJobActivityPhase.Downloading)
             return false;
         if (IsInlineChild(summary.JobId, summary.Kind))
             return false;
@@ -549,7 +558,7 @@ public sealed class JobActivityLogFormatter
             ServerJobActivityPhase.RetrievingFolder => "retrieving folder",
             ServerJobActivityPhase.RunningChildren => "running",
             ServerJobActivityPhase.Organizing => "organizing",
-            ServerJobActivityPhase.RunningOnComplete => "running hook",
+            ServerJobActivityPhase.RunningOnComplete => "on-complete",
             _ => lifecycle switch
             {
                 ServerJobLifecycleState.Pending => "pending",

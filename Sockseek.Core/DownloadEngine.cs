@@ -95,13 +95,13 @@ public class DownloadEngine
         if (!firstRegistration)
             return;
 
-        job.PropertyChanged += (_, args) =>
+        job.StateChanged += (_, transition) =>
         {
-            if (args.PropertyName is nameof(Job.LifecycleState))
-                Events.RaiseJobStateChanged(job);
-            else if (args.PropertyName is nameof(Job.ActivityPhase) or nameof(Job.ActivityUntilUtc))
+            Events.RaiseJobStateChanged(job);
+            if (transition.ActivityChanged
+                && transition.After.LifecycleState == JobLifecycleState.Running
+                && transition.After.ActivityPhase != JobActivityPhase.None)
             {
-                Events.RaiseJobStateChanged(job);
                 Events.RaiseJobActivityChanged(job, job.ActivityPhase, job.ActivityUntilUtc);
             }
         };
@@ -1224,8 +1224,8 @@ public class DownloadEngine
         if (!foundSomething)
         {
             var outcome = JobOutcome.Failed(JobFailureReason.NoSuitableFileFound);
+            await RunOnCompleteIfApplicable(job, null, Ctx(job), outcome);
             CommitOutcome(job, outcome);
-            await OnCompleteExecutor.ExecuteAsync(job, null, Ctx(job));
 
             if (!config.PrintResults)
                 ctx.IndexEditor?.Update();
@@ -1563,30 +1563,36 @@ public class DownloadEngine
         var config = job.Config;
         var organizer = new FileManager(job, config.Output, config.Extraction);
         var audioResult = await TryDownloadAlbumAudio(job, ctx, organizer);
-        var completion = CommitAlbumAudioOutcome(job, audioResult, ctx);
+        var completion = PrepareAlbumAudioOutcome(job, audioResult, ctx);
         var chosenFiles = completion.ChosenFiles;
 
         if (completion.Outcome.LifecycleState == JobLifecycleState.AwaitingSelection)
         {
+            CommitOutcome(job, completion.Outcome);
             ctx.IndexEditor?.Update();
             ctx.PlaylistEditor?.Update();
             return completion.Outcome;
         }
 
-        MarkCancelledAlbumFiles(job, audioResult);
+        MarkCancelledAlbumFiles(job, audioResult, completion.Outcome);
         var images = await DownloadAlbumImagesIfNeeded(job, ctx, organizer, audioResult, chosenFiles);
+        if (!string.IsNullOrEmpty(job.DownloadPath))
+            job.UpdateActivity(JobActivityPhase.Organizing);
         OrganizeAlbumIfNeeded(job, organizer, images.ChosenFiles, images.AdditionalImages);
         RefreshDownloadedFileCache(images.ChosenFiles);
         RefreshDownloadedFileCache(images.AdditionalImages);
 
+        var postProcessOutcome = OutcomeWithCurrentMetadata(job, completion.Outcome);
+        await RunOnCompleteIfApplicable(job, null, ctx, postProcessOutcome);
+
+        var finalOutcome = OutcomeWithCurrentMetadata(job, postProcessOutcome);
+        CommitOutcome(job, finalOutcome);
         ctx.IndexEditor?.Update();
         ctx.PlaylistEditor?.Update();
-
-        await OnCompleteExecutor.ExecuteAsync(job, null, ctx);
-        return completion.Outcome;
+        return finalOutcome;
     }
 
-    AlbumDownloadCompletion CommitAlbumAudioOutcome(AlbumJob job, AlbumAudioDownloadResult audioResult, JobContext ctx)
+    AlbumDownloadCompletion PrepareAlbumAudioOutcome(AlbumJob job, AlbumAudioDownloadResult audioResult, JobContext ctx)
     {
         var chosenFiles = audioResult.ChosenFiles;
         JobOutcome outcome;
@@ -1600,7 +1606,7 @@ public class DownloadEngine
             {
                 var downloadPath = Utils.GreatestCommonDirectory(downloadedAudio.Select(af => af.DownloadPath!));
                 outcome = JobOutcome.Done(downloadPath);
-                CommitOutcome(job, outcome);
+                job.DownloadPath = downloadPath;
                 ctx.IndexEditor?.NotifyJobDownloadPath(job.Id, downloadPath);
                 // Note: album jobs have no parent extractor reference here; RemoveTrackFromSource
                 // for albums is handled at the JobList fan-out level if needed.
@@ -1608,26 +1614,24 @@ public class DownloadEngine
             else
             {
                 outcome = JobOutcome.Done();
-                CommitOutcome(job, outcome);
             }
         }
         else if (audioResult.Outcome != null)
         {
             outcome = audioResult.Outcome;
-            CommitOutcome(job, outcome);
+            ApplyPreCommitOutcomeMetadata(job, outcome);
         }
         else
         {
             outcome = JobOutcome.Failed(JobFailureReason.NoSuitableFileFound);
-            CommitOutcome(job, outcome);
         }
 
         return new(outcome, chosenFiles);
     }
 
-    void MarkCancelledAlbumFiles(AlbumJob job, AlbumAudioDownloadResult audioResult)
+    void MarkCancelledAlbumFiles(AlbumJob job, AlbumAudioDownloadResult audioResult, JobOutcome outcome)
     {
-        if (job.FailureReason == JobFailureReason.Cancelled)
+        if (outcome.FailureReason == JobFailureReason.Cancelled)
         {
             var cancelledFolder = job.ResolvedTarget
                 ?? audioResult.LastChosenFolder;
@@ -1988,9 +1992,12 @@ public class DownloadEngine
         bool organize,
         bool updateIndexes)
     {
-        CommitOutcome(song, outcome);
+        ApplyPreCommitOutcomeMetadata(song, outcome);
         if (outcome.FailureReason != JobFailureReason.Cancelled)
-            await CompleteSongAfterOutcome(song, parentJob, jobCtx, organizer, organize);
+            await CompleteSongBeforeCommit(song, parentJob, outcome, jobCtx, organizer, organize);
+
+        outcome = OutcomeWithCurrentMetadata(song, outcome);
+        CommitOutcome(song, outcome);
 
         if (updateIndexes)
         {
@@ -2000,30 +2007,92 @@ public class DownloadEngine
         }
     }
 
-    async Task CompleteSongAfterOutcome(SongJob song, Job parentJob, JobContext jobCtx, FileManager organizer, bool organize)
+    async Task CompleteSongBeforeCommit(SongJob song, Job parentJob, JobOutcome outcome, JobContext jobCtx, FileManager organizer, bool organize)
     {
-        if (song.TerminalOutcome == JobTerminalOutcome.Succeeded && organize)
+        if (outcome.TerminalOutcome == JobTerminalOutcome.Succeeded && organize)
         {
             lock (_registry.DownloadedFiles)
             {
+                song.UpdateActivity(JobActivityPhase.Organizing);
                 organizer.OrganizeSong(song);
-                RefreshDownloadedFileCache(song);
+                RefreshDownloadedFileCache(song, outcome);
             }
         }
 
-        if (parentJob.Config.HasOnComplete)
+        var postProcessOutcome = OutcomeWithCurrentMetadata(song, outcome);
+        await RunOnCompleteIfApplicable(parentJob, song, jobCtx, postProcessOutcome);
+
+        RefreshDownloadedFileCache(song, postProcessOutcome);
+    }
+
+    async Task RunOnCompleteIfApplicable(Job job, SongJob? song, JobContext ctx, JobOutcome outcome)
+    {
+        if (!OnCompleteExecutor.HasApplicableCommand(job, song, outcome))
+            return;
+
+        var activityJob = song ?? job;
+        activityJob.UpdateActivity(JobActivityPhase.RunningOnComplete);
+        await OnCompleteExecutor.ExecuteAsync(job, song, ctx, outcome);
+    }
+
+    static void ApplyPreCommitOutcomeMetadata(Job job, JobOutcome outcome)
+    {
+        if (job is SongJob song)
         {
-            Events.RaiseOnCompleteStart(song);
-            await OnCompleteExecutor.ExecuteAsync(parentJob, song, jobCtx);
-            Events.RaiseOnCompleteEnd(song);
+            if (outcome.ChosenCandidate != null)
+                song.ChosenCandidate = outcome.ChosenCandidate;
+            if (outcome.DownloadPath != null)
+                song.DownloadPath = outcome.DownloadPath;
+        }
+        else if (job is AlbumJob album && outcome.DownloadPath != null)
+        {
+            album.DownloadPath = outcome.DownloadPath;
+        }
+    }
+
+    static JobOutcome OutcomeWithCurrentMetadata(Job job, JobOutcome outcome)
+    {
+        if (job is SongJob song)
+        {
+            var downloadPath = song.DownloadPath ?? outcome.DownloadPath;
+            var chosenCandidate = song.ChosenCandidate ?? outcome.ChosenCandidate;
+
+            return outcome.TerminalOutcome switch
+            {
+                JobTerminalOutcome.Succeeded => JobOutcome.Done(downloadPath, chosenCandidate),
+                JobTerminalOutcome.Skipped when outcome.SkipReason == JobSkipReason.AlreadyExists => JobOutcome.AlreadyExists(downloadPath),
+                JobTerminalOutcome.Skipped => JobOutcome.Skipped(outcome.SkipReason, outcome.FailureReason, downloadPath),
+                _ => outcome,
+            };
         }
 
-        RefreshDownloadedFileCache(song);
+        if (job is AlbumJob album)
+        {
+            var downloadPath = album.DownloadPath ?? outcome.DownloadPath;
+
+            return outcome.TerminalOutcome switch
+            {
+                JobTerminalOutcome.Succeeded => JobOutcome.Done(downloadPath),
+                JobTerminalOutcome.Skipped when outcome.SkipReason == JobSkipReason.AlreadyExists => JobOutcome.AlreadyExists(downloadPath),
+                JobTerminalOutcome.Skipped => JobOutcome.Skipped(outcome.SkipReason, outcome.FailureReason, downloadPath),
+                _ => outcome,
+            };
+        }
+
+        return outcome;
     }
 
     void RefreshDownloadedFileCache(SongJob song)
     {
         if (song.TerminalOutcome != JobTerminalOutcome.Succeeded)
+            return;
+
+        RefreshDownloadedFileCache(song, JobOutcome.Done(song.DownloadPath, song.ChosenCandidate));
+    }
+
+    void RefreshDownloadedFileCache(SongJob song, JobOutcome outcome)
+    {
+        if (outcome.TerminalOutcome != JobTerminalOutcome.Succeeded)
             return;
 
         var candidate = song.ChosenCandidate;
@@ -2799,22 +2868,31 @@ public class DownloadEngine
                 organizer,
                 song.Cts,
                 () => CancellationSourceForEmbeddedSong(song, parentJob, groupCts));
-            CommitOutcome(song, outcome);
 
             if (outcome.FailureReason == JobFailureReason.Cancelled && !groupCts.IsCancellationRequested)
+            {
+                CommitOutcome(song, outcome);
                 return outcome;
+            }
 
             var shouldCancelGroup = outcome.TerminalOutcome is JobTerminalOutcome.Failed
                 or JobTerminalOutcome.Skipped
                 or JobTerminalOutcome.PartialSuccess;
             if (cancelGroupOnFail && shouldCancelGroup)
             {
+                CommitOutcome(song, outcome);
                 groupCts.Cancel();
                 throw new OperationCanceledException();
             }
 
-            if (outcome.FailureReason != JobFailureReason.Cancelled)
-                await CompleteSongAfterOutcome(song, parentJob, Ctx(parentJob), organizer, organize);
+            await CommitAndFinalizeSong(
+                song,
+                parentJob,
+                outcome,
+                Ctx(parentJob),
+                organizer,
+                organize,
+                updateIndexes: false);
 
             return outcome;
         }

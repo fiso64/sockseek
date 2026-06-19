@@ -145,6 +145,71 @@ public class JobActivityLogFormatterTests
     }
 
     [TestMethod]
+    public void Format_RunningJobUpsert_DoesNotLogActivityDuplicate()
+    {
+        var formatter = new JobActivityLogFormatter();
+        var summary = Summary(Guid.NewGuid(), 8, Guid.NewGuid(), ServerJobKind.Album, ExpectedJobStatus.Downloading, "Artist Album");
+
+        var entry = formatter.Format(Envelope("job.upserted", summary));
+
+        Assert.IsNull(entry);
+    }
+
+    [TestMethod]
+    public void Format_AlbumDownloadStarted_DoesNotLogDuplicateActivityLine()
+    {
+        var formatter = new JobActivityLogFormatter();
+        var summary = Summary(Guid.NewGuid(), 8, Guid.NewGuid(), ServerJobKind.Album, ExpectedJobStatus.Downloading, "Artist Album");
+        var folder = new AlbumFolderDto(
+            new AlbumFolderRefDto("local", @"Artist\Album"),
+            "local",
+            @"Artist\Album",
+            new PeerInfoDto("local"),
+            FileCount: 0,
+            AudioFileCount: 0,
+            Files: []);
+
+        var entry = formatter.Format(Envelope("album.download-started", new AlbumDownloadStartedEventDto(summary, folder, [])));
+
+        Assert.IsNull(entry);
+    }
+
+    [TestMethod]
+    public void Format_AlbumDownloadingActivityChanged_DoesNotLogDuplicateTrackLine()
+    {
+        var formatter = new JobActivityLogFormatter();
+        var summary = Summary(Guid.NewGuid(), 8, Guid.NewGuid(), ServerJobKind.Album, ExpectedJobStatus.Downloading, "Artist Album");
+
+        var entry = formatter.Format(Envelope("job.activity-changed", new JobActivityChangedEventDto(summary)));
+
+        Assert.IsNull(entry);
+    }
+
+    [TestMethod]
+    public void Format_RepeatedAlbumTrackDownloadStartedForSameFolder_LogsOnce()
+    {
+        var formatter = new JobActivityLogFormatter();
+        var summary = Summary(Guid.NewGuid(), 8, Guid.NewGuid(), ServerJobKind.Album, ExpectedJobStatus.Downloading, "Artist Album");
+        var retrieving = summary with { ActivityPhase = ServerJobActivityPhase.RetrievingFolder };
+        var folder = new AlbumFolderDto(
+            new AlbumFolderRefDto("local", @"Artist\Album"),
+            "local",
+            @"Artist\Album",
+            new PeerInfoDto("local"),
+            FileCount: 0,
+            AudioFileCount: 0,
+            Files: []);
+        var albumStarted = new AlbumTrackDownloadStartedEventDto(summary, folder, []);
+
+        var first = formatter.Format(Envelope("album.track-download-started", albumStarted));
+        formatter.Format(Envelope("job.activity-changed", new JobActivityChangedEventDto(retrieving)));
+        var second = formatter.Format(Envelope("album.track-download-started", albumStarted));
+
+        Assert.IsNotNull(first);
+        Assert.IsNull(second);
+    }
+
+    [TestMethod]
     public void Format_SearchWaitActivityChanged_IsDebug()
     {
         var formatter = new JobActivityLogFormatter();
@@ -174,6 +239,19 @@ public class JobActivityLogFormatterTests
         Assert.IsNotNull(entry);
         Assert.AreEqual(LogLevel.Debug, entry.Level);
         StringAssert.Contains(entry.Message, "rate limited");
+    }
+
+    [TestMethod]
+    public void Format_RunningOnCompleteActivityChanged_IsInformation()
+    {
+        var formatter = new JobActivityLogFormatter();
+        var summary = Summary(Guid.NewGuid(), 8, Guid.NewGuid(), ServerJobKind.Song, ExpectedJobStatus.RunningOnComplete, "Artist - Track");
+
+        var entry = formatter.Format(Envelope("job.activity-changed", new JobActivityChangedEventDto(summary)));
+
+        Assert.IsNotNull(entry);
+        Assert.AreEqual(LogLevel.Information, entry.Level);
+        Assert.AreEqual("[8] SongJob: on-complete: Artist - Track", entry.Message);
     }
 
     [TestMethod]
@@ -280,6 +358,7 @@ public class JobActivityLogFormatterTests
             ExpectedJobStatus.Pending => (ServerJobLifecycleState.Pending, ServerJobActivityPhase.None, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
             ExpectedJobStatus.Searching => (ServerJobLifecycleState.Running, ServerJobActivityPhase.Searching, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
             ExpectedJobStatus.Downloading => (ServerJobLifecycleState.Running, ServerJobActivityPhase.Downloading, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
+            ExpectedJobStatus.RunningOnComplete => (ServerJobLifecycleState.Running, ServerJobActivityPhase.RunningOnComplete, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
             ExpectedJobStatus.Succeeded => (ServerJobLifecycleState.Terminal, ServerJobActivityPhase.None, ServerJobTerminalOutcome.Succeeded, ServerJobSkipReason.None),
             ExpectedJobStatus.AlreadyExists => (ServerJobLifecycleState.Terminal, ServerJobActivityPhase.None, ServerJobTerminalOutcome.Skipped, ServerJobSkipReason.AlreadyExists),
             ExpectedJobStatus.Skipped => (ServerJobLifecycleState.Terminal, ServerJobActivityPhase.None, ServerJobTerminalOutcome.Skipped, ServerJobSkipReason.Manual),

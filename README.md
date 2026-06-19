@@ -69,7 +69,7 @@ sockseek "https://www.youtube.com/playlist?list=blah"
 
 Check the tracks before downloading a 5000-item long megalist:
 ```bash
-sockseek <input> -n 10 --print-tracks-full
+sockseek "input" -n 10 --print-tracks-full
 ```
 
 #### Download all albums by an artist interactively
@@ -496,6 +496,8 @@ The available variables are the same as in name-format, with the following addit
 - `{first-exitcode}` - First command's exit code
 - `{first-stdout}` - First command's stdout (requires r:)
 - `{first-stderr}` - First command's stderr (requires r:)
+
+For album-only (`a:`) actions, tag variables such as `{title}`, `{artist}`, and `{album}` are read from the first audio file in the album. Job/source/path variables such as `{sartist}`, `{salbum}`, and `{path}` describe the album-level completion itself.
 
 ### Examples
 
@@ -924,4 +926,3 @@ sockseek daemon                 Start the HTTP/SignalR daemon instead of running
 ## Docker
 
 Docker documentation has moved to [docs/docker.md](docs/docker.md).
-

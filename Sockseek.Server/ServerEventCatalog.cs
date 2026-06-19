@@ -33,8 +33,6 @@ public static class ServerEventCatalog
             Activity("album.download-started", nameof(AlbumDownloadStartedEventDto)),
             Activity("album.track-download-started", nameof(AlbumTrackDownloadStartedEventDto)),
             Activity("album.state-changed", nameof(AlbumStateChangedEventDto)),
-            Activity("on-complete.started", nameof(OnCompleteStartedEventDto)),
-            Activity("on-complete.ended", nameof(OnCompleteEndedEventDto)),
             Activity("search.rate-limited", nameof(SearchRateLimitedEventDto)),
             Activity("search.resumed", nameof(SearchResumedEventDto)),
             Activity("track-batch.resolved", nameof(TrackBatchResolvedEventDto)),

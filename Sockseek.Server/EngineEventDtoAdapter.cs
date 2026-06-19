@@ -124,8 +124,6 @@ public sealed class EngineEventDtoAdapter
             ex.GetType().Name,
             SockseekLog.ExceptionSummary(ex),
             SockseekLog.ExceptionDetail(ex)));
-        events.OnCompleteStart += song => publish("on-complete.started", new OnCompleteStartedEventDto(song.Id, song.DisplayId, song.WorkflowId, ToSongQueryDto(song.Query)));
-        events.OnCompleteEnd += song => publish("on-complete.ended", new OnCompleteEndedEventDto(song.Id, song.DisplayId, song.WorkflowId, ToSongQueryDto(song.Query)));
         events.SearchRateLimited += resetsAt => publish("search.rate-limited", new SearchRateLimitedEventDto(resetsAt));
         events.SearchResumed += () => publish("search.resumed", new SearchResumedEventDto());
         events.TrackBatchResolved += (job, pending, existing, notFound) => publish("track-batch.resolved", new TrackBatchResolvedEventDto(
