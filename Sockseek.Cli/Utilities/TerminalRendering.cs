@@ -401,10 +401,10 @@ internal sealed class TerminalLiveRenderer : IDisposable
         var prefixText = ProcessLogPrefixText(line);
         var prefixMarkup = ProcessLogPrefixMarkup(line);
 
-        WriteWrappedProcessLogContent(prefixText, prefixMarkup, messageLines[0]);
+        WriteWrappedProcessLogContent(prefixText, prefixMarkup, messageLines[0], continuation: false);
 
         foreach (var messageLine in messageLines.Skip(1))
-            WriteWrappedProcessLogContent("", "", messageLine);
+            WriteWrappedProcessLogContent("", "", messageLine, continuation: true);
     }
 
     internal static string FormatProcessLogMarkup(TerminalProcessLogLine line)
@@ -413,14 +413,18 @@ internal sealed class TerminalLiveRenderer : IDisposable
     private static void WriteWrappedProcessLogContent(
         string prefixText,
         string prefixMarkup,
-        string content)
+        string content,
+        bool continuation)
     {
         int lineWidth = LogLineWidth() - CellCount(prefixText);
         var chunks = WrapContent(content, lineWidth).ToList();
 
         foreach (var chunk in chunks)
         {
-            var markup = prefixMarkup + Markup.Escape(chunk);
+            var contentMarkup = continuation
+                ? $"[grey]{Markup.Escape(chunk)}[/]"
+                : Markup.Escape(chunk);
+            var markup = prefixMarkup + contentMarkup;
             AnsiConsole.MarkupLine(markup + PaddingFor(CellCount(prefixText) + CellCount(chunk)));
         }
     }

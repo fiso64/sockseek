@@ -308,16 +308,26 @@ public sealed class JobActivityLogFormatter
                 string itemName = song.ChosenCandidate?.Ref.Filename != null
                     ? Utils.GetFileNameSlsk(song.ChosenCandidate.Ref.Filename)
                     : detail;
+                var albumTrackKind = AlbumTrackDisplayKind(kind);
+                var albumTrackLevel = LogLevelForTerminalSong(song);
+                var showAlbumTrackInLive = ShowTerminalKindInLive(albumTrackKind);
+                if (albumTrackKind == ActivityLogDisplayKind.AlbumTrackFailed)
+                {
+                    albumTrackKind = ActivityLogDisplayKind.Status;
+                    albumTrackLevel ??= LogLevel.Warning;
+                    showAlbumTrackInLive = true;
+                }
+
                 var albumName = album.QueryText ?? album.ItemName ?? "";
                 return LogJob(
                     song.JobId,
                     album.DisplayId,
                     "Album Track",
                     $"{label}: {WithName(albumName, itemName)}",
-                    level: LogLevelForTerminalSong(song),
-                    kind: AlbumTrackDisplayKind(kind),
+                    level: albumTrackLevel,
+                    kind: albumTrackKind,
                     highlight: label,
-                    showInLive: ShowTerminalKindInLive(kind));
+                    showInLive: showAlbumTrackInLive);
             }
         }
 

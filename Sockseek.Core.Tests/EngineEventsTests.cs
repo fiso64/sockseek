@@ -1125,6 +1125,7 @@ namespace Tests.Eventing
             var engine = new DownloadEngine(engineSettings, clientManager);
 
             JobFailureReason capturedReason = JobFailureReason.None;
+            string? capturedDetail = "not-captured";
             bool failedFired = false;
 
             engine.Events.JobStateChanged += job =>
@@ -1133,6 +1134,7 @@ namespace Tests.Eventing
                 {
                     failedFired = true;
                     capturedReason = job.FailureReason;
+                    capturedDetail = job.FailureDetail;
                 }
             };
 
@@ -1144,6 +1146,7 @@ namespace Tests.Eventing
             Assert.IsTrue(failedFired, "JobStateChanged should fire for a failed terminal outcome.");
             Assert.AreEqual(JobFailureReason.AllDownloadsFailed, capturedReason, 
                 "FailureReason must be populated BEFORE the JobStateChanged event is fired for download failures.");
+            Assert.IsNull(capturedDetail, "Known download attempt exceptions are reported by DownloadAttemptFailed and should not be duplicated as terminal diagnostic detail.");
         }
     }
 }

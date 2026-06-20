@@ -1873,7 +1873,7 @@ public class DownloadEngine
                     return new(false, JobOutcome.Cancelled(CancellationSourceForDerivedCancellation(job, chosenFolder.Files.Cast<Job>().ToArray())), null, lastChosenFolder);
 
                 if (wasPreselected)
-                    break;
+                    return ReturnSelectedFolderToManualPicker(chosenFolder, JobFailureReason.AllDownloadsFailed);
             }
 
             organizer.SetremoteBaseDir(null);
@@ -2241,28 +2241,18 @@ public class DownloadEngine
         // Try candidates in order until one succeeds.
         int tried = 0;
         Exception? lastDownloadException = null;
+        string? lastDownloadFailureMessage = null;
         foreach (var candidate in candidates)
         {
             tried++;
             string outputPath = organizer.GetSavePath(candidate.Filename);
 
+            FileDownloadOutcome download;
             try
             {
                 song.UpdateActivity(JobActivityPhase.Downloading);
                 // ReportDownloadStart is called inside DownloadFile (via Downloader).
-                var download = await downloader!.DownloadFile(candidate, outputPath, song, config.Transfer, config.Output.ParentDir, cts.Token);
-                if (download.Status == FileDownloadStatus.ManuallySkipped)
-                {
-                    SockseekLog.Jobs.Debug($"Manually skipped candidate: {candidate.Username}\\{candidate.Filename}");
-                    tried--;
-                    continue;
-                }
-
-                var result = download.Result
-                    ?? throw new InvalidOperationException($"Completed download outcome missing result for '{candidate.Username}\\{candidate.Filename}'.");
-                _registry.UserSuccessCounts.AddOrUpdate(result.Candidate.Username, 1, (_, c) => c + 1);
-                SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: download succeeded from {result.Candidate.Username}\\{result.Candidate.Filename} to '{result.OutputPath}': {song}");
-                return JobOutcome.Done(result.OutputPath, result.Candidate);
+                download = await downloader!.DownloadFile(candidate, outputPath, song, config.Transfer, config.Output.ParentDir, cts.Token);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -2270,22 +2260,38 @@ public class DownloadEngine
                     throw;
 
                 lastDownloadException = ex;
-                SockseekLog.Jobs.Debug(SockseekLog.FormatException($"Download attempt {tried} failed for '{candidate.Username}\\{candidate.Filename}' to '{outputPath}'", ex));
+                lastDownloadFailureMessage = DownloadFailureMessage(ex);
+                SockseekLog.Jobs.Debug(
+                    $"Download attempt {tried} failed for '{candidate.Username}\\{candidate.Filename}' " +
+                    $"to '{outputPath}': {SockseekLog.ExceptionSummary(ex)}");
                 if (tried >= candidates.Count || tried >= config.Transfer.MaxDownloadRetries)
                 {
                     return JobOutcome.Failed(
                         JobFailureReason.AllDownloadsFailed,
-                        DownloadFailureMessage(ex),
-                        SockseekLog.ExceptionDetail(ex));
+                        lastDownloadFailureMessage);
                 }
+
+                continue;
             }
+
+            if (download.Status == FileDownloadStatus.ManuallySkipped)
+            {
+                SockseekLog.Jobs.Debug($"Manually skipped candidate: {candidate.Username}\\{candidate.Filename}");
+                tried--;
+                continue;
+            }
+
+            var result = download.Result
+                ?? throw new InvalidOperationException($"Completed download outcome missing result for '{candidate.Username}\\{candidate.Filename}'.");
+            _registry.UserSuccessCounts.AddOrUpdate(result.Candidate.Username, 1, (_, c) => c + 1);
+            SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: download succeeded from {result.Candidate.Username}\\{result.Candidate.Filename} to '{result.OutputPath}': {song}");
+            return JobOutcome.Done(result.OutputPath, result.Candidate);
         }
 
         if (lastDownloadException != null)
             return JobOutcome.Failed(
                 JobFailureReason.AllDownloadsFailed,
-                DownloadFailureMessage(lastDownloadException),
-                SockseekLog.ExceptionDetail(lastDownloadException));
+                lastDownloadFailureMessage ?? DownloadFailureMessage(lastDownloadException));
 
         return JobOutcome.Failed(JobFailureReason.NoSuitableFileFound);
     }

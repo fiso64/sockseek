@@ -85,6 +85,52 @@ public class JobActivityLogFormatterTests
     }
 
     [TestMethod]
+    public void Format_FailedAlbumTrackTerminalState_IsWarningContext()
+    {
+        var formatter = new JobActivityLogFormatter();
+        var workflowId = Guid.NewGuid();
+        var albumId = Guid.NewGuid();
+        var songId = Guid.NewGuid();
+        var album = Summary(albumId, 6, workflowId, ServerJobKind.Album, ExpectedJobStatus.Downloading, "Artist Album");
+        var song = Summary(songId, 7, workflowId, ServerJobKind.Song, ExpectedJobStatus.Searching, "Artist - Track") with
+        {
+            ParentJobId = albumId,
+        };
+        var candidate = new FileCandidateDto(
+            new FileCandidateRefDto("local", @"Artist\Album\01. Artist - Track.flac"),
+            "local",
+            @"Artist\Album\01. Artist - Track.flac",
+            new PeerInfoDto("local"),
+            Size: 123,
+            BitRate: null,
+            SampleRate: null,
+            Length: null,
+            Extension: ".flac",
+            Attributes: null);
+
+        formatter.Format(Envelope("job.upserted", album));
+        formatter.Format(Envelope("job.upserted", song));
+
+        var entry = formatter.Format(Envelope("song.state-changed", new SongStateChangedEventDto(
+            songId,
+            7,
+            workflowId,
+            new SongQueryDto("Artist", "Track", null, null, null, false),
+            ServerJobLifecycleState.Terminal,
+            ServerJobActivityPhase.None,
+            ActivityUntilUtc: null,
+            ServerJobTerminalOutcome.Failed,
+            ServerProtocol.FailureReasons.AllDownloadsFailed,
+            DownloadPath: null,
+            ChosenCandidate: candidate)));
+
+        Assert.IsNotNull(entry);
+        Assert.AreEqual(LogLevel.Warning, entry.Level);
+        Assert.AreEqual(ActivityLogDisplayKind.Status, entry.Display?.Kind);
+        Assert.AreEqual(@"[6] Album Track: failed [All downloads failed]: Artist Album: 01. Artist - Track.flac", entry.Message);
+    }
+
+    [TestMethod]
     public void Format_CancelAllAlbumTrackTerminalState_IsDebug()
     {
         var formatter = new JobActivityLogFormatter();

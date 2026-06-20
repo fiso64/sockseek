@@ -138,7 +138,9 @@ public class Downloader
                         ? maxRetries
                         : retryCount;
 
-                    SockseekLog.Soulseek.Debug($"Error while downloading '{candidate.Username}\\{candidate.Filename}' to '{incompleteOutputPath}' (attempt {retryCount}/{maxRetries}): {e}");
+                    SockseekLog.Soulseek.Debug(
+                        $"Error while downloading '{candidate.Username}\\{candidate.Filename}' to '{incompleteOutputPath}' " +
+                        $"(attempt {retryCount}/{maxRetries}): {SockseekLog.ExceptionSummary(e)}");
                     events.RaiseDownloadAttemptFailed(song, candidate, incompleteOutputPath, retryCount, reportedMaxRetries, e);
 
                     if (!canRetry)

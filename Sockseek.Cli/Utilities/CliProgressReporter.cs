@@ -884,19 +884,18 @@ public class CliProgressReporter
     {
         var candidate = CandidateDisplayShort(failure.Candidate);
         var message =
-            $"download error: {WithName(SongQueryText(failure.Query), candidate)}\n" +
+            $"download attempt failed: {WithName(SongQueryText(failure.Query), candidate)}\n" +
             $"    Output: {failure.OutputPath}\n" +
             $"    Attempt: {failure.Attempt}/{failure.MaxAttempts}\n" +
-            $"    {failure.ExceptionType}: {failure.ExceptionMessage}\n" +
-            IndentContinuationLines(failure.Exception, "    ");
+            $"    {failure.ExceptionType}: {failure.ExceptionMessage}";
 
         if (PlainMode)
         {
-            SockseekLog.Jobs.Error($"[{failure.DisplayId}] SongJob: {message}");
+            SockseekLog.Jobs.Warn($"[{failure.DisplayId}] SongJob: {message}");
             return;
         }
 
-        SockseekLog.Jobs.Error($"[{failure.DisplayId}] SongJob: {message}");
+        SockseekLog.Jobs.Warn($"[{failure.DisplayId}] SongJob: {message}");
     }
 
     private void ReportStateChanged(SongStateChangedEventDto song)

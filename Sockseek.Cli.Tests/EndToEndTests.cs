@@ -378,8 +378,18 @@ public class CliEndToEndTests
             var cliSettings = new CliSettings { InteractiveMode = true, NoProgress = true };
             var clientManager = new SoulseekClientManager(engineSettings);
             var app = new DownloadEngine(engineSettings, clientManager);
-
             var pickerCalls = 0;
+            var parentAlbumFailedBeforeRetry = false;
+            app.Events.JobStateChanged += job =>
+            {
+                if (job is AlbumJob
+                    && job.TerminalOutcome == JobTerminalOutcome.Failed
+                    && pickerCalls < 2)
+                {
+                    parentAlbumFailedBeforeRetry = true;
+                }
+            };
+
             var backend = new LocalCliBackend(app, rootSettings);
             var coordinator = new InteractiveCliCoordinator(
                 backend,
@@ -415,6 +425,7 @@ public class CliEndToEndTests
             await app.RunAsync(CancellationToken.None);
 
             Assert.AreEqual(2, pickerCalls, "A failed chosen album should reopen the picker with remaining candidates.");
+            Assert.IsFalse(parentAlbumFailedBeforeRetry, "A failed manual candidate should return the parent album to selection, not publish a terminal failed AlbumJob state.");
 
             var albumJobs = app.Queue.AllJobs().OfType<AlbumJob>().ToList();
             Assert.AreEqual(1, albumJobs.Count, "Interactive retry should reuse the extracted AlbumJob instead of creating a follow-up root job.");

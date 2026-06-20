@@ -313,6 +313,11 @@ namespace Tests.Core
                 dl.Transfer.MaxDownloadRetries = 1; // Limit to 1 attempt
 
                 var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                string? attemptException = null;
+                app.Events.DownloadAttemptFailed += (_, _, _, _, _, ex) =>
+                {
+                    attemptException = SockseekLog.ExceptionDetail(ex);
+                };
                 app.Enqueue(new ExtractJob(dl.Extraction.Input, dl.Extraction.InputType), dl);
                 app.CompleteEnqueue();
 
@@ -321,6 +326,8 @@ namespace Tests.Core
                 var songJob = app.Queue.AllSongs().FirstOrDefault();
                 Assert.IsNotNull(songJob);
                 Assert.IsTrue(songJob.IsUnsuccessfulTerminal, "SongJob should fail since MaxDownloadRetries was 1 and the first candidate failed.");
+                StringAssert.Contains(attemptException, nameof(SoulseekClientException));
+                Assert.IsNull(songJob.FailureDetail, "The attempt event carries known download exception detail, so terminal state should not duplicate it as diagnostic detail.");
             }
             finally
             {

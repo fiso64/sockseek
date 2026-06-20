@@ -16,6 +16,7 @@ namespace Tests.ProgressReporterTests;
 public class CliProgressReporterTests
 {
     private static string JobLog(string message) => $"[jobs] {message}";
+    private static string WarnJobLog(string message) => $"[warn] [jobs] {message}";
     private static string ErrorJobLog(string message) => $"[error] [jobs] {message}";
 
     [TestCleanup]
@@ -848,7 +849,7 @@ public class CliProgressReporterTests
     }
 
     [TestMethod]
-    public void DownloadAttemptFailed_NoProgress_PrintsDiagnosticImmediately()
+    public void DownloadAttemptFailed_NoProgress_PrintsWarningImmediately()
     {
         SockseekLog.RemoveNonFileOutputs();
         var messages = new List<string>();
@@ -877,7 +878,7 @@ public class CliProgressReporterTests
 
             CollectionAssert.AreEqual(new[]
             {
-                ErrorJobLog("[12] SongJob: download error: Artist - Song: user\\Music\\Artist\\Song.flac\n    Output: out\\Song.flac.incomplete\n    Attempt: 1/3\n    SoulseekClientException: Connection reset by peer\n    Soulseek.SoulseekClientException: Connection reset by peer"),
+                WarnJobLog("[12] SongJob: download attempt failed: Artist - Song: user\\Music\\Artist\\Song.flac\n    Output: out\\Song.flac.incomplete\n    Attempt: 1/3\n    SoulseekClientException: Connection reset by peer"),
             }, messages);
         }
         finally
