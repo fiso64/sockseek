@@ -360,6 +360,12 @@ namespace Tests.Core
                 dl.Transfer.MaxDownloadRetries = 1; // Limit to 1 attempt
 
                 var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                var albumStatuses = new List<string>();
+                app.Events.JobStatus += (job, status) =>
+                {
+                    if (job is AlbumJob)
+                        albumStatuses.Add(status);
+                };
                 app.Enqueue(new ExtractJob(dl.Extraction.Input, dl.Extraction.InputType), dl);
                 app.CompleteEnqueue();
 
@@ -368,6 +374,11 @@ namespace Tests.Core
                 var albumJob = app.Queue.AllJobs().OfType<AlbumJob>().FirstOrDefault();
                 Assert.IsNotNull(albumJob);
                 Assert.IsTrue(albumJob.IsUnsuccessfulTerminal, "AlbumJob should fail since MaxDownloadRetries was 1 and the first folder failed.");
+                Assert.IsFalse(
+                    albumStatuses.Any(status => status.StartsWith("moving to ", StringComparison.Ordinal)
+                        || status.StartsWith("moved to ", StringComparison.Ordinal)
+                        || status is "deleting files" or "deleted files"),
+                    "Failed-album move/delete actions should not run when every file in the failed folder is incomplete or absent.");
             }
             finally
             {

@@ -2629,6 +2629,15 @@ public class DownloadEngine
     {
         var failedAlbumPath = config.Output.FailedAlbumPath;
         var outputParentDir = config.Output.ParentDir;
+        var filesToHandle = folder.Files
+            .Where(IsAlbumFailActionFile)
+            .ToList();
+
+        if (filesToHandle.Count == 0)
+        {
+            SockseekLog.Jobs.Debug($"[{job.DisplayId}] AlbumJob: skipping failed-album action; no completed files were downloaded for failed folder {folder.FolderPath}");
+            return;
+        }
 
         if (deleteDownloaded)
         {
@@ -2644,31 +2653,31 @@ public class DownloadEngine
             SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: Moving album files to {failedAlbumPath}");
         }
 
-        foreach (var af in folder.Files)
+        foreach (var af in filesToHandle)
         {
-            if (string.IsNullOrEmpty(af.DownloadPath) || !File.Exists(af.DownloadPath)) continue;
+            var downloadPath = af.DownloadPath!;
             try
             {
-                if (deleteDownloaded || af.DownloadPath.EndsWith(".incomplete"))
+                if (deleteDownloaded)
                 {
-                    File.Delete(af.DownloadPath);
+                    File.Delete(downloadPath);
                 }
                 else if (!string.IsNullOrEmpty(failedAlbumPath))
                 {
                     var relativeBase = outputParentDir
                         ?? throw new InvalidOperationException("Cannot move failed album files because Output.ParentDir is not set.");
-                    var newPath = Path.Join(failedAlbumPath, Path.GetRelativePath(relativeBase, af.DownloadPath));
+                    var newPath = Path.Join(failedAlbumPath, Path.GetRelativePath(relativeBase, downloadPath));
                     Directory.CreateDirectory(Path.GetDirectoryName(newPath)!);
-                    Utils.Move(af.DownloadPath, newPath);
+                    Utils.Move(downloadPath, newPath);
                 }
 
-                var downloadParent = Path.GetDirectoryName(af.DownloadPath);
+                var downloadParent = Path.GetDirectoryName(downloadPath);
                 if (!string.IsNullOrEmpty(downloadParent) && !string.IsNullOrEmpty(outputParentDir))
                     Utils.DeleteAncestorsIfEmpty(downloadParent, outputParentDir);
             }
             catch (Exception e)
             {
-                SockseekLog.Jobs.Error($"Error: Unable to move or delete file '{af.DownloadPath}' after album fail: {e}");
+                SockseekLog.Jobs.Error($"Error: Unable to move or delete file '{downloadPath}' after album fail: {e}");
             }
         }
 
@@ -2677,6 +2686,12 @@ public class DownloadEngine
         else if (!string.IsNullOrEmpty(failedAlbumPath))
             Events.RaiseJobStatus(job, $"moved to {failedAlbumPath}");
     }
+
+    static bool IsAlbumFailActionFile(SongJob song)
+        => song.TerminalOutcome == JobTerminalOutcome.Succeeded
+            && !string.IsNullOrEmpty(song.DownloadPath)
+            && !song.DownloadPath.EndsWith(".incomplete", StringComparison.OrdinalIgnoreCase)
+            && File.Exists(song.DownloadPath);
 
 
     // ── folder retrieval ──────────────────────────────────────────────────────
