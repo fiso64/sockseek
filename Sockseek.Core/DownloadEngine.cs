@@ -77,6 +77,9 @@ public class DownloadEngine
         return false;
     }
 
+    // TODO [ARCHITECTURE]: Keep parent-job command targeting centralized here (or move it
+    // behind a shared command-target resolver) so local and remote skip/try-next/cancel
+    // commands resolve active descendants with identical rules.
     private static HashSet<Guid> ActiveDownloadTargetIds(Job job)
     {
         var ids = new HashSet<Guid>();
@@ -145,8 +148,9 @@ public class DownloadEngine
     public SoulseekClientStates ClientState => _clientManager.State;
     public bool IsConnectedAndLoggedIn => _clientManager.IsConnectedAndLoggedIn;
 
-    // Session state (Decoupled)
+    // Session state
     private readonly SessionRegistry _registry = new();
+    private readonly OutputFinalizer _outputFinalizer;
     public ConcurrentDictionary<string, int> UserSuccessCounts => _registry.UserSuccessCounts;
 
     // ── concurrency semaphores ────────────────────────────────────────────────
@@ -276,6 +280,7 @@ public class DownloadEngine
         engineSettings = settings;
         _clientManager = clientManager;
         _jobSettingsResolver = jobSettingsResolver ?? DefaultJobSettingsResolver.Instance;
+        _outputFinalizer = new OutputFinalizer(_registry);
         if (settings.ConcurrentJobs <= 0)
             throw new ArgumentOutOfRangeException(nameof(settings.ConcurrentJobs), "ConcurrentJobs must be greater than zero.");
         _jobSemaphore = new SemaphoreSlim(settings.ConcurrentJobs);
@@ -1113,12 +1118,6 @@ public class DownloadEngine
             SockseekLog.ExceptionSummary(exception),
             SockseekLog.ExceptionDetail(exception));
 
-    static JobOutcome OrganizationFailureOutcome(FileOrganizationException exception)
-        => JobOutcome.Failed(
-            JobFailureReason.Other,
-            exception.Message,
-            SockseekLog.ExceptionDetail(exception));
-
     static JobOutcome NoMatchingDiscoveryOutcome(
         ResponseData responseData,
         string rawResultSingular,
@@ -1548,7 +1547,7 @@ public class DownloadEngine
                 case SongJob sj:
                     var songOrganizer = new FileManager(sj, config.Output, config.Extraction);
                     outcome = await ProcessSongDownload(sj, songOrganizer, parentToken);
-                    await CommitAndFinalizeSong(sj, sj, outcome, ctx, songOrganizer, organize: true, updateIndexes: true);
+                    outcome = await CommitAndFinalizeSong(sj, sj, outcome, ctx, songOrganizer, organize: true, updateIndexes: true);
                     break;
 
                 case AlbumJob aj:
@@ -1684,19 +1683,17 @@ public class DownloadEngine
             : completion.Outcome;
         if (!string.IsNullOrEmpty(job.DownloadPath))
             job.UpdateActivity(JobActivityPhase.Organizing);
-        try
+        var finalization = _outputFinalizer.FinalizeAlbumPlacement(
+            job,
+            organizer,
+            images.ChosenFiles,
+            images.AdditionalImages,
+            outcome);
+        outcome = finalization.Outcome;
+        if (finalization.OrganizationException != null && job.ResolvedTarget != null)
         {
-            OrganizeAlbumIfNeeded(job, organizer, images.ChosenFiles, images.AdditionalImages);
+            HandleIncompleteAlbumIfNeeded(job, job.ResolvedTarget, outcome, config);
         }
-        catch (FileOrganizationException ex)
-        {
-            SockseekLog.Jobs.Error($"[{job.DisplayId}] AlbumJob: {ex.Message} {SockseekLog.ExceptionSummary(ex.InnerException ?? ex)}");
-            outcome = OrganizationFailureOutcome(ex);
-            if (job.ResolvedTarget != null)
-                HandleIncompleteAlbumIfNeeded(job, job.ResolvedTarget, outcome, config);
-        }
-        RefreshDownloadedFileCache(images.ChosenFiles);
-        RefreshDownloadedFileCache(images.AdditionalImages);
 
         var postProcessOutcome = OutcomeWithCurrentMetadata(job, outcome);
         await RunOnCompleteIfApplicable(job, null, ctx, postProcessOutcome);
@@ -1786,16 +1783,6 @@ public class DownloadEngine
         }
 
         return new(chosenFiles, additionalImages);
-    }
-
-    static void OrganizeAlbumIfNeeded(
-        AlbumJob job,
-        FileManager organizer,
-        List<SongJob>? chosenFiles,
-        List<SongJob>? additionalImages)
-    {
-        if (chosenFiles != null && !string.IsNullOrEmpty(job.DownloadPath))
-            organizer.OrganizeAlbum(job, chosenFiles, additionalImages);
     }
 
     JobOutcome DeriveAlbumArtOnlyOutcome(AlbumJob job, JobOutcome fallbackOutcome)
@@ -2197,7 +2184,7 @@ public class DownloadEngine
         return finalOutcome ?? JobOutcome.NoChange();
     }
 
-    async Task CommitAndFinalizeSong(
+    async Task<JobOutcome> CommitAndFinalizeSong(
         SongJob song,
         Job parentJob,
         JobOutcome outcome,
@@ -2219,57 +2206,21 @@ public class DownloadEngine
             jobCtx.IndexEditor?.Update();
             jobCtx.PlaylistEditor?.Update();
         }
+
+        return outcome;
     }
 
     async Task<JobOutcome> CompleteSongBeforeCommit(SongJob song, Job parentJob, JobOutcome outcome, JobContext jobCtx, FileManager organizer, bool organize)
     {
-        if (outcome.TerminalOutcome == JobTerminalOutcome.Succeeded && organize)
-        {
-            lock (_registry.DownloadedFiles)
-            {
-                song.UpdateActivity(JobActivityPhase.Organizing);
-                try
-                {
-                    organizer.OrganizeSong(song);
-                    RefreshDownloadedFileCache(song, outcome);
-                }
-                catch (FileOrganizationException ex)
-                {
-                    SockseekLog.Jobs.Error($"[{song.DisplayId}] SongJob: {ex.Message} {SockseekLog.ExceptionSummary(ex.InnerException ?? ex)}");
-                    CleanupStagedDownloadAfterOrganizationFailure(song, parentJob.Config.Output);
-                    return OrganizationFailureOutcome(ex);
-                }
-            }
-        }
+        var finalization = _outputFinalizer.FinalizeSongPlacement(song, parentJob, outcome, organizer, organize);
+        if (finalization.OrganizationException != null)
+            return finalization.Outcome;
 
-        var postProcessOutcome = OutcomeWithCurrentMetadata(song, outcome);
+        var postProcessOutcome = OutcomeWithCurrentMetadata(song, finalization.Outcome);
         await RunOnCompleteIfApplicable(parentJob, song, jobCtx, postProcessOutcome);
 
-        RefreshDownloadedFileCache(song, postProcessOutcome);
+        _outputFinalizer.PublishDownloadedFileCache(song, postProcessOutcome);
         return postProcessOutcome;
-    }
-
-    static void CleanupStagedDownloadAfterOrganizationFailure(SongJob song, OutputSettings output)
-    {
-        if (string.IsNullOrWhiteSpace(song.DownloadPath))
-            return;
-
-        var parentDir = string.IsNullOrWhiteSpace(output.ParentDir)
-            ? Directory.GetCurrentDirectory()
-            : output.ParentDir;
-        var stagingRoot = Path.Join(parentDir, ".sockseek-staging");
-        if (!Utils.IsInDirectory(song.DownloadPath, stagingRoot, strict: true))
-            return;
-
-        try
-        {
-            Utils.DeleteFileAndParentsIfEmpty(song.DownloadPath, parentDir);
-            song.DownloadPath = null;
-        }
-        catch (Exception ex)
-        {
-            SockseekLog.Jobs.Warn($"[{song.DisplayId}] SongJob: failed to clean staged file '{song.DownloadPath}' after organization failure: {SockseekLog.ExceptionSummary(ex)}");
-        }
     }
 
     async Task RunOnCompleteIfApplicable(Job job, SongJob? song, JobContext ctx, JobOutcome outcome)
@@ -2329,37 +2280,6 @@ public class DownloadEngine
         return outcome;
     }
 
-    void RefreshDownloadedFileCache(SongJob song)
-    {
-        if (song.TerminalOutcome != JobTerminalOutcome.Succeeded)
-            return;
-
-        RefreshDownloadedFileCache(song, JobOutcome.Done(song.DownloadPath, song.ChosenCandidate));
-    }
-
-    void RefreshDownloadedFileCache(SongJob song, JobOutcome outcome)
-    {
-        if (outcome.TerminalOutcome != JobTerminalOutcome.Succeeded)
-            return;
-
-        var candidate = song.ChosenCandidate;
-        if (candidate == null || string.IsNullOrEmpty(song.DownloadPath))
-            return;
-
-        var fileKey = candidate.Username + '\\' + candidate.Filename;
-        lock (_registry.DownloadedFiles)
-            _registry.DownloadedFiles[fileKey] = new FileDownloadResult(song.DownloadPath, candidate);
-    }
-
-    void RefreshDownloadedFileCache(IEnumerable<SongJob>? songs)
-    {
-        if (songs == null)
-            return;
-
-        foreach (var song in songs)
-            RefreshDownloadedFileCache(song);
-    }
-
     static string? DownloadFailureMessage(Exception ex)
         => SockseekLog.ExceptionSummary(ex);
 
@@ -2414,7 +2334,7 @@ public class DownloadEngine
                         if (fastDownloadTask == null)
                         {
                             SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: fast-search starting provisional download from {fc.Username}\\{fc.Filename}: {song}");
-                            var target = GetInitialDownloadTarget(config, song, organizer, fc);
+                            var target = _outputFinalizer.GetInitialDownloadTarget(config, song, organizer, fc);
 
                             // Use the main job CTS for the download so cancelling the search doesn't kill the download.
                             fastDownloadTask = downloader!
@@ -2492,7 +2412,7 @@ public class DownloadEngine
         foreach (var candidate in candidates)
         {
             tried++;
-            var target = GetInitialDownloadTarget(config, song, organizer, candidate);
+            var target = _outputFinalizer.GetInitialDownloadTarget(config, song, organizer, candidate);
 
             FileDownloadOutcome download;
             try
@@ -2549,26 +2469,6 @@ public class DownloadEngine
 
         return NoMatchingCandidatesOutcome();
     }
-
-    static InitialDownloadTarget GetInitialDownloadTarget(
-        DownloadSettings config,
-        SongJob song,
-        FileManager organizer,
-        FileCandidate candidate)
-    {
-        if (string.IsNullOrWhiteSpace(config.Output.NameFormat))
-            return new(organizer.GetSavePath(candidate.Filename), PublishToDuplicateCache: true);
-
-        var parentDir = string.IsNullOrWhiteSpace(config.Output.ParentDir)
-            ? Directory.GetCurrentDirectory()
-            : config.Output.ParentDir;
-        var sourceFileName = Utils.GetFileNameSlsk(candidate.Filename).CleanPath(config.Output.InvalidReplaceStr);
-        var stagingPath = Path.Join(parentDir, ".sockseek-staging", song.Id.ToString("N"), sourceFileName);
-
-        return new(stagingPath, PublishToDuplicateCache: false);
-    }
-
-    sealed record InitialDownloadTarget(string Path, bool PublishToDuplicateCache);
 
     static void CommitOutcome(Job job, JobOutcome outcome)
     {
@@ -3192,17 +3092,14 @@ public class DownloadEngine
                 return outcome;
             }
 
-            var shouldCancelGroup = outcome.TerminalOutcome is JobTerminalOutcome.Failed
-                or JobTerminalOutcome.Skipped
-                or JobTerminalOutcome.PartialSuccess;
-            if (cancelGroupOnFail && shouldCancelGroup)
+            if (cancelGroupOnFail && ShouldCancelGroupOnEmbeddedOutcome(outcome))
             {
                 CommitOutcome(song, outcome);
                 groupCts.Cancel();
                 throw new OperationCanceledException();
             }
 
-            await CommitAndFinalizeSong(
+            var finalOutcome = await CommitAndFinalizeSong(
                 song,
                 parentJob,
                 outcome,
@@ -3211,7 +3108,13 @@ public class DownloadEngine
                 organize,
                 updateIndexes: false);
 
-            return outcome;
+            if (cancelGroupOnFail && ShouldCancelGroupOnEmbeddedOutcome(finalOutcome))
+            {
+                groupCts.Cancel();
+                throw new OperationCanceledException();
+            }
+
+            return finalOutcome;
         }
         catch (OperationCanceledException) when (!groupCts.IsCancellationRequested
             && song.Cts.IsCancellationRequested
@@ -3230,6 +3133,11 @@ public class DownloadEngine
             Events.RaiseJobExecutionCompleted(song);
         }
     }
+
+    static bool ShouldCancelGroupOnEmbeddedOutcome(JobOutcome outcome)
+        => outcome.TerminalOutcome is JobTerminalOutcome.Failed
+            or JobTerminalOutcome.Skipped
+            or JobTerminalOutcome.PartialSuccess;
 
     JobCancellationSource CancellationSourceForEmbeddedSong(
         SongJob song,

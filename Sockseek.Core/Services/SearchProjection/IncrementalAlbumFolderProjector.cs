@@ -37,6 +37,9 @@ public sealed class IncrementalAlbumFolderProjector
         this.search = search;
         this.sortMode = sortMode;
         sortQuery = SearchResultProjector.AlbumFileMatchQuery(query);
+        // Keep this in sync with SearchResultProjector.AlbumFolders: album audio
+        // quality requirements are folder-coverage policy, not per-file projection
+        // filters, so mixed-quality folders stay whole unless strict mode rejects them.
         projectionCondition = search.NecessaryCond.WithoutAudioQualityConditions();
         var successCounts = userSuccessCounts ?? new ConcurrentDictionary<string, int>();
         if (sortMode == FolderSortMode.AlbumRanked)

@@ -4,9 +4,9 @@ using Sockseek.Core.Settings;
 
 namespace Sockseek.Core.Services;
 
-public sealed record InitialDownloadTarget(string Path, bool PublishToDuplicateCache);
+internal sealed record InitialDownloadTarget(string Path, bool PublishToDuplicateCache);
 
-public sealed record OutputFinalizationResult(JobOutcome Outcome, FileOrganizationException? OrganizationException)
+internal sealed record OutputFinalizationResult(JobOutcome Outcome, FileOrganizationException? OrganizationException)
 {
     public static OutputFinalizationResult Completed(JobOutcome outcome)
         => new(outcome, null);
@@ -20,7 +20,10 @@ public sealed record OutputFinalizationResult(JobOutcome Outcome, FileOrganizati
             exception);
 }
 
-public sealed class OutputFinalizer
+// Owns the post-download boundary where a temporary/staged path becomes the
+// user-visible final path. A job should not commit success until this layer has
+// either published the final duplicate-cache entry or returned a failure outcome.
+internal sealed class OutputFinalizer
 {
     private readonly IDownloadRegistry registry;
 
@@ -68,6 +71,7 @@ public sealed class OutputFinalizer
             }
             catch (FileOrganizationException ex)
             {
+                SockseekLog.Jobs.Error($"[{song.DisplayId}] SongJob: {ex.Message} {SockseekLog.ExceptionSummary(ex.InnerException ?? ex)}");
                 CleanupStagedDownloadAfterOrganizationFailure(song, parentJob.Config.Output);
                 return OutputFinalizationResult.Failed(ex);
             }
@@ -99,6 +103,7 @@ public sealed class OutputFinalizer
             }
             catch (FileOrganizationException ex)
             {
+                SockseekLog.Jobs.Error($"[{album.DisplayId}] AlbumJob: {ex.Message} {SockseekLog.ExceptionSummary(ex.InnerException ?? ex)}");
                 return OutputFinalizationResult.Failed(ex);
             }
         }

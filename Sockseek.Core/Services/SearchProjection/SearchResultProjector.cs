@@ -79,6 +79,10 @@ public static partial class SearchResultProjector
         FolderSortMode sortMode = FolderSortMode.AlbumRanked)
     {
         var sortQuery = AlbumFileMatchQuery(query);
+        // TODO [ARCHITECTURE]: Keep album projection/ranking policy centralized and
+        // regression-covered. Audio quality requirements are evaluated as folder
+        // coverage below rather than as per-file filters here; otherwise format/br/sr/bd
+        // conditions can fragment a real album folder into a misleading partial album.
         var projectionCondition = search.NecessaryCond.WithoutAudioQualityConditions();
         var filteredResults = rawResults
             .Where(result =>

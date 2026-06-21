@@ -53,6 +53,10 @@ internal static partial class Program
         DaemonSettings daemonSettings;
         RemoteSettings remoteSettings;
 
+        // TODO [ARCHITECTURE]: Replace scattered CLI/server validation exception handling
+        // with typed diagnostics carrying severity, exit-code class, output stream, and
+        // optional debug detail. Parser, daemon startup, remote startup, and extractor
+        // validation currently encode that policy in several catch/log branches.
         try
         {
             configPath = ConfigManager.ExtractConfigPath(bindArgs);
@@ -880,6 +884,10 @@ internal static partial class Program
         CountSummary(summary, ref successes, ref fails, ref skipped);
     }
 
+    // TODO [ARCHITECTURE]: Move local and remote completion accounting onto one
+    // shared domain-level summary model. Manual skips, already-exists skips,
+    // partial success, cancellation, and infrastructure jobs should not be
+    // recounted independently by each CLI/API consumer.
     private static bool IsRemoteInfrastructureJobKind(ServerJobKind kind)
         => kind is ServerJobKind.Extract or ServerJobKind.JobList or ServerJobKind.RetrieveFolder
             or ServerJobKind.Aggregate or ServerJobKind.AlbumAggregate;
