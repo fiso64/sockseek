@@ -29,6 +29,8 @@ public class IndexEntry
 // Also remove the M3uOption enum.
 public class M3uEditor
 {
+    private const int LegacyIndexNotFoundFailureReasonValue = 3;
+
     public string path { get; private set; } = null!;
     public M3uOption option = M3uOption.Index;
     string parent = null!;
@@ -143,7 +145,7 @@ public class M3uEditor
                     }
                     else if (field == 7 && c == ';' && useOldFormat)
                     {
-                        entry.FailureReason = (JobFailureReason)int.Parse(currentItem.ToString());
+                        entry.FailureReason = ReadFailureReason(currentItem.ToString());
                         currentItem.Clear();
                         k = i;
                         break;
@@ -156,7 +158,7 @@ public class M3uEditor
 
                 if (!useOldFormat)
                 {
-                    entry.FailureReason = (JobFailureReason)int.Parse(currentItem.ToString());
+                    entry.FailureReason = ReadFailureReason(currentItem.ToString());
                     currentItem.Clear();
                 }
 
@@ -408,7 +410,7 @@ public class M3uEditor
     {
         string? failureReason = song.FailureReason != JobFailureReason.None ? song.FailureReason.ToString() : null;
         if (failureReason == null && song.TerminalOutcome == JobTerminalOutcome.Skipped && song.SkipReason == JobSkipReason.NotFoundLastTime)
-            failureReason = nameof(JobFailureReason.NoSuitableFileFound);
+            failureReason = nameof(JobFailureReason.NoMatchingResults);
 
         if (failureReason != null)
             return $"#FAIL: {song} [{failureReason}]";
@@ -501,11 +503,19 @@ public class M3uEditor
             JobTerminalOutcome.Skipped when job.SkipReason == JobSkipReason.AlreadyExists
                 => (JobStateOld.AlreadyExists, JobFailureReason.None),
             JobTerminalOutcome.Skipped when job.SkipReason == JobSkipReason.NotFoundLastTime
-                => (JobStateOld.NotFoundLastTime, job.FailureReason == JobFailureReason.None ? JobFailureReason.NoSuitableFileFound : job.FailureReason),
+                => (JobStateOld.NotFoundLastTime, job.FailureReason == JobFailureReason.None ? JobFailureReason.NoMatchingResults : job.FailureReason),
             JobTerminalOutcome.Skipped
                 => (JobStateOld.AlreadyExists, job.FailureReason),
             _ => (JobStateOld.Pending, JobFailureReason.None),
         };
+    }
+
+    private static JobFailureReason ReadFailureReason(string value)
+    {
+        var parsed = int.Parse(value);
+        return parsed == LegacyIndexNotFoundFailureReasonValue
+            ? JobFailureReason.NoMatchingResults
+            : (JobFailureReason)parsed;
     }
 
     private string ReadAllText()

@@ -1038,7 +1038,7 @@ namespace Tests.EndToEnd
 
                 Assert.IsNotNull(albumJob, "The list input should produce an album job.");
                 Assert.IsTrue(albumJob.IsUnsuccessfulTerminal);
-                Assert.AreEqual(JobFailureReason.NoSuitableFileFound, albumJob.FailureReason);
+                Assert.AreEqual(JobFailureReason.NoMatchingResults, albumJob.FailureReason);
                 Assert.AreEqual(0, testClient.BrowseCallCount,
                     "Normal album searches should filter visible min-count underflow before the slow full-user browse.");
                 Assert.AreEqual(0, downloadedFiles.Count,
@@ -1614,7 +1614,7 @@ namespace Tests.EndToEnd
                 await app.RunAsync(CancellationToken.None);
 
                 Assert.IsTrue(aggregateJob.IsUnsuccessfulTerminal);
-                Assert.AreEqual(JobFailureReason.NoSuitableFileFound, aggregateJob.FailureReason);
+                Assert.AreEqual(JobFailureReason.NoSearchResults, aggregateJob.FailureReason);
                 Assert.AreEqual(0, aggregateJob.Albums.Count);
             }
             finally

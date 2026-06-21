@@ -174,7 +174,7 @@ public static class Printing
         else if (job is AggregateJob ag)
         {
             var existing = ag.Songs.Where(IsAlreadyExistingPlannedJob).ToList();
-            var notFound = ag.Songs.Where(s => s.FailureReason == JobFailureReason.NoSuitableFileFound).ToList();
+            var notFound = ag.Songs.Where(s => IsNotFoundFailure(s.FailureReason)).ToList();
             if (printOption.HasFlag(PrintOption.Json))
             {
                 JsonPrinter.PrintAggregateJson(ag.Songs.Where(s => s.IsPending));
@@ -353,7 +353,7 @@ public static class Printing
         if (songs.Count > 0)
         {
             var existing = songs.Where(IsAlreadyExistingPlannedJob).ToList();
-            var notFound = songs.Where(s => s.FailureReason == JobFailureReason.NoSuitableFileFound).ToList();
+            var notFound = songs.Where(s => IsNotFoundFailure(s.FailureReason)).ToList();
             PrintTracksTbd(songs.Where(s => s.IsPending).ToList(), existing, notFound, true, config.PrintOption);
         }
 
@@ -447,7 +447,10 @@ public static class Printing
 
     private static bool IsNotFoundPlannedJob(Job job)
         => job.TerminalOutcome == JobTerminalOutcome.Skipped && job.SkipReason == JobSkipReason.NotFoundLastTime
-        || job.FailureReason == JobFailureReason.NoSuitableFileFound;
+        || IsNotFoundFailure(job.FailureReason);
+
+    private static bool IsNotFoundFailure(JobFailureReason reason)
+        => reason is JobFailureReason.NoSearchResults or JobFailureReason.NoMatchingResults;
 
     private static string? GetPlannedJobDownloadPath(Job job)
         => job switch

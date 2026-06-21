@@ -70,7 +70,7 @@ namespace Tests.Playlist
 
             var agg = new AggregateJob(new SongQuery { Artist = "Artist", Title = "Title" });
             var variant1 = new SongJob(new SongQuery { Artist = "Artist", Title = "Title" });
-            variant1.Fail(JobFailureReason.NoSuitableFileFound);
+            variant1.Fail(JobFailureReason.NoMatchingResults);
             var variant2 = new SongJob(new SongQuery { Artist = "Artist", Title = "Title (Remix)" });
             variant2.SetDone();
             variant2.DownloadPath = "Artist/Title (Remix).mp3";

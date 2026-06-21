@@ -345,7 +345,7 @@ namespace Tests.EndToEnd
                 firstRun.CompleteEnqueue();
                 await firstRun.RunAsync(CancellationToken.None);
                 Assert.IsTrue(missingAlbum.IsUnsuccessfulTerminal);
-                Assert.AreEqual(JobFailureReason.NoSuitableFileFound, missingAlbum.FailureReason);
+                Assert.AreEqual(JobFailureReason.NoSearchResults, missingAlbum.FailureReason);
 
                 var aggregateSettings = new DownloadSettings();
                 aggregateSettings.Extraction.Input = "artist=Artist";

@@ -714,7 +714,7 @@ public class CliEndToEndTests
                 string.Join("\n", indexLines));
             Assert.IsTrue(indexLines.Any(line => line.Contains("Mitski,Be the Cowboy,,-1,1,1,0")),
                 string.Join("\n", indexLines));
-            Assert.IsTrue(indexLines.Any(line => line == ",Talking Heads,Remain in Light,,-1,1,2,3"),
+            Assert.IsTrue(indexLines.Any(line => line == $",Talking Heads,Remain in Light,,-1,1,2,{(int)JobFailureReason.NoSearchResults}"),
                 string.Join("\n", indexLines));
         }
         finally

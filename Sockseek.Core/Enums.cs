@@ -86,12 +86,13 @@ namespace Sockseek.Core;
         None = 0,
         InvalidSearchString = 1,
         OutOfDownloadRetries = 2,
-        NoSuitableFileFound = 3,
         AllDownloadsFailed = 4,
         Other = 5,
         ExtractionFailed = 6,
         Cancelled = 7,
         ChildJobsFailed = 8,
+        NoSearchResults = 9,
+        NoMatchingResults = 10,
     }
 
     public enum SkipMode

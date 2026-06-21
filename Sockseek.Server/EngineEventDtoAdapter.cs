@@ -85,7 +85,7 @@ public sealed class EngineEventDtoAdapter
                 publish("job.status", new JobStatusEventDto(getSummary(job), "running"));
                 var pending   = ag.Songs.Where(s => s.IsPending).ToList();
                 var existing  = ag.Songs.Where(s => s.TerminalOutcome == JobTerminalOutcome.Skipped && s.SkipReason == JobSkipReason.AlreadyExists).ToList();
-                var notFound  = ag.Songs.Where(s => s.FailureReason == JobFailureReason.NoSuitableFileFound).ToList();
+                var notFound  = ag.Songs.Where(s => IsNotFoundFailure(s.FailureReason)).ToList();
                 publish("track-batch.resolved", new TrackBatchResolvedEventDto(
                     getSummary(job),
                     false,
@@ -181,6 +181,9 @@ public sealed class EngineEventDtoAdapter
         int effectiveLimit = needsFullRows ? int.MaxValue : limit;
         return songs.Take(effectiveLimit).Select(ToSongJobPayloadDto);
     }
+
+    private static bool IsNotFoundFailure(JobFailureReason reason)
+        => reason is JobFailureReason.NoSearchResults or JobFailureReason.NoMatchingResults;
 
     public static SongQueryDto ToSongQueryDto(SongQuery query)
         => new(Optional(query.Artist), Optional(query.Title), Optional(query.Album), Optional(query.URI), Optional(query.Length), query.ArtistMaybeWrong);

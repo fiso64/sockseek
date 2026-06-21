@@ -8,11 +8,12 @@ public static class ServerFailureReasonDisplay
             null or ServerJobFailureReason.None => "",
             ServerJobFailureReason.InvalidSearchString => "Invalid search string",
             ServerJobFailureReason.OutOfDownloadRetries => "Out of download retries",
-            ServerJobFailureReason.NoSuitableFileFound => "No suitable file found",
             ServerJobFailureReason.AllDownloadsFailed => "All downloads failed",
             ServerJobFailureReason.ExtractionFailed => "Extraction failed",
             ServerJobFailureReason.Cancelled => "Cancelled",
             ServerJobFailureReason.ChildJobsFailed => "Child jobs failed",
+            ServerJobFailureReason.NoSearchResults => "No search results",
+            ServerJobFailureReason.NoMatchingResults => "No matching results",
             ServerJobFailureReason.Other => "Unknown error",
             _ => "",
         };

@@ -502,7 +502,7 @@ public class CliProgressReporterTests
     [TestMethod]
     public void TerminalLiveRenderer_WrapsWideUnicodeByCellWidth()
     {
-        var text = "failed [No suitable file found]: サン";
+        var text = "failed [No matching results]: サン";
 
         Assert.IsTrue(TerminalLiveRenderer.CellCount(text) > text.Length,
             "Japanese kana should count wider than one terminal cell per UTF-16 char.");
@@ -1660,7 +1660,7 @@ public class CliProgressReporterTests
         var first = CompletedAlbum("Artist One", "Album One", 8);
         var second = CompletedAlbum("Artist Two", "Album Two", 12);
         var failed = new AlbumJob(new AlbumQuery { Artist = "Artist Three", Album = "Album Three" });
-        failed.Fail(JobFailureReason.NoSuitableFileFound);
+        failed.Fail(JobFailureReason.NoMatchingResults);
 
         var queue = new JobList("root", [first, second, failed]);
 

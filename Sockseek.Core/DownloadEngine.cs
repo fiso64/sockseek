@@ -219,7 +219,7 @@ public class DownloadEngine
             return true;
         }
 
-        job.Fail(JobFailureReason.NoSuitableFileFound);
+        job.Fail(JobFailureReason.NoMatchingResults);
         await FlushManualSelectionTerminalEffectsAsync(job);
         return true;
     }
@@ -734,7 +734,7 @@ public class DownloadEngine
 
         if (selectedAlbums.Count == 0)
         {
-            aggregateJob.Fail(JobFailureReason.NoSuitableFileFound);
+            aggregateJob.Fail(JobFailureReason.NoMatchingResults);
             await FlushManualSelectionTerminalEffectsAsync(aggregateJob);
             return;
         }
@@ -745,7 +745,7 @@ public class DownloadEngine
         if (selectedAlbums.All(IsSuccessfulTerminal))
             aggregateJob.SetDone();
         else
-            aggregateJob.Fail(JobFailureReason.NoSuitableFileFound);
+            aggregateJob.Fail(JobFailureReason.NoMatchingResults);
 
         await FlushManualSelectionTerminalEffectsAsync(aggregateJob);
     }
@@ -1112,6 +1112,27 @@ public class DownloadEngine
             SockseekLog.ExceptionSummary(exception),
             SockseekLog.ExceptionDetail(exception));
 
+    static JobOutcome NoMatchingDiscoveryOutcome(
+        ResponseData responseData,
+        string rawResultSingular,
+        string rawResultPlural,
+        string candidatePlural)
+    {
+        if (responseData.resultCount <= 0)
+            return JobOutcome.Failed(JobFailureReason.NoSearchResults, $"No Soulseek {rawResultPlural} found.");
+
+        var rawResultNoun = responseData.resultCount == 1 ? rawResultSingular : rawResultPlural;
+        return JobOutcome.Failed(
+            JobFailureReason.NoMatchingResults,
+            $"{responseData.resultCount} Soulseek {rawResultNoun} found, but no matching {candidatePlural} satisfied the required conditions.");
+    }
+
+    static JobOutcome NoMatchingCandidatesOutcome()
+        => JobOutcome.Failed(JobFailureReason.NoMatchingResults);
+
+    static bool IsNotFoundFailure(JobFailureReason reason)
+        => reason is JobFailureReason.NoSearchResults or JobFailureReason.NoMatchingResults;
+
     async Task<JobOutcome> ProcessSearchJob(SearchJob job, CancellationToken parentToken)
     {
         var responseData = new ResponseData();
@@ -1210,14 +1231,15 @@ public class DownloadEngine
 
         if (config.PrintResults)
         {
+            var printResponseData = new ResponseData();
             var searchFailure = await TrySearchWithReconnect(job, parentToken,
-                () => searcher!.SearchSong(job, config.Search, new ResponseData(), job.Cts!.Token));
+                () => searcher!.SearchSong(job, config.Search, printResponseData, job.Cts!.Token));
             if (searchFailure != null)
                 return searchFailure;
 
             var outcome = job.Candidates?.Count > 0
                 ? JobOutcome.Done()
-                : JobOutcome.Failed(JobFailureReason.NoSuitableFileFound);
+                : NoMatchingDiscoveryOutcome(printResponseData, "file result", "file results", "song candidates");
             CommitOutcome(job, outcome);
             return outcome;
         }
@@ -1242,7 +1264,7 @@ public class DownloadEngine
 
         var manualOutcome = job.Candidates?.Count > 0
             ? JobOutcome.AwaitingSelection()
-            : JobOutcome.Failed(JobFailureReason.NoSuitableFileFound);
+            : NoMatchingDiscoveryOutcome(responseData, "file result", "file results", "song candidates");
         CommitOutcome(job, manualOutcome);
         return manualOutcome;
     }
@@ -1297,7 +1319,7 @@ public class DownloadEngine
 
         if (!foundSomething)
         {
-            var outcome = JobOutcome.Failed(JobFailureReason.NoSuitableFileFound);
+            var outcome = NoMatchingDiscoveryOutcome(responseData, "file result", "file results", "album folders");
             await RunOnCompleteIfApplicable(job, null, Ctx(job), outcome);
             CommitOutcome(job, outcome);
 
@@ -1353,7 +1375,7 @@ public class DownloadEngine
 
         if (!foundSomething)
         {
-            var outcome = JobOutcome.Failed(JobFailureReason.NoSuitableFileFound);
+            var outcome = NoMatchingDiscoveryOutcome(responseData, "file result", "file results", "aggregate track candidates");
             CommitOutcome(job, outcome);
 
             if (!config.PrintResults)
@@ -1422,7 +1444,7 @@ public class DownloadEngine
 
         if (!foundSomething)
         {
-            var outcome = JobOutcome.Failed(JobFailureReason.NoSuitableFileFound);
+            var outcome = NoMatchingDiscoveryOutcome(responseData, "file result", "file results", "album aggregate candidates");
             CommitOutcome(job, outcome);
             return outcome;
         }
@@ -1700,7 +1722,7 @@ public class DownloadEngine
         }
         else
         {
-            outcome = JobOutcome.Failed(JobFailureReason.NoSuitableFileFound);
+            outcome = NoMatchingCandidatesOutcome();
         }
 
         return new(outcome, chosenFiles);
@@ -1803,7 +1825,7 @@ public class DownloadEngine
 
         return fallbackOutcome.TerminalOutcome == JobTerminalOutcome.Failed
             ? fallbackOutcome
-            : JobOutcome.Failed(JobFailureReason.NoSuitableFileFound);
+            : NoMatchingCandidatesOutcome();
     }
 
     sealed record AlbumDownloadCompletion(JobOutcome Outcome, List<SongJob>? ChosenFiles);
@@ -1908,13 +1930,13 @@ public class DownloadEngine
                     {
                         SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: album track count verification was cancelled, skipping folder: {chosenFolder.FolderPath}");
                         if (wasPreselected)
-                            return ReturnSelectedFolderToManualPicker(chosenFolder, JobFailureReason.NoSuitableFileFound);
+                            return ReturnSelectedFolderToManualPicker(chosenFolder, JobFailureReason.NoMatchingResults);
 
                         job.Results.RemoveAt(index);
                         if (--albumTrackCountRetries <= 0)
                         {
                             SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: failed album track count condition {config.Transfer.AlbumTrackCountMaxRetries} times, skipping album: {job}");
-                            return new(false, JobOutcome.Failed(JobFailureReason.NoSuitableFileFound), null, lastChosenFolder);
+                            return new(false, NoMatchingCandidatesOutcome(), null, lastChosenFolder);
                         }
                         continue;
                     }
@@ -1932,14 +1954,14 @@ public class DownloadEngine
                     if (wasPreselected)
                     {
                         SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: preselected folder failed album track count condition, skipping album: {chosenFolder.FolderPath}");
-                        return ReturnSelectedFolderToManualPicker(chosenFolder, JobFailureReason.NoSuitableFileFound);
+                        return ReturnSelectedFolderToManualPicker(chosenFolder, JobFailureReason.NoMatchingResults);
                     }
 
                     job.Results.RemoveAt(index);
                     if (--albumTrackCountRetries <= 0)
                     {
                         SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: failed album track count condition {config.Transfer.AlbumTrackCountMaxRetries} times, skipping album: {job}");
-                        return new(false, JobOutcome.Failed(JobFailureReason.NoSuitableFileFound), null, lastChosenFolder);
+                        return new(false, NoMatchingCandidatesOutcome(), null, lastChosenFolder);
                     }
                     continue;
                 }
@@ -1958,7 +1980,7 @@ public class DownloadEngine
                     {
                         SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: strict album quality verification was cancelled, skipping folder: {chosenFolder.FolderPath}");
                         if (wasPreselected)
-                            return ReturnSelectedFolderToManualPicker(chosenFolder, JobFailureReason.NoSuitableFileFound);
+                            return ReturnSelectedFolderToManualPicker(chosenFolder, JobFailureReason.NoMatchingResults);
 
                         job.Results.RemoveAt(index);
                         continue;
@@ -1970,7 +1992,7 @@ public class DownloadEngine
                 {
                     SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: strict album quality failed ({qualityCoverage.MatchingFileCount}/{qualityCoverage.AudioFileCount} matching audio files), skipping folder: {chosenFolder.FolderPath}");
                     if (wasPreselected)
-                        return ReturnSelectedFolderToManualPicker(chosenFolder, JobFailureReason.NoSuitableFileFound);
+                        return ReturnSelectedFolderToManualPicker(chosenFolder, JobFailureReason.NoMatchingResults);
 
                     job.Results.RemoveAt(index);
                     continue;
@@ -2314,6 +2336,7 @@ public class DownloadEngine
         FileManager organizer, CancellationTokenSource cts)
     {
         var responseData = new ResponseData();
+        bool searched = false;
 
         // Skip search if candidates are pre-set (ResolvedTarget / direct download).
         if (song.Candidates == null)
@@ -2321,6 +2344,7 @@ public class DownloadEngine
 
             if (!config.Search.FastSearch)
             {
+                searched = true;
                 await searcher!.SearchSong(song, config.Search, responseData, cts.Token);
             }
             else
@@ -2333,6 +2357,7 @@ public class DownloadEngine
 
                 Task<FileDownloadOutcome?>? fastDownloadTask = null;
 
+                searched = true;
                 var searchTask = searcher!.SearchSong(song, config.Search, responseData, searchCts.Token,
                     onFastSearchCandidate: fc =>
                     {
@@ -2405,7 +2430,9 @@ public class DownloadEngine
         if (candidates == null || candidates.Count == 0)
         {
             SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: no suitable candidates after search: {song}");
-            return JobOutcome.Failed(JobFailureReason.NoSuitableFileFound);
+            return searched
+                ? NoMatchingDiscoveryOutcome(responseData, "file result", "file results", "song candidates")
+                : NoMatchingCandidatesOutcome();
         }
 
         // Try candidates in order until one succeeds.
@@ -2470,7 +2497,7 @@ public class DownloadEngine
                 JobFailureReason.AllDownloadsFailed,
                 lastDownloadFailureMessage ?? DownloadFailureMessage(lastDownloadException));
 
-        return JobOutcome.Failed(JobFailureReason.NoSuitableFileFound);
+        return NoMatchingCandidatesOutcome();
     }
 
     static InitialDownloadTarget GetInitialDownloadTarget(
@@ -2699,9 +2726,9 @@ public class DownloadEngine
         if (indexEditor == null) return false;
         var prev = indexEditor.PreviousRunResult(song);
         if (prev == null) return false;
-        if (prev.FailureReason == JobFailureReason.NoSuitableFileFound || prev.State == JobStateOld.NotFoundLastTime)
+        if (IsNotFoundFailure(prev.FailureReason) || prev.State == JobStateOld.NotFoundLastTime)
         {
-            song.SetSkipped(JobSkipReason.NotFoundLastTime, JobFailureReason.NoSuitableFileFound);
+            song.SetSkipped(JobSkipReason.NotFoundLastTime, NotFoundFailureReasonOrDefault(prev.FailureReason));
             SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: skipped because prior index entry was {prev.State}/{prev.FailureReason}: {song}");
             return true;
         }
@@ -2720,9 +2747,9 @@ public class DownloadEngine
             prev = jobCtx.IndexEditor.PreviousRunResult(aj);
 
         if (prev == null) return false;
-        if (prev.FailureReason == JobFailureReason.NoSuitableFileFound || prev.State == JobStateOld.NotFoundLastTime)
+        if (IsNotFoundFailure(prev.FailureReason) || prev.State == JobStateOld.NotFoundLastTime)
         {
-            job.SetSkipped(JobSkipReason.NotFoundLastTime, JobFailureReason.NoSuitableFileFound);
+            job.SetSkipped(JobSkipReason.NotFoundLastTime, NotFoundFailureReasonOrDefault(prev.FailureReason));
             SockseekLog.Jobs.Debug($"[{job.DisplayId}] {JobLogKind(job)}: skipped because prior index entry was {prev.State}/{prev.FailureReason}: {job}");
             return true;
         }
@@ -2741,12 +2768,15 @@ public class DownloadEngine
             prev = jobCtx.IndexEditor.PreviousRunResult(aj);
 
         if (prev == null) return null;
-        if (prev.FailureReason != JobFailureReason.NoSuitableFileFound && prev.State != JobStateOld.NotFoundLastTime)
+        if (!IsNotFoundFailure(prev.FailureReason) && prev.State != JobStateOld.NotFoundLastTime)
             return null;
 
         SockseekLog.Jobs.Debug($"[{job.DisplayId}] {JobLogKind(job)}: skipped because prior index entry was {prev.State}/{prev.FailureReason}: {job}");
-        return JobOutcome.Skipped(JobSkipReason.NotFoundLastTime, JobFailureReason.NoSuitableFileFound);
+        return JobOutcome.Skipped(JobSkipReason.NotFoundLastTime, NotFoundFailureReasonOrDefault(prev.FailureReason));
     }
+
+    static JobFailureReason NotFoundFailureReasonOrDefault(JobFailureReason reason)
+        => IsNotFoundFailure(reason) ? reason : JobFailureReason.NoMatchingResults;
 
 
     // ── album failure handling ────────────────────────────────────────────────

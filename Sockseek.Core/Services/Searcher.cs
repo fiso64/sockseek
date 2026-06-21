@@ -69,6 +69,7 @@ public partial class Searcher
             finally { concurrencySemaphore.Release(); }
 
             activityJob.UpdateActivity(JobActivityPhase.ProcessingSearchResults);
+            responseData.resultCount = session.Results.Count;
             responseData.lockedFilesCount += session.LockedFileCount;
             job.Discovery = new DiscoverySummary { ResultCount = session.Results.Count, LockedFileCount = session.LockedFileCount };
             session.Complete();
@@ -143,6 +144,7 @@ public partial class Searcher
         responseData.lockedFilesCount += session.LockedFileCount;
 
         song.Discovery ??= new DiscoverySummary();
+        responseData.resultCount = session.Results.Count;
         song.Discovery.ResultCount = session.Results.Count;
 
         SockseekLog.Soulseek.Debug($"{session.Results.Count} results found: {song}");
@@ -198,6 +200,7 @@ public partial class Searcher
         finally { concurrencySemaphore.Release(); }
 
         responseData.lockedFilesCount += session.LockedFileCount;
+        responseData.resultCount = session.Results.Count;
         job.UpdateActivity(JobActivityPhase.ProcessingSearchResults);
         job.Songs = SearchResultProjector.AggregateTracks(session.Snapshot(), job.Query, search, userStats.UserSuccessCounts);
         return null;

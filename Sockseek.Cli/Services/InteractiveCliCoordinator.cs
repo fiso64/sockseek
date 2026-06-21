@@ -135,7 +135,7 @@ internal sealed class InteractiveCliCoordinator
         if (folders.Count == 0)
         {
             if (ConsoleInputManager.Reporter != null)
-                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumJob", search.QueryText, "No suitable file found");
+                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumJob", search.QueryText, "No matching results");
             return;
         }
 
@@ -165,7 +165,7 @@ internal sealed class InteractiveCliCoordinator
         if (folders.Count == 0)
         {
             if (ConsoleInputManager.Reporter != null)
-                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumJob", detail.Summary.QueryText ?? "", "No suitable file found");
+                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumJob", detail.Summary.QueryText ?? "", "No matching results");
             await backend.CompleteManualSelectionAsync(albumJobId, ct);
             return;
         }
@@ -228,7 +228,7 @@ internal sealed class InteractiveCliCoordinator
         if (buckets.Count == 0)
         {
             if (ConsoleInputManager.Reporter != null)
-                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumAggregateJob", detail.Summary.QueryText ?? "", "No suitable file found");
+                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumAggregateJob", detail.Summary.QueryText ?? "", "No matching results");
             await backend.CompleteManualSelectionAsync(albumAggregateJobId, ct);
             return;
         }

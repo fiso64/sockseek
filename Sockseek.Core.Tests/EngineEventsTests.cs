@@ -1161,7 +1161,7 @@ namespace Tests.Eventing
             await engine.RunAsync(CancellationToken.None);
 
             Assert.IsTrue(failedFired, "JobStateChanged should fire for a failed terminal outcome.");
-            Assert.AreEqual(JobFailureReason.NoSuitableFileFound, capturedReason, 
+            Assert.AreEqual(JobFailureReason.NoSearchResults, capturedReason, 
                 "FailureReason must be populated BEFORE the JobStateChanged event is fired for not found items.");
         }
 

@@ -114,7 +114,7 @@ namespace Tests.TrackSkipperTests
         public void IndexSkipper_FailedTrack_ReturnsFalse()
         {
             var original = new SongJob(new SongQuery { Artist = "Artist2", Title = "Title2" });
-            original.Fail(JobFailureReason.NoSuitableFileFound);
+            original.Fail(JobFailureReason.NoMatchingResults);
             var editor = CreateEditorWithSong(original);
 
             var skipper = new IndexSkipper();

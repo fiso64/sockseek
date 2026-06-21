@@ -3,7 +3,7 @@
   "info": {
     "title": "Sockseek daemon API",
     "description": "HTTP API for the Sockseek daemon.",
-    "version": "3.0.0-dev.14"
+    "version": "3.0.0-dev.15"
   },
   "paths": {
     "/api/server/info": {
@@ -4464,12 +4464,13 @@
           "None",
           "InvalidSearchString",
           "OutOfDownloadRetries",
-          "NoSuitableFileFound",
           "AllDownloadsFailed",
           "Other",
           "ExtractionFailed",
           "Cancelled",
           "ChildJobsFailed",
+          "NoSearchResults",
+          "NoMatchingResults",
           null
         ]
       },
