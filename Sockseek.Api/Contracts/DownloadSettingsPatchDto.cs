@@ -58,6 +58,7 @@ public sealed record SearchSettingsPatchDto(
     bool? RemoveSingleCharSearchTerms = null,
     bool? NoBrowseFolder = null,
     bool? Relax = null,
+    bool? StrictAlbumQuality = null,
     bool? ArtistMaybeWrong = null,
     bool? IsAggregate = null,
     int? MinSharesAggregate = null,
@@ -232,6 +233,7 @@ public static class DownloadSettingsPatchDtoMapper
         if (patch.RemoveSingleCharSearchTerms is { } removeSingleCharSearchTerms) target.RemoveSingleCharSearchTerms = removeSingleCharSearchTerms;
         if (patch.NoBrowseFolder is { } noBrowseFolder) target.NoBrowseFolder = noBrowseFolder;
         if (patch.Relax is { } relax) target.Relax = relax;
+        if (patch.StrictAlbumQuality is { } strictAlbumQuality) target.StrictAlbumQuality = strictAlbumQuality;
         if (patch.ArtistMaybeWrong is { } artistMaybeWrong) target.ArtistMaybeWrong = artistMaybeWrong;
         if (patch.IsAggregate is { } isAggregate) target.IsAggregate = isAggregate;
         if (patch.MinSharesAggregate is { } minSharesAggregate) target.MinSharesAggregate = minSharesAggregate;
@@ -431,6 +433,7 @@ public static class DownloadSettingsPatchDtoMapper
                 case "Search.RemoveSingleCharSearchTerms": Search.RemoveSingleCharSearchTerms = Bool(op); break;
                 case "Search.NoBrowseFolder": Search.NoBrowseFolder = Bool(op); break;
                 case "Search.Relax": Search.Relax = Bool(op); break;
+                case "Search.StrictAlbumQuality": Search.StrictAlbumQuality = Bool(op); break;
                 case "Search.ArtistMaybeWrong": Search.ArtistMaybeWrong = Bool(op); break;
                 case "Search.IsAggregate": Search.IsAggregate = Bool(op); break;
                 case "Search.MinSharesAggregate": Search.MinSharesAggregate = Int(op); break;
@@ -602,8 +605,8 @@ public static class DownloadSettingsPatchDtoMapper
         public FolderConditionsBuilder PreferredFolderCond { get; } = new();
         public int? SearchTimeout, MaxStaleTime, DownrankOn, IgnoreOn, FastSearchDelay, MinSharesAggregate, AggregateLengthTol;
         public double? FastSearchMinUpSpeed;
-        public bool? FastSearch, DesperateSearch, NoRemoveSpecialChars, RemoveSingleCharSearchTerms, NoBrowseFolder, Relax, ArtistMaybeWrong, IsAggregate;
-        public SearchSettingsPatchDto Build() => new(NecessaryCond.Build(), PreferredCond.Build(), NecessaryFolderCond.Build(), PreferredFolderCond.Build(), SearchTimeout, MaxStaleTime, DownrankOn, IgnoreOn, FastSearch, FastSearchDelay, FastSearchMinUpSpeed, DesperateSearch, NoRemoveSpecialChars, RemoveSingleCharSearchTerms, NoBrowseFolder, Relax, ArtistMaybeWrong, IsAggregate, MinSharesAggregate, AggregateLengthTol);
+        public bool? FastSearch, DesperateSearch, NoRemoveSpecialChars, RemoveSingleCharSearchTerms, NoBrowseFolder, Relax, StrictAlbumQuality, ArtistMaybeWrong, IsAggregate;
+        public SearchSettingsPatchDto Build() => new(NecessaryCond.Build(), PreferredCond.Build(), NecessaryFolderCond.Build(), PreferredFolderCond.Build(), SearchTimeout, MaxStaleTime, DownrankOn, IgnoreOn, FastSearch, FastSearchDelay, FastSearchMinUpSpeed, DesperateSearch, NoRemoveSpecialChars, RemoveSingleCharSearchTerms, NoBrowseFolder, Relax, StrictAlbumQuality, ArtistMaybeWrong, IsAggregate, MinSharesAggregate, AggregateLengthTol);
     }
 
     private sealed class FileConditionsBuilder

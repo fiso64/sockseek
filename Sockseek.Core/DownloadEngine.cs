@@ -1823,6 +1823,8 @@ public class DownloadEngine
         int index = 0;
         int tried = 0;
         int albumTrackCountRetries = config.Transfer.AlbumTrackCountMaxRetries;
+        var activeQuality = AlbumQualityPolicy.ActiveConditions(config.Search.NecessaryCond);
+        bool verifyStrictAlbumQuality = config.Search.StrictAlbumQuality && activeQuality.IsActive;
         AlbumFolder? lastChosenFolder = null;
 
         async Task RunAlbumDownloads(AlbumFolder folder, CancellationTokenSource cts)
@@ -1939,6 +1941,38 @@ public class DownloadEngine
                         SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: failed album track count condition {config.Transfer.AlbumTrackCountMaxRetries} times, skipping album: {job}");
                         return new(false, JobOutcome.Failed(JobFailureReason.NoSuitableFileFound), null, lastChosenFolder);
                     }
+                    continue;
+                }
+            }
+
+            if (verifyStrictAlbumQuality)
+            {
+                if (!chosenFolder.IsFullyRetrieved && retrieveCurrent && !retrievedFolders.Contains(chosenFolder.FolderPath))
+                {
+                    var retrieval = await ProcessFolderRetrieval(chosenFolder, job,
+                        "Verifying strict album quality.\n    Retrieving full folder contents...",
+                        consumeJobSlot: false);
+                    if (retrieval.RetrievalCompleted)
+                        retrievedFolders.Add(chosenFolder.FolderPath);
+                    else
+                    {
+                        SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: strict album quality verification was cancelled, skipping folder: {chosenFolder.FolderPath}");
+                        if (wasPreselected)
+                            return ReturnSelectedFolderToManualPicker(chosenFolder, JobFailureReason.NoSuitableFileFound);
+
+                        job.Results.RemoveAt(index);
+                        continue;
+                    }
+                }
+
+                var qualityCoverage = AlbumQualityPolicy.Evaluate(chosenFolder, config.Search.NecessaryCond, activeQuality);
+                if (!qualityCoverage.IsAcceptable(strict: true))
+                {
+                    SockseekLog.Jobs.Info($"[{job.DisplayId}] AlbumJob: strict album quality failed ({qualityCoverage.MatchingFileCount}/{qualityCoverage.AudioFileCount} matching audio files), skipping folder: {chosenFolder.FolderPath}");
+                    if (wasPreselected)
+                        return ReturnSelectedFolderToManualPicker(chosenFolder, JobFailureReason.NoSuitableFileFound);
+
+                    job.Results.RemoveAt(index);
                     continue;
                 }
             }

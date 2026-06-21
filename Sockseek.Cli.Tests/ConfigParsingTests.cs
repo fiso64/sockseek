@@ -218,6 +218,17 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
+        public void StrictAlbumQuality_Flag_IsIncludedInRemoteDownloadSettingsPatch()
+        {
+            var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--strict-album-quality"]);
+            var config = new DownloadSettings();
+
+            DownloadSettingsPatchDtoMapper.ApplyTo(config, patch);
+
+            Assert.IsTrue(config.Search.StrictAlbumQuality);
+        }
+
+        [TestMethod]
         public void IncompleteAlbumAction_Flag_IsIncludedInRemoteDownloadSettingsPatch()
         {
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--incomplete-album-action", "move:failed-target"]);

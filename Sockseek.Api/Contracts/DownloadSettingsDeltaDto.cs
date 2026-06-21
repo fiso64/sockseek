@@ -117,6 +117,7 @@ public static class DownloadSettingsDeltaMapper
             case "Search.RemoveSingleCharSearchTerms": settings.Search.RemoveSingleCharSearchTerms = Bool(op); break;
             case "Search.NoBrowseFolder": settings.Search.NoBrowseFolder = Bool(op); break;
             case "Search.Relax": settings.Search.Relax = Bool(op); break;
+            case "Search.StrictAlbumQuality": settings.Search.StrictAlbumQuality = Bool(op); break;
             case "Search.ArtistMaybeWrong": settings.Search.ArtistMaybeWrong = Bool(op); break;
             case "Search.IsAggregate": settings.Search.IsAggregate = Bool(op); break;
             case "Search.MinSharesAggregate": settings.Search.MinSharesAggregate = Int(op); break;
@@ -252,6 +253,7 @@ public static class DownloadSettingsDeltaMapper
         AddBoolDiff(operations, "Search.RemoveSingleCharSearchTerms", before.RemoveSingleCharSearchTerms, after.RemoveSingleCharSearchTerms);
         AddBoolDiff(operations, "Search.NoBrowseFolder", before.NoBrowseFolder, after.NoBrowseFolder);
         AddBoolDiff(operations, "Search.Relax", before.Relax, after.Relax);
+        AddBoolDiff(operations, "Search.StrictAlbumQuality", before.StrictAlbumQuality, after.StrictAlbumQuality);
         AddBoolDiff(operations, "Search.ArtistMaybeWrong", before.ArtistMaybeWrong, after.ArtistMaybeWrong);
         AddBoolDiff(operations, "Search.IsAggregate", before.IsAggregate, after.IsAggregate);
         AddIntDiff(operations, "Search.MinSharesAggregate", before.MinSharesAggregate, after.MinSharesAggregate);

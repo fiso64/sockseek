@@ -17,6 +17,7 @@ public sealed class IncrementalAlbumFolderProjector
     private readonly AlbumQuery query;
     private readonly SearchSettings search;
     private readonly SongQuery sortQuery;
+    private readonly FileConditions projectionCondition;
     private readonly FolderSortMode sortMode;
     private readonly IncrementalResultSorter? sorter;
     private readonly ResultSorter.SortKeyContext? aggregateSortKeyContext;
@@ -36,6 +37,7 @@ public sealed class IncrementalAlbumFolderProjector
         this.search = search;
         this.sortMode = sortMode;
         sortQuery = SearchResultProjector.AlbumFileMatchQuery(query);
+        projectionCondition = search.NecessaryCond.WithoutAudioQualityConditions();
         var successCounts = userSuccessCounts ?? new ConcurrentDictionary<string, int>();
         if (sortMode == FolderSortMode.AlbumRanked)
         {
@@ -43,6 +45,16 @@ public sealed class IncrementalAlbumFolderProjector
                 sortQuery,
                 search,
                 successCounts,
+                albumMode: true,
+                ignoreStringSortConditions: ignoreStringSortConditions);
+            aggregateSortKeyContext = ResultSorter.CreateSortKeyContext(
+                [],
+                sortQuery,
+                search,
+                successCounts,
+                useBracketCheck: false,
+                useInfer: false,
+                useLevenshtein: false,
                 albumMode: true,
                 ignoreStringSortConditions: ignoreStringSortConditions);
         }
@@ -87,9 +99,9 @@ public sealed class IncrementalAlbumFolderProjector
     // to qualify folders that contain a matching track, while still showing all files
     // from matching folders that were present in the search response.
     private bool ProjectionFilter((SearchResponse Response, SlFile File) result)
-        => search.NecessaryCond.UserSatisfies(result.Response)
+        => projectionCondition.UserSatisfies(result.Response)
             && (!Utils.IsMusicFile(result.File.Filename)
-                || search.NecessaryCond.FileSatisfies(result.File, sortQuery, result.Response));
+                || projectionCondition.FileSatisfies(result.File, sortQuery, result.Response));
 
     public AlbumFolderProjectionChanges AddRangeAndGetChanges(IEnumerable<(SearchResponse Response, SlFile File)> results)
     {
@@ -122,7 +134,9 @@ public sealed class IncrementalAlbumFolderProjector
             sorter!.OrderedResults(),
             query,
             search,
-            sorter.Count);
+            sorter.Count,
+            aggregateSortKeyContext,
+            useAlbumFolderQualityRanking: true);
     }
 
     public AlbumFolderProjectionChanges GetChanges()

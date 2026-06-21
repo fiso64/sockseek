@@ -79,31 +79,36 @@ public static partial class SearchResultProjector
         FolderSortMode sortMode = FolderSortMode.AlbumRanked)
     {
         var sortQuery = AlbumFileMatchQuery(query);
+        var projectionCondition = search.NecessaryCond.WithoutAudioQualityConditions();
         var filteredResults = rawResults
             .Where(result =>
-                search.NecessaryCond.UserSatisfies(result.Response)
+                projectionCondition.UserSatisfies(result.Response)
                 && (!Utils.IsMusicFile(result.File.Filename)
-                    || search.NecessaryCond.FileSatisfies(result.File, sortQuery, result.Response)))
+                    || projectionCondition.FileSatisfies(result.File, sortQuery, result.Response)))
             .ToList();
 
         int capacity = filteredResults.Count;
         if (sortMode == FolderSortMode.AlbumRanked)
         {
-            var orderedResults = ResultSorter.OrderedResults(
-                    filteredResults.Select(x => (x.Response, x.File)),
-                    sortQuery,
-                    search,
-                    userSuccessCounts ?? new ConcurrentDictionary<string, int>(),
-                    useInfer: false,
-                    useLevenshtein: false,
-                    albumMode: true,
-                    ignoreStringSortConditions: ignoreStringSortConditions);
+            var successCounts = userSuccessCounts ?? new ConcurrentDictionary<string, int>();
+            var rankedSortKeyContext = ResultSorter.CreateSortKeyContext(
+                [],
+                sortQuery,
+                search,
+                successCounts,
+                useBracketCheck: false,
+                useInfer: false,
+                useLevenshtein: false,
+                albumMode: true,
+                ignoreStringSortConditions: ignoreStringSortConditions);
 
-            return AlbumFoldersFromOrderedResults(
-                orderedResults.Select(x => (x.response, x.file)),
+            return AlbumFoldersFromResults(
+                filteredResults,
                 query,
                 search,
-                capacity);
+                capacity,
+                aggregateSortKeyContext: rankedSortKeyContext,
+                useAlbumFolderQualityRanking: true);
         }
 
         var aggregateSortKeyContext = ResultSorter.CreateSortKeyContext(
@@ -129,8 +134,17 @@ public static partial class SearchResultProjector
         IEnumerable<(SearchResponse Response, Soulseek.File File)> orderedResults,
         AlbumQuery query,
         SearchSettings search,
-        int capacity = 0)
-        => AlbumFoldersFromResults(orderedResults, query, search, capacity, sortByResultOrder: true);
+        int capacity = 0,
+        ResultSorter.SortKeyContext? aggregateSortKeyContext = null,
+        bool useAlbumFolderQualityRanking = false)
+        => AlbumFoldersFromResults(
+            orderedResults,
+            query,
+            search,
+            capacity,
+            sortByResultOrder: true,
+            aggregateSortKeyContext: aggregateSortKeyContext,
+            useAlbumFolderQualityRanking: useAlbumFolderQualityRanking);
 
     internal static List<AlbumFolder> AlbumFoldersFromResults(
         IEnumerable<(SearchResponse Response, Soulseek.File File)> results,
@@ -138,7 +152,8 @@ public static partial class SearchResultProjector
         SearchSettings search,
         int capacity = 0,
         bool sortByResultOrder = false,
-        ResultSorter.SortKeyContext? aggregateSortKeyContext = null)
+        ResultSorter.SortKeyContext? aggregateSortKeyContext = null,
+        bool useAlbumFolderQualityRanking = false)
     {
         bool canMatchDisc = !DiscPatternRegex().IsMatch(query.Album) && !DiscPatternRegex().IsMatch(query.Artist);
         var dirStructure = capacity > 0
@@ -175,6 +190,14 @@ public static partial class SearchResultProjector
         }
 
         bool rankOrderMayChange = MergeChildDirectories(dirStructure);
+        var activeQuality = AlbumQualityPolicy.ActiveConditions(search.NecessaryCond);
+        foreach (var folder in dirStructure.Values)
+        {
+            if (activeQuality.IsActive)
+                folder.RefreshQualityCoverage(search.NecessaryCond, activeQuality);
+            else
+                folder.RefreshInactiveQualityCoverage();
+        }
 
         int? min = search.NecessaryFolderCond.MinTrackCount;
         int? max = search.NecessaryFolderCond.MaxTrackCount;
@@ -184,22 +207,30 @@ public static partial class SearchResultProjector
         var inferDefault = new SongQuery { Artist = query.Artist, Album = query.Album };
 
         IEnumerable<AlbumFolderBuilder> orderedFolders;
-        if (!sortByResultOrder)
+        IEnumerable<AlbumFolderBuilder> candidateFolders = dirStructure.Values;
+        if (activeQuality.IsActive)
+            candidateFolders = candidateFolders.Where(folder => folder.QualityCoverage.IsAcceptable(search.StrictAlbumQuality));
+
+        if (useAlbumFolderQualityRanking)
         {
-            orderedFolders = dirStructure.Values
+            orderedFolders = candidateFolders.Order(AlbumFolderBuilderComparer.Instance);
+        }
+        else if (!sortByResultOrder)
+        {
+            orderedFolders = candidateFolders
                 .OrderBy(x => x.Username, StringComparer.Ordinal)
                 .ThenBy(x => x.FolderPath, StringComparer.Ordinal);
         }
         else if (rankOrderMayChange)
         {
-            orderedFolders = dirStructure.Values
+            orderedFolders = candidateFolders
                 .OrderBy(x => x.FirstRank)
                 .ThenBy(x => x.Username, StringComparer.Ordinal)
                 .ThenBy(x => x.FolderPath, StringComparer.Ordinal);
         }
         else
         {
-            orderedFolders = dirStructure.Values;
+            orderedFolders = candidateFolders;
         }
 
         foreach (var folder in orderedFolders)
@@ -217,6 +248,9 @@ public static partial class SearchResultProjector
 
             if (!RequiredTrackTitlesSatisfy(search.NecessaryFolderCond.RequiredTrackTitles, folder.Files))
                 continue;
+            var qualityCoverage = folder.QualityCoverage;
+            if (!qualityCoverage.IsAcceptable(search.StrictAlbumQuality))
+                continue;
 
             folders.Add(new AlbumFolder(
                 folder.Username,
@@ -226,6 +260,7 @@ public static partial class SearchResultProjector
                 folder.MusicCount,
                 SortedAudioLengths(folder.Files),
                 RepresentativeAudioFilename(folder.Files),
+                qualityCoverage,
                 folder.AggregateSortEntry));
         }
 
@@ -502,6 +537,7 @@ public static partial class SearchResultProjector
         public List<AlbumFolderFile> Files { get; }
         public int FirstRank { get; private set; }
         public int MusicCount { get; private set; }
+        public AlbumAudioQualityCoverage QualityCoverage { get; private set; }
         public ResultSorter.SortEntry? AggregateSortEntry { get; private set; }
 
         public AlbumFolderBuilder(
@@ -516,11 +552,21 @@ public static partial class SearchResultProjector
             Files = [file];
             FirstRank = firstRank;
             MusicCount = file.IsMusic ? 1 : 0;
+            QualityCoverage = AlbumAudioQualityCoverage.Inactive(MusicCount);
             AggregateSortEntry = aggregateSortEntry;
         }
 
         public void AddRank(int rank)
             => FirstRank = Math.Min(FirstRank, rank);
+
+        public void RefreshQualityCoverage(FileConditions conditions, ActiveAudioQualityConditions activeQuality)
+            => QualityCoverage = AlbumQualityPolicy.Evaluate(
+                Files.Where(file => file.IsMusic).Select(file => file.File),
+                conditions,
+                activeQuality);
+
+        public void RefreshInactiveQualityCoverage()
+            => QualityCoverage = AlbumAudioQualityCoverage.Inactive(MusicCount);
 
         public void AddAggregateSortEntry(ResultSorter.SortEntry? entry)
         {
@@ -546,6 +592,89 @@ public static partial class SearchResultProjector
             AddAggregateSortEntry(other.AggregateSortEntry);
             MusicCount += other.MusicCount;
         }
+    }
+
+    private sealed class AlbumFolderBuilderComparer : IComparer<AlbumFolderBuilder>
+    {
+        public static AlbumFolderBuilderComparer Instance { get; } = new();
+
+        private AlbumFolderBuilderComparer()
+        {
+        }
+
+        public int Compare(AlbumFolderBuilder? x, AlbumFolderBuilder? y)
+        {
+            if (ReferenceEquals(x, y))
+                return 0;
+            if (x == null)
+                return 1;
+            if (y == null)
+                return -1;
+
+            if (x.AggregateSortEntry.HasValue && y.AggregateSortEntry.HasValue)
+            {
+                int beforeQualityComparison = ResultSorter.AlbumBeforeQualitySortEntryComparer.Instance.Compare(
+                    x.AggregateSortEntry.Value,
+                    y.AggregateSortEntry.Value);
+                if (beforeQualityComparison != 0)
+                    return beforeQualityComparison;
+            }
+            else if (x.AggregateSortEntry.HasValue)
+            {
+                return -1;
+            }
+            else if (y.AggregateSortEntry.HasValue)
+            {
+                return 1;
+            }
+
+            // Match the file-sort key order, but lift each audio-quality key to
+            // folder-level coverage: identity/length first, then format, bitrate,
+            // sample rate, bit depth. This keeps high-quality unrelated folders
+            // from outranking the album we asked for, while still preferring e.g.
+            // 9/10 FLAC folders over 1/10 FLAC folders.
+            int comparison = CompareCoverageBuckets(x.QualityCoverage.Format, y.QualityCoverage.Format);
+            if (comparison != 0)
+                return comparison;
+            comparison = CompareCoverageBuckets(x.QualityCoverage.Bitrate, y.QualityCoverage.Bitrate);
+            if (comparison != 0)
+                return comparison;
+            comparison = CompareCoverageBuckets(x.QualityCoverage.SampleRate, y.QualityCoverage.SampleRate);
+            if (comparison != 0)
+                return comparison;
+            comparison = CompareCoverageBuckets(x.QualityCoverage.BitDepth, y.QualityCoverage.BitDepth);
+            if (comparison != 0)
+                return comparison;
+
+            if (x.AggregateSortEntry.HasValue && y.AggregateSortEntry.HasValue)
+            {
+                int aggregateComparison = ResultSorter.SortEntryComparer.Instance.Compare(
+                    x.AggregateSortEntry.Value,
+                    y.AggregateSortEntry.Value);
+                if (aggregateComparison != 0)
+                    return aggregateComparison;
+            }
+            else if (x.AggregateSortEntry.HasValue)
+            {
+                return -1;
+            }
+            else if (y.AggregateSortEntry.HasValue)
+            {
+                return 1;
+            }
+
+            int rankComparison = x.FirstRank.CompareTo(y.FirstRank);
+            if (rankComparison != 0)
+                return rankComparison;
+
+            int usernameComparison = string.Compare(x.Username, y.Username, StringComparison.Ordinal);
+            return usernameComparison != 0
+                ? usernameComparison
+                : string.Compare(x.FolderPath, y.FolderPath, StringComparison.Ordinal);
+        }
+
+        private static int CompareCoverageBuckets(AlbumQualityCoverageBucket x, AlbumQualityCoverageBucket y)
+            => y.Bucket.CompareTo(x.Bucket);
     }
 
     private readonly record struct AlbumFolderFile(SlResponse Response, SlFile File, bool IsMusic);

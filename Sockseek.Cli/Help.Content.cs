@@ -44,7 +44,6 @@ public static partial class Help
     --concurrent-jobs <num>         Max concurrent leaf jobs (default: 20)
     --concurrent-searches <num>     Max concurrent Soulseek searches (default: 2)
     --concurrent-extractors <num>   Max concurrent input extractors (default: 4)
-    --random-login                  Append a random suffix to the configured username
     --write-playlist                Create an m3u playlist file in the output directory
     --playlist-path <path>          Override default path for m3u playlist file
     --write-index                   Create/update the Sockseek index (default when using
@@ -211,6 +210,9 @@ public static partial class Help
                                     - for inequalities, e.g '5+' for five or more tracks.
                                     Spotify/Bandcamp inputs automatically set album-track-count
                                     to n+.
+    --strict-album-quality          Require every audio file in an album folder to satisfy required
+                                    quality conditions such as --format, bitrate, sample rate, and
+                                    bit depth. By default mixed-quality folders are ranked by coverage.
     --min-album-track-count <num>   Minimum number of tracks in an album folder
     --max-album-track-count <num>   Maximum number of tracks in an album folder
     --extract-max-track-count       Set maximum album track count from extracted sources
@@ -446,8 +448,15 @@ File conditions
   - prefer mp3 files with bitrate between 200 and 2500 kbps.
   Moreover, it will prefer files whose paths contain the supplied title and album. Changing the last
   two preferred conditions is not recommended.
-  Note that files satisfying only a subset of the conditions will be preferred over files that don't
-  satisfy any condition. Run a song search with --print results-full to reveal the sorting logic.
+  In album mode, required audio-quality conditions (format, bitrate, sample rate, bit depth) rank or
+  reject whole folders instead of removing individual tracks. A folder with 9 FLAC files and 1 MP3
+  is preferred over a mostly-MP3 folder, and the selected folder is still downloaded as a whole. Use
+  --strict-album-quality to require every audio file in the folder to satisfy those quality
+  conditions. In default mixed-quality mode, coverage is based on the folder contents Sockseek has
+  seen so far; if a later folder browse reveals hidden files, the coverage can change, but the
+  folder is still treated as a whole. In strict mode, Sockseek retrieves the full folder when needed
+  and rejects the candidate before download if hidden files break the required quality conditions.
+  Run a song search with --print results-full to reveal the sorting logic.
   Conditions can also be supplied as a semicolon-delimited string with --cond and --pref, e.g --cond
   ""br>=320; format=mp3,ogg; sr<96000"". Folder conditions can be included too, such as
   album-track-count>=8 or required-track-title=Intro.

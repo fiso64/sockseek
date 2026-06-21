@@ -776,6 +776,64 @@ namespace Tests.Eventing
         }
 
         [TestMethod]
+        public async Task StrictAlbumQuality_BrowsesAndRejectsFolderWhenHiddenFilesBreakQuality()
+        {
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-strict-quality-browse-" + Guid.NewGuid());
+            System.IO.Directory.CreateDirectory(outputDir);
+
+            try
+            {
+                var badFiles = new List<Soulseek.File>
+                {
+                    TestHelpers.CreateSlFile(@"Music\Artist\bad-quality\01. Artist - Track 01.flac", bitrate: 950, length: 181),
+                    TestHelpers.CreateSlFile(@"Music\Artist\bad-quality\02. Artist - Track 02.mp3", bitrate: 320, length: 182),
+                };
+                var goodFiles = new List<Soulseek.File>
+                {
+                    TestHelpers.CreateSlFile(@"Music\Artist\good-quality\01. Artist - Track 01.flac", bitrate: 950, length: 181),
+                    TestHelpers.CreateSlFile(@"Music\Artist\good-quality\02. Artist - Track 02.flac", bitrate: 950, length: 182),
+                };
+                var badResponse = new SearchResponse("bad-user", 1, true, 100_000, 0, badFiles);
+                var goodResponse = new SearchResponse("good-user", 1, true, 100_000, 0, goodFiles);
+                var badFolder = AlbumFolderFromSearch(badResponse, badFiles.Take(1));
+                var goodFolder = AlbumFolderFromSearch(goodResponse, goodFiles.Take(1));
+                var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
+                {
+                    Results = [badFolder, goodFolder],
+                };
+
+                var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                var downloadSettings = AlbumDownloadSettings(outputDir);
+                downloadSettings.Search.NoBrowseFolder = true;
+                downloadSettings.Search.NecessaryCond.Formats = ["flac"];
+                downloadSettings.Search.StrictAlbumQuality = true;
+
+                var client = new ClientTests.MockSoulseekClient([badResponse, goodResponse]);
+                var clientManager = TestHelpers.CreateMockClientManager(client, engineSettings);
+                var engine = new DownloadEngine(engineSettings, clientManager);
+                var downloadsStarted = 0;
+                engine.Events.DownloadStarted += (_, _) => downloadsStarted++;
+
+                engine.Enqueue(album, downloadSettings);
+                engine.CompleteEnqueue();
+
+                await engine.RunAsync(CancellationToken.None);
+
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, album.TerminalOutcome, "Album should fall back to the next folder after browse reveals hidden non-matching files.");
+                Assert.AreEqual(goodFolder, album.ResolvedTarget, "Strict quality should reject the first folder after full browse and select the next matching folder.");
+                Assert.AreEqual(2, client.BrowseCallCount, "Strict quality should browse each candidate before download, even with NoBrowseFolder enabled.");
+                Assert.AreEqual(0, client.DownloadCallCountAtFirstBrowse, "Strict quality browse must happen before any download starts.");
+                Assert.AreEqual(2, downloadsStarted, "Only the fully matching browsed folder should download.");
+                Assert.AreEqual(2, client.DownloadCallCount, "The rejected folder must not start downloads.");
+            }
+            finally
+            {
+                if (System.IO.Directory.Exists(outputDir))
+                    System.IO.Directory.Delete(outputDir, true);
+            }
+        }
+
+        [TestMethod]
         public async Task AlbumTrackCount_CancelledVerificationBrowseSkipsOnlyThatFolder()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-track-count-cancel-browse-" + Guid.NewGuid());

@@ -6,12 +6,20 @@ using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Api;
 using Sockseek.Server;
+using System.Collections.Concurrent;
 
 namespace Sockseek.Cli;
 
 /// Owns config file loading and CLI token binding. Core owns typed profile application.
 public static partial class ConfigManager
 {
+    // TODO [ARCHITECTURE]: Replace this parser soup with a real option-definition model.
+    // CLI aliases, value kind, valueless behavior, help text, config binding, and remote
+    // patch binding should come from one declarative source instead of the current switch
+    // plus probing bridge.
+    
+    private static readonly ConcurrentDictionary<string, bool> BoolOptionCache = new(StringComparer.Ordinal);
+
     // ── Public API ────────────────────────────────────────────────────────────
 
     /// Discovers and parses the config file.
@@ -287,7 +295,7 @@ public static partial class ConfigManager
                     {
                         AddProfileOption(entry, t, "true", downloadDeltaBuilder);
                     }
-                    else if (IsBoolOption(t))
+                    else if (OptionUsesBoolValue(t))
                     {
                         string value = "true";
                         if (i + 1 < tokens.Count && IsBoolLiteral(tokens[i + 1]))
@@ -390,23 +398,73 @@ public static partial class ConfigManager
         ProfileEntry entry,
         string flag,
         string value,
-        DownloadSettingsDeltaBuilder? downloadDeltaBuilder = null)
+        DownloadSettingsDeltaBuilder? downloadDeltaBuilder = null,
+        OptionProbe? probe = null)
     {
         var tr = StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries;
 
-        void Engine(Action<EngineSettings> action) => entry.Profile.Engine.Add(action);
+        void Engine(Action<EngineSettings> action)
+        {
+            if (probe != null)
+                action(new EngineSettings());
+            else
+                entry.Profile.Engine.Add(action);
+        }
         void Download(Action<DownloadSettings> action)
         {
-            entry.Profile.Download.Add(action);
-            downloadDeltaBuilder?.Record(flag, value, action);
+            if (probe != null)
+            {
+                action(new DownloadSettings());
+            }
+            else
+            {
+                entry.Profile.Download.Add(action);
+                downloadDeltaBuilder?.Record(flag, value, action);
+            }
         }
-        void Cli(Action<CliSettings> action) => entry.Cli.Add(action);
-        void Daemon(Action<DaemonSettings> action) => entry.Daemon.Add(action);
-        void Remote(Action<RemoteSettings> action) => entry.Remote.Add(action);
+        void Cli(Action<CliSettings> action)
+        {
+            if (probe != null)
+                action(new CliSettings());
+            else
+                entry.Cli.Add(action);
+        }
+        void Daemon(Action<DaemonSettings> action)
+        {
+            if (probe != null)
+                action(new DaemonSettings());
+            else
+                entry.Daemon.Add(action);
+        }
+        void Remote(Action<RemoteSettings> action)
+        {
+            if (probe != null)
+                action(new RemoteSettings());
+            else
+                entry.Remote.Add(action);
+        }
 
-        bool Bool() => ParseBool(value, flag);
-        int Int() => ParseInt(value, flag);
-        double Double() => ParseDouble(value, flag);
+        bool Bool()
+        {
+            if (probe != null)
+            {
+                probe.UsesBoolValue = true;
+                return true;
+            }
+            return ParseBool(value, flag);
+        }
+        int Int()
+        {
+            if (probe != null)
+                return 1;
+            return ParseInt(value, flag);
+        }
+        double Double()
+        {
+            if (probe != null)
+                return 1.0;
+            return ParseDouble(value, flag);
+        }
 
         switch (flag)
         {
@@ -435,11 +493,11 @@ public static partial class ConfigManager
                 Engine(e => e.ListenPort = Int()); break;
             case "--no-listen":
                 Engine(e => e.ListenPort = null); break;
-            case "--concurrent-jobs":
+            case "--cj": case "--concurrent-jobs":
                 Engine(e => e.ConcurrentJobs = Int()); break;
-            case "--cp": case "--concurrent-searches":
+            case "--cs": case "--concurrent-searches":
                 Engine(e => e.ConcurrentSearches = Int()); break;
-            case "--concurrent-extractors":
+            case "--ce": case "--concurrent-extractors":
                 Engine(e => e.ConcurrentExtractors = Int()); break;
             case "--spt": case "--searches-per-time":
                 Engine(e => e.SearchesPerTime = Int()); break;
@@ -505,7 +563,7 @@ public static partial class ConfigManager
                 Download(d => { d.Output.WriteIndex = false; d.Output.HasConfiguredIndex = true; }); break;
             case "--ip": case "--index-path":
                 Download(d => { d.Output.IndexFilePath = value; d.Output.HasConfiguredIndex = true; }); break;
-            case "--incomplete-album-action":
+            case "--iaa": case "--incomplete-album-action":
                 var incompleteAlbumAction = ParseIncompleteAlbumAction(value, flag);
                 Download(d =>
                 {
@@ -582,7 +640,7 @@ public static partial class ConfigManager
                 Download(d => d.Extraction.RequestedMode = Bool() ? ExtractionMode.Album : ExtractionMode.Song); break;
             case "-s": case "--song":
                 Download(d => d.Extraction.RequestedMode = Bool() ? ExtractionMode.Song : ExtractionMode.Album); break;
-            case "--upgrade-to-album":
+            case "--uta": case "--upgrade-to-album":
                 Download(d => d.Extraction.UpgradeToAlbum = Bool()); break;
             case "-g": case "--aggregate":
                 Download(d => d.Search.IsAggregate = Bool()); break;
@@ -673,6 +731,8 @@ public static partial class ConfigManager
                 Download(d => d.Transfer.NoIncompleteExt = Bool()); break;
             case "--rf": case "--relax": case "--relax-filtering":
                 Download(d => d.Search.Relax = Bool()); break;
+            case "--saq": case "--strict-album-quality":
+                Download(d => d.Search.StrictAlbumQuality = Bool()); break;
             case "--ftd": case "--fails-to-downrank":
                 Download(d => d.Search.DownrankOn = -Int()); break;
             case "--fti": case "--fails-to-ignore":
@@ -1026,6 +1086,7 @@ public static partial class ConfigManager
             settings.Search.RemoveSingleCharSearchTerms = boolSeed;
             settings.Search.NoBrowseFolder = boolSeed;
             settings.Search.Relax = boolSeed;
+            settings.Search.StrictAlbumQuality = boolSeed;
             settings.Search.ArtistMaybeWrong = boolSeed;
             settings.Search.IsAggregate = boolSeed;
             settings.Search.MinSharesAggregate = intSeed;
@@ -1177,6 +1238,33 @@ public static partial class ConfigManager
     private static bool IsBoolLiteral(string value) =>
         value is "true" or "false" or "True" or "False";
 
+    private sealed class OptionProbe
+    {
+        public bool UsesBoolValue { get; set; }
+    }
+
+    private static bool OptionUsesBoolValue(string flag)
+        => BoolOptionCache.GetOrAdd(flag, static key =>
+        {
+            var entry = new ProfileEntry(
+                new SettingsProfile { Name = "<probe>" },
+                new CliSettingsPatch(),
+                new DaemonSettingsPatch(),
+                new RemoteSettingsPatch(),
+                []);
+            var probe = new OptionProbe();
+            try
+            {
+                AddProfileOption(entry, key, "true", probe: probe);
+            }
+            catch
+            {
+                return false;
+            }
+
+            return probe.UsesBoolValue;
+        });
+
     private static bool IsValuelessOption(string flag) => flag switch
     {
         "--no-listen"
@@ -1197,53 +1285,6 @@ public static partial class ConfigManager
         or "--nbf" or "--no-browse-folder"
         or "--bf" or "--browse-folder"
         or "--nse" or "--no-skip-existing" => true,
-        _ => false,
-    };
-
-    private static bool IsBoolOption(string flag) => flag switch
-    {
-        "--rl" or "--random-login"
-        or "--nmsc" or "--no-modify-share-count"
-        or "--mock-files-slow"
-        or "-t" or "--interactive"
-        or "--progress-json"
-        or "--wp" or "--write-playlist"
-        or "--wi" or "--write-index"
-        or "-r" or "--reverse"
-        or "--gd" or "--get-deleted"
-        or "--do" or "--deleted-only"
-        or "--rfp" or "--rfs" or "--remove-from-source" or "--remove-from-playlist"
-        or "-a" or "--album"
-        or "-s" or "--song"
-        or "--upgrade-to-album"
-        or "-g" or "--aggregate"
-        or "--aao" or "--aa-only" or "--album-art-only"
-        or "--eMtc" or "--extract-max-track-count"
-        or "--emtc" or "--extract-min-track-count"
-        or "--rft" or "--remove-ft"
-        or "--rb" or "--remove-brackets"
-        or "--amw" or "--artist-maybe-wrong"
-        or "--ea" or "--extract-artist"
-        or "--fs" or "--fast-search"
-        or "-d" or "--desperate"
-        or "--nrsc" or "--no-remove-special-chars"
-        or "--nie" or "--no-incomplete-ext"
-        or "--rf" or "--relax" or "--relax-filtering"
-        or "--stt" or "--strict-title"
-        or "--sar" or "--strict-artist"
-        or "--sal" or "--strict-album"
-        or "--anl" or "--accept-no-length"
-        or "--sc" or "--strict" or "--strict-conditions"
-        or "--pst" or "--pstt" or "--pref-strict-title"
-        or "--psar" or "--pref-strict-artist"
-        or "--psal" or "--pref-strict-album"
-        or "--panl" or "--pref-accept-no-length"
-        or "--se" or "--skip-existing"
-        or "--snf" or "--skip-not-found"
-        or "--scc" or "--skip-check-cond"
-        or "--scpc" or "--skip-check-pref-cond"
-        or "--yp" or "--yt-parse"
-        or "--yd" or "--yt-dlp" => true,
         _ => false,
     };
 

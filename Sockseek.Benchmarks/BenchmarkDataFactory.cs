@@ -485,6 +485,52 @@ internal static class BenchmarkDataFactory
         return results;
     }
 
+    public static List<(SearchResponse Response, SlFile File)> CreateMixedAlbumQualityResults(int folderCount, int tracksPerFolder)
+    {
+        var results = new List<(SearchResponse, SlFile)>(folderCount * (tracksPerFolder + 1));
+        int fileId = 1;
+
+        for (int folder = 0; folder < folderCount; folder++)
+        {
+            string user = $"user{folder:D05}";
+            string artist = folder % 5 == 0 ? "Electric Light Orchestra" : Artists[folder % Artists.Length];
+            string album = folder % 4 == 0 ? "Time" : Albums[folder % Albums.Length];
+            string basePath = folder % 7 == 0
+                ? $@"Shared\{artist}\{album}\Disc 1"
+                : $@"Shared\{artist}\{album}";
+
+            int matchingFlacCount = (folder % 4) switch
+            {
+                0 => tracksPerFolder,
+                1 => Math.Max(1, tracksPerFolder * 2 / 3),
+                2 => Math.Max(1, tracksPerFolder / 3),
+                _ => 0,
+            };
+
+            var files = new List<SlFile>(tracksPerFolder + 1);
+            for (int track = 1; track <= tracksPerFolder; track++)
+            {
+                string title = track == 2 ? "Twilight" : $"Track {track:D2}";
+                bool isFlac = track <= matchingFlacCount;
+                string extension = isFlac ? ".flac" : ".mp3";
+                files.Add(CreateFile(
+                    fileId++,
+                    $@"{basePath}\{track:D2}. {artist} - {title}{extension}",
+                    extension,
+                    length: 170 + track + folder % 5,
+                    bitrate: isFlac ? 950 : 320));
+            }
+
+            files.Add(CreateFile(fileId++, $@"{basePath}\Cover.jpg", ".jpg", length: null, bitrate: null));
+            var response = new SearchResponse(user, folder, folder % 3 != 0, 80_000 + folder * 10, folder % 6, files);
+
+            foreach (var file in files)
+                results.Add((response, file));
+        }
+
+        return results;
+    }
+
     private static SearchResponse CreateResponse(int index, SlFile file)
         => new(
             username: $"user{index:D5}",

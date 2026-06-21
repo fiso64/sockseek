@@ -411,6 +411,7 @@ public static class SettingsCloner
         PreferredCond = new FileConditions(source.PreferredCond),
         NecessaryFolderCond = new FolderConditions(source.NecessaryFolderCond),
         PreferredFolderCond = new FolderConditions(source.PreferredFolderCond),
+        StrictAlbumQuality = source.StrictAlbumQuality,
         SearchTimeout = source.SearchTimeout,
         MaxStaleTime = source.MaxStaleTime,
         DownrankOn = source.DownrankOn,

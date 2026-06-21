@@ -40,6 +40,32 @@ internal sealed class AlbumFolderAggregateComparer : IComparer<AlbumFolder>
         if (y == null)
             return -1;
 
+        var xBeforeQuality = BestEntry(x);
+        var yBeforeQuality = BestEntry(y);
+        if (xBeforeQuality.HasValue && yBeforeQuality.HasValue)
+        {
+            int comparison = ResultSorter.AlbumBeforeQualitySortEntryComparer.Instance.Compare(xBeforeQuality.Value, yBeforeQuality.Value);
+            if (comparison != 0)
+                return comparison;
+        }
+        else if (xBeforeQuality.HasValue)
+        {
+            return -1;
+        }
+        else if (yBeforeQuality.HasValue)
+        {
+            return 1;
+        }
+
+        int coverageComparison = CompareCoverageBuckets(x.SearchAudioQualityCoverage.Format, y.SearchAudioQualityCoverage.Format);
+        if (coverageComparison != 0) return coverageComparison;
+        coverageComparison = CompareCoverageBuckets(x.SearchAudioQualityCoverage.Bitrate, y.SearchAudioQualityCoverage.Bitrate);
+        if (coverageComparison != 0) return coverageComparison;
+        coverageComparison = CompareCoverageBuckets(x.SearchAudioQualityCoverage.SampleRate, y.SearchAudioQualityCoverage.SampleRate);
+        if (coverageComparison != 0) return coverageComparison;
+        coverageComparison = CompareCoverageBuckets(x.SearchAudioQualityCoverage.BitDepth, y.SearchAudioQualityCoverage.BitDepth);
+        if (coverageComparison != 0) return coverageComparison;
+
         var xBest = BestEntry(x);
         var yBest = BestEntry(y);
         if (xBest.HasValue && yBest.HasValue)
@@ -97,7 +123,14 @@ internal sealed class AlbumFolderAggregateComparer : IComparer<AlbumFolder>
             if (!entry.HasValue)
                 continue;
 
-            if (!best.HasValue || ResultSorter.SortEntryComparer.Instance.Compare(entry.Value, best.Value) < 0)
+            if (!best.HasValue)
+            {
+                best = entry;
+                continue;
+            }
+
+            int comparison = ResultSorter.SortEntryComparer.Instance.Compare(entry.Value, best.Value);
+            if (comparison < 0)
                 best = entry;
         }
 
@@ -112,4 +145,7 @@ internal sealed class AlbumFolderAggregateComparer : IComparer<AlbumFolder>
 
     private static string FolderKey(AlbumFolder folder)
         => folder.Username + '\\' + folder.FolderPath;
+
+    private static int CompareCoverageBuckets(AlbumQualityCoverageBucket x, AlbumQualityCoverageBucket y)
+        => y.Bucket.CompareTo(x.Bucket);
 }

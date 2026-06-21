@@ -11,6 +11,7 @@ namespace Sockseek.Core.Models;
         public int           SearchAudioFileCount { get; }
         public int[]         SearchSortedAudioLengths { get; }
         public string?       SearchRepresentativeAudioFilename { get; }
+        public AlbumAudioQualityCoverage SearchAudioQualityCoverage { get; }
         public bool          HasSearchMetadata { get; }
         public bool          IsFullyRetrieved { get; set; }
         internal ResultSorter.SortEntry? SearchAggregateSortEntry { get; }
@@ -36,12 +37,13 @@ namespace Sockseek.Core.Models;
                 .FirstOrDefault()
                 ?.ResolvedTarget!
                 .Filename;
+            SearchAudioQualityCoverage = AlbumAudioQualityCoverage.Inactive(SearchAudioFileCount);
             HasSearchMetadata = true;
             SearchAggregateSortEntry = null;
         }
 
         public AlbumFolder(string username, string folderPath, Func<List<SongJob>> filesFactory)
-            : this(username, folderPath, filesFactory, 0, 0, [], null, hasSearchMetadata: false)
+            : this(username, folderPath, filesFactory, 0, 0, [], null, AlbumAudioQualityCoverage.Inactive(0), hasSearchMetadata: false)
         {
         }
 
@@ -52,7 +54,7 @@ namespace Sockseek.Core.Models;
             int searchAudioFileCount,
             int[] searchSortedAudioLengths,
             string? searchRepresentativeAudioFilename)
-            : this(username, folderPath, filesFactory, searchAudioFileCount, searchAudioFileCount, searchSortedAudioLengths, searchRepresentativeAudioFilename, hasSearchMetadata: true)
+            : this(username, folderPath, filesFactory, searchAudioFileCount, searchAudioFileCount, searchSortedAudioLengths, searchRepresentativeAudioFilename, AlbumAudioQualityCoverage.Inactive(searchAudioFileCount), hasSearchMetadata: true)
         {
         }
 
@@ -64,7 +66,7 @@ namespace Sockseek.Core.Models;
             int searchAudioFileCount,
             int[] searchSortedAudioLengths,
             string? searchRepresentativeAudioFilename)
-            : this(username, folderPath, filesFactory, searchFileCount, searchAudioFileCount, searchSortedAudioLengths, searchRepresentativeAudioFilename, hasSearchMetadata: true, searchAggregateSortEntry: null)
+            : this(username, folderPath, filesFactory, searchFileCount, searchAudioFileCount, searchSortedAudioLengths, searchRepresentativeAudioFilename, AlbumAudioQualityCoverage.Inactive(searchAudioFileCount), hasSearchMetadata: true, searchAggregateSortEntry: null)
         {
         }
 
@@ -76,8 +78,9 @@ namespace Sockseek.Core.Models;
             int searchAudioFileCount,
             int[] searchSortedAudioLengths,
             string? searchRepresentativeAudioFilename,
+            AlbumAudioQualityCoverage searchAudioQualityCoverage,
             ResultSorter.SortEntry? searchAggregateSortEntry)
-            : this(username, folderPath, filesFactory, searchFileCount, searchAudioFileCount, searchSortedAudioLengths, searchRepresentativeAudioFilename, hasSearchMetadata: true, searchAggregateSortEntry)
+            : this(username, folderPath, filesFactory, searchFileCount, searchAudioFileCount, searchSortedAudioLengths, searchRepresentativeAudioFilename, searchAudioQualityCoverage, hasSearchMetadata: true, searchAggregateSortEntry)
         {
         }
 
@@ -89,6 +92,7 @@ namespace Sockseek.Core.Models;
             int searchAudioFileCount,
             int[] searchSortedAudioLengths,
             string? searchRepresentativeAudioFilename,
+            AlbumAudioQualityCoverage searchAudioQualityCoverage,
             bool hasSearchMetadata,
             ResultSorter.SortEntry? searchAggregateSortEntry = null)
         {
@@ -99,6 +103,7 @@ namespace Sockseek.Core.Models;
             SearchAudioFileCount = searchAudioFileCount;
             SearchSortedAudioLengths = searchSortedAudioLengths;
             SearchRepresentativeAudioFilename = searchRepresentativeAudioFilename;
+            SearchAudioQualityCoverage = searchAudioQualityCoverage;
             HasSearchMetadata = hasSearchMetadata;
             SearchAggregateSortEntry = searchAggregateSortEntry;
         }

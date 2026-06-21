@@ -375,6 +375,18 @@ public static partial class ResultSorter
         }
     }
 
+    internal sealed class AlbumBeforeQualitySortEntryComparer : IComparer<SortEntry>
+    {
+        public static readonly AlbumBeforeQualitySortEntryComparer Instance = new();
+
+        private AlbumBeforeQualitySortEntryComparer()
+        {
+        }
+
+        public int Compare(SortEntry x, SortEntry y)
+            => y.Key.CompareAlbumBeforeQualityTo(x.Key);
+    }
+
     internal readonly struct SortKey : IComparable<SortKey>
     {
         private readonly uint highFlags;
@@ -385,6 +397,7 @@ public static partial class ResultSorter
         private readonly int bitRate;
         private readonly int levenshteinScore;
         private readonly int randomTiebreaker;
+        private readonly uint albumBeforeQualityFlags;
 
         public SortKey(
             bool userSuccessAboveDownrank,
@@ -441,7 +454,23 @@ public static partial class ResultSorter
             this.bitRate = bitRate;
             this.levenshteinScore = levenshteinScore;
             this.randomTiebreaker = randomTiebreaker;
+            albumBeforeQualityFlags = PackAlbumBeforeQualityFlags(
+                userSuccessAboveDownrank,
+                necessaryConditionsMet,
+                preferredUserConditionsMet,
+                hasValidLength,
+                bracketCheckPassed,
+                strictTitleMatch,
+                fuzzyTitleMatch,
+                strictAlbumMatch,
+                fuzzyAlbumMatch,
+                strictArtistMatch,
+                fuzzyArtistMatch,
+                lengthToleranceMatch);
         }
+
+        internal int CompareAlbumBeforeQualityTo(SortKey other)
+            => albumBeforeQualityFlags.CompareTo(other.albumBeforeQualityFlags);
 
         public int CompareTo(SortKey other)
         {
@@ -510,6 +539,36 @@ public static partial class ResultSorter
                 .Then(bitDepthMatch)
                 .Then(fileSatisfies)
                 .Then(hasFreeUploadSlot)
+                .Value;
+        }
+
+        private static uint PackAlbumBeforeQualityFlags(
+            bool userSuccessAboveDownrank,
+            bool necessaryConditionsMet,
+            bool preferredUserConditionsMet,
+            bool hasValidLength,
+            bool bracketCheckPassed,
+            bool strictTitleMatch,
+            bool fuzzyTitleMatch,
+            bool strictAlbumMatch,
+            bool fuzzyAlbumMatch,
+            bool strictArtistMatch,
+            bool fuzzyArtistMatch,
+            bool lengthToleranceMatch)
+        {
+            return BoolSortKey.CreateDescending()
+                .Then(userSuccessAboveDownrank)
+                .Then(necessaryConditionsMet)
+                .Then(preferredUserConditionsMet)
+                .Then(hasValidLength)
+                .Then(bracketCheckPassed)
+                .Then(strictTitleMatch)
+                .Then(fuzzyTitleMatch)
+                .Then(strictAlbumMatch)
+                .Then(fuzzyAlbumMatch)
+                .Then(strictArtistMatch)
+                .Then(fuzzyArtistMatch)
+                .Then(lengthToleranceMatch)
                 .Value;
         }
 

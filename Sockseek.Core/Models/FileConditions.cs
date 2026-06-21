@@ -186,6 +186,52 @@ namespace Sockseek.Core.Models;
             MaxBitDepth = null;
         }
 
+        public bool HasActiveAudioQualityConditions()
+            => HasActiveFormatCondition()
+                || MinBitrate != null
+                || MaxBitrate != null
+                || MinSampleRate != null
+                || MaxSampleRate != null
+                || MinBitDepth != null
+                || MaxBitDepth != null;
+
+        public FileConditions WithoutAudioQualityConditions()
+        {
+            var result = new FileConditions(this);
+            result.Formats = [];
+            result.MinBitrate = null;
+            result.MaxBitrate = null;
+            result.MinSampleRate = null;
+            result.MaxSampleRate = null;
+            result.MinBitDepth = null;
+            result.MaxBitDepth = null;
+            return result;
+        }
+
+        public bool AudioQualitySatisfies(Soulseek.File file)
+            => (!HasActiveFormatCondition() || FormatSatisfies(file.Filename))
+                && BitrateSatisfies(file)
+                && SampleRateSatisfies(file)
+                && BitDepthSatisfies(file);
+
+        public bool HasActiveFormatCondition()
+        {
+            if (Formats.Length == 0)
+                return false;
+
+            var configured = Formats
+                .Select(format => format.TrimStart('.').ToLowerInvariant())
+                .Where(format => format.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(format => format, StringComparer.Ordinal)
+                .ToArray();
+            var allKnownAudio = Utils.musicExtensions
+                .Select(format => format.TrimStart('.').ToLowerInvariant())
+                .OrderBy(format => format, StringComparer.Ordinal)
+                .ToArray();
+            return !configured.SequenceEqual(allKnownAudio);
+        }
+
         public bool FileSatisfies(Soulseek.File file, SongQuery? query, SearchResponse? response)
         {
             int length    = query?.Length ?? -1;
@@ -610,4 +656,3 @@ namespace Sockseek.Core.Models;
             return hash.ToHashCode();
         }
     }
-

@@ -164,6 +164,115 @@ namespace Tests.Unit
         }
 
         [TestMethod]
+        public void AlbumFolders_RequiredQualityConditions_RankFoldersByCoverageWithoutPartialFiltering()
+        {
+            static SearchResponse Response(string user, params string[] extensions)
+            {
+                var files = extensions
+                    .Select((extension, index) => TestHelpers.CreateSlFile($@"ELO\Time\{index + 1:D2}. Track {index + 1}.{extension}", length: 180 + index))
+                    .ToArray();
+                return new SearchResponse(user, 1, true, 1000, 0, files);
+            }
+
+            var full = Response("full", "flac", "flac", "flac");
+            var high = Response("high", "flac", "flac", "mp3");
+            var low = Response("low", "flac", "mp3", "mp3");
+            var none = Response("none", "mp3", "mp3", "mp3");
+            var rawResults = new[] { none, low, high, full }
+                .SelectMany(response => response.Files.Select(file => (response, file)))
+                .ToList();
+            var search = TestHelpers.CreateDefaultSettings().Download.Search;
+            search.NecessaryCond.Formats = ["flac"];
+
+            var folders = SearchResultProjector.AlbumFolders(rawResults, new AlbumQuery { Artist = "ELO", Album = "Time" }, search);
+
+            CollectionAssert.AreEqual(new[] { "full", "high", "low" }, folders.Select(f => f.Username).ToList());
+            Assert.AreEqual(3, folders.Single(f => f.Username == "high").Files.Count, "Mixed-quality folders must remain whole; quality conditions rank/reject folders, not individual files.");
+            Assert.AreEqual(2, folders.Single(f => f.Username == "high").SearchAudioQualityCoverage.MatchingFileCount);
+            Assert.AreEqual(3, folders.Single(f => f.Username == "high").SearchAudioQualityCoverage.AudioFileCount);
+            Assert.AreEqual(2, folders.Single(f => f.Username == "high").SearchAudioQualityCoverage.Format.MatchingFileCount);
+        }
+
+        [TestMethod]
+        public void AlbumFolders_StrictAlbumQuality_RequiresEveryAudioFileToMatch()
+        {
+            var full = new SearchResponse("full", 1, true, 1000, 0,
+            [
+                TestHelpers.CreateSlFile(@"ELO\Time\01. Track 1.flac", length: 180),
+                TestHelpers.CreateSlFile(@"ELO\Time\02. Track 2.flac", length: 181),
+            ]);
+            var mixed = new SearchResponse("mixed", 1, true, 1000, 0,
+            [
+                TestHelpers.CreateSlFile(@"ELO\Time\01. Track 1.flac", length: 180),
+                TestHelpers.CreateSlFile(@"ELO\Time\02. Track 2.mp3", length: 181),
+            ]);
+            var rawResults = new[] { mixed, full }
+                .SelectMany(response => response.Files.Select(file => (response, file)))
+                .ToList();
+            var search = TestHelpers.CreateDefaultSettings().Download.Search;
+            search.NecessaryCond.Formats = ["flac"];
+            search.StrictAlbumQuality = true;
+
+            var folders = SearchResultProjector.AlbumFolders(rawResults, new AlbumQuery { Artist = "ELO", Album = "Time" }, search);
+
+            CollectionAssert.AreEqual(new[] { "full" }, folders.Select(f => f.Username).ToList());
+        }
+
+        [TestMethod]
+        public void AlbumFolders_AlbumIdentityBeatsQualityCoverage()
+        {
+            var matchingMixed = new SearchResponse("matching-mixed", 1, true, 500 * 1024, 0,
+            [
+                TestHelpers.CreateSlFile(@"Diverse System\AD：PIANO X\01 - Song.flac", length: 180),
+                TestHelpers.CreateSlFile(@"Diverse System\AD：PIANO X\02 - Song.mp3", length: 181),
+            ]);
+            var unrelatedFull = new SearchResponse("unrelated-full", 1, true, 30_000 * 1024, 0,
+            [
+                TestHelpers.CreateSlFile(@"FLAC\CD1\01 - Song.flac", length: 180),
+                TestHelpers.CreateSlFile(@"FLAC\CD1\02 - Song.flac", length: 181),
+            ]);
+            var rawResults = new[] { unrelatedFull, matchingMixed }
+                .SelectMany(response => response.Files.Select(file => (response, file)))
+                .ToList();
+            var search = TestHelpers.CreateDefaultSettings().Download.Search;
+            search.NecessaryCond.Formats = ["flac"];
+
+            var folders = SearchResultProjector.AlbumFolders(rawResults, new AlbumQuery { Album = "AD:PIANO X" }, search);
+
+            Assert.AreEqual("matching-mixed", folders[0].Username);
+        }
+
+        [TestMethod]
+        public void AlbumFolders_RequiredQualityConditions_RankSeparateCoverageBucketsInSortOrder()
+        {
+            static SearchResponse Response(string user, params Soulseek.File[] files)
+                => new(user, 1, true, 1000, 0, files);
+
+            var perfectFormatWeakBitrate = Response("format-wins",
+                TestHelpers.CreateSlFile(@"ELO\Time\01. Track 1.flac", length: 180, bitrate: 900),
+                TestHelpers.CreateSlFile(@"ELO\Time\02. Track 2.flac", length: 181, bitrate: 128),
+                TestHelpers.CreateSlFile(@"ELO\Time\03. Track 3.flac", length: 182, bitrate: 128));
+            var weakerFormatPerfectBitrate = Response("bitrate-loses",
+                TestHelpers.CreateSlFile(@"ELO\Time\01. Track 1.flac", length: 180, bitrate: 900),
+                TestHelpers.CreateSlFile(@"ELO\Time\02. Track 2.flac", length: 181, bitrate: 900),
+                TestHelpers.CreateSlFile(@"ELO\Time\03. Track 3.mp3", length: 182, bitrate: 900));
+            var rawResults = new[] { weakerFormatPerfectBitrate, perfectFormatWeakBitrate }
+                .SelectMany(response => response.Files.Select(file => (response, file)))
+                .ToList();
+            var search = TestHelpers.CreateDefaultSettings().Download.Search;
+            search.NecessaryCond.Formats = ["flac"];
+            search.NecessaryCond.MinBitrate = 900;
+
+            var folders = SearchResultProjector.AlbumFolders(rawResults, new AlbumQuery { Artist = "ELO", Album = "Time" }, search);
+
+            CollectionAssert.AreEqual(new[] { "format-wins", "bitrate-loses" }, folders.Select(f => f.Username).ToList());
+            Assert.AreEqual(3, folders[0].SearchAudioQualityCoverage.Format.MatchingFileCount);
+            Assert.AreEqual(1, folders[0].SearchAudioQualityCoverage.Bitrate.MatchingFileCount);
+            Assert.AreEqual(2, folders[1].SearchAudioQualityCoverage.Format.MatchingFileCount);
+            Assert.AreEqual(3, folders[1].SearchAudioQualityCoverage.Bitrate.MatchingFileCount);
+        }
+
+        [TestMethod]
         public void AlbumFolders_IgnoresFuzzyStrictAlbumMatch_WhenStringSortConditionsIgnored()
         {
             var unrelated = new SearchResponse("FastUnrelated", 1, true, 30_000 * 1024, 0,
