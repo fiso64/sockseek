@@ -352,6 +352,18 @@ public static class ServerHost
             .Produces(StatusCodes.Status202Accepted)
             .Produces(StatusCodes.Status404NotFound);
 
+        app.MapPost("/api/jobs/{jobId:guid}/manual/skip", async (Guid jobId, EngineSupervisor supervisor) =>
+        {
+            return await supervisor.SkipManualSelectionAsync(jobId)
+                ? Results.Accepted($"/api/jobs/{jobId}")
+                : Results.NotFound();
+        })
+            .WithTags("Jobs")
+            .WithSummary("Skips a manual-selection job without starting additional downloads.")
+            .WithDescription("Use this when a DownloadBehavior.Manual job reached AwaitingSelection and the caller wants to record an explicit user skip.")
+            .Produces(StatusCodes.Status202Accepted)
+            .Produces(StatusCodes.Status404NotFound);
+
         app.MapPost("/api/jobs/{jobId:guid}/cancel", (Guid jobId, EngineSupervisor supervisor) =>
         {
             return supervisor.CancelJob(jobId)

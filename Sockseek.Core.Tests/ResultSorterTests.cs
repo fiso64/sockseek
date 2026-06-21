@@ -404,6 +404,27 @@ namespace Tests.ResultSorterTests
         }
 
         [TestMethod]
+        public void OrderedResults_PrefersMatchingFormatOverMuchFasterUpload()
+        {
+            var flacFile = TestHelpers.CreateSlFile("Music\\Track.flac", bitrate: 900, length: 200);
+            var mp3File = TestHelpers.CreateSlFile("Music\\Track.mp3", bitrate: 320, length: 200);
+            var flacResponse = CreateResponse("flacuser", uploadSpeed: 100 * 1024, files: flacFile);
+            var mp3Response = CreateResponse("mp3user", uploadSpeed: 5_000 * 1024, files: mp3File);
+            var results = new List<(SearchResponse, File)> { (mp3Response, mp3File), (flacResponse, flacFile) };
+
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            config.Search.PreferredCond.Formats = ["flac"];
+            config.Search.PreferredCond.MinBitrate = 0;
+            var counts = new ConcurrentDictionary<string, int>();
+            var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
+
+            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+
+            Assert.AreEqual(2, ordered.Count);
+            Assert.AreEqual("flacuser", ordered[0].response.Username);
+        }
+
+        [TestMethod]
         public void OrderedResults_PrefersStrictArtistMatch_WhenPreferred()
         {
             var matchingArtist = TestHelpers.CreateSlFile("Music\\Right Artist\\Track.mp3", bitrate: 320, length: 200);
@@ -423,6 +444,8 @@ namespace Tests.ResultSorterTests
             Assert.AreEqual("artist-match", ordered[0].response.Username);
         }
 
+        // Matching the requested album is more important than matching a preferred quality.
+        // Otherwise --pref-format flac can promote unrelated high-quality files over the right album.
         [TestMethod]
         public void OrderedResults_PrefersFuzzyStrictAlbumMatchOverFormat_WhenPreferred()
         {

@@ -211,6 +211,9 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
     public Task<bool> CompleteManualSelectionAsync(Guid jobId, CancellationToken ct = default)
         => api.CompleteManualSelectionAsync(jobId, ct);
 
+    public Task<bool> SkipManualSelectionAsync(Guid jobId, CancellationToken ct = default)
+        => api.SkipManualSelectionAsync(jobId, ct);
+
     public Task<bool> CancelJobAsync(Guid jobId, CancellationToken ct = default)
         => api.CancelJobAsync(jobId, ct);
 

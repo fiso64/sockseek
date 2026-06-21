@@ -479,6 +479,12 @@ internal sealed class LocalCliBackend
         return await engine.CompleteManualSelectionAsync(jobId);
     }
 
+    public async Task<bool> SkipManualSelectionAsync(Guid jobId, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return await engine.SkipManualSelectionAsync(jobId);
+    }
+
     private static bool ShouldPropagateSourceMutationToFollowUp(Job sourceJob)
         => sourceJob is not AlbumAggregateJob;
 

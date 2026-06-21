@@ -745,6 +745,8 @@ Most used flags at a glance:
 --concurrent-extractors <num>   Max concurrent input extractors (default: 4)
 --write-playlist                Create an m3u playlist file in the output directory
 --playlist-path <path>          Override default path for m3u playlist file
+--write-index                   Create/update the Sockseek index (default when using
+                                compatible inputs)
 --no-write-index                Do not create/update the Sockseek index
 --index-path <path>             Override default path for Sockseek index
 --no-incomplete-ext             Save files with their final name instead of a temporary
@@ -886,7 +888,9 @@ sockseek daemon                 Start the HTTP/SignalR daemon instead of running
 --pref-max-samplerate <rate>    Preferred maximum sample rate (default: 48000)
 --pref-min-bitdepth <depth>     Preferred minimum bit depth
 --pref-max-bitdepth <depth>     Preferred maximum bit depth
+--pref-strict-title             Prefer filenames containing the track title
 --pref-strict-artist            Prefer file paths containing artist name
+--pref-strict-album             Prefer folder paths containing album name
 --pref-banned-users <list>      Comma-separated list of users to downrank
 --pref-allowed-users <list>     Comma-separated list of users to prefer
 --pref <conditions>             Semicolon-delimited preferred conditions
@@ -916,6 +920,8 @@ sockseek daemon                 Start the HTTP/SignalR daemon instead of running
                                 'most': Download from the folder containing the most images
 --album-art-only                Only download album art for the provided album; implies
                                 album-art=largest when album-art is default
+--browse-folder                 Automatically browse user shares to get all files in the
+                                selected album folder (default)
 --no-browse-folder              Do not automatically browse user shares to get all files in
                                 the folder
 --incomplete-album-action <a>   What to do with completed album files when the album
@@ -953,6 +959,13 @@ sockseek daemon                 Start the HTTP/SignalR daemon instead of running
                                 'link': Print first result slsk:// link
                                 'index': Print Sockseek index as formatted json
                                 'index-failed': Print failed downloads from Sockseek index
+--print-tracks                  Alias for --print tracks
+--print-tracks-full             Alias for --print tracks-full
+--print-results                 Alias for --print results
+--print-results-full            Alias for --print results-full
+--print-link                    Alias for --print link
+--print-json                    Alias for --print json
+--print-json-full               Alias for --print json-all
 
 --mock-files-dir <path>         Directory containing files to simulate download results
 --mock-files-no-read-tags       Only read filenames when simulating (much faster)

@@ -12,6 +12,30 @@ namespace Tests.Server;
 public class EngineSupervisorTests
 {
     [TestMethod]
+    public async Task SubmitSearchJobAsync_RejectsOversizedQueryWithoutCreatingWorkflow()
+    {
+        var musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-server-test-" + Guid.NewGuid());
+        var outputDir = Path.Combine(musicRoot, "out");
+        Directory.CreateDirectory(outputDir);
+
+        try
+        {
+            var supervisor = CreateSupervisor(musicRoot, outputDir);
+            var oversized = new string('x', JobRequestMapper.MaxSearchTextLength + 1);
+
+            await Assert.ThrowsExceptionAsync<ArgumentException>(() =>
+                supervisor.SubmitSearchJobAsync(new SubmitSearchJobRequestDto(oversized), CancellationToken.None));
+
+            Assert.AreEqual(0, supervisor.StateStore.GetWorkflows().Count);
+        }
+        finally
+        {
+            if (Directory.Exists(musicRoot))
+                Directory.Delete(musicRoot, true);
+        }
+    }
+
+    [TestMethod]
     public async Task StartFileDownloadsAsync_ReusesWorkflowAndSetsSourceJob()
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-server-test-" + Guid.NewGuid());

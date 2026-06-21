@@ -224,6 +224,47 @@ public class CliBackendParityTests
             });
     }
 
+    [TestMethod]
+    public async Task CliBackendParity_TryNextCandidateByParentJobId_SkipsActiveDescendantDownload()
+    {
+        await RunForEachInjectedClientBackendAsync(
+            createClient: () =>
+            {
+                var gate = new DownloadGate();
+                var client = new MockSoulseekClient(
+                [
+                    SearchResponse("slowuser", @"Music\Artist\Album\01. Artist - Track.mp3"),
+                    SearchResponse("fastuser", @"Music\Artist\Album\01. Artist - Track.mp3"),
+                ])
+                {
+                    BeforeDownloadCompletesAsync = gate.BlockMatchingUserAsync,
+                };
+                return (client, gate);
+            },
+            scenario: async ctx =>
+            {
+                var summary = await ctx.Backend.SubmitJobListAsync(
+                    new SubmitJobListRequestDto(
+                        "try-next-parent",
+                        [
+                            new SongJobDraftDto(new SongQueryDto("Artist", "Track", "", "", -1, false)),
+                        ]),
+                    ctx.Token);
+
+                await ctx.Gate!.WaitForStartedAsync();
+                Assert.IsTrue(
+                    await ctx.Backend.TryNextCandidateAsync(summary.JobId, ctx.Token),
+                    ctx.Name);
+
+                await WaitForWorkflowStateAsync(ctx.Backend, summary.WorkflowId, ServerWorkflowState.Completed);
+                var jobs = await ctx.Backend.GetJobsAsync(new JobQuery(null, null, null, summary.WorkflowId, IncludeAll: true), ctx.Token);
+                var song = jobs.Single(job => job.Kind == ServerJobKind.Song);
+                var detail = await ctx.Backend.GetJobDetailAsync(song.JobId, ctx.Token);
+                Assert.IsInstanceOfType<SongJobPayloadDto>(detail?.Payload, out var payload);
+                Assert.AreNotEqual(ctx.Gate.BlockedUsername, payload.ResolvedUsername, ctx.Name);
+            });
+    }
+
     private static async Task RunForEachBackendAsync(Action<string> seedMusic, Func<ParityBackendContext, Task> scenario)
     {
         await using (var local = await ParityBackendContext.CreateLocalAsync(seedMusic))

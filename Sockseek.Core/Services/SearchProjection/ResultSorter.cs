@@ -497,6 +497,8 @@ public static partial class ResultSorter
                 .Then(bracketCheckPassed)
                 .Then(strictTitleMatch)
                 .Then(fuzzyTitleMatch)
+                // Identity beats quality preferences: an MP3 from the requested album is a better
+                // candidate than a FLAC from an unrelated album.
                 .Then(strictAlbumMatch)
                 .Then(fuzzyAlbumMatch)
                 .Then(strictArtistMatch)

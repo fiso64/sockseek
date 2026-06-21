@@ -236,6 +236,15 @@ public sealed class SockseekApiClient
         return true;
     }
 
+    public async Task<bool> SkipManualSelectionAsync(Guid jobId, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync($"api/jobs/{jobId}/manual/skip", null, ct);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return false;
+        await EnsureSuccessAsync(response, ct);
+        return true;
+    }
+
     public async Task<bool> CancelJobAsync(Guid jobId, CancellationToken ct = default)
     {
         using var response = await http.PostAsync($"api/jobs/{jobId}/cancel", null, ct);

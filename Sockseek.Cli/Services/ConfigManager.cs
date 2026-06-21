@@ -1,6 +1,7 @@
 using Sockseek.Core;
 using Sockseek.Core.Models;
 using Sockseek.Core.Jobs;
+using Sockseek.Core.Extractors;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Api;
@@ -403,7 +404,7 @@ public static partial class ConfigManager
         void Daemon(Action<DaemonSettings> action) => entry.Daemon.Add(action);
         void Remote(Action<RemoteSettings> action) => entry.Remote.Add(action);
 
-        bool Bool() => bool.Parse(value);
+        bool Bool() => ParseBool(value, flag);
         int Int() => ParseInt(value, flag);
         double Double() => ParseDouble(value, flag);
 
@@ -428,7 +429,7 @@ public static partial class ConfigManager
                     e.Password = parts.Length > 1 ? parts[1] : "";
                 });
                 break;
-            case "--rl": case "--random-login":
+            case "--rl": case "--random-login": // For testing only
                 Engine(e => e.UseRandomLogin = Bool()); break;
             case "--lp": case "--port": case "--listen-port":
                 Engine(e => e.ListenPort = Int()); break;
@@ -562,9 +563,9 @@ public static partial class ConfigManager
                 });
                 break;
             case "-n": case "--number":
-                Download(d => d.Extraction.MaxTracks = Int()); break;
+                Download(d => d.Extraction.MaxTracks = ParseIntAtLeast(value, flag, 1)); break;
             case "-o": case "--offset":
-                Download(d => d.Extraction.Offset = Int()); break;
+                Download(d => d.Extraction.Offset = ParseIntAtLeast(value, flag, 0)); break;
             case "-r": case "--reverse":
                 Download(d => d.Extraction.Reverse = Bool()); break;
             case "--gd": case "--get-deleted":
@@ -809,7 +810,12 @@ public static partial class ConfigManager
             case "--lc": case "--length-col":
                 Download(d => d.Csv.LengthCol = value); break;
             case "--tf": case "--time-format":
-                Download(d => d.Csv.TimeUnit = value); break;
+                Download(d =>
+                {
+                    CsvExtractor.ValidateTimeFormat(value);
+                    d.Csv.TimeUnit = value;
+                });
+                break;
             case "--from-html":
                 Download(d => d.Bandcamp.HtmlFromFile = value); break;
 
@@ -1305,6 +1311,14 @@ public static partial class ConfigManager
         return v;
     }
 
+    private static bool ParseBool(string s, string flag)
+    {
+        if (bool.TryParse(s, out var value))
+            return value;
+
+        throw new Exception($"Input error: Option '{flag}' requires a boolean parameter, got '{s}'");
+    }
+
     private static SkipMode ParseSkipMode(string s, string flag, bool allowIndex)
     {
         return s.ToLower().Trim() switch
@@ -1343,6 +1357,14 @@ public static partial class ConfigManager
         if (!int.TryParse(s.Replace("_", ""), out int v))
             throw new Exception($"Input error: Option '{flag}' requires an integer parameter, got '{s}'");
         return v;
+    }
+
+    private static int ParseIntAtLeast(string s, string flag, int min)
+    {
+        var value = ParseInt(s, flag);
+        if (value < min)
+            throw new Exception($"Input error: Option '{flag}' must be at least {min}, got '{s}'");
+        return value;
     }
 
     private static int FindLastFlag(IReadOnlyList<string> args, params string[] names)

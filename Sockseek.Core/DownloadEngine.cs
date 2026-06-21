@@ -59,18 +59,10 @@ public class DownloadEngine
         var job = GetJob(jobId);
         if (job == null) return false;
 
-        var activeDownloads = _registry.Downloads.Values.Where(d => d.Song == job).ToList();
-
-        if (job is AlbumJob albumJob && albumJob.ResolvedTarget != null)
-        {
-            var songIds = albumJob.ResolvedTarget.Files.Select(f => f.Id).ToHashSet();
-            activeDownloads.AddRange(_registry.Downloads.Values.Where(d => songIds.Contains(d.Song.Id)));
-        }
-        else if (job is AggregateJob aggregateJob)
-        {
-            var songIds = aggregateJob.Songs.Select(f => f.Id).ToHashSet();
-            activeDownloads.AddRange(_registry.Downloads.Values.Where(d => songIds.Contains(d.Song.Id)));
-        }
+        var targetIds = ActiveDownloadTargetIds(job);
+        var activeDownloads = _registry.Downloads.Values
+            .Where(d => targetIds.Contains(d.Song.Id))
+            .ToList();
 
         if (activeDownloads.Count > 0)
         {
@@ -83,6 +75,45 @@ public class DownloadEngine
             return true;
         }
         return false;
+    }
+
+    private static HashSet<Guid> ActiveDownloadTargetIds(Job job)
+    {
+        var ids = new HashSet<Guid>();
+        Add(job);
+        return ids;
+
+        void Add(Job current)
+        {
+            ids.Add(current.Id);
+
+            switch (current)
+            {
+                case JobList list:
+                    foreach (var child in list.Jobs)
+                        Add(child);
+                    break;
+
+                case ExtractJob { Result: { } result }:
+                    Add(result);
+                    break;
+
+                case AlbumJob { ResolvedTarget: { } folder }:
+                    foreach (var song in folder.Files)
+                        Add(song);
+                    break;
+
+                case AggregateJob aggregate:
+                    foreach (var song in aggregate.Songs)
+                        Add(song);
+                    break;
+
+                case AlbumAggregateJob aggregate:
+                    foreach (var album in aggregate.Albums)
+                        Add(album);
+                    break;
+            }
+        }
     }
 
     private JobContext Ctx(Job job) => _contexts[job.Id];
@@ -189,6 +220,18 @@ public class DownloadEngine
         }
 
         job.Fail(JobFailureReason.NoSuitableFileFound);
+        await FlushManualSelectionTerminalEffectsAsync(job);
+        return true;
+    }
+
+    /// <summary>Marks an AwaitingSelection job as explicitly skipped by the user.</summary>
+    public async Task<bool> SkipManualSelectionAsync(Guid jobId)
+    {
+        var job = GetJob(jobId);
+        if (job == null || !job.IsAwaitingSelection || job.Config == null)
+            return false;
+
+        job.SetSkipped(JobSkipReason.Manual);
         await FlushManualSelectionTerminalEffectsAsync(job);
         return true;
     }
@@ -836,7 +879,26 @@ public class DownloadEngine
         if (config.Skip.SkipExisting && !config.PrintResults && job.CanBeSkipped
             && TryGetJobAlreadyExistsOutcome(job, ctx) is { } alreadyExistsOutcome)
         {
-            CommitOutcome(job, alreadyExistsOutcome);
+            if (job is SongJob existingSong)
+            {
+                var organizer = new FileManager(existingSong, config.Output, config.Extraction);
+                await CommitAndFinalizeSong(
+                    existingSong,
+                    existingSong,
+                    alreadyExistsOutcome,
+                    ctx,
+                    organizer,
+                    organize: false,
+                    updateIndexes: false);
+            }
+            else
+            {
+                ApplyPreCommitOutcomeMetadata(job, alreadyExistsOutcome);
+                var postProcessOutcome = OutcomeWithCurrentMetadata(job, alreadyExistsOutcome);
+                await RunOnCompleteIfApplicable(job, null, ctx, postProcessOutcome);
+                CommitOutcome(job, OutcomeWithCurrentMetadata(job, postProcessOutcome));
+            }
+
             if (!string.IsNullOrEmpty(alreadyExistsOutcome.DownloadPath))
                 ctx.IndexEditor?.NotifyJobDownloadPath(job.Id, alreadyExistsOutcome.DownloadPath);
             ctx.IndexEditor?.Update();
@@ -1588,13 +1650,16 @@ public class DownloadEngine
 
         MarkCancelledAlbumFiles(job, audioResult, completion.Outcome);
         var images = await DownloadAlbumImagesIfNeeded(job, ctx, organizer, audioResult, chosenFiles);
+        var outcome = config.Output.AlbumArtOnly
+            ? DeriveAlbumArtOnlyOutcome(job, completion.Outcome)
+            : completion.Outcome;
         if (!string.IsNullOrEmpty(job.DownloadPath))
             job.UpdateActivity(JobActivityPhase.Organizing);
         OrganizeAlbumIfNeeded(job, organizer, images.ChosenFiles, images.AdditionalImages);
         RefreshDownloadedFileCache(images.ChosenFiles);
         RefreshDownloadedFileCache(images.AdditionalImages);
 
-        var postProcessOutcome = OutcomeWithCurrentMetadata(job, completion.Outcome);
+        var postProcessOutcome = OutcomeWithCurrentMetadata(job, outcome);
         await RunOnCompleteIfApplicable(job, null, ctx, postProcessOutcome);
 
         var finalOutcome = OutcomeWithCurrentMetadata(job, postProcessOutcome);
@@ -1694,6 +1759,53 @@ public class DownloadEngine
             organizer.OrganizeAlbum(job, chosenFiles, additionalImages);
     }
 
+    JobOutcome DeriveAlbumArtOnlyOutcome(AlbumJob job, JobOutcome fallbackOutcome)
+    {
+        var imageFiles = job.Results
+            .SelectMany(folder => folder.Files)
+            .Where(file => file.IsNotAudio)
+            .Distinct()
+            .ToList();
+
+        if (job.Cts?.IsCancellationRequested == true
+            || imageFiles.Any(file => file.FailureReason == JobFailureReason.Cancelled))
+            return JobOutcome.Cancelled(CancellationSourceForDerivedCancellation(job, imageFiles.Cast<Job>().ToArray()));
+
+        var downloadedImages = imageFiles
+            .Where(file => file.TerminalOutcome == JobTerminalOutcome.Succeeded && !string.IsNullOrEmpty(file.DownloadPath))
+            .ToList();
+
+        if (downloadedImages.Count > 0)
+        {
+            var downloadPath = Utils.GreatestCommonDirectory(downloadedImages.Select(file => file.DownloadPath!));
+            job.DownloadPath = downloadPath;
+            return JobOutcome.Done(downloadPath);
+        }
+
+        var existingImages = imageFiles
+            .Where(file => file.IsSkippedAlreadyExists && !string.IsNullOrEmpty(file.DownloadPath))
+            .ToList();
+
+        if (existingImages.Count > 0)
+        {
+            var downloadPath = Utils.GreatestCommonDirectory(existingImages.Select(file => file.DownloadPath!));
+            job.DownloadPath = downloadPath;
+            return JobOutcome.AlreadyExists(downloadPath);
+        }
+
+        var failedImage = imageFiles.FirstOrDefault(file => file.IsUnsuccessfulTerminal);
+        if (failedImage != null)
+        {
+            return JobOutcome.Failed(
+                failedImage.FailureReason == JobFailureReason.None ? JobFailureReason.AllDownloadsFailed : failedImage.FailureReason,
+                failedImage.FailureMessage);
+        }
+
+        return fallbackOutcome.TerminalOutcome == JobTerminalOutcome.Failed
+            ? fallbackOutcome
+            : JobOutcome.Failed(JobFailureReason.NoSuitableFileFound);
+    }
+
     sealed record AlbumDownloadCompletion(JobOutcome Outcome, List<SongJob>? ChosenFiles);
     sealed record AlbumImageDownloadResult(List<SongJob>? ChosenFiles, List<SongJob>? AdditionalImages);
 
@@ -1720,7 +1832,7 @@ public class DownloadEngine
                 if (af.LifecycleState != JobLifecycleState.Pending) return;
                 if (af.ResolvedTarget != null && af.Candidates == null)
                     af.Candidates = new List<FileCandidate> { af.ResolvedTarget };
-                await DownloadEmbeddedSong(af, job, config, organizer, cts, cancelGroupOnFail: true, organize: true);
+                await DownloadEmbeddedSong(af, job, config, organizer, cts, cancelGroupOnFail: !af.IsNotAudio, organize: true);
             });
             await Task.WhenAll(tasks);
         }
@@ -1906,6 +2018,8 @@ public class DownloadEngine
         }
 
         var failedSong = folder.Files.FirstOrDefault(song =>
+            !song.IsNotAudio
+            &&
             song.LifecycleState == JobLifecycleState.Terminal
             && !IsSuccessfulTerminal(song));
 
@@ -2886,7 +3000,7 @@ public class DownloadEngine
         bool needsDownload(List<SongJob> ls) => option == AlbumArtOption.Most
             ? mCount < ls.Count
             : option == AlbumArtOption.Largest
-                ? mSize < ls.Max(af => af.ResolvedTarget!.File.Size) - 1024 * 50
+                ? mSize == 0 || mSize < ls.Max(af => af.ResolvedTarget!.File.Size) - 1024 * 50
                 : true;
 
         while (imageFolders.Count > 0)

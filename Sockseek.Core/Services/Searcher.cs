@@ -266,10 +266,11 @@ public partial class Searcher
                 string filename = GetBrowseFilePath(dir, file.Filename);
                 if (existing.Contains(filename)) continue;
 
-                newFiles++;
                 var slFile = new SlFile(file.Code, filename, file.Size, file.Extension, file.Attributes);
                 var candidate = new FileCandidate(firstResp, slFile);
                 var info = InferSongQuery(filename, new SongQuery { Artist = firstInfo.Artist, Album = firstInfo.Album });
+
+                newFiles++;
                 folder.Files.Add(new SongJob(info) { ResolvedTarget = candidate });
             }
 

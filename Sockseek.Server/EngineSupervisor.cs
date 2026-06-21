@@ -570,6 +570,15 @@ public sealed class EngineSupervisor
         return engine != null && await engine.CompleteManualSelectionAsync(jobId);
     }
 
+    public async Task<bool> SkipManualSelectionAsync(Guid jobId)
+    {
+        DownloadEngine? engine;
+        lock (engineGate)
+            engine = currentEngine;
+
+        return engine != null && await engine.SkipManualSelectionAsync(jobId);
+    }
+
     private DownloadEngine CreateEngine()
     {
         var clientManager = new SoulseekClientManager(engineSettings, options.ClientFactory?.Invoke(engineSettings));

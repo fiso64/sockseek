@@ -187,6 +187,24 @@ namespace Tests.ConfigTests
         }
 
         [TestMethod]
+        public void JobPreparer_WithResolver_AppliesAutoProfileFormatInRuntimePath()
+        {
+            string content =
+                "[album-auto]\n" +
+                "profile-cond = download-mode == \"album\"\n" +
+                "format = ogg";
+
+            var (file, root, cli, args) = Bind(content);
+            var resolver = ConfigManager.CreateJobSettingsResolver(file, args, cli);
+            var job = new AlbumJob(new AlbumQuery());
+
+            JobPreparer.PrepareSubtree(job, root, resolver);
+
+            CollectionAssert.AreEqual(new[] { "ogg" }, job.Config.Search.NecessaryCond.Formats);
+            CollectionAssert.Contains(job.Config.AppliedAutoProfiles.ToList(), "album-auto");
+        }
+
+        [TestMethod]
         public void AutoProfile_WithEngineSetting_Throws()
         {
             string content =

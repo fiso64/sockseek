@@ -102,6 +102,10 @@ namespace Sockseek.Core.Services;
         {
             switch (job)
             {
+                case SongJob song:
+                    PreprocessSong(song, preprocess);
+                    break;
+
                 case JobList jl:
                     foreach (var song in jl.Jobs.OfType<SongJob>())
                         PreprocessSong(song, preprocess);

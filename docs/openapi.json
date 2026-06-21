@@ -848,6 +848,34 @@
         }
       }
     },
+    "/api/jobs/{jobId}/manual/skip": {
+      "post": {
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Skips a manual-selection job without starting additional downloads.",
+        "description": "Use this when a DownloadBehavior.Manual job reached AwaitingSelection and the caller wants to record an explicit user skip.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/api/jobs/{jobId}/cancel": {
       "post": {
         "tags": [

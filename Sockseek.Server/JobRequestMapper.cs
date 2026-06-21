@@ -9,6 +9,9 @@ namespace Sockseek.Server;
 
 public static class JobRequestMapper
 {
+    public const int MaxSearchTextLength = 1024;
+    public const int MaxSearchUriLength = 4096;
+
     public static ExtractJob CreateExtractJob(SubmitExtractJobRequestDto request)
     {
         if (string.IsNullOrWhiteSpace(request.Input))
@@ -32,7 +35,10 @@ public static class JobRequestMapper
     }
 
     public static SearchJob CreateSearchJob(SubmitSearchJobRequestDto request)
-        => new(request.QueryText);
+    {
+        ValidateSearchText(request.QueryText, nameof(request.QueryText));
+        return new(request.QueryText);
+    }
 
     public static SearchJob CreateTrackSearchJob(SubmitTrackSearchJobRequestDto request)
         => new(ToSongQuery(request.SongQuery), request.IncludeFullResults);
@@ -79,24 +85,57 @@ public static class JobRequestMapper
         }
     }
 
-    public static SongQuery ToSongQuery(SongQueryDto dto) => new()
+    public static SongQuery ToSongQuery(SongQueryDto dto)
     {
-        Artist = dto.Artist ?? "",
-        Title = dto.Title ?? "",
-        Album = dto.Album ?? "",
-        URI = dto.Uri ?? "",
-        Length = dto.Length ?? -1,
-        ArtistMaybeWrong = dto.ArtistMaybeWrong,
-    };
+        ValidateSearchText(dto.Artist, nameof(dto.Artist), allowEmpty: true);
+        ValidateSearchText(dto.Title, nameof(dto.Title), allowEmpty: true);
+        ValidateSearchText(dto.Album, nameof(dto.Album), allowEmpty: true);
+        ValidateSearchText(dto.Uri, nameof(dto.Uri), maxLength: MaxSearchUriLength, allowEmpty: true);
 
-    public static AlbumQuery ToAlbumQuery(AlbumQueryDto dto) => new()
+        return new()
+        {
+            Artist = dto.Artist ?? "",
+            Title = dto.Title ?? "",
+            Album = dto.Album ?? "",
+            URI = dto.Uri ?? "",
+            Length = dto.Length ?? -1,
+            ArtistMaybeWrong = dto.ArtistMaybeWrong,
+        };
+    }
+
+    public static AlbumQuery ToAlbumQuery(AlbumQueryDto dto)
     {
-        Artist = dto.Artist ?? "",
-        Album = dto.Album ?? "",
-        SearchHint = dto.SearchHint ?? "",
-        URI = dto.Uri ?? "",
-        ArtistMaybeWrong = dto.ArtistMaybeWrong,
-    };
+        ValidateSearchText(dto.Artist, nameof(dto.Artist), allowEmpty: true);
+        ValidateSearchText(dto.Album, nameof(dto.Album), allowEmpty: true);
+        ValidateSearchText(dto.SearchHint, nameof(dto.SearchHint), allowEmpty: true);
+        ValidateSearchText(dto.Uri, nameof(dto.Uri), maxLength: MaxSearchUriLength, allowEmpty: true);
+
+        return new()
+        {
+            Artist = dto.Artist ?? "",
+            Album = dto.Album ?? "",
+            SearchHint = dto.SearchHint ?? "",
+            URI = dto.Uri ?? "",
+            ArtistMaybeWrong = dto.ArtistMaybeWrong,
+        };
+    }
+
+    private static void ValidateSearchText(
+        string? value,
+        string fieldName,
+        int maxLength = MaxSearchTextLength,
+        bool allowEmpty = false)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            if (allowEmpty)
+                return;
+            throw new ArgumentException($"{fieldName} is required");
+        }
+
+        if (value.Length > maxLength)
+            throw new ArgumentException($"{fieldName} is too long; maximum length is {maxLength} characters");
+    }
 
     public static AlbumFolder ToAlbumFolder(AlbumFolderDto dto)
         => new(

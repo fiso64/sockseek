@@ -228,6 +228,10 @@ public class CliEndToEndTests
             Assert.AreEqual(1, pickerCalls, "Shift+S should suppress later new album prompts in the same interactive workflow.");
             Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
                 .Count(path => string.Equals(Path.GetExtension(path), ".mp3", StringComparison.OrdinalIgnoreCase)));
+            var albumJobs = app.Queue.AllJobs().OfType<AlbumJob>().ToList();
+            Assert.AreEqual(2, albumJobs.Count);
+            Assert.IsTrue(albumJobs.All(job => job.TerminalOutcome == JobTerminalOutcome.Skipped));
+            Assert.IsTrue(albumJobs.All(job => job.SkipReason == JobSkipReason.Manual));
         }
         finally
         {

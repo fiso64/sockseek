@@ -146,6 +146,44 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
+        public void Number_RejectsNegativeValue()
+        {
+            Assert.ThrowsException<Exception>(() => Cfg("--number", "-1", "some input"));
+        }
+
+        [TestMethod]
+        public void Offset_RejectsNegativeValue()
+        {
+            Assert.ThrowsException<Exception>(() => Cfg("--offset", "-1", "some input"));
+        }
+
+        [TestMethod]
+        public void TimeFormat_RejectsUnsupportedUnits()
+        {
+            Assert.ThrowsException<ArgumentException>(() => Cfg("--time-format", "bogus", "some input"));
+        }
+
+        [TestMethod]
+        public void BooleanOption_RejectsInvalidValueAsInputError()
+        {
+            var path = Path.GetTempFileName();
+            try
+            {
+                File.WriteAllText(path, "progress = maybe\n");
+                var file = ConfigManager.Load(path);
+
+                var ex = Assert.ThrowsException<Exception>(() => ConfigManager.Bind(file, ["some input"]));
+
+                StringAssert.Contains(ex.Message, "Input error:");
+                StringAssert.Contains(ex.Message, "--progress");
+            }
+            finally
+            {
+                File.Delete(path);
+            }
+        }
+
+        [TestMethod]
         public void Song_Flag_IsIncludedInRemoteDownloadSettingsPatch()
         {
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--song"]);
@@ -710,6 +748,15 @@ namespace Tests.ConfigParsingTests
             var url = Sockseek.Cli.Program.BuildDaemonListenUrl(new DaemonSettings { ListenIp = "::1", ListenPort = 15082 });
 
             Assert.AreEqual("http://[::1]:15082", url);
+        }
+
+        [TestMethod]
+        public void DaemonListenAddressNetworkExposed_DetectsAnyAddress()
+        {
+            Assert.IsTrue(Sockseek.Cli.Program.IsDaemonListenAddressNetworkExposed(new DaemonSettings { ListenIp = "0.0.0.0" }));
+            Assert.IsTrue(Sockseek.Cli.Program.IsDaemonListenAddressNetworkExposed(new DaemonSettings { ListenIp = "::" }));
+            Assert.IsFalse(Sockseek.Cli.Program.IsDaemonListenAddressNetworkExposed(new DaemonSettings { ListenIp = "127.0.0.1" }));
+            Assert.IsFalse(Sockseek.Cli.Program.IsDaemonListenAddressNetworkExposed(new DaemonSettings { ListenIp = "::1" }));
         }
 
         [TestMethod]

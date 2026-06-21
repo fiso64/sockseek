@@ -260,6 +260,90 @@ namespace Tests.Core
         }
 
         [TestMethod]
+        public async Task AlbumArtOnly_SucceedsWhenImageDownloads()
+        {
+            var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-album-art-only-" + Guid.NewGuid());
+            Directory.CreateDirectory(outputDir);
+
+            var audio = TestHelpers.CreateSlFile(@"Music\Artist\Album\01. Artist - Song.mp3", size: 18000, length: 180);
+            var cover = TestHelpers.CreateSlFile(@"Music\Artist\Album\cover.jpg", size: 4096);
+            var response = new SearchResponse("user1", 1, true, 100, 0, [audio, cover]);
+            var testClient = new ClientTests.MockSoulseekClient([response]);
+
+            try
+            {
+                var eng = new EngineSettings { Username = "u", Password = "p", ConcurrentJobs = 1 };
+                var dl = new DownloadSettings();
+                dl.Output.ParentDir = outputDir;
+                dl.Output.AlbumArtOnly = true;
+                dl.Output.AlbumArtOption = AlbumArtOption.Largest;
+                dl.Skip.SkipExisting = false;
+
+                var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
+                var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                app.Enqueue(album, dl);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, album.TerminalOutcome);
+                Assert.AreEqual(1, testClient.DownloadCallCount, "Album-art-only should download the image, not the audio track.");
+                var image = album.Results.SelectMany(folder => folder.Files).Single(file => file.IsNotAudio);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, image.TerminalOutcome);
+                Assert.IsTrue(System.IO.File.Exists(image.DownloadPath), $"Expected downloaded image at {image.DownloadPath}");
+            }
+            finally
+            {
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+            }
+        }
+
+        [TestMethod]
+        public async Task AlbumJob_SucceedsWhenOptionalAlbumArtDownloadFails()
+        {
+            var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-album-art-optional-fail-" + Guid.NewGuid());
+            Directory.CreateDirectory(outputDir);
+
+            var audio = TestHelpers.CreateSlFile(@"Music\Artist\Album\01. Artist - Song.mp3", size: 18000, length: 180);
+            var cover = TestHelpers.CreateSlFile(@"Music\Artist\Album\cover.jpg", size: 4096);
+            var response = new SearchResponse("user1", 1, true, 100, 0, [audio, cover]);
+            var testClient = new ClientTests.MockSoulseekClient([response])
+            {
+                BeforeDownloadCompletesAsync = (_, remoteFilename, _) =>
+                    Utils.IsImageFile(remoteFilename)
+                        ? throw new SoulseekClientException("simulated cover failure")
+                        : Task.CompletedTask,
+            };
+
+            try
+            {
+                var eng = new EngineSettings { Username = "u", Password = "p", ConcurrentJobs = 1 };
+                var dl = new DownloadSettings();
+                dl.Output.ParentDir = outputDir;
+                dl.Output.AlbumArtOption = AlbumArtOption.Largest;
+                dl.Skip.SkipExisting = false;
+
+                var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
+                var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                app.Enqueue(album, dl);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, album.TerminalOutcome);
+                Assert.IsTrue(System.IO.File.Exists(Path.Combine(outputDir, "Album", "01. Artist - Song.mp3")));
+
+                var image = album.ResolvedTarget?.Files.Single(file => file.IsNotAudio);
+                Assert.IsNotNull(image);
+                Assert.AreEqual(JobTerminalOutcome.Failed, image.TerminalOutcome);
+            }
+            finally
+            {
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+            }
+        }
+
+        [TestMethod]
         public async Task AlbumJob_FallsBackToNextFolder_OnDownloadFailure()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-fallback-album-" + Guid.NewGuid());

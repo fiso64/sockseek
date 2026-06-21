@@ -425,6 +425,45 @@ namespace Tests.OnCompleteExecutorTests
         }
 
         [TestMethod]
+        public async Task Engine_AlreadyExistsTrackCommand_RunsForSkippedSong()
+        {
+            var outputDir = Path.Combine(Path.GetTempPath(), "sockseek-oncomplete-existing-" + Guid.NewGuid());
+            Directory.CreateDirectory(outputDir);
+
+            try
+            {
+                File.WriteAllBytes(Path.Combine(outputDir, "Artist - Track.mp3"), TestHelpers.EmptyMp3Bytes);
+                var markerPath = Path.Combine(outputDir, "marker.txt");
+
+                var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                var settings = new DownloadSettings();
+                settings.Output.ParentDir = outputDir;
+                settings.Output.OnComplete =
+                [
+                    $"when=already-exists scope=track hidden -- {AppendMarkerCommand(markerPath, "already-exists")}",
+                ];
+                settings.Skip.SkipExisting = true;
+                settings.Skip.SkipMode = SkipMode.Name;
+
+                var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" });
+                var client = new ClientTests.MockSoulseekClient([]);
+                var app = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
+                app.Enqueue(song, settings);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                Assert.IsTrue(song.IsSkippedAlreadyExists);
+                CollectionAssert.AreEqual(new[] { "already-exists" }, File.ReadAllLines(markerPath));
+            }
+            finally
+            {
+                if (Directory.Exists(outputDir))
+                    Directory.Delete(outputDir, recursive: true);
+            }
+        }
+
+        [TestMethod]
         public void HasApplicableCommand_AlbumOnlyCommand_DoesNotApplyToAlbumTrackCompletion()
         {
             var settings = new DownloadSettings();
