@@ -140,6 +140,15 @@ public sealed record JobMessageEventDto(
     string Message);
 
 /// <summary>
+/// Activity event carrying a workflow-scoped jobs log message.
+/// </summary>
+public sealed record WorkflowMessageEventDto(
+    Guid WorkflowId,
+    string Level,
+    string? Source,
+    string Message);
+
+/// <summary>
 /// Activity event emitted when a job changes its current phase.
 /// </summary>
 public sealed record JobActivityChangedEventDto(

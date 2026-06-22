@@ -21,6 +21,7 @@ public sealed class EngineEventDtoAdapter
     {
         events.JobStatus += (job, status) => publish("job.status", new JobStatusEventDto(getSummary(job), status));
         events.JobMessage += (job, level, source, message) => publish("job.message", new JobMessageEventDto(getSummary(job), level.ToString(), source, message));
+        events.WorkflowMessage += (workflowId, level, source, message) => publish("workflow.message", new WorkflowMessageEventDto(workflowId, level.ToString(), source, message));
         events.JobActivityChanged += (job, _, _) => publish("job.activity-changed", new JobActivityChangedEventDto(getSummary(job)));
         events.JobStateChanged += job =>
         {

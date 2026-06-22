@@ -54,6 +54,7 @@ public sealed class JobActivityLogFormatter
         "job.started",
         "job.folder-retrieving",
         "job.message",
+        "workflow.message",
         "job.activity-changed",
         "song.searching",
     };
@@ -84,6 +85,7 @@ public sealed class JobActivityLogFormatter
                 "job.started" when envelope.Payload is JobStartedEventDto payload => HandleJobStarted(payload),
                 "job.folder-retrieving" when envelope.Payload is JobFolderRetrievingEventDto payload => HandleJobFolderRetrieving(payload),
                 "job.message" when envelope.Payload is JobMessageEventDto payload => HandleJobMessage(payload),
+                "workflow.message" when envelope.Payload is WorkflowMessageEventDto payload => HandleWorkflowMessage(payload),
                 "job.activity-changed" when envelope.Payload is JobActivityChangedEventDto payload => HandleJobActivityChanged(payload),
                 "song.searching" when envelope.Payload is SongSearchingEventDto payload => LogJob(payload.JobId, payload.DisplayId, "SongJob", $"searching: {SongQueryText(payload.Query)}", showInLive: false),
                 _ => null,
@@ -156,6 +158,16 @@ public sealed class JobActivityLogFormatter
             IsErrorLevel(level) ? ActivityLogDisplayKind.Failed : ActivityLogDisplayKind.Status,
             job.Source,
             highlight: IsErrorLevel(level) ? job.Message : null);
+    }
+
+    private ActivityLogEntry? HandleWorkflowMessage(WorkflowMessageEventDto workflow)
+    {
+        var level = ParseLogLevel(workflow.Level);
+        return Log(
+            workflow.WorkflowId,
+            $"{SourcePrefix(workflow.Source)}{workflow.Message}",
+            IsErrorLevel(level) ? ActivityLogSeverity.Error : ActivityLogSeverity.Information,
+            level);
     }
 
     private ActivityLogEntry? HandleJobUpserted(JobSummaryDto summary)

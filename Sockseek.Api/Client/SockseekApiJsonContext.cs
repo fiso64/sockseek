@@ -124,6 +124,7 @@ namespace Sockseek.Api;
 [JsonSerializable(typeof(JobStartedEventDto))]
 [JsonSerializable(typeof(JobStatusEventDto))]
 [JsonSerializable(typeof(JobMessageEventDto))]
+[JsonSerializable(typeof(WorkflowMessageEventDto))]
 [JsonSerializable(typeof(JobActivityChangedEventDto))]
 [JsonSerializable(typeof(SongSearchingEventDto))]
 [JsonSerializable(typeof(DownloadStartedEventDto))]

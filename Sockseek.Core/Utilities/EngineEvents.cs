@@ -42,6 +42,9 @@ public class EngineEvents
     // Fired for job-scoped log messages that should be rendered with the same prefix/color policy
     // as other job activity.
     public event Action<Job, LogLevel, string?, string>? JobMessage;
+    // Fired for workflow-scoped messages in the jobs category that should not be attributed
+    // to the first job that happened to discover the condition.
+    public event Action<Guid, LogLevel, string?, string>? WorkflowMessage;
 
     // ── Search ───────────────────────────────────────────────────────────────
     // Fired once per rate-limit window when the search semaphore is exhausted.
@@ -81,6 +84,7 @@ public class EngineEvents
 
     internal void RaiseJobStatus(Job job, string status) => JobStatus?.Invoke(job, status);
     internal void RaiseJobMessage(Job job, LogLevel level, string? source, string message) => JobMessage?.Invoke(job, level, source, message);
+    internal void RaiseWorkflowMessage(Guid workflowId, LogLevel level, string? source, string message) => WorkflowMessage?.Invoke(workflowId, level, source, message);
     internal void RaiseSearchRateLimited(DateTimeOffset resetsAt) => SearchRateLimited?.Invoke(resetsAt);
     internal void RaiseSearchResumed() => SearchResumed?.Invoke();
 

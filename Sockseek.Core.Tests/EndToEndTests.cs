@@ -356,6 +356,75 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
+        public async Task AutoProfile_ListAlbumLines_LogsNewProfilesOnceAndDebugSummary()
+        {
+            var listPath = Path.Combine(Path.GetTempPath(), "slsk-auto-profile-list-" + Guid.NewGuid() + ".txt");
+            await File.WriteAllLinesAsync(listPath,
+            [
+                "a:\"Artist One - Album One\"",
+                "a:\"Artist Two - Album Two\"",
+            ]);
+
+            try
+            {
+                var eng = new EngineSettings { Username = "u", Password = "p" };
+                var rootSettings = new DownloadSettings();
+                rootSettings.Extraction.RequestedMode = ExtractionMode.Album;
+                rootSettings.Search.NoBrowseFolder = true;
+
+                var autoProfile = new SettingsProfile
+                {
+                    Name = "album-profile",
+                    Condition = "album",
+                    Download = new DownloadSettingsPatch(),
+                };
+
+                var resolver = new ProfileJobSettingsResolver(
+                    rootSettings,
+                    defaultProfile: null,
+                    autoProfiles: [autoProfile],
+                    namedProfiles: [],
+                    cliProfile: null,
+                    normalize: SettingsNormalizer.Normalize);
+
+                var messages = new List<(string Scope, LogLevel Level, string Message)>();
+                var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(new ClientTests.MockSoulseekClient([]), eng), resolver);
+                app.Events.JobMessage += (_, level, _, message) => messages.Add(("job", level, message));
+                app.Events.WorkflowMessage += (_, level, _, message) => messages.Add(("workflow", level, message));
+                app.Enqueue(new ExtractJob(listPath, InputType.List), rootSettings);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                var activeMessages = messages
+                    .Where(x => x.Scope == "workflow" && x.Level == LogLevel.Information && x.Message.Contains("Auto profiles active"))
+                    .Select(x => x.Message)
+                    .ToList();
+                var allMessages = string.Join("\n", messages.Select(x => $"{x.Scope} {x.Level}: {x.Message}"));
+                Assert.AreEqual(1, activeMessages.Count, allMessages);
+                Assert.AreEqual("Auto profiles active: album-profile", activeMessages[0]);
+
+                var debugTriggerMessages = messages
+                    .Where(x => x.Scope == "job" && x.Level == LogLevel.Debug && x.Message.Contains("Auto profiles active"))
+                    .Select(x => x.Message)
+                    .ToList();
+                Assert.AreEqual(1, debugTriggerMessages.Count, allMessages);
+                Assert.AreEqual("Auto profiles active: album-profile", debugTriggerMessages[0]);
+
+                var summaryMessages = messages
+                    .Where(x => x.Scope == "workflow" && x.Level == LogLevel.Debug && x.Message.Contains("Auto profiles applied"))
+                    .Select(x => x.Message)
+                    .ToList();
+                Assert.AreEqual(1, summaryMessages.Count, allMessages);
+                Assert.AreEqual("Auto profiles applied: album-profile (2 albums)", summaryMessages[0]);
+            }
+            finally
+            {
+                if (File.Exists(listPath)) File.Delete(listPath);
+            }
+        }
+
+        [TestMethod]
         public async Task AlbumDownload_WriteIndex_UsesNameFormattedAlbumPath()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-index-album-format-out-" + Guid.NewGuid());

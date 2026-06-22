@@ -649,6 +649,7 @@ internal sealed class LocalCliBackend
             JobStartedEventDto e => e.Summary.WorkflowId,
             JobStatusEventDto e => e.Summary.WorkflowId,
             JobMessageEventDto e => e.Summary.WorkflowId,
+            WorkflowMessageEventDto e => e.WorkflowId,
             JobActivityChangedEventDto e => e.Summary.WorkflowId,
             SongSearchingEventDto e => e.WorkflowId,
             DownloadStartedEventDto e => e.WorkflowId,

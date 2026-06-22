@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
+using Microsoft.Extensions.Logging;
 using Soulseek;
 using Sockseek.Core.Models;
 using Sockseek.Core;
@@ -42,6 +43,8 @@ public class DownloadEngine
     private readonly ConcurrentDictionary<string, byte> _appliedSourceMutations = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<Guid, Guid> _manualAggregateParentByAlbumId = new();
     private readonly ConcurrentDictionary<Guid, byte> _closedManualAggregateSelections = new();
+    private readonly ConcurrentDictionary<Guid, AutoProfileWorkflowLogState> _autoProfileLogStateByWorkflow = new();
+    private readonly ConcurrentDictionary<Guid, byte> _musicDirectoryIndexBuildLoggedByWorkflow = new();
     private readonly SourceMutationExecutor _sourceMutationExecutor = new();
 
     private readonly ConcurrentDictionary<Guid, Job> _jobById = new();
@@ -53,6 +56,15 @@ public class DownloadEngine
         .Where(job => job.WorkflowId == workflowId)
         .OrderBy(job => job.DisplayId)
         .ToList();
+
+    private sealed class AutoProfileWorkflowLogState
+    {
+        public object Gate { get; } = new();
+        public HashSet<Guid> CountedJobIds { get; } = [];
+        public HashSet<string> ObservedProfileNames { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, Dictionary<string, int>> CountsByProfileAndKind { get; } = new(StringComparer.Ordinal);
+        public bool FinalSummaryEmitted { get; set; }
+    }
 
     public bool TryNextCandidate(Guid jobId)
     {
@@ -141,6 +153,143 @@ public class DownloadEngine
         };
         Events.RaiseJobRegistered(job, parent);
     }
+
+    private void ObservePreparedAutoProfiles(Job preparedRoot)
+    {
+        // Auto-profile logs are edge-triggered per workflow: announce profile names the
+        // first time they appear on a real job, then leave detailed counts to debug logs.
+        var state = _autoProfileLogStateByWorkflow.GetOrAdd(
+            preparedRoot.WorkflowId,
+            _ => new AutoProfileWorkflowLogState());
+        var newlyObservedProfiles = new List<string>();
+        Job? firstTriggeringJob = null;
+
+        lock (state.Gate)
+        {
+            foreach (var job in EnumerateAutoProfileLogJobs(preparedRoot))
+            {
+                var kindLabel = AutoProfileLogKind(job);
+                if (kindLabel == null)
+                    continue;
+
+                var profiles = job.Config?.AppliedAutoProfiles
+                    .Where(profile => !string.IsNullOrWhiteSpace(profile))
+                    .OrderBy(profile => profile, StringComparer.Ordinal)
+                    .ToList();
+                if (profiles == null || profiles.Count == 0)
+                    continue;
+
+                if (!state.CountedJobIds.Add(job.Id))
+                    continue;
+
+                foreach (var profile in profiles)
+                {
+                    if (state.ObservedProfileNames.Add(profile))
+                    {
+                        newlyObservedProfiles.Add(profile);
+                        firstTriggeringJob ??= job;
+                    }
+
+                    if (!state.CountsByProfileAndKind.TryGetValue(profile, out var countsByKind))
+                    {
+                        countsByKind = new Dictionary<string, int>(StringComparer.Ordinal);
+                        state.CountsByProfileAndKind[profile] = countsByKind;
+                    }
+
+                    countsByKind[kindLabel] = countsByKind.GetValueOrDefault(kindLabel) + 1;
+                }
+            }
+        }
+
+        if (newlyObservedProfiles.Count > 0)
+        {
+            var message = $"Auto profiles active: {string.Join(", ", newlyObservedProfiles)}";
+            Events.RaiseWorkflowMessage(
+                preparedRoot.WorkflowId,
+                LogLevel.Information,
+                null,
+                message);
+
+            if (firstTriggeringJob != null)
+                Events.RaiseJobMessage(firstTriggeringJob, LogLevel.Debug, null, message);
+        }
+    }
+
+    private void EmitAutoProfileFinalSummary(Job rootJob)
+    {
+        if (!_autoProfileLogStateByWorkflow.TryGetValue(rootJob.WorkflowId, out var state))
+            return;
+
+        string? summary;
+        lock (state.Gate)
+        {
+            if (state.FinalSummaryEmitted || state.CountsByProfileAndKind.Count == 0)
+                return;
+
+            state.FinalSummaryEmitted = true;
+            summary = FormatAutoProfileSummary(state.CountsByProfileAndKind);
+        }
+
+        if (!string.IsNullOrWhiteSpace(summary))
+            Events.RaiseWorkflowMessage(rootJob.WorkflowId, LogLevel.Debug, null, $"Auto profiles applied: {summary}");
+    }
+
+    private void RaiseBuildingMusicDirectoryIndex(Job job)
+    {
+        if (_musicDirectoryIndexBuildLoggedByWorkflow.TryAdd(job.WorkflowId, 0))
+            Events.RaiseWorkflowMessage(job.WorkflowId, LogLevel.Information, null, "Building music directory index..");
+    }
+
+    private static IEnumerable<Job> EnumerateAutoProfileLogJobs(Job root)
+    {
+        yield return root;
+
+        switch (root)
+        {
+            case JobList list:
+                foreach (var child in list.Jobs)
+                {
+                    foreach (var descendant in EnumerateAutoProfileLogJobs(child))
+                        yield return descendant;
+                }
+                break;
+
+            case ExtractJob { Result: { } result }:
+                foreach (var descendant in EnumerateAutoProfileLogJobs(result))
+                    yield return descendant;
+                break;
+        }
+    }
+
+    private static string? AutoProfileLogKind(Job job) => job switch
+    {
+        SongJob => "song",
+        AlbumJob => "album",
+        AggregateJob => "aggregate",
+        AlbumAggregateJob => "album aggregate",
+        SearchJob => "search",
+        _ => null,
+    };
+
+    private static string FormatAutoProfileSummary(Dictionary<string, Dictionary<string, int>> countsByProfileAndKind)
+        => string.Join(", ",
+            countsByProfileAndKind
+                .OrderBy(profile => profile.Key, StringComparer.Ordinal)
+                .Select(profile =>
+                    $"{profile.Key} ({string.Join(", ", profile.Value.OrderBy(kind => kind.Key, StringComparer.Ordinal).Select(FormatAutoProfileKindCount))})"));
+
+    private static string FormatAutoProfileKindCount(KeyValuePair<string, int> count)
+        => $"{count.Value} {PluralizeAutoProfileKind(count.Key, count.Value)}";
+
+    private static string PluralizeAutoProfileKind(string kind, int count)
+        => count == 1
+            ? kind
+            : kind switch
+            {
+                "album aggregate" => "album aggregates",
+                "search" => "searches",
+                _ => $"{kind}s",
+            };
 
     // ── public state (read by Searcher / Downloader) ─────────────────────────
 
@@ -361,6 +510,8 @@ public class DownloadEngine
             MusicDirSkipper = parentCtx.MusicDirSkipper,
             PreprocessTracks = false,
         };
+
+        ObservePreparedAutoProfiles(albumJob);
     }
 
     private static bool SameAlbumFolder(AlbumFolder left, AlbumFolder right)
@@ -394,6 +545,8 @@ public class DownloadEngine
 
                 foreach (var (id, ctx) in JobPreparer.PrepareSubtree(rootJob, settings!, _jobSettingsResolver))
                     _contexts[id] = ctx;
+
+                ObservePreparedAutoProfiles(rootJob);
             }
             else if (!_contexts.ContainsKey(rootJob.Id))
             {
@@ -420,7 +573,7 @@ public class DownloadEngine
                 servicesInitialized = true;
             }
 
-            rootTasks.Add(ProcessJob(rootJob));
+            rootTasks.Add(ProcessRootJob(rootJob));
         }
 
         SockseekLog.Jobs.Trace("RunAsync: Channel fully drained. Waiting for rootTasks to complete.");
@@ -436,6 +589,18 @@ public class DownloadEngine
 
 
     // ── recursive job processor ───────────────────────────────────────────────
+
+    async Task ProcessRootJob(Job rootJob)
+    {
+        try
+        {
+            await ProcessJob(rootJob);
+        }
+        finally
+        {
+            EmitAutoProfileFinalSummary(rootJob);
+        }
+    }
 
     async Task ProcessJob(Job job, CancellationToken parentToken = default, Job? parentJob = null)
     {
@@ -1101,6 +1266,7 @@ public class DownloadEngine
         foreach (var (id, ctx) in newContexts)
             _contexts[id] = ctx;
 
+        ObservePreparedAutoProfiles(extracted);
         Events.RaiseJobResultCreated(job, extracted);
     }
 
@@ -2540,7 +2706,7 @@ public class DownloadEngine
         {
             if (!jobCtx.MusicDirSkipper.IndexIsBuilt)
             {
-                SockseekLog.Jobs.Info("Building music directory index..");
+                RaiseBuildingMusicDirectoryIndex(job);
                 jobCtx.MusicDirSkipper.BuildIndex();
             }
             jobCtx.MusicDirSkipper.SongExists(song, skipCtx, out path);
@@ -2576,7 +2742,7 @@ public class DownloadEngine
             {
                 if (!ctx.MusicDirSkipper.IndexIsBuilt)
                 {
-                    SockseekLog.Jobs.Info("Building music directory index..");
+                    RaiseBuildingMusicDirectoryIndex(job);
                     ctx.MusicDirSkipper.BuildIndex();
                 }
                 ctx.MusicDirSkipper.AlbumExists(aj, skipCtx, out path);
@@ -2621,7 +2787,7 @@ public class DownloadEngine
             {
                 if (!ctx.MusicDirSkipper.IndexIsBuilt)
                 {
-                    SockseekLog.Jobs.Info("Building music directory index..");
+                    RaiseBuildingMusicDirectoryIndex(job);
                     ctx.MusicDirSkipper.BuildIndex();
                 }
                 ctx.MusicDirSkipper.AlbumExists(aj, skipCtx, out path);
@@ -2654,7 +2820,7 @@ public class DownloadEngine
         {
             if (!jobCtx.MusicDirSkipper.IndexIsBuilt)
             {
-                SockseekLog.Jobs.Info("Building music directory index..");
+                RaiseBuildingMusicDirectoryIndex(job);
                 jobCtx.MusicDirSkipper.BuildIndex();
             }
             jobCtx.MusicDirSkipper.SongExists(song, skipCtx, out path);

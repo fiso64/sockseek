@@ -105,6 +105,26 @@ public class CliProgressReporterTests
     }
 
     [TestMethod]
+    public void EventLogger_WorkflowMessage_PrintsGenericJobsLog()
+    {
+        SockseekLog.RemoveNonFileOutputs();
+        var messages = new List<string>();
+        SockseekLog.AddConsole(writer: (message, _) => messages.Add(message));
+
+        var eventLogger = new EventLogger(null!);
+        var workflowId = Guid.NewGuid();
+
+        InvokePrivate(eventLogger, "HandleEvent", Envelope("workflow.message", new WorkflowMessageEventDto(
+            workflowId,
+            LogLevel.Information.ToString(),
+            null,
+            "Auto profiles active: interactive")));
+
+        Assert.AreEqual(1, messages.Count);
+        Assert.AreEqual(JobLog("Auto profiles active: interactive"), messages[0]);
+    }
+
+    [TestMethod]
     public void EventLogger_ExtractionFailure_SuppressesGenericExtractUpsert()
     {
         SockseekLog.RemoveNonFileOutputs();

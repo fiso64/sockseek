@@ -23,6 +23,7 @@ public static class ServerEventCatalog
             Activity("job.started", nameof(JobStartedEventDto)),
             Activity("job.status", nameof(JobStatusEventDto)),
             Activity("job.message", nameof(JobMessageEventDto)),
+            Activity("workflow.message", nameof(WorkflowMessageEventDto)),
             Activity("job.activity-changed", nameof(JobActivityChangedEventDto)),
             Activity("job.folder-retrieving", nameof(JobFolderRetrievingEventDto)),
             Activity("song.searching", nameof(SongSearchingEventDto)),
