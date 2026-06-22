@@ -455,12 +455,6 @@ public class CliProgressReporter
         return $"{char.ToUpperInvariant(kindText[0])}{kindText[1..]}";
     }
 
-    private static string ProfileSuffix(JobSummaryDto summary)
-        => summary.AppliedAutoProfiles.Count > 0 ? $" [{string.Join(", ", summary.AppliedAutoProfiles)}]" : "";
-
-    private static string TextWithProfileSuffix(JobSummaryDto summary, string text)
-        => text + ProfileSuffix(summary);
-
     private static string JobStatusLine(JobSummaryDto summary, string status, string? detail = null)
     {
         var name = summary.ItemName ?? "";

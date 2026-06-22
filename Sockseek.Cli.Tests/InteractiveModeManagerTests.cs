@@ -88,7 +88,10 @@ public class InteractiveModeManagerTests
     }
 
     [TestMethod]
-    public async Task ShiftS_ReturnsSkipRemainingNewPromptsAction()
+    [DataTestMethod]
+    [DataRow('S', ConsoleKey.S)]
+    [DataRow('Q', ConsoleKey.Q)]
+    public async Task RestKeys_ReturnSkipRemainingNewPromptsAction(char keyChar, ConsoleKey key)
     {
         var folder = new AlbumFolder(
             "local",
@@ -108,11 +111,48 @@ public class InteractiveModeManagerTests
                 retrievedFolders: [],
                 retrieveFolderCallback: _ => throw new AssertFailedException("Skip-all should not retrieve."));
 
-            EnqueueKey('S');
+            EnqueueKey(keyChar, key);
 
             var result = await manager.Run();
 
             Assert.AreEqual(InteractiveModeManager.RunAction.SkipRemainingNewPrompts, result.Action);
+            Assert.IsNull(result.Folder);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow('s', ConsoleKey.S)]
+    [DataRow('q', ConsoleKey.Q)]
+    [DataRow('\u001b', ConsoleKey.Escape)]
+    public async Task SkipKeys_ReturnSkipCurrentAction(char keyChar, ConsoleKey key)
+    {
+        var folder = new AlbumFolder(
+            "local",
+            @"Artist\Album",
+            [CreateSong(@"Artist\Album\01. Artist - One.mp3")]);
+
+        using var output = new StringWriter();
+        var originalOut = Console.Out;
+        Console.SetOut(output);
+        try
+        {
+            var manager = new InteractiveModeManager(
+                new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" }),
+                new JobList(),
+                [folder],
+                canRetrieve: true,
+                retrievedFolders: [],
+                retrieveFolderCallback: _ => throw new AssertFailedException("Skip should not retrieve."));
+
+            EnqueueKey(keyChar, key);
+
+            var result = await manager.Run();
+
+            Assert.AreEqual(InteractiveModeManager.RunAction.SkipCurrent, result.Action);
             Assert.IsNull(result.Folder);
         }
         finally

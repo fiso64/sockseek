@@ -30,7 +30,6 @@ public class InteractiveModeManager
         Accept,
         SkipCurrent,
         SkipRemainingNewPrompts,
-        Quit,
         ExitInteractiveMode,
     }
 
@@ -89,8 +88,8 @@ public class InteractiveModeManager
             string retrieveAll2 = canRetrieve ? "| Load All Files" : "";
             string? statusLine = null;
             Console.WriteLine();
-        Printing.WriteLine($" [Up/p] | [Down/n] | [Enter] {retrieveAll1} | [s/S]     | [Esc/q] | [h]", ConsoleColor.Cyan, force: true);
-        Printing.WriteLine($" Prev   | Next     | Accept  {retrieveAll2} | Skip/Rest | Quit    | More Help", ConsoleColor.Cyan, force: true);
+        Printing.WriteLine($" [Up/p] | [Down/n] | [Enter] {retrieveAll1} | [s/q/Esc] | [Q/S]     | [h]", ConsoleColor.Cyan, force: true);
+        Printing.WriteLine($" Prev   | Next     | Accept  {retrieveAll2} | Skip      | Skip Rest | More Help", ConsoleColor.Cyan, force: true);
 
         Console.WriteLine();
         savedPos = GetCursorTopOrDefault();
@@ -167,8 +166,13 @@ public class InteractiveModeManager
                     Printing.WriteLine($"Skipped: {job.ToString(noInfo: true)}", ConsoleColor.Yellow, force: true);
                     return new RunResult(RunAction.SkipCurrent, -1, null, false, filterStr);
 
+                case "q" when commandInput == "Q":
+                    Printing.WriteLine($"Skipped all remaining new album prompts.", ConsoleColor.Yellow, force: true);
+                    return new RunResult(RunAction.SkipRemainingNewPrompts, -1, null, false, filterStr);
+
                 case "q":
-                    return new RunResult(RunAction.Quit, -2, null, false, filterStr);
+                    Printing.WriteLine($"Skipped: {job.ToString(noInfo: true)}", ConsoleColor.Yellow, force: true);
+                    return new RunResult(RunAction.SkipCurrent, -1, null, false, filterStr);
 
                 case "y":
                     Printing.WriteLine($"Downloading: {folder.FolderPath}", ConsoleColor.Green, force: true);

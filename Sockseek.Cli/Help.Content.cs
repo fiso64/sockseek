@@ -676,9 +676,8 @@ Shortcuts & interactive mode
     Enter/d         download selected folder
     y               download folder and disable interactive mode
     r               retrieve all files in the folder
-    s               skip current album
-    S               skip current and all remaining new album prompts
-    Esc/q           quit program
+    s/q/Esc         skip current album
+    Q/S             skip current and all remaining new album prompts
     h               print this help text
 
     d:1,2,3         download specific files

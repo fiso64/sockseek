@@ -96,7 +96,7 @@ public sealed class JobActivityLogFormatter
         if (string.IsNullOrWhiteSpace(job.InputType))
             return null;
 
-        return LogJob(job.Summary.JobId, job.Summary.DisplayId, "ExtractJob", $"Input: {job.Input}" + ProfileSuffix(job.Summary), source: job.Source ?? job.InputType);
+        return LogJob(job.Summary.JobId, job.Summary.DisplayId, "ExtractJob", $"Input: {job.Input}", source: job.Source ?? job.InputType);
     }
 
     private ActivityLogEntry? HandleExtractionFailed(ExtractionFailedEventDto job)
@@ -595,7 +595,7 @@ public sealed class JobActivityLogFormatter
     {
         var name = summary.ItemName ?? "";
         var detail = summary.QueryText ?? name;
-        var line = $"{status}: {WithName(name, detail)}" + ProfileSuffix(summary);
+        var line = $"{status}: {WithName(name, detail)}";
 
         if (summary.TerminalOutcome == ServerJobTerminalOutcome.Succeeded
             && summary.Kind == ServerJobKind.Search
@@ -624,12 +624,12 @@ public sealed class JobActivityLogFormatter
         bool succeeded = IsSuccessfulTerminalOutcome(summary.TerminalOutcome, summary.SkipReason);
 
         if (succeeded && !string.IsNullOrWhiteSpace(remoteFolderDisplay))
-            return $"{status}: {WithName(albumName, remoteFolderDisplay)}" + ProfileSuffix(summary);
+            return $"{status}: {WithName(albumName, remoteFolderDisplay)}";
 
         if (!string.IsNullOrWhiteSpace(completedPath))
-            return $"{status}: {WithName(albumName, $"completed at {completedPath}")}" + ProfileSuffix(summary);
+            return $"{status}: {WithName(albumName, $"completed at {completedPath}")}";
 
-        return $"{status}: {albumName}" + ProfileSuffix(summary);
+        return $"{status}: {albumName}";
     }
 
     private static string SongQueryText(SongQueryDto query)
@@ -659,9 +659,6 @@ public sealed class JobActivityLogFormatter
 
     private static string SourcePrefix(string? source)
         => string.IsNullOrWhiteSpace(source) ? "" : $"{source}: ";
-
-    private static string ProfileSuffix(JobSummaryDto summary)
-        => summary.AppliedAutoProfiles.Count > 0 ? $" [{string.Join(", ", summary.AppliedAutoProfiles)}]" : "";
 
     private static string CandidateDisplayShort(FileCandidateRefDto candidate)
     {

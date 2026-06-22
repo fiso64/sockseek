@@ -163,6 +163,14 @@ public class SockseekLogTests
     }
 
     [TestMethod]
+    public void ExpectedSoulseekPeerNetworkNoise_ClassifiesSoulseekNetworkStackFaults()
+    {
+        var exception = new AggregateException(Soulseek.Network.Tcp.UnobservedFaultFactory.NullReferenceFromConnectionLoop());
+
+        Assert.IsTrue(IsExpectedSoulseekPeerNetworkNoise(exception));
+    }
+
+    [TestMethod]
     public void ExpectedSoulseekPeerNetworkNoise_DoesNotClassifyUnknownApplicationFailure()
     {
         var exception = new AggregateException(new InvalidOperationException("engine invariant broke"));

@@ -294,6 +294,9 @@ public static class SockseekLog
         if (IsSoulseekNetworkException(exception))
             return exception.InnerException == null || IsExpectedSoulseekPeerNetworkException(exception.InnerException);
 
+        if (IsSoulseekNetworkStackException(exception))
+            return true;
+
         return false;
     }
 
@@ -306,6 +309,15 @@ public static class SockseekLog
         return exception.GetType().Name is "ConnectionReadException" or "ConnectionException"
             || exception.Message.Contains("Failed to read", StringComparison.OrdinalIgnoreCase)
             || exception.Message.Contains("Transfer failed: Transfer complete", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSoulseekNetworkStackException(Exception exception)
+    {
+        if (exception.TargetSite?.DeclaringType?.FullName?.StartsWith("Soulseek.Network.", StringComparison.Ordinal) == true)
+            return true;
+
+        var stackTrace = exception.StackTrace;
+        return stackTrace?.Contains("at Soulseek.Network.", StringComparison.Ordinal) == true;
     }
 
     private static void Log(
