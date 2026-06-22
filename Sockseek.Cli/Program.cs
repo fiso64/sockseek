@@ -396,6 +396,11 @@ internal static partial class Program
         {
             return CliExitCode.Cancelled;
         }
+        catch (SoulseekConnectionUnavailableException ex)
+        {
+            SockseekLog.Error(ex.Message);
+            return CliExitCode.WorkFailed;
+        }
         catch (Exception ex)
         {
             SockseekLog.Fatal($"Unhandled CLI error: {SockseekLog.ExceptionSummary(ex)}");

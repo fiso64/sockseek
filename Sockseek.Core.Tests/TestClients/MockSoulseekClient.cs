@@ -27,6 +27,7 @@ namespace Tests.ClientTests
         public Func<string, string, CancellationToken, Task>? BeforeDownloadCompletesAsync;
         public bool BrowseReturnsBasenames { get; set; }
         public bool IsDisposed { get; private set; }
+        public Exception? ConnectException { get; set; }
 
         public void FailNextDownloadWithDisconnect(string username)
             => disconnectingUsers.Add(username);
@@ -37,11 +38,16 @@ namespace Tests.ClientTests
         public void FailNextSearch()
             => Interlocked.Increment(ref failingSearches);
 
-        public MockSoulseekClient(List<Soulseek.SearchResponse> index, int searchDelayMs = 0, IEnumerable<string>? failingUsers = null)
+        public MockSoulseekClient(
+            List<Soulseek.SearchResponse> index,
+            int searchDelayMs = 0,
+            IEnumerable<string>? failingUsers = null,
+            SoulseekClientStates initialState = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn)
         {
             this.index         = index;
             this.searchDelayMs = searchDelayMs;
             this.failingUsers  = new HashSet<string>(failingUsers ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+            State = initialState;
         }
 
         public static MockSoulseekClient FromLocalPaths(bool useTags, params string[] localPaths)
@@ -125,6 +131,12 @@ namespace Tests.ClientTests
 
         public Task ConnectAsync(string address, int port, string username, string password, CancellationToken? cancellationToken = null)
         {
+            if (ConnectException != null)
+            {
+                State = SoulseekClientStates.None;
+                return Task.FromException(ConnectException);
+            }
+
             State = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
             return Task.CompletedTask;
         }

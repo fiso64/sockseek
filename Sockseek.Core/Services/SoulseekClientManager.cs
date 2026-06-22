@@ -4,12 +4,22 @@ using Sockseek.Core.Settings;
 
 namespace Sockseek.Core.Services;
 
+public sealed class SoulseekConnectionUnavailableException : InvalidOperationException
+{
+    public SoulseekConnectionUnavailableException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
+
 public class SoulseekClientManager : IDisposable
 {
     private readonly EngineSettings _initialSettings;
     private ISoulseekClient? _client;
     private readonly SemaphoreSlim _initializationSemaphore = new SemaphoreSlim(1, 1);
     private TaskCompletionSource _readyTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly object stateLock = new();
+    private Exception? _fatalException;
     private CancellationTokenSource? _monitorCts;
     private Task? _monitorTask;
 
@@ -22,9 +32,25 @@ public class SoulseekClientManager : IDisposable
         _client.State.HasFlag(SoulseekClientStates.Connected) &&
         _client.State.HasFlag(SoulseekClientStates.LoggedIn);
 
+    public bool HasFatalError
+    {
+        get
+        {
+            lock (stateLock)
+                return _fatalException != null;
+        }
+    }
+
     public Task WaitUntilReadyAsync(CancellationToken cancellationToken = default)
     {
         if (IsConnectedAndLoggedIn) return Task.CompletedTask;
+
+        lock (stateLock)
+        {
+            if (_fatalException != null)
+                return Task.FromException(_fatalException);
+        }
+
         return _readyTcs.Task.WaitAsync(cancellationToken);
     }
 
@@ -42,9 +68,21 @@ public class SoulseekClientManager : IDisposable
 
     private void StartMonitoring()
     {
+        if (HasFatalError) return;
         if (_monitorTask != null) return;
         _monitorCts = new CancellationTokenSource();
         _monitorTask = Task.Run(() => MonitorConnectionLoopAsync(_monitorCts.Token));
+    }
+
+    private void MarkFatal(Exception exception)
+    {
+        lock (stateLock)
+        {
+            _fatalException ??= exception;
+            _readyTcs.TrySetException(_fatalException);
+        }
+
+        _monitorCts?.Cancel();
     }
 
     /// <summary>
@@ -84,9 +122,21 @@ public class SoulseekClientManager : IDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            SockseekLog.Soulseek.Error(ex, "Failed to ensure Soulseek connection and login");
-            StartMonitoring(); // Ensure monitoring starts even on failure so we can retry
-            throw new InvalidOperationException($"Soulseek login failed: {SockseekLog.ExceptionSummary(ex)}", ex);
+            var failure = new SoulseekConnectionUnavailableException(
+                $"Soulseek login failed: {SockseekLog.ExceptionSummary(ex)}",
+                ex);
+
+            if (IsTransient(ex))
+            {
+                SockseekLog.Soulseek.Error(ex, "Failed to ensure Soulseek connection and login");
+                StartMonitoring(); // Ensure monitoring starts even on transient failure so we can retry
+            }
+            else
+            {
+                MarkFatal(failure);
+            }
+
+            throw failure;
         }
         finally
         {
@@ -115,6 +165,9 @@ public class SoulseekClientManager : IDisposable
             {
                 if (!IsConnectedAndLoggedIn)
                 {
+                    if (HasFatalError)
+                        break;
+
                     if (_readyTcs.Task.IsCompleted)
                     {
                         _readyTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -137,6 +190,7 @@ public class SoulseekClientManager : IDisposable
             {
                 if (!IsTransient(ex))
                 {
+                    MarkFatal(ex);
                     SockseekLog.Soulseek.Fatal(ex, "Permanent Soulseek error. Stopping reconnection attempts");
                     break;
                 }

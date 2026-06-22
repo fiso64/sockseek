@@ -567,6 +567,10 @@ public class DownloadEngine
                 {
                     await _clientManager.EnsureConnectedAndLoggedInAsync(engineSettings, ct);
                 }
+                catch (SoulseekConnectionUnavailableException) when (_clientManager.HasFatalError)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     SockseekLog.Soulseek.Error(ex, "Initial Soulseek login failed. Reconnection will be attempted automatically in the background");
