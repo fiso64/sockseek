@@ -20,6 +20,10 @@ public class EngineSettings
 
     public int ConnectTimeout { get; set; } = 20_000;
 
+    /// Daemons can recover from server kicks on their own; foreground CLI runs should fail
+    /// clearly so they do not fight another client using the same Soulseek account.
+    public bool AutoReconnectAfterKickedFromServer { get; set; }
+
     // ── Sharing ───────────────────────────────────────────────────────────────
 
     public int SharedFiles { get; set; }

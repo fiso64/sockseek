@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Sockseek.Core.Services;
 using Soulseek;
 
 namespace Tests.ClientTests
@@ -6,6 +7,12 @@ namespace Tests.ClientTests
     public partial class MockSoulseekClient : ISoulseekClient
     {
         public IReadOnlyCollection<Transfer> Downloads => throw new NotImplementedException();
+
+        // Soulseek.NET hard-codes the real client's major version; this test fake
+        // mirrors v10's value only to satisfy ISoulseekClient.
+        public int MajorVersion => 170;
+
+        public int MinorVersion => SockseekSoulseekClientIdentity.MinorVersion;
 
         public SoulseekClientStates State { get; private set; } = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
 
@@ -37,6 +44,13 @@ namespace Tests.ClientTests
 
         public void FailNextSearch()
             => Interlocked.Increment(ref failingSearches);
+
+        public void RaiseKickedFromServer(bool disconnect = true)
+        {
+            if (disconnect)
+                State = SoulseekClientStates.None;
+            KickedFromServer?.Invoke(this, EventArgs.Empty);
+        }
 
         public MockSoulseekClient(
             List<Soulseek.SearchResponse> index,

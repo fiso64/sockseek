@@ -1,8 +1,16 @@
 using Soulseek;
 using System.Net.Sockets;
 using Sockseek.Core.Settings;
+using System.ComponentModel;
 
 namespace Sockseek.Core.Services;
+
+public static class SockseekSoulseekClientIdentity
+{
+    // Soulseek.NET requires each application to use a unique minor version.
+    // Sockseek uses the 800850000-800859999 range.
+    public const int MinorVersion = 800850000;
+}
 
 public sealed class SoulseekConnectionUnavailableException : InvalidOperationException
 {
@@ -14,6 +22,9 @@ public sealed class SoulseekConnectionUnavailableException : InvalidOperationExc
 
 public class SoulseekClientManager : IDisposable
 {
+    private const string KickedFromServerMessage =
+        "Soulseek server kicked this client, probably because the same account logged in elsewhere.";
+
     private readonly EngineSettings _initialSettings;
     private ISoulseekClient? _client;
     private readonly SemaphoreSlim _initializationSemaphore = new SemaphoreSlim(1, 1);
@@ -43,13 +54,13 @@ public class SoulseekClientManager : IDisposable
 
     public Task WaitUntilReadyAsync(CancellationToken cancellationToken = default)
     {
-        if (IsConnectedAndLoggedIn) return Task.CompletedTask;
-
         lock (stateLock)
         {
             if (_fatalException != null)
                 return Task.FromException(_fatalException);
         }
+
+        if (IsConnectedAndLoggedIn) return Task.CompletedTask;
 
         return _readyTcs.Task.WaitAsync(cancellationToken);
     }
@@ -60,10 +71,30 @@ public class SoulseekClientManager : IDisposable
         if (client != null)
         {
             _client = client;
+            AttachClientEvents(_client);
             if (IsConnectedAndLoggedIn)
                 _readyTcs.TrySetResult();
             StartMonitoring();
         }
+    }
+
+    private void AttachClientEvents(ISoulseekClient client)
+    {
+        client.KickedFromServer += OnKickedFromServer;
+    }
+
+    private void OnKickedFromServer(object? sender, EventArgs e)
+    {
+        if (_initialSettings.AutoReconnectAfterKickedFromServer)
+        {
+            SockseekLog.Soulseek.Warn($"{KickedFromServerMessage} Reconnecting because daemon mode is active.");
+            return;
+        }
+
+        SockseekLog.Soulseek.Error($"{KickedFromServerMessage} Stopping this run.");
+        MarkFatal(new SoulseekConnectionUnavailableException(
+            KickedFromServerMessage,
+            new KickedFromServerException(KickedFromServerMessage)));
     }
 
     private void StartMonitoring()
@@ -106,6 +137,7 @@ public class SoulseekClientManager : IDisposable
             if (_client == null)
             {
                 _client = CreateClientInstance(_initialSettings);
+                AttachClientEvents(_client);
             }
 
             if (!IsConnectedAndLoggedIn)
@@ -122,9 +154,7 @@ public class SoulseekClientManager : IDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            var failure = new SoulseekConnectionUnavailableException(
-                $"Soulseek login failed: {SockseekLog.ExceptionSummary(ex)}",
-                ex);
+            var failure = CreateConnectionFailure(ex);
 
             if (IsTransient(ex))
             {
@@ -144,13 +174,33 @@ public class SoulseekClientManager : IDisposable
         }
     }
 
-    private static bool IsTransient(Exception? e)
+    private static SoulseekConnectionUnavailableException CreateConnectionFailure(Exception ex)
+        => new(
+            IsKickedFromServer(ex)
+                ? KickedFromServerMessage
+                : $"Soulseek login failed: {SockseekLog.ExceptionSummary(ex)}",
+            ex);
+
+    private bool IsTransient(Exception? e)
     {
+        if (IsKickedFromServer(e))
+            return _initialSettings.AutoReconnectAfterKickedFromServer;
+
         while (e != null)
         {
             if (e is Soulseek.AddressException || e is System.TimeoutException || e is System.Net.Sockets.SocketException) return true;
             if (e.GetType().Name.Contains("ConnectionException")) return true;
             if (e.GetType().Name.Contains("SoulseekClientException")) return true;
+            e = e.InnerException;
+        }
+        return false;
+    }
+
+    private static bool IsKickedFromServer(Exception? e)
+    {
+        while (e != null)
+        {
+            if (e is KickedFromServerException || e.GetType().Name == nameof(KickedFromServerException)) return true;
             e = e.InnerException;
         }
         return false;
@@ -265,7 +315,7 @@ public class SoulseekClientManager : IDisposable
                 );
             }
 
-            return new SoulseekClient(clientOptionsBuilder);
+            return new SoulseekClient(SockseekSoulseekClientIdentity.MinorVersion, clientOptionsBuilder);
         }
     }
 
@@ -303,6 +353,8 @@ public class SoulseekClientManager : IDisposable
     public void Dispose()
     {
         _monitorCts?.Cancel();
+        if (_client != null)
+            _client.KickedFromServer -= OnKickedFromServer;
         _client?.Dispose();
     }
 }

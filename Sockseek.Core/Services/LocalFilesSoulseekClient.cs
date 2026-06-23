@@ -9,6 +9,12 @@ namespace Sockseek.Core.Services
     {
         public IReadOnlyCollection<Transfer> Downloads => throw new NotImplementedException();
 
+        // Soulseek.NET hard-codes the real client's major version; this local fake
+        // mirrors v10's value only to satisfy ISoulseekClient.
+        public int MajorVersion => 170;
+
+        public int MinorVersion => SockseekSoulseekClientIdentity.MinorVersion;
+
         public SoulseekClientStates State => SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
 
         public SoulseekClientOptions Options => throw new NotImplementedException();

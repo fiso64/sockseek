@@ -349,6 +349,7 @@ public static class SettingsCloner
         UseRandomLogin = source.UseRandomLogin,
         ListenPort = source.ListenPort,
         ConnectTimeout = source.ConnectTimeout,
+        AutoReconnectAfterKickedFromServer = source.AutoReconnectAfterKickedFromServer,
         SharedFiles = source.SharedFiles,
         SharedFolders = source.SharedFolders,
         UserDescription = source.UserDescription,

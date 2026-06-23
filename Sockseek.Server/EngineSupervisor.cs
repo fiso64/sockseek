@@ -35,6 +35,7 @@ public sealed class EngineSupervisor
         this.options = options.Value;
 
         engineSettings = SettingsCloner.Clone(this.options.Engine);
+        engineSettings.AutoReconnectAfterKickedFromServer = true;
         defaultDownloadSettings = SettingsCloner.Clone(this.options.DefaultDownload);
         var pathContext = new PathVariableContext(ConfigDir: this.options.ConfigDir);
         ServerJobSettingsResolver.NormalizeForServer(defaultDownloadSettings, pathContext);

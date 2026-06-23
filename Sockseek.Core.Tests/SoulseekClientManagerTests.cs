@@ -54,4 +54,47 @@ public class SoulseekClientManagerTests
             manager.Dispose();
         }
     }
+
+    [TestMethod]
+    public async Task KickedFromServer_MarksFatal_WhenAutoReconnectDisabled()
+    {
+        var settings = new EngineSettings();
+        var mockClient = new MockSoulseekClient(new());
+        var manager = new SoulseekClientManager(settings, mockClient);
+
+        try
+        {
+            mockClient.RaiseKickedFromServer(disconnect: false);
+
+            Assert.IsTrue(manager.HasFatalError);
+            await Assert.ThrowsExceptionAsync<SoulseekConnectionUnavailableException>(
+                () => manager.WaitUntilReadyAsync());
+        }
+        finally
+        {
+            manager.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public void KickedFromServer_DoesNotMarkFatal_WhenAutoReconnectEnabled()
+    {
+        var settings = new EngineSettings
+        {
+            AutoReconnectAfterKickedFromServer = true,
+        };
+        var mockClient = new MockSoulseekClient(new());
+        var manager = new SoulseekClientManager(settings, mockClient);
+
+        try
+        {
+            mockClient.RaiseKickedFromServer();
+
+            Assert.IsFalse(manager.HasFatalError);
+        }
+        finally
+        {
+            manager.Dispose();
+        }
+    }
 }

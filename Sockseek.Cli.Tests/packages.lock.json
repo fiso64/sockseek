@@ -298,8 +298,8 @@
       },
       "Soulseek": {
         "type": "Transitive",
-        "resolved": "8.5.0",
-        "contentHash": "PNmdER1Fjn0CFEYjp8F8XcFEgdldVQ5rkEcAE5yZOFy8uTb3aHMk3NUH6uQnqL/SINOWSuIJBmGimSW85aTy8A=="
+        "resolved": "10.0.2",
+        "contentHash": "A28TCGK2PDUXohKXCRTjU+hECLrF1IM9fkHcbF4WgP++OTPlngHDlDSp243LZ2x2O7l7RDypYtUYrsRgre5xoA=="
       },
       "Spectre.Console": {
         "type": "Transitive",
@@ -379,7 +379,7 @@
           "HtmlAgilityPack": "[1.12.4, )",
           "Microsoft.Extensions.Logging": "[10.0.9, )",
           "SmallestCSVParser": "[1.2.0, )",
-          "Soulseek": "[8.5.0, )",
+          "Soulseek": "[10.0.2, )",
           "SpotifyAPI.Web": "[7.4.2, )",
           "SpotifyAPI.Web.Auth": "[7.4.2, )",
           "TagLibSharp": "[2.3.0, )",

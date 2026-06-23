@@ -40,6 +40,7 @@ namespace Tests.ClientTests
         public event EventHandler<DownloadFailedEventArgs>? DownloadFailed;
         public event EventHandler<IReadOnlyCollection<string>>? ExcludedSearchPhrasesReceived;
         public event EventHandler<string>? GlobalMessageReceived;
+        public event EventHandler? KickedFromServer;
         public event EventHandler? LoggedIn;
         public event EventHandler<PrivateMessageReceivedEventArgs>? PrivateMessageReceived;
         public event EventHandler<string>? PrivateRoomMembershipAdded;
