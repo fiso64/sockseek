@@ -84,15 +84,7 @@ public sealed class IncrementalAlbumAggregateProjector
             .Where(x => x.Users.Count >= search.MinSharesAggregate)
             .OrderByDescending(x => x.Users.Count)
             .ThenBy(x => x.Index)
-            .Select(x =>
-            {
-                var newJob = new AlbumJob(query);
-                newJob.Results = x.Versions.ToList();
-                var repFolder = x.Versions.FirstOrDefault()?.FolderPath;
-                if (!string.IsNullOrWhiteSpace(repFolder))
-                    newJob.ItemName = Utils.GetBaseNameSlsk(repFolder);
-                return newJob;
-            })
+            .Select(x => SearchResultProjector.CreateAggregateAlbumJob(query, x.Versions.ToList()))
             .ToList();
 
     private void Add(AlbumFolder folder)

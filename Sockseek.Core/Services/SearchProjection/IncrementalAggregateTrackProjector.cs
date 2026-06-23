@@ -47,6 +47,9 @@ public sealed class IncrementalAggregateTrackProjector
             if (!seen.Add(seenKey))
                 continue;
 
+            if (!SearchResultProjector.AggregateTrackProjectionIncludes(response, file, query, search))
+                continue;
+
             var inferred = Searcher.InferSongQuery(file.Filename, query);
             var bucketKey = new SongQuery(inferred) { Length = file.Length ?? -1 };
 

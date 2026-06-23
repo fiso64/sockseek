@@ -289,7 +289,8 @@ public class SearchJob : Job
                     return cachedSnapshot;
                 }
 
-                cachedSnapshot = new SearchProjectionSnapshot<TItem>(revision, snapshot(projector), isComplete);
+                var items = snapshot(projector);
+                cachedSnapshot = new SearchProjectionSnapshot<TItem>(revision, items, isComplete);
                 return cachedSnapshot;
             }
         }

@@ -1498,8 +1498,9 @@ internal static partial class Program
     private static AlbumFile ToAlbumFile(FileCandidateDto file)
     {
         var candidate = ToFileCandidate(file);
-        var query = Searcher.InferSongQuery(candidate.Filename, new SongQuery());
-        return new AlbumFile(query, candidate);
+        return AlbumFile.WithLazyQuery(
+            () => Searcher.InferSongQuery(candidate.Filename, new SongQuery()),
+            candidate);
     }
 
     private static SongQuery ToSongQuery(SongQueryDto query)

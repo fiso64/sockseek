@@ -170,6 +170,8 @@ public static partial class ResultSorter
         private readonly bool ignoreStringSortConditions;
         private string? normalizedQueryTitle;
         private Dictionary<string, int>? levenshteinScores;
+        private Dictionary<string, string>? strictDirectoryNames;
+        private Dictionary<string, string>? fuzzyDirectoryNames;
 
         public SortKeyContext(
             IEnumerable<(SearchResponse, Soulseek.File)> results,
@@ -235,10 +237,10 @@ public static partial class ResultSorter
             string? fuzzyDirectoryName = null;
             string getStrictFullFilename() => strictFullFilename ??= FileConditions.StrictStringPreprocess(filename);
             string getStrictFilenameNoExt() => strictFilenameNoExt ??= FileConditions.StrictStringPreprocess(Utils.GetFileNameWithoutExtSlsk(filename));
-            string getStrictDirectoryName() => strictDirectoryName ??= FileConditions.StrictStringPreprocess(Utils.GetDirectoryNameSlsk(filename));
+            string getStrictDirectoryName() => strictDirectoryName ??= StrictDirectoryName(filename);
             string getFuzzyFullFilename() => fuzzyFullFilename ??= FileConditions.FuzzyPhrasePreprocess(filename);
             string getFuzzyFilenameNoExt() => fuzzyFilenameNoExt ??= FileConditions.FuzzyPhrasePreprocess(Utils.GetFileNameWithoutExtSlsk(filename));
-            string getFuzzyDirectoryName() => fuzzyDirectoryName ??= FileConditions.FuzzyPhrasePreprocess(Utils.GetDirectoryNameSlsk(filename));
+            string getFuzzyDirectoryName() => fuzzyDirectoryName ??= FuzzyDirectoryName(filename);
 
             bool strictTitleMatch = ignoreStringSortConditions || !preferredCond.StrictTitle || strictTitle.Length == 0
                 || StrictStringPrepared(getStrictFilenameNoExt(), strictTitle);
@@ -305,6 +307,40 @@ public static partial class ResultSorter
                 StrictArtist = false,
                 StrictAlbum = false,
             };
+
+        private string StrictDirectoryName(string filename)
+        {
+            string directory = GetDirectoryNameSlskFast(filename);
+            strictDirectoryNames ??= new Dictionary<string, string>(StringComparer.Ordinal);
+            if (!strictDirectoryNames.TryGetValue(directory, out string? prepared))
+            {
+                prepared = FileConditions.StrictStringPreprocess(directory);
+                strictDirectoryNames.Add(directory, prepared);
+            }
+
+            return prepared;
+        }
+
+        private string FuzzyDirectoryName(string filename)
+        {
+            string directory = GetDirectoryNameSlskFast(filename);
+            fuzzyDirectoryNames ??= new Dictionary<string, string>(StringComparer.Ordinal);
+            if (!fuzzyDirectoryNames.TryGetValue(directory, out string? prepared))
+            {
+                prepared = FileConditions.FuzzyPhrasePreprocess(directory);
+                fuzzyDirectoryNames.Add(directory, prepared);
+            }
+
+            return prepared;
+        }
+
+        private static string GetDirectoryNameSlskFast(string filename)
+        {
+            int slash = filename.LastIndexOf('\\');
+            int forwardSlash = filename.LastIndexOf('/');
+            int index = Math.Max(slash, forwardSlash);
+            return index <= 0 ? string.Empty : filename[..index];
+        }
 
         private (SongQuery, int) InferredQuery(SearchResponse response, Soulseek.File file)
         {

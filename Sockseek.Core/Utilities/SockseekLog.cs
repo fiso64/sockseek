@@ -224,6 +224,9 @@ public static class SockseekLog
             provider.Write(entry);
     }
 
+    public static bool IsEnabled(LogLevel level)
+        => SnapshotProviders().Any(provider => provider.MinimumLevel <= level);
+
     public static void Trace(string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "") => Log(LogLevel.Trace, message, LogRouting.All, color, categoryName: categoryName, callerFilePath: callerFilePath);
     public static void Debug(string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "") => Log(LogLevel.Debug, message, LogRouting.All, color, categoryName: categoryName, callerFilePath: callerFilePath);
     public static void Info(string message, ConsoleColor? color = null, string? categoryName = null, [CallerFilePath] string callerFilePath = "") => Log(LogLevel.Information, message, LogRouting.All, color, categoryName: categoryName, callerFilePath: callerFilePath);

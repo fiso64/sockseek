@@ -1090,7 +1090,14 @@ public class CliProgressReporter
     }
 
     private void ReportJobActivityChanged(JobActivityChangedEventDto job)
-        => ReportJobUpserted(job.Summary);
+    {
+        // Activity events are log/edge events, not authoritative state snapshots.
+        // The state store already emits job upserts for activity changes; using the
+        // summary embedded in an activity event here can regress the live table when
+        // remote/coalesced delivery batches an older activity edge after a newer
+        // lifecycle upsert such as AwaitingSelection.
+        RememberStructure(job.Summary);
+    }
 
     private void ReportJobMessage(JobMessageEventDto job)
     {
@@ -1276,8 +1283,9 @@ public class CliProgressReporter
     private static AlbumFile ToAlbumFile(FileCandidateDto file)
     {
         var candidate = ToFileCandidate(file);
-        var query = Searcher.InferSongQuery(candidate.Filename, new SongQuery());
-        return new AlbumFile(query, candidate);
+        return AlbumFile.WithLazyQuery(
+            () => Searcher.InferSongQuery(candidate.Filename, new SongQuery()),
+            candidate);
     }
 
     private static FileCandidate ToFileCandidate(FileCandidateDto candidate)

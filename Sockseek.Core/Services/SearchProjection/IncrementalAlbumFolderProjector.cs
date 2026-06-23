@@ -14,15 +14,15 @@ public enum FolderSortMode
 
 public sealed class IncrementalAlbumFolderProjector
 {
-    private readonly AlbumQuery query;
-    private readonly SearchSettings search;
-    private readonly SongQuery sortQuery;
-    private readonly FileConditions projectionCondition;
-    private readonly FolderSortMode sortMode;
-    private readonly IncrementalResultSorter? sorter;
-    private readonly ResultSorter.SortKeyContext? aggregateSortKeyContext;
+    // TODO [PERFORMANCE]: This stores raw rows incrementally, but the first
+    // snapshot after new results still rebuilds folder grouping/ranking from
+    // all raw rows. Large interactive album searches can visibly linger in
+    // ProcessingSearchResults. Make grouped folder state truly incremental and
+    // feed it while raw results arrive so the terminal snapshot mostly orders
+    // and materializes already-built folders.
+    private readonly AlbumFolderProjectionPlan projectionPlan;
     private readonly List<(SearchResponse Response, SlFile File)> rawResults = [];
-    private readonly HashSet<string> seen = new(StringComparer.Ordinal);
+    private readonly HashSet<RawResultKey> seen = [];
     private readonly Dictionary<string, AlbumFolderSignature> previousSignatures = new(StringComparer.Ordinal);
     private List<AlbumFolder> previousSnapshot = [];
 
@@ -33,61 +33,23 @@ public sealed class IncrementalAlbumFolderProjector
         bool ignoreStringSortConditions = false,
         FolderSortMode sortMode = FolderSortMode.AlbumRanked)
     {
-        this.query = query;
-        this.search = search;
-        this.sortMode = sortMode;
-        sortQuery = SearchResultProjector.AlbumFileMatchQuery(query);
-        // Keep this in sync with SearchResultProjector.AlbumFolders: album audio
-        // quality requirements are folder-coverage policy, not per-file projection
-        // filters, so mixed-quality folders stay whole unless strict mode rejects them.
-        projectionCondition = search.NecessaryCond.WithoutAudioQualityConditions();
-        var successCounts = userSuccessCounts ?? new ConcurrentDictionary<string, int>();
-        if (sortMode == FolderSortMode.AlbumRanked)
-        {
-            sorter = new IncrementalResultSorter(
-                sortQuery,
-                search,
-                successCounts,
-                albumMode: true,
-                ignoreStringSortConditions: ignoreStringSortConditions);
-            aggregateSortKeyContext = ResultSorter.CreateSortKeyContext(
-                [],
-                sortQuery,
-                search,
-                successCounts,
-                useBracketCheck: false,
-                useInfer: false,
-                useLevenshtein: false,
-                albumMode: true,
-                ignoreStringSortConditions: ignoreStringSortConditions);
-        }
-        else
-        {
-            aggregateSortKeyContext = ResultSorter.CreateSortKeyContext(
-                [],
-                sortQuery,
-                search,
-                successCounts,
-                useBracketCheck: false,
-                useInfer: false,
-                useLevenshtein: false,
-                albumMode: true,
-                ignoreStringSortConditions: ignoreStringSortConditions);
-        }
+        projectionPlan = new AlbumFolderProjectionPlan(
+            query,
+            search,
+            userSuccessCounts,
+            ignoreStringSortConditions,
+            sortMode);
     }
 
-    public int Count => sortMode == FolderSortMode.AlbumRanked ? sorter!.Count : rawResults.Count;
+    public int Count => rawResults.Count;
 
     public int AddRange(IEnumerable<(SearchResponse Response, SlFile File)> results)
     {
         var filtered = results.Where(ProjectionFilter);
-        if (sortMode == FolderSortMode.AlbumRanked)
-            return sorter!.AddRange(filtered);
-
         int added = 0;
         foreach (var (response, file) in filtered)
         {
-            string key = response.Username + '\\' + file.Filename;
+            var key = new RawResultKey(response.Username, file.Filename);
             if (!seen.Add(key))
                 continue;
 
@@ -102,9 +64,7 @@ public sealed class IncrementalAlbumFolderProjector
     // to qualify folders that contain a matching track, while still showing all files
     // from matching folders that were present in the search response.
     private bool ProjectionFilter((SearchResponse Response, SlFile File) result)
-        => projectionCondition.UserSatisfies(result.Response)
-            && (!Utils.IsMusicFile(result.File.Filename)
-                || projectionCondition.FileSatisfies(result.File, sortQuery, result.Response));
+        => projectionPlan.Includes(result);
 
     public AlbumFolderProjectionChanges AddRangeAndGetChanges(IEnumerable<(SearchResponse Response, SlFile File)> results)
     {
@@ -114,33 +74,14 @@ public sealed class IncrementalAlbumFolderProjector
 
     public void Clear()
     {
-        sorter?.Clear();
         rawResults.Clear();
         seen.Clear();
         previousSignatures.Clear();
         previousSnapshot = [];
     }
 
-    // Ranked mode keeps a stable album-sort order before grouping. Unranked mode
-    // is for aggregate projections that only need deterministic grouping order.
     public List<AlbumFolder> Snapshot()
-    {
-        if (sortMode == FolderSortMode.DeterministicUnranked)
-            return SearchResultProjector.AlbumFoldersFromResults(
-                rawResults,
-                query,
-                search,
-                rawResults.Count,
-                aggregateSortKeyContext: aggregateSortKeyContext);
-
-        return SearchResultProjector.AlbumFoldersFromOrderedResults(
-            sorter!.OrderedResults(),
-            query,
-            search,
-            sorter.Count,
-            aggregateSortKeyContext,
-            useAlbumFolderQualityRanking: true);
-    }
+        => projectionPlan.ProjectFilteredResults(rawResults, rawResults.Count);
 
     public AlbumFolderProjectionChanges GetChanges()
     {
@@ -175,6 +116,8 @@ public sealed class IncrementalAlbumFolderProjector
 
     private static string FolderKey(AlbumFolder folder)
         => folder.Username + '\\' + folder.FolderPath;
+
+    private readonly record struct RawResultKey(string Username, string Filename);
 
     private readonly record struct AlbumFolderSignature(
         int FileCount,

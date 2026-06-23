@@ -2,6 +2,7 @@ using Soulseek;
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 
+using Microsoft.Extensions.Logging;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core;
@@ -58,6 +59,10 @@ public partial class Searcher
 
         job.Discovery.RawResultCount = count;
         job.Discovery.LockedFileCount = locked;
+        // TODO [PERFORMANCE]: This currently publishes one discovery update per raw
+        // search result. Large real searches have shown measurable local CPU cost in
+        // the state-store/update path. Coalesce near this source by time/count, while
+        // still publishing an exact final update when the search completes.
         events.RaiseJobDiscoveryChanged(job);
     }
 
@@ -182,9 +187,9 @@ public partial class Searcher
 
         SockseekLog.Soulseek.Debug($"{session.Results.Count} results found: {song}");
 
-        if (!session.Results.IsEmpty)
+        if (!session.Results.IsEmpty && SockseekLog.IsEnabled(LogLevel.Trace))
         {
-            SockseekLog.Soulseek.Debug(string.Join("\n", session.Results.Select(r => $"  {r.Value.Item1.Username}: {r.Value.Item2.Filename}")));
+            SockseekLog.Soulseek.Trace(string.Join("\n", session.Results.Select(r => $"  {r.Value.Item1.Username}: {r.Value.Item2.Filename}")));
         }
 
         song.Candidates = SearchResultProjector.SortedTrackCandidates(

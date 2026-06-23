@@ -364,6 +364,53 @@ namespace Tests.Unit
         }
 
         [TestMethod]
+        public void IncrementalAlbumFolders_MatchesFullAlbumFolders_WithProjectionOptions()
+        {
+            static SearchResponse Response(string user, params Soulseek.File[] files)
+                => new(user, 1, true, 1000, 0, files);
+
+            var goodMixed = Response(
+                "good-mixed",
+                TestHelpers.CreateSlFile(@"Diverse System\AD：PIANO X\01 - Song.flac", length: 180),
+                TestHelpers.CreateSlFile(@"Diverse System\AD：PIANO X\02 - Song.mp3", length: 181));
+            var unrelatedFull = Response(
+                "unrelated-full",
+                TestHelpers.CreateSlFile(@"FLAC\CD1\01 - Song.flac", length: 180),
+                TestHelpers.CreateSlFile(@"FLAC\CD1\02 - Song.flac", length: 181));
+            var rawResults = new[] { goodMixed, unrelatedFull }
+                .SelectMany(response => response.Files.Select(file => (response, file)))
+                .ToList();
+            var query = new AlbumQuery { Album = "AD:PIANO X" };
+            var search = TestHelpers.CreateDefaultSettings().Download.Search;
+            search.NecessaryCond.Formats = ["flac"];
+
+            var expected = SearchResultProjector.AlbumFolders(
+                rawResults,
+                query,
+                search,
+                ignoreStringSortConditions: true);
+            var incremental = new IncrementalAlbumFolderProjector(
+                query,
+                search,
+                ignoreStringSortConditions: true);
+
+            foreach (var chunk in rawResults.Chunk(1))
+                incremental.AddRange(chunk);
+
+            var actual = incremental.Snapshot();
+
+            CollectionAssert.AreEqual(
+                expected.Select(FolderKey).ToList(),
+                actual.Select(FolderKey).ToList());
+            CollectionAssert.AreEqual(
+                expected.Select(x => x.SearchAudioQualityCoverage.Format.MatchingFileCount).ToList(),
+                actual.Select(x => x.SearchAudioQualityCoverage.Format.MatchingFileCount).ToList());
+
+            static string FolderKey(AlbumFolder folder)
+                => folder.Username + "\\" + folder.FolderPath;
+        }
+
+        [TestMethod]
         public void IncrementalAlbumFolders_MergesParentAndChildDirectories_WhenParentArrivesLast()
         {
             var childFile = TestHelpers.CreateSlFile(@"ELO\Time\Disc 1\01. Twilight.flac", length: 209);
@@ -905,6 +952,7 @@ namespace Tests.Unit
             var fullProjected = SearchResultProjector.AggregateAlbums(folders, query, search);
             Assert.AreEqual(1, fullProjected.Count);
             Assert.AreEqual("Time", fullProjected[0].ItemName, "Full projector should derive the item name from the representative folder path.");
+            Assert.AreEqual("Time", fullProjected[0].Query.Album, "Full projector should use the representative folder name as the executable album query.");
 
             // Check incremental projector
             var incrementalProjector = new IncrementalAlbumAggregateProjector(query, search);
@@ -912,6 +960,7 @@ namespace Tests.Unit
             var incrementalProjected = incrementalProjector.Snapshot();
             Assert.AreEqual(1, incrementalProjected.Count);
             Assert.AreEqual("Time", incrementalProjected[0].ItemName, "Incremental projector should derive the item name from the representative folder path.");
+            Assert.AreEqual("Time", incrementalProjected[0].Query.Album, "Incremental projector should use the same executable album query as the full projector.");
         }
 
         [TestMethod]
@@ -981,6 +1030,42 @@ namespace Tests.Unit
         }
 
         [TestMethod]
+        public void IncrementalAggregateTracks_AppliesNecessaryFiltersLikeFullAggregateTracks()
+        {
+            var flac = TestHelpers.CreateSlFile(@"Music\ELO - Blue Sky.flac", length: 180);
+            var mp3 = TestHelpers.CreateSlFile(@"Music\ELO - Blue Sky.mp3", length: 180);
+            var banned = TestHelpers.CreateSlFile(@"Music\ELO - Blue Sky.wav", length: 180);
+            var flacResponse = new SearchResponse("AllowedFlac", 1, true, 1000, 0, [flac]);
+            var mp3Response = new SearchResponse("AllowedMp3", 1, true, 1000, 0, [mp3]);
+            var bannedResponse = new SearchResponse("BannedUser", 1, true, 1000, 0, [banned]);
+            var rawResults = new List<(SearchResponse Response, Soulseek.File File)>
+            {
+                (flacResponse, flac),
+                (mp3Response, mp3),
+                (bannedResponse, banned),
+            };
+
+            var query = new SongQuery { Artist = "ELO", Title = "Blue Sky" };
+            var search = TestHelpers.CreateDefaultSettings().Download.Search;
+            search.MinSharesAggregate = 1;
+            search.NecessaryCond.Formats = ["flac"];
+            search.NecessaryCond.BannedUsers = ["BannedUser"];
+            var counts = new ConcurrentDictionary<string, int>();
+
+            var expected = SearchResultProjector.AggregateTracks(rawResults, query, search, counts);
+            var incremental = new IncrementalAggregateTrackProjector(query, search, counts);
+            incremental.AddRange(rawResults);
+            var actual = incremental.Snapshot();
+
+            CollectionAssert.AreEqual(
+                expected.SelectMany(x => x.Candidates!.Select(c => c.Username + "\\" + c.Filename)).ToList(),
+                actual.SelectMany(x => x.Candidates!.Select(c => c.Username + "\\" + c.Filename)).ToList());
+            CollectionAssert.AreEqual(
+                new[] { @"AllowedFlac\Music\ELO - Blue Sky.flac" },
+                actual.SelectMany(x => x.Candidates!.Select(c => c.Username + "\\" + c.Filename)).ToArray());
+        }
+
+        [TestMethod]
         public void AggregateTracks_DoesNotSortBucketByStrictArtist()
         {
             var artistMatch = TestHelpers.CreateSlFile(@"Music\Right Artist\Track.mp3", length: 200);
@@ -1028,6 +1113,9 @@ namespace Tests.Unit
             CollectionAssert.AreEqual(
                 expected.Select(x => x.Results.Count).ToList(),
                 actual.Select(x => x.Results.Count).ToList());
+            CollectionAssert.AreEqual(
+                expected.Select(x => $"{x.ItemName}|{x.Query.Album}").ToList(),
+                actual.Select(x => $"{x.ItemName}|{x.Query.Album}").ToList());
             CollectionAssert.AreEqual(
                 expected.SelectMany(x => x.Results.Select(r => r.Username + "\\" + r.FolderPath)).ToList(),
                 actual.SelectMany(x => x.Results.Select(r => r.Username + "\\" + r.FolderPath)).ToList());

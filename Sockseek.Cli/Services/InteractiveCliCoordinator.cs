@@ -544,8 +544,9 @@ internal sealed class InteractiveCliCoordinator
             new SearchResponse(file.Username, -1, file.Peer.HasFreeUploadSlot ?? false, file.Peer.UploadSpeed ?? -1, -1, null),
             new Soulseek.File(0, file.Filename, file.Size, file.Extension ?? Path.GetExtension(file.Filename),
                 file.Attributes?.Select(x => new Soulseek.FileAttribute(Enum.Parse<Soulseek.FileAttributeType>(x.Type), x.Value))));
-        var query = Searcher.InferSongQuery(candidate.Filename, new SongQuery());
-        return new AlbumFile(query, candidate);
+        return AlbumFile.WithLazyQuery(
+            () => Searcher.InferSongQuery(candidate.Filename, new SongQuery()),
+            candidate);
     }
 
     private static FileCandidateDto ToFileCandidateDto(FileCandidate candidate)

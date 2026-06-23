@@ -20,6 +20,9 @@ public class RealCaptureProjectionBenchmarks
     private List<List<(SearchResponse Response, SlFile File)>> cumulativeResultSnapshots = null!;
     private List<List<(SearchResponse Response, SlFile File)>> resultBatches = null!;
     private List<AlbumFolder> albumFolders = null!;
+    private List<AlbumFolder> albumFoldersForMaterialization = null!;
+    private SearchJob albumSearchJobForProjection = null!;
+    private SearchJob albumSearchJobForMaterialization = null!;
     private List<List<AlbumFolder>> albumFolderBatches = null!;
     private SearchSettings search = null!;
     private SongQuery trackQuery = null!;
@@ -42,7 +45,6 @@ public class RealCaptureProjectionBenchmarks
         {
             Artist = trackQuery.Artist,
             Album = trackQuery.Album.Length > 0 ? trackQuery.Album : trackQuery.Title,
-            SearchHint = trackQuery.Title,
             ArtistMaybeWrong = trackQuery.ArtistMaybeWrong,
         };
         userSuccessCounts = new ConcurrentDictionary<string, int>();
@@ -53,6 +55,18 @@ public class RealCaptureProjectionBenchmarks
         albumFolders = SearchResultProjector.AlbumFolders(rawResults, albumQuery, search);
         albumFolderBatches = BuildBatches(albumFolders, batchCount: 10);
     }
+
+    [IterationSetup(Target = nameof(AlbumProjection_MaterializeAllItemsOnly))]
+    public void SetupAlbumMaterializationOnly()
+        => albumFoldersForMaterialization = SearchResultProjector.AlbumFolders(rawResults, albumQuery, search);
+
+    [IterationSetup(Target = nameof(AlbumProjection_SearchJobFinalProjectionOnly))]
+    public void SetupAlbumSearchJobFinalProjection()
+        => albumSearchJobForProjection = CreateCompletedAlbumSearchJob();
+
+    [IterationSetup(Target = nameof(AlbumProjection_SearchJobFinalProjectionAndMaterializeAllItems))]
+    public void SetupAlbumSearchJobFinalProjectionAndMaterialization()
+        => albumSearchJobForMaterialization = CreateCompletedAlbumSearchJob();
 
     [Benchmark]
     public int SongSort()
@@ -82,8 +96,30 @@ public class RealCaptureProjectionBenchmarks
     }
 
     [Benchmark(Baseline = true)]
-    public int AlbumGroup()
+    public int AlbumProjection_GroupSortOnly()
         => SearchResultProjector.AlbumFolders(rawResults, albumQuery, search).Count;
+
+    [Benchmark]
+    public int AlbumProjection_MaterializeAllItemsOnly()
+        => ConsumeAlbumFolders(albumFoldersForMaterialization);
+
+    [Benchmark]
+    public int AlbumProjection_GroupSortAndMaterializeAllItems()
+    {
+        var folders = SearchResultProjector.AlbumFolders(rawResults, albumQuery, search);
+        return ConsumeAlbumFolders(folders);
+    }
+
+    [Benchmark]
+    public int AlbumProjection_SearchJobFinalProjectionOnly()
+        => albumSearchJobForProjection.GetAlbumFolders(search).Items.ToList().Count;
+
+    [Benchmark]
+    public int AlbumProjection_SearchJobFinalProjectionAndMaterializeAllItems()
+    {
+        var folders = albumSearchJobForMaterialization.GetAlbumFolders(search).Items.ToList();
+        return ConsumeAlbumFolders(folders);
+    }
 
     [Benchmark]
     public int AlbumGroup_Streaming10Snapshots()
@@ -229,6 +265,48 @@ public class RealCaptureProjectionBenchmarks
         }
 
         return batches;
+    }
+
+    private SearchJob CreateCompletedAlbumSearchJob()
+    {
+        var job = new SearchJob(albumQuery);
+        foreach (var (response, _) in rawResults)
+            job.Session.AddResponse(response);
+
+        job.Session.Complete();
+        return job;
+    }
+
+    private static int ConsumeAlbumFolders(List<AlbumFolder> folders)
+    {
+        unchecked
+        {
+            int checksum = folders.Count;
+            foreach (var folder in folders)
+            {
+                checksum += folder.Username.Length;
+                checksum += folder.FolderPath.Length;
+                checksum += folder.SearchFileCount;
+                checksum += folder.SearchAudioFileCount;
+
+                foreach (var file in folder.Files)
+                {
+                    checksum += file.Filename.Length;
+                    checksum += file.Query.Artist.Length;
+                    checksum += file.Query.Album.Length;
+                    checksum += file.Query.Title.Length;
+                    checksum += (int)(file.Candidate.File.Size & 0xFFFF);
+                    checksum += file.Candidate.File.Length ?? 0;
+                    checksum += file.Candidate.File.BitRate ?? 0;
+                    checksum += file.Candidate.File.SampleRate ?? 0;
+                    checksum += file.Candidate.File.BitDepth ?? 0;
+                    checksum += file.Candidate.Response.UploadSpeed;
+                    checksum += file.Candidate.Response.QueueLength;
+                }
+            }
+
+            return checksum;
+        }
     }
 
     private static (SearchResponse Response, SlFile File) Rehydrate(CapturedResult result)

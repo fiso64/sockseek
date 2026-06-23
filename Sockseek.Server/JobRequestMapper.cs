@@ -149,8 +149,9 @@ public static class JobRequestMapper
     private static AlbumFile ToAlbumFile(FileCandidateDto dto)
     {
         var candidate = ToFileCandidate(dto);
-        var query = Searcher.InferSongQuery(candidate.Filename, new SongQuery());
-        return new AlbumFile(query, candidate);
+        return AlbumFile.WithLazyQuery(
+            () => Searcher.InferSongQuery(candidate.Filename, new SongQuery()),
+            candidate);
     }
 
     private static FileCandidate ToFileCandidate(FileCandidateDto dto)
@@ -232,6 +233,11 @@ public static class JobRequestMapper
     public static List<AlbumFolder> ProjectAlbumJobFolders(AlbumJob albumJob, ConcurrentDictionary<string, int>? userSuccessCounts = null)
     {
         if (albumJob.Config == null || albumJob.Results.Count == 0)
+            return albumJob.Results.ToList();
+
+        // Search results are already projected/ranked by the engine; re-project only
+        // after folder retrieval has changed the visible folder contents.
+        if (albumJob.Results.All(folder => !folder.IsFullyRetrieved))
             return albumJob.Results.ToList();
 
         var rawResults = albumJob.Results
