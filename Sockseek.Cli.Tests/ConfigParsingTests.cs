@@ -882,5 +882,44 @@ namespace Tests.ConfigParsingTests
                 "Input error: Unknown argument: --this-flag-does-not-exist",
                 ex.Message);
         }
+
+        [TestMethod]
+        public void ValueOption_DoesNotConsumeHyphenPrefixedToken()
+        {
+            var ex = Assert.ThrowsException<Exception>(() =>
+                Bind("--name-format", "--test", "some input"));
+
+            Assert.AreEqual(
+                "Input error: Option '--name-format' requires a parameter, but " +
+                "'--test' looks like another option. To use it as the value, " +
+                "pass '--name-format=--test'.",
+                ex.Message);
+        }
+
+        [TestMethod]
+        public void ValueOption_AllowsHyphenPrefixedValueContainingWhitespace()
+        {
+            var (_, download, _) = Bind("--on-complete", "-- cmd1", "some input");
+
+            CollectionAssert.AreEqual(new[] { "-- cmd1" }, download.Output.OnComplete);
+        }
+
+        [TestMethod]
+        public void ValueOption_WithoutFollowingToken_ReportsMissingParameter()
+        {
+            var ex = Assert.ThrowsException<Exception>(() => Bind("--name-format"));
+
+            Assert.AreEqual(
+                "Input error: Option '--name-format' requires a parameter",
+                ex.Message);
+        }
+
+        [TestMethod]
+        public void ValueOption_AllowsAttachedHyphenPrefixedValue()
+        {
+            var (_, download, _) = Bind("--name-format=--test", "some input");
+
+            Assert.AreEqual("--test", download.Output.NameFormat);
+        }
     }
 }

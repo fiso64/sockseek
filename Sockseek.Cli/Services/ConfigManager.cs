@@ -249,7 +249,7 @@ public static partial class ConfigManager
 
     /// Maps one token list to a typed profile, then applies that profile.
     private static void ApplyTokens(
-        IList<string> tokens,
+        IList<NormalizedArg> tokens,
         EngineSettings engine,
         DownloadSettings dl,
         CliSettings cli,
@@ -263,6 +263,15 @@ public static partial class ConfigManager
         string name,
         IList<string> tokens,
         DownloadSettingsDeltaBuilder? downloadDeltaBuilder = null)
+        => ParseTokensAsProfile(
+            name,
+            tokens.Select(static value => new NormalizedArg(value, AllowsLeadingHyphen: true)).ToList(),
+            downloadDeltaBuilder);
+
+    private static ProfileEntry ParseTokensAsProfile(
+        string name,
+        IList<NormalizedArg> tokens,
+        DownloadSettingsDeltaBuilder? downloadDeltaBuilder = null)
     {
         var entry = new ProfileEntry(
             new SettingsProfile { Name = name },
@@ -273,7 +282,7 @@ public static partial class ConfigManager
 
         for (int i = 0; i < tokens.Count; i++)
         {
-            string t = tokens[i];
+            string t = tokens[i].Value;
 
             if (!t.StartsWith('-'))
             {
@@ -284,10 +293,10 @@ public static partial class ConfigManager
             switch (t)
             {
                 case "-c": case "--config": case "--profile":
-                    i++;
+                    _ = Next(tokens, ref i, t);
                     break;
                 case "--nc": case "--no-config":
-                    if (i + 1 < tokens.Count && IsBoolLiteral(tokens[i + 1]))
+                    if (i + 1 < tokens.Count && IsBoolLiteral(tokens[i + 1].Value))
                         i++;
                     break;
                 default:
@@ -298,8 +307,8 @@ public static partial class ConfigManager
                     else if (OptionUsesBoolValue(t))
                     {
                         string value = "true";
-                        if (i + 1 < tokens.Count && IsBoolLiteral(tokens[i + 1]))
-                            value = tokens[++i];
+                        if (i + 1 < tokens.Count && IsBoolLiteral(tokens[i + 1].Value))
+                            value = tokens[++i].Value;
                         AddProfileOption(entry, t, value, downloadDeltaBuilder);
                     }
                     else
@@ -1213,10 +1222,13 @@ public static partial class ConfigManager
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    private readonly record struct NormalizedArg(string Value, bool AllowsLeadingHyphen = false);
+
     /// Normalize argv: expand --arg=val into --arg val, and -abc into -a -b -c.
-    private static List<string> NormalizeArgs(IReadOnlyList<string> args)
+    /// Attached values retain their origin so they may intentionally begin with '-'.
+    private static List<NormalizedArg> NormalizeArgs(IReadOnlyList<string> args)
     {
-        var result = new List<string>(args.Count);
+        var result = new List<NormalizedArg>(args.Count);
         foreach (var arg in args)
         {
             if (arg.Length > 2 && arg[0] == '-')
@@ -1226,19 +1238,19 @@ public static partial class ConfigManager
                     if (arg.Contains('='))
                     {
                         var eq = arg.IndexOf('=');
-                        result.Add(arg[..eq]);
-                        result.Add(arg[(eq + 1)..]);
+                        result.Add(new(arg[..eq]));
+                        result.Add(new(arg[(eq + 1)..], AllowsLeadingHyphen: true));
                         continue;
                     }
                 }
                 else if (!arg.Contains(' '))
                 {
                     foreach (char c in arg[1..])
-                        result.Add($"-{c}");
+                        result.Add(new($"-{c}"));
                     continue;
                 }
             }
-            result.Add(arg);
+            result.Add(new(arg));
         }
         return result;
     }
@@ -1355,11 +1367,33 @@ public static partial class ConfigManager
         _ => throw new Exception($"Input error: Invalid print option '{s}' for '{flag}'"),
     };
 
-    private static string Next(IList<string> tokens, ref int i, string flag)
+    private static string Next(IList<NormalizedArg> tokens, ref int i, string flag)
     {
-        if (++i >= tokens.Count)
-            throw new Exception($"Input error: Option '{flag}' requires a parameter");
-        return tokens[i];
+        if (i + 1 >= tokens.Count)
+            throw MissingOptionParameter(flag);
+
+        var next = tokens[++i];
+        if (!next.AllowsLeadingHyphen && LooksLikeOption(next.Value))
+            throw MissingOptionParameter(flag, next.Value);
+
+        return next.Value;
+    }
+
+    private static bool LooksLikeOption(string value)
+        => value.Length > 1
+           && value[0] == '-'
+           && !value.Any(char.IsWhiteSpace);
+
+    private static Exception MissingOptionParameter(string flag, string? optionLikeValue = null)
+    {
+        string message = $"Input error: Option '{flag}' requires a parameter";
+        if (optionLikeValue != null && flag.StartsWith("--", StringComparison.Ordinal))
+        {
+            message += $", but '{optionLikeValue}' looks like another option. " +
+                       $"To use it as the value, pass '{flag}={optionLikeValue}'.";
+        }
+
+        return new Exception(message);
     }
 
     private static double ParseDouble(string s, string flag)
