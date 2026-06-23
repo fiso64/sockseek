@@ -118,7 +118,7 @@ Use inequalities like `10+` or `12-` when expanded or incomplete editions are ac
 **A song or album isn't found at all.**  
 Two common causes:
 
-- **Length mismatch.** When using Spotify or YouTube as input, the reported length can differ from the actual file on Soulseek (like from a CD rip) by more than the default 3-second tolerance. Try `--length-tol 10`, or `--length-tol 0` to disable length filtering entirely.
+- **Length mismatch.** When using Spotify or YouTube as input, the reported length can differ from the actual file on Soulseek (like from a CD rip) by more than the default 3-second tolerance. Try `--length-tol 10`, or `--length-tol -1` to disable length filtering entirely.
 - **Naming differences.** The Soulseek network returned no results for the query. Options like `--remove-ft` or `--regex` can help clean it up.
 
 Use `--print results-full` to inspect what Soulseek returned without downloading anything.
@@ -875,7 +875,7 @@ sockseek daemon                 Start the HTTP/SignalR daemon instead of running
 ```
 --format <formats>              Required file format(s). Comma-separated, unordered. See
                                 also --pref-format for soft preferences.
---length-tol <sec>              Length tolerance in seconds
+--length-tol <sec>              Length tolerance in seconds, -1 to disable (default: 3)
 --min-bitrate <rate>            Minimum file bitrate
 --max-bitrate <rate>            Maximum file bitrate
 --min-samplerate <rate>         Minimum file sample rate
@@ -891,7 +891,7 @@ sockseek daemon                 Start the HTTP/SignalR daemon instead of running
 
 --pref-format <formats>         Preferred format(s) for ranking. Use --format to require
                                 formats strictly. Comma-separated, unordered. (def.: mp3)
---pref-length-tol <sec>         Preferred length tolerance in seconds (default: 3)
+--pref-length-tol <sec>         Preferred length tolerance, -1 to disable (default: 3)
 --pref-min-bitrate <rate>       Preferred minimum bitrate (default: 200)
 --pref-max-bitrate <rate>       Preferred maximum bitrate (default: 2500)
 --pref-min-samplerate <rate>    Preferred minimum sample rate

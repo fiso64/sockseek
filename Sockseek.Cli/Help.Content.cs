@@ -166,7 +166,7 @@ public static partial class Help
 
     --format <formats>              Required file format(s). Comma-separated, unordered. See
                                     also --pref-format for soft preferences.
-    --length-tol <sec>              Length tolerance in seconds
+    --length-tol <sec>              Length tolerance in seconds, -1 to disable (default: 3)
     --min-bitrate <rate>            Minimum file bitrate
     --max-bitrate <rate>            Maximum file bitrate
     --min-samplerate <rate>         Minimum file sample rate
@@ -182,7 +182,7 @@ public static partial class Help
 
     --pref-format <formats>         Preferred format(s) for ranking. Use --format to require
                                     formats strictly. Comma-separated, unordered. (def.: mp3)
-    --pref-length-tol <sec>         Preferred length tolerance in seconds (default: 3)
+    --pref-length-tol <sec>         Preferred length tolerance, -1 to disable (default: 3)
     --pref-min-bitrate <rate>       Preferred minimum bitrate (default: 200)
     --pref-max-bitrate <rate>       Preferred maximum bitrate (default: 2500)
     --pref-min-samplerate <rate>    Preferred minimum sample rate
