@@ -89,7 +89,7 @@ sockseek "Artist - Album Title" --pref-format flac,wav
 sockseek "playlist.csv" --skip-music-dir "path/to/music"
 ```
 
-For more examples, see [Examples](#examples).
+For more examples, see [Examples](#examples-2).
 
 
 ## When downloads are wrong or missing
