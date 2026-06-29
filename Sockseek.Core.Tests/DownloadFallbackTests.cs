@@ -111,6 +111,67 @@ namespace Tests.Core
         }
 
         [TestMethod]
+        public async Task SongJob_WithYtDlpFallbackAndIndex_WritesReturnedDownloadPathToIndex()
+        {
+            var rootDir = Path.Combine(Path.GetTempPath(), "Sockseek-ytdlp-fallback-index-" + Guid.NewGuid());
+            var mockFilesDir = Path.Combine(rootDir, "mock-files");
+            var outputDir = Path.Combine(rootDir, "downloads");
+            var ytDlpDir = Path.Combine(rootDir, "yt-dlp-output");
+            Directory.CreateDirectory(mockFilesDir);
+            Directory.CreateDirectory(outputDir);
+            Directory.CreateDirectory(ytDlpDir);
+
+            try
+            {
+                var returnedPath = Path.Combine(ytDlpDir, "actual path returned by yt-dlp.opus");
+                var eng = new EngineSettings
+                {
+                    MockFilesDir = mockFilesDir,
+                    MockFilesReadTags = false,
+                };
+                var dl = new DownloadSettings();
+                dl.Output.ParentDir = outputDir;
+                dl.Output.WriteIndex = true;
+                dl.Output.HasConfiguredIndex = true;
+                dl.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
+                dl.YtDlp.UseYtdlp = true;
+
+                var fakeFallback = new FakeSongDownloadFallback(returnedPath);
+                var song = new SongJob(new SongQuery
+                {
+                    Artist = "Lavish Life",
+                    Title = "TEXAS HOLD 'EM",
+                });
+                var app = new DownloadEngine(eng, new SoulseekClientManager(eng), songDownloadFallback: fakeFallback);
+                app.Enqueue(song, dl);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, song.TerminalOutcome);
+                Assert.AreEqual(returnedPath, song.DownloadPath);
+
+                var lookupSong = new SongJob(new SongQuery
+                {
+                    Artist = song.Query.Artist,
+                    Title = song.Query.Title,
+                });
+                var queue = new JobList();
+                queue.Add(lookupSong);
+                var index = new M3uEditor(dl.Output.IndexFilePath, queue, M3uOption.Index, true);
+
+                Assert.IsTrue(index.TryGetPreviousRunResult(lookupSong, out var previous));
+                Assert.IsNotNull(previous);
+                Assert.AreEqual(Utils.NormalizedPath(returnedPath), Utils.NormalizedPath(previous.DownloadPath));
+                Assert.AreEqual(JobStateOld.Done, previous.State);
+            }
+            finally
+            {
+                if (Directory.Exists(rootDir)) Directory.Delete(rootDir, true);
+            }
+        }
+
+        [TestMethod]
         public async Task SongJob_DisconnectDuringDownload_RetriesAfterReconnect()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-disconnect-retry-song-" + Guid.NewGuid());
@@ -903,6 +964,13 @@ namespace Tests.Core
 
         private sealed class FakeSongDownloadFallback : ISongDownloadFallback
         {
+            private readonly string? outputPath;
+
+            public FakeSongDownloadFallback(string? outputPath = null)
+            {
+                this.outputPath = outputPath;
+            }
+
             public int Calls { get; private set; }
             public JobActivityPhase ObservedPhase { get; private set; } = JobActivityPhase.None;
 
@@ -918,7 +986,7 @@ namespace Tests.Core
             {
                 Calls++;
                 ObservedPhase = song.ActivityPhase;
-                var path = organizer.GetSavePathNoExt($"{song.Query.Artist} - {song.Query.Title}.mp3") + ".mp3";
+                var path = outputPath ?? organizer.GetSavePathNoExt($"{song.Query.Artist} - {song.Query.Title}.mp3") + ".mp3";
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                 System.IO.File.WriteAllBytes(path, TestHelpers.EmptyMp3Bytes);
                 return Task.FromResult<JobOutcome?>(JobOutcome.Done(path, downloadSource: SongDownloadSource.Fallback));

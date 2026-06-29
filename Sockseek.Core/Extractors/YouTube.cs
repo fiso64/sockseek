@@ -3,6 +3,7 @@ using Google.Apis.Services;
 using System.Xml;
 using YoutubeExplode;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 using YoutubeExplode.Common;
 using System.Diagnostics;
 using HtmlAgilityPack;
@@ -400,8 +401,7 @@ namespace Sockseek.Core.Extractors;
             return playlist.Id.ToString();
         }
 
-        [GeneratedRegex(@"^(\d+) === ([\w-]+) === (.+)$")]
-        private static partial Regex YtdlpOutputRegex();
+        private const string YtdlpDownloadPathPrefix = "sockseek-download-path:";
 
         [GeneratedRegex(@"document\.title\s*=\s*""(.+?) - YouTube"";")]
         private static partial Regex DocumentTitleRegex();
@@ -409,91 +409,166 @@ namespace Sockseek.Core.Extractors;
         public static async Task<List<(int length, string id, string title)>> YtdlpSearch(SongQuery query, IJobLog? log = null)
         {
             log ??= ExtractorContext.None.Log;
-            Process process = new Process();
-            ProcessStartInfo startInfo = new ProcessStartInfo();
-            startInfo.FileName = "yt-dlp";
             string search = query.Artist.Length > 0 ? $"{query.Artist} - {query.Title}" : query.Title;
-            startInfo.Arguments = $"\"ytsearch3:{search}\" --print \"%(duration>%s)s === %(id)s === %(title)s\"";
-            startInfo.RedirectStandardOutput = true;
-            startInfo.RedirectStandardError = true;
-            startInfo.UseShellExecute = false;
-            process.StartInfo = startInfo;
-            process.OutputDataReceived += (sender, e) => { log.Info(e.Data ?? ""); };
-            process.ErrorDataReceived += (sender, e) => { log.Info(e.Data ?? ""); };
-
-            log.Debug($"{startInfo.FileName} {startInfo.Arguments}");
-            process.Start();
+            var result = await RunYtdlpAsync($"\"ytsearch3:{search}\" --dump-json", log);
+            if (result.ExitCode != 0)
+                throw new InvalidOperationException($"yt-dlp search failed with exit code {result.ExitCode}: {string.Join(Environment.NewLine, result.Stderr)}");
 
             List<(int, string, string)> results = new List<(int, string, string)>();
-            string output;
-            while ((output = process.StandardOutput.ReadLine()) != null)
+            foreach (var output in result.Stdout)
             {
-                Match match = YtdlpOutputRegex().Match(output);
-                if (match.Success)
-                {
-                    int seconds = int.Parse(match.Groups[1].Value);
-                    string id = match.Groups[2].Value;
-                    string title = match.Groups[3].Value;
-                    results.Add((seconds, id, title));
-                }
+                if (!TryParseYtdlpSearchResult(output, out var parsed))
+                    continue;
+
+                results.Add(parsed);
             }
 
-            process.WaitForExit();
             return results;
+        }
+
+        internal static bool TryParseYtdlpSearchResult(string json, out (int length, string id, string title) result)
+        {
+            result = default;
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                if (!TryGetString(root, "id", out var id) || !TryGetString(root, "title", out var title))
+                    return false;
+
+                var length = TryGetInt(root, "duration", out var duration)
+                    ? duration
+                    : -1;
+                result = (length, id, title);
+                return true;
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+
+            static bool TryGetString(JsonElement element, string propertyName, out string value)
+            {
+                value = "";
+                if (!element.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.String)
+                    return false;
+
+                value = property.GetString() ?? "";
+                return value.Length > 0;
+            }
+
+            static bool TryGetInt(JsonElement element, string propertyName, out int value)
+            {
+                value = 0;
+                if (!element.TryGetProperty(propertyName, out var property))
+                    return false;
+
+                if (property.ValueKind == JsonValueKind.Number)
+                    return property.TryGetInt32(out value)
+                        || (property.TryGetDouble(out var number) && TryRound(number, out value));
+
+                if (property.ValueKind == JsonValueKind.String)
+                    return int.TryParse(property.GetString(), out value);
+
+                return false;
+
+                static bool TryRound(double number, out int value)
+                {
+                    value = 0;
+                    if (number < int.MinValue || number > int.MaxValue)
+                        return false;
+
+                    value = (int)Math.Round(number);
+                    return true;
+                }
+            }
         }
 
         public static async Task<string> YtdlpDownload(string id, string savePathNoExt, string ytdlpArgument = "", IJobLog? log = null)
         {
             log ??= ExtractorContext.None.Log;
-            var process = new Process();
-            var startInfo = new ProcessStartInfo();
-
-            bool isCustomPath = ytdlpArgument.Length > 0 && !ytdlpArgument.Contains("{savepath-noext}.%(ext)s") && !ytdlpArgument.Contains("{savepath}.%(ext)s");
-
             if (ytdlpArgument.Length == 0)
                 ytdlpArgument = "\"{id}\" -f bestaudio/best -ci -o \"{savepath-noext}.%(ext)s\" -x";
 
-            startInfo.FileName = "yt-dlp";
-            startInfo.Arguments = ytdlpArgument
+            var arguments = ytdlpArgument
                 .Replace("{id}", id)
                 .Replace("{savepath}", savePathNoExt)
                 .Replace("{savepath-noext}", savePathNoExt)
-                .Replace("{savedir}", Path.GetDirectoryName(savePathNoExt));
+                .Replace("{savedir}", Path.GetDirectoryName(savePathNoExt))
+                + $" --print \"after_move:{YtdlpDownloadPathPrefix}%(filepath)j\"";
 
-            startInfo.RedirectStandardOutput = true;
-            startInfo.RedirectStandardError = true;
-            startInfo.UseShellExecute = false;
-            process.StartInfo = startInfo;
+            var result = await RunYtdlpAsync(arguments, log);
+            if (result.ExitCode != 0)
+                throw new InvalidOperationException($"yt-dlp download failed with exit code {result.ExitCode}: {string.Join(Environment.NewLine, result.Stderr)}");
 
-            log.Debug($"{startInfo.FileName} {startInfo.Arguments}");
-            process.Start();
-            process.WaitForExit();
+            var outputPath = result.Stdout
+                .Select(TryParseYtdlpDownloadPath)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .LastOrDefault();
 
-            if (File.Exists(savePathNoExt + ".opus"))
-                return savePathNoExt + ".opus";
+            if (string.IsNullOrWhiteSpace(outputPath))
+                throw new InvalidOperationException("yt-dlp did not report an output path.");
 
-            string parentDirectory = Path.GetDirectoryName(savePathNoExt);
-            string fileName = Path.GetFileName(savePathNoExt);
+            if (!File.Exists(outputPath))
+                throw new FileNotFoundException($"yt-dlp reported output path '{outputPath}', but the file does not exist.", outputPath);
 
-            var musicFiles = Enumerable.Empty<string>();
+            return outputPath;
+        }
+
+        internal static string? TryParseYtdlpDownloadPath(string line)
+        {
+            if (!line.StartsWith(YtdlpDownloadPathPrefix, StringComparison.Ordinal))
+                return null;
+
+            var rawPath = line[YtdlpDownloadPathPrefix.Length..];
             try
             {
-                musicFiles = Directory.GetFiles(parentDirectory, fileName + ".*", SearchOption.TopDirectoryOnly)
-                    .Where(file => Utils.IsMusicFile(file) || Utils.IsVideoFile(file))
-                    .OrderByDescending(file => Utils.IsMusicFile(file))
-                    .ThenBy(file => Utils.IsVideoFile(file));
+                using var doc = JsonDocument.Parse(rawPath);
+                return doc.RootElement.ValueKind == JsonValueKind.String
+                    ? doc.RootElement.GetString()
+                    : null;
             }
-            catch (DirectoryNotFoundException) { }
-
-            if (!musicFiles.Any())
+            catch (JsonException)
             {
-                if (isCustomPath)
-                    log.Debug($"Could not find yt-dlp output file. This is expected if using a custom output path argument.");
-                else
-                    throw new FileNotFoundException($"Could not find yt-dlp output file after download in {parentDirectory}/{fileName}.*");
+                return null;
             }
+        }
 
-            return musicFiles.FirstOrDefault() ?? "";
+        private sealed record YtdlpProcessResult(int ExitCode, IReadOnlyList<string> Stdout, IReadOnlyList<string> Stderr);
+
+        private static async Task<YtdlpProcessResult> RunYtdlpAsync(string arguments, IJobLog log)
+        {
+            using var process = new Process();
+            process.StartInfo = new ProcessStartInfo
+            {
+                FileName = "yt-dlp",
+                Arguments = arguments,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+
+            log.Debug($"{process.StartInfo.FileName} {process.StartInfo.Arguments}");
+            process.Start();
+
+            var stdoutTask = ReadLinesAsync(process.StandardOutput);
+            var stderrTask = ReadLinesAsync(process.StandardError);
+            await process.WaitForExitAsync();
+            var stdout = await stdoutTask;
+            var stderr = await stderrTask;
+            foreach (var line in stderr)
+                log.Info(line);
+
+            return new YtdlpProcessResult(process.ExitCode, stdout, stderr);
+        }
+
+        private static async Task<List<string>> ReadLinesAsync(TextReader reader)
+        {
+            var lines = new List<string>();
+            string? line;
+            while ((line = await reader.ReadLineAsync()) != null)
+                lines.Add(line);
+            return lines;
         }
 
         public class YouTubeArchiveRetriever
