@@ -1,8 +1,10 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Soulseek;
+using Sockseek.Core.Extractors;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core;
+using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Directory = System.IO.Directory;
 
@@ -48,6 +50,48 @@ namespace Tests.Core
             finally
             {
                 if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+            }
+        }
+
+        [TestMethod]
+        public async Task SongJob_WithYtDlpEnabled_FallsBackToYtDlp_WhenMockFilesSearchHasNoResults()
+        {
+            var rootDir = Path.Combine(Path.GetTempPath(), "Sockseek-ytdlp-fallback-" + Guid.NewGuid());
+            var mockFilesDir = Path.Combine(rootDir, "mock-files");
+            var outputDir = Path.Combine(rootDir, "downloads");
+            Directory.CreateDirectory(mockFilesDir);
+            Directory.CreateDirectory(outputDir);
+
+            try
+            {
+                var eng = new EngineSettings
+                {
+                    MockFilesDir = mockFilesDir,
+                    MockFilesReadTags = false,
+                };
+                var dl = new DownloadSettings();
+                dl.Output.ParentDir = outputDir;
+                dl.YtDlp.UseYtdlp = true;
+
+                var fakeFallback = new FakeSongDownloadFallback();
+                var song = new SongJob(new SongQuery
+                {
+                    Artist = "Lavish Life",
+                    Title = "TEXAS HOLD 'EM",
+                });
+                var app = new DownloadEngine(eng, new SoulseekClientManager(eng), songDownloadFallback: fakeFallback);
+                app.Enqueue(song, dl);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                Assert.AreEqual(1, fakeFallback.Calls, "Song fallback should run after the mock Soulseek search returns no results.");
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, song.TerminalOutcome);
+                Assert.IsTrue(System.IO.File.Exists(song.DownloadPath), $"Expected fallback output at {song.DownloadPath}");
+            }
+            finally
+            {
+                if (Directory.Exists(rootDir)) Directory.Delete(rootDir, true);
             }
         }
 
@@ -840,6 +884,28 @@ namespace Tests.Core
             Assert.AreEqual(JobTerminalOutcome.Failed, list.TerminalOutcome);
             Assert.AreEqual(JobFailureReason.ChildJobsFailed, list.FailureReason);
             Assert.AreEqual("One or more child jobs failed.", list.FailureMessage);
+        }
+
+        private sealed class FakeSongDownloadFallback : ISongDownloadFallback
+        {
+            public int Calls { get; private set; }
+
+            public Task<JobOutcome?> TryDownloadAsync(
+                SongJob song,
+                DownloadSettings settings,
+                FileManager organizer,
+                IJobLog? log,
+                CancellationToken ct)
+            {
+                if (!settings.YtDlp.UseYtdlp)
+                    return Task.FromResult<JobOutcome?>(null);
+
+                Calls++;
+                var path = organizer.GetSavePathNoExt($"{song.Query.Artist} - {song.Query.Title}.mp3") + ".mp3";
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                System.IO.File.WriteAllBytes(path, TestHelpers.EmptyMp3Bytes);
+                return Task.FromResult<JobOutcome?>(JobOutcome.Done(path));
+            }
         }
     }
 }

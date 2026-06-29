@@ -34,6 +34,7 @@ public class DownloadEngine
     private readonly EngineSettings engineSettings;
     private readonly SoulseekClientManager _clientManager;
     private readonly IJobSettingsResolver _jobSettingsResolver;
+    private readonly ISongDownloadFallback _songDownloadFallback;
 
     public EngineEvents Events { get; } = new();
 
@@ -431,11 +432,16 @@ public class DownloadEngine
 
     // ── construction ─────────────────────────────────────────────────────────
 
-    public DownloadEngine(EngineSettings settings, SoulseekClientManager clientManager, IJobSettingsResolver? jobSettingsResolver = null)
+    public DownloadEngine(
+        EngineSettings settings,
+        SoulseekClientManager clientManager,
+        IJobSettingsResolver? jobSettingsResolver = null,
+        ISongDownloadFallback? songDownloadFallback = null)
     {
         engineSettings = settings;
         _clientManager = clientManager;
         _jobSettingsResolver = jobSettingsResolver ?? DefaultJobSettingsResolver.Instance;
+        _songDownloadFallback = songDownloadFallback ?? SongDownloadFallback.Default;
         _outputFinalizer = new OutputFinalizer(_registry);
         if (settings.ConcurrentJobs <= 0)
             throw new ArgumentOutOfRangeException(nameof(settings.ConcurrentJobs), "ConcurrentJobs must be greater than zero.");
