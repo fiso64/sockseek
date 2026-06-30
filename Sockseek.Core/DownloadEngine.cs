@@ -35,6 +35,9 @@ public class DownloadEngine
     private readonly SoulseekClientManager _clientManager;
     private readonly IJobSettingsResolver _jobSettingsResolver;
     private readonly ISongDownloadFallback _songDownloadFallback;
+    private readonly StaleDownloadMonitor _staleDownloadMonitor;
+
+    internal bool AutomaticStaleChecksEnabled { get; set; } = true;
 
     public EngineEvents Events { get; } = new();
 
@@ -436,18 +439,22 @@ public class DownloadEngine
         EngineSettings settings,
         SoulseekClientManager clientManager,
         IJobSettingsResolver? jobSettingsResolver = null,
-        ISongDownloadFallback? songDownloadFallback = null)
+        ISongDownloadFallback? songDownloadFallback = null,
+        TimeProvider? timeProvider = null)
     {
         engineSettings = settings;
         _clientManager = clientManager;
         _jobSettingsResolver = jobSettingsResolver ?? DefaultJobSettingsResolver.Instance;
         _songDownloadFallback = songDownloadFallback ?? SongDownloadFallback.Default;
+        _staleDownloadMonitor = new StaleDownloadMonitor(_registry, timeProvider);
         _outputFinalizer = new OutputFinalizer(_registry);
         if (settings.ConcurrentJobs <= 0)
             throw new ArgumentOutOfRangeException(nameof(settings.ConcurrentJobs), "ConcurrentJobs must be greater than zero.");
         _jobSemaphore = new SemaphoreSlim(settings.ConcurrentJobs);
         _extractorSemaphore = new SemaphoreSlim(settings.ConcurrentExtractors);
     }
+
+    internal int RunStaleDownloadCheckForTesting() => _staleDownloadMonitor.CancelStaleDownloads();
 
     private async Task WithJobSlot(CancellationToken ct, Func<Task> action)
     {
@@ -3450,25 +3457,8 @@ public class DownloadEngine
                         if (info.Task == null || info.Task.IsCompleted)
                             _registry.Searches.TryRemove(song, out _);
 
-                    // Check for stale downloads
-                    foreach (var (filename, ad) in _registry.Downloads)
-                    {
-                        if (ad == null) { _registry.Downloads.TryRemove(filename, out _); continue; }
-
-                        var song = ad.Song;
-                        var songJob = ad.Song as SongJob;
-                        int maxStale = ad.Song.FileSize > 0 ? (songJob?.Config?.Search.MaxStaleTime ?? 30_000) : int.MaxValue;
-                        if (song.LastActivityTime.HasValue &&
-                            (DateTime.Now - song.LastActivityTime.Value).TotalMilliseconds > maxStale)
-                        {
-                            SockseekLog.Jobs.Debug($"Cancelling stale download: {song}");
-                            // This cancels the active transfer attempt. If that cancellation bubbles up
-                            // and terminal-cancels the job, CancellationSourceFor classifies it as
-                            // InternalEngine rather than a direct user cancellation.
-                            try { ad.Cts.Cancel(); } catch { }
-                            _registry.Downloads.TryRemove(filename, out _);
-                        }
-                    }
+                    if (AutomaticStaleChecksEnabled)
+                        _staleDownloadMonitor.CancelStaleDownloads();
                 }
 
                 await Task.Delay(updateInterval, cancellationToken);

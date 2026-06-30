@@ -32,6 +32,7 @@ namespace Tests.ClientTests
         public int DownloadCallCountAtFirstBrowse = -1;
         public Action? BrowseStarted;
         public Func<string, string, CancellationToken, Task>? BeforeDownloadCompletesAsync;
+        public Func<string, string, TransferStates, CancellationToken, Task>? AfterDownloadStateChangedAsync;
         public bool BrowseReturnsBasenames { get; set; }
         public bool IsDisposed { get; private set; }
         public Exception? ConnectException { get; set; }
@@ -403,10 +404,12 @@ namespace Tests.ClientTests
                         new Transfer(TransferDirection.Download, username, remoteFilename, transferToken,
                             state, fileSize, startOffset, bytes, speed, startTime, endTime);
 
-                    void FireState(TransferStates state, long bytes = 0, double speed = 0, DateTime? t0 = null)
+                    async Task FireStateAsync(TransferStates state, long bytes = 0, double speed = 0, DateTime? t0 = null)
                     {
                         transfer = MakeTransfer(state, bytes, speed, t0);
                         options?.StateChanged?.Invoke((state, transfer));
+                        if (AfterDownloadStateChangedAsync != null)
+                            await AfterDownloadStateChangedAsync(username, remoteFilename, state, ct);
                     }
 
                     void FireProgress(long bytes, long prev, double speed, DateTime t0)
@@ -418,7 +421,7 @@ namespace Tests.ClientTests
                     // Always fire Queued (R) before acquiring the per-user slot —
                     // this mirrors real Soulseek where the peer queues your request
                     // while serving another file to you.
-                    FireState(TransferStates.Queued | TransferStates.Remotely);
+                    await FireStateAsync(TransferStates.Queued | TransferStates.Remotely);
 
                     var userSem = GetUserSemaphore(username);
                     await userSem.WaitAsync(ct);
@@ -426,14 +429,14 @@ namespace Tests.ClientTests
                     {
 
                     // Initialising — peer has accepted the transfer
-                    FireState(TransferStates.Initializing);
+                    await FireStateAsync(TransferStates.Initializing);
 
                     using var outputStream = await outputStreamFactory();
                     var startTime = DateTime.UtcNow;
                     var bytesTransferred = startOffset;
                     const int chunkSize = 16384;
 
-                    FireState(TransferStates.InProgress, bytesTransferred, 0, startTime);
+                    await FireStateAsync(TransferStates.InProgress, bytesTransferred, 0, startTime);
 
                     if (BeforeDownloadCompletesAsync != null)
                         await BeforeDownloadCompletesAsync(username, remoteFilename, ct);

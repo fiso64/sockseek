@@ -95,13 +95,20 @@ public class Downloader
             stateChanged: (state) =>
             {
                 if (downloadRegistry.Downloads.TryGetValue(candidate.Filename, out var x))
+                {
                     x.Transfer = state.Transfer;
+                    x.Song.LastActivityTime = DateTime.Now;
+                }
                 events.RaiseDownloadStateChanged(song, state.Transfer.State);
             },
             progressUpdated: (progress) =>
             {
                 if (downloadRegistry.Downloads.TryGetValue(candidate.Filename, out var x))
+                {
+                    x.Transfer = progress.Transfer;
+                    x.Song.LastActivityTime = DateTime.Now;
                     x.Song.BytesTransferred = progress.PreviousBytesTransferred;
+                }
                 events.RaiseDownloadProgress(song, progress.PreviousBytesTransferred, candidate.File.Size > 0 ? candidate.File.Size : 0);
             }
         );
