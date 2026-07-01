@@ -89,6 +89,8 @@ sockseek "Artist - Album Title" --pref-format flac,wav
 sockseek "playlist.csv" --skip-music-dir "path/to/music"
 ```
 
+For multi-item inputs such as YouTube or Spotify playlists and CSV or list files, Sockseek also writes an `_index.csv` file next to the download output. Re-running the same input uses that index to skip items that were already downloaded, even without `--skip-music-dir`. Use `--index-path` to choose a shared or custom index location.
+
 For more examples, see [Examples](#examples-2).
 
 

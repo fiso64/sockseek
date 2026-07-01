@@ -15,8 +15,6 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
     <Framework Condition="'$(Framework)' == ''">net10.0</Framework>
 
     <ArtifactsDir Condition="'$(ArtifactsDir)' == ''">$(RepoRoot)/artifacts</ArtifactsDir>
-    <PublishRoot>$(ArtifactsDir)/publish</PublishRoot>
-    <PackageDir>$(ArtifactsDir)/packages</PackageDir>
 
     <CliProject>$(RepoRoot)/Sockseek.Cli/Sockseek.Cli.csproj</CliProject>
     <PackagerProject>$(RepoRoot)/Sockseek.Packager/Sockseek.Packager.csproj</PackagerProject>
@@ -48,6 +46,9 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
     <PropertyGroup>
       <PackageVersion>$(VersionPrefix)</PackageVersion>
       <PackageVersion Condition="'$(VersionSuffix)' != ''">$(PackageVersion)-$(VersionSuffix)</PackageVersion>
+      <ArtifactsVersionSegment Condition="'$(ArtifactsVersionSegment)' == ''">$(PackageVersion)</ArtifactsVersionSegment>
+      <PublishRoot Condition="'$(PublishRoot)' == ''">$(ArtifactsDir)/publish/$(ArtifactsVersionSegment)</PublishRoot>
+      <PackageDir Condition="'$(PackageDir)' == ''">$(ArtifactsDir)/packages/$(ArtifactsVersionSegment)</PackageDir>
     </PropertyGroup>
   </Target>
 
