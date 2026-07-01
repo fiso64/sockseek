@@ -560,7 +560,10 @@ public static partial class ConfigManager
                 Remote(r => r.ServerUrl = value); break;
 
             // ── OutputSettings ───────────────────────────────────────────────
-            case "-p": case "--path": case "--parent":
+            case "-o":
+                ThrowIfLikelyLegacyOffsetValue(value, flag);
+                Download(d => d.Output.ParentDir = value); break;
+            case "--output-dir": case "-p": case "--path": case "--parent":
                 Download(d => d.Output.ParentDir = value); break;
             case "--nf": case "--name-format":
                 Download(d => d.Output.NameFormat = value); break;
@@ -637,7 +640,7 @@ public static partial class ConfigManager
                 break;
             case "-n": case "--number":
                 Download(d => d.Extraction.MaxTracks = ParseIntAtLeast(value, flag, 1)); break;
-            case "-o": case "--offset":
+            case "--offset":
                 Download(d => d.Extraction.Offset = ParseIntAtLeast(value, flag, 0)); break;
             case "-r": case "--reverse":
                 Download(d => d.Extraction.Reverse = Bool()); break;
@@ -1449,6 +1452,20 @@ public static partial class ConfigManager
         if (!int.TryParse(s.Replace("_", ""), out int v))
             throw new Exception($"Input error: Option '{flag}' requires an integer parameter, got '{s}'");
         return v;
+    }
+
+    private static void ThrowIfLikelyLegacyOffsetValue(string value, string flag)
+    {
+        if (flag != "-o")
+            return;
+
+        if (!int.TryParse(value.Replace("_", ""), out _))
+            return;
+
+        throw new Exception(
+            $"Input error: '-o {value}' looks like the old short form for '--offset {value}'. " +
+            $"'-o' now means '--output-dir'. Use '--offset {value}' to skip tracks, or " +
+            $"'-o ./{value}' if you really want to download into a '{value}' subdirectory of the current directory.");
     }
 
     private static int ParseIntAtLeast(string s, string flag, int min)

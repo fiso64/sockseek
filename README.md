@@ -359,7 +359,7 @@ max-stale-time = 9999999
 # download to another location for YouTube
 [youtube]
 profile-cond = input-type == "youtube"
-path = ~/downloads/sockseek-youtube
+output-dir = ~/downloads/sockseek-youtube
 ```
 The following operators are supported for use in profile-cond: &&, ||, ==, !=, !{bool}.  
 The following variables are available:
@@ -494,7 +494,7 @@ input                          Input string
 item-name                      Name of the playlist/source
 default-folder                 Default Sockseek folder name
 bindir                         Base application directory
-outputdir                      Output directory (--path)
+outputdir                      Output directory (--output-dir)
 configdir                      Active config file directory
 path                           Download file path (or folder if album)
 path-noext                     Download file path without extension
@@ -718,7 +718,7 @@ Most used flags at a glance:
 -s, --song                      Treat string input as song search
 -t, --interactive               Pick from album results before downloading
 -g, --aggregate                 Download distinct songs/albums from grouped results
--p, --path <path>               Download directory
+-o, --output-dir <path>         Download directory
 --pref-format <formats>         Preferred formats for ranking, e.g. flac,wav. Unordered.
 --format <formats>              Required accepted formats. Unordered.
 --album-track-count <count>     Required number of audio files when downloading albums
@@ -739,7 +739,7 @@ Most used flags at a glance:
 ```
 #### General Options
 ```
--p, --path <path>               Download directory
+-o, --output-dir <path>         Download directory
 --input-type <type>             [csv|youtube|spotify|bandcamp|string|list|soulseek|
                                 musicbrainz] (default: auto)
 -s, --song                      Song mode for string input
@@ -747,7 +747,7 @@ Most used flags at a glance:
 --invalid-replace-str <str>     Replacement string for invalid path characters (default: space)
 
 -n, --number <maxtracks>        Download the first n tracks of a playlist
--o, --offset <offset>           Skip a specified number of tracks
+--offset <offset>               Skip a specified number of tracks
 -r, --reverse                   Download tracks in reverse order
 -c, --config <path>             Set config file location. Set to 'none' to ignore config
 --no-config                     Ignore any config file

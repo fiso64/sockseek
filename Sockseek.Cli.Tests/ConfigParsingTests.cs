@@ -327,7 +327,45 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void Path_SetsParentDir()
+        public void OutputDir_SetsParentDir()
+        {
+            var config = Cfg("--output-dir", "/tmp/music", "some input");
+            Assert.AreEqual(Path.GetFullPath("/tmp/music"), config.Output.ParentDir);
+        }
+
+        [TestMethod]
+        public void OutputDir_ShortAlias_SetsParentDir()
+        {
+            var config = Cfg("-o", "/tmp/music", "some input");
+            Assert.AreEqual(Path.GetFullPath("/tmp/music"), config.Output.ParentDir);
+        }
+
+        [TestMethod]
+        public void OutputDir_ShortAliasWithBareInteger_ReportsLikelyLegacyOffset()
+        {
+            var ex = Assert.ThrowsException<Exception>(() => Cfg("-o", "10", "some input"));
+
+            StringAssert.Contains(ex.Message, "'-o 10' looks like the old short form for '--offset 10'");
+            StringAssert.Contains(ex.Message, "Use '--offset 10' to skip tracks");
+            StringAssert.Contains(ex.Message, "'-o ./10'");
+        }
+
+        [TestMethod]
+        public void OutputDir_ShortAliasWithExplicitRelativeIntegerPath_SetsParentDir()
+        {
+            var config = Cfg("-o", "./10", "some input");
+            Assert.AreEqual(Path.GetFullPath("./10"), config.Output.ParentDir);
+        }
+
+        [TestMethod]
+        public void OutputDir_LongAliasWithBareInteger_SetsParentDir()
+        {
+            var config = Cfg("--output-dir", "10", "some input");
+            Assert.AreEqual(Path.GetFullPath("10"), config.Output.ParentDir);
+        }
+
+        [TestMethod]
+        public void Path_BackcompatAlias_SetsParentDir()
         {
             var config = Cfg("--path", "/tmp/music", "some input");
             Assert.AreEqual(Path.GetFullPath("/tmp/music"), config.Output.ParentDir);
@@ -564,7 +602,7 @@ namespace Tests.ConfigParsingTests
             try
             {
                 File.WriteAllText(configPath, string.Join(Environment.NewLine,
-                    "path = {configdir}/downloads",
+                    "output-dir = {configdir}/downloads",
                     "playlist-path = {configdir}/playlists/out.m3u",
                     "index-path = {configdir}/indexes/index.json",
                     "skip-music-dir = {configdir}/skip",
@@ -804,7 +842,18 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void RemoteSubmissionOptions_SendExplicitPathAsDownloadPatch()
+        public void RemoteSubmissionOptions_SendExplicitOutputDirAsDownloadPatch()
+        {
+            var options = Sockseek.Cli.Program.BuildRemoteSubmissionOptions(
+                ["some input", "--remote", "127.0.0.1", "-o", "C:\\Downloads"],
+                new CliSettings());
+
+            Assert.IsNull(options.OutputParentDir);
+            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Output?.ParentDir);
+        }
+
+        [TestMethod]
+        public void RemoteSubmissionOptions_SendBackcompatPathAsDownloadPatch()
         {
             var options = Sockseek.Cli.Program.BuildRemoteSubmissionOptions(
                 ["some input", "--remote", "127.0.0.1", "-p", "C:\\Downloads"],

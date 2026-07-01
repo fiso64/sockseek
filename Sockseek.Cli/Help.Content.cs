@@ -28,7 +28,7 @@ public static partial class Help
 
   General Options
 
-    -p, --path <path>               Download directory
+    -o, --output-dir <path>         Download directory
     --input-type <type>             [csv|youtube|spotify|bandcamp|string|list|soulseek|
                                     musicbrainz] (default: auto)
     -s, --song                      Song mode for string input
@@ -36,7 +36,7 @@ public static partial class Help
     --invalid-replace-str <str>     Replacement string for invalid path characters (default: space)
 
     -n, --number <maxtracks>        Download the first n tracks of a playlist
-    -o, --offset <offset>           Skip a specified number of tracks
+    --offset <offset>               Skip a specified number of tracks
     -r, --reverse                   Download tracks in reverse order
     -c, --config <path>             Set config file location. Set to 'none' to ignore config
     --no-config                     Ignore any config file
@@ -523,7 +523,7 @@ Name format
     item-name                      Name of the playlist/source
     default-folder                 Default Sockseek folder name
     bindir                         Base application directory
-    outputdir                      Output directory (--path)
+    outputdir                      Output directory (--output-dir)
     configdir                      Active config file directory
     path                           Download file path (or folder if album)
     path-noext                     Download file path without extension
@@ -570,7 +570,7 @@ Configuration
     # download to another location for YouTube
     [youtube]
     profile-cond = input-type == ""youtube""
-    path = ~/downloads/sockseek-youtube
+    output-dir = ~/downloads/sockseek-youtube
 
     The following operators are supported for use in profile-cond: &&, ||, ==, !=, !{bool}. The
     following variables are available:
