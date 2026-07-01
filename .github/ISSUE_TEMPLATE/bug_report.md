@@ -2,7 +2,7 @@
 name: Bug report
 about: Create a report
 title: ''
-labels: ''
+labels: 'bug'
 assignees: ''
 
 ---
@@ -24,4 +24,4 @@ A clear and concise description of what you expected to happen.
  
 **Additional context**  
 Add any other context about the problem here.  
-Log output, if applicable (run with `--log-file`).
+E.g. Log output (prefer `--log-file` instead of pasting the console output).
