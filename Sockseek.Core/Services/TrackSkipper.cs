@@ -93,8 +93,8 @@ namespace Sockseek.Core.Services;
             string artist = Preprocess(job.Query.Artist, true, true);
             var parents   = new HashSet<string>();
 
-            // Use title search from QueryTrack for "track within album" style queries
-            string title = Preprocess(job.QueryTrack.Title, true, true);
+            // Use SearchHint only for "track within album" style queries; QueryTrack.Title is the album title.
+            string title = job.Query.Album.Length == 0 ? Preprocess(job.Query.SearchHint, true, true) : "";
             bool hasTitle = title.Length > 0;
 
             foreach ((var path, T item) in Index)

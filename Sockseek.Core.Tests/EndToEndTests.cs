@@ -1647,6 +1647,142 @@ namespace Tests.EndToEnd
             }
         }
 
+        [TestMethod]
+        public async Task SongInput_SkipMusicDir_SkipsMatchingLibraryTrack()
+        {
+            var sourceRoot = Path.Combine(Path.GetTempPath(), "slsk-smd-song-source-" + Guid.NewGuid());
+            var musicDir = Path.Combine(Path.GetTempPath(), "slsk-smd-song-library-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-smd-song-out-" + Guid.NewGuid());
+            Directory.CreateDirectory(sourceRoot);
+            Directory.CreateDirectory(musicDir);
+            Directory.CreateDirectory(outputDir);
+            File.WriteAllBytes(Path.Combine(sourceRoot, "Existing Artist - Existing Song.mp3"), TestHelpers.EmptyMp3Bytes);
+            var existingPath = Path.Combine(musicDir, "Existing Artist - Existing Song.mp3");
+            File.WriteAllBytes(existingPath, TestHelpers.EmptyMp3Bytes);
+
+            try
+            {
+                var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                var settings = new DownloadSettings();
+                settings.Output.ParentDir = outputDir;
+                settings.Skip.SkipExisting = true;
+                settings.Skip.SkipMusicDir = musicDir;
+                settings.Skip.SkipModeMusicDir = SkipMode.Name;
+                var song = new SongJob(new SongQuery { Artist = "Existing Artist", Title = "Existing Song" });
+
+                var client = LocalFilesSoulseekClient.FromLocalPaths(useTags: false, slowMode: false, failDownloads: 10, sourceRoot);
+                var app = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
+                app.Enqueue(song, settings);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                Assert.IsTrue(song.IsSkippedAlreadyExists);
+                Assert.AreEqual(existingPath, song.DownloadPath);
+                Assert.AreEqual(0, Directory.GetFiles(outputDir, "*.mp3", SearchOption.AllDirectories).Length);
+            }
+            finally
+            {
+                if (Directory.Exists(sourceRoot)) Directory.Delete(sourceRoot, true);
+                if (Directory.Exists(musicDir)) Directory.Delete(musicDir, true);
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+            }
+        }
+
+        [TestMethod]
+        public async Task JobListInput_SkipMusicDir_SkipsMatchingLibraryTracks()
+        {
+            var sourceRoot = Path.Combine(Path.GetTempPath(), "slsk-smd-list-source-" + Guid.NewGuid());
+            var musicDir = Path.Combine(Path.GetTempPath(), "slsk-smd-list-library-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-smd-list-out-" + Guid.NewGuid());
+            Directory.CreateDirectory(sourceRoot);
+            Directory.CreateDirectory(musicDir);
+            Directory.CreateDirectory(outputDir);
+            File.WriteAllBytes(Path.Combine(sourceRoot, "Artist One - First Song.mp3"), TestHelpers.EmptyMp3Bytes);
+            File.WriteAllBytes(Path.Combine(sourceRoot, "Artist Two - Second Song.mp3"), TestHelpers.EmptyMp3Bytes);
+            var firstExistingPath = Path.Combine(musicDir, "Artist One - First Song.mp3");
+            var secondExistingPath = Path.Combine(musicDir, "Artist Two - Second Song.mp3");
+            File.WriteAllBytes(firstExistingPath, TestHelpers.EmptyMp3Bytes);
+            File.WriteAllBytes(secondExistingPath, TestHelpers.EmptyMp3Bytes);
+
+            try
+            {
+                var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                var settings = new DownloadSettings();
+                settings.Output.ParentDir = outputDir;
+                settings.Skip.SkipExisting = true;
+                settings.Skip.SkipMusicDir = musicDir;
+                settings.Skip.SkipModeMusicDir = SkipMode.Name;
+                var firstSong = new SongJob(new SongQuery { Artist = "Artist One", Title = "First Song" });
+                var secondSong = new SongJob(new SongQuery { Artist = "Artist Two", Title = "Second Song" });
+                var list = new JobList("skip music dir list", [firstSong, secondSong]);
+
+                var client = LocalFilesSoulseekClient.FromLocalPaths(useTags: false, slowMode: false, failDownloads: 10, sourceRoot);
+                var app = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
+                app.Enqueue(list, settings);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                Assert.IsTrue(firstSong.IsSkippedAlreadyExists);
+                Assert.IsTrue(secondSong.IsSkippedAlreadyExists);
+                Assert.AreEqual(firstExistingPath, firstSong.DownloadPath);
+                Assert.AreEqual(secondExistingPath, secondSong.DownloadPath);
+                Assert.AreEqual(0, Directory.GetFiles(outputDir, "*.mp3", SearchOption.AllDirectories).Length);
+            }
+            finally
+            {
+                if (Directory.Exists(sourceRoot)) Directory.Delete(sourceRoot, true);
+                if (Directory.Exists(musicDir)) Directory.Delete(musicDir, true);
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+            }
+        }
+
+        [TestMethod]
+        public async Task AlbumInput_SkipMusicDir_SkipsMatchingLibraryAlbum()
+        {
+            var sourceRoot = Path.Combine(Path.GetTempPath(), "slsk-smd-album-source-" + Guid.NewGuid());
+            var sourceAlbumDir = Path.Combine(sourceRoot, "Existing Artist", "Existing Album");
+            var musicDir = Path.Combine(Path.GetTempPath(), "slsk-smd-album-library-" + Guid.NewGuid());
+            var libraryAlbumDir = Path.Combine(musicDir, "Existing Artist", "Existing Album");
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-smd-album-out-" + Guid.NewGuid());
+            Directory.CreateDirectory(sourceAlbumDir);
+            Directory.CreateDirectory(libraryAlbumDir);
+            Directory.CreateDirectory(outputDir);
+            File.WriteAllBytes(Path.Combine(sourceAlbumDir, "01. Existing Artist - First Song.mp3"), TestHelpers.EmptyMp3Bytes);
+            File.WriteAllBytes(Path.Combine(sourceAlbumDir, "02. Existing Artist - Second Song.mp3"), TestHelpers.EmptyMp3Bytes);
+            File.WriteAllBytes(Path.Combine(libraryAlbumDir, "01. Existing Artist - First Song.mp3"), TestHelpers.EmptyMp3Bytes);
+            File.WriteAllBytes(Path.Combine(libraryAlbumDir, "02. Existing Artist - Second Song.mp3"), TestHelpers.EmptyMp3Bytes);
+
+            try
+            {
+                var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                var settings = new DownloadSettings();
+                settings.Output.ParentDir = outputDir;
+                settings.Skip.SkipExisting = true;
+                settings.Skip.SkipMusicDir = musicDir;
+                settings.Skip.SkipModeMusicDir = SkipMode.Name;
+                var album = new AlbumJob(new AlbumQuery { Artist = "Existing Artist", Album = "Existing Album" });
+
+                var client = LocalFilesSoulseekClient.FromLocalPaths(useTags: false, slowMode: false, failDownloads: 10, sourceRoot);
+                var app = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
+                app.Enqueue(album, settings);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                Assert.IsTrue(album.IsSkippedAlreadyExists);
+                Assert.AreEqual(libraryAlbumDir, album.DownloadPath);
+                Assert.AreEqual(0, Directory.GetFiles(outputDir, "*.mp3", SearchOption.AllDirectories).Length);
+            }
+            finally
+            {
+                if (Directory.Exists(sourceRoot)) Directory.Delete(sourceRoot, true);
+                if (Directory.Exists(musicDir)) Directory.Delete(musicDir, true);
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+            }
+        }
+
         // Regression guard: albums with AlreadyExists should also be cleared (this already works via
         // the else-branch / post-ProcessJob path, but keep it tested).
         [TestMethod]

@@ -207,6 +207,42 @@ namespace Tests.TrackSkipperTests
         }
 
         [TestMethod]
+        public void NameSkipper_AlbumQueryArtistAndAlbum_ReturnsTrue()
+        {
+            var albumDir = Path.Combine(_tempDir, "Library Artist", "Library Album");
+            Directory.CreateDirectory(albumDir);
+            File.WriteAllBytes(Path.Combine(albumDir, "01. Library Artist - First Track.mp3"), TestHelpers.EmptyMp3Bytes);
+
+            var skipper = new NameSkipper(_tempDir);
+            skipper.BuildIndex();
+
+            var album = new AlbumJob(new AlbumQuery { Artist = "Library Artist", Album = "Library Album" });
+            var context = new TrackSkipperContext { checkFileExists = false };
+
+            bool result = skipper.AlbumExists(album, context, out string? foundPath);
+            Assert.IsTrue(result);
+            Assert.AreEqual(albumDir, foundPath);
+        }
+
+        [TestMethod]
+        public void NameSkipper_AlbumQueryAlbumOnly_ReturnsTrue()
+        {
+            var albumDir = Path.Combine(_tempDir, "Library Artist", "Library Album");
+            Directory.CreateDirectory(albumDir);
+            File.WriteAllBytes(Path.Combine(albumDir, "01. Library Artist - First Track.mp3"), TestHelpers.EmptyMp3Bytes);
+
+            var skipper = new NameSkipper(_tempDir);
+            skipper.BuildIndex();
+
+            var album = new AlbumJob(new AlbumQuery { Album = "Library Album" });
+            var context = new TrackSkipperContext { checkFileExists = false };
+
+            bool result = skipper.AlbumExists(album, context, out string? foundPath);
+            Assert.IsTrue(result);
+            Assert.AreEqual(albumDir, foundPath);
+        }
+
+        [TestMethod]
         public void NameSkipper_NonExistentDirectory_IndexIsBuilt()
         {
             var skipper = new NameSkipper("/definitely/does/not/exist");
