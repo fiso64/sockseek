@@ -16,9 +16,10 @@ This project was formerly named `sldl` (and `slsk-batchdl` before that). See [he
     ```ini
     username = your-soulseek-username
     password = your-soulseek-password
-    # Sockseek prefers mp3 by default. To prefer lossless (will still
+    output-dir = path/to/your/download/folder
+    # Sockseek prefers mp3 by default. To prefer FLAC (will still
     # fall back to mp3 if unavailable):
-    # pref-format = flac,wav
+    # pref-format = flac
     ```
 
     If you're running a persistent Soulseek client, use Sockseek with a **separate Soulseek account** to avoid connection problems.
