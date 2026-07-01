@@ -147,6 +147,8 @@ internal static partial class Program
             return CliExitCode.Success;
         }
 
+        LogCliSessionStart(remoteSettings);
+
         var cts = new CancellationTokenSource();
 
         if (remoteSettings.IsEnabled)
@@ -383,28 +385,29 @@ internal static partial class Program
         {
             await engine.RunAsync(cts.Token);
             SockseekLog.Trace("Main: RunAsync returned.");
+            Printing.PrintComplete(engine.Queue);
+            var exitCode = LogCliSessionExit(DetermineLocalExitCode(engine.Queue));
             cliReporter?.Stop();
             cliReporter = null;
-            Printing.PrintComplete(engine.Queue);
 
             if (rootSettings.DoNotDownload)
                 Printing.PrintPlannedOutput(engine.Queue);
 
-            return DetermineLocalExitCode(engine.Queue);
+            return exitCode;
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            return CliExitCode.Cancelled;
+            return LogCliSessionExit(CliExitCode.Cancelled);
         }
         catch (SoulseekConnectionUnavailableException ex)
         {
             SockseekLog.Error(ex.Message);
-            return CliExitCode.WorkFailed;
+            return LogCliSessionExit(CliExitCode.WorkFailed);
         }
         catch (Exception ex)
         {
             SockseekLog.Fatal($"Unhandled CLI error: {SockseekLog.ExceptionSummary(ex)}");
-            return CliExitCode.WorkFailed;
+            return LogCliSessionExit(CliExitCode.WorkFailed);
         }
         finally
         {
@@ -444,13 +447,7 @@ internal static partial class Program
 
         SockseekLog.AddStructuredConsoleSink((entry, message) =>
         {
-            if (entry.Level >= LogLevel.Error)
-            {
-                Console.Error.WriteLine(message);
-                return;
-            }
-
-            Printing.WriteLine(message, entry.Color ?? ConsoleColorFor(entry.Level));
+            WriteConsoleLog(entry, message);
         });
     }
 
@@ -459,6 +456,42 @@ internal static partial class Program
         LogLevel.Error or LogLevel.Critical => ConsoleColor.Red,
         LogLevel.Warning => ConsoleColor.DarkYellow,
         _ => ConsoleColor.Gray,
+    };
+
+    private static void WriteConsoleLog(SockseekLog.StructuredLogEntry entry, string message)
+    {
+        if (entry.Routing == SockseekLog.LogRouting.ConsoleOnly)
+        {
+            if (entry.Level >= LogLevel.Error)
+                Console.Error.WriteLine(entry.Message);
+            else
+                Printing.WriteLine(entry.Message, entry.Color ?? ConsoleColorFor(entry.Level));
+            return;
+        }
+
+        if (entry.Level >= LogLevel.Error)
+        {
+            Console.Error.WriteLine(message);
+            return;
+        }
+
+        var messageColor = entry.Color ?? ConsoleColorFor(entry.Level);
+
+        if (entry.Level != LogLevel.Information)
+            Printing.Write($"[{ShortLogLevel(entry.Level)}] ", ConsoleColorFor(entry.Level));
+        Printing.Write($"[{entry.CategoryName}] ", ConsoleColor.DarkGray);
+        Printing.WriteLine(entry.Message, messageColor);
+    }
+
+    private static string ShortLogLevel(LogLevel level) => level switch
+    {
+        LogLevel.Trace => "trace",
+        LogLevel.Debug => "debug",
+        LogLevel.Information => "info",
+        LogLevel.Warning => "warn",
+        LogLevel.Error => "error",
+        LogLevel.Critical => "critical",
+        _ => level.ToString().ToLowerInvariant(),
     };
 
     private static void ApplyMockFilesDefaults(EngineSettings engineSettings, DownloadSettings downloadSettings)
@@ -664,22 +697,23 @@ internal static partial class Program
 
             await terminalUpdateObserver.WaitForTerminalUpdateAsync(cts.Token);
 
-            cliReporter?.Stop();
-            cliReporter = null;
-
             if (!rootSettings.DoNotDownload)
                 await PrintRemoteCompleteAsync(backend, submission.WorkflowId, cts.Token);
+
+            var exitCode = LogCliSessionExit(await DetermineRemoteExitCodeAsync(backend, submission.WorkflowId, cts.Token), remoteSettings);
+            cliReporter?.Stop();
+            cliReporter = null;
 
             if (rootSettings.PrintResults)
                 await PrintRemoteResultsAsync(backend, submission.WorkflowId, rootSettings, cts.Token);
             else if (rootSettings.PrintTracks)
                 await PrintRemotePlannedOutputAsync(backend, submission.WorkflowId, rootSettings, cts.Token);
 
-            return await DetermineRemoteExitCodeAsync(backend, submission.WorkflowId, cts.Token);
+            return exitCode;
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            return CliExitCode.Cancelled;
+            return LogCliSessionExit(CliExitCode.Cancelled, remoteSettings);
         }
         catch (SockseekApiRequestException ex)
         {
@@ -688,7 +722,7 @@ internal static partial class Program
             else
                 SockseekLog.Error(ex.Message);
 
-            return CliExitCode.WorkFailed;
+            return LogCliSessionExit(CliExitCode.WorkFailed, remoteSettings);
         }
         catch (Exception ex)
         {
@@ -697,7 +731,7 @@ internal static partial class Program
             else
                 SockseekLog.Fatal($"Unhandled remote CLI error: {SockseekLog.ExceptionSummary(ex)}");
 
-            return CliExitCode.WorkFailed;
+            return LogCliSessionExit(CliExitCode.WorkFailed, remoteSettings);
         }
         finally
         {
@@ -1222,6 +1256,29 @@ internal static partial class Program
             && !cliSettings.ProgressJson
             && !Console.IsOutputRedirected;
 
+    private static void LogCliSessionStart(RemoteSettings remoteSettings)
+    {
+        if (remoteSettings.IsEnabled)
+        {
+            SockseekLog.Cli.Info($"Starting CLI session in remote mode: {remoteSettings.ServerUrl}");
+            return;
+        }
+
+        SockseekLog.Cli.Info("Starting CLI session in local mode");
+    }
+
+    private static CliExitCode LogCliSessionExit(CliExitCode exitCode, RemoteSettings? remoteSettings = null)
+    {
+        if (remoteSettings?.IsEnabled == true)
+        {
+            SockseekLog.Cli.Debug($"Exiting CLI session in remote mode with code {(int)exitCode} ({exitCode})");
+            return exitCode;
+        }
+
+        SockseekLog.Cli.Debug($"Exiting CLI session in local mode with code {(int)exitCode} ({exitCode})");
+        return exitCode;
+    }
+
     private static void AttachLiveLogSinkIfNeeded(CliProgressReporter reporter, LogLevel minimumLevel)
     {
         if (!reporter.UsesLiveRendering)
@@ -1258,7 +1315,14 @@ internal static partial class Program
                 categoryName: SockseekLog.Categories.Daemon);
         }
         SockseekLog.Info("Press Ctrl+C to stop.", categoryName: SockseekLog.Categories.Daemon);
-        await app.RunAsync();
+        try
+        {
+            await app.RunAsync();
+        }
+        finally
+        {
+            SockseekLog.Info($"Exiting Sockseek daemon on {url}", categoryName: SockseekLog.Categories.Daemon);
+        }
     }
 
     internal static void EnsureDaemonEndpointAvailable(DaemonSettings daemonSettings)
