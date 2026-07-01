@@ -19,9 +19,9 @@ namespace Sockseek.Core;
 // TODO [ARCHITECTURE]: Refactor DownloadEngine to alleviate "God Class" anti-pattern.
 // Currently, this class violates the Single Responsibility Principle by managing the queue,
 // instantiating concrete dependencies (new Searcher(), new Downloader()), managing cancellation
-// hierarchies, and polling for stale downloads.
+// hierarchies, and running maintenance loops.
 // We should adopt Microsoft.Extensions.DependencyInjection:
-// 1. Break this class into isolated services (e.g., IJobPipeline, IStaleMonitor, IQueueOrchestrator).
+// 1. Break this class into isolated services (e.g., IJobPipeline, IQueueOrchestrator).
 // 2. Inject dependencies (ISearcher, IDownloader) via constructor injection.
 // This will drastically improve maintainability and make the orchestration logic actually unit-testable.
 public class DownloadEngine
@@ -35,7 +35,7 @@ public class DownloadEngine
     private readonly SoulseekClientManager _clientManager;
     private readonly IJobSettingsResolver _jobSettingsResolver;
     private readonly ISongDownloadFallback _songDownloadFallback;
-    private readonly StaleDownloadMonitor _staleDownloadMonitor;
+    private readonly StaleDownloadCoordinator _staleDownloadCoordinator;
 
     internal bool AutomaticStaleChecksEnabled { get; set; } = true;
 
@@ -446,7 +446,7 @@ public class DownloadEngine
         _clientManager = clientManager;
         _jobSettingsResolver = jobSettingsResolver ?? DefaultJobSettingsResolver.Instance;
         _songDownloadFallback = songDownloadFallback ?? SongDownloadFallback.Default;
-        _staleDownloadMonitor = new StaleDownloadMonitor(_registry, timeProvider);
+        _staleDownloadCoordinator = new StaleDownloadCoordinator(_registry, timeProvider);
         _outputFinalizer = new OutputFinalizer(_registry);
         if (settings.ConcurrentJobs <= 0)
             throw new ArgumentOutOfRangeException(nameof(settings.ConcurrentJobs), "ConcurrentJobs must be greater than zero.");
@@ -454,7 +454,7 @@ public class DownloadEngine
         _extractorSemaphore = new SemaphoreSlim(settings.ConcurrentExtractors);
     }
 
-    internal int RunStaleDownloadCheckForTesting() => _staleDownloadMonitor.CancelStaleDownloads();
+    internal int RunStaleDownloadCheckForTesting() => _staleDownloadCoordinator.CancelStaleDownloads();
 
     private async Task WithJobSlot(CancellationToken ct, Func<Task> action)
     {
@@ -591,8 +591,10 @@ public class DownloadEngine
 
                 await _clientManager.WaitUntilReadyAsync(ct);
                 searcher = new Searcher(Client!, _registry, _registry, Events, engineSettings.SearchesPerTime, engineSettings.SearchRenewTime, engineSettings.ConcurrentSearches);
-                downloader = new Downloader(Client!, _clientManager, _registry, Events);
+                downloader = new Downloader(Client!, _clientManager, _registry, Events, _staleDownloadCoordinator);
                 _ = Task.Run(() => UpdateLoop(appCts.Token), appCts.Token);
+                if (AutomaticStaleChecksEnabled)
+                    _ = Task.Run(() => _staleDownloadCoordinator.RunAsync(appCts.Token), appCts.Token);
                 SockseekLog.Jobs.Debug("Update task started");
                 servicesInitialized = true;
             }
@@ -3437,13 +3439,10 @@ public class DownloadEngine
     }
 
 
-    // ── update / stale-detection loop ─────────────────────────────────────────
-
-    // TODO: Replace this while-true polling loop with a PeriodicTimer or scheduled callbacks.
-    // Iterating over every active download every 100ms to check for stale states burns CPU cycles.
-    // Stale detection should ideally be handled by CancellationTokens with timeouts (e.g., CancelAfter)
-    // attached directly to the network streams, or by using a System.Threading.PeriodicTimer for
-    // better async hygiene and less GC pressure.
+    // ── maintenance loop ─────────────────────────────────────────────────────
+    
+    // TODO: Remove this loop. For example: Search registry entries should be scoped to the search
+    // operation that creates them and cleaned up in that operation's finally block.
     async Task UpdateLoop(CancellationToken cancellationToken)
     {
         while (!appCts.IsCancellationRequested)
@@ -3456,9 +3455,6 @@ public class DownloadEngine
                     foreach (var (song, info) in _registry.Searches)
                         if (info.Task == null || info.Task.IsCompleted)
                             _registry.Searches.TryRemove(song, out _);
-
-                    if (AutomaticStaleChecksEnabled)
-                        _staleDownloadMonitor.CancelStaleDownloads();
                 }
 
                 await Task.Delay(updateInterval, cancellationToken);

@@ -114,27 +114,6 @@ namespace Sockseek.Core.Jobs;
             base.SetAlreadyExists();
         }
 
-        // True only when ALL in-progress files in the resolved folder are stale.
-        public bool IsStale(int maxStaleTimeMs)
-        {
-            if (_resolvedTarget == null) return false;
-            var inProgress = TrackJobs.Where(f => f.IsPending).ToList();
-            if (inProgress.Count == 0) return false;
-            return inProgress.All(f =>
-                f.LastActivityTime.HasValue &&
-                (DateTime.Now - f.LastActivityTime.Value).TotalMilliseconds > maxStaleTimeMs);
-        }
-
-        public List<SongJob> GetStaleFiles(int maxStaleTimeMs)
-        {
-            if (_resolvedTarget == null) return new();
-            return TrackJobs
-                .Where(f => f.IsPending
-                    && f.LastActivityTime.HasValue
-                    && (DateTime.Now - f.LastActivityTime.Value).TotalMilliseconds > maxStaleTimeMs)
-                .ToList();
-        }
-
         public AlbumJob(AlbumQuery query)
         {
             Query = query;

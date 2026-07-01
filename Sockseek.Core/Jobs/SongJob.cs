@@ -62,7 +62,6 @@ namespace Sockseek.Core.Jobs;
                 if (_bytesTransferred != value)
                 {
                     _bytesTransferred = value;
-                    LastActivityTime  = DateTime.Now;
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(Progress));
                 }
@@ -77,9 +76,6 @@ namespace Sockseek.Core.Jobs;
         }
 
         public double Progress => FileSize > 0 ? (double)BytesTransferred / FileSize : 0;
-
-        // Updated whenever bytes change; used for stale-detection.
-        public DateTime? LastActivityTime { get; set; }
 
         public SongJob(SongQuery query)
         {

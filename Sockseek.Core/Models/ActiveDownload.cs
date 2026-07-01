@@ -11,34 +11,14 @@ namespace Sockseek.Core.Models;
         public FileCandidate Candidate { get; }
         public CancellationTokenSource Cts { get; }
 
-        // Set by the Soulseek client stateChanged callback; read by UpdateLoop for stale detection.
+        // Set by the Soulseek client callbacks for live display and command handling.
         public Transfer? Transfer { get; set; }
         public bool IsManuallySkipped { get; set; }
-        public DateTimeOffset? LastTransferActivityUtc { get; private set; }
-
-        private TransferStates? observedState;
-        private long? observedBytesTransferred;
 
         public ActiveDownload(SongJob song, FileCandidate candidate, CancellationTokenSource cts)
         {
             Song      = song;
             Candidate = candidate;
             Cts       = cts;
-        }
-
-        internal bool ObserveTransferSnapshot(DateTimeOffset now)
-        {
-            var state = Transfer?.State;
-            var bytesTransferred = Transfer?.BytesTransferred;
-
-            if (LastTransferActivityUtc.HasValue
-                && observedState == state
-                && observedBytesTransferred == bytesTransferred)
-                return false;
-
-            observedState = state;
-            observedBytesTransferred = bytesTransferred;
-            LastTransferActivityUtc = now;
-            return true;
         }
     }

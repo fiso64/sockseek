@@ -525,10 +525,16 @@ public class StaleDownloadTests
     private sealed class ManualTimeProvider : TimeProvider
     {
         private DateTimeOffset utcNow = new(2026, 6, 30, 12, 0, 0, TimeSpan.Zero);
+        private long timestamp;
 
         public override DateTimeOffset GetUtcNow() => utcNow;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => timestamp;
 
         public void Advance(TimeSpan timeSpan)
-            => utcNow += timeSpan;
+        {
+            utcNow += timeSpan;
+            timestamp += timeSpan.Ticks;
+        }
     }
 }

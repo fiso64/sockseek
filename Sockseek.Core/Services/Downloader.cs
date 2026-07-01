@@ -33,16 +33,19 @@ public class Downloader
     private readonly SoulseekClientManager clientManager;
     private readonly IDownloadRegistry downloadRegistry;
     private readonly EngineEvents events;
+    private readonly StaleDownloadCoordinator staleDownloads;
 
-    public Downloader(ISoulseekClient client,
-                      SoulseekClientManager clientManager,
-                      IDownloadRegistry downloadRegistry,
-                      EngineEvents events)
+    internal Downloader(ISoulseekClient client,
+                        SoulseekClientManager clientManager,
+                        IDownloadRegistry downloadRegistry,
+                        EngineEvents events,
+                        StaleDownloadCoordinator staleDownloads)
     {
         this.client = client;
         this.clientManager = clientManager;
         this.downloadRegistry = downloadRegistry;
         this.events = events;
+        this.staleDownloads = staleDownloads;
     }
 
     public async Task<FileDownloadOutcome> DownloadFile(
@@ -90,25 +93,21 @@ public class Downloader
 
         SockseekLog.Soulseek.Debug($"Downloading: {song} from '{candidate.Username}\\{candidate.Filename}' to '{incompleteOutputPath}'");
 
+        Guid? staleAttemptId = null;
         var transferOptions = new TransferOptions(
             disposeOutputStreamOnCompletion: false,
             stateChanged: (state) =>
             {
-                if (downloadRegistry.Downloads.TryGetValue(candidate.Filename, out var x))
-                {
-                    x.Transfer = state.Transfer;
-                    x.Song.LastActivityTime = DateTime.Now;
-                }
+                if (staleAttemptId is { } attemptId)
+                    staleDownloads.ReportState(attemptId, state.Transfer);
                 events.RaiseDownloadStateChanged(song, state.Transfer.State);
             },
             progressUpdated: (progress) =>
             {
+                if (staleAttemptId is { } attemptId)
+                    staleDownloads.ReportProgress(attemptId, progress.Transfer);
                 if (downloadRegistry.Downloads.TryGetValue(candidate.Filename, out var x))
-                {
-                    x.Transfer = progress.Transfer;
-                    x.Song.LastActivityTime = DateTime.Now;
                     x.Song.BytesTransferred = progress.PreviousBytesTransferred;
-                }
                 events.RaiseDownloadProgress(song, progress.PreviousBytesTransferred, candidate.File.Size > 0 ? candidate.File.Size : 0);
             }
         );
@@ -124,6 +123,9 @@ public class Downloader
             song.FileSize = candidate.File.Size;
             var activeDownload = new ActiveDownload(song, candidate, downloadCts);
             downloadRegistry.Downloads.TryAdd(candidate.Filename, activeDownload);
+            staleAttemptId = staleDownloads.Register(
+                activeDownload,
+                song.Config?.Search.MaxStaleTime ?? 30_000);
 
             events.RaiseDownloadStarted(song, candidate);
 
@@ -182,6 +184,11 @@ public class Downloader
                 return FileDownloadOutcome.ManuallySkipped(candidate);
 
             throw;
+        }
+        finally
+        {
+            if (staleAttemptId is { } attemptId)
+                staleDownloads.Complete(attemptId);
         }
 
 
