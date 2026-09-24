@@ -8,8 +8,8 @@ A docker container for running Sockseek can be built from this repository. The i
 To build and start container:
 
 ```shell
-clone https://github.com/fiso64/sockseek
-cd Sockseek
+git clone https://github.com/fiso64/sockseek
+cd sockseek
 docker compose up -d
 ```
 
