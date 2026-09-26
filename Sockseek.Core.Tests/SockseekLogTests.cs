@@ -223,6 +223,31 @@ public class SockseekLogTests
     }
 
     [TestMethod]
+    public void ExpectedSoulseekPeerNetworkNoise_ClassifiesDisposedConnectionDisconnectTask()
+    {
+        var exception = new AggregateException(
+            new ObjectDisposedException("Connection"),
+            new ObjectDisposedException("MessageConnection"));
+
+        Assert.IsTrue(IsExpectedSoulseekPeerNetworkNoise(exception));
+    }
+
+    [TestMethod]
+    public void ExpectedSoulseekPeerNetworkNoise_DoesNotClassifyOtherDisposedObjects()
+    {
+        Assert.IsFalse(IsExpectedSoulseekPeerNetworkNoise(new AggregateException(new ObjectDisposedException("FileStream"))));
+
+        try
+        {
+            throw new ObjectDisposedException("Connection");
+        }
+        catch (ObjectDisposedException thrown)
+        {
+            Assert.IsFalse(IsExpectedSoulseekPeerNetworkNoise(new AggregateException(thrown)));
+        }
+    }
+
+    [TestMethod]
     public void ExpectedSoulseekPeerNetworkNoise_DoesNotClassifyUnknownApplicationFailure()
     {
         var exception = new AggregateException(new InvalidOperationException("engine invariant broke"));
