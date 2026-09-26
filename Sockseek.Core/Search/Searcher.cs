@@ -585,6 +585,32 @@ public partial class Searcher : IDisposable
 
         await Task.WhenAll(searchTasks);
 
+        if (results.IsEmpty && artist && title)
+        {
+            bool sameTitleAlbum = album
+                && string.Equals(query.Album.Trim(), query.Title.Trim(), StringComparison.OrdinalIgnoreCase);
+            var fallbackNecessaryCond = sameTitleAlbum
+                ? new FileConditions(search.NecessaryCond) { LengthTolerance = -1 }
+                : search.NecessaryCond;
+            var fallbackOpts = getSearchOptions(search.SearchTimeout, fallbackNecessaryCond, search.PreferredCond);
+            foreach (string primaryArtist in GetArtists(query.Artist))
+            {
+                foreach (string fallbackTitle in GetSearchTitles(query.Title))
+                {
+                    searchTasks.Clear();
+                    searchTasks.Add(DoSearch($"{primaryArtist} {fallbackTitle}", fallbackOpts,
+                        responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
+                    await Task.WhenAll(searchTasks);
+
+                    if (!results.IsEmpty)
+                        break;
+                }
+
+                if (!results.IsEmpty)
+                    break;
+            }
+        }
+
         if (results.IsEmpty && query.ArtistMaybeWrong && title)
         {
             var inferred = InferSongQuery(query.Title, new SongQuery());
@@ -689,6 +715,18 @@ public partial class Searcher : IDisposable
                 return (query.Artist + " " + query.Album).Trim();
             return query.Artist.Trim();
         }
+    }
+
+    private static IEnumerable<string> GetArtists(string artist)
+        => artist.Split([';', ',', '&'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+    private static IEnumerable<string> GetSearchTitles(string title)
+    {
+        yield return title;
+
+        string titleWithoutFeaturedArtist = title.RemoveFt();
+        if (!string.Equals(titleWithoutFeaturedArtist, title, StringComparison.Ordinal))
+            yield return titleWithoutFeaturedArtist;
     }
 
     private static string CleanSearchString(string str, bool removeSpecialChars)
