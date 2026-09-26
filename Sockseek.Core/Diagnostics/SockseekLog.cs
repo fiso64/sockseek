@@ -324,8 +324,15 @@ public static class SockseekLog
         if (IsSoulseekNetworkStackException(exception))
             return true;
 
+        if (IsDisposedSoulseekConnectionException(exception))
+            return true;
+
         return false;
     }
+
+    // Soulseek.NET faults a disposed connection's disconnect task with a never-thrown ObjectDisposedException.
+    private static bool IsDisposedSoulseekConnectionException(Exception exception)
+        => exception is ObjectDisposedException { ObjectName: "Connection" or "MessageConnection", StackTrace: null };
 
     private static bool IsSoulseekNetworkException(Exception exception)
     {
