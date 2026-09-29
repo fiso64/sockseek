@@ -359,6 +359,27 @@ namespace Tests.FileConditionsTests
         }
 
         [TestMethod]
+        [DataRow("AC/DC", @"music\AC_DC\1979 - Highway to Hell\01 - Highway to Hell.flac")]
+        [DataRow("AC/DC", @"downloads\AC DC\1979 - Highway to Hell\01 Highway to Hell.flac")]
+        [DataRow("Miksu / Macloud", @"Miksu _ Macloud\Nachts wach\Nachts wach.flac")]
+        [DataRow(@"Axwell /\ Ingrosso", @"Axwell __ Ingrosso\Axwell __ Ingrosso - More Than You Know\13 - Dreamer.flac")]
+        public void StrictArtistTrue_SlashInArtist_MatchesPeerSpelling(string artist, string path)
+        {
+            var fc = new FileConditions { StrictArtist = true };
+            Assert.IsTrue(fc.StrictArtistSatisfies(path, artist));
+        }
+
+        [TestMethod]
+        [DataRow("0 To 100 / The Catch Up", @"Drake\2014 - 0 to 100 _ The Catch Up\01 - 0 to 100 _ The Catch Up.flac")]
+        [DataRow("295/Simplicity", @"Fullempty\Unknown Album\295_Simplicity.mp3")]
+        [DataRow("Chabos wissen, wer der Babo ist - Swing / Jazz Version", @"Marti Fischer\Marti Fischer - Chabos wissen, wer der Babo ist - Swing Jazz Version.flac")]
+        public void StrictTitleTrue_SlashInTitle_MatchesPeerSpelling(string title, string path)
+        {
+            var fc = new FileConditions { StrictTitle = true };
+            Assert.IsTrue(fc.StrictTitleSatisfies(path, title));
+        }
+
+        [TestMethod]
         public void StrictAlbumTrue_MatchInDirectory_ReturnsTrue()
         {
             var fc = new FileConditions { StrictAlbum = true };

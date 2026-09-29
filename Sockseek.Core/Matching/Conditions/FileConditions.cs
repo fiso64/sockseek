@@ -290,10 +290,10 @@ namespace Sockseek.Core.Models;
             return StrictString(Utils.GetDirectoryNameSlsk(fname), alname, diacrRemove: true, ignoreCase: true, boundarySkipWs: true);
         }
 
-        // Equivalent to: replace '_' and Windows-invalid chars with spaces,
+        // Equivalent to: replace '_' and Windows-invalid chars (optionally also '/' and '\') with spaces,
         // optionally remove diacritics, trim, and collapse consecutive literal spaces.
         // Kept as one pass because result sorting calls this for every candidate path.
-        public static string StrictStringPreprocess(string str, bool diacrRemove = true)
+        public static string StrictStringPreprocess(string str, bool diacrRemove = true, bool removeSlash = false)
         {
             if (str.Length == 0)
                 return str;
@@ -305,7 +305,7 @@ namespace Sockseek.Core.Models;
 
             for (int i = 0; i < str.Length; i++)
             {
-                char c = NormalizeStrictChar(str[i], diacrRemove);
+                char c = NormalizeStrictChar(str[i], diacrRemove, removeSlash);
 
                 if (!hasOutput && char.IsWhiteSpace(c))
                     continue;
@@ -378,9 +378,9 @@ namespace Sockseek.Core.Models;
             return length == 0 ? string.Empty : new string(buffer[..length]);
         }
 
-        private static char NormalizeStrictChar(char c, bool diacrRemove)
+        private static char NormalizeStrictChar(char c, bool diacrRemove, bool removeSlash)
         {
-            if (c == '_' || IsStrictInvalidChar(c))
+            if (c == '_' || IsStrictInvalidChar(c) || removeSlash && c is '/' or '\\')
                 return ' ';
 
             return diacrRemove && c > 127 ? c.RemoveDiacritics() : c;
@@ -395,7 +395,7 @@ namespace Sockseek.Core.Models;
                 return true;
 
             fname = StrictStringPreprocess(fname, diacrRemove);
-            tname = StrictStringPreprocess(tname, diacrRemove);
+            tname = StrictStringPreprocess(tname, diacrRemove, removeSlash: true);
 
             if (boundarySkipWs)
                 return fname.ContainsWithBoundaryIgnoreWs(tname, ignoreCase, acceptLeftDigit: true);

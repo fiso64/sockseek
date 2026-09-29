@@ -188,9 +188,9 @@ public static partial class ResultSorter
                 ? new Lazy<Dictionary<(string Username, string Filename), InferredResultGroup>>(
                     () => GetInferredQueries(resultList!, query, search))
                 : null;
-            strictTitle = FileConditions.StrictStringPreprocess(query.Title);
-            strictArtist = FileConditions.StrictStringPreprocess(query.Artist);
-            strictAlbum = FileConditions.StrictStringPreprocess(query.Album);
+            strictTitle = FileConditions.StrictStringPreprocess(query.Title, removeSlash: true);
+            strictArtist = FileConditions.StrictStringPreprocess(query.Artist, removeSlash: true);
+            strictAlbum = FileConditions.StrictStringPreprocess(query.Album, removeSlash: true);
             fuzzyTitle = FileConditions.FuzzyPhrasePreprocess(query.Title);
             fuzzyArtist = FileConditions.FuzzyPhrasePreprocess(query.Artist);
             fuzzyAlbum = FileConditions.FuzzyPhrasePreprocess(query.Album);

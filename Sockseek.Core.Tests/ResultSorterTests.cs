@@ -419,6 +419,25 @@ namespace Tests.ResultSorterTests
             Assert.AreEqual("artist-match", ordered[0].response.Username);
         }
 
+        [TestMethod]
+        public void OrderedResults_PrefersStrictArtistMatch_WithSlashInArtist()
+        {
+            var matchingArtist = TestHelpers.CreateSlFile(@"music\AC_DC\1979 - Highway to Hell\01 - Highway to Hell.flac", bitrate: 900, length: 208);
+            var fuzzyArtist = TestHelpers.CreateSlFile(@"music\AC-DC\1979 - Highway to Hell\01 - Highway to Hell.flac", bitrate: 900, length: 208);
+            var matchingResponse = CreateResponse("artist-match", uploadSpeed: 100 * 1024, files: matchingArtist);
+            var fuzzyResponse = CreateResponse("fuzzy-artist", uploadSpeed: 600 * 1024, files: fuzzyArtist);
+            var results = new List<(SearchResponse, File)> { (fuzzyResponse, fuzzyArtist), (matchingResponse, matchingArtist) };
+
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            var counts = new ConcurrentDictionary<string, int>();
+            var track = TestHelpers.CreateQuery(artist: "AC/DC", title: "Highway to Hell");
+
+            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+
+            Assert.AreEqual(2, ordered.Count);
+            Assert.AreEqual("artist-match", ordered[0].response.Username);
+        }
+
         // Matching the requested album is more important than matching a preferred quality.
         // Otherwise --pref-format flac can promote unrelated high-quality files over the right album.
         [TestMethod]
