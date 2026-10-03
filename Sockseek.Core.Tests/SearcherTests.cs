@@ -85,6 +85,76 @@ namespace Tests.Unit
         }
 
         [TestMethod]
+        public async Task SearchSong_RetriesEachArtistWhenCombinedArtistSearchHasNoResults()
+        {
+            var response = new SearchResponse("User", 1, true, 1000, 0,
+            [
+                TestHelpers.CreateSlFile(@"Music\Knock2\What's the Move.mp3", length: 200),
+            ]);
+            var client = CreateMockClient([response]);
+            var settings = TestHelpers.CreateDefaultSettings().Download;
+            var searcher = CreateSearcher(client, settings);
+            var song = new SongJob(new SongQuery
+            {
+                Artist = "Henry Fong;Knock2;General Degree",
+                Title = "What's the Move",
+            });
+
+            await searcher.SearchSong(song, settings.Search, new ResponseData(), CancellationToken.None);
+
+            Assert.AreEqual(3, client.SearchCallCount);
+            Assert.AreEqual(1, song.Candidates?.Count ?? 0);
+        }
+
+        [TestMethod]
+        public async Task SearchSong_RetriesSingleArtistWithoutRequiredLengthTolerance()
+        {
+            var response = new SearchResponse("User", 1, true, 1000, 0,
+            [
+                TestHelpers.CreateSlFile(@"Music\Knock2\No Limit\No Limit.mp3", length: 200),
+            ]);
+            var client = CreateMockClient([response]);
+            var settings = TestHelpers.CreateDefaultSettings().Download;
+            var searcher = CreateSearcher(client, settings);
+            var song = new SongJob(new SongQuery
+            {
+                Artist = "Knock2",
+                Album = "No Limit",
+                Title = "No Limit",
+                Length = 240,
+            });
+
+            await searcher.SearchSong(song, settings.Search, new ResponseData(), CancellationToken.None);
+
+            Assert.AreEqual(2, client.SearchCallCount);
+            Assert.AreEqual(1, song.Candidates?.Count ?? 0);
+        }
+
+        [TestMethod]
+        public async Task SearchSong_RetriesWithoutFeaturedArtistInTitle()
+        {
+            var response = new SearchResponse("User", 1, true, 1000, 0,
+            [
+                TestHelpers.CreateSlFile(@"Music\Knock2\Shyne 4 Me\Shyne 4 Me.mp3", length: 200),
+            ]);
+            var client = CreateMockClient([response]);
+            var settings = TestHelpers.CreateDefaultSettings().Download;
+            var searcher = CreateSearcher(client, settings);
+            var song = new SongJob(new SongQuery
+            {
+                Artist = "Knock2;Warren Hue;Holly;PIAO",
+                Album = "Shyne 4 Me",
+                Title = "Shyne 4 Me (feat. PIAO)",
+                Length = 200,
+            });
+
+            await searcher.SearchSong(song, settings.Search, new ResponseData(), CancellationToken.None);
+
+            Assert.AreEqual(3, client.SearchCallCount);
+            Assert.AreEqual(1, song.Candidates?.Count ?? 0);
+        }
+
+        [TestMethod]
         public async Task SearchSong_UpdatesActivityPhaseThroughSearchAndProjection()
         {
             var client = CreateMockClient(TestHelpers.CreateTestIndex());
