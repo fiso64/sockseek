@@ -170,19 +170,19 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void Number_RejectsNegativeValue()
         {
-            Assert.ThrowsException<Exception>(() => Cfg("--number", "-1", "some input"));
+            Assert.ThrowsExactly<Exception>(() => Cfg("--number", "-1", "some input"));
         }
 
         [TestMethod]
         public void Offset_RejectsNegativeValue()
         {
-            Assert.ThrowsException<Exception>(() => Cfg("--offset", "-1", "some input"));
+            Assert.ThrowsExactly<Exception>(() => Cfg("--offset", "-1", "some input"));
         }
 
         [TestMethod]
         public void TimeFormat_RejectsUnsupportedUnits()
         {
-            Assert.ThrowsException<ArgumentException>(() => Cfg("--time-format", "bogus", "some input"));
+            Assert.ThrowsExactly<ArgumentException>(() => Cfg("--time-format", "bogus", "some input"));
         }
 
         [TestMethod]
@@ -194,7 +194,7 @@ namespace Tests.ConfigParsingTests
                 File.WriteAllText(path, "progress = maybe\n");
                 var file = ConfigManager.Load(path);
 
-                var ex = Assert.ThrowsException<Exception>(() => ConfigManager.Bind(file, ["some input"]));
+                var ex = Assert.ThrowsExactly<Exception>(() => ConfigManager.Bind(file, ["some input"]));
 
                 StringAssert.Contains(ex.Message, "Input error:");
                 StringAssert.Contains(ex.Message, "--progress");
@@ -365,7 +365,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void OutputDir_ShortAliasWithBareInteger_ReportsLikelyLegacyOffset()
         {
-            var ex = Assert.ThrowsException<Exception>(() => Cfg("-o", "10", "some input"));
+            var ex = Assert.ThrowsExactly<Exception>(() => Cfg("-o", "10", "some input"));
 
             StringAssert.Contains(ex.Message, "'-o 10' looks like the old short form for '--offset 10'");
             StringAssert.Contains(ex.Message, "Use '--offset 10' to skip tracks");
@@ -423,13 +423,13 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void FailedAlbumPath_Flag_IsRemoved()
         {
-            Assert.ThrowsException<Exception>(() => Cfg("--failed-album-path", "failed", "some input"));
+            Assert.ThrowsExactly<Exception>(() => Cfg("--failed-album-path", "failed", "some input"));
         }
 
         [TestMethod]
         public void AlbumFailAction_Flag_IsRemoved()
         {
-            Assert.ThrowsException<Exception>(() => Cfg("--album-fail-action", "move", "some input"));
+            Assert.ThrowsExactly<Exception>(() => Cfg("--album-fail-action", "move", "some input"));
         }
     }
 
@@ -711,7 +711,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void InlineEquals_InvalidBooleanValueThrows()
         {
-            var ex = Assert.ThrowsException<Exception>(() =>
+            var ex = Assert.ThrowsExactly<Exception>(() =>
                 Bind("--strict-artist=111"));
 
             Assert.AreEqual(
@@ -740,7 +740,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void Positional_DuplicateThrows()
         {
-            Assert.ThrowsException<Exception>(() => Bind("url1", "url2"));
+            Assert.ThrowsExactly<Exception>(() => Bind("url1", "url2"));
         }
 
         // ── Special cases ─────────────────────────────────────────────────────
@@ -798,7 +798,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void OnComplete_MissingDelimiter_Throws()
         {
-            Assert.ThrowsException<ArgumentException>(() => Bind("x", "--on-complete", "cmd1"));
+            Assert.ThrowsExactly<ArgumentException>(() => Bind("x", "--on-complete", "cmd1"));
         }
 
         [TestMethod]
@@ -857,7 +857,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void DaemonListenUrl_RejectsInvalidServerIp()
         {
-            var ex = Assert.ThrowsException<ArgumentException>(() =>
+            var ex = Assert.ThrowsExactly<ArgumentException>(() =>
                 Sockseek.Cli.Program.BuildDaemonListenUrl(new DaemonSettings { ListenIp = "999.1.1.1", ListenPort = 15082 }));
 
             StringAssert.Contains(ex.Message, "Invalid daemon listen IP");
@@ -890,7 +890,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void ServerPort_RejectsOutOfRangeValue()
         {
-            var ex = Assert.ThrowsException<Exception>(() => BindAll("--server-port", "70000"));
+            var ex = Assert.ThrowsExactly<Exception>(() => BindAll("--server-port", "70000"));
 
             StringAssert.Contains(ex.Message, "must be a TCP port between 1 and 65535");
         }
@@ -1008,7 +1008,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void UnknownFlagWithoutParameter_IsReportedAsUnknown()
         {
-            var ex = Assert.ThrowsException<Exception>(() =>
+            var ex = Assert.ThrowsExactly<Exception>(() =>
                 Bind("some input", "--this-flag-does-not-exist"));
 
             Assert.AreEqual(
@@ -1019,7 +1019,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void ValueOption_DoesNotConsumeHyphenPrefixedToken()
         {
-            var ex = Assert.ThrowsException<Exception>(() =>
+            var ex = Assert.ThrowsExactly<Exception>(() =>
                 Bind("--name-format", "--test", "some input"));
 
             Assert.AreEqual(
@@ -1040,7 +1040,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void ValueOption_WithoutFollowingToken_ReportsMissingParameter()
         {
-            var ex = Assert.ThrowsException<Exception>(() => Bind("--name-format"));
+            var ex = Assert.ThrowsExactly<Exception>(() => Bind("--name-format"));
 
             Assert.AreEqual(
                 "Input error: Option '--name-format' requires a parameter",

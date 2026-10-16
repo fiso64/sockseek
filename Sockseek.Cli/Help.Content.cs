@@ -703,9 +703,6 @@ On-Complete Actions
     Chained actions evaluate when= and outcome/path variables against the result of the preceding
     action. For example, if an update-index action changes a failure to success, the next
     when=success action runs and sees the updated path.
-    Transfer history records the peer transfer and final file-placement outcome before on-complete
-    actions run. A later command failure can therefore fail the job without rewriting a successfully
-    completed transfer as failed.
 
   Command-output variables
     See the shared Variables reference, also available with sockseek --help variables. On-complete

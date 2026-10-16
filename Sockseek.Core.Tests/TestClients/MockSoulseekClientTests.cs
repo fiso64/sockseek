@@ -89,7 +89,6 @@ namespace Tests.ClientTests
         }
 
         [TestMethod]
-        [ExpectedException(typeof(UserNotFoundException))]
         public async Task BrowseAsync_NonExistentUser_ThrowsUserNotFoundException()
         {
             // Arrange
@@ -97,7 +96,7 @@ namespace Tests.ClientTests
             var client = new MockSoulseekClient(index);
 
             // Act
-            await client.BrowseAsync("nonexistentUser");
+            await Assert.ThrowsExactlyAsync<UserNotFoundException>(() => client.BrowseAsync("nonexistentUser"));
         }
 
         [TestMethod]
@@ -183,7 +182,6 @@ namespace Tests.ClientTests
         }
 
         [TestMethod]
-        [ExpectedException(typeof(UserNotFoundException))]
         public async Task DownloadAsync_NonexistentUser_ThrowsUserNotFoundException()
         {
             // Arrange
@@ -191,14 +189,13 @@ namespace Tests.ClientTests
             var client = new MockSoulseekClient(index);
 
             // Act
-            await client.DownloadAsync(
+            await Assert.ThrowsExactlyAsync<UserNotFoundException>(() => client.DownloadAsync(
                 username: "nonexistentUser",
                 remoteFilename: "Music\\Artist1\\Album1\\Artist1 - Album1 - 01 - Track1.mp3",
-                localFilename: "test.mp3");
+                localFilename: "test.mp3"));
         }
 
         [TestMethod]
-        [ExpectedException(typeof(FileNotFoundException))]
         public async Task DownloadAsync_NonexistentFile_ThrowsFileNotFoundException()
         {
             // Arrange
@@ -206,10 +203,10 @@ namespace Tests.ClientTests
             var client = new MockSoulseekClient(index);
 
             // Act
-            await client.DownloadAsync(
+            await Assert.ThrowsExactlyAsync<FileNotFoundException>(() => client.DownloadAsync(
                 username: "user1",
                 remoteFilename: "Music\\Artist1\\Album1\\nonexistent.mp3",
-                localFilename: "test.mp3");
+                localFilename: "test.mp3"));
         }
     }
 }

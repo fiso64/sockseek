@@ -161,7 +161,7 @@ namespace Sockseek.Core.Extractors;
                 if (trackCountIndex >= 0)
                 {
                     string a = values[trackCountIndex].Trim();
-                    if (a == "-1")
+                    if (a.Length == 0 || a == "-1")
                     {
                         minAlbumTrackCount = -1;
                         maxAlbumTrackCount = -1;

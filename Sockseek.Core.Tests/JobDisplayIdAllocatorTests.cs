@@ -23,14 +23,14 @@ public sealed class JobDisplayIdAllocatorTests
     {
         var allocator = new JobDisplayIdAllocator();
         allocator.ContinueAfter(int.MaxValue);
-        Assert.ThrowsException<OverflowException>(() => allocator.Next());
+        Assert.ThrowsExactly<OverflowException>(() => allocator.Next());
     }
 
     [TestMethod]
     public void ContinueAfter_RejectsRetainedIdsOutsideCurrentApiRange()
     {
         var allocator = new JobDisplayIdAllocator();
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => allocator.ContinueAfter(-1));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => allocator.ContinueAfter((long)int.MaxValue + 1));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => allocator.ContinueAfter(-1));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => allocator.ContinueAfter((long)int.MaxValue + 1));
     }
 }

@@ -35,7 +35,7 @@ public class CliExitCodeTests
         Assert.AreEqual(Sockseek.Cli.Program.CliExitCode.UsageError, exitCode);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("share", "status")]
     [DataRow("transfers", null)]
     [DataRow("transfer", "cancel")]
@@ -66,7 +66,7 @@ public class CliExitCodeTests
         }
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("chat", "status", null)]
     [DataRow("share", "status", null)]
     [DataRow("user", "profile", "Peer")]
@@ -180,7 +180,7 @@ public class CliExitCodeTests
         try
         {
             var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
-            var ex = Assert.ThrowsException<Sockseek.Cli.Program.DaemonEndpointUnavailableException>(() =>
+            var ex = Assert.ThrowsExactly<Sockseek.Cli.Program.DaemonEndpointUnavailableException>(() =>
                 Sockseek.Cli.Program.EnsureDaemonEndpointAvailable(new DaemonSettings
                 {
                     ListenIp = "127.0.0.1",

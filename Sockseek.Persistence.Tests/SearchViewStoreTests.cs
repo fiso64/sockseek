@@ -270,7 +270,7 @@ public sealed class SearchViewStoreTests
             new PeerDirectoryIdentity("Peer", @"Share\album"),
             snapshot.Files,
             isComplete: true);
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
             store.PublishRetrievedDirectoryAsync(
                 view.Id,
                 issued.Ref,

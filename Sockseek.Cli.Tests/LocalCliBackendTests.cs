@@ -141,7 +141,7 @@ public class LocalCliBackendTests
             };
             downloadSettings.Extraction.Input = "test";
             var clientManager = new SoulseekClientManager(engineSettings);
-            var engine = new DownloadEngine(engineSettings, clientManager);
+            await using var engine = new DownloadEngine(engineSettings, clientManager);
             var backend = new LocalCliBackend(engine, downloadSettings);
             var seenUpdates = new ConcurrentBag<DaemonClientUpdate>();
             backend.StateUpdated += update => seenUpdates.Add(update);
@@ -220,7 +220,7 @@ public class LocalCliBackendTests
             var resolver = new SubmissionOptionsJobSettingsResolver(
                 ConfigManager.CreateJobSettingsResolver(new ConfigFile("none", []), args, new CliSettings { InteractiveMode = true, NoProgress = true }),
                 normalize: settings => SettingsNormalizer.NormalizeDownloadPaths(settings, settings.RuntimePathContext));
-            var engine = new DownloadEngine(engineSettings, clientManager, resolver);
+            await using var engine = new DownloadEngine(engineSettings, clientManager, resolver);
             var backend = new LocalCliBackend(engine, downloadSettings, resolver);
             var engineTask = engine.RunAsync(cts.Token);
 
@@ -301,7 +301,7 @@ public class LocalCliBackendTests
             downloadSettings.Search.NecessaryCond.StrictTitle = true;
 
             var clientManager = new SoulseekClientManager(engineSettings);
-            var engine = new DownloadEngine(engineSettings, clientManager);
+            await using var engine = new DownloadEngine(engineSettings, clientManager);
             var backend = new LocalCliBackend(engine);
 
             var searchJob = new SearchJob(new AlbumQuery
@@ -377,7 +377,7 @@ public class LocalCliBackendTests
             };
             downloadSettings.Search.NecessaryCond.StrictTitle = true;
 
-            var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
+            await using var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
             var backend = new LocalCliBackend(engine);
 
             var albumJob = new AlbumJob(new AlbumQuery
@@ -461,7 +461,7 @@ public class LocalCliBackendTests
             };
             downloadSettings.Search.NecessaryCond.StrictTitle = true;
 
-            var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
+            await using var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
             var backend = new LocalCliBackend(engine);
 
             var searchJob = new SearchJob(new AlbumQuery
@@ -534,8 +534,8 @@ public class LocalCliBackendTests
         finally
         {
             cts.Cancel();
-            await DeleteDirectoryIfExistsWithRetryAsync(musicRoot);
-            await DeleteDirectoryIfExistsWithRetryAsync(outputDir);
+            if (Directory.Exists(musicRoot)) Directory.Delete(musicRoot, true);
+            if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
         }
     }
 
@@ -569,7 +569,7 @@ public class LocalCliBackendTests
             };
 
             var clientManager = new SoulseekClientManager(engineSettings);
-            var engine = new DownloadEngine(engineSettings, clientManager);
+            await using var engine = new DownloadEngine(engineSettings, clientManager);
             var backend = new LocalCliBackend(engine, downloadSettings);
             var updates = new ConcurrentBag<DaemonClientUpdate>();
             var activity = new ConcurrentBag<ActivityEventDto>();
@@ -624,7 +624,7 @@ public class LocalCliBackendTests
                 Search = { MinSharesAggregate = 1 },
             };
 
-            var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
+            await using var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
             var backend = new LocalCliBackend(engine);
 
             var searchJob = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track One" });
@@ -682,7 +682,7 @@ public class LocalCliBackendTests
                 Search = { MinSharesAggregate = 1 },
             };
 
-            var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
+            await using var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
             var backend = new LocalCliBackend(engine);
 
             var searchJob = new SearchJob(new AlbumQuery { Artist = "Artist" });
@@ -727,26 +727,5 @@ public class LocalCliBackendTests
             failureMessage,
             timeoutMs: 10_000);
 
-    private static async Task DeleteDirectoryIfExistsWithRetryAsync(string path)
-    {
-        for (int attempt = 0; attempt < 10; attempt++)
-        {
-            if (!Directory.Exists(path))
-                return;
 
-            try
-            {
-                Directory.Delete(path, true);
-                return;
-            }
-            catch (IOException) when (attempt < 9)
-            {
-                await Task.Delay(50);
-            }
-            catch (UnauthorizedAccessException) when (attempt < 9)
-            {
-                await Task.Delay(50);
-            }
-        }
-    }
 }

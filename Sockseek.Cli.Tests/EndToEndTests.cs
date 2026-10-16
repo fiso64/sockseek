@@ -109,7 +109,7 @@ public class CliEndToEndTests
 
             var cliSettings = new CliSettings { InteractiveMode = true, NoProgress = true };
             var clientManager = new SoulseekClientManager(engineSettings);
-            var app = new DownloadEngine(engineSettings, clientManager);
+            await using var app = new DownloadEngine(engineSettings, clientManager);
 
             var activePickers = 0;
             var maxActivePickers = 0;
@@ -144,9 +144,9 @@ public class CliEndToEndTests
 
                     try
                     {
-                        int pickerCall = Interlocked.Increment(ref pickerCalls);
-                        if (pickerCall == 1)
-                            await bothAlbumsReady.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                        if (Volatile.Read(ref pickerCalls) == 0)
+                            await Tests.Cli.BackendTestWait.AlbumChoicesReadyAsync(backend, 2);
+                        Interlocked.Increment(ref pickerCalls);
                         var folder = request.Folders.FirstOrDefault();
                         return new InteractiveModeManager.RunResult(
                             folder == null
@@ -167,11 +167,7 @@ public class CliEndToEndTests
             var submission = await coordinator.StartAsync(
                 new SubmitExtractJobRequestDto(rootSettings.Extraction.Input!, rootSettings.Extraction.InputType.ToString(), Options: new SubmissionOptionsDto(workflowId)),
                 cts.Token);
-            var coordinatorTask = coordinator.RunUntilCompleteAsync(submission.WorkflowId, cts.Token);
-            _ = coordinatorTask
-                .ContinueWith(_ => app.CompleteEnqueue(), TaskScheduler.Default);
-            await app.RunAsync(cts.Token);
-            await coordinatorTask;
+            await RunInteractiveAsync(app, coordinator, submission.WorkflowId, cts);
 
             Assert.IsFalse(cts.IsCancellationRequested, "RunAsync timed out");
             Assert.AreEqual(2, pickerCalls, "Both list album jobs should reach the interactive picker");
@@ -234,11 +230,7 @@ public class CliEndToEndTests
             var submission = await coordinator.StartAsync(
                 new SubmitExtractJobRequestDto(listPath, InputType.List.ToString(), Options: new SubmissionOptionsDto(workflowId)),
                 cts.Token);
-            var coordinatorTask = coordinator.RunUntilCompleteAsync(submission.WorkflowId, cts.Token);
-            _ = coordinatorTask
-                .ContinueWith(_ => app.CompleteEnqueue(), TaskScheduler.Default);
-            await app.RunAsync(cts.Token);
-            await coordinatorTask;
+            await RunInteractiveAsync(app, coordinator, submission.WorkflowId, cts);
 
             Assert.IsFalse(cts.IsCancellationRequested, "RunAsync timed out");
             Assert.AreEqual(1, pickerCalls, "Shift+S should suppress later new album prompts in the same interactive workflow.");
@@ -260,6 +252,7 @@ public class CliEndToEndTests
     [DoNotParallelize]
     public async Task InteractiveAlbumSelection_ShiftSStillAllowsRetryPromptForAcceptedAlbum()
     {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         var outputDir = Path.Combine(Path.GetTempPath(), "slsk-mock-out-interactive-skip-retry-" + Guid.NewGuid());
         var listPath = Path.Combine(Path.GetTempPath(), "slsk-list-skip-retry-" + Guid.NewGuid() + ".txt");
         Directory.CreateDirectory(outputDir);
@@ -269,8 +262,8 @@ public class CliEndToEndTests
 
         try
         {
-            var secondNewPromptSeen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var firstAlbumAccepted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var firstDownloadStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var secondAlbumSkipped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var client = new MockSoulseekClient(
             [
                 SearchResponse("failuser", @"Source One\Shared Album\01. Artist - Track.mp3"),
@@ -278,27 +271,37 @@ public class CliEndToEndTests
                 SearchResponse("skipuser", @"Artist Two\Album Two\01. Artist Two - Track Two.mp3"),
             ])
             {
+                // The scenario requires an accepted album before Shift+S. Search
+                // completion order is otherwise free to differ across machines.
                 BeforeSearchAsync = async (query, ct) =>
                 {
-                    if (query.Terms.Any(term => string.Equals(term, "Artist", StringComparison.OrdinalIgnoreCase)))
-                        await firstAlbumAccepted.Task.WaitAsync(ct);
+                    if (query.SearchText.Contains("artist two", StringComparison.OrdinalIgnoreCase))
+                        await firstDownloadStarted.Task.WaitAsync(ct);
                 },
                 BeforeDownloadCompletesAsync = async (username, _, ct) =>
                 {
                     if (!string.Equals(username, "failuser", StringComparison.OrdinalIgnoreCase))
                         return;
 
-                    await secondNewPromptSeen.Task.WaitAsync(ct);
+                    firstDownloadStarted.TrySetResult();
+                    await secondAlbumSkipped.Task.WaitAsync(ct);
                     throw new Soulseek.SoulseekClientException("Simulated delayed failure after later prompt.");
                 },
             };
             var (app, rootSettings) = CreateInteractiveListEngine(client, listPath, outputDir);
+            await using var appScope = app;
             var backend = new LocalCliBackend(app, rootSettings);
+            app.Events.JobStateChanged += change =>
+            {
+                if (change.Job is
+                    { Kind: Sockseek.Core.Snapshots.JobSnapshotKind.Album, TerminalOutcome: JobTerminalOutcome.Skipped, SkipReason: JobSkipReason.Manual })
+                    secondAlbumSkipped.TrySetResult();
+            };
             var pickerPurposes = new List<InteractiveAlbumPromptPurpose>();
             var coordinator = new InteractiveCliCoordinator(
                 backend,
                 new CliSettings { InteractiveMode = true, NoProgress = true },
-                CancellationToken.None,
+                cts.Token,
                 request =>
                 {
                     pickerPurposes.Add(request.Purpose);
@@ -307,7 +310,6 @@ public class CliEndToEndTests
                     {
                         Assert.AreEqual(InteractiveAlbumPromptPurpose.NewAlbumPrompt, request.Purpose);
                         var doomed = request.Folders.Single(folder => folder.Username == "failuser");
-                        firstAlbumAccepted.TrySetResult();
                         return Task.FromResult(new InteractiveModeManager.RunResult(
                             InteractiveModeManager.RunAction.Accept,
                             request.Folders.IndexOf(doomed),
@@ -319,7 +321,6 @@ public class CliEndToEndTests
                     if (pickerPurposes.Count == 2)
                     {
                         Assert.AreEqual(InteractiveAlbumPromptPurpose.NewAlbumPrompt, request.Purpose);
-                        secondNewPromptSeen.TrySetResult();
                         return Task.FromResult(new InteractiveModeManager.RunResult(
                             InteractiveModeManager.RunAction.SkipRemainingNewPrompts,
                             -1,
@@ -339,16 +340,11 @@ public class CliEndToEndTests
                 },
                 pollInterval: TimeSpan.FromMilliseconds(10));
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
             var workflowId = Guid.NewGuid();
             var submission = await coordinator.StartAsync(
                 new SubmitExtractJobRequestDto(listPath, InputType.List.ToString(), Options: new SubmissionOptionsDto(workflowId)),
                 cts.Token);
-            var coordinatorTask = coordinator.RunUntilCompleteAsync(submission.WorkflowId, cts.Token);
-            _ = coordinatorTask
-                .ContinueWith(_ => app.CompleteEnqueue(), TaskScheduler.Default);
-            await app.RunAsync(cts.Token);
-            await coordinatorTask;
+            await RunInteractiveAsync(app, coordinator, submission.WorkflowId, cts);
 
             Assert.IsFalse(cts.IsCancellationRequested, "RunAsync timed out");
             CollectionAssert.AreEqual(
@@ -404,7 +400,7 @@ public class CliEndToEndTests
             rootSettings.Output.NameFormat = "{foldername}/{filename}";
 
             var clientManager = new SoulseekClientManager(engineSettings);
-            var app = new DownloadEngine(engineSettings, clientManager);
+            await using var app = new DownloadEngine(engineSettings, clientManager);
             var backend = new LocalCliBackend(app, rootSettings);
             var coordinator = new InteractiveCliCoordinator(
                 backend,
@@ -430,11 +426,7 @@ public class CliEndToEndTests
             var submission = await coordinator.StartAsync(
                 new SubmitExtractJobRequestDto(rootSettings.Extraction.Input!, rootSettings.Extraction.InputType.ToString(), Options: new SubmissionOptionsDto(workflowId)),
                 cts.Token);
-            var coordinatorTask = coordinator.RunUntilCompleteAsync(submission.WorkflowId, cts.Token);
-            _ = coordinatorTask
-                .ContinueWith(_ => app.CompleteEnqueue(), TaskScheduler.Default);
-            await app.RunAsync(cts.Token);
-            await coordinatorTask;
+            await RunInteractiveAsync(app, coordinator, submission.WorkflowId, cts);
 
             Assert.IsFalse(cts.IsCancellationRequested, "RunAsync timed out");
 
@@ -485,7 +477,7 @@ public class CliEndToEndTests
 
             var cliSettings = new CliSettings { InteractiveMode = true, NoProgress = true };
             var clientManager = new SoulseekClientManager(engineSettings);
-            var app = new DownloadEngine(engineSettings, clientManager);
+            await using var app = new DownloadEngine(engineSettings, clientManager);
 
             var pickerCalls = 0;
             string? cancelledFolderKey = null;
@@ -533,11 +525,7 @@ public class CliEndToEndTests
             var submission = await coordinator.StartAsync(
                 new SubmitExtractJobRequestDto(rootSettings.Extraction.Input!, rootSettings.Extraction.InputType.ToString(), Options: new SubmissionOptionsDto(workflowId)),
                 cts.Token);
-            var coordinatorTask = coordinator.RunUntilCompleteAsync(submission.WorkflowId, cts.Token);
-            _ = coordinatorTask
-                .ContinueWith(_ => app.CompleteEnqueue(), TaskScheduler.Default);
-            await app.RunAsync(cts.Token);
-            await coordinatorTask;
+            await RunInteractiveAsync(app, coordinator, submission.WorkflowId, cts);
 
             Assert.IsFalse(cts.IsCancellationRequested, "RunAsync timed out");
             Assert.AreEqual(1, pickerCalls, "A cancelled chosen album should NOT reopen the picker.");
@@ -552,6 +540,7 @@ public class CliEndToEndTests
     [TestMethod]
     public async Task InteractiveAlbumSelection_FailedChosenAlbum_RepromptsWithoutFailedFolder()
     {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-mock-music-fail-reprompt-" + Guid.NewGuid());
         var albumOneDir = Path.Combine(musicRoot, "Source One", "Shared Album");
         var albumTwoDir = Path.Combine(musicRoot, "Source Two", "Shared Album");
@@ -585,7 +574,7 @@ public class CliEndToEndTests
 
             var cliSettings = new CliSettings { InteractiveMode = true, NoProgress = true };
             var clientManager = new SoulseekClientManager(engineSettings);
-            var app = new DownloadEngine(engineSettings, clientManager);
+            await using var app = new DownloadEngine(engineSettings, clientManager);
             var pickerCalls = 0;
             var parentAlbumFailedBeforeRetry = false;
             app.Events.JobStateChanged += change =>
@@ -628,11 +617,7 @@ public class CliEndToEndTests
             var submission = await coordinator.StartAsync(
                 new SubmitExtractJobRequestDto(rootSettings.Extraction.Input!, rootSettings.Extraction.InputType.ToString(), Options: new SubmissionOptionsDto(workflowId)),
                 CancellationToken.None);
-            var coordinatorTask = coordinator.RunUntilCompleteAsync(submission.WorkflowId, CancellationToken.None);
-            _ = coordinatorTask
-                .ContinueWith(_ => app.CompleteEnqueue(), TaskScheduler.Default);
-            await app.RunAsync(CancellationToken.None);
-            await coordinatorTask;
+            await RunInteractiveAsync(app, coordinator, submission.WorkflowId, cts);
 
             Assert.AreEqual(2, pickerCalls, "A failed chosen album should reopen the picker with remaining candidates.");
             Assert.IsFalse(parentAlbumFailedBeforeRetry, "A failed manual candidate should return the parent album to selection, not publish a terminal failed AlbumJob state.");
@@ -696,7 +681,7 @@ public class CliEndToEndTests
 
             var cliSettings = new CliSettings { InteractiveMode = true, NoProgress = true };
             var clientManager = new SoulseekClientManager(engineSettings);
-            var app = new DownloadEngine(engineSettings, clientManager);
+            await using var app = new DownloadEngine(engineSettings, clientManager);
             var backend = new LocalCliBackend(app, rootSettings);
 
             var pickerCalls = 0;
@@ -723,11 +708,7 @@ public class CliEndToEndTests
             var submission = await coordinator.StartAsync(
                 new SubmitExtractJobRequestDto(csvPath, InputType.None.ToString(), Options: new SubmissionOptionsDto(workflowId)),
                 cts.Token);
-            var coordinatorTask = coordinator.RunUntilCompleteAsync(submission.WorkflowId, cts.Token);
-            _ = coordinatorTask
-                .ContinueWith(_ => app.CompleteEnqueue(), TaskScheduler.Default);
-            await app.RunAsync(cts.Token);
-            await coordinatorTask;
+            await RunInteractiveAsync(app, coordinator, submission.WorkflowId, cts);
 
             Assert.IsFalse(cts.IsCancellationRequested, "RunAsync timed out");
             Assert.AreEqual(2, pickerCalls, "Only the two found albums should reach the interactive picker.");
@@ -761,6 +742,23 @@ public class CliEndToEndTests
             if (Directory.Exists(musicRoot)) Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
         }
+    }
+
+    private static async Task RunInteractiveAsync(
+        DownloadEngine app, InteractiveCliCoordinator coordinator, Guid workflowId, CancellationTokenSource cancellation)
+    {
+        async Task CoordinateAsync()
+        {
+            try { await coordinator.RunUntilCompleteAsync(workflowId, cancellation.Token); }
+            catch
+            {
+                await cancellation.CancelAsync();
+                throw;
+            }
+            finally { app.CompleteEnqueue(); }
+        }
+
+        await Task.WhenAll(app.RunAsync(cancellation.Token), CoordinateAsync());
     }
 
     private static (DownloadEngine App, DownloadSettings RootSettings) CreateInteractiveListEngine(

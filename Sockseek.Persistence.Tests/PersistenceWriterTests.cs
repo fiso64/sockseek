@@ -911,10 +911,10 @@ public sealed class PersistenceWriterTests
         CollectionAssert.AreEqual(ids.Take(2).ToArray(), first.Items.Select(job => job.Id).ToArray());
         CollectionAssert.AreEqual(ids.Skip(2).ToArray(), second.Items.Select(job => job.Id).ToArray());
         Assert.IsNull(second.NextCursor);
-        await Assert.ThrowsExceptionAsync<ArgumentException>(() => reader.GetJobsAsync(new JobHistoryQuery(Cursor: "bad", Limit: 2)));
-        await Assert.ThrowsExceptionAsync<ArgumentException>(() => reader.GetJobsAsync(new JobHistoryQuery(
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => reader.GetJobsAsync(new JobHistoryQuery(Cursor: "bad", Limit: 2)));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => reader.GetJobsAsync(new JobHistoryQuery(
             Cursor: first.NextCursor + new string(' ', 128), Limit: 2)));
-        await Assert.ThrowsExceptionAsync<ArgumentOutOfRangeException>(() => reader.GetJobsAsync(new JobHistoryQuery(Limit: JobHistoryReader.MaximumPageSize + 1)));
+        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => reader.GetJobsAsync(new JobHistoryQuery(Limit: JobHistoryReader.MaximumPageSize + 1)));
 
         // Give the last workflow a second job. Deleting its former first job
         // between pages must not move the workflow behind an already-issued
@@ -957,8 +957,8 @@ public sealed class PersistenceWriterTests
         Assert.IsNull(workflowPage2.NextCursor);
         Assert.AreEqual(ids[1], (await reader.GetJobByDisplayIdAsync(workflowIds[1], 2))?.Id);
         Assert.AreEqual(1, (await reader.GetWorkflowAsync(workflowIds[0]))?.RootJobCount);
-        await Assert.ThrowsExceptionAsync<ArgumentException>(() => reader.GetWorkflowsAsync("bad", 2));
-        await Assert.ThrowsExceptionAsync<ArgumentException>(() => reader.GetWorkflowsAsync(
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => reader.GetWorkflowsAsync("bad", 2));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => reader.GetWorkflowsAsync(
             workflowPage1.NextCursor + new string(' ', 128), 2));
         await runtimeSession.StopAsync();
     }
@@ -1193,10 +1193,10 @@ public sealed class PersistenceWriterTests
         while (nextAttemptNumber != null);
         CollectionAssert.AreEqual(Enumerable.Range(1, 225).ToArray(), attemptNumbers.ToArray());
 
-        await Assert.ThrowsExceptionAsync<ArgumentException>(() => reader.GetTransfersAsync(new TransferHistoryQuery("bad", 2)));
-        await Assert.ThrowsExceptionAsync<ArgumentException>(() => reader.GetTransfersAsync(new TransferHistoryQuery(
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => reader.GetTransfersAsync(new TransferHistoryQuery("bad", 2)));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => reader.GetTransfersAsync(new TransferHistoryQuery(
             first.NextCursor + new string(' ', 129), 2)));
-        await Assert.ThrowsExceptionAsync<ArgumentOutOfRangeException>(() => reader.GetAttemptsAsync(ids[0], 0, TransferHistoryReader.MaximumPageSize + 1));
+        await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => reader.GetAttemptsAsync(ids[0], 0, TransferHistoryReader.MaximumPageSize + 1));
         await runtimeSession.StopAsync();
     }
 
@@ -1454,9 +1454,9 @@ public sealed class PersistenceWriterTests
 
         stop.Cancel();
 
-        await Assert.ThrowsExceptionAsync<TaskCanceledException>(
+        await Assert.ThrowsExactlyAsync<TaskCanceledException>(
             () => writer.WaitAsync(TimeSpan.FromSeconds(5)));
-        await Assert.ThrowsExceptionAsync<TaskCanceledException>(
+        await Assert.ThrowsExactlyAsync<TaskCanceledException>(
             () => command.Task.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 

@@ -8,11 +8,11 @@ using Sockseek.Cli;
 using Sockseek.Core;
 using Sockseek.Core.Settings;
 using Sockseek.Server;
+using Tests.ClientTests;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Channels;
-using Tests.ClientTests;
 
 namespace Tests.Cli;
 
@@ -76,7 +76,7 @@ public class RemoteCliBackendTests
         };
         var client = new SockseekApiClient(http);
 
-        var ex = await Assert.ThrowsExceptionAsync<SockseekApiRequestException>(
+        var ex = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(
             () => client.GetProfilesAsync(CancellationToken.None));
 
         StringAssert.Contains(ex.Message, "Bad request from daemon");
@@ -103,7 +103,7 @@ public class RemoteCliBackendTests
             };
             await using var live = new SockseekLiveClient(http);
 
-            await Assert.ThrowsExceptionAsync<SockseekApiRequestException>(
+            await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(
                 () => live.StartDaemonAsync());
             Assert.AreEqual(LiveSubscriptionMode.None, live.Mode);
 
@@ -312,8 +312,9 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
-            await DeleteDirectoryIfExistsWithRetryAsync(musicRoot);
-            await DeleteDirectoryIfExistsWithRetryAsync(outputDir);
+            await app.DisposeAsync();
+            if (Directory.Exists(musicRoot)) Directory.Delete(musicRoot, true);
+            if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
         }
     }
 
@@ -401,6 +402,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir))
@@ -477,6 +479,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir))
@@ -617,6 +620,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (File.Exists(inputPath))
                 File.Delete(inputPath);
             if (Directory.Exists(musicRoot))
@@ -708,6 +712,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (File.Exists(inputPath))
                 File.Delete(inputPath);
             if (Directory.Exists(musicRoot))
@@ -817,6 +822,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir))
@@ -930,6 +936,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir))
@@ -1019,6 +1026,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir))
@@ -1099,6 +1107,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir))
@@ -1206,6 +1215,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (File.Exists(inputPath))
                 File.Delete(inputPath);
             if (Directory.Exists(outputDir))
@@ -1351,7 +1361,7 @@ public class RemoteCliBackendTests
             await using var backend = new RemoteCliBackend(url);
             await backend.SubscribeAllAsync();
 
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => backend.SubscribeWorkflowAsync(Guid.NewGuid()));
         }
         finally
@@ -1367,8 +1377,7 @@ public class RemoteCliBackendTests
         string albumDir = Path.Combine(musicRoot, "Artist", "Album");
         Directory.CreateDirectory(albumDir);
         File.WriteAllText(Path.Combine(albumDir, "01. Artist - Track One.mp3"), "a");
-        int port = GetFreeTcpPort();
-        string url = $"http://127.0.0.1:{port}";
+        string url = DynamicLoopbackUrl;
 
         var options = new ServerOptions
         {
@@ -1383,6 +1392,7 @@ public class RemoteCliBackendTests
         };
         var firstApp = BuildServer(options, url, enablePersistence: false);
         await firstApp.StartAsync();
+        url = GetBoundUrl(firstApp);
 
         try
         {
@@ -1437,8 +1447,7 @@ public class RemoteCliBackendTests
     [DoNotParallelize]
     public async Task Program_MonitorWithoutInput_StaysAttachedUntilCancelled()
     {
-        int port = GetFreeTcpPort();
-        string url = $"http://127.0.0.1:{port}";
+        string url = DynamicLoopbackUrl;
         await using var app = BuildServer(new ServerOptions
         {
             Engine = new EngineSettings(),
@@ -1447,6 +1456,7 @@ public class RemoteCliBackendTests
         }, url);
 
         await app.StartAsync();
+        url = GetBoundUrl(app);
         try
         {
             using var cancellation = new CancellationTokenSource();
@@ -1497,8 +1507,7 @@ public class RemoteCliBackendTests
         }
 
         var client = CreateBlockedDownloadClient(musicRoot);
-        int port = GetFreeTcpPort();
-        string url = $"http://127.0.0.1:{port}";
+        string url = DynamicLoopbackUrl;
         await using var app = BuildServer(new ServerOptions
         {
             Engine = new EngineSettings
@@ -1525,6 +1534,7 @@ public class RemoteCliBackendTests
         var originalIn = Console.In;
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         await app.StartAsync();
+        url = GetBoundUrl(app);
         try
         {
             var monitorTask = Sockseek.Cli.Program.MainCore(
@@ -1621,8 +1631,7 @@ public class RemoteCliBackendTests
         Directory.CreateDirectory(outputDir);
         File.WriteAllText(Path.Combine(musicRoot, "Artist", "Artist - Track One.mp3"), "a");
 
-        int port = GetFreeTcpPort();
-        string url = $"http://127.0.0.1:{port}";
+        string url = DynamicLoopbackUrl;
         await using var app = BuildServer(new ServerOptions
         {
             Engine = new EngineSettings
@@ -1643,6 +1652,7 @@ public class RemoteCliBackendTests
 
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         await app.StartAsync();
+        url = GetBoundUrl(app);
         try
         {
             var monitorTask = Sockseek.Cli.Program.MainCore(
@@ -1675,19 +1685,7 @@ public class RemoteCliBackendTests
         }
     }
 
-    private static int GetFreeTcpPort()
-    {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        try
-        {
-            return ((IPEndPoint)listener.LocalEndpoint).Port;
-        }
-        finally
-        {
-            listener.Stop();
-        }
-    }
+
 
     private static string GetBoundUrl(Microsoft.AspNetCore.Builder.WebApplication app)
     {
@@ -1755,6 +1753,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir))

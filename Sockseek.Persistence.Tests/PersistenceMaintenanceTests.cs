@@ -87,7 +87,7 @@ public sealed class PersistenceMaintenanceTests
         int failureEvents = 0;
         fixture.Host.Health.FailureRecorded += () => failureEvents++;
 
-        await Assert.ThrowsExceptionAsync<ArgumentException>(() =>
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
             fixture.Host.BackupAsync(fixture.DatabasePath));
 
         Assert.AreEqual(1, failureEvents);

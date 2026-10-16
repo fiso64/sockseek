@@ -98,7 +98,7 @@ public sealed class SharingCatalogTests
             relativePath: "Artist",
             remotePath: @"Music\Artist");
 
-        await Assert.ThrowsExceptionAsync<RemotePathCollisionException>(
+        await Assert.ThrowsExactlyAsync<RemotePathCollisionException>(
             async () => await builder.AddFileAsync(collidingFile));
     }
 
@@ -117,7 +117,7 @@ public sealed class SharingCatalogTests
             await command.ExecuteNonQueryAsync();
         }
 
-        await Assert.ThrowsExceptionAsync<InvalidDataException>(
+        await Assert.ThrowsExactlyAsync<InvalidDataException>(
             async () => _ = await SqliteShareCatalogReader.OpenAsync(fixture.DatabasePath));
     }
 

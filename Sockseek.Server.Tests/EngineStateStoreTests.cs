@@ -480,6 +480,33 @@ public class EngineStateStoreTests
     }
 
     [TestMethod]
+    public void SearchUpdates_CoalesceLargeResponsesAndPublishExactCompletion()
+    {
+        var store = new EngineStateStore();
+        var search = new SearchJob("Artist Album");
+        Register(store, search);
+        var updates = new List<SearchStateDto>();
+        store.SearchUpdated += updates.Add;
+
+        search.Session.AddResponse(new SearchResponse("User", 1, true, 1000, 0,
+            Enumerable.Range(0, 2_000).Select(i => new Soulseek.File(1, $@"Artist\Album\Track {i}.mp3", 100, ".mp3")).ToArray()));
+        search.Discovery = new DiscoverySummary { RawResultCount = search.ResultCount };
+        DiscoveryChanged(store, search);
+        search.Session.Complete();
+        UpdateState(store, search);
+
+        Assert.IsTrue(updates.Count is > 0 and <= 10, $"A single response generated {updates.Count} search updates.");
+        Assert.IsTrue(updates.Any(update => !update.IsComplete), "Clients must see progress before completion.");
+        Assert.IsTrue(updates[^1].IsComplete);
+        Assert.AreEqual(2_000, updates[^1].ResultCount);
+        Assert.AreEqual(search.Revision, updates[^1].Revision);
+        var payload = store.GetJobDetail(search.Id)?.Payload as SearchJobPayloadDto;
+        Assert.IsNotNull(payload);
+        Assert.AreEqual(2_000, payload.ResultCount);
+        Assert.IsTrue(payload.IsComplete);
+    }
+
+    [TestMethod]
     public void GetJobs_FiltersByLifecycleAndTerminalOutcome()
     {
         var store = new EngineStateStore();

@@ -216,6 +216,35 @@ public class CliBackendParityTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task CliBackendParity_AutomaticSongModes_DownloadExactFiles(bool aggregate)
+    {
+        await RunForEachBackendAsync(
+            seedMusic: musicRoot =>
+            {
+                string albumDir = Path.Combine(musicRoot, "Artist", "Album");
+                Directory.CreateDirectory(albumDir);
+                File.WriteAllText(Path.Combine(albumDir, "Artist - First.mp3"), "first");
+                File.WriteAllText(Path.Combine(albumDir, "Artist - Second.mp3"), "second");
+            },
+            scenario: async ctx =>
+            {
+                var query = new SongQueryDto("Artist", aggregate ? "" : "First", "", "", -1, false);
+                var summary = aggregate
+                    ? await ctx.Backend.SubmitAggregateJobAsync(new SubmitAggregateJobRequestDto(query), ctx.Token)
+                    : await ctx.Backend.SubmitSongJobAsync(new SubmitSongJobRequestDto(query), ctx.Token);
+
+                await WaitForJobStateAsync(ctx.Backend, summary.JobId, ExpectedJobStatus.Succeeded);
+                await WaitForWorkflowStateAsync(ctx.Backend, summary.WorkflowId, ServerWorkflowState.Completed);
+
+                CollectionAssert.AreEqual(aggregate
+                    ? new[] { "Album/Artist - First.mp3", "Album/Artist - Second.mp3" }
+                    : new[] { "Album/Artist - First.mp3" }, ctx.DownloadedRelativePaths(), ctx.Name);
+            });
+    }
+
+    [TestMethod]
     public async Task CliBackendParity_ManualAlbumSelection_DownloadsSameFiles()
     {
         await RunForEachBackendAsync(
@@ -408,7 +437,7 @@ public class CliBackendParityTests
                 await WaitForWorkflowStateAsync(ctx.Backend, summary.WorkflowId, ServerWorkflowState.Completed);
 
                 var detail = await ctx.Backend.GetJobDetailAsync(summary.JobId, ctx.Token);
-                Assert.IsInstanceOfType<SongJobPayloadDto>(detail?.Payload, out var payload);
+                var payload = Assert.IsInstanceOfType<SongJobPayloadDto>(detail?.Payload);
                 Assert.AreNotEqual(ctx.Gate.BlockedUsername, payload.ResolvedUsername, ctx.Name);
             });
     }
@@ -449,7 +478,7 @@ public class CliBackendParityTests
                 var jobs = await ctx.Backend.GetJobsAsync(new JobQuery(null, null, null, summary.WorkflowId, IncludeAll: true), ctx.Token);
                 var song = jobs.Single(job => job.Kind == ServerJobKind.Song);
                 var detail = await ctx.Backend.GetJobDetailAsync(song.JobId, ctx.Token);
-                Assert.IsInstanceOfType<SongJobPayloadDto>(detail?.Payload, out var payload);
+                var payload = Assert.IsInstanceOfType<SongJobPayloadDto>(detail?.Payload);
                 Assert.AreNotEqual(ctx.Gate.BlockedUsername, payload.ResolvedUsername, ctx.Name);
             });
     }
@@ -743,7 +772,7 @@ public class CliBackendParityTests
 
             var downloadSettings = CreateDownloadSettings(outputDir);
             downloadSettings.Output.NameFormat = "{filename}";
-            var app = ServerHost.Build([], new ServerOptions
+            var app = TestServerHost.Build([], new ServerOptions
             {
                 Engine = new EngineSettings
                 {
@@ -898,10 +927,7 @@ public class CliBackendParityTests
             timeoutMs);
 
     private static async Task<JobSummaryDto> WaitForWorkflowJobAsync(
-        ICliBackend backend,
-        Guid workflowId,
-        Func<JobSummaryDto, bool> predicate,
-        int timeoutMs = 5000)
+        ICliBackend backend, Guid workflowId, Func<JobSummaryDto, bool> predicate, int timeoutMs = 5000)
     {
         var jobs = await BackendTestWaiter.UntilAsync(
             backend,

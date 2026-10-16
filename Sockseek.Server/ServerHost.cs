@@ -19,7 +19,7 @@ namespace Sockseek.Server;
 
 public static class ServerHost
 {
-    public static WebApplication Build(string[] args, ServerOptions? options = null, string? url = null)
+    public static WebApplication Build(string[] args, ServerOptions? options = null, string? url = null, bool logToConsole = true)
     {
         var builder = WebApplication.CreateBuilder(args);
         string entryAssemblyName = Assembly.GetEntryAssembly()?.GetName().Name ?? "";
@@ -47,7 +47,7 @@ public static class ServerHost
                 includeTimestamp: true,
                 includeInformationLevel: true,
                 includeSource: loggingSettings.LogLevel <= LogLevel.Debug)),
-            isOpenApiGeneration ? LogLevel.None : loggingSettings.LogLevel));
+            isOpenApiGeneration || !logToConsole ? LogLevel.None : loggingSettings.LogLevel));
         if (!isOpenApiGeneration && !string.IsNullOrWhiteSpace(loggingSettings.LogFilePath))
             builder.Logging.AddProvider(new CompactFileLoggerProvider(
                 loggingSettings.LogFilePath,

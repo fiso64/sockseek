@@ -207,14 +207,17 @@ public class SoulseekClientManagerTests
 
         try
         {
-            await Assert.ThrowsExceptionAsync<SoulseekConnectionUnavailableException>(
+            var pendingWait = manager.WaitUntilReadyAsync();
+            var failure = await Assert.ThrowsExactlyAsync<SoulseekConnectionUnavailableException>(
                 () => manager.EnsureConnectedAndLoggedInAsync(settings));
 
-            var waitTask = manager.WaitUntilReadyAsync();
-            var completed = await Task.WhenAny(waitTask, Task.Delay(TimeSpan.FromMilliseconds(500)));
+            var pendingFailure = await Assert.ThrowsExactlyAsync<SoulseekConnectionUnavailableException>(() =>
+                pendingWait.WaitAsync(TimeSpan.FromSeconds(5)));
+            var subsequentFailure = await Assert.ThrowsExactlyAsync<SoulseekConnectionUnavailableException>(
+                () => manager.WaitUntilReadyAsync());
 
-            Assert.AreSame(waitTask, completed, "Permanent login failures must wake readiness waiters instead of leaving the engine stuck forever.");
-            await Assert.ThrowsExceptionAsync<SoulseekConnectionUnavailableException>(() => waitTask);
+            Assert.AreSame(failure, pendingFailure);
+            Assert.AreSame(failure, subsequentFailure);
         }
         finally
         {
@@ -302,7 +305,7 @@ public class SoulseekClientManagerTests
             () => manager.EnsureConnectedAndLoggedInAsync(settings));
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(null, null, "Missing Soulseek username and password.")]
     [DataRow("bbbbbbb", null, "Missing Soulseek password.")]
     public async Task EnsureConnectedAndLoggedInAsync_FailsCleanly_WhenCredentialsAreMissing(
@@ -322,7 +325,7 @@ public class SoulseekClientManagerTests
 
         try
         {
-            var ex = await Assert.ThrowsExceptionAsync<SoulseekConnectionUnavailableException>(
+            var ex = await Assert.ThrowsExactlyAsync<SoulseekConnectionUnavailableException>(
                 () => manager.EnsureConnectedAndLoggedInAsync(settings));
 
             StringAssert.Contains(ex.Message, expectedMessage);
@@ -369,7 +372,7 @@ public class SoulseekClientManagerTests
             mockClient.RaiseKickedFromServer(disconnect: false);
 
             Assert.IsTrue(manager.HasFatalError);
-            await Assert.ThrowsExceptionAsync<SoulseekConnectionUnavailableException>(
+            await Assert.ThrowsExactlyAsync<SoulseekConnectionUnavailableException>(
                 () => manager.WaitUntilReadyAsync());
         }
         finally

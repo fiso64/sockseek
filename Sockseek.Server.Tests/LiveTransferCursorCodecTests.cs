@@ -20,7 +20,7 @@ public sealed class LiveTransferCursorCodecTests
         Assert.AreEqual(transferId, decoded.TransferId);
         Assert.AreEqual(12, decoded.ObservedQueueRevision);
 
-        Assert.ThrowsException<ArgumentException>(
+        Assert.ThrowsExactly<ArgumentException>(
             () => codec.Decode("not-a-cursor"));
     }
 }

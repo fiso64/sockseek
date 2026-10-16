@@ -43,7 +43,7 @@ public sealed class ChatConfigParsingTests
         File.WriteAllText(path, "[named]\nchat-room = indie\n");
         try
         {
-            var ex = Assert.ThrowsException<ArgumentException>(() => ConfigManager.Load(path));
+            var ex = Assert.ThrowsExactly<ArgumentException>(() => ConfigManager.Load(path));
             StringAssert.Contains(ex.Message, "not allowed in named or automatic profile");
         }
         finally

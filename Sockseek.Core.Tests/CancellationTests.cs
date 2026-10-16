@@ -18,9 +18,15 @@ namespace Tests.Cancellation
         {
         }
 
-        // Long enough for songs to be concurrently Searching when we cancel;
-        // short enough for the tests to finish in under ~1 second.
-        private const int SearchDelay = 300;
+        private static ClientTests.MockSoulseekClient CreateBlockedSearchClient(out TestHelpers.DownloadGate searchGate)
+        {
+            var gate = new TestHelpers.DownloadGate();
+            searchGate = gate;
+            return new ClientTests.MockSoulseekClient(TestHelpers.CreateTestIndex())
+            {
+                BeforeSearchAsync = (query, ct) => gate.BlockAsync("", query.SearchText, ct),
+            };
+        }
 
         private static (DownloadEngine engine, string outputDir) CreateEngine(
             ISoulseekClient client, string input, string[] extra = null!)
@@ -46,14 +52,12 @@ namespace Tests.Cancellation
             return (engine, outputDir);
         }
 
-        private static async Task WaitForAsync(Func<bool> cond, int timeoutMs = 3000)
+        private static async Task WaitForAsync(DownloadEngine engine, Func<bool> condition, int timeoutMs = 5000)
         {
-            var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-            while (!cond())
-            {
-                if (DateTime.UtcNow > deadline) throw new TimeoutException("Timed out waiting for condition");
-                await Task.Delay(10);
-            }
+            using var signal = new TestSignal()
+                .Subscribe<Sockseek.Core.Events.JobStateChangedChange>(handler => engine.Events.JobStateChanged += handler, handler => engine.Events.JobStateChanged -= handler)
+                .Subscribe<Sockseek.Core.Events.JobExecutionCompletedChange>(handler => engine.Events.JobExecutionCompleted += handler, handler => engine.Events.JobExecutionCompleted -= handler);
+            await signal.WaitUntilAsync(condition, "Engine did not reach the expected state.", timeoutMs);
         }
 
         // Await a RunAsync task that may have been cancelled — swallow expected cancellation.
@@ -94,17 +98,17 @@ namespace Tests.Cancellation
         }
 
 
-        // ── Test 2: cancelling a JobList mid-search stops all children quickly ─
+        // ── Test 2: cancelling a JobList unblocks all child searches ──────────
         // Cancels the parent JobList while both child songs are in the Searching state.
-        // The songs' CTSes are linked to the list's CTS, so they should abort well
-        // within the search delay window.
+        // The songs' CTSes are linked to the list's CTS, so cancellation must
+        // unblock their searches without releasing the test gate.
 
         [TestMethod]
-        public async Task CancelJobList_MidSearch_StopsChildrenQuickly()
+        public async Task CancelJobList_MidSearch_UnblocksChildrenWithoutReleasingSearches()
         {
             var listFile  = Path.GetTempFileName();
             var (engine, outputDir) = CreateEngine(
-                new ClientTests.MockSoulseekClient(TestHelpers.CreateTestIndex(), searchDelayMs: SearchDelay),
+                CreateBlockedSearchClient(out var searchGate),
                 listFile,
                 new[] { "--input-type", "list" });
 
@@ -120,15 +124,15 @@ namespace Tests.Cancellation
 
                 var rootExtract = (ExtractJob)engine.Queue.Jobs[0];
 
-                await WaitForAsync(() => rootExtract.TerminalOutcome == JobTerminalOutcome.Succeeded);
+                await WaitForAsync(engine, () => rootExtract.TerminalOutcome == JobTerminalOutcome.Succeeded);
 
                 var rootList = (JobList)rootExtract.Result!;
-                await WaitForAsync(() => rootList.AllSongs().Count() == 2);
+                await WaitForAsync(engine, () => rootList.AllSongs().Count() == 2);
                 var songs    = rootList.AllSongs().ToList();
                 Assert.AreEqual(2, songs.Count);
 
                 // Wait until both songs are concurrently Searching.
-                await WaitForAsync(() => songs.All(s => s.ActivityPhase == JobActivityPhase.Searching));
+                await WaitForAsync(engine, () => songs.All(s => s.ActivityPhase == JobActivityPhase.Searching));
 
                 Assert.IsNotNull(rootList.Cts, "JobList.Cts must be set");
                 Assert.IsTrue(songs.All(s => s.Cts != null), "All child SongJob.Cts must be set");
@@ -136,12 +140,8 @@ namespace Tests.Cancellation
                 // Cancel the list — both songs' CTSes are linked to it.
                 rootList.Cancel(JobCancellationSource.UserRequestedJob);
 
-                // RunAsync should abort well before the search delay expires.
-                var completed = await Task.WhenAny(runTask, Task.Delay(SearchDelay / 2)) == runTask;
-                await IgnoreCancellation(runTask);
-
-                Assert.IsTrue(completed,
-                    "RunAsync should have aborted quickly after cancelling the list, not waited the full search delay");
+                // The search gate is never released: cancellation must unblock it.
+                await IgnoreCancellation(runTask.WaitAsync(TimeSpan.FromSeconds(5)));
                 Assert.IsTrue(songs.All(s => s.Cts!.IsCancellationRequested),
                     "All child song CTSes should be cancelled");
                 Assert.IsTrue(rootList.IsUnsuccessfulTerminal,
@@ -174,7 +174,7 @@ namespace Tests.Cancellation
                 dl.Output.ParentDir = outputDir;
 
                 var clientManager = TestHelpers.CreateMockClientManager(
-                    new ClientTests.MockSoulseekClient(TestHelpers.CreateTestIndex(), searchDelayMs: SearchDelay),
+                    CreateBlockedSearchClient(out var searchGate),
                     eng);
                 var engine = new DownloadEngine(eng, clientManager);
 
@@ -187,7 +187,7 @@ namespace Tests.Cancellation
 
                 var runTask = engine.RunAsync(CancellationToken.None);
 
-                await WaitForAsync(() => first.ActivityPhase == JobActivityPhase.Searching && second.IsPending);
+                await WaitForAsync(engine, () => first.ActivityPhase == JobActivityPhase.Searching && second.IsPending);
 
                 list.Cancel(JobCancellationSource.UserRequestedJob);
                 await IgnoreCancellation(runTask);
@@ -220,7 +220,7 @@ namespace Tests.Cancellation
         {
             var listFile  = Path.GetTempFileName();
             var (engine, outputDir) = CreateEngine(
-                new ClientTests.MockSoulseekClient(TestHelpers.CreateTestIndex(), searchDelayMs: SearchDelay),
+                CreateBlockedSearchClient(out var searchGate),
                 listFile,
                 new[] { "--input-type", "list" });
 
@@ -235,15 +235,15 @@ namespace Tests.Cancellation
                 var runTask = engine.RunAsync(CancellationToken.None);
 
                 var rootExtract = (ExtractJob)engine.Queue.Jobs[0];
-                await WaitForAsync(() => rootExtract.TerminalOutcome == JobTerminalOutcome.Succeeded);
+                await WaitForAsync(engine, () => rootExtract.TerminalOutcome == JobTerminalOutcome.Succeeded);
 
                 var rootList = (JobList)rootExtract.Result!;
-                await WaitForAsync(() => rootList.AllSongs().Count() == 2);
+                await WaitForAsync(engine, () => rootList.AllSongs().Count() == 2);
                 var songs = rootList.AllSongs().ToList();
                 Assert.AreEqual(2, songs.Count);
 
                 // Wait until both songs are concurrently Searching.
-                await WaitForAsync(() => songs.All(s => s.ActivityPhase == JobActivityPhase.Searching));
+                await WaitForAsync(engine, () => songs.All(s => s.ActivityPhase == JobActivityPhase.Searching));
 
                 var song1 = songs[0];
                 var song2 = songs[1];
@@ -253,8 +253,9 @@ namespace Tests.Cancellation
                 Assert.IsFalse(song2.Cts!.IsCancellationRequested,
                     "song2.Cts must NOT be cancelled when only song1 is cancelled");
 
-                // Let the engine run to completion.
-                await IgnoreCancellation(runTask);
+                // Release the sibling's search only after verifying cancellation isolation.
+                searchGate.Open();
+                await IgnoreCancellation(runTask.WaitAsync(TimeSpan.FromSeconds(5)));
 
                 Assert.IsTrue(song1.IsUnsuccessfulTerminal,
                     "song1 should be Failed after being cancelled mid-search");
@@ -279,7 +280,7 @@ namespace Tests.Cancellation
         public async Task CancelExtractJob_DoesNotCancel_Result()
         {
             var (engine, outputDir) = CreateEngine(
-                new ClientTests.MockSoulseekClient(TestHelpers.CreateTestIndex(), searchDelayMs: SearchDelay),
+                CreateBlockedSearchClient(out var searchGate),
                 "testartist testsong");
 
             try
@@ -289,11 +290,11 @@ namespace Tests.Cancellation
                 var extractJob = (ExtractJob)engine.Queue.Jobs[0];
 
                 // Extraction (StringExtractor) is synchronous — Done almost immediately.
-                await WaitForAsync(() => extractJob.TerminalOutcome == JobTerminalOutcome.Succeeded);
+                await WaitForAsync(engine, () => extractJob.TerminalOutcome == JobTerminalOutcome.Succeeded);
                 var songJob = (SongJob)extractJob.Result!;
 
                 // Wait for the song to enter Searching so its Cts is live.
-                await WaitForAsync(() => songJob.ActivityPhase == JobActivityPhase.Searching);
+                await WaitForAsync(engine, () => songJob.ActivityPhase == JobActivityPhase.Searching);
 
                 // Cancel the already-Done ExtractJob.
                 extractJob.Cancel(JobCancellationSource.UserRequestedJob);
@@ -373,7 +374,7 @@ namespace Tests.Cancellation
                 dl.Output.ParentDir = outputDir;
 
                 var clientManager = TestHelpers.CreateMockClientManager(
-                    new ClientTests.MockSoulseekClient(TestHelpers.CreateTestIndex(), searchDelayMs: SearchDelay),
+                    CreateBlockedSearchClient(out var searchGate),
                     eng);
                 var engine = new DownloadEngine(eng, clientManager);
 
@@ -388,7 +389,7 @@ namespace Tests.Cancellation
 
                 var runTask = engine.RunAsync(CancellationToken.None);
 
-                await WaitForAsync(() => first.LifecycleState == JobLifecycleState.Running
+                await WaitForAsync(engine, () => first.LifecycleState == JobLifecycleState.Running
                     && second.LifecycleState == JobLifecycleState.Running
                     && third.LifecycleState == JobLifecycleState.Running);
 
@@ -399,7 +400,8 @@ namespace Tests.Cancellation
                 Assert.IsTrue(second.Cts!.IsCancellationRequested, "Second workflow job should be cancelled.");
                 Assert.IsFalse(third.Cts!.IsCancellationRequested, "Jobs in other workflows must remain active.");
 
-                await IgnoreCancellation(runTask);
+                searchGate.Open();
+                await IgnoreCancellation(runTask.WaitAsync(TimeSpan.FromSeconds(5)));
 
                 Assert.IsTrue(first.IsUnsuccessfulTerminal, "Cancelled workflow jobs should fail as cancelled.");
                 Assert.IsTrue(second.IsUnsuccessfulTerminal, "Cancelled workflow jobs should fail as cancelled.");
@@ -807,7 +809,7 @@ namespace Tests.Cancellation
                 engine.CompleteEnqueue();
                 var runTask = engine.RunAsync(CancellationToken.None);
 
-                await WaitForAsync(() => albumJob?.TrackJobs.Any(song => song.ActivityPhase == JobActivityPhase.Downloading) == true, 5000);
+                await WaitForAsync(engine, () => albumJob?.TrackJobs.Any(song => song.ActivityPhase == JobActivityPhase.Downloading) == true, 5000);
 
                 albumJob!.Cancel(JobCancellationSource.UserRequestedJob);
                 await IgnoreCancellation(runTask);

@@ -80,7 +80,7 @@ public class LocalFilesSoulseekClientTests
             var result = await client.SearchAsync(new SearchQuery("Artist Track"));
             var filename = result.Responses.First().Files.First().Filename;
 
-            await Assert.ThrowsExceptionAsync<SoulseekClientException>(async () =>
+            await Assert.ThrowsExactlyAsync<SoulseekClientException>(async () =>
                 await client.DownloadAsync("local", filename, outputPath));
 
             var transfer = await client.DownloadAsync("local", filename, outputPath);

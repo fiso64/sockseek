@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Sockets;
 using System.Reflection;
 using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -498,11 +496,12 @@ public class OpenApiContractTests
         Assert.AreEqual(batch.Scope, roundTripped.Scope);
         Assert.AreEqual(epoch, roundTripped.Epoch);
         Assert.AreEqual(jobId, roundTripped.State.Jobs.Single().Added?.JobId);
-        Assert.IsInstanceOfType<JobMessageActivityDto>(roundTripped.Activity[0].Payload, out var jobMessage);
+        Assert.IsInstanceOfType<JobMessageActivityDto>(roundTripped.Activity[0].Payload);
+        var jobMessage = (JobMessageActivityDto)roundTripped.Activity[0].Payload;
         Assert.AreEqual("hello", jobMessage.Message);
         Assert.IsInstanceOfType<WorkflowMessageActivityDto>(
-            roundTripped.Activity[1].Payload,
-            out var workflowMessage);
+            roundTripped.Activity[1].Payload);
+        var workflowMessage = (WorkflowMessageActivityDto)roundTripped.Activity[1].Payload;
         Assert.AreEqual("monitor attached", workflowMessage.Message);
         StringAssert.Contains(json, "\"kind\":\"jobMessage\"");
         StringAssert.Contains(json, "\"kind\":\"workflowMessage\"");
@@ -511,9 +510,8 @@ public class OpenApiContractTests
     [TestMethod]
     public async Task ServerInfo_AdvertisesEnforcedLiveProtocolVersion()
     {
-        int port = GetFreeTcpPort();
-        string url = $"http://127.0.0.1:{port}";
-        await using var app = ServerHost.Build([], new ServerOptions
+        string url = "http://127.0.0.1:0";
+        await using var app = TestServerHost.Build([], new ServerOptions
         {
             Engine = new EngineSettings(),
             DefaultDownload = new DownloadSettings(),
@@ -521,6 +519,7 @@ public class OpenApiContractTests
         }, url);
 
         await app.StartAsync();
+        url = app.Urls.Single();
         try
         {
             using var http = new HttpClient { BaseAddress = new Uri(url) };
@@ -546,17 +545,5 @@ public class OpenApiContractTests
         }
     }
 
-    private static int GetFreeTcpPort()
-    {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        try
-        {
-            return ((IPEndPoint)listener.LocalEndpoint).Port;
-        }
-        finally
-        {
-            listener.Stop();
-        }
-    }
+
 }

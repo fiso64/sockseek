@@ -45,7 +45,7 @@ public sealed class PersistenceDaemonTests
         try
         {
             var coordinator = new PersistenceCoordinator(options);
-            await Assert.ThrowsExceptionAsync<PersistenceDatabaseCorruptionException>(
+            await Assert.ThrowsExactlyAsync<PersistenceDatabaseCorruptionException>(
                 () => coordinator.StartAsync(CancellationToken.None));
             CollectionAssert.AreEqual(corruption, await File.ReadAllBytesAsync(databasePath));
             using var owner = SqliteDatabaseOwner.Acquire(new SockseekSqliteOptions(databasePath));

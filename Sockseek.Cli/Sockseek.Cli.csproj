@@ -7,6 +7,8 @@
     <Nullable>enable</Nullable>
     <AssemblyName>sockseek</AssemblyName>
     <RootNamespace>Sockseek.Cli</RootNamespace>
+    <!-- The application and several dependencies use reflection and are not trim-safe. -->
+    <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -19,9 +21,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.10" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.Json" Version="10.0.10" />
-    <PackageReference Include="Spectre.Console" Version="0.54.0" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.13" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.Json" Version="10.0.13" />
+    <PackageReference Include="Spectre.Console" Version="0.57.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.9" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
   </ItemGroup>
@@ -31,37 +33,6 @@
     <ProjectReference Include="../Sockseek.Core/Sockseek.Core.csproj" />
     <ProjectReference Include="../Sockseek.Server/Sockseek.Server.csproj" />
     <ProjectReference Include="../Sockseek.Persistence/Sockseek.Persistence.csproj" />
-  </ItemGroup>
-
-  <!-- Trimming configuration.
-       TrimMode=partial restores the .NET 6 trimming behavior: only assemblies that have explicitly opted
-       into trimming are trimmed. This prevents the .NET 8 default member-level trimming from stripping
-       overloads that are only reachable via dynamic dispatch (e.g. Soulseek.NET's Waiter.Cancel uses
-       'dynamic' to call TaskCompletionSource<T>.TrySetCanceled(CancellationToken), and the .NET 8
-       aggressive trimmer removes that overload since it's not statically reachable).
-
-       TagLibSharp: uses Activator.CreateInstance via reflection to create format-specific file types (Ogg, Mpeg, etc.) —
-         the trimmer cannot trace these as reachable so strips their constructors.
-       Newtonsoft.Json: transitively required by SpotifyAPI.Web and Google.Apis.Core; notoriously reflection-heavy
-         serializer that is explicitly not trim-compatible and will produce IL2104 warnings / runtime failures when trimmed. -->
-  <PropertyGroup Condition="'$(PublishTrimmed)' == 'true'">
-    <TrimMode>partial</TrimMode>
-  </PropertyGroup>
-  <ItemGroup Condition="'$(PublishTrimmed)' == 'true'">
-    <TrimmerRootAssembly Include="Sockseek.Api" />
-    <TrimmerRootAssembly Include="Sockseek.Core" />
-    <TrimmerRootAssembly Include="Sockseek.Server" />
-    <TrimmerRootAssembly Include="Soulseek" />
-    <TrimmerRootAssembly Include="SpotifyAPI.Web" />
-    <TrimmerRootAssembly Include="SpotifyAPI.Web.Auth" />
-    <TrimmerRootAssembly Include="Google.Apis" />
-    <TrimmerRootAssembly Include="Google.Apis.Core" />
-    <TrimmerRootAssembly Include="Google.Apis.YouTube.v3" />
-    <TrimmerRootAssembly Include="EmbedIO" />
-    <TrimmerRootAssembly Include="HtmlAgilityPack" />
-    <TrimmerRootAssembly Include="AngleSharp" />
-    <TrimmerRootAssembly Include="TagLibSharp" />
-    <TrimmerRootAssembly Include="Newtonsoft.Json" />
   </ItemGroup>
 
   <ItemGroup>

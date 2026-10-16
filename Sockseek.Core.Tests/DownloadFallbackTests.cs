@@ -352,9 +352,10 @@ namespace Tests.Core
 
             var file = TestHelpers.CreateSlFile(@"Music\Artist - Song.mp3", size: 10_000, length: 180);
             var response = new SearchResponse("user1", 1, true, 100, 0, [file]);
+            var downloadGate = new TestHelpers.DownloadGate();
             var testClient = new ClientTests.MockSoulseekClient([response])
             {
-                BeforeDownloadCompletesAsync = async (_, _, ct) => await Task.Delay(25, ct),
+                BeforeDownloadCompletesAsync = downloadGate.BlockAsync,
             };
 
             try
@@ -372,7 +373,15 @@ namespace Tests.Core
                 app.Enqueue(new ExtractJob(listPath, InputType.List), dl);
                 app.CompleteEnqueue();
 
-                await app.RunAsync(CancellationToken.None);
+                var runTask = app.RunAsync(CancellationToken.None);
+                await downloadGate.WaitForStartedCountAsync(1);
+                using var changes = new TestSignal().Subscribe<JobStateChangedChange>(
+                    handler => app.Events.JobStateChanged += handler, handler => app.Events.JobStateChanged -= handler);
+                await changes.WaitUntilAsync(() => app.Queue.AllSongs()
+                    .Count(song => song.ActivityPhase == JobActivityPhase.Downloading) == eng.ConcurrentJobs,
+                    "Duplicate requests must overlap while the first transfer is blocked.");
+                downloadGate.Open();
+                await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
                 var songs = app.Queue.AllSongs().OrderBy(song => song.ItemNumber).ToList();
                 Assert.AreEqual(8, songs.Count);
@@ -1096,21 +1105,20 @@ namespace Tests.Core
                 app.Enqueue(album, dl);
                 app.CompleteEnqueue();
 
+                using var changes = new TestSignal().Subscribe<JobStateChangedChange>(
+                    handler => app.Events.JobStateChanged += handler, handler => app.Events.JobStateChanged -= handler);
                 var runTask = app.RunAsync(CancellationToken.None);
                 await secondTransferReachedCompletion.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-                var deadline = DateTime.UtcNow.AddSeconds(5);
-                SongJob? organizedTrack;
-                do
+                SongJob? organizedTrack = null;
+                await changes.WaitUntilAsync(() =>
                 {
                     organizedTrack = album.TrackJobs.FirstOrDefault(track =>
                         track.TerminalOutcome == JobTerminalOutcome.Succeeded
                         && !string.IsNullOrEmpty(track.DownloadPath)
                         && !Utils.IsInDirectory(track.DownloadPath, Path.Combine(outputDir, ".sockseek-staging"), strict: true));
-                    if (organizedTrack == null)
-                        await Task.Delay(10);
-                }
-                while (organizedTrack == null && DateTime.UtcNow < deadline);
+                    return organizedTrack != null;
+                }, "The first audio track was not organized while the second transfer was blocked.");
 
                 Assert.IsNotNull(organizedTrack, "A completed audio child should be organized while a later album transfer is still blocked.");
                 Assert.IsTrue(System.IO.File.Exists(organizedTrack.DownloadPath));

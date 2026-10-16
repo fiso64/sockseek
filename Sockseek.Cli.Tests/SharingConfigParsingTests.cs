@@ -92,17 +92,17 @@ public sealed class SharingConfigParsingTests
         Assert.AreEqual(512, settings.Uploads.SpeedLimitKiBPerSecond);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("--upload-slots", "0")]
     [DataRow("--upload-speed-limit-kib", "0")]
     [DataRow("--share-rescan-interval", "30s")]
     [DataRow("--upload-blocked-ip", "192.0.2.0/24")]
     public void InvalidSharingValues_FailBinding(string option, string value)
     {
-        Assert.ThrowsException<ArgumentException>(() => Bind($"{option}={value}"));
+        Assert.ThrowsExactly<ArgumentException>(() => Bind($"{option}={value}"));
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("--share-scan-workers")]
     [DataRow("--share-search-concurrency")]
     [DataRow("--share-search-queue-capacity")]
@@ -111,10 +111,10 @@ public sealed class SharingConfigParsingTests
     [DataRow("--upload-max-queued-mib-per-user")]
     public void InternalTuningOptions_AreNotPublicConfiguration(string option)
     {
-        Assert.ThrowsException<Exception>(() => Bind(option, "1"));
+        Assert.ThrowsExactly<Exception>(() => Bind(option, "1"));
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("--shared-files")]
     [DataRow("--shared-folders")]
     [DataRow("--no-modify-share-count")]
@@ -123,7 +123,7 @@ public sealed class SharingConfigParsingTests
     [DataRow("--peer-blocked-ip")]
     public void RemovedManualCountOptions_AreUnknown(string option)
     {
-        Assert.ThrowsException<Exception>(() => Bind(option, "1"));
+        Assert.ThrowsExactly<Exception>(() => Bind(option, "1"));
     }
 
     [TestMethod]
@@ -141,7 +141,7 @@ public sealed class SharingConfigParsingTests
 
         try
         {
-            var ex = Assert.ThrowsException<ArgumentException>(() => ConfigManager.Load(path));
+            var ex = Assert.ThrowsExactly<ArgumentException>(() => ConfigManager.Load(path));
             StringAssert.Contains(ex.Message, "not allowed in named or automatic profile");
         }
         finally

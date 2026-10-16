@@ -77,7 +77,7 @@ public sealed class ChatLiveStateTests
                 [first],
                 false)));
 
-        Assert.ThrowsException<ArgumentException>(() => store.Apply(new StateUpdateBatchDto(
+        Assert.ThrowsExactly<ArgumentException>(() => store.Apply(new StateUpdateBatchDto(
             scope,
             epoch,
             0,
@@ -145,7 +145,7 @@ public sealed class ChatLiveStateTests
             null,
             [], [], [], []));
 
-        Assert.ThrowsException<ArgumentException>(() => store.Apply(new StateUpdateBatchDto(
+        Assert.ThrowsExactly<ArgumentException>(() => store.Apply(new StateUpdateBatchDto(
             StateStreamScopeDto.Daemon,
             epoch,
             0,
@@ -166,7 +166,7 @@ public sealed class ChatLiveStateTests
             null,
             [], [], [], []));
         var notification = Notification(conversationId, 1);
-        Assert.ThrowsException<ArgumentException>(() => store.Apply(new StateUpdateBatchDto(
+        Assert.ThrowsExactly<ArgumentException>(() => store.Apply(new StateUpdateBatchDto(
             workflowScope,
             epoch,
             0,
@@ -179,11 +179,11 @@ public sealed class ChatLiveStateTests
     [TestMethod]
     public void ScopeValidationRejectsUnknownKindsAndEmptyIds()
     {
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             new StateStreamScopeDto((StateStreamScopeKind)999).Validate());
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             StateStreamScopeDto.Workflow(Guid.Empty).Validate());
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             StateStreamScopeDto.ChatRoom(Guid.Empty).Validate());
     }
 

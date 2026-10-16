@@ -36,6 +36,7 @@ public sealed class SearchSession
     public event Action<CoreChange>? ChangePublished;
     public event Action? Completed;
     internal event Action<string, Exception>? ObserverFailed;
+    internal event Action<SearchSession>? ResponseAdded;
 
     public SearchSession()
         : this(Guid.Empty)
@@ -203,6 +204,8 @@ public sealed class SearchSession
                     SnapshotCollections.Freeze(added)));
             }
         }
+
+        InvokeObservers(ResponseAdded, this, nameof(ResponseAdded));
     }
 
     public void Complete()

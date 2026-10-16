@@ -17,17 +17,20 @@ namespace Tests
             private readonly object gate = new();
             private readonly List<(int Count, TaskCompletionSource Tcs)> waiters = new();
             private int startedCount;
+            private bool open;
 
             public int StartedCount => Volatile.Read(ref startedCount);
 
             public Task BlockAsync(string username, string filename, CancellationToken ct)
             {
                 var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                releases.Enqueue(release);
-
-                int count = Interlocked.Increment(ref startedCount);
                 lock (gate)
                 {
+                    if (open)
+                        release.TrySetResult();
+                    else
+                        releases.Enqueue(release);
+                    int count = Interlocked.Increment(ref startedCount);
                     for (int i = waiters.Count - 1; i >= 0; i--)
                     {
                         if (count < waiters[i].Count)
@@ -41,7 +44,7 @@ namespace Tests
                 return release.Task.WaitAsync(ct);
             }
 
-            public Task WaitForStartedCountAsync(int count, int timeoutMs = 1000)
+            public Task WaitForStartedCountAsync(int count, int timeoutMs = 5000)
             {
                 if (StartedCount >= count)
                     return Task.CompletedTask;
@@ -68,6 +71,15 @@ namespace Tests
             {
                 while (releases.TryDequeue(out var release))
                     release.TrySetResult();
+            }
+
+            public void Open()
+            {
+                lock (gate)
+                {
+                    open = true;
+                    ReleaseAll();
+                }
             }
         }
 

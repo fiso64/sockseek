@@ -47,7 +47,7 @@ public sealed class OperationalLoggingTests
         using (OperationLogScope operation = OperationLogScope.Start(logger, "scan", "scan-1"))
         {
             operation.Failed(exception, "storage-failed");
-            Assert.ThrowsException<InvalidOperationException>(() => operation.Succeeded());
+            Assert.ThrowsExactly<InvalidOperationException>(() => operation.Succeeded());
         }
 
         CapturedLog failure = provider.Entries.Single(entry =>
@@ -164,6 +164,43 @@ public sealed class OperationalLoggingTests
         Assert.AreEqual(1021, unknownEntry.EventId.Id);
         Assert.AreEqual(LogLevel.Error, unknownEntry.Level);
         Assert.AreSame(unknown.Exception, unknownEntry.Exception);
+    }
+
+    [TestMethod]
+    public void PeerNoiseIncludesOnlyNeverThrownDisposedSoulseekConnections()
+    {
+        Assert.IsTrue(ProcessExceptionObserver.IsExpectedSoulseekPeerNetworkNoise(new AggregateException(
+            new ObjectDisposedException("Connection"), new ObjectDisposedException("MessageConnection"))));
+        Assert.IsFalse(ProcessExceptionObserver.IsExpectedSoulseekPeerNetworkNoise(new ObjectDisposedException("FileStream")));
+        try
+        {
+            throw new ObjectDisposedException("Connection");
+        }
+        catch (ObjectDisposedException thrown)
+        {
+            Assert.IsFalse(ProcessExceptionObserver.IsExpectedSoulseekPeerNetworkNoise(thrown));
+        }
+    }
+
+    [TestMethod]
+    public void PreviouslyReportedConnectionFailureDoesNotHideUnknownSiblingFailures()
+    {
+        var provider = new CapturingLoggerProvider();
+        using ILoggerFactory factory = LoggerFactory.Create(builder => builder
+            .SetMinimumLevel(LogLevel.Trace).AddProvider(provider));
+        var connection = new SoulseekConnectionUnavailableException(
+            "Soulseek login failed", new InvalidOperationException("Missing credentials"));
+        var expected = new UnobservedTaskExceptionEventArgs(new AggregateException(
+            connection, new SocketException((int)SocketError.ConnectionRefused)));
+        ProcessExceptionObserver.ObserveUnobservedTaskException(factory.CreateLogger("test"), expected);
+        Assert.IsTrue(expected.Observed);
+        Assert.AreEqual(LogLevel.Trace, provider.Entries.Single().Level);
+        var mixed = new UnobservedTaskExceptionEventArgs(new AggregateException(
+            connection, new InvalidOperationException("engine invariant broke")));
+        ProcessExceptionObserver.ObserveUnobservedTaskException(factory.CreateLogger("test"), mixed);
+        Assert.IsTrue(mixed.Observed);
+        Assert.AreEqual(LogLevel.Error, provider.Entries[1].Level);
+        Assert.AreSame(mixed.Exception, provider.Entries[1].Exception);
     }
 
     private sealed class ManualTimeProvider : TimeProvider

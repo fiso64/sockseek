@@ -137,7 +137,8 @@ namespace Tests.Unit
 
             await searcher.SearchAlbum(album, settings.Search, new ResponseData(), CancellationToken.None);
 
-            CollectionAssert.AreEqual(new[] { files.Length }, counts);
+            Assert.IsTrue(counts.Count > 0, "The visible album job must receive discovery progress.");
+            Assert.AreEqual(files.Length, counts[^1], "The final progress count must include every result.");
             Assert.AreEqual(files.Length, album.Discovery?.RawResultCount);
             Assert.AreEqual(1, album.Results.Count);
         }
@@ -1597,7 +1598,7 @@ namespace Tests.Unit
             Assert.IsTrue(song2.ActivityUntilUtc.HasValue);
 
             cts.Cancel();
-            await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await task2);
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(async () => await task2);
         }
 
         private static void AssertPhaseOrder(IReadOnlyList<JobActivityPhase> phases, params JobActivityPhase[] expected)

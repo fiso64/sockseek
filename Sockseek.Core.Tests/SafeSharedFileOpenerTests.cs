@@ -28,7 +28,7 @@ public sealed class SafeSharedFileOpenerTests
     {
         using var fixture = new FileFixture();
 
-        var ex = Assert.ThrowsException<SharedFileOpenException>(
+        var ex = Assert.ThrowsExactly<SharedFileOpenException>(
             () => SafeSharedFileOpener.Open(
                 fixture.Root,
                 Path.Combine("..", "outside.flac")));
@@ -89,7 +89,7 @@ public sealed class SafeSharedFileOpenerTests
                     $"Symbolic links are unavailable on this runner: {linkError.Message}");
             }
 
-            var ex = Assert.ThrowsException<SharedFileOpenException>(
+            var ex = Assert.ThrowsExactly<SharedFileOpenException>(
                 () => SafeSharedFileOpener.Open(
                     fixture.Root,
                     Path.Combine("linked", "secret.flac")));
@@ -128,7 +128,7 @@ public sealed class SafeSharedFileOpenerTests
         var buffer = new byte[3];
 
         Assert.AreEqual(2, await stream.ReadAsync(buffer));
-        await Assert.ThrowsExceptionAsync<EndOfStreamException>(
+        await Assert.ThrowsExactlyAsync<EndOfStreamException>(
             async () => _ = await stream.ReadAsync(buffer));
     }
 
@@ -163,7 +163,7 @@ public sealed class SafeSharedFileOpenerTests
         await released.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.IsTrue(stream.IsExpired);
-        await Assert.ThrowsExceptionAsync<ObjectDisposedException>(
+        await Assert.ThrowsExactlyAsync<ObjectDisposedException>(
             async () => _ = await stream.ReadAsync(new byte[1]));
     }
 

@@ -259,7 +259,7 @@ namespace Tests.EndToEnd
             }
         }
 
-        [DataTestMethod]
+        [TestMethod]
         [DataRow("aiff")]
         [DataRow("pdf")]
         [DataRow("xyz")]

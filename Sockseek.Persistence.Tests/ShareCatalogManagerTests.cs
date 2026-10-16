@@ -18,7 +18,7 @@ public sealed class ShareCatalogManagerTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        await Assert.ThrowsExceptionAsync<OperationCanceledException>(
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(
             () => manager.InitializeAsync("settings", cancellation.Token).AsTask());
     }
 
@@ -189,7 +189,7 @@ public sealed class ShareCatalogManagerTests
             {
                 Assert.IsNotNull(await lease!.Reader.ResolveFileAsync(
                     RemotePathKey.Create(@"Public\Keep.txt")));
-                Assert.ThrowsException<InvalidOperationException>(
+                Assert.ThrowsExactly<InvalidOperationException>(
                     () => lease.OpenBrowseStream(TimeSpan.FromSeconds(1)));
             }
         }

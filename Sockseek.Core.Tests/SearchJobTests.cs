@@ -228,13 +228,17 @@ namespace Tests.Unit
             job.Session.AddResponse(response1);
 
             var results = new List<SearchRawResult>();
+            var replayRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var readerTask = Task.Run(async () =>
             {
                 await foreach (var result in job.ReadRawResultsAsync())
+                {
                     results.Add(result);
+                    replayRead.TrySetResult();
+                }
             });
 
-            await Task.Yield();
+            await replayRead.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
             var file2 = TestHelpers.CreateSlFile(@"Music\Artist\Track Alt.mp3", length: 181);
             var response2 = new SearchResponse("User2", 1, true, 100, 0, [file2]);

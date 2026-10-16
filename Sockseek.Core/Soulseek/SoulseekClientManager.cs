@@ -215,7 +215,8 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         if (HasFatalError) return;
         if (_monitorTask != null) return;
         _monitorCts = new CancellationTokenSource();
-        _monitorTask = Task.Run(() => MonitorConnectionLoopAsync(_monitorCts.Token));
+        var token = _monitorCts.Token;
+        _monitorTask = Task.Run(() => MonitorConnectionLoopAsync(token));
     }
 
     private void MarkFatal(Exception exception)

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Sockseek.Core;
 using Sockseek.Core.Services;
 using Sockseek.Core.Models;
 using Sockseek.Core.PeerBrowsing;
@@ -21,13 +22,11 @@ namespace Tests.ClientTests
         public SoulseekClientOptions Options => throw new NotImplementedException();
 
         private List<Soulseek.SearchResponse> index;
-        private readonly int searchDelayMs;
         private readonly HashSet<string> failingUsers;
         private readonly HashSet<string> disconnectingUsers = new(StringComparer.Ordinal);
         private int disconnectingSearches;
         private int failingSearches;
 
-        public int SearchesCancelledAfterFirstResponse { get; private set; }
         public int ConnectCallCount;
         public int SearchCallCount;
         public int DownloadCallCount;
@@ -38,14 +37,14 @@ namespace Tests.ClientTests
         public Func<string, string, CancellationToken, Task>? BeforeDownloadCompletesAsync;
         public Func<string, string, TransferStates, CancellationToken, Task>? AfterDownloadStateChangedAsync;
         public Action<long, long>? AfterDownloadProgress;
-        public Func<SearchQuery, CancellationToken, Task>? BeforeSearchAsync;
-        public Func<CancellationToken, Task>? AfterFirstSearchResponseAsync;
         public bool BrowseReturnsBasenames { get; set; }
         public BrowseResponse? BrowseResponseOverride { get; set; }
         public long? BrowseProgressSize { get; set; }
         public bool IsDisposed { get; private set; }
         public Exception? ConnectException { get; set; }
         public Action? Connecting { get; set; }
+        public Func<SearchQuery, Action<SearchResponse>, SearchOptions, CancellationToken, Task<Search>>? SearchHandler { get; set; }
+        public Func<SearchQuery, CancellationToken, Task>? BeforeSearchAsync { get; set; }
 
         public void FailNextDownloadWithDisconnect(string username)
             => disconnectingUsers.Add(username);
@@ -77,12 +76,10 @@ namespace Tests.ClientTests
 
         public MockSoulseekClient(
             List<Soulseek.SearchResponse> index,
-            int searchDelayMs = 0,
             IEnumerable<string>? failingUsers = null,
             SoulseekClientStates initialState = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn)
         {
             this.index         = index;
-            this.searchDelayMs = searchDelayMs;
             this.failingUsers  = new HashSet<string>(failingUsers ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
             State = initialState;
         }
@@ -243,14 +240,19 @@ namespace Tests.ClientTests
             return SearchAsyncInternal(query, null, scope, token, options, cancellationToken);
         }
 
-        public Task<Search> SearchAsync(SearchQuery query, Action<SearchResponse> responseHandler, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
+        public async Task<Search> SearchAsync(SearchQuery query, Action<SearchResponse> responseHandler, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
         {
-            return SearchAsyncInternal(query, responseHandler, scope, token, options, cancellationToken).ContinueWith(t => t.Result.Search);
+            if (SearchHandler != null)
+                return await SearchHandler(query, responseHandler, options ?? new SearchOptions(), cancellationToken ?? CancellationToken.None);
+
+            return (await SearchAsyncInternal(query, responseHandler, scope, token, options, cancellationToken)).Search;
         }
 
         private async Task<(Search Search, IReadOnlyCollection<SearchResponse> Responses)> SearchAsyncInternal(SearchQuery query, Action<SearchResponse>? responseHandler, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
         {
             Interlocked.Increment(ref SearchCallCount);
+            if (BeforeSearchAsync != null)
+                await BeforeSearchAsync(query, cancellationToken ?? CancellationToken.None);
 
             while (true)
             {
@@ -281,7 +283,6 @@ namespace Tests.ClientTests
             var totalFileCount = 0;
             var totalLockedFileCount = 0;
             var ct = cancellationToken ?? CancellationToken.None;
-            bool firstResponse = true;
 
             if (BeforeSearchAsync is not null)
                 await BeforeSearchAsync(query, ct);
@@ -325,25 +326,6 @@ namespace Tests.ClientTests
                         totalLockedFileCount += response.LockedFileCount;
                         options.ResponseReceived?.Invoke((null, response));
                         responseHandler?.Invoke(response);
-
-                        // After firing the first response, simulate the search still running.
-                        // This lets fast-search tests race the provisional download against the delay.
-                        if (firstResponse && (searchDelayMs > 0 || AfterFirstSearchResponseAsync != null))
-                        {
-                            firstResponse = false;
-                            try
-                            {
-                                if (AfterFirstSearchResponseAsync != null)
-                                    await AfterFirstSearchResponseAsync(ct);
-                                else
-                                    await Task.Delay(searchDelayMs, ct);
-                            }
-                            catch (OperationCanceledException)
-                            {
-                                SearchesCancelledAfterFirstResponse++;
-                                break;
-                            }
-                        }
                     }
 
                     if (responses.Count >= options.ResponseLimit)

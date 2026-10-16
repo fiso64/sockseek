@@ -90,7 +90,7 @@ public sealed class PeerBrowseArtifactStoreTests
             resource.BrowseId, lockedDirectory.DirectoryId, null, null, null, 20)).Items.Single();
         Assert.AreEqual(PeerBrowseEntryVisibility.Public, publicFile.Visibility);
         Assert.AreEqual(PeerBrowseEntryVisibility.Locked, lockedFile.Visibility);
-        await Assert.ThrowsExceptionAsync<PeerBrowseSelectionException>(() =>
+        await Assert.ThrowsExactlyAsync<PeerBrowseSelectionException>(() =>
             store.ResolveDownloadSelectionAsync(resource.BrowseId, [], [lockedFile.FileId]));
     }
 
@@ -279,7 +279,7 @@ public sealed class PeerBrowseArtifactStoreTests
         Assert.AreEqual(PeerBrowseState.Failed, interrupted!.State);
         Assert.AreEqual("daemon-restarted", interrupted.Failure!.Code);
         Assert.AreEqual(0, Directory.EnumerateFiles(Path.Combine(restarted.RootDirectory, "staging")).Count());
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => restarted.ReadDirectoryAsync(resource.BrowseId, new PeerDirectoryIdentity("Peer", "Music")));
     }
 
@@ -317,7 +317,7 @@ public sealed class PeerBrowseArtifactStoreTests
         await using (PeerBrowseArtifactWriter writer = await store.BeginWriteAsync(resource))
         {
             await writer.BeginDirectoryAsync("Music", PeerShareVisibility.Public, 1);
-            await Assert.ThrowsExceptionAsync<PeerBrowseProtocolException>(
+            await Assert.ThrowsExactlyAsync<PeerBrowseProtocolException>(
                 async () => await writer.BeginFileAsync(new PeerBrowseWireFile(1, @"Other\track.mp3", 1, "mp3", 0)));
         }
 
@@ -342,7 +342,7 @@ public sealed class PeerBrowseArtifactStoreTests
                 await writer.EndFileAsync();
             }
 
-            await Assert.ThrowsExceptionAsync<PeerBrowseProtocolException>(
+            await Assert.ThrowsExactlyAsync<PeerBrowseProtocolException>(
                 async () => await writer.CompleteAsync());
         }
 
@@ -715,7 +715,7 @@ public sealed class PeerBrowseArtifactStoreTests
             new[] { "Other", "A" },
             multipleRoots.Plans.Select(plan => plan.DisplayRoot).ToArray());
 
-        await Assert.ThrowsExceptionAsync<PeerBrowseSelectionException>(() =>
+        await Assert.ThrowsExactlyAsync<PeerBrowseSelectionException>(() =>
             store.ResolveDownloadSelectionAsync(resource.BrowseId, [locked.DirectoryId], []));
     }
 

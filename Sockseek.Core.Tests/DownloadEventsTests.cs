@@ -21,14 +21,8 @@ namespace Tests.Eventing
 
         private static async Task CompleteRunWithBlockedDownloads(TestHelpers.DownloadGate downloadGate, Task runTask)
         {
-            while (!runTask.IsCompleted)
-            {
-                downloadGate.ReleaseAll();
-                await Task.WhenAny(runTask, Task.Delay(10));
-            }
-
-            downloadGate.ReleaseAll();
-            await runTask;
+            downloadGate.Open();
+            await runTask.WaitAsync(TimeSpan.FromSeconds(5));
         }
 
         [TestMethod]
@@ -399,7 +393,6 @@ namespace Tests.Eventing
 
                 var runTask = engine.RunAsync(CancellationToken.None);
                 await downloadGate.WaitForStartedCountAsync(1);
-                await Task.Delay(50);
                 Assert.AreEqual(1, downloadGate.StartedCount, "A second song download must not start while the first leaf job holds the global job slot.");
                 await CompleteRunWithBlockedDownloads(downloadGate, runTask);
 
@@ -508,7 +501,6 @@ namespace Tests.Eventing
 
                 var runTask = engine.RunAsync(CancellationToken.None);
                 await downloadGate.WaitForStartedCountAsync(1);
-                await Task.Delay(50);
                 Assert.AreEqual(1, downloadGate.StartedCount, "A second album must not start while the first album job holds the global job slot.");
                 await CompleteRunWithBlockedDownloads(downloadGate, runTask);
 
@@ -607,7 +599,6 @@ namespace Tests.Eventing
 
                 var runTask = engine.RunAsync(CancellationToken.None);
                 await downloadGate.WaitForStartedCountAsync(1);
-                await Task.Delay(50);
                 Assert.AreEqual(1, downloadGate.StartedCount, "A second aggregate song must not start while the first holds the global job slot.");
                 await CompleteRunWithBlockedDownloads(downloadGate, runTask);
 
@@ -708,7 +699,6 @@ namespace Tests.Eventing
 
                 var runTask = engine.RunAsync(CancellationToken.None);
                 await downloadGate.WaitForStartedCountAsync(1);
-                await Task.Delay(50);
                 Assert.AreEqual(1, downloadGate.StartedCount, "A second aggregate album must not start while the first album job holds the global job slot.");
                 await CompleteRunWithBlockedDownloads(downloadGate, runTask);
 

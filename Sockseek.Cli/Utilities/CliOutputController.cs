@@ -11,7 +11,7 @@ internal sealed class CliOutputController : IDisposable
     private readonly object _liveGate = new();
     private TerminalLiveRenderer? _live;
     private bool _canUseLiveRendering;
-    private bool _disposed;
+    private volatile bool _disposed;
 
     private CliOutputController(
         bool forceHumanLogsToError,

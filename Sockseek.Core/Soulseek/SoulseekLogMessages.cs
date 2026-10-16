@@ -69,4 +69,7 @@ internal static partial class SoulseekLogMessages
 
     [LoggerMessage(2021, LogLevel.Information, "Starting Soulseek login (random account: True)")]
     internal static partial void RandomLoginStarting(ILogger logger);
+
+    [LoggerMessage(2022, LogLevel.Debug, "Ignored Soulseek search lock disposal failure after successful completion")]
+    internal static partial void SearchDisposalFailureIgnored(ILogger logger);
 }

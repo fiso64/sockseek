@@ -72,7 +72,7 @@ public sealed class ChatApiTests
                 new SendPrivateMessageRequestDto(outgoingId, "Alice", "outbound"));
             Assert.AreEqual(ServerChatMessageState.Sent, outgoing.State);
             SockseekApiRequestException conflict =
-                await Assert.ThrowsExceptionAsync<SockseekApiRequestException>(() =>
+                await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
                     api.SendPrivateMessageAsync(
                         new SendPrivateMessageRequestDto(outgoingId, "Alice", "different")));
             Assert.AreEqual(HttpStatusCode.Conflict, conflict.StatusCode);
@@ -180,7 +180,7 @@ public sealed class ChatApiTests
             Assert.AreEqual(room.RoomId, snapshot.ChatTarget?.TargetId);
 
             SockseekApiRequestException invalidCursor =
-                await Assert.ThrowsExceptionAsync<SockseekApiRequestException>(() =>
+                await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
                     api.GetConversationMessagesAsync(
                         conversation.ConversationId, new string('a', 257)));
             Assert.AreEqual(HttpStatusCode.BadRequest, invalidCursor.StatusCode);

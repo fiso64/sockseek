@@ -26,7 +26,7 @@ public class JobActivityLogFormatterTests
         Assert.IsNull(duplicate);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(ServerJobTerminalOutcome.Succeeded, ServerJobSkipReason.None)]
     [DataRow(ServerJobTerminalOutcome.Skipped, ServerJobSkipReason.None)]
     [DataRow(ServerJobTerminalOutcome.Skipped, ServerJobSkipReason.AlreadyExists)]

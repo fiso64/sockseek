@@ -365,7 +365,7 @@ public class EngineSupervisorTests
                 CancellationToken.None);
 
             Assert.IsNotNull(downloadSummary);
-            await WaitForConditionAsync(
+            await WaitForConditionAsync(supervisor,
                 () => supervisor.GetRuntimeJob<AlbumJob>(downloadSummary.JobId)?.Config != null,
                 "Timed out waiting for album download settings.");
 
@@ -423,7 +423,7 @@ public class EngineSupervisorTests
                     ]),
                 CancellationToken.None);
 
-            await WaitForConditionAsync(
+            await WaitForConditionAsync(supervisor,
                 () =>
                 {
                     var children = SearchChildren(supervisor, summary.WorkflowId);
@@ -467,6 +467,9 @@ public class EngineSupervisorTests
         for (int i = 1; i <= 12; i++)
             File.WriteAllBytes(Path.Combine(albumDir, $"{i:00}. Artist - Track {i:00}.mp3"), new byte[1024]);
 
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var blockedClient = Tests.ClientTests.MockSoulseekClient.FromLocalPaths(false, musicRoot);
+        blockedClient.BeforeDownloadCompletesAsync = (_, _, ct) => release.Task.WaitAsync(ct);
         using var cts = new CancellationTokenSource();
         Task runTask = Task.CompletedTask;
         try
@@ -475,7 +478,7 @@ public class EngineSupervisorTests
                 musicRoot,
                 outputDir,
                 configureDownload: settings => settings.Search.NoBrowseFolder = true,
-                configureEngine: settings => settings.MockFilesSlow = true);
+                client: blockedClient);
             runTask = supervisor.RunAsync(cts.Token);
 
             var searchSummary = await supervisor.SubmitAlbumSearchJobAsync(
@@ -488,12 +491,12 @@ public class EngineSupervisorTests
             var downloadSummary = await supervisor.StartFolderDownloadAsync(
                 searchSummary.JobId,
                 new StartFolderDownloadRequestDto(
-                    new AlbumFolderRefDto("local", @"Artist\Album")),
+                    new AlbumFolderRefDto("local", albumDir.Replace('/', '\\'))),
                 CancellationToken.None);
 
             Assert.IsNotNull(downloadSummary);
 
-            await WaitForConditionAsync(
+            await WaitForConditionAsync(supervisor,
                 () =>
                 {
                     return GetChildSongPayloads(supervisor, downloadSummary.JobId)
@@ -523,7 +526,7 @@ public class EngineSupervisorTests
 
             Assert.IsNotNull(cancellableFile.JobId);
             Assert.IsTrue(supervisor.CancelJob(cancellableFile.JobId.Value), "Album payload file should be cancellable by job id.");
-            await WaitForConditionAsync(
+            await WaitForConditionAsync(supervisor,
                 () =>
                 {
                     return GetChildSongPayloads(supervisor, downloadSummary.JobId)
@@ -640,7 +643,7 @@ public class EngineSupervisorTests
                 CancellationToken.None);
 
             await WaitForJobStateAsync(supervisor, searchSummary.JobId, ExpectedJobStatus.Succeeded);
-            await WaitForConditionAsync(
+            await WaitForConditionAsync(supervisor,
                 () => updates.Any(update => update.JobId == searchSummary.JobId && update.IsComplete),
                 "Timed out waiting for a completed search update.");
 
@@ -1640,7 +1643,7 @@ public class EngineSupervisorTests
             var submitted = await supervisor.SubmitSearchJobAsync(
                 new SubmitSearchJobRequestDto("missing"),
                 CancellationToken.None);
-            await WaitForConditionAsync(
+            await WaitForConditionAsync(supervisor,
                 () => batches.Any(batch => batch.State.RemovedJobIds.Contains(submitted.JobId)),
                 "Timed out waiting for terminal workflow retirement.");
 
@@ -1672,7 +1675,8 @@ public class EngineSupervisorTests
         Action<EngineSettings>? configureEngine = null,
         ProfileCatalog? profiles = null,
         DownloadSettingsPatchDto? launchDownloadSettings = null,
-        bool retireTerminalWorkflows = false)
+        bool retireTerminalWorkflows = false,
+        Soulseek.ISoulseekClient? client = null)
     {
         var engineSettings = new EngineSettings
         {
@@ -1694,6 +1698,7 @@ public class EngineSupervisorTests
         {
             Engine = engineSettings,
             OperatorDownloadSettings = operatorSettings,
+            ClientFactory = client == null ? null : _ => client,
             LaunchDownloadSettings = launchDownloadSettings,
             Profiles = profiles ?? ProfileCatalog.Empty,
             Persistence = new ServerPersistenceOptions
@@ -1808,19 +1813,13 @@ public class EngineSupervisorTests
             },
         };
 
-    private static async Task WaitForConditionAsync(Func<bool> condition, string failureMessage, int timeoutMs = 5000)
+    private static async Task WaitForConditionAsync(EngineSupervisor supervisor, Func<bool> condition, string failureMessage, int timeoutMs = 5000)
     {
-        using var timeout = new CancellationTokenSource(timeoutMs);
-
-        while (!timeout.IsCancellationRequested)
-        {
-            if (condition())
-                return;
-
-            await Task.Delay(50, timeout.Token);
-        }
-
-        Assert.Fail(failureMessage);
+        using var signal = new TestSignal()
+            .Subscribe<JobSummaryDto>(handler => supervisor.StateStore.JobUpserted += handler, handler => supervisor.StateStore.JobUpserted -= handler)
+            .Subscribe<WorkflowSummaryDto>(handler => supervisor.StateStore.WorkflowUpserted += handler, handler => supervisor.StateStore.WorkflowUpserted -= handler)
+            .Subscribe<SearchStateDto>(handler => supervisor.StateStore.SearchUpdated += handler, handler => supervisor.StateStore.SearchUpdated -= handler);
+        await signal.WaitUntilAsync(condition, failureMessage, timeoutMs);
     }
 
     private static List<SongJobPayloadDto> GetChildSongPayloads(EngineSupervisor supervisor, Guid parentJobId)

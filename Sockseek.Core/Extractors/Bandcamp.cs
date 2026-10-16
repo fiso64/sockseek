@@ -142,19 +142,22 @@ namespace Sockseek.Core.Extractors;
                     doc = await web.LoadFromWebAsync(input);
                 }
 
-                var nameSection = doc.DocumentNode.SelectSingleNode("//div[@id='name-section']");
-                var name = nameSection.SelectSingleNode(".//h2[contains(@class, 'trackTitle')]").InnerText.UnHtmlString().Trim();
+                var nameSection = doc.DocumentNode.SelectSingleNode("//div[@id='name-section']")
+                    ?? throw new InvalidOperationException("Could not find Bandcamp item details in page.");
+                var name = RequiredText(nameSection, ".//h2[contains(@class, 'trackTitle')]", "title");
 
                 if (isAlbum)
                 {
-                    var artist = nameSection.SelectSingleNode(".//h3/span/a").InnerText.UnHtmlString().Trim();
+                    var artist = RequiredText(nameSection, ".//h3/span/a", "artist");
                     var query  = new AlbumQuery { Artist = artist, Album = name };
                     var folderCond = new FolderConditionPatch();
 
                     if (extraction.SetAlbumMinTrackCount || extraction.SetAlbumMaxTrackCount)
                     {
-                        var trackTable = doc.DocumentNode.SelectSingleNode("//*[@id='track_table']");
-                        int n = trackTable.SelectNodes(".//tr").Count;
+                        var tracks = doc.DocumentNode.SelectSingleNode("//*[@id='track_table']")?.SelectNodes(".//tr");
+                        if (tracks == null || tracks.Count == 0)
+                            throw new InvalidOperationException("Could not find Bandcamp track list in page.");
+                        int n = tracks.Count;
 
                         if (extraction.SetAlbumMinTrackCount) folderCond.MinTrackCount = n;
                         if (extraction.SetAlbumMaxTrackCount) folderCond.MaxTrackCount = n;
@@ -164,8 +167,8 @@ namespace Sockseek.Core.Extractors;
                 }
                 else
                 {
-                    var album  = nameSection.SelectSingleNode(".//h3[contains(@class, 'albumTitle')]/span/a").InnerText.UnHtmlString().Trim();
-                    var artist = nameSection.SelectSingleNode(".//h3[contains(@class, 'albumTitle')]/span[last()]/a").InnerText.UnHtmlString().Trim();
+                    var album = RequiredText(nameSection, ".//h3[contains(@class, 'albumTitle')]/span/a", "album");
+                    var artist = RequiredText(nameSection, ".//h3[contains(@class, 'albumTitle')]/span[last()]/a", "artist");
                     var songQuery = new SongQuery { Artist = artist, Title = name, Album = album };
                     jobs.Add(new SongJob(songQuery));
                 }
@@ -182,5 +185,13 @@ namespace Sockseek.Core.Extractors;
             }
 
             return result;
+        }
+
+        private static string RequiredText(HtmlNode parent, string xpath, string field)
+        {
+            var text = parent.SelectSingleNode(xpath)?.InnerText.UnHtmlString().Trim();
+            if (string.IsNullOrWhiteSpace(text))
+                throw new InvalidOperationException($"Could not find Bandcamp {field} in page.");
+            return text;
         }
     }

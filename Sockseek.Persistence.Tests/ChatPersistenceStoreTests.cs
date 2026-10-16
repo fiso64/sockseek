@@ -211,7 +211,7 @@ public sealed class ChatPersistenceStoreTests
         await database.Store.PrepareOutgoingPrivateMessageAsync(
             "local-a", "Alice", id, "hello");
 
-        ChatStateConflictException error = await Assert.ThrowsExceptionAsync<ChatStateConflictException>(
+        ChatStateConflictException error = await Assert.ThrowsExactlyAsync<ChatStateConflictException>(
             () => database.Store.PrepareOutgoingPrivateMessageAsync(
                 "local-b", "Alice", id, "hello"));
 
@@ -240,7 +240,7 @@ public sealed class ChatPersistenceStoreTests
             new[] { "message-2", "message-3" }, newest.Items.Select(item => item.Body).ToArray());
         CollectionAssert.AreEqual(
             new[] { "message-1" }, older.Items.Select(item => item.Body).ToArray());
-        await Assert.ThrowsExceptionAsync<ArgumentException>(() => database.Store.GetMessagesAsync(
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => database.Store.GetMessagesAsync(
             "local", targetId.Value, new string('a', 257), 2));
     }
 

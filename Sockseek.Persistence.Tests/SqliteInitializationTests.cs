@@ -131,7 +131,7 @@ public sealed class SqliteInitializationTests
                 """);
         }
 
-        var exception = await Assert.ThrowsExceptionAsync<PersistenceSchemaCompatibilityException>(
+        var exception = await Assert.ThrowsExactlyAsync<PersistenceSchemaCompatibilityException>(
             () => database.Initializer.InitializeAsync());
 
         StringAssert.Contains(exception.Message, unknownMigration);
@@ -165,7 +165,7 @@ public sealed class SqliteInitializationTests
             PayloadSchemaVersion = 1,
         });
 
-        await Assert.ThrowsExceptionAsync<DbUpdateException>(() => context.SaveChangesAsync());
+        await Assert.ThrowsExactlyAsync<DbUpdateException>(() => context.SaveChangesAsync());
     }
 
     [TestMethod]
@@ -173,7 +173,7 @@ public sealed class SqliteInitializationTests
     {
         await using var database = new TemporaryDatabase();
 
-        var exception = Assert.ThrowsException<InvalidOperationException>(
+        var exception = Assert.ThrowsExactly<InvalidOperationException>(
             () => SqliteDatabaseOwner.Acquire(database.Options));
 
         StringAssert.Contains(exception.Message, "already owned");
@@ -199,7 +199,7 @@ public sealed class SqliteInitializationTests
             using var cancellation = new CancellationTokenSource();
             cancellation.Cancel();
 
-            await Assert.ThrowsExceptionAsync<TaskCanceledException>(() =>
+            await Assert.ThrowsExactlyAsync<TaskCanceledException>(() =>
                 host.StopAsync(TimeSpan.FromSeconds(1), cancellation.Token));
 
             Assert.IsFalse(host.IsStarted);

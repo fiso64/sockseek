@@ -21,6 +21,10 @@ public static partial class ConfigManager
     
     private static readonly ConcurrentDictionary<string, bool> BoolOptionCache = new(StringComparer.Ordinal);
 
+    // Test hosts can replace implicit discovery without changing the user's home,
+    // environment, or explicitly requested config files. Null uses normal discovery.
+    internal static IReadOnlyList<string>? DefaultConfigSearchPathsOverride { get; set; }
+
     // ── Public API ────────────────────────────────────────────────────────────
 
     /// Discovers and parses the config file.
@@ -1382,6 +1386,9 @@ public static partial class ConfigManager
     }
 
     private static IEnumerable<string> DefaultConfigPaths()
+        => DefaultConfigSearchPathsOverride is { } paths ? paths : DiscoverDefaultConfigPaths();
+
+    private static IEnumerable<string> DiscoverDefaultConfigPaths()
     {
         yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "sockseek", "sockseek.conf");
         yield return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "sockseek", "sockseek.conf");
