@@ -455,7 +455,9 @@ internal static partial class Program
         CliOutputController output,
         CancellationTokenSource cts)
     {
-        if (string.IsNullOrWhiteSpace(rootSettings.Extraction.Input))
+        var submissionOptions = BuildRemoteSubmissionOptions(invocation, cliSettings);
+        var extractRequest = BuildRemoteExtractRequest(rootSettings, submissionOptions);
+        if (string.IsNullOrWhiteSpace(extractRequest.Input) && submissionOptions.ProfileNames is not { Count: > 0 })
         {
             SockseekLog.Error("Remote mode requires an input.");
             return CliExitCode.UsageError;
@@ -465,7 +467,7 @@ internal static partial class Program
         {
             using var http = SockseekApiClient.CreateHttpClient(remoteSettings.ServerUrl!);
             var detached = await new SockseekApiClient(http).SubmitExtractJobAsync(
-                BuildRemoteExtractRequest(rootSettings, BuildRemoteSubmissionOptions(invocation, cliSettings)),
+                extractRequest,
                 cts.Token);
             if (cliSettings.ProgressJson)
                 new JsonStreamProgressReporter(Console.Out).ReportWorkflowSubmitted(detached.WorkflowId);
@@ -508,8 +510,8 @@ internal static partial class Program
             await backend.SubscribeWorkflowAsync(workflowId, cts.Token);
             using var terminalUpdateObserver = new WorkflowTerminalUpdateObserver(backend, workflowId);
 
-            var options = BuildRemoteSubmissionOptions(invocation, cliSettings) with { WorkflowId = workflowId };
-            var request = BuildRemoteExtractRequest(rootSettings, options);
+            var options = submissionOptions with { WorkflowId = workflowId };
+            var request = extractRequest with { Options = options };
 
             InteractiveCliCoordinator? interactiveCoordinator = null;
             JobSummaryDto submission;
@@ -1364,10 +1366,16 @@ internal static partial class Program
             DownloadSettings: invocation.DownloadSettings);
 
     private static SubmitExtractJobRequestDto BuildRemoteExtractRequest(DownloadSettings rootSettings, SubmissionOptionsDto options)
-        => new(
-            rootSettings.Extraction.Input!,
-            rootSettings.Extraction.InputType.ToString(),
-            Options: options);
+    {
+        if (options.ProfileNames is not { Count: > 0 })
+            return new(rootSettings.Extraction.Input, rootSettings.Extraction.InputType.ToString(), Options: options);
+
+        // Named remote profiles are resolved by the daemon. Forward only CLI input overrides.
+        var changes = options.DownloadSettings?.Operations;
+        var input = changes?.LastOrDefault(change => change.Path == "Extraction.Input")?.Value as string;
+        var inputType = changes?.LastOrDefault(change => change.Path == "Extraction.InputType")?.Value?.ToString();
+        return new(input, inputType, Options: options);
+    }
 
     private static string[]? SplitProfileNames(string? names)
         => string.IsNullOrWhiteSpace(names)

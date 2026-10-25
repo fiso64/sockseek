@@ -8,7 +8,7 @@ namespace Sockseek.Api;
 /// Starts an extract job from a URL, list path, CSV path, or free-text query.
 /// </summary>
 public sealed record SubmitExtractJobRequestDto(
-    string Input,
+    string? Input = null,
     string? InputType = null,
     bool? AutoStartExtractedResult = null,
     SubmissionOptionsDto? Options = null,

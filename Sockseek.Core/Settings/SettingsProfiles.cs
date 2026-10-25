@@ -52,16 +52,17 @@ public sealed class ProfileCatalog
     }
 
     /// Evaluate conditions against the incoming settings, then apply default, auto,
-    /// and selected profiles in order. Invocation/submission overrides come afterward.
+    /// and selected profiles in order. Before a job exists, resolve only default and
+    /// selected profiles. Invocation/submission overrides come afterward.
     public DownloadSettings ResolveDownloadSettings(
         DownloadSettings defaults,
         DownloadSettings conditionSettings,
-        Job job,
+        Job? job,
         IReadOnlyList<SettingsProfile> selectedProfiles,
         ProfileContext context)
     {
         var matchingAutoProfiles = AutoProfiles
-            .Where(p => p.Condition != null && ProfileConditionEvaluator.Satisfied(p.Condition, conditionSettings, job, context))
+            .Where(p => job != null && p.Condition != null && ProfileConditionEvaluator.Satisfied(p.Condition, conditionSettings, job, context))
             .ToList();
 
         var settings = SettingsCloner.Clone(defaults);

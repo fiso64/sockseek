@@ -51,14 +51,14 @@ public sealed class SubmissionOptionsStore
             ? outputParentDir
             : null;
 
-    public void ApplyTo(DownloadSettings settings, SubmissionOptionsDto? options, Guid jobId)
+    public void ApplyTo(DownloadSettings settings, SubmissionOptionsDto? options, Guid? jobId)
     {
         options?.DownloadSettings?.ApplyTo(settings);
 
         if (!string.IsNullOrWhiteSpace(options?.OutputParentDir))
             settings.Output.ParentDir = options.OutputParentDir;
 
-        if (GetJobOutputParentDir(jobId) is { } outputParentDir)
+        if (jobId is { } id && GetJobOutputParentDir(id) is { } outputParentDir)
             settings.Output.ParentDir = outputParentDir;
     }
 

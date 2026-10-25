@@ -4331,13 +4331,13 @@
         }
       },
       "SubmitExtractJobRequestDto": {
-        "required": [
-          "input"
-        ],
         "type": "object",
         "properties": {
           "input": {
-            "type": "string"
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "inputType": {
             "type": [

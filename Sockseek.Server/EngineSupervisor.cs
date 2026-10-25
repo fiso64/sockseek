@@ -155,7 +155,15 @@ public sealed class EngineSupervisor
     }
 
     public Task<JobSummaryDto> SubmitExtractJobAsync(SubmitExtractJobRequestDto request, CancellationToken ct)
-        => SubmitJobAsync(JobRequestMapper.CreateExtractJob(request), request.Options, ct);
+    {
+        var extraction = jobSettingsResolver.ResolveExtractionSettings(request.Options);
+        var resolved = request with
+        {
+            Input = request.Input ?? extraction.Input,
+            InputType = request.InputType ?? extraction.InputType.ToString(),
+        };
+        return SubmitJobAsync(JobRequestMapper.CreateExtractJob(resolved), request.Options, ct);
+    }
 
     public Task<JobSummaryDto> SubmitSearchJobAsync(SubmitSearchJobRequestDto request, CancellationToken ct)
         => SubmitJobAsync(JobRequestMapper.CreateSearchJob(request), request.Options, ct);

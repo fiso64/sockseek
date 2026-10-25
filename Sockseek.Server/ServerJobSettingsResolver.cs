@@ -48,13 +48,16 @@ internal sealed class ServerJobSettingsResolver : IJobSettingsResolver
     public DownloadSettings ResolveFollowUp(Job job, SubmissionOptionsDto? options)
         => Resolve(baseDefaults, job, options);
 
-    private DownloadSettings Resolve(DownloadSettings conditionSettings, Job job, SubmissionOptionsDto? options)
+    public ExtractionSettings ResolveExtractionSettings(SubmissionOptionsDto? options)
+        => Resolve(baseDefaults, job: null, options).Extraction;
+
+    private DownloadSettings Resolve(DownloadSettings conditionSettings, Job? job, SubmissionOptionsDto? options)
     {
         var context = ToProfileContext(options?.ProfileContext);
         var namedProfiles = catalog.ResolveNamedProfiles(options?.ProfileNames);
         var settings = catalog.ResolveDownloadSettings(baseDefaults, conditionSettings, job, namedProfiles, context);
         launchDownloadSettings?.ApplyTo(settings);
-        submissionOptions.ApplyTo(settings, options, job.Id);
+        submissionOptions.ApplyTo(settings, options, job?.Id);
         NormalizeForServer(settings, pathContext);
         return settings;
     }
