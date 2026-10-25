@@ -85,13 +85,14 @@ public static partial class ConfigManager
         ConfigFile file,
         IReadOnlyList<string> cliArgs,
         CliSettings cli,
-        string? profileName = null)
+        string? profileName = null,
+        EngineSettings? engine = null)
     {
-        return CreateJobSettingsResolver(file, ParseInvocation(cliArgs), cli, profileName);
+        return CreateJobSettingsResolver(file, ParseInvocation(cliArgs), cli, profileName, engine);
     }
 
     public static IJobSettingsResolver CreateJobSettingsResolver(
-        ConfigFile file, ParsedInvocation invocation, CliSettings cli, string? profileName = null)
+        ConfigFile file, ParsedInvocation invocation, CliSettings cli, string? profileName = null, EngineSettings? engine = null)
     {
         profileName ??= invocation.ProfileName;
         var context = CreateProfileContext(cli);
@@ -102,7 +103,7 @@ public static partial class ConfigManager
         var cliProfile = invocation.Profile.Profile;
 
         return new ProfileJobSettingsResolver(
-            new DownloadSettings(),
+            new DownloadSettings { DefaultMinSharesAggregate = engine?.DefaultMinSharesAggregate ?? SearchSettings.DefaultMinShares },
             catalog.DefaultProfile,
             catalog.AutoProfiles,
             namedProfiles,
@@ -220,6 +221,7 @@ public static partial class ConfigManager
     private static void PostProcess(EngineSettings engine, DownloadSettings dl, string? configDir)
     {
         var pathContext = new PathVariableContext(ConfigDir: configDir);
+        dl.DefaultMinSharesAggregate = engine.DefaultMinSharesAggregate;
         PostProcessDownload(dl, pathContext);
         SettingsNormalizer.NormalizeEnginePaths(engine, pathContext);
     }

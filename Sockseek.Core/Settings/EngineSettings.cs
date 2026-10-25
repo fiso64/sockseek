@@ -91,6 +91,9 @@ public class EngineSettings
     public string? MockFilesDir { get; set; }
 
     /// true = read audio tags from mock files (default). --mock-files-no-read-tags sets to false.
+    /// A local mock library represents a single source.
+    public int DefaultMinSharesAggregate => string.IsNullOrEmpty(MockFilesDir) ? SearchSettings.DefaultMinShares : 1;
+
     [SettingOption("--mock-files-no-read-tags", FixedValue = "false")]
     public bool MockFilesReadTags { get; set; } = true;
 

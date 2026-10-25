@@ -16,12 +16,9 @@ public sealed class SettingOptionAttribute(params string[] names) : Attribute
     public string? FixedValue { get; init; }
     public bool Clear { get; init; }
     public bool Negate { get; init; }
+    public bool AllowMultiple { get; init; } = true;
     public OptionValueKind ValueKind { get; init; }
 }
-
-/// An explicitly exposed operation whose effect depends on the settings at application time.
-[AttributeUsage(AttributeTargets.Method)]
-public sealed class SettingActionAttribute : Attribute;
 
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field)]
 public sealed class SettingValidationAttribute(Type validatorType, string method) : Attribute
@@ -53,7 +50,7 @@ public sealed class SettingOption
             ?? throw new InvalidOperationException($"Missing option parser {declaringType.Name}.{declaration.Parser}");
         ValueKind = declaration.FixedValue != null || declaration.Clear ? OptionValueKind.None
             : declaration.ValueKind != OptionValueKind.Auto ? declaration.ValueKind
-            : valueType == typeof(bool) ? OptionValueKind.Boolean : OptionValueKind.Required;
+            : (Nullable.GetUnderlyingType(valueType) ?? valueType) == typeof(bool) ? OptionValueKind.Boolean : OptionValueKind.Required;
     }
 
     public Type RootType { get; }
@@ -71,15 +68,13 @@ public sealed class SettingOption
         if (member != null)
         {
             member.Validate(value, flag);
+            if (!declaration.AllowMultiple && changes.Contains(member.Path))
+                throw new Exception($"Input error: Option '{flag}' can only be supplied once");
             changes.Set(member.Path, value);
-        }
-        else if (method!.GetParameters()[0].ParameterType == typeof(SettingWriter))
-        {
-            Invoke(method, [new SettingWriter(changes, prefix, flag), value]);
         }
         else
         {
-            changes.Add(new(prefix + method.Name, value, SettingOperation.Invoke));
+            Invoke(method!, [new SettingWriter(changes, prefix, flag), value]);
         }
     }
 

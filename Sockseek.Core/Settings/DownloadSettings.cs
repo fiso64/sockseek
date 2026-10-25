@@ -67,6 +67,10 @@ public class DownloadSettings
     [JsonIgnore]
     public PathVariableContext RuntimePathContext { get; set; } = PathVariableContext.Empty;
 
+    /// Automatic aggregate threshold supplied by the host's backend.
+    [JsonIgnore]
+    public int DefaultMinSharesAggregate { get; set; } = SearchSettings.DefaultMinShares;
+
     // ── Computed properties ───────────────────────────────────────────────────
 
     public bool DoNotDownload  => PrintOption != PrintOption.None;
@@ -76,6 +80,10 @@ public class DownloadSettings
     public bool NonVerbosePrint => (PrintOption & (PrintOption.Json | PrintOption.Link | PrintOption.Index)) != 0;
 
     public bool NeedLogin      => !PrintJobs && (PrintOption & PrintOption.Index) == 0;
+
+    /// Resolve mode-specific search behavior without rewriting configured conditions.
+    public SearchSettings ResolveSearchSettings(SearchSettings? search = null)
+        => (search ?? Search).Resolve(Output.AlbumArtOnly, DefaultMinSharesAggregate);
 
     public ResolvedIncompleteAlbumAction ResolveIncompleteAlbumAction()
     {

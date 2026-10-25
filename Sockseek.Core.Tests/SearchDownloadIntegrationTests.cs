@@ -64,7 +64,6 @@ public class SearchDownloadIntegrationTests
             settings.Output.ParentDir = outputDir;
             settings.Output.NameFormat = "{filename}";
             settings.Output.WriteIndex = false;
-            settings.Output.HasConfiguredIndex = true;
             settings.Skip.SkipExisting = false;
             settings.Search.NoBrowseFolder = true;
             var jobs = Enumerable.Range(1, 3).Select(i => CreateJob(mode, $"Artist{i}")).ToArray();

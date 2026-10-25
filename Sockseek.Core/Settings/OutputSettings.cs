@@ -34,34 +34,20 @@ public class OutputSettings
     [SettingOption("--pp", "--playlist-path")]
     public string? M3uFilePath { get; set; }
 
-    public bool WriteIndex { get; set; } = true;
-
-    /// Records an explicit index choice so job preparation can distinguish it from the default.
-    public bool HasConfiguredIndex { get; set; }
-
+    /// Null selects the default for the input; an explicit path also enables indexing.
     [SettingOption("--wi", "--write-index")]
     [SettingOption("--nwi", "--no-write-index", FixedValue = "false")]
-    private static void ConfigureIndex(SettingWriter changes, bool value)
-    {
-        changes.Set(nameof(WriteIndex), value);
-        changes.Set(nameof(HasConfiguredIndex), true);
-    }
-
-    public string? IndexFilePath { get; set; }
+    public bool? WriteIndex { get; set; }
 
     [SettingOption("--ip", "--index-path")]
-    private static void ConfigureIndexPath(SettingWriter changes, string value)
-    {
-        changes.Set(nameof(IndexFilePath), value);
-        changes.Set(nameof(HasConfiguredIndex), true);
-    }
+    public string? IndexFilePath { get; set; }
 
     /// Controls what happens to completed files when another file in the album fails.
     /// Unset means move to {ParentDir}/failed.
+    [SettingOption("--iaa", "--incomplete-album-action", Parser = nameof(ParseIncompleteAlbumAction))]
     public IncompleteAlbumActionSettings IncompleteAlbumAction { get; set; } = new();
 
-    [SettingOption("--iaa", "--incomplete-album-action")]
-    private static void ConfigureIncompleteAlbumAction(SettingWriter changes, string value)
+    private static IncompleteAlbumActionSettings ParseIncompleteAlbumAction(string value, string flag)
     {
         string text = value.Trim();
         var action = new IncompleteAlbumActionSettings();
@@ -70,7 +56,7 @@ public class OutputSettings
             action.Kind = IncompleteAlbumActionKind.Move;
             action.Path = text["move:".Length..].Trim();
             if (action.Path.Length == 0)
-                throw new Exception($"Input error: Option '{changes.Flag}' requires a path for move:<path>");
+                throw new Exception($"Input error: Option '{flag}' requires a path for move:<path>");
         }
         else
         {
@@ -79,10 +65,10 @@ public class OutputSettings
                 "move" => IncompleteAlbumActionKind.Move,
                 "delete" => IncompleteAlbumActionKind.Delete,
                 "keep" => IncompleteAlbumActionKind.Keep,
-                _ => throw new Exception($"Input error: Invalid incomplete album action '{value}' for '{changes.Flag}'"),
+                _ => throw new Exception($"Input error: Invalid incomplete album action '{value}' for '{flag}'"),
             };
         }
-        changes.Set(nameof(IncompleteAlbumAction), action);
+        return action;
     }
 
     /// --on-complete replaces the commands, or appends with the "+ " prefix.
@@ -111,28 +97,18 @@ public class OutputSettings
         var invalid => throw new ArgumentException($"Input error: Invalid album art option '{invalid}'"),
     };
 
+    [SettingOption("--aao", "--aa-only", "--album-art-only")]
     public bool AlbumArtOnly { get; set; }
 
-    [SettingOption("--aao", "--aa-only", "--album-art-only")]
-    [SettingAction]
-    private static void ConfigureAlbumArtOnly(DownloadSettings settings, bool value)
-    {
-        settings.Output.AlbumArtOnly = value;
-        if (value)
-        {
-            if (settings.Output.AlbumArtOption == AlbumArtOption.Default)
-                settings.Output.AlbumArtOption = AlbumArtOption.Largest;
-            settings.Search.PreferredCond = new FileConditions();
-            settings.Search.NecessaryCond = new FileConditions();
-        }
-    }
+    public AlbumArtOption EffectiveAlbumArtOption => AlbumArtOnly && AlbumArtOption == AlbumArtOption.Default
+        ? AlbumArtOption.Largest : AlbumArtOption;
 }
 
 public class IncompleteAlbumActionSettings
 {
     public IncompleteAlbumActionKind? Kind { get; set; }
 
-    /// Used when Kind is Move. Null means {configured output dir}/failed.
+    /// Used when Kind is Move. Null means {ParentDir}/failed.
     public string? Path { get; set; }
 }
 

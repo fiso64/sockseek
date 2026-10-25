@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace Sockseek.Core.Settings;
 
 [JsonConverter(typeof(JsonStringEnumConverter<SettingOperation>))]
-public enum SettingOperation { Set, Append, AppendDistinct, Invoke }
+public enum SettingOperation { Set, Append, AppendDistinct }
 
 public sealed record SettingChange(string Path, object? Value, SettingOperation Operation = SettingOperation.Set);
 
@@ -66,6 +66,8 @@ public sealed class SettingsPatch
 public sealed class SettingsPatchBuilder
 {
     private readonly List<SettingChange> operations = [];
+
+    internal bool Contains(string path) => operations.Exists(change => change.Path == path);
 
     public void Add(SettingChange change) => operations.Add(change);
     public void Set(string path, object? value) => Add(new(path, value));

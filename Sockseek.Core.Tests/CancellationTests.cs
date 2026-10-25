@@ -837,7 +837,6 @@ namespace Tests.Cancellation
                 var downloadSettings = new DownloadSettings();
                 downloadSettings.Output.ParentDir = outputDir;
                 downloadSettings.Output.WriteIndex = false;
-                downloadSettings.Output.HasConfiguredIndex = true;
                 downloadSettings.Search.MinSharesAggregate = 1;
                 downloadSettings.Search.NoBrowseFolder = true;
                 downloadSettings.Skip.SkipExisting = false;

@@ -19,7 +19,7 @@ internal sealed class AlbumImageDownloadExecutor
         var config = job.Config;
         long mSize = 0;
         int mCount = 0;
-        var option = config.Output.AlbumArtOption;
+        var option = config.Output.EffectiveAlbumArtOption;
 
         if (chosenFolder != null)
         {

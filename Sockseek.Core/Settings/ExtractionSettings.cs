@@ -7,16 +7,8 @@ namespace Sockseek.Core.Settings;
 /// Controls what is extracted and how.
 public class ExtractionSettings
 {
+    [SettingOption("-i", "--input", AllowMultiple = false)]
     public string? Input { get; set; }
-
-    [SettingOption("-i", "--input")]
-    [SettingAction]
-    private static void ConfigureInput(ExtractionSettings settings, string value)
-    {
-        if (settings.Input != null)
-            throw new Exception($"Input error: Invalid argument '{value}'. Input is already set to '{settings.Input}'");
-        settings.Input = value;
-    }
 
     [SettingOption("--it", "--input-type", Parser = nameof(ParseInputType))]
     public InputType InputType { get; set; } = InputType.None;

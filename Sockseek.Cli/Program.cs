@@ -71,7 +71,6 @@ internal static partial class Program
             configFile = ConfigManager.Load(configPath);
             (engineSettings, rootSettings, cliSettings, daemonSettings, remoteSettings) = ConfigManager.BindAll(configFile, invocation);
             ConfigManager.ApplyAutoProfileCliSettings(configFile, rootSettings, cliSettings);
-            ApplyMockFilesDefaults(engineSettings, rootSettings);
         }
         catch (Exception ex) when (ex is ArgumentException || ex.Message.StartsWith("Input error:"))
         {
@@ -209,9 +208,7 @@ internal static partial class Program
         IJobSettingsResolver jobSettingsResolver;
         try
         {
-            jobSettingsResolver = ConfigManager.CreateJobSettingsResolver(configFile, invocation, cliSettings);
-            if (!string.IsNullOrEmpty(engineSettings.MockFilesDir))
-                jobSettingsResolver = new MockFilesJobSettingsResolver(jobSettingsResolver);
+            jobSettingsResolver = ConfigManager.CreateJobSettingsResolver(configFile, invocation, cliSettings, engine: engineSettings);
         }
         catch (Exception ex) when (ex is ArgumentException || ex.Message.StartsWith("Input error:"))
         {
@@ -448,22 +445,6 @@ internal static partial class Program
 
     internal static bool ArgsRequestProgressJson(IReadOnlyList<string> args)
         => CliOutputController.ArgsRequestProgressJson(args);
-
-    private static void ApplyMockFilesDefaults(EngineSettings engineSettings, DownloadSettings downloadSettings)
-    {
-        if (!string.IsNullOrEmpty(engineSettings.MockFilesDir))
-            downloadSettings.Search.MinSharesAggregate = 1;
-    }
-
-    private sealed class MockFilesJobSettingsResolver(IJobSettingsResolver inner) : IJobSettingsResolver
-    {
-        public DownloadSettings Resolve(DownloadSettings inherited, Job job)
-        {
-            var settings = inner.Resolve(inherited, job);
-            settings.Search.MinSharesAggregate = 1;
-            return settings;
-        }
-    }
 
     private static async Task<CliExitCode> RunRemoteAsync(
         ParsedInvocation invocation,

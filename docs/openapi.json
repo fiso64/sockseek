@@ -3765,8 +3765,7 @@
         "enum": [
           "Set",
           "Append",
-          "AppendDistinct",
-          "Invoke"
+          "AppendDistinct"
         ],
         "default": "Set"
       },

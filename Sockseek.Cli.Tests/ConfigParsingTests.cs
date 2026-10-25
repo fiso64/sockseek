@@ -772,25 +772,24 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void AlbumArtOnly_ClearsConditions()
+        public void AlbumArtOnly_PreservesConditions()
         {
             var (_, dl, _) = Bind("x", "--album-art-only");
-            Assert.AreEqual(0, dl.Search.NecessaryCond.Formats?.Length ?? 0);
-            Assert.AreEqual(0, dl.Search.PreferredCond.Formats?.Length ?? 0);
+            CollectionAssert.AreEqual(SearchDefaults.Formats.ToArray(), dl.Search.NecessaryCond.Formats);
+            CollectionAssert.AreEqual(new[] { "mp3" }, dl.Search.PreferredCond.Formats);
         }
 
         [TestMethod]
-        public void WriteIndex_SetsHasConfiguredIndex()
+        public void WriteIndex_EnablesIndexExplicitly()
         {
             var (_, dl, _) = Bind("x", "--write-index");
-            Assert.IsTrue(dl.Output.HasConfiguredIndex);
+            Assert.IsTrue(dl.Output.WriteIndex);
         }
 
         [TestMethod]
-        public void NoWriteIndex_SetsHasConfiguredIndexAndFalse()
+        public void NoWriteIndex_EnablesIndexExplicitlyAndFalse()
         {
             var (_, dl, _) = Bind("x", "--no-write-index");
-            Assert.IsTrue(dl.Output.HasConfiguredIndex);
             Assert.IsFalse(dl.Output.WriteIndex);
         }
 

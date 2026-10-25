@@ -28,7 +28,6 @@ public sealed class SettingsSchema
     }
 
     private readonly Dictionary<string, SettingMember> members = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, (MethodInfo Method, MemberInfo[] Parents)> actions = new(StringComparer.Ordinal);
     private readonly List<(Type Type, string Prefix)> groups = [];
     private readonly List<SettingMember> leaves = [];
     private readonly Type rootType;
@@ -61,8 +60,7 @@ public sealed class SettingsSchema
                 foreach (SettingOptionAttribute option in method.GetCustomAttributes(typeof(SettingOptionAttribute), inherit: false))
                 {
                     if (method.GetParameters() is not { Length: 2 } parameters
-                        || parameters[0].ParameterType != typeof(SettingWriter)
-                        && !method.IsDefined(typeof(SettingActionAttribute)))
+                        || parameters[0].ParameterType != typeof(SettingWriter))
                         throw new InvalidOperationException($"Invalid option method {type.Name}.{method.Name}");
                     result.Add(new(rootType, prefix, option, null, method, type));
                 }
@@ -74,10 +72,6 @@ public sealed class SettingsSchema
     private void Visit(Type type, string prefix, MemberInfo[] parents)
     {
         groups.Add((type, prefix));
-        foreach (var method in type.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
-            if (method.IsDefined(typeof(SettingActionAttribute)))
-                actions.Add(prefix + method.Name, (method, parents));
-
         foreach (var member in DataMembers(type))
         {
             if (member.IsDefined(typeof(JsonIgnoreAttribute))) continue;
@@ -96,20 +90,6 @@ public sealed class SettingsSchema
     internal Action<object> Compile(SettingChange change)
     {
         ArgumentNullException.ThrowIfNull(change);
-        if (change.Operation == SettingOperation.Invoke)
-        {
-            if (!actions.TryGetValue(change.Path, out var action))
-                throw new ArgumentException($"Unknown settings action '{change.Path}'.");
-            var parameters = action.Method.GetParameters();
-            var argument = ConvertValue(change.Value, parameters[1].ParameterType);
-            if (argument == null && new NullabilityInfoContext().Create(parameters[1]).ReadState == NullabilityState.NotNull)
-                throw new ArgumentException($"Settings action '{change.Path}' requires a value.");
-            return root =>
-            {
-                var target = parameters[0].ParameterType == rootType ? root : Parent(root, action.Parents);
-                SettingOption.Invoke(action.Method, [target, argument]);
-            };
-        }
         if (!members.TryGetValue(change.Path, out var member))
             throw new ArgumentException($"Unknown setting '{change.Path}'.");
         var value = ConvertValue(change.Value, member.ValueType);

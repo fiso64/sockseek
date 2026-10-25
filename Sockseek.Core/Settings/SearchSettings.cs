@@ -6,6 +6,8 @@ namespace Sockseek.Core.Settings;
 /// Controls how files are searched for and ranked.
 public class SearchSettings
 {
+    public const int DefaultMinShares = 2;
+
     // ── Conditions ────────────────────────────────────────────────────────────
 
     [SettingOption("--af", "--format", Member = "Formats", Parser = nameof(ParseFormats))]
@@ -138,6 +140,8 @@ public class SearchSettings
     [SettingOption("--fti", "--fails-to-ignore", Negate = true)]
     public int IgnoreOn { get; set; } = -2;
 
+    public int EffectiveIgnoreOn => Math.Min(IgnoreOn, DownrankOn);
+
     // ── Fast search ───────────────────────────────────────────────────────────
 
     [SettingOption("--fs", "--fast-search")]
@@ -181,11 +185,43 @@ public class SearchSettings
     [SettingOption("-g", "--aggregate")]
     public bool IsAggregate { get; set; }
 
-    /// Minimum number of distinct sharers required for a song to be included in aggregate results.
+    /// Minimum distinct sharers for aggregate results. Null uses the backend default.
     [SettingOption("--msa", "--min-shares-aggregate")]
-    public int MinSharesAggregate { get; set; } = 2;
+    public int? MinSharesAggregate { get; set; }
+
+    private int defaultMinSharesAggregate = DefaultMinShares;
+    public int EffectiveMinSharesAggregate => MinSharesAggregate ?? defaultMinSharesAggregate;
 
     /// Length tolerance (seconds) when grouping candidate songs into aggregate buckets.
     [SettingOption("--alt", "--aggregate-length-tol")]
     public int AggregateLengthTol { get; set; } = 3;
+
+    internal bool AudioConditionsIgnored { get; private set; }
+
+    /// Resolve execution context without rewriting configured conditions or defaults.
+    internal SearchSettings Resolve(bool artworkOnly, int defaultMinShares)
+    {
+        if (AudioConditionsIgnored == artworkOnly && defaultMinSharesAggregate == defaultMinShares)
+            return this;
+        var result = (SearchSettings)MemberwiseClone();
+        result.defaultMinSharesAggregate = defaultMinShares;
+        if (artworkOnly)
+        {
+            result.NecessaryCond = WithoutAudioConditions(NecessaryCond);
+            result.PreferredCond = WithoutAudioConditions(PreferredCond);
+            result.NecessaryFolderCond = new();
+            result.PreferredFolderCond = new();
+            result.StrictAlbumQuality = false;
+            result.AudioConditionsIgnored = true;
+        }
+        return result;
+    }
+
+    private static FileConditions WithoutAudioConditions(FileConditions conditions)
+    {
+        var result = conditions.WithoutAlbumTrackConditions();
+        result.LengthTolerance = null;
+        result.AcceptNoLength = true;
+        return result;
+    }
 }

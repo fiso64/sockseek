@@ -4,6 +4,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Cli;
 using Sockseek.Core;
+using Sockseek.Core.Jobs;
+using Sockseek.Core.Models;
 using Sockseek.Core.Settings;
 
 namespace Tests;
@@ -93,8 +95,64 @@ public class SettingsPatchTests
         RoundTrip(patch).ApplyTo(settings);
 
         Assert.AreEqual(AlbumArtOption.Most, settings.Output.AlbumArtOption);
-        Assert.AreNotEqual(true, settings.Search.NecessaryCond.StrictArtist);
-        Assert.IsNull(settings.Search.PreferredCond.MinBitrate);
+        Assert.IsTrue(settings.Search.NecessaryCond.StrictArtist);
+        Assert.AreEqual(200, settings.Search.PreferredCond.MinBitrate);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void AlbumArtOnly_IgnoresAudioConditionsRegardlessOfOptionOrder(bool artworkFirst)
+    {
+        string[] arguments = artworkFirst
+            ? ["--album-art-only", "--format", "flac", "--min-bitrate", "1000"]
+            : ["--format", "flac", "--min-bitrate", "1000", "--album-art-only"];
+        var settings = new DownloadSettings();
+        var patch = ConfigManager.CreateCliDownloadSettingsPatch(arguments)!;
+        Assert.IsTrue(patch.Operations.All(change => change.Operation == SettingOperation.Set));
+        RoundTrip(patch).ApplyTo(settings);
+
+        Assert.IsEmpty(settings.ResolveSearchSettings().NecessaryCond.Formats);
+        Assert.IsNull(settings.ResolveSearchSettings().NecessaryCond.MinBitrate);
+        CollectionAssert.AreEqual(new[] { "flac" }, settings.Search.NecessaryCond.Formats);
+        Assert.AreEqual(1000, settings.Search.NecessaryCond.MinBitrate);
+
+        RoundTrip(ConfigManager.CreateCliDownloadSettingsPatch(["--album-art-only=false"])!).ApplyTo(settings);
+        Assert.AreSame(settings.Search, settings.ResolveSearchSettings());
+        Assert.AreEqual(1000, settings.Search.NecessaryCond.MinBitrate);
+        Assert.AreEqual(AlbumArtOption.Default, settings.Output.AlbumArtOption);
+    }
+
+    [TestMethod]
+    public void IndexChoice_RoundTripsAutomaticAndExplicitValues()
+    {
+        var settings = new DownloadSettings();
+        RoundTrip(ConfigManager.CreateCliDownloadSettingsPatch(["--write-index"])!).ApplyTo(settings);
+        Assert.IsTrue(settings.Output.WriteIndex);
+        RoundTrip(ConfigManager.CreateCliDownloadSettingsPatch(["--no-write-index"])!).ApplyTo(settings);
+        Assert.IsFalse(settings.Output.WriteIndex);
+        RoundTrip(new SettingsPatch([new("Output.WriteIndex", null)])).ApplyTo(settings);
+        Assert.IsNull(settings.Output.WriteIndex);
+    }
+
+    [TestMethod]
+    [DataRow(null, 1)]
+    [DataRow(5, 5)]
+    public void MockBackend_UsesAnAutomaticDefaultAndPreservesExplicitShareRequirements(int? requested, int expected)
+    {
+        var file = new ConfigFile("none", []);
+        string[] arguments = requested is { } count
+            ? ["--mock-files-dir", ".", "--min-shares-aggregate", count.ToString()]
+            : ["--mock-files-dir", "."];
+        var invocation = ConfigManager.ParseInvocation(arguments);
+        var (engine, root, cli, _, _) = ConfigManager.BindAll(file, invocation);
+        var resolver = ConfigManager.CreateJobSettingsResolver(file, invocation, cli, engine: engine);
+        var jobSettings = resolver.Resolve(root, new SongJob(new SongQuery()));
+
+        Assert.AreEqual(requested, root.Search.MinSharesAggregate);
+        Assert.AreEqual(expected, root.ResolveSearchSettings().EffectiveMinSharesAggregate);
+        Assert.AreEqual(requested, jobSettings.Search.MinSharesAggregate);
+        Assert.AreEqual(expected, jobSettings.ResolveSearchSettings().EffectiveMinSharesAggregate);
     }
 
     [TestMethod]
@@ -143,6 +201,7 @@ public class SettingsPatchTests
     [TestMethod]
     [DataRow("Unknown.Value")]
     [DataRow("RuntimePathContext.ConfigDir")]
+    [DataRow("DefaultMinSharesAggregate")]
     [DataRow("AppliedAutoProfiles")]
     [DataRow("Extraction.IsAlbum")]
     [DataRow("PrintJobs")]
@@ -159,7 +218,7 @@ public class SettingsPatchTests
         var patch = new SettingsPatch([new("Output.WriteIndex", false), new("Extraction.Offset", -1)]);
 
         Assert.ThrowsExactly<ArgumentException>(() => RoundTrip(patch).ApplyTo(settings));
-        Assert.IsTrue(settings.Output.WriteIndex);
+        Assert.IsNull(settings.Output.WriteIndex);
     }
 
     [TestMethod]

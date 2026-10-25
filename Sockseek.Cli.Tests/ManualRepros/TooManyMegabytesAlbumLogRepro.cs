@@ -107,7 +107,6 @@ public static class TooManyMegabytesAlbumLogRepro
         settings.Output.ParentDir = outputDir;
         settings.Output.NameFormat = "{foldername}/{filename}";
         settings.Output.WriteIndex = false;
-        settings.Output.HasConfiguredIndex = true;
 
         var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings, client));
         var backend = new LocalCliBackend(engine, settings);

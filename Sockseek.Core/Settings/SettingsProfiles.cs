@@ -141,14 +141,6 @@ public static class SettingsNormalizer
 {
     public static void Normalize(DownloadSettings dl)
     {
-        dl.Search.IgnoreOn = Math.Min(dl.Search.IgnoreOn, dl.Search.DownrankOn);
-
-        if (dl.YouTube.DeletedOnly)
-            dl.YouTube.GetDeleted = true;
-
-        if (dl.Output.AlbumArtOnly && dl.Output.AlbumArtOption == AlbumArtOption.Default)
-            dl.Output.AlbumArtOption = AlbumArtOption.Largest;
-
         dl.Output.NameFormat = dl.Output.NameFormat.Trim();
     }
 
@@ -164,8 +156,6 @@ public static class SettingsNormalizer
             dl.Output.ParentDir = Directory.GetCurrentDirectory();
 
         dl.Output.ParentDir = Utils.GetFullPath(Utils.ExpandVariables(dl.Output.ParentDir, pathContext));
-        dl.Output.NameFormat = dl.Output.NameFormat.Trim();
-
         if (dl.Output.M3uFilePath != null)
             dl.Output.M3uFilePath = Utils.GetFullPath(Utils.ExpandVariables(dl.Output.M3uFilePath, pathContext));
         if (dl.Output.IndexFilePath != null)

@@ -37,6 +37,7 @@ public sealed class EngineSupervisor
         engineSettings = SettingsCloner.Clone(this.options.Engine);
         engineSettings.AutoReconnectAfterKickedFromServer = true;
         defaultDownloadSettings = SettingsCloner.Clone(this.options.DefaultDownload);
+        defaultDownloadSettings.DefaultMinSharesAggregate = engineSettings.DefaultMinSharesAggregate;
         var pathContext = new PathVariableContext(ConfigDir: this.options.ConfigDir);
         ServerJobSettingsResolver.NormalizeForServer(defaultDownloadSettings, pathContext);
         profileCatalog = this.options.Profiles ?? ProfileCatalog.Empty;
