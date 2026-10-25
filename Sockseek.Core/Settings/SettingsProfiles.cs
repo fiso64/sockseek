@@ -422,6 +422,8 @@ public static class SettingsCloner
         FastSearchDelay = source.FastSearchDelay,
         FastSearchMinUpSpeed = source.FastSearchMinUpSpeed,
         DesperateSearch = source.DesperateSearch,
+        FallbackLevel = source.FallbackLevel,
+        MaxFallbackAttempts = source.MaxFallbackAttempts,
         NoRemoveSpecialChars = source.NoRemoveSpecialChars,
         RemoveSingleCharSearchTerms = source.RemoveSingleCharSearchTerms,
         NoBrowseFolder = source.NoBrowseFolder,

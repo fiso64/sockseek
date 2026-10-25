@@ -114,6 +114,8 @@ public static class DownloadSettingsDeltaMapper
             case "Search.FastSearchDelay": settings.Search.FastSearchDelay = Int(op); break;
             case "Search.FastSearchMinUpSpeed": settings.Search.FastSearchMinUpSpeed = Double(op); break;
             case "Search.DesperateSearch": settings.Search.DesperateSearch = Bool(op); break;
+            case "Search.FallbackLevel": settings.Search.FallbackLevel = Int(op); break;
+            case "Search.MaxFallbackAttempts": settings.Search.MaxFallbackAttempts = Int(op); break;
             case "Search.NoRemoveSpecialChars": settings.Search.NoRemoveSpecialChars = Bool(op); break;
             case "Search.RemoveSingleCharSearchTerms": settings.Search.RemoveSingleCharSearchTerms = Bool(op); break;
             case "Search.NoBrowseFolder": settings.Search.NoBrowseFolder = Bool(op); break;
@@ -251,6 +253,8 @@ public static class DownloadSettingsDeltaMapper
         AddIntDiff(operations, "Search.FastSearchDelay", before.FastSearchDelay, after.FastSearchDelay);
         AddDoubleDiff(operations, "Search.FastSearchMinUpSpeed", before.FastSearchMinUpSpeed, after.FastSearchMinUpSpeed);
         AddBoolDiff(operations, "Search.DesperateSearch", before.DesperateSearch, after.DesperateSearch);
+        AddIntDiff(operations, "Search.FallbackLevel", before.FallbackLevel, after.FallbackLevel);
+        AddIntDiff(operations, "Search.MaxFallbackAttempts", before.MaxFallbackAttempts, after.MaxFallbackAttempts);
         AddBoolDiff(operations, "Search.NoRemoveSpecialChars", before.NoRemoveSpecialChars, after.NoRemoveSpecialChars);
         AddBoolDiff(operations, "Search.RemoveSingleCharSearchTerms", before.RemoveSingleCharSearchTerms, after.RemoveSingleCharSearchTerms);
         AddBoolDiff(operations, "Search.NoBrowseFolder", before.NoBrowseFolder, after.NoBrowseFolder);

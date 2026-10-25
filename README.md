@@ -955,8 +955,14 @@ sockseek daemon                 Start the HTTP/SignalR daemon instead of running
                                 could just be an uploader. Note that when downloading a
                                 YouTube playlist via URL, this option is set automatically
                                 on a per-track basis, so it is best kept off in that case.
--d, --desperate                 Tries harder to find the desired track by searching for the
-                                artist/album/title only, then filtering. (slower search)
+--fallback-level <0-3>          Try simpler searches when no results are found.
+                                0: normal searches only
+                                1: retry with the first artist, without feat./ft. credits
+                                2: also try each remaining artist (default)
+                                3: also try broader searches for artist/album/title only and
+                                relax length requirements.
+--max-fallback-attempts <num>   Maximum fallback searches when no results are found (def: 8)
+-d, --desperate                 Equivalent to --fallback-level 3
 --no-remove-special-chars       Keep special characters in Soulseek search terms
 --max-retries <num>             Max download retries per item (default: 10)
 --unknown-error-retries <num>   Extra retries for unknown/transient errors (default: 2)
@@ -1042,7 +1048,8 @@ sockseek daemon                 Start the HTTP/SignalR daemon instead of running
 --min-bitdepth <depth>          Minimum bit depth
 --max-bitdepth <depth>          Maximum bit depth
 --strict-title                  Require track title in filename
---strict-artist                 Require artist in path
+--strict-artist                 Require artist in path. When the input artist contains
+                                multiple artists split by ;, requires one only.
 --strict-album                  Require album in folder path
 --banned-users <list>           Comma-separated list of users to ignore
 --allowed-users <list>          Comma-separated list of users to allow

@@ -65,6 +65,15 @@ public class SearchSettings
 
     public bool DesperateSearch { get; set; }
 
+    /// Cumulative fallbacks: 0 normal, 1 first artist without credits,
+    /// 2 other artists individually, 3 legacy desperate searches.
+    /// DesperateSearch enables level 3 for compatibility.
+    public int FallbackLevel { get; set; } = 2;
+
+    /// Maximum additional network searches, after deduplication. Normal searches
+    /// (including their diacritic alternative) do not consume this budget.
+    public int MaxFallbackAttempts { get; set; } = 8;
+
     public bool NoRemoveSpecialChars { get; set; }
 
     public bool RemoveSingleCharSearchTerms { get; set; }
