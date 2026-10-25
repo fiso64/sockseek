@@ -34,7 +34,7 @@ public class SearchJob : Job
     public override SongQuery QueryTrack => NetworkQuery;
     protected override bool DefaultCanBeSkipped => false;
 
-    public SongQuery NetworkQuery => new() { Title = QueryText };
+    public SongQuery NetworkQuery { get; }
 
     public SearchJob(string queryText)
     {
@@ -42,18 +42,21 @@ public class SearchJob : Job
             throw new ArgumentException("queryText is required for search jobs");
 
         QueryText = queryText;
+        NetworkQuery = new SongQuery { Title = queryText };
     }
 
     public SearchJob(SongQuery query, bool includeFullResults = false)
     {
         QueryText = query.ToString(noInfo: true);
+        NetworkQuery = query;
         DefaultFileProjection = new FileSearchProjection(query, includeFullResults);
         DefaultAggregateTrackProjection = new AggregateTrackProjection(query);
     }
 
     public SearchJob(AlbumQuery query)
     {
-        QueryText = SearchResultProjector.AlbumNetworkQuery(query).ToString(noInfo: true);
+        NetworkQuery = SearchResultProjector.AlbumNetworkQuery(query);
+        QueryText = NetworkQuery.ToString(noInfo: true);
         DefaultFolderProjection = new FolderSearchProjection(query);
         DefaultAggregateAlbumProjection = new AggregateAlbumProjection(query);
     }

@@ -63,7 +63,9 @@ public sealed record SearchSettingsPatchDto(
     bool? ArtistMaybeWrong = null,
     bool? IsAggregate = null,
     int? MinSharesAggregate = null,
-    int? AggregateLengthTol = null);
+    int? AggregateLengthTol = null,
+    int? FallbackLevel = null,
+    int? MaxFallbackAttempts = null);
 
 public sealed record FileConditionsPatchDto(
     int? LengthTolerance = null,
@@ -234,6 +236,8 @@ public static class DownloadSettingsPatchDtoMapper
         if (patch.FastSearchDelay is { } fastSearchDelay) target.FastSearchDelay = fastSearchDelay;
         if (patch.FastSearchMinUpSpeed is { } fastSearchMinUpSpeed) target.FastSearchMinUpSpeed = fastSearchMinUpSpeed;
         if (patch.DesperateSearch is { } desperateSearch) target.DesperateSearch = desperateSearch;
+        if (patch.FallbackLevel is { } fallbackLevel) target.FallbackLevel = fallbackLevel;
+        if (patch.MaxFallbackAttempts is { } maxFallbackAttempts) target.MaxFallbackAttempts = maxFallbackAttempts;
         if (patch.NoRemoveSpecialChars is { } noRemoveSpecialChars) target.NoRemoveSpecialChars = noRemoveSpecialChars;
         if (patch.RemoveSingleCharSearchTerms is { } removeSingleCharSearchTerms) target.RemoveSingleCharSearchTerms = removeSingleCharSearchTerms;
         if (patch.NoBrowseFolder is { } noBrowseFolder) target.NoBrowseFolder = noBrowseFolder;
@@ -441,6 +445,8 @@ public static class DownloadSettingsPatchDtoMapper
                 case "Search.FastSearchDelay": Search.FastSearchDelay = Int(op); break;
                 case "Search.FastSearchMinUpSpeed": Search.FastSearchMinUpSpeed = Double(op); break;
                 case "Search.DesperateSearch": Search.DesperateSearch = Bool(op); break;
+                case "Search.FallbackLevel": Search.FallbackLevel = Int(op); break;
+                case "Search.MaxFallbackAttempts": Search.MaxFallbackAttempts = Int(op); break;
                 case "Search.NoRemoveSpecialChars": Search.NoRemoveSpecialChars = Bool(op); break;
                 case "Search.RemoveSingleCharSearchTerms": Search.RemoveSingleCharSearchTerms = Bool(op); break;
                 case "Search.NoBrowseFolder": Search.NoBrowseFolder = Bool(op); break;
@@ -618,10 +624,10 @@ public static class DownloadSettingsPatchDtoMapper
         public FileConditionsBuilder PreferredCond { get; } = new();
         public FolderConditionsBuilder NecessaryFolderCond { get; } = new();
         public FolderConditionsBuilder PreferredFolderCond { get; } = new();
-        public int? SearchTimeout, MaxStaleTime, DownrankOn, IgnoreOn, FastSearchDelay, MinSharesAggregate, AggregateLengthTol;
+        public int? SearchTimeout, MaxStaleTime, DownrankOn, IgnoreOn, FastSearchDelay, MinSharesAggregate, AggregateLengthTol, FallbackLevel, MaxFallbackAttempts;
         public double? FastSearchMinUpSpeed;
         public bool? FastSearch, DesperateSearch, NoRemoveSpecialChars, RemoveSingleCharSearchTerms, NoBrowseFolder, Relax, StrictAlbumQuality, ArtistMaybeWrong, IsAggregate;
-        public SearchSettingsPatchDto Build() => new(NecessaryCond.Build(), PreferredCond.Build(), NecessaryFolderCond.Build(), PreferredFolderCond.Build(), SearchTimeout, MaxStaleTime, DownrankOn, IgnoreOn, FastSearch, FastSearchDelay, FastSearchMinUpSpeed, DesperateSearch, NoRemoveSpecialChars, RemoveSingleCharSearchTerms, NoBrowseFolder, Relax, StrictAlbumQuality, ArtistMaybeWrong, IsAggregate, MinSharesAggregate, AggregateLengthTol);
+        public SearchSettingsPatchDto Build() => new(NecessaryCond.Build(), PreferredCond.Build(), NecessaryFolderCond.Build(), PreferredFolderCond.Build(), SearchTimeout, MaxStaleTime, DownrankOn, IgnoreOn, FastSearch, FastSearchDelay, FastSearchMinUpSpeed, DesperateSearch, NoRemoveSpecialChars, RemoveSingleCharSearchTerms, NoBrowseFolder, Relax, StrictAlbumQuality, ArtistMaybeWrong, IsAggregate, MinSharesAggregate, AggregateLengthTol, FallbackLevel, MaxFallbackAttempts);
     }
 
     private sealed class FileConditionsBuilder

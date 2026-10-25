@@ -90,11 +90,7 @@ public sealed class IncrementalAggregateTrackProjector
         if (search.Relax)
             return true;
 
-        var bucketQuery = bucket.Query;
-        return FileConditions.StrictString(bucketQuery.Title, query.Title, ignoreCase: true)
-            && (FileConditions.StrictString(bucketQuery.Artist, query.Artist, ignoreCase: true, boundarySkipWs: false)
-                || FileConditions.StrictString(bucketQuery.Title, query.Artist, ignoreCase: true, boundarySkipWs: false)
-                    && bucketQuery.Title.ContainsInBrackets(query.Artist, ignoreCase: true));
+        return QueryMatching.AggregateIdentityMatches(bucket.Query, query);
     }
 
     private sealed class AggregateTrackBucket

@@ -748,6 +748,17 @@ public static partial class ConfigManager
                 Download(d => d.Search.FastSearchMinUpSpeed = Double()); break;
             case "-d": case "--desperate":
                 Download(d => d.Search.DesperateSearch = Bool()); break;
+            case "--fallback-level":
+                Download(d =>
+                {
+                    int level = ParseIntAtLeast(value, flag, 0);
+                    if (level > 3)
+                        throw new ArgumentException($"{flag} must be between 0 and 3.");
+                    d.Search.FallbackLevel = level;
+                    d.Search.DesperateSearch = false;
+                }); break;
+            case "--max-fallback-attempts":
+                Download(d => d.Search.MaxFallbackAttempts = ParseIntAtLeast(value, flag, 0)); break;
             case "--nrsc": case "--no-remove-special-chars":
                 Download(d => d.Search.NoRemoveSpecialChars = Bool()); break;
             case "--rsc": case "--remove-special-chars":
@@ -1115,6 +1126,8 @@ public static partial class ConfigManager
             settings.Search.FastSearchDelay = intSeed;
             settings.Search.FastSearchMinUpSpeed = doubleSeed;
             settings.Search.DesperateSearch = boolSeed;
+            settings.Search.FallbackLevel = intSeed;
+            settings.Search.MaxFallbackAttempts = intSeed;
             settings.Search.NoRemoveSpecialChars = boolSeed;
             settings.Search.RemoveSingleCharSearchTerms = boolSeed;
             settings.Search.NoBrowseFolder = boolSeed;

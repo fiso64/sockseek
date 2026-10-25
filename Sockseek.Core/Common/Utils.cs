@@ -504,15 +504,16 @@ public static partial class Utils
         if (str.Length == 0)
             return str;
 
-        int ftIndex = str.IndexOf("feat.", StringComparison.OrdinalIgnoreCase);
-        if (ftIndex == -1)
-            ftIndex = str.IndexOf("ft.", StringComparison.OrdinalIgnoreCase);
+        int ftIndex = FeatureCreditIndex(str);
         if (ftIndex == -1)
             return str;
 
         if (removeParentheses && ftIndex > 0)
         {
-            char closeChar = str[ftIndex - 1] switch
+            int openIdx = ftIndex - 1;
+            while (openIdx > 0 && char.IsWhiteSpace(str[openIdx]))
+                openIdx--;
+            char closeChar = str[openIdx] switch
             {
                 '(' => ')',
                 '[' => ']',
@@ -521,22 +522,48 @@ public static partial class Utils
 
             if (closeChar != '\0')
             {
-                int openIdx = ftIndex - 1;
                 int closeIdx = str.IndexOf(closeChar, ftIndex);
                 if (closeIdx != -1)
                 {
+                    int versionIdx = str.IndexOf(" - ", ftIndex, closeIdx - ftIndex, StringComparison.Ordinal);
+                    if (versionIdx >= 0)
+                        return str.Remove(ftIndex, versionIdx + 3 - ftIndex).RemoveFt(removeParentheses);
                     int add = 0;
                     if (openIdx > 0 && closeIdx < str.Length - 1 && char.IsWhiteSpace(str[openIdx - 1]) && char.IsWhiteSpace(str[closeIdx + 1]))
                         add = 1;
-                    return str.Remove(openIdx, closeIdx - openIdx + 1 + add).TrimEnd();
+                    return str.Remove(openIdx, closeIdx - openIdx + 1 + add).TrimEnd().RemoveFt(removeParentheses);
                 }
             }
         }
 
         var separatorIdx = str.IndexOf(" - ", ftIndex);
         return separatorIdx != -1
-            ? str.Remove(ftIndex, separatorIdx - ftIndex + 1).TrimEnd()
+            ? str.Remove(ftIndex, separatorIdx - ftIndex + 1).TrimEnd().RemoveFt(removeParentheses)
             : str[..ftIndex].TrimEnd();
+    }
+
+    internal static bool HasFeatureCredit(string str) => FeatureCreditIndex(str) >= 0;
+    internal static bool HasFeatureCredit(ReadOnlySpan<char> str) => FeatureCreditIndex(str) >= 0;
+
+    private static int FeatureCreditIndex(ReadOnlySpan<char> str)
+    {
+        int offset = 0;
+        while (offset < str.Length)
+        {
+            int found = str[offset..].IndexOfAny('f', 'F');
+            if (found < 0)
+                return -1;
+            int i = offset + found;
+            offset = i + 1;
+            if (i > 0 && !char.IsWhiteSpace(str[i - 1]) && str[i - 1] is not '(' and not '[')
+                continue;
+            var suffix = str[i..];
+            int markerLength = suffix.StartsWith("feat.", StringComparison.OrdinalIgnoreCase) ? 5
+                : suffix.StartsWith("ft.", StringComparison.OrdinalIgnoreCase) ? 3 : 0;
+            if (markerLength > 0 && (suffix.Length == markerLength || char.IsWhiteSpace(suffix[markerLength])))
+                return i;
+        }
+        return -1;
     }
 
     public static string RemoveConsecutiveWs(this string input)
