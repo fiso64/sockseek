@@ -147,6 +147,10 @@ public static partial class Help
 
     --from-html <path>              Read Bandcamp page HTML from a local file
 
+  SoundCloud Options
+
+    --soundcloud-token <token>      SoundCloud OAuth token
+
   CSV File Options
 
     --artist-col <name>             Artist column name
@@ -347,6 +351,23 @@ Input types
       count, and no maximum track count unless --extract-max-track-count is set.
     - A /collection/... URL is treated as a list of albums, downloading each release contained
       within the collection.
+
+  SoundCloud
+    A SoundCloud track or playlist URL (https://soundcloud.com/<user>/<track> or
+    https://soundcloud.com/<user>/sets/<playlist>). Public items and private playlists of the
+    account the token belongs to are supported. Requires a SoundCloud OAuth token, passed with
+    --soundcloud-token, also for public items.
+    When a track has no publisher artist, the artist is taken from titles like ""Artist - Title"",
+    falling back to the uploader's name. A leading ""Artist - "" that repeats the track's artist is
+    removed from the title.
+
+    Getting the OAuth token
+      1. Log in to https://soundcloud.com in your browser.
+      2. Open the developer tools (F12) and go to the Storage tab (Application in Chrome).
+      3. Under Cookies > https://soundcloud.com, copy the value of oauth_token.
+      Pass it with --soundcloud-token, or put it in your config file:
+
+      soundcloud-token = <your-token>
 
   Soulseek Link
     A direct path starting with slsk://. Paths ending in / are album/folder downloads; file paths
@@ -574,7 +595,7 @@ Configuration
     The following operators are supported for use in profile-cond: &&, ||, ==, !=, !{bool}. The
     following variables are available:
 
-    input-type        (""youtube""|""csv""|""string""|""bandcamp""|""spotify""|""list""|""soulseek""|""musicbrainz""|""none"")
+    input-type        (""youtube""|""csv""|""string""|""bandcamp""|""spotify""|""list""|""soulseek""|""musicbrainz""|""soundcloud""|""none"")
     download-mode     (""normal""|""song""|""aggregate""|""album""|""album-aggregate"")
     album             (bool)
     aggregate         (bool)

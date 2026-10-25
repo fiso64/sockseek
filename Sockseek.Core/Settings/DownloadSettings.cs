@@ -26,6 +26,7 @@ public class DownloadSettings
     public YtDlpSettings      YtDlp      { get; init; } = new();
     public CsvSettings        Csv        { get; init; } = new();
     public BandcampSettings   Bandcamp   { get; init; } = new();
+    public SoundCloudSettings SoundCloud { get; init; } = new();
 
     // ── Top-level mode flags ──────────────────────────────────────────────────
 

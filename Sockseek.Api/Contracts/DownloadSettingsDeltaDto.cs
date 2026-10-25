@@ -66,6 +66,7 @@ public static class DownloadSettingsDeltaMapper
         AddYtDlpDiffs(operations, baseline.YtDlp, effective.YtDlp);
         AddCsvDiffs(operations, baseline.Csv, effective.Csv);
         AddBandcampDiffs(operations, baseline.Bandcamp, effective.Bandcamp);
+        AddSoundCloudDiffs(operations, baseline.SoundCloud, effective.SoundCloud);
 
         if (baseline.PrintOption != effective.PrintOption)
             operations.Add(Set("PrintOption", effective.PrintOption));
@@ -211,6 +212,7 @@ public static class DownloadSettingsDeltaMapper
             case "Csv.TimeUnit": settings.Csv.TimeUnit = op.StringValue ?? ""; break;
             case "Csv.YtParse": settings.Csv.YtParse = Bool(op); break;
             case "Bandcamp.HtmlFromFile": settings.Bandcamp.HtmlFromFile = op.StringValue; break;
+            case "SoundCloud.AuthToken": settings.SoundCloud.AuthToken = op.StringValue; break;
             case "PrintOption": settings.PrintOption = op.PrintOptionValue ?? settings.PrintOption; break;
             default:
                 throw new ArgumentException($"Unknown download setting operation path '{op.Path}'.");
@@ -365,6 +367,9 @@ public static class DownloadSettingsDeltaMapper
 
     private static void AddBandcampDiffs(List<DownloadSettingOperationDto> operations, BandcampSettings before, BandcampSettings after)
         => AddStringDiff(operations, "Bandcamp.HtmlFromFile", before.HtmlFromFile, after.HtmlFromFile);
+
+    private static void AddSoundCloudDiffs(List<DownloadSettingOperationDto> operations, SoundCloudSettings before, SoundCloudSettings after)
+        => AddStringDiff(operations, "SoundCloud.AuthToken", before.AuthToken, after.AuthToken);
 
     private static void AddStringDiff(List<DownloadSettingOperationDto> operations, string path, string? before, string? after)
     {

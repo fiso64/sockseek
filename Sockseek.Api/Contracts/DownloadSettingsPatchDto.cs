@@ -21,6 +21,7 @@ public sealed record DownloadSettingsPatchDto(
     YtDlpSettingsPatchDto? YtDlp = null,
     CsvSettingsPatchDto? Csv = null,
     BandcampSettingsPatchDto? Bandcamp = null,
+    SoundCloudSettingsPatchDto? SoundCloud = null,
     PrintOption? PrintOption = null);
 
 public sealed record OutputSettingsPatchDto(
@@ -152,6 +153,9 @@ public sealed record CsvSettingsPatchDto(
 public sealed record BandcampSettingsPatchDto(
     string? HtmlFromFile = null);
 
+public sealed record SoundCloudSettingsPatchDto(
+    string? AuthToken = null);
+
 public static class DownloadSettingsPatchDtoMapper
 {
     public static void ApplyTo(DownloadSettings settings, DownloadSettingsPatchDto? patch)
@@ -170,6 +174,7 @@ public static class DownloadSettingsPatchDtoMapper
         ApplyYtDlp(settings.YtDlp, patch.YtDlp);
         ApplyCsv(settings.Csv, patch.Csv);
         ApplyBandcamp(settings.Bandcamp, patch.Bandcamp);
+        ApplySoundCloud(settings.SoundCloud, patch.SoundCloud);
 
         if (patch.PrintOption is { } printOption) settings.PrintOption = printOption;
     }
@@ -363,6 +368,12 @@ public static class DownloadSettingsPatchDtoMapper
         if (patch.HtmlFromFile is { } htmlFromFile) target.HtmlFromFile = htmlFromFile;
     }
 
+    private static void ApplySoundCloud(SoundCloudSettings target, SoundCloudSettingsPatchDto? patch)
+    {
+        if (patch == null) return;
+        if (patch.AuthToken is { } authToken) target.AuthToken = authToken;
+    }
+
     private static List<T> ApplyTo<T>(this CollectionPatchDto<T> patch, List<T>? target)
     {
         target ??= [];
@@ -401,6 +412,7 @@ public static class DownloadSettingsPatchDtoMapper
         private YtDlpBuilder? ytDlp;
         private CsvBuilder? csv;
         private BandcampBuilder? bandcamp;
+        private SoundCloudBuilder? soundCloud;
         private PrintOption? printOption;
 
         public void Add(DownloadSettingOperationDto op)
@@ -527,6 +539,7 @@ public static class DownloadSettingsPatchDtoMapper
                 case "Csv.TimeUnit": Csv.TimeUnit = op.StringValue ?? ""; break;
                 case "Csv.YtParse": Csv.YtParse = Bool(op); break;
                 case "Bandcamp.HtmlFromFile": Bandcamp.HtmlFromFile = op.StringValue; break;
+                case "SoundCloud.AuthToken": SoundCloud.AuthToken = op.StringValue; break;
                 case "PrintOption": printOption = op.PrintOptionValue; break;
                 default:
                     throw new ArgumentException($"Unknown download setting operation path '{op.Path}'.");
@@ -547,6 +560,7 @@ public static class DownloadSettingsPatchDtoMapper
                 ytDlp?.Build(),
                 csv?.Build(),
                 bandcamp?.Build(),
+                soundCloud?.Build(),
                 printOption);
 
             return result == new DownloadSettingsPatchDto() ? null : result;
@@ -563,6 +577,7 @@ public static class DownloadSettingsPatchDtoMapper
         private YtDlpBuilder YtDlp => ytDlp ??= new();
         private CsvBuilder Csv => csv ??= new();
         private BandcampBuilder Bandcamp => bandcamp ??= new();
+        private SoundCloudBuilder SoundCloud => soundCloud ??= new();
     }
 
     private sealed class OutputBuilder
@@ -696,6 +711,12 @@ public static class DownloadSettingsPatchDtoMapper
     {
         public string? HtmlFromFile;
         public BandcampSettingsPatchDto Build() => new(HtmlFromFile);
+    }
+
+    private sealed class SoundCloudBuilder
+    {
+        public string? AuthToken;
+        public SoundCloudSettingsPatchDto Build() => new(AuthToken);
     }
 
     private static CollectionPatchDto<string> Collection(CollectionPatchDto<string>? current, DownloadSettingOperationDto op)

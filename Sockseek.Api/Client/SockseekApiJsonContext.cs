@@ -107,6 +107,7 @@ namespace Sockseek.Api;
 [JsonSerializable(typeof(YtDlpSettingsPatchDto))]
 [JsonSerializable(typeof(CsvSettingsPatchDto))]
 [JsonSerializable(typeof(BandcampSettingsPatchDto))]
+[JsonSerializable(typeof(SoundCloudSettingsPatchDto))]
 [JsonSerializable(typeof(CollectionPatchDto<string>))]
 [JsonSerializable(typeof(CollectionPatchDto<RegexRuleDto>))]
 

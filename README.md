@@ -117,6 +117,7 @@ Sockseek searches the Soulseek P2P network. Sources like Spotify and YouTube are
   - [Spotify](#spotify)
   - [Bandcamp](#bandcamp)
   - [MusicBrainz](#musicbrainz)
+  - [SoundCloud](#soundcloud)
   - [Soulseek Link](#soulseek-link)
   - [Search string](#search-string)
   - [List file](#list-file)
@@ -211,6 +212,29 @@ A MusicBrainz.org URL for a release, release group, or collection.
 - A `/release/...` URL is treated as a single album download with a strict track count.
 - A `/release-group/...` URL is also treated as a single album download. It tries to pick the most common version of the album. Sets the minimum album track count to the chosen release track count, and no maximum track count unless `--extract-max-track-count` is set.
 - A `/collection/...` URL is treated as a list of albums, downloading each release contained within the collection.
+
+### SoundCloud
+
+A SoundCloud track or playlist URL (`https://soundcloud.com/<user>/<track>` or `https://soundcloud.com/<user>/sets/<playlist>`). Public items and private playlists of the account the token belongs to are supported. Requires a SoundCloud OAuth token, passed with `--soundcloud-token`, also for public items.
+
+When a track has no publisher artist, the artist is taken from titles like "Artist - Title", falling back to the uploader's name. A leading "Artist - " that repeats the track's artist is removed from the title.
+
+#### Getting the OAuth token
+
+<details>
+  <summary>Click to expand</summary>
+
+1. Log in to https://soundcloud.com in your browser.
+2. Open the developer tools (F12) and go to the Storage tab (Application in Chrome).
+3. Under Cookies > https://soundcloud.com, copy the value of `oauth_token`.
+
+Pass it with `--soundcloud-token`, or put it in your config file:
+
+```
+soundcloud-token = <your-token>
+```
+
+</details>
 
 ### Soulseek Link
 
@@ -386,7 +410,7 @@ The following operators are supported for use in profile-cond: &&, ||, ==, !=, !
 The following variables are available:
 
 ```
-input-type        ("youtube"|"csv"|"string"|"bandcamp"|"spotify"|"list"|"soulseek"|"musicbrainz"|"none")
+input-type        ("youtube"|"csv"|"string"|"bandcamp"|"spotify"|"list"|"soulseek"|"musicbrainz"|"soundcloud"|"none")
 download-mode     ("normal"|"song"|"aggregate"|"album"|"album-aggregate")
 album             (bool)
 aggregate         (bool)
@@ -979,6 +1003,12 @@ sockseek daemon                 Start the HTTP/SignalR daemon instead of running
 
 ```
 --from-html <path>              Read Bandcamp page HTML from a local file
+```
+
+#### SoundCloud Options
+
+```
+--soundcloud-token <token>      SoundCloud OAuth token
 ```
 
 #### CSV File Options

@@ -907,6 +907,8 @@ public static partial class ConfigManager
                 break;
             case "--from-html":
                 Download(d => d.Bandcamp.HtmlFromFile = value); break;
+            case "--soundcloud-token":
+                Download(d => d.SoundCloud.AuthToken = value); break;
 
             default:
                 if (probe != null)
@@ -1172,6 +1174,7 @@ public static partial class ConfigManager
             settings.Csv.TimeUnit = stringSeed;
             settings.Csv.YtParse = boolSeed;
             settings.Bandcamp.HtmlFromFile = stringSeed;
+            settings.SoundCloud.AuthToken = stringSeed;
 
             return settings;
         }

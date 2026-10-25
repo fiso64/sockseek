@@ -381,6 +381,7 @@ public static class SettingsCloner
         YtDlp = Clone(source.YtDlp),
         Csv = Clone(source.Csv),
         Bandcamp = Clone(source.Bandcamp),
+        SoundCloud = Clone(source.SoundCloud),
         PrintOption = source.PrintOption,
         AppliedAutoProfiles = [.. source.AppliedAutoProfiles],
         RuntimePathContext = source.RuntimePathContext,
@@ -517,5 +518,10 @@ public static class SettingsCloner
     public static BandcampSettings Clone(BandcampSettings source) => new()
     {
         HtmlFromFile = source.HtmlFromFile,
+    };
+
+    public static SoundCloudSettings Clone(SoundCloudSettings source) => new()
+    {
+        AuthToken = source.AuthToken,
     };
 }

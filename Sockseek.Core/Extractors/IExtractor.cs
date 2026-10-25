@@ -37,6 +37,7 @@ namespace Sockseek.Core.Extractors;
             new Entry<SpotifyExtractor>    (InputType.Spotify,     dl => new SpotifyExtractor(dl.Spotify)),
             new Entry<BandcampExtractor>   (InputType.Bandcamp,    dl => new BandcampExtractor(dl.Bandcamp)),
             new Entry<MusicBrainzExtractor>(InputType.MusicBrainz, _ => new MusicBrainzExtractor()),
+            new Entry<SoundCloudExtractor> (InputType.SoundCloud,  dl => new SoundCloudExtractor(dl.SoundCloud)),
             new Entry<SoulseekExtractor>   (InputType.Soulseek,    _ => new SoulseekExtractor()),
             new Entry<StringExtractor>     (InputType.String,      _ => new StringExtractor()),
             new Entry<ListExtractor>       (InputType.List,        dl => new ListExtractor(dl.RuntimePathContext)), // never reached without inputType=List hint

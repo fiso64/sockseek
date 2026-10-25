@@ -2040,6 +2040,16 @@
               }
             ]
           },
+          "soundCloud": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SoundCloudSettingsPatchDto"
+              }
+            ]
+          },
           "printOption": {
             "oneOf": [
               {
@@ -4916,6 +4926,17 @@
           },
           "isReady": {
             "type": "boolean"
+          }
+        }
+      },
+      "SoundCloudSettingsPatchDto": {
+        "type": "object",
+        "properties": {
+          "authToken": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
