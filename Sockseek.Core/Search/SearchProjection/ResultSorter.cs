@@ -150,11 +150,11 @@ public static partial class ResultSorter
     internal sealed class SortKeyContext
     {
         private readonly Lazy<Dictionary<(string Username, string Filename), InferredResultGroup>>? infQueriesAndCounts;
-        private readonly string strictTitle;
-        private readonly string strictArtist;
+        private readonly string[] strictTitle;
+        private readonly string[] strictArtist;
         private readonly string strictAlbum;
-        private readonly string fuzzyTitle;
-        private readonly string fuzzyArtist;
+        private readonly string[] fuzzyTitle;
+        private readonly string[] fuzzyArtist;
         private readonly string fuzzyAlbum;
         private readonly FileConditions necessaryCond;
         private readonly FileConditions preferredCond;
@@ -188,11 +188,13 @@ public static partial class ResultSorter
                 ? new Lazy<Dictionary<(string Username, string Filename), InferredResultGroup>>(
                     () => GetInferredQueries(resultList!, query, search))
                 : null;
-            strictTitle = FileConditions.StrictStringPreprocess(query.Title, removeSlash: true);
-            strictArtist = FileConditions.StrictStringPreprocess(query.Artist, removeSlash: true);
+            var titles = QueryMatching.Titles(query.Title);
+            var artists = QueryMatching.Artists(query.Artist);
+            strictTitle = titles.Select(value => FileConditions.StrictStringPreprocess(value, removeSlash: true)).ToArray();
+            strictArtist = artists.Select(value => FileConditions.StrictStringPreprocess(value, removeSlash: true)).ToArray();
             strictAlbum = FileConditions.StrictStringPreprocess(query.Album, removeSlash: true);
-            fuzzyTitle = FileConditions.FuzzyPhrasePreprocess(query.Title);
-            fuzzyArtist = FileConditions.FuzzyPhrasePreprocess(query.Artist);
+            fuzzyTitle = titles.Select(value => FileConditions.FuzzyPhrasePreprocess(value)).ToArray();
+            fuzzyArtist = artists.Select(value => FileConditions.FuzzyPhrasePreprocess(value)).ToArray();
             fuzzyAlbum = FileConditions.FuzzyPhrasePreprocess(query.Album);
             necessaryCond = ignoreStringSortConditions
                 ? WithoutStringConditions(search.NecessaryCond)
@@ -231,17 +233,17 @@ public static partial class ResultSorter
             string getFuzzyDirectoryName() => fuzzyDirectoryName ??= FuzzyDirectoryName(filename);
 
             bool strictTitleMatch = ignoreStringSortConditions || !preferredCond.StrictTitle || strictTitle.Length == 0
-                || StrictStringPrepared(getStrictFilenameNoExt(), strictTitle);
+                || FileConditions.StringMatchesAnyPrepared(getStrictFilenameNoExt(), strictTitle);
             bool fuzzyTitleMatch = ignoreStringSortConditions || !preferredCond.StrictTitle || fuzzyTitle.Length == 0 || strictTitleMatch
-                || FuzzyPhrasePrepared(getFuzzyFilenameNoExt(), fuzzyTitle);
+                || FileConditions.StringMatchesAnyPrepared(getFuzzyFilenameNoExt(), fuzzyTitle, boundarySkipWs: false);
             bool strictAlbumMatch = ignoreStringSortConditions || !preferredCond.StrictAlbum || strictAlbum.Length == 0
                 || StrictStringPrepared(getStrictDirectoryName(), strictAlbum);
             bool fuzzyAlbumMatch = ignoreStringSortConditions || !preferredCond.StrictAlbum || fuzzyAlbum.Length == 0 || strictAlbumMatch
                 || FuzzyPhrasePrepared(getFuzzyDirectoryName(), fuzzyAlbum);
             bool strictArtistMatch = ignoreStringSortConditions || !preferredCond.StrictArtist || strictArtist.Length == 0
-                || StrictStringPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false);
+                || FileConditions.StringMatchesAnyPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false);
             bool fuzzyArtistMatch = ignoreStringSortConditions || !preferredCond.StrictArtist || fuzzyArtist.Length == 0 || strictArtistMatch
-                || FuzzyPhrasePrepared(getFuzzyFullFilename(), fuzzyArtist, boundarySkipWs: false);
+                || FileConditions.StringMatchesAnyPrepared(getFuzzyFullFilename(), fuzzyArtist, boundarySkipWs: false);
 
             bool lengthToleranceMatch = preferredCond.LengthToleranceSatisfies(file, Query.Length);
             bool formatMatch = preferredCond.FormatSatisfies(filename);
@@ -278,9 +280,9 @@ public static partial class ResultSorter
                     && bitDepthMatch,
                 response.HasFreeUploadSlot,
                 response.UploadSpeed / 1024 / 650,
-                ignoreStringSortConditions || AlbumMode || strictTitle.Length == 0 || StrictStringPrepared(getStrictFullFilename(), strictTitle),
+                ignoreStringSortConditions || AlbumMode || strictTitle.Length == 0 || FileConditions.StringMatchesAnyPrepared(getStrictFullFilename(), strictTitle),
                 ignoreStringSortConditions || !AlbumMode || strictAlbum.Length == 0 || StrictStringPrepared(getStrictDirectoryName(), strictAlbum),
-                ignoreStringSortConditions || strictArtist.Length == 0 || StrictStringPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false),
+                ignoreStringSortConditions || strictArtist.Length == 0 || FileConditions.StringMatchesAnyPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false),
                 UseInfer ? getInferred().Count : 0,
                 response.UploadSpeed / 1024 / 350,
                 Search.AudioConditionsIgnored ? 0 : (file.BitRate ?? 0) / 80,

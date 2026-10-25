@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Sockseek.Core.Services;
 using Sockseek.Core.Models;
 
@@ -157,6 +158,26 @@ public class SearchSettings
 
     [SettingOption("-d", "--desperate")]
     public bool DesperateSearch { get; set; }
+
+    /// Fallbacks: 0 normal, 1 first artist without credits, 2 other artists,
+    /// 3 legacy desperate searches. DesperateSearch also enables level 3.
+    [Range(0, 3)]
+    public int FallbackLevel { get; set; } = 2;
+
+    [SettingOption("--fallback-level")]
+    private static void ConfigureFallbackLevel(SettingWriter changes, string value)
+    {
+        int level = SettingParser.Integer(value, changes.Flag);
+        if (level is < 0 or > 3)
+            throw new Exception($"Input error: Option '{changes.Flag}' must be between 0 and 3");
+        changes.Set(nameof(FallbackLevel), level);
+        changes.Set(nameof(DesperateSearch), false);
+    }
+
+    /// Maximum additional searches after deduplication; normal searches do not count.
+    [SettingOption("--max-fallback-attempts")]
+    [Range(0, int.MaxValue)]
+    public int MaxFallbackAttempts { get; set; } = 8;
 
     [SettingOption("--nrsc", "--no-remove-special-chars")]
     [SettingOption("--rsc", "--remove-special-chars", FixedValue = "false")]

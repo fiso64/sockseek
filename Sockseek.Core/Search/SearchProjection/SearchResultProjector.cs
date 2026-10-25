@@ -58,10 +58,7 @@ public static partial class SearchResultProjector
         if (!search.Relax)
         {
             equivalentFiles = equivalentFiles
-                .Where(x => FileConditions.StrictString(x.query.Title, query.Title, ignoreCase: true)
-                    && (FileConditions.StrictString(x.query.Artist, query.Artist, ignoreCase: true, boundarySkipWs: false)
-                        || FileConditions.StrictString(x.query.Title, query.Artist, ignoreCase: true, boundarySkipWs: false)
-                            && x.query.Title.ContainsInBrackets(query.Artist, ignoreCase: true)))
+                .Where(x => QueryMatching.AggregateIdentityMatches(x.query, query))
                 .ToList();
         }
 

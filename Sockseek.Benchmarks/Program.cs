@@ -13,4 +13,11 @@ if (args.Length > 0 && args[0].Equals("capture", StringComparison.OrdinalIgnoreC
     return;
 }
 
+// Run matching benchmarks without discovering optional real-capture datasets.
+if (args.Length > 0 && args[0].Equals("matching", StringComparison.OrdinalIgnoreCase))
+{
+    BenchmarkSwitcher.FromTypes([typeof(MultiArtistMatchingBenchmarks)]).Run(args[1..]);
+    return;
+}
+
 BenchmarkSwitcher.FromAssembly(typeof(ConfigurationBenchmarks).Assembly).Run(args);
