@@ -745,9 +745,9 @@ public sealed class EngineStateStore
                 mutation.CsvColumnCount,
                 mutation.TrackUri);
 
-    private static DownloadSettingsPatchDto? SettingsDelta(DownloadSettings? inheritedConfig, DownloadSettings? effectiveConfig)
+    private static SettingsPatch? SettingsDelta(DownloadSettings? inheritedConfig, DownloadSettings? effectiveConfig)
         => inheritedConfig != null && effectiveConfig != null
-            ? DownloadSettingsPatchDtoMapper.FromDifference(inheritedConfig, effectiveConfig)
+            ? SettingsPatch.Difference(inheritedConfig, effectiveConfig)
             : null;
 
     private static DownloadBehaviorPolicyDto ToDownloadBehaviorPolicyDto(DownloadBehaviorPolicy policy)

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Cli;
@@ -30,15 +31,15 @@ public class SearchFallbackConfigTests
         Assert.AreEqual(int.Parse(level), clone.Search.FallbackLevel);
         Assert.AreEqual(4, clone.Search.MaxFallbackAttempts);
 
-        var delta = DownloadSettingsDeltaMapper.FromDifference(new DownloadSettings(), settings);
+        var delta = SettingsPatch.Difference(new DownloadSettings(), settings)!;
         var remote = new DownloadSettings();
-        DownloadSettingsDeltaMapper.ApplyTo(remote, delta);
+        RoundTrip(delta).ApplyTo(remote);
         Assert.AreEqual(settings.Search.FallbackLevel, remote.Search.FallbackLevel);
         Assert.AreEqual(4, remote.Search.MaxFallbackAttempts);
 
-        var patch = DownloadSettingsPatchDtoMapper.FromDifference(new DownloadSettings(), settings);
+        var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--fallback-level", level, "--max-fallback-attempts", "4"])!;
         remote = new DownloadSettings();
-        DownloadSettingsPatchDtoMapper.ApplyTo(remote, patch);
+        RoundTrip(patch).ApplyTo(remote);
         Assert.AreEqual(settings.Search.FallbackLevel, remote.Search.FallbackLevel);
         Assert.AreEqual(4, remote.Search.MaxFallbackAttempts);
     }
@@ -50,6 +51,14 @@ public class SearchFallbackConfigTests
         Assert.AreEqual(0, search.FallbackLevel);
         Assert.IsFalse(search.DesperateSearch);
         Assert.IsTrue(Bind("--fallback-level", "0", "--desperate").Search.DesperateSearch);
+
+        var remote = new DownloadSettings();
+        RoundTrip(ConfigManager.CreateCliDownloadSettingsPatch(["--desperate", "--fallback-level", "0"])!).ApplyTo(remote);
+        Assert.AreEqual(0, remote.Search.FallbackLevel);
+        Assert.IsFalse(remote.Search.DesperateSearch);
+        remote = new DownloadSettings();
+        RoundTrip(ConfigManager.CreateCliDownloadSettingsPatch(["--fallback-level", "0", "--desperate"])!).ApplyTo(remote);
+        Assert.IsTrue(remote.Search.DesperateSearch);
     }
 
     [TestMethod]
@@ -58,4 +67,19 @@ public class SearchFallbackConfigTests
     [DataRow("--max-fallback-attempts", "-1")]
     public void InvalidLimits_AreRejected(string flag, string value)
         => Assert.Throws<Exception>(() => Bind(flag, value));
+
+    [TestMethod]
+    [DataRow("Search.FallbackLevel", -1)]
+    [DataRow("Search.FallbackLevel", 4)]
+    [DataRow("Search.MaxFallbackAttempts", -1)]
+    public void RemotePatches_RejectInvalidLimits(string path, int value)
+    {
+        var patch = RoundTrip(new SettingsPatch([new(path, value)]));
+        Assert.ThrowsExactly<ArgumentException>(() => patch.Validate<DownloadSettings>());
+    }
+
+    private static SettingsPatch RoundTrip(SettingsPatch patch)
+        => JsonSerializer.Deserialize<SettingsPatch>(
+            JsonSerializer.Serialize(patch, SockseekApiJson.CreateSerializerOptions()),
+            SockseekApiJson.CreateSerializerOptions())!;
 }

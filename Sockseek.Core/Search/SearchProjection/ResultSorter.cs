@@ -95,7 +95,7 @@ public static partial class ResultSorter
         SortKeyContext keyContext,
         int originalIndex)
     {
-        if (keyContext.UserSuccessCounts.GetValueOrDefault(response.Username, 0) <= keyContext.Search.IgnoreOn)
+        if (keyContext.UserSuccessCounts.GetValueOrDefault(response.Username, 0) <= keyContext.Search.EffectiveIgnoreOn)
             return null;
 
         return new SortEntry(
@@ -256,7 +256,7 @@ public static partial class ResultSorter
                 UserSuccessCounts.GetValueOrDefault(response.Username, 0) > Search.DownrankOn,
                 ConditionSatisfactionPolicy.SearchFileSatisfies(necessaryCond, response, file, Query),
                 preferredUserConditionsMet,
-                (file.Length != null && file.Length > 0) || Search.PreferredCond.AcceptNoLength,
+                Search.AudioConditionsIgnored || (file.Length != null && file.Length > 0) || preferredCond.AcceptNoLength,
                 !UseBracketCheck || CheapBracketCheck(queryTitleAllowsBrackets, filename),
                 strictTitleMatch,
                 fuzzyTitleMatch,
@@ -285,7 +285,7 @@ public static partial class ResultSorter
                 ignoreStringSortConditions || strictArtist.Length == 0 || FileConditions.StringMatchesAnyPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false),
                 UseInfer ? getInferred().Count : 0,
                 response.UploadSpeed / 1024 / 350,
-                (file.BitRate ?? 0) / 80,
+                Search.AudioConditionsIgnored ? 0 : (file.BitRate ?? 0) / 80,
                 StableTieBreaker(response.Username, filename));
         }
 

@@ -53,7 +53,7 @@ public sealed class SubmissionOptionsStore
 
     public void ApplyTo(DownloadSettings settings, SubmissionOptionsDto? options, Guid jobId)
     {
-        DownloadSettingsPatchDtoMapper.ApplyTo(settings, options?.DownloadSettings);
+        options?.DownloadSettings?.ApplyTo(settings);
 
         if (!string.IsNullOrWhiteSpace(options?.OutputParentDir))
             settings.Output.ParentDir = options.OutputParentDir;

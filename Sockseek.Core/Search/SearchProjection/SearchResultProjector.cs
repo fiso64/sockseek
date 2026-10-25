@@ -334,7 +334,7 @@ public static partial class SearchResultProjector
         }
 
         return buckets
-            .Where(x => x.Users.Count >= search.MinSharesAggregate)
+            .Where(x => x.Users.Count >= search.EffectiveMinSharesAggregate)
             .OrderByDescending(x => x.Users.Count)
             .Select(x => CreateAggregateAlbumJob(query, x.Versions))
             .ToList();

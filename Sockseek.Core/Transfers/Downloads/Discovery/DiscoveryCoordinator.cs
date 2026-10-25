@@ -473,7 +473,7 @@ internal sealed class DiscoveryCoordinator
 
         if (config.Skip.SkipExisting)
         {
-            var skipCtx = TrackSkipperContext.From(ctx, job.Config.Skip, job.Config.Search);
+            var skipCtx = TrackSkipperContext.From(ctx, job.Config.Skip, job.Config.ResolveSearchSettings());
             foreach (var song in job.Songs)
                 context.SkipEvaluation.TrySetAlreadyExists(job, song, skipCtx);
         }

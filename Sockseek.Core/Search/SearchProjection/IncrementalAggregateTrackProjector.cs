@@ -73,7 +73,7 @@ public sealed class IncrementalAggregateTrackProjector
 
     public List<SongJob> Snapshot()
         => bucketOrder
-            .Where(x => x.ShareCount >= search.MinSharesAggregate)
+            .Where(x => x.ShareCount >= search.EffectiveMinSharesAggregate)
             .Where(PassesStrictFilter)
             .OrderByDescending(x => x.ShareCount)
             .ThenBy(x => x.Index)

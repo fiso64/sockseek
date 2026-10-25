@@ -81,7 +81,7 @@ public sealed class IncrementalAlbumAggregateProjector
 
     public List<AlbumJob> Snapshot()
         => buckets
-            .Where(x => x.Users.Count >= search.MinSharesAggregate)
+            .Where(x => x.Users.Count >= search.EffectiveMinSharesAggregate)
             .OrderByDescending(x => x.Users.Count)
             .ThenBy(x => x.Index)
             .Select(x => SearchResultProjector.CreateAggregateAlbumJob(query, x.Versions.ToList()))

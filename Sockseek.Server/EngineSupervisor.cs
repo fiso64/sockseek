@@ -37,6 +37,7 @@ public sealed class EngineSupervisor
         engineSettings = SettingsCloner.Clone(this.options.Engine);
         engineSettings.AutoReconnectAfterKickedFromServer = true;
         defaultDownloadSettings = SettingsCloner.Clone(this.options.DefaultDownload);
+        defaultDownloadSettings.DefaultMinSharesAggregate = engineSettings.DefaultMinSharesAggregate;
         var pathContext = new PathVariableContext(ConfigDir: this.options.ConfigDir);
         ServerJobSettingsResolver.NormalizeForServer(defaultDownloadSettings, pathContext);
         profileCatalog = this.options.Profiles ?? ProfileCatalog.Empty;
@@ -192,26 +193,12 @@ public sealed class EngineSupervisor
 
     private void ApplyDraftJobOptions(Job job, JobDraftDto draft)
     {
-        if (DraftDownloadSettings(draft) is { } patch)
+        if (draft.DownloadSettings is { } patch)
             jobSettingsResolver.SetJobOptions(job.Id, new SubmissionOptionsDto(DownloadSettings: patch));
 
         if (job is JobList childList && draft is JobListJobDraftDto childDraft)
             ApplyDraftJobOptions(childList, childDraft.Jobs);
     }
-
-    private static DownloadSettingsPatchDto? DraftDownloadSettings(JobDraftDto draft)
-        => draft switch
-        {
-            ExtractJobDraftDto typed => typed.DownloadSettings,
-            TrackSearchJobDraftDto typed => typed.DownloadSettings,
-            AlbumSearchJobDraftDto typed => typed.DownloadSettings,
-            SongJobDraftDto typed => typed.DownloadSettings,
-            AlbumJobDraftDto typed => typed.DownloadSettings,
-            AggregateJobDraftDto typed => typed.DownloadSettings,
-            AlbumAggregateJobDraftDto typed => typed.DownloadSettings,
-            JobListJobDraftDto typed => typed.DownloadSettings,
-            _ => null,
-        };
 
     private async Task<JobSummaryDto> SubmitJobAsync(Job job, SubmissionOptionsDto? options, CancellationToken ct)
     {

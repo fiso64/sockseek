@@ -316,7 +316,7 @@ internal sealed class JobOrchestrator
 
                 if (songConfig.Skip.SkipExisting
                     && song.LifecycleState == JobLifecycleState.Pending
-                    && context.SkipEvaluation.TrySetAlreadyExists(batchOwner, song, TrackSkipperContext.From(songCtx, songConfig.Skip, songConfig.Search)))
+                    && context.SkipEvaluation.TrySetAlreadyExists(batchOwner, song, TrackSkipperContext.From(songCtx, songConfig.Skip, songConfig.ResolveSearchSettings())))
                 {
                     existing.Add(song);
                 }

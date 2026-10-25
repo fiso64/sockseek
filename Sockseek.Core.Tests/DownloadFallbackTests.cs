@@ -133,7 +133,6 @@ namespace Tests.Core
                 var dl = new DownloadSettings();
                 dl.Output.ParentDir = outputDir;
                 dl.Output.WriteIndex = true;
-                dl.Output.HasConfiguredIndex = true;
                 dl.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
                 dl.YtDlp.UseYtdlp = true;
 
@@ -479,7 +478,7 @@ namespace Tests.Core
         }
 
         [TestMethod]
-        public async Task AlbumArtOnly_SucceedsWhenImageDownloads()
+        public async Task AlbumArtOnly_IgnoresAudioConditionsWithoutChangingSettings()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-album-art-only-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
@@ -495,7 +494,17 @@ namespace Tests.Core
                 var dl = new DownloadSettings();
                 dl.Output.ParentDir = outputDir;
                 dl.Output.AlbumArtOnly = true;
-                dl.Output.AlbumArtOption = AlbumArtOption.Largest;
+                dl.Search.NecessaryCond = new FileConditions
+                {
+                    Formats = ["flac"], MinBitrate = 1000, MinSampleRate = 96000, MinBitDepth = 24,
+                    AcceptMissingProps = false, AcceptNoLength = false, LengthTolerance = 0,
+                    StrictArtist = true, StrictAlbum = true,
+                };
+                dl.Search.NecessaryFolderCond = new FolderConditions
+                {
+                    MinTrackCount = 50, RequiredTrackTitles = ["Missing track"],
+                };
+                dl.Search.StrictAlbumQuality = true;
                 dl.Skip.SkipExisting = false;
 
                 var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
@@ -506,6 +515,10 @@ namespace Tests.Core
                 await app.RunAsync(CancellationToken.None);
 
                 Assert.AreEqual(JobTerminalOutcome.Succeeded, album.TerminalOutcome);
+                CollectionAssert.AreEqual(new[] { "flac" }, album.Config.Search.NecessaryCond.Formats);
+                Assert.AreEqual(1000, album.Config.Search.NecessaryCond.MinBitrate);
+                Assert.AreEqual(50, album.Config.Search.NecessaryFolderCond.MinTrackCount);
+                Assert.AreEqual(AlbumArtOption.Default, album.Config.Output.AlbumArtOption);
                 Assert.AreEqual(1, testClient.DownloadCallCount, "Album-art-only should download the image, not the audio track.");
                 var image = album.TrackJobs.Single(file => file.IsNotAudio);
                 Assert.AreEqual(JobTerminalOutcome.Succeeded, image.TerminalOutcome);

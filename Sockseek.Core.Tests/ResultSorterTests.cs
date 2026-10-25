@@ -244,6 +244,7 @@ namespace Tests.ResultSorterTests
             var results = new List<(SearchResponse, File)> { (response1, file1) };
 
             var config = TestHelpers.CreateDefaultSettings().Download;
+            config.Search.DownrankOn = 0;
             config.Search.IgnoreOn = 0;  // Need > 0 to be included
             var counts = new ConcurrentDictionary<string, int>();
             // "baduser" has 0 which is not > 0

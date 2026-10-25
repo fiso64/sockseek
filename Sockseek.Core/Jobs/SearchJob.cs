@@ -98,7 +98,7 @@ public class SearchJob : Job
             () => new IncrementalRawProjectionState<IncrementalResultSorter, FileCandidate>(
                 new IncrementalResultSorter(
                     projection.Query,
-                    search,
+                    ProjectionSettings(search),
                     userSuccessCounts,
                     useInfer: false,
                     requireFileSatisfies: !projection.IncludeFullResults),
@@ -128,7 +128,7 @@ public class SearchJob : Job
             () => new IncrementalRawProjectionState<IncrementalAlbumFolderProjector, AlbumFolder>(
                 new IncrementalAlbumFolderProjector(
                     projection.Query,
-                    search,
+                    ProjectionSettings(search),
                     ignoreStringSortConditions: projection.IgnoreStringSortConditions,
                     sortMode: projection.SortMode),
                 (projector, results) => projector.AddRange(results),
@@ -162,7 +162,7 @@ public class SearchJob : Job
         var state = GetOrCreateIncrementalProjectionState(
             ProjectionKey("aggregate-tracks", projection, search, userSuccessCounts),
             () => new IncrementalRawProjectionState<IncrementalAggregateTrackProjector, SongJob>(
-                new IncrementalAggregateTrackProjector(projection.Query, search, userSuccessCounts),
+                new IncrementalAggregateTrackProjector(projection.Query, ProjectionSettings(search), userSuccessCounts),
                 (projector, results) => projector.AddRange(results),
                 projector => projector.Snapshot()));
 
@@ -184,10 +184,13 @@ public class SearchJob : Job
     {
         var state = GetOrCreateIncrementalProjectionState(
             ProjectionKey("aggregate-albums", projection, search),
-            () => new IncrementalAlbumAggregateProjectionState(projection.Query, search));
+            () => new IncrementalAlbumAggregateProjectionState(projection.Query, ProjectionSettings(search)));
 
         return state.Snapshot(this);
     }
+
+    private SearchSettings ProjectionSettings(SearchSettings search)
+        => Config?.ResolveSearchSettings(search) ?? search;
 
     private TState GetOrCreateIncrementalProjectionState<TState>(
         string key,
@@ -211,8 +214,10 @@ public class SearchJob : Job
             .Select(x => (x.Response, x.File))
             .ToList();
 
-    private static string ProjectionKey(string name, params object[] dependencies)
-        => name + ":" + string.Join(':', dependencies.Select(ProjectionDependencyKey));
+    private string ProjectionKey(string name, params object[] dependencies)
+        => name + ":" + (Config?.Output.AlbumArtOnly == true)
+            + ":" + (Config?.DefaultMinSharesAggregate ?? SearchSettings.DefaultMinShares)
+            + ":" + string.Join(':', dependencies.Select(ProjectionDependencyKey));
 
     private static string ProjectionDependencyKey(object dependency)
         => dependency switch

@@ -1602,9 +1602,6 @@
           }
         }
       },
-      "AlbumArtOption": {
-        "type": "integer"
-      },
       "AlbumFolderDownloadSelectionDto": {
         "type": "object",
         "properties": {
@@ -1740,17 +1737,6 @@
           }
         }
       },
-      "BandcampSettingsPatchDto": {
-        "type": "object",
-        "properties": {
-          "htmlFromFile": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
       "CancelWorkflowResponseDto": {
         "required": [
           "cancelled"
@@ -1764,111 +1750,6 @@
               "string"
             ],
             "format": "int32"
-          }
-        }
-      },
-      "CollectionPatchDtoOfRegexRuleDto": {
-        "type": "object",
-        "properties": {
-          "replace": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/RegexRuleDto"
-            }
-          },
-          "append": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/RegexRuleDto"
-            }
-          }
-        }
-      },
-      "CollectionPatchDtoOfstring": {
-        "type": "object",
-        "properties": {
-          "replace": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "append": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "CsvSettingsPatchDto": {
-        "type": "object",
-        "properties": {
-          "artistCol": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "albumCol": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "titleCol": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "ytIdCol": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "descCol": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "trackCountCol": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "lengthCol": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "timeUnit": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "ytParse": {
-            "type": [
-              "null",
-              "boolean"
-            ]
           }
         }
       },
@@ -1923,223 +1804,6 @@
               {
                 "$ref": "#/components/schemas/DownloadBehavior"
               }
-            ]
-          }
-        }
-      },
-      "DownloadSettingsPatchDto": {
-        "type": "object",
-        "properties": {
-          "output": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/OutputSettingsPatchDto"
-              }
-            ]
-          },
-          "search": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SearchSettingsPatchDto"
-              }
-            ]
-          },
-          "skip": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SkipSettingsPatchDto"
-              }
-            ]
-          },
-          "preprocess": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/PreprocessSettingsPatchDto"
-              }
-            ]
-          },
-          "extraction": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ExtractionSettingsPatchDto"
-              }
-            ]
-          },
-          "transfer": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/TransferSettingsPatchDto"
-              }
-            ]
-          },
-          "spotify": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SpotifySettingsPatchDto"
-              }
-            ]
-          },
-          "youTube": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/YouTubeSettingsPatchDto"
-              }
-            ]
-          },
-          "ytDlp": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/YtDlpSettingsPatchDto"
-              }
-            ]
-          },
-          "csv": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CsvSettingsPatchDto"
-              }
-            ]
-          },
-          "bandcamp": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/BandcampSettingsPatchDto"
-              }
-            ]
-          },
-          "soundCloud": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SoundCloudSettingsPatchDto"
-              }
-            ]
-          },
-          "printOption": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/PrintOption"
-              }
-            ]
-          }
-        }
-      },
-      "ExtractionMode": {
-        "type": "integer"
-      },
-      "ExtractionSettingsPatchDto": {
-        "type": "object",
-        "properties": {
-          "input": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "inputType": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/InputType"
-              }
-            ]
-          },
-          "maxTracks": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "offset": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "reverse": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "removeTracksFromSource": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "requestedMode": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ExtractionMode"
-              }
-            ]
-          },
-          "upgradeToAlbum": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "setAlbumMinTrackCount": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "setAlbumMaxTrackCount": {
-            "type": [
-              "null",
-              "boolean"
             ]
           }
         }
@@ -2256,134 +1920,6 @@
           }
         }
       },
-      "FileConditionsPatchDto": {
-        "type": "object",
-        "properties": {
-          "lengthTolerance": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "minBitrate": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "maxBitrate": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "minSampleRate": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "maxSampleRate": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "minBitDepth": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "maxBitDepth": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "strictTitle": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "strictArtist": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "strictAlbum": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "formats": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CollectionPatchDtoOfstring"
-              }
-            ]
-          },
-          "bannedUsers": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CollectionPatchDtoOfstring"
-              }
-            ]
-          },
-          "allowedUsers": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CollectionPatchDtoOfstring"
-              }
-            ]
-          },
-          "acceptNoLength": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "acceptMissingProps": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          }
-        }
-      },
       "FileSearchProjectionRequestDto": {
         "type": "object",
         "properties": {
@@ -2403,39 +1939,6 @@
           }
         }
       },
-      "FolderConditionsPatchDto": {
-        "type": "object",
-        "properties": {
-          "minTrackCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "maxTrackCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "requiredTrackTitles": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CollectionPatchDtoOfstring"
-              }
-            ]
-          }
-        }
-      },
       "FolderSearchProjectionRequestDto": {
         "required": [
           "albumQuery"
@@ -2450,38 +1953,6 @@
             "default": false
           }
         }
-      },
-      "IncompleteAlbumActionKind": {
-        "enum": [
-          "Move",
-          "Delete",
-          "Keep",
-          null
-        ]
-      },
-      "IncompleteAlbumActionSettingsPatchDto": {
-        "type": "object",
-        "properties": {
-          "kind": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/IncompleteAlbumActionKind"
-              }
-            ]
-          },
-          "path": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
-      "InputType": {
-        "type": "integer"
       },
       "JobDetailDto": {
         "required": [
@@ -2587,7 +2058,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+                "$ref": "#/components/schemas/SettingsPatch"
               }
             ]
           },
@@ -2633,7 +2104,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+                "$ref": "#/components/schemas/SettingsPatch"
               }
             ]
           },
@@ -2679,7 +2150,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+                "$ref": "#/components/schemas/SettingsPatch"
               }
             ]
           },
@@ -2715,7 +2186,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+                "$ref": "#/components/schemas/SettingsPatch"
               }
             ]
           },
@@ -2763,7 +2234,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+                "$ref": "#/components/schemas/SettingsPatch"
               }
             ]
           },
@@ -2819,7 +2290,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+                "$ref": "#/components/schemas/SettingsPatch"
               }
             ]
           },
@@ -2865,7 +2336,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+                "$ref": "#/components/schemas/SettingsPatch"
               }
             ]
           },
@@ -2905,7 +2376,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+                "$ref": "#/components/schemas/SettingsPatch"
               }
             ]
           },
@@ -3787,95 +3258,6 @@
           }
         }
       },
-      "OutputSettingsPatchDto": {
-        "type": "object",
-        "properties": {
-          "parentDir": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "nameFormat": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "invalidReplaceStr": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "writePlaylist": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "writeIndex": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "hasConfiguredIndex": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "m3uFilePath": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "indexFilePath": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "incompleteAlbumAction": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/IncompleteAlbumActionSettingsPatchDto"
-              }
-            ]
-          },
-          "onComplete": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CollectionPatchDtoOfstring"
-              }
-            ]
-          },
-          "albumArtOnly": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "albumArtOption": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/AlbumArtOption"
-              }
-            ]
-          }
-        }
-      },
       "PeerInfoDto": {
         "required": [
           "username"
@@ -3899,45 +3281,6 @@
               "string"
             ],
             "format": "int32"
-          }
-        }
-      },
-      "PreprocessSettingsPatchDto": {
-        "type": "object",
-        "properties": {
-          "removeFt": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "removeBrackets": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "extractArtist": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "parseTitleTemplate": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "regex": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CollectionPatchDtoOfRegexRuleDto"
-              }
-            ]
           }
         }
       },
@@ -3971,40 +3314,6 @@
           },
           "hasDownloadSettings": {
             "type": "boolean"
-          }
-        }
-      },
-      "RegexFieldsDto": {
-        "required": [
-          "title",
-          "artist",
-          "album"
-        ],
-        "type": "object",
-        "properties": {
-          "title": {
-            "type": "string"
-          },
-          "artist": {
-            "type": "string"
-          },
-          "album": {
-            "type": "string"
-          }
-        }
-      },
-      "RegexRuleDto": {
-        "required": [
-          "match",
-          "replace"
-        ],
-        "type": "object",
-        "properties": {
-          "match": {
-            "$ref": "#/components/schemas/RegexFieldsDto"
-          },
-          "replace": {
-            "$ref": "#/components/schemas/RegexFieldsDto"
           }
         }
       },
@@ -4228,195 +3537,6 @@
           }
         }
       },
-      "SearchSettingsPatchDto": {
-        "type": "object",
-        "properties": {
-          "necessaryCond": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/FileConditionsPatchDto"
-              }
-            ]
-          },
-          "preferredCond": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/FileConditionsPatchDto"
-              }
-            ]
-          },
-          "necessaryFolderCond": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/FolderConditionsPatchDto"
-              }
-            ]
-          },
-          "preferredFolderCond": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/FolderConditionsPatchDto"
-              }
-            ]
-          },
-          "searchTimeout": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "maxStaleTime": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "downrankOn": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "ignoreOn": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "fastSearch": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "fastSearchDelay": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "fastSearchMinUpSpeed": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
-            "type": [
-              "null",
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "desperateSearch": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "noRemoveSpecialChars": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "removeSingleCharSearchTerms": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "noBrowseFolder": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "relax": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "strictAlbumQuality": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "artistMaybeWrong": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "isAggregate": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "minSharesAggregate": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "aggregateLengthTol": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "fallbackLevel": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "maxFallbackAttempts": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          }
-        }
-      },
       "ServerEventDescriptorDto": {
         "required": [
           "type",
@@ -4625,61 +3745,41 @@
           "completed"
         ]
       },
-      "SkipMode": {
-        "type": "integer"
-      },
-      "SkipSettingsPatchDto": {
+      "SettingChange": {
+        "required": [
+          "path",
+          "value"
+        ],
         "type": "object",
         "properties": {
-          "skipExisting": {
-            "type": [
-              "null",
-              "boolean"
-            ]
+          "path": {
+            "type": "string"
           },
-          "skipNotFound": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "skipMode": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SkipMode"
-              }
-            ]
-          },
-          "skipMusicDir": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "skipModeMusicDir": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SkipMode"
-              }
-            ]
-          },
-          "skipCheckCond": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "skipCheckPrefCond": {
-            "type": [
-              "null",
-              "boolean"
-            ]
+          "value": { },
+          "operation": {
+            "$ref": "#/components/schemas/SettingOperation"
+          }
+        }
+      },
+      "SettingOperation": {
+        "enum": [
+          "Set",
+          "Append",
+          "AppendDistinct"
+        ],
+        "default": "Set"
+      },
+      "SettingsPatch": {
+        "required": [
+          "operations"
+        ],
+        "type": "object",
+        "properties": {
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettingChange"
+            }
           }
         }
       },
@@ -4947,17 +4047,6 @@
           }
         }
       },
-      "SoundCloudSettingsPatchDto": {
-        "type": "object",
-        "properties": {
-          "authToken": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
       "SourceMutationDto": {
         "required": [
           "kind",
@@ -4999,35 +4088,6 @@
             "default": 0
           },
           "trackUri": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
-      "SpotifySettingsPatchDto": {
-        "type": "object",
-        "properties": {
-          "clientId": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "clientSecret": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "token": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "refresh": {
             "type": [
               "null",
               "string"
@@ -5150,7 +4210,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+                "$ref": "#/components/schemas/SettingsPatch"
               }
             ]
           }
@@ -5421,44 +4481,6 @@
           }
         }
       },
-      "TransferSettingsPatchDto": {
-        "type": "object",
-        "properties": {
-          "maxDownloadRetries": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "unknownErrorRetries": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "noIncompleteExt": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "albumTrackCountMaxRetries": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          }
-        }
-      },
       "WorkflowDetailDto": {
         "required": [
           "summary",
@@ -5565,46 +4587,6 @@
             "items": {
               "$ref": "#/components/schemas/WorkflowJobNodeDto"
             }
-          }
-        }
-      },
-      "YouTubeSettingsPatchDto": {
-        "type": "object",
-        "properties": {
-          "apiKey": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "getDeleted": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "deletedOnly": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          }
-        }
-      },
-      "YtDlpSettingsPatchDto": {
-        "type": "object",
-        "properties": {
-          "useYtdlp": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "ytdlpArgument": {
-            "type": [
-              "null",
-              "string"
-            ]
           }
         }
       }

@@ -1,3 +1,5 @@
+<!-- Maintainer note: Keep this document concise. Update existing content only when it is inaccurate; avoid adding implementation details or change history. -->
+
 # API and Client integration
 
 > [!WARNING]

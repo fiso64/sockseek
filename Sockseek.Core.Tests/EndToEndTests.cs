@@ -147,7 +147,6 @@ namespace Tests.EndToEnd
                 rootSettings.Extraction.RequestedMode = ExtractionMode.Song;
                 rootSettings.Output.ParentDir = outputDir;
                 rootSettings.Output.WriteIndex = true;
-                rootSettings.Output.HasConfiguredIndex = true;
                 rootSettings.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv"); // Force fixed path to simplify asserting
 
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
@@ -292,7 +291,6 @@ namespace Tests.EndToEnd
                 settings.Output.ParentDir = outputDir;
                 settings.Output.NameFormat = "Completed/{artist|filename}";
                 settings.Output.WriteIndex = true;
-                settings.Output.HasConfiguredIndex = true;
                 settings.Output.IndexFilePath = indexPath;
                 settings.Search.NecessaryCond.Formats = [extension];
                 return settings;
@@ -533,7 +531,6 @@ namespace Tests.EndToEnd
                 settings.Output.ParentDir = outputDir;
                 settings.Output.NameFormat = "Renamed/{sartist} - {stitle}";
                 settings.Output.WriteIndex = true;
-                settings.Output.HasConfiguredIndex = true;
                 settings.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
 
                 var app = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(testClient, engineSettings));
@@ -577,10 +574,11 @@ namespace Tests.EndToEnd
                 {
                     Name = "album-ogg",
                     Condition = "album",
-                    Download = new DownloadSettingsPatch(),
+                    Download = new SettingsPatch([
+                        new("Output.ParentDir", autoOutDir),
+                        new("Search.NecessaryCond.Formats", new[] { "ogg" }),
+                    ]),
                 };
-                autoProfile.Download.Add(dl => dl.Output.ParentDir = autoOutDir);
-                autoProfile.Download.Add(dl => dl.Search.NecessaryCond.Formats = ["ogg"]);
 
                 var resolver = new ProfileJobSettingsResolver(
                     rootSettings,
@@ -631,7 +629,7 @@ namespace Tests.EndToEnd
                 {
                     Name = "album-profile",
                     Condition = "album",
-                    Download = new DownloadSettingsPatch(),
+                    Download = SettingsPatch.Empty,
                 };
 
                 var resolver = new ProfileJobSettingsResolver(
@@ -708,7 +706,6 @@ namespace Tests.EndToEnd
                 settings.Output.ParentDir = outputDir;
                 settings.Output.NameFormat = "Renamed/{foldername}/{filename}";
                 settings.Output.WriteIndex = true;
-                settings.Output.HasConfiguredIndex = true;
                 settings.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
 
                 var app = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(testClient, engineSettings));
@@ -750,7 +747,6 @@ namespace Tests.EndToEnd
                 settings.Extraction.RequestedMode = ExtractionMode.Song;
                 settings.Output.ParentDir = outputDir;
                 settings.Output.WriteIndex = true;
-                settings.Output.HasConfiguredIndex = true;
                 settings.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
                 settings.Transfer.MaxDownloadRetries = 1;
 
@@ -819,7 +815,6 @@ namespace Tests.EndToEnd
                 settings.Output.IncompleteAlbumAction.Kind = IncompleteAlbumActionKind.Move;
                 settings.Output.IncompleteAlbumAction.Path = failedDir;
                 settings.Output.WriteIndex = true;
-                settings.Output.HasConfiguredIndex = true;
                 settings.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
                 settings.Transfer.MaxDownloadRetries = 1;
 
@@ -1131,7 +1126,6 @@ namespace Tests.EndToEnd
                 rootSettings.Extraction.InputType = InputType.List;
                 rootSettings.Output.ParentDir = outputDir;
                 rootSettings.Output.WriteIndex = false;
-                rootSettings.Output.HasConfiguredIndex = true;
                 rootSettings.Search.NecessaryCond.Formats = ["flac", "mp3"];
                 rootSettings.Search.NecessaryCond.MinBitrate = 200;
 
@@ -1192,7 +1186,6 @@ namespace Tests.EndToEnd
                 rootSettings.Extraction.InputType = InputType.List;
                 rootSettings.Output.ParentDir = outputDir;
                 rootSettings.Output.WriteIndex = false;
-                rootSettings.Output.HasConfiguredIndex = true;
                 rootSettings.Search.NecessaryCond.Formats = ["flac", "mp3"];
                 rootSettings.Search.NecessaryCond.MinBitrate = 200;
 
@@ -1283,7 +1276,6 @@ namespace Tests.EndToEnd
                 rootSettings.Output.ParentDir = outputDir;
                 rootSettings.Output.NameFormat = "{foldername}/{filename}";
                 rootSettings.Output.WriteIndex = false;
-                rootSettings.Output.HasConfiguredIndex = true;
                 rootSettings.Search.NecessaryCond.Formats = ["flac", "mp3"];
                 rootSettings.Search.NecessaryCond.MinBitrate = 200;
 
@@ -1378,7 +1370,6 @@ namespace Tests.EndToEnd
                 rootSettings.Output.ParentDir = outputDir;
                 rootSettings.Output.NameFormat = "{foldername}/{filename}";
                 rootSettings.Output.WriteIndex = false;
-                rootSettings.Output.HasConfiguredIndex = true;
                 rootSettings.Search.NecessaryCond.Formats = ["flac", "mp3"];
                 rootSettings.Search.NecessaryCond.MinBitrate = 200;
 

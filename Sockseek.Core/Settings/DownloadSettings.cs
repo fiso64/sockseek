@@ -11,8 +11,7 @@ namespace Sockseek.Core.Settings;
 ///   ResultSorter.Sort(candidates, job.Config.Search)
 ///   TrackSkipper.Check(song, job.Config.Skip)
 ///
-/// Immutable (init-only). Profile re-evaluation in ConfigManager reconstructs from scratch
-/// rather than mutating — no Copy() needed.
+/// Each job receives its own copy before profiles and extractor conditions are applied.
 public class DownloadSettings
 {
     public OutputSettings     Output     { get; init; } = new();
@@ -31,15 +30,46 @@ public class DownloadSettings
     // ── Top-level mode flags ──────────────────────────────────────────────────
 
     /// Controls what the engine prepares for CLI/API printing instead of downloading.
-    /// Set by ConfigManager's special-case handler for --print and its shortcuts.
+    [SettingOption("--print", Parser = nameof(ParsePrintOption))]
+    [SettingOption("--print-jobs", FixedValue = "Jobs")]
+    [SettingOption("--print-jobs-full", FixedValue = "Jobs, Full")]
+    [SettingOption("--pt", "--print-tracks", FixedValue = "Jobs")]
+    [SettingOption("--ptf", "--print-tracks-full", FixedValue = "Jobs, Full")]
+    [SettingOption("--pr", "--print-results", FixedValue = "Results")]
+    [SettingOption("--prf", "--print-results-full", FixedValue = "Results, Full")]
+    [SettingOption("--pl", "--print-link", FixedValue = "Link")]
+    [SettingOption("--pj", "--print-json", FixedValue = "Json")]
+    [SettingOption("--pjf", "--print-json-full", FixedValue = "Json, Full")]
     public PrintOption PrintOption { get; set; } = PrintOption.None;
 
+    private static PrintOption ParsePrintOption(string s, string flag) => s.ToLower().Trim() switch
+    {
+        "none"          => PrintOption.None,
+        "jobs"          => PrintOption.Jobs,
+        "tracks"        => PrintOption.Jobs,
+        "results"       => PrintOption.Results,
+        "jobs-full"     => PrintOption.Jobs | PrintOption.Full,
+        "tracks-full"   => PrintOption.Jobs | PrintOption.Full,
+        "results-full"  => PrintOption.Results | PrintOption.Full,
+        "link"          => PrintOption.Link,
+        "json"          => PrintOption.Json,
+        "json-all"      => PrintOption.Json | PrintOption.Full,
+        "index"         => PrintOption.Index,
+        "index-failed"  => PrintOption.Index | PrintOption.IndexFailed,
+        _ => throw new Exception($"Input error: Invalid print option '{s}' for '{flag}'"),
+    };
+
     /// Tracks which auto-profiles were applied by the job settings resolver.
+    [JsonIgnore]
     public HashSet<string> AppliedAutoProfiles { get; set; } = [];
 
     /// Runtime path expansion context. This is not a user-facing setting.
     [JsonIgnore]
     public PathVariableContext RuntimePathContext { get; set; } = PathVariableContext.Empty;
+
+    /// Automatic aggregate threshold supplied by the host's backend.
+    [JsonIgnore]
+    public int DefaultMinSharesAggregate { get; set; } = SearchSettings.DefaultMinShares;
 
     // ── Computed properties ───────────────────────────────────────────────────
 
@@ -50,6 +80,10 @@ public class DownloadSettings
     public bool NonVerbosePrint => (PrintOption & (PrintOption.Json | PrintOption.Link | PrintOption.Index)) != 0;
 
     public bool NeedLogin      => !PrintJobs && (PrintOption & PrintOption.Index) == 0;
+
+    /// Resolve mode-specific search behavior without rewriting configured conditions.
+    public SearchSettings ResolveSearchSettings(SearchSettings? search = null)
+        => (search ?? Search).Resolve(Output.AlbumArtOnly, DefaultMinSharesAggregate);
 
     public ResolvedIncompleteAlbumAction ResolveIncompleteAlbumAction()
     {
@@ -62,19 +96,4 @@ public class DownloadSettings
     }
 
     public bool HasOnComplete => Output.OnComplete?.Any(x => !string.IsNullOrWhiteSpace(x)) == true;
-
-    // ── Validation ────────────────────────────────────────────────────────────
-
-    /// Returns any validation errors. Called by ConfigManager after binding.
-    public IEnumerable<string> Validate()
-    {
-        if (Extraction.Input == null && (PrintOption & PrintOption.Index) == 0)
-            yield return "No input provided";
-
-        // IgnoreOn should be at most as lenient as DownrankOn (enforced at bind time).
-        // ConfigManager.Bind() applies: IgnoreOn = Math.Min(IgnoreOn, DownrankOn).
-        // Validate only reports if they somehow end up inconsistent post-bind.
-        if (Search.IgnoreOn > Search.DownrankOn)
-            yield return $"ignore-on ({Search.IgnoreOn}) is less strict than downrank-on ({Search.DownrankOn})";
-    }
 }

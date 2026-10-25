@@ -281,8 +281,7 @@ public static class JobPreparer
     public static bool WillWriteIndex(DownloadSettings dl, JobList? queue = null)
     {
         if (dl.DoNotDownload) return false;
-        if (!dl.Output.HasConfiguredIndex && queue != null && !queue.EnablesIndexByDefault && !queue.Jobs.Any(x => x.EnablesIndexByDefault))
-            return false;
-        return dl.Output.WriteIndex;
+        return dl.Output.WriteIndex ?? (dl.Output.IndexFilePath != null
+            || queue == null || queue.EnablesIndexByDefault || queue.Jobs.Any(x => x.EnablesIndexByDefault));
     }
 }

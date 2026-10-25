@@ -40,7 +40,7 @@ namespace Sockseek.Core.Extractors;
             List<SongJob>? deleted = null;
             List<SongJob> songs = new();
 
-            if (_yt.GetDeleted)
+            if (_yt.GetDeleted || _yt.DeletedOnly)
             {
                 context.Log.Info("Getting deleted videos..");
                 using var archive = new YouTube.YouTubeArchiveRetriever(context.Log);

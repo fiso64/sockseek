@@ -131,6 +131,7 @@ public partial class Searcher : IDisposable
         CancellationToken ct, Action? onSearch = null,
         Action<FileCandidate>? onFastSearchCandidate = null)
     {
+        search = song.Config?.ResolveSearchSettings(search) ?? search;
         var session = new SearchSession();
         InitializeDiscoveryProgress(song);
         using var progress = new DiscoveryProgress(this, song, session);
@@ -200,6 +201,7 @@ public partial class Searcher : IDisposable
     // Populates job.Results with candidate AlbumFolders found on the network.
     public async Task<JobOutcome?> SearchAlbum(AlbumJob job, SearchSettings search, ResponseData responseData, CancellationToken ct)
     {
+        search = job.Config?.ResolveSearchSettings(search) ?? search;
         var searchJob = new SearchJob(job.Query);
         var outcome = await Search(searchJob, search, responseData, ct, phaseOwner: job);
         if (outcome.TerminalOutcome is JobTerminalOutcome.Failed or JobTerminalOutcome.Cancelled)
@@ -215,6 +217,7 @@ public partial class Searcher : IDisposable
     // Populates job.Songs: one SongJob per distinct inferred track version found.
     public async Task<JobOutcome?> SearchAggregate(AggregateJob job, SearchSettings search, ResponseData responseData, CancellationToken ct)
     {
+        search = job.Config?.ResolveSearchSettings(search) ?? search;
         var session = new SearchSession();
         InitializeDiscoveryProgress(job);
         using var progress = new DiscoveryProgress(this, job, session);
@@ -247,6 +250,7 @@ public partial class Searcher : IDisposable
     // Returns new AlbumJobs (one per distinct album version found on the network).
     public async Task<(List<AlbumJob> Albums, JobOutcome? Outcome)> SearchAggregateAlbum(AlbumAggregateJob job, SearchSettings search, ResponseData responseData, CancellationToken ct)
     {
+        search = job.Config?.ResolveSearchSettings(search) ?? search;
         var searchJob = new SearchJob(job.Query);
         var outcome = await Search(searchJob, search, responseData, ct, phaseOwner: job);
         if (outcome.TerminalOutcome is JobTerminalOutcome.Failed or JobTerminalOutcome.Cancelled)
@@ -506,7 +510,7 @@ public partial class Searcher : IDisposable
         SearchSettings search,
         int minShares = -1)
     {
-        if (minShares == -1) minShares = search.MinSharesAggregate;
+        if (minShares == -1) minShares = search.EffectiveMinSharesAggregate;
 
         SongQuery infer((SearchResponse r, Soulseek.File f) x)
         {
