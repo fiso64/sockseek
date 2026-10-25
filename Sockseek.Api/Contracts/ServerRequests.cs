@@ -1,3 +1,4 @@
+using Sockseek.Core.Settings;
 using System.Text.Json.Serialization;
 using Sockseek.Core;
 
@@ -115,55 +116,59 @@ public sealed record JobProvenanceDto(
 [JsonDerivedType(typeof(AggregateJobDraftDto), ServerProtocol.JobDraftKinds.Aggregate)]
 [JsonDerivedType(typeof(AlbumAggregateJobDraftDto), ServerProtocol.JobDraftKinds.AlbumAggregate)]
 [JsonDerivedType(typeof(JobListJobDraftDto), ServerProtocol.JobDraftKinds.JobList)]
-public abstract record JobDraftDto;
+public abstract record JobDraftDto
+{
+    public abstract SettingsPatch? DownloadSettings { get; init; }
+    public abstract JobProvenanceDto? Provenance { get; init; }
+}
 
 public sealed record ExtractJobDraftDto(
     string Input,
     string? InputType = null,
     bool? AutoStartExtractedResult = null,
-    DownloadSettingsPatchDto? DownloadSettings = null,
+    SettingsPatch? DownloadSettings = null,
     DownloadBehaviorPolicyDto? ResultDownloadBehavior = null,
     JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 public sealed record TrackSearchJobDraftDto(
     SongQueryDto SongQuery,
     bool IncludeFullResults = false,
-    DownloadSettingsPatchDto? DownloadSettings = null,
+    SettingsPatch? DownloadSettings = null,
     JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 public sealed record AlbumSearchJobDraftDto(
     AlbumQueryDto AlbumQuery,
-    DownloadSettingsPatchDto? DownloadSettings = null,
+    SettingsPatch? DownloadSettings = null,
     JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 public sealed record SongJobDraftDto(
     SongQueryDto SongQuery,
     DownloadBehaviorPolicyDto? DownloadBehavior = null,
-    DownloadSettingsPatchDto? DownloadSettings = null,
+    SettingsPatch? DownloadSettings = null,
     JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 public sealed record AlbumJobDraftDto(
     AlbumQueryDto AlbumQuery,
     DownloadBehaviorPolicyDto? DownloadBehavior = null,
-    DownloadSettingsPatchDto? DownloadSettings = null,
+    SettingsPatch? DownloadSettings = null,
     JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 public sealed record AggregateJobDraftDto(
     SongQueryDto SongQuery,
     DownloadBehaviorPolicyDto? DownloadBehavior = null,
-    DownloadSettingsPatchDto? DownloadSettings = null,
+    SettingsPatch? DownloadSettings = null,
     JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 public sealed record AlbumAggregateJobDraftDto(
     AlbumQueryDto AlbumQuery,
     DownloadBehaviorPolicyDto? DownloadBehavior = null,
-    DownloadSettingsPatchDto? DownloadSettings = null,
+    SettingsPatch? DownloadSettings = null,
     JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 public sealed record JobListJobDraftDto(
     string? Name,
     IReadOnlyList<JobDraftDto> Jobs,
-    DownloadSettingsPatchDto? DownloadSettings = null,
+    SettingsPatch? DownloadSettings = null,
     JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 /// <summary>
@@ -187,7 +192,7 @@ public sealed record SubmissionOptionsDto(
     string? OutputParentDir = null,
     IReadOnlyList<string>? ProfileNames = null,
     IReadOnlyDictionary<string, bool>? ProfileContext = null,
-    DownloadSettingsPatchDto? DownloadSettings = null);
+    SettingsPatch? DownloadSettings = null);
 
 /// <summary>
 /// Starts a folder retrieval job for an album result folder.

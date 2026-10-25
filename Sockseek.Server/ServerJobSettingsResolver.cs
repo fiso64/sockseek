@@ -9,14 +9,14 @@ internal sealed class ServerJobSettingsResolver : IJobSettingsResolver
 {
     private readonly DownloadSettings baseDefaults;
     private readonly ProfileCatalog catalog;
-    private readonly DownloadSettingsPatchDto? launchDownloadSettings;
+    private readonly SettingsPatch? launchDownloadSettings;
     private readonly PathVariableContext pathContext;
     private readonly SubmissionOptionsStore submissionOptions = new();
 
     public ServerJobSettingsResolver(
         DownloadSettings baseDefaults,
         ProfileCatalog catalog,
-        DownloadSettingsPatchDto? launchDownloadSettings = null,
+        SettingsPatch? launchDownloadSettings = null,
         PathVariableContext? pathContext = null)
     {
         this.baseDefaults = SettingsCloner.Clone(baseDefaults);
@@ -42,54 +42,19 @@ internal sealed class ServerJobSettingsResolver : IJobSettingsResolver
         if (inherited.PrintOption != PrintOption.None)
             return SettingsCloner.Clone(inherited);
 
-        var options = submissionOptions.GetOptions(job);
-        var context = ToProfileContext(options?.ProfileContext);
-
-        var matchingAutoProfiles = catalog.AutoProfiles
-            .Where(p => p.Condition != null && ProfileConditionEvaluator.Satisfied(p.Condition, inherited, job, context))
-            .ToList();
-
-        var namedProfiles = catalog.ResolveNamedProfiles(options?.ProfileNames);
-
-        var settings = SettingsCloner.Clone(baseDefaults);
-        catalog.DefaultProfile?.Download.ApplyTo(settings);
-
-        foreach (var profile in matchingAutoProfiles)
-            profile.Download.ApplyTo(settings);
-
-        foreach (var profile in namedProfiles)
-            profile.Download.ApplyTo(settings);
-
-        DownloadSettingsPatchDtoMapper.ApplyTo(settings, launchDownloadSettings);
-        submissionOptions.ApplyTo(settings, options, job.Id);
-
-        settings.AppliedAutoProfiles = [.. matchingAutoProfiles.Select(p => p.Name)];
-        NormalizeForServer(settings, pathContext);
-        return settings;
+        return Resolve(inherited, job, submissionOptions.GetOptions(job));
     }
 
     public DownloadSettings ResolveFollowUp(Job job, SubmissionOptionsDto? options)
+        => Resolve(baseDefaults, job, options);
+
+    private DownloadSettings Resolve(DownloadSettings conditionSettings, Job job, SubmissionOptionsDto? options)
     {
         var context = ToProfileContext(options?.ProfileContext);
-        var matchingAutoProfiles = catalog.AutoProfiles
-            .Where(p => p.Condition != null && ProfileConditionEvaluator.Satisfied(p.Condition, baseDefaults, job, context))
-            .ToList();
-
         var namedProfiles = catalog.ResolveNamedProfiles(options?.ProfileNames);
-
-        var settings = SettingsCloner.Clone(baseDefaults);
-        catalog.DefaultProfile?.Download.ApplyTo(settings);
-
-        foreach (var profile in matchingAutoProfiles)
-            profile.Download.ApplyTo(settings);
-
-        foreach (var profile in namedProfiles)
-            profile.Download.ApplyTo(settings);
-
-        DownloadSettingsPatchDtoMapper.ApplyTo(settings, launchDownloadSettings);
+        var settings = catalog.ResolveDownloadSettings(baseDefaults, conditionSettings, job, namedProfiles, context);
+        launchDownloadSettings?.ApplyTo(settings);
         submissionOptions.ApplyTo(settings, options, job.Id);
-
-        settings.AppliedAutoProfiles = [.. matchingAutoProfiles.Select(p => p.Name)];
         NormalizeForServer(settings, pathContext);
         return settings;
     }

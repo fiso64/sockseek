@@ -258,8 +258,7 @@ public class EngineSupervisorTests
                 new SubmitAlbumSearchJobRequestDto(
                     new AlbumQueryDto("Artist", "Album", "", "", false),
                     Options: new SubmissionOptionsDto(
-                        DownloadSettings: new DownloadSettingsPatchDto(
-                            Search: new SearchSettingsPatchDto(NoBrowseFolder: true)))),
+                        DownloadSettings: new SettingsPatch([new("Search.NoBrowseFolder", true)]))),
                 CancellationToken.None);
 
             await WaitForJobStateAsync(supervisor, searchSummary.JobId, ExpectedJobStatus.Succeeded);
@@ -323,12 +322,10 @@ public class EngineSupervisorTests
                     [
                         new TrackSearchJobDraftDto(
                             new SongQueryDto("Artist", "Track One", "", "", -1, false),
-                            DownloadSettings: new DownloadSettingsPatchDto(
-                                Search: new SearchSettingsPatchDto(MaxStaleTime: 111, NoBrowseFolder: true))),
+                            DownloadSettings: new SettingsPatch([new("Search.MaxStaleTime", 111), new("Search.NoBrowseFolder", true)])),
                         new TrackSearchJobDraftDto(
                             new SongQueryDto("Artist", "Track Two", "", "", -1, false),
-                            DownloadSettings: new DownloadSettingsPatchDto(
-                                Search: new SearchSettingsPatchDto(MaxStaleTime: 222, NoBrowseFolder: false))),
+                            DownloadSettings: new SettingsPatch([new("Search.MaxStaleTime", 222), new("Search.NoBrowseFolder", false)])),
                     ]),
                 CancellationToken.None);
 
@@ -869,9 +866,7 @@ public class EngineSupervisorTests
                     AutoProfiles = [profile],
                     NamedProfiles = [profile],
                 },
-                launchDownloadSettings: new DownloadSettingsPatchDto(
-                    Output: new OutputSettingsPatchDto(ParentDir: launchOutputDir),
-                    Search: new SearchSettingsPatchDto(MaxStaleTime: 222)));
+                launchDownloadSettings: new SettingsPatch([new("Output.ParentDir", launchOutputDir), new("Search.MaxStaleTime", 222)]));
             runTask = supervisor.RunAsync(cts.Token);
 
             var summary = await supervisor.SubmitAlbumSearchJobAsync(
@@ -980,7 +975,7 @@ public class EngineSupervisorTests
                     new SongQueryDto("Artist", "Track One", "", "", -1, false),
                     Options: new SubmissionOptionsDto(
                         ProfileNames: ["short-search"],
-                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromDifference(baseline, cliSettings))),
+                        DownloadSettings: SettingsPatch.Difference(baseline, cliSettings))),
                 CancellationToken.None);
 
             await WaitForJobStateAsync(supervisor, summary.JobId, ExpectedJobStatus.Succeeded);
@@ -1029,8 +1024,7 @@ public class EngineSupervisorTests
                     new SongQueryDto("Artist", "Track One", "", "", -1, false),
                     Options: new SubmissionOptionsDto(
                         ProfileNames: ["no-skip"],
-                        DownloadSettings: new DownloadSettingsPatchDto(
-                            Skip: new SkipSettingsPatchDto(SkipExisting: true)))),
+                        DownloadSettings: new SettingsPatch([new("Skip.SkipExisting", true)]))),
                 CancellationToken.None);
 
             await WaitForJobStateAsync(supervisor, summary.JobId, ExpectedJobStatus.Succeeded);
@@ -1078,9 +1072,7 @@ public class EngineSupervisorTests
                     new SongQueryDto("Artist", "Track One", "", "", -1, false),
                     Options: new SubmissionOptionsDto(
                         ProfileNames: ["base-command"],
-                        DownloadSettings: new DownloadSettingsPatchDto(
-                            Output: new OutputSettingsPatchDto(
-                                OnComplete: new CollectionPatchDto<string>(Append: ["-- second"]))))),
+                        DownloadSettings: new SettingsPatch([new("Output.OnComplete", new List<string> { "-- second" }, SettingOperation.Append)]))),
                 CancellationToken.None);
 
             await WaitForJobStateAsync(supervisor, summary.JobId, ExpectedJobStatus.Succeeded);
@@ -1107,7 +1099,7 @@ public class EngineSupervisorTests
         Action<DownloadSettings>? configureDownload = null,
         Action<EngineSettings>? configureEngine = null,
         ProfileCatalog? profiles = null,
-        DownloadSettingsPatchDto? launchDownloadSettings = null,
+        SettingsPatch? launchDownloadSettings = null,
         Soulseek.ISoulseekClient? client = null)
     {
         var engineSettings = new EngineSettings
@@ -1141,8 +1133,10 @@ public class EngineSupervisorTests
 
     private static SettingsProfile CreateProfile(string name, Action<DownloadSettings> applyDownload)
     {
-        var patch = new DownloadSettingsPatch();
-        patch.Add(applyDownload);
+        var before = new DownloadSettings();
+        var after = new DownloadSettings();
+        applyDownload(after);
+        var patch = SettingsPatch.Difference(before, after) ?? SettingsPatch.Empty;
         return new SettingsProfile
         {
             Name = name,

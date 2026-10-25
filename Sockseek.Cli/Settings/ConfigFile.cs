@@ -2,82 +2,49 @@ using Sockseek.Core.Settings;
 
 namespace Sockseek.Cli;
 
-/// Parsed representation of a Sockseek.conf file.
-public record ConfigFile(
-    string Path,
-    Dictionary<string, ProfileEntry> Profiles,
-    bool HasAutoProfiles = false
-)
+public record ConfigFile(string Path, Dictionary<string, ProfileEntry> Profiles, bool HasAutoProfiles = false)
 {
-    public string? ConfigDir
-    {
-        get
-        {
-            if (string.IsNullOrWhiteSpace(Path) || Path == "none" || !File.Exists(Path))
-                return null;
-
-            return System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(Path));
-        }
-    }
+    public string? ConfigDir => string.IsNullOrWhiteSpace(Path) || Path == "none" || !File.Exists(Path)
+        ? null : System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(Path));
 }
 
-/// One profile's typed Core patch plus optional CLI-only settings patch.
-public record ProfileEntry(
-    SettingsProfile Profile,
-    CliSettingsPatch Cli,
-    DaemonSettingsPatch Daemon,
-    RemoteSettingsPatch Remote,
-    List<string> Tokens)
+public record ProfileEntry(SettingsProfile Profile, SettingsPatch Cli, SettingsPatch Daemon, SettingsPatch Remote)
 {
     public string? Condition => Profile.Condition;
 
-    public ProfileEntry(List<string> tokens, string? condition)
-        : this(new SettingsProfile { Condition = condition }, new CliSettingsPatch(), new DaemonSettingsPatch(), new RemoteSettingsPatch(), tokens)
+    public ProfileEntry(List<string> tokens, string? condition) : this(ConfigManager.ParseProfileTokens(tokens))
     {
+        Profile = Profile with { Condition = condition };
     }
 }
 
-public sealed class CliSettingsPatch
+public sealed record ParsedInvocation(ProfileEntry Profile, string? ConfigPath, string? ProfileName)
 {
-    private readonly List<Action<CliSettings>> _operations = [];
-
-    public bool HasOperations => _operations.Count > 0;
-
-    public void Add(Action<CliSettings> operation) => _operations.Add(operation);
-
-    public void ApplyTo(CliSettings settings)
-    {
-        foreach (var operation in _operations)
-            operation(settings);
-    }
+    public SettingsPatch? DownloadSettings => Profile.Profile.Download.HasOperations ? Profile.Profile.Download : null;
 }
 
-public sealed class DaemonSettingsPatch
+internal sealed class ProfileBuilder(string name)
 {
-    private readonly List<Action<DaemonSettings>> _operations = [];
+    public string? Condition { get; set; }
+    private readonly SettingsPatchBuilder engine = new();
+    private readonly SettingsPatchBuilder download = new();
+    private readonly SettingsPatchBuilder cli = new();
+    private readonly SettingsPatchBuilder daemon = new();
+    private readonly SettingsPatchBuilder remote = new();
 
-    public bool HasOperations => _operations.Count > 0;
+    public SettingsPatchBuilder For(Type type)
+        => type == typeof(EngineSettings) ? engine
+        : type == typeof(DownloadSettings) ? download
+        : type == typeof(CliSettings) ? cli
+        : type == typeof(DaemonSettings) ? daemon
+        : type == typeof(RemoteSettings) ? remote
+        : throw new ArgumentException($"Unknown settings root {type.Name}");
 
-    public void Add(Action<DaemonSettings> operation) => _operations.Add(operation);
-
-    public void ApplyTo(DaemonSettings settings)
+    public ProfileEntry Build() => new(new SettingsProfile
     {
-        foreach (var operation in _operations)
-            operation(settings);
-    }
-}
-
-public sealed class RemoteSettingsPatch
-{
-    private readonly List<Action<RemoteSettings>> _operations = [];
-
-    public bool HasOperations => _operations.Count > 0;
-
-    public void Add(Action<RemoteSettings> operation) => _operations.Add(operation);
-
-    public void ApplyTo(RemoteSettings settings)
-    {
-        foreach (var operation in _operations)
-            operation(settings);
-    }
+        Name = name,
+        Condition = Condition,
+        Engine = engine.Build(),
+        Download = download.Build(),
+    }, cli.Build(), daemon.Build(), remote.Build());
 }

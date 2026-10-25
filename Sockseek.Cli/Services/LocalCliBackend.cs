@@ -505,7 +505,7 @@ internal sealed class LocalCliBackend
         if (submissionOptionsResolver != null)
             return;
 
-        DownloadSettingsPatchDtoMapper.ApplyTo(settings, options?.DownloadSettings);
+        options?.DownloadSettings?.ApplyTo(settings);
         if (!string.IsNullOrWhiteSpace(options?.OutputParentDir))
             settings.Output.ParentDir = options.OutputParentDir;
     }

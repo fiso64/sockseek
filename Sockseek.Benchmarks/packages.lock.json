@@ -93,6 +93,77 @@
         "resolved": "1.21.0",
         "contentHash": "dv5+81Q1TBQvVMSOOOmRcjJmvWcX3BZPZsIq31+RLc5cNft0IHAyNlkdb7ZarOWG913PyBoFDsDXoCIlKmLclg=="
       },
+      "Microsoft.AspNetCore.Connections.Abstractions": {
+        "type": "Transitive",
+        "resolved": "10.0.13",
+        "contentHash": "l/1VmXALhXxdTWG+41N25xigbAXZx/43c6cVw+mXxLH6KCKO25P3c53MLK5w5ua0GCr2RdZhN/xsUwCG7v9N1w==",
+        "dependencies": {
+          "Microsoft.Extensions.Features": "10.0.13"
+        }
+      },
+      "Microsoft.AspNetCore.Http.Connections.Client": {
+        "type": "Transitive",
+        "resolved": "10.0.13",
+        "contentHash": "r9hlU+te+QWFJlUCt2C22TDKY3oMER8ayC7Qzeq6yJ5toHBKcSqshhyyaLKK1jgBuyNi4ejly0wE8ANV8TyfWQ==",
+        "dependencies": {
+          "Microsoft.AspNetCore.Http.Connections.Common": "10.0.13",
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.13",
+          "Microsoft.Extensions.Options": "10.0.13"
+        }
+      },
+      "Microsoft.AspNetCore.Http.Connections.Common": {
+        "type": "Transitive",
+        "resolved": "10.0.13",
+        "contentHash": "L3NCYBsvQIcSS+qu6TemunsNGEDk29hLchifeBcg7kcriAwfKJSUPyF34zVzFTfsgnza531SMynbNr7g1tcq0Q==",
+        "dependencies": {
+          "Microsoft.AspNetCore.Connections.Abstractions": "10.0.13"
+        }
+      },
+      "Microsoft.AspNetCore.OpenApi": {
+        "type": "Transitive",
+        "resolved": "10.0.13",
+        "contentHash": "XVuqUBGjVUVyb4DXR5BrSkrW0Br7sYKq39f723ILhQLlFHCyhAgWe1PkJBc42R/5mKBIgHiKVSY+PN5/4XtcQw==",
+        "dependencies": {
+          "Microsoft.OpenApi": "[2.12.2, 3.0.0)"
+        }
+      },
+      "Microsoft.AspNetCore.SignalR.Client": {
+        "type": "Transitive",
+        "resolved": "10.0.13",
+        "contentHash": "17fMUI5gkRwR9qXXTELd5OChcFn3lkgWpiblaaELQ45zOL7VuU7HJYAYnMk+Irjf2jpRxHT7b0imy+NVIFyoYQ==",
+        "dependencies": {
+          "Microsoft.AspNetCore.Http.Connections.Client": "10.0.13",
+          "Microsoft.AspNetCore.SignalR.Client.Core": "10.0.13"
+        }
+      },
+      "Microsoft.AspNetCore.SignalR.Client.Core": {
+        "type": "Transitive",
+        "resolved": "10.0.13",
+        "contentHash": "zfCQ0/J/rATKKcpwcpQYFz8sxhvrzgGyblsATcfxqSCibRkPFmDZcFmfD0UfLi38q+VDMpwEVuzOCO3TpRy99Q==",
+        "dependencies": {
+          "Microsoft.AspNetCore.SignalR.Common": "10.0.13",
+          "Microsoft.AspNetCore.SignalR.Protocols.Json": "10.0.13",
+          "Microsoft.Extensions.DependencyInjection": "10.0.13",
+          "Microsoft.Extensions.Logging": "10.0.13"
+        }
+      },
+      "Microsoft.AspNetCore.SignalR.Common": {
+        "type": "Transitive",
+        "resolved": "10.0.13",
+        "contentHash": "Rd6v57QqwW7Uayx0//qsf6J8MGcdw4Lw3Bq3dfT33KWnydaf0HsXoBxHQze/EowSsYQUx2yi9+PWCob9A9GuFw==",
+        "dependencies": {
+          "Microsoft.AspNetCore.Connections.Abstractions": "10.0.13",
+          "Microsoft.Extensions.Options": "10.0.13"
+        }
+      },
+      "Microsoft.AspNetCore.SignalR.Protocols.Json": {
+        "type": "Transitive",
+        "resolved": "10.0.13",
+        "contentHash": "8TvhozBxdbcmS+4S4mb2FN2ls5NU99zwapQAUIse8oWV7CwvUTq0bBJ5/0+0B0JW9wnrxBpMrJ6jkivnG+f7fg==",
+        "dependencies": {
+          "Microsoft.AspNetCore.SignalR.Common": "10.0.13"
+        }
+      },
       "Microsoft.CodeAnalysis.Analyzers": {
         "type": "Transitive",
         "resolved": "3.11.0",
@@ -158,6 +229,11 @@
         "resolved": "10.0.13",
         "contentHash": "G2GrGWNAPZBsii2F6AU8n+JT2tC1/I0Ml/e9ZyNCgPjf3hZqronP7o0X91aAynCmVeae8KkSIUNXXeXCNRmdVQ=="
       },
+      "Microsoft.Extensions.Features": {
+        "type": "Transitive",
+        "resolved": "10.0.13",
+        "contentHash": "7xLogOKNBYYWbUUEMOPfuirfcYG8iBNQ4TOc3aUzJpiRD7tyQqzYWhDPXAk2kOuJTd7ImcGtdT1HEQTC9VljuQ=="
+      },
       "Microsoft.Extensions.Logging": {
         "type": "Transitive",
         "resolved": "10.0.13",
@@ -190,6 +266,11 @@
         "resolved": "10.0.13",
         "contentHash": "ZjTwxzhiw2TMEzIbUDkMF0dfDB2I4NQgIfKD0ELu9/5Mk+SRGdKZcD0/lvBrRCAPo6KN2r0BW86MRancoyJkoA=="
       },
+      "Microsoft.OpenApi": {
+        "type": "Transitive",
+        "resolved": "2.12.2",
+        "contentHash": "ZkT7qiJe0Kj0+DTZOZo+xrDy1kNmdsWFQVPIQLNx9ZJ0T9cB2LG7r+Bi60so8/+yg1nkS7QCPadrzsTG4VPKrA=="
+      },
       "Newtonsoft.Json": {
         "type": "Transitive",
         "resolved": "13.0.4",
@@ -217,6 +298,19 @@
         "type": "Transitive",
         "resolved": "10.0.2",
         "contentHash": "A28TCGK2PDUXohKXCRTjU+hECLrF1IM9fkHcbF4WgP++OTPlngHDlDSp243LZ2x2O7l7RDypYtUYrsRgre5xoA=="
+      },
+      "Spectre.Console": {
+        "type": "Transitive",
+        "resolved": "0.57.2",
+        "contentHash": "wzsB+P9i6F9G+cFOJxRotCiQWNSzZVAMxi8YMiHlGXXU1JLMXGp7zSSqBMmROZS2bzpK5jk+Saa7Evp8HwqhKg==",
+        "dependencies": {
+          "Spectre.Console.Ansi": "0.57.2"
+        }
+      },
+      "Spectre.Console.Ansi": {
+        "type": "Transitive",
+        "resolved": "0.57.2",
+        "contentHash": "Y1+u73shwP+JYHmrkdN6bSt2kaGBEAafhi2nrecczbXdFRey+k7J/WF9YPfcB0rqivv2S8fmif6FSBq9m/AFvw=="
       },
       "SpotifyAPI.Web": {
         "type": "Transitive",
@@ -268,6 +362,23 @@
         "resolved": "6.6.2",
         "contentHash": "BN12ipOeTX1157Jx2uvFZGhR6dyHnji+8oM37NqXyu7nCL0rrSrxruea8lTSlUGewoxyvdC1owzRLThBI5Wj9Q=="
       },
+      "sockseek": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.AspNetCore.SignalR.Client": "[10.0.13, )",
+          "Microsoft.AspNetCore.SignalR.Protocols.Json": "[10.0.13, )",
+          "Sockseek.Api": "[3.0.7, )",
+          "Sockseek.Core": "[3.0.7, )",
+          "Sockseek.Server": "[3.0.7, )",
+          "Spectre.Console": "[0.57.2, )"
+        }
+      },
+      "sockseek.api": {
+        "type": "Project",
+        "dependencies": {
+          "Sockseek.Core": "[3.0.7, )"
+        }
+      },
       "sockseek.core": {
         "type": "Project",
         "dependencies": {
@@ -281,6 +392,15 @@
           "SpotifyAPI.Web.Auth": "[7.4.2, )",
           "TagLibSharp": "[2.3.0, )",
           "YoutubeExplode": "[6.6.2, )"
+        }
+      },
+      "sockseek.server": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.AspNetCore.OpenApi": "[10.0.13, )",
+          "Microsoft.OpenApi": "[2.12.2, )",
+          "Sockseek.Api": "[3.0.7, )",
+          "Sockseek.Core": "[3.0.7, )"
         }
       }
     }

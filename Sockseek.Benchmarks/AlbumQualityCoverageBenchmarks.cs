@@ -64,29 +64,5 @@ public class AlbumQualityCoverageBenchmarks
     public int New_StrictQualityCoverage()
         => SearchResultProjector.AlbumFolders(rawResults, albumQuery, strictRequiredFlacSearch).Count;
 
-    private static SearchSettings CloneSearchSettings(SearchSettings source)
-        => new()
-        {
-            NecessaryCond = new FileConditions(source.NecessaryCond),
-            PreferredCond = new FileConditions(source.PreferredCond),
-            NecessaryFolderCond = new FolderConditions(source.NecessaryFolderCond),
-            PreferredFolderCond = new FolderConditions(source.PreferredFolderCond),
-            StrictAlbumQuality = source.StrictAlbumQuality,
-            SearchTimeout = source.SearchTimeout,
-            MaxStaleTime = source.MaxStaleTime,
-            DownrankOn = source.DownrankOn,
-            IgnoreOn = source.IgnoreOn,
-            FastSearch = source.FastSearch,
-            FastSearchDelay = source.FastSearchDelay,
-            FastSearchMinUpSpeed = source.FastSearchMinUpSpeed,
-            DesperateSearch = source.DesperateSearch,
-            NoRemoveSpecialChars = source.NoRemoveSpecialChars,
-            RemoveSingleCharSearchTerms = source.RemoveSingleCharSearchTerms,
-            NoBrowseFolder = source.NoBrowseFolder,
-            Relax = source.Relax,
-            ArtistMaybeWrong = source.ArtistMaybeWrong,
-            IsAggregate = source.IsAggregate,
-            MinSharesAggregate = source.MinSharesAggregate,
-            AggregateLengthTol = source.AggregateLengthTol,
-        };
+    private static SearchSettings CloneSearchSettings(SearchSettings source) => SettingsCloner.Clone(source);
 }

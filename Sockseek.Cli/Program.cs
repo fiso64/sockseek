@@ -52,6 +52,7 @@ internal static partial class Program
         var bindArgs = daemonMode ? args.Skip(1).ToArray() : args;
 
         string configPath;
+        ParsedInvocation invocation;
         ConfigFile configFile;
         EngineSettings engineSettings;
         DownloadSettings rootSettings;
@@ -65,9 +66,10 @@ internal static partial class Program
         // validation currently encode that policy in several catch/log branches.
         try
         {
-            configPath = ConfigManager.ExtractConfigPath(bindArgs);
+            invocation = ConfigManager.ParseInvocation(bindArgs);
+            configPath = ConfigManager.GetConfigPath(invocation);
             configFile = ConfigManager.Load(configPath);
-            (engineSettings, rootSettings, cliSettings, daemonSettings, remoteSettings) = ConfigManager.BindAll(configFile, bindArgs);
+            (engineSettings, rootSettings, cliSettings, daemonSettings, remoteSettings) = ConfigManager.BindAll(configFile, invocation);
             ConfigManager.ApplyAutoProfileCliSettings(configFile, rootSettings, cliSettings);
             ApplyMockFilesDefaults(engineSettings, rootSettings);
         }
@@ -77,7 +79,7 @@ internal static partial class Program
             return CliExitCode.UsageError;
         }
 
-        string? profileArg = ConfigManager.ExtractProfileName(bindArgs);
+        string? profileArg = invocation.ProfileName;
         if (profileArg != null)
         {
             var requestedProfiles = profileArg.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
@@ -133,7 +135,7 @@ internal static partial class Program
         {
             try
             {
-                await RunDaemonAsync(bindArgs, configFile, engineSettings, rootSettings, daemonSettings);
+                await RunDaemonAsync(bindArgs, invocation, configFile, engineSettings, rootSettings, daemonSettings);
             }
             catch (ArgumentException ex)
             {
@@ -167,7 +169,7 @@ internal static partial class Program
         {
             try
             {
-                return await RunRemoteAsync(bindArgs, engineSettings, rootSettings, cliSettings, remoteSettings, output, cts);
+                return await RunRemoteAsync(invocation, engineSettings, rootSettings, cliSettings, remoteSettings, output, cts);
             }
             catch (SockseekApiRequestException ex)
             {
@@ -207,7 +209,7 @@ internal static partial class Program
         IJobSettingsResolver jobSettingsResolver;
         try
         {
-            jobSettingsResolver = ConfigManager.CreateJobSettingsResolver(configFile, bindArgs, cliSettings);
+            jobSettingsResolver = ConfigManager.CreateJobSettingsResolver(configFile, invocation, cliSettings);
             if (!string.IsNullOrEmpty(engineSettings.MockFilesDir))
                 jobSettingsResolver = new MockFilesJobSettingsResolver(jobSettingsResolver);
         }
@@ -464,7 +466,7 @@ internal static partial class Program
     }
 
     private static async Task<CliExitCode> RunRemoteAsync(
-        string[] args,
+        ParsedInvocation invocation,
         EngineSettings engineSettings,
         DownloadSettings rootSettings,
         CliSettings cliSettings,
@@ -482,7 +484,7 @@ internal static partial class Program
         {
             using var http = SockseekApiClient.CreateHttpClient(remoteSettings.ServerUrl!);
             var detached = await new SockseekApiClient(http).SubmitExtractJobAsync(
-                BuildRemoteExtractRequest(rootSettings, BuildRemoteSubmissionOptions(args, cliSettings)),
+                BuildRemoteExtractRequest(rootSettings, BuildRemoteSubmissionOptions(invocation, cliSettings)),
                 cts.Token);
             if (cliSettings.ProgressJson)
                 new JsonStreamProgressReporter(Console.Out).ReportWorkflowSubmitted(detached.WorkflowId);
@@ -525,7 +527,7 @@ internal static partial class Program
             await backend.SubscribeWorkflowAsync(workflowId, cts.Token);
             using var terminalUpdateObserver = new WorkflowTerminalUpdateObserver(backend, workflowId);
 
-            var options = BuildRemoteSubmissionOptions(args, cliSettings) with { WorkflowId = workflowId };
+            var options = BuildRemoteSubmissionOptions(invocation, cliSettings) with { WorkflowId = workflowId };
             var request = BuildRemoteExtractRequest(rootSettings, options);
 
             InteractiveCliCoordinator? interactiveCoordinator = null;
@@ -1367,15 +1369,18 @@ internal static partial class Program
     internal static SubmissionOptionsDto BuildRemoteSubmissionOptions(
         string[] args,
         CliSettings cliSettings)
+        => BuildRemoteSubmissionOptions(ConfigManager.ParseInvocation(args), cliSettings);
+
+    private static SubmissionOptionsDto BuildRemoteSubmissionOptions(ParsedInvocation invocation, CliSettings cliSettings)
         => new(
-            ProfileNames: SplitProfileNames(ConfigManager.ExtractProfileName(args)),
+            ProfileNames: SplitProfileNames(invocation.ProfileName),
             ProfileContext: new Dictionary<string, bool>
             {
                 ["interactive"] = cliSettings.InteractiveMode,
                 ["progress-json"] = cliSettings.ProgressJson,
                 ["no-progress"] = cliSettings.NoProgress,
             },
-            DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch(args));
+            DownloadSettings: invocation.DownloadSettings);
 
     private static SubmitExtractJobRequestDto BuildRemoteExtractRequest(DownloadSettings rootSettings, SubmissionOptionsDto options)
         => new(
@@ -1413,6 +1418,7 @@ internal static partial class Program
 
     private static async Task RunDaemonAsync(
         string[] args,
+        ParsedInvocation invocation,
         ConfigFile configFile,
         EngineSettings engineSettings,
         DownloadSettings rootSettings,
@@ -1424,7 +1430,7 @@ internal static partial class Program
         {
             Engine = SettingsCloner.Clone(engineSettings),
             DefaultDownload = SettingsCloner.Clone(rootSettings),
-            LaunchDownloadSettings = ConfigManager.CreateCliDownloadSettingsPatch(args),
+            LaunchDownloadSettings = invocation.DownloadSettings,
             Profiles = ConfigManager.CreateProfileCatalog(configFile),
             ConfigDir = configFile.ConfigDir,
         };

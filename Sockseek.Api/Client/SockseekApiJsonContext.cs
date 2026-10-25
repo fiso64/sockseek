@@ -1,9 +1,11 @@
+using Sockseek.Core.Settings;
 using System.Text.Json.Serialization;
 
 namespace Sockseek.Api;
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    IncludeFields = true,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(ServerInfoDto))]
 [JsonSerializable(typeof(ServerStatusDto))]
@@ -91,30 +93,9 @@ namespace Sockseek.Api;
 [JsonSerializable(typeof(AggregateAlbumCandidateDto))]
 [JsonSerializable(typeof(FileAttributeDto))]
 
-[JsonSerializable(typeof(DownloadSettingsPatchDto))]
-[JsonSerializable(typeof(OutputSettingsPatchDto))]
-[JsonSerializable(typeof(IncompleteAlbumActionSettingsPatchDto))]
-[JsonSerializable(typeof(Sockseek.Core.IncompleteAlbumActionKind))]
-[JsonSerializable(typeof(SearchSettingsPatchDto))]
-[JsonSerializable(typeof(FileConditionsPatchDto))]
-[JsonSerializable(typeof(FolderConditionsPatchDto))]
-[JsonSerializable(typeof(SkipSettingsPatchDto))]
-[JsonSerializable(typeof(PreprocessSettingsPatchDto))]
-[JsonSerializable(typeof(ExtractionSettingsPatchDto))]
-[JsonSerializable(typeof(TransferSettingsPatchDto))]
-[JsonSerializable(typeof(SpotifySettingsPatchDto))]
-[JsonSerializable(typeof(YouTubeSettingsPatchDto))]
-[JsonSerializable(typeof(YtDlpSettingsPatchDto))]
-[JsonSerializable(typeof(CsvSettingsPatchDto))]
-[JsonSerializable(typeof(BandcampSettingsPatchDto))]
-[JsonSerializable(typeof(SoundCloudSettingsPatchDto))]
-[JsonSerializable(typeof(CollectionPatchDto<string>))]
-[JsonSerializable(typeof(CollectionPatchDto<RegexRuleDto>))]
-
-[JsonSerializable(typeof(DownloadSettingsDeltaDto))]
-[JsonSerializable(typeof(DownloadSettingOperationDto))]
-[JsonSerializable(typeof(RegexRuleDto))]
-[JsonSerializable(typeof(RegexFieldsDto))]
+[JsonSerializable(typeof(SettingsPatch))]
+[JsonSerializable(typeof(SettingChange))]
+[JsonSerializable(typeof(DownloadSettings))]
 
 [JsonSerializable(typeof(ServerEventEnvelopeDto))]
 [JsonSerializable(typeof(WorkflowUpdateBatchDto))]

@@ -577,10 +577,11 @@ namespace Tests.EndToEnd
                 {
                     Name = "album-ogg",
                     Condition = "album",
-                    Download = new DownloadSettingsPatch(),
+                    Download = new SettingsPatch([
+                        new("Output.ParentDir", autoOutDir),
+                        new("Search.NecessaryCond.Formats", new[] { "ogg" }),
+                    ]),
                 };
-                autoProfile.Download.Add(dl => dl.Output.ParentDir = autoOutDir);
-                autoProfile.Download.Add(dl => dl.Search.NecessaryCond.Formats = ["ogg"]);
 
                 var resolver = new ProfileJobSettingsResolver(
                     rootSettings,
@@ -631,7 +632,7 @@ namespace Tests.EndToEnd
                 {
                     Name = "album-profile",
                     Condition = "album",
-                    Download = new DownloadSettingsPatch(),
+                    Download = SettingsPatch.Empty,
                 };
 
                 var resolver = new ProfileJobSettingsResolver(

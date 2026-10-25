@@ -170,9 +170,7 @@ namespace Tests.ConfigParsingTests
             try
             {
                 File.WriteAllText(path, "progress = maybe\n");
-                var file = ConfigManager.Load(path);
-
-                var ex = Assert.ThrowsExactly<Exception>(() => ConfigManager.Bind(file, ["some input"]));
+                var ex = Assert.ThrowsExactly<Exception>(() => ConfigManager.Load(path));
 
                 StringAssert.Contains(ex.Message, "Input error:");
                 StringAssert.Contains(ex.Message, "--progress");
@@ -189,7 +187,7 @@ namespace Tests.ConfigParsingTests
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--song"]);
             var config = new DownloadSettings();
 
-            DownloadSettingsPatchDtoMapper.ApplyTo(config, patch);
+            patch?.ApplyTo(config);
 
             Assert.AreEqual(ExtractionMode.Song, config.Extraction.RequestedMode);
         }
@@ -200,7 +198,7 @@ namespace Tests.ConfigParsingTests
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--album"]);
             var config = new DownloadSettings();
 
-            DownloadSettingsPatchDtoMapper.ApplyTo(config, patch);
+            patch?.ApplyTo(config);
 
             Assert.AreEqual(ExtractionMode.Album, config.Extraction.RequestedMode);
             Assert.IsFalse(config.Extraction.UpgradeToAlbum);
@@ -212,7 +210,7 @@ namespace Tests.ConfigParsingTests
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--upgrade-to-album"]);
             var config = new DownloadSettings();
 
-            DownloadSettingsPatchDtoMapper.ApplyTo(config, patch);
+            patch?.ApplyTo(config);
 
             Assert.IsTrue(config.Extraction.UpgradeToAlbum);
         }
@@ -223,7 +221,7 @@ namespace Tests.ConfigParsingTests
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--strict-album-quality"]);
             var config = new DownloadSettings();
 
-            DownloadSettingsPatchDtoMapper.ApplyTo(config, patch);
+            patch?.ApplyTo(config);
 
             Assert.IsTrue(config.Search.StrictAlbumQuality);
         }
@@ -234,7 +232,7 @@ namespace Tests.ConfigParsingTests
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--incomplete-album-action", "move:failed-target"]);
             var config = new DownloadSettings();
 
-            DownloadSettingsPatchDtoMapper.ApplyTo(config, patch);
+            patch?.ApplyTo(config);
 
             Assert.AreEqual(IncompleteAlbumActionKind.Move, config.Output.IncompleteAlbumAction.Kind);
             Assert.AreEqual("failed-target", config.Output.IncompleteAlbumAction.Path);
@@ -256,7 +254,7 @@ namespace Tests.ConfigParsingTests
                 },
             };
 
-            DownloadSettingsPatchDtoMapper.ApplyTo(config, patch);
+            patch?.ApplyTo(config);
 
             Assert.AreEqual(IncompleteAlbumActionKind.Move, config.Output.IncompleteAlbumAction.Kind);
             Assert.IsNull(config.Output.IncompleteAlbumAction.Path);
@@ -642,7 +640,7 @@ namespace Tests.ConfigParsingTests
         {
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["x", "--skip-existing", "true"]);
             Assert.IsNotNull(patch);
-            Assert.AreEqual(true, patch.Skip?.SkipExisting);
+            Assert.AreEqual(true, patch.Operations.Single(change => change.Path == "Skip.SkipExisting").Value);
         }
 
         [TestMethod]
@@ -650,8 +648,9 @@ namespace Tests.ConfigParsingTests
         {
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["x", "--on-complete", "+ -- second"]);
             Assert.IsNotNull(patch);
-            CollectionAssert.AreEqual(new[] { "-- second" }, patch.Output?.OnComplete?.Append?.ToArray());
-            Assert.IsNull(patch.Output?.OnComplete?.Replace);
+            var change = patch.Operations.Single(change => change.Path == "Output.OnComplete");
+            Assert.AreEqual(SettingOperation.Append, change.Operation);
+            CollectionAssert.AreEqual(new[] { "-- second" }, ((List<string>)change.Value!).ToArray());
         }
 
         // ── Inline = form ─────────────────────────────────────────────────────
@@ -872,7 +871,7 @@ namespace Tests.ConfigParsingTests
                 new CliSettings());
 
             Assert.IsNull(options.OutputParentDir);
-            Assert.IsNull(options.DownloadSettings?.Output?.ParentDir);
+            Assert.IsNull(options.DownloadSettings?.Operations.SingleOrDefault(change => change.Path == "Output.ParentDir")?.Value);
         }
 
         [TestMethod]
@@ -883,7 +882,7 @@ namespace Tests.ConfigParsingTests
                 new CliSettings());
 
             Assert.IsNull(options.OutputParentDir);
-            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Output?.ParentDir);
+            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Operations.SingleOrDefault(change => change.Path == "Output.ParentDir")?.Value);
         }
 
         [TestMethod]
@@ -894,7 +893,7 @@ namespace Tests.ConfigParsingTests
                 new CliSettings());
 
             Assert.IsNull(options.OutputParentDir);
-            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Output?.ParentDir);
+            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Operations.SingleOrDefault(change => change.Path == "Output.ParentDir")?.Value);
         }
 
         [TestMethod]

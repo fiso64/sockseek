@@ -119,8 +119,8 @@ public class OpenApiContractTests
             typeof(SearchResultSnapshotDto<AlbumFolderDto>),
             typeof(SearchResultSnapshotDto<AggregateTrackCandidateDto>),
             typeof(SearchResultSnapshotDto<AggregateAlbumCandidateDto>),
-            typeof(CollectionPatchDto<string>),
-            typeof(CollectionPatchDto<RegexRuleDto>),
+            typeof(SettingsPatch),
+            typeof(SettingChange),
         };
 
         var missing = dtoTypes
