@@ -123,7 +123,7 @@ sockseek "playlist.csv" --skip-music-dir "path/to/music"
 
 ### More examples
 
-More niche examples can be found [here](#more-examples).
+More niche examples can be found [here](#other-examples).
 
 ## About failed or incorrect downloads
 
@@ -152,7 +152,7 @@ Sockseek searches the Soulseek P2P network. Sources like Spotify and YouTube are
 - [Name format](#name-format)
 - [On-Complete Actions](#on-complete-actions)
 - [Shortcuts \& interactive mode](#shortcuts--interactive-mode)
-- [Examples](#more-examples)
+- [More Examples](#other-examples)
 - [Tips](#tips)
 - [Options reference](#options-reference)
 - [Docker](docs/docker.md)
@@ -755,6 +755,7 @@ cd subdir       go to subfolder
 
 <!-- sockseek-help:end -->
 
+<a id="other-examples"></a>
 ## More Examples
 
 ### Given a playlist of songs, download the albums
