@@ -239,7 +239,7 @@ Bandcamp inputs support:
 
 Extraction might fail due to Cloudflare; download the HTML to a local file and point Sockseek to it using `--from-html` in case of issues.
 
-See [Bandcamp options](#bandcamp-options) for all options.
+<!-- Uncomment if it gains more than one option: See [Bandcamp options](#bandcamp-options) for all options. -->
 
 ### MusicBrainz
 
@@ -248,8 +248,6 @@ MusicBrainz inputs support:
 - `/release/...` URLs
 - `/release-group/...` URLs, where it picks the most common version of the album.
 - `/collection/...` URLs, to download a list of albums.
-
-See [MusicBrainz options](#musicbrainz-options) for all options.
 
 ### SoundCloud
 
@@ -262,7 +260,7 @@ Requires a SoundCloud OAuth token, passed with `--soundcloud-token`, also for pu
 
 When a track has no publisher artist, the artist is taken from titles like "Artist - Title", falling back to the uploader's name.
 
-See [SoundCloud options](#soundcloud-options) for all options.
+<!-- Uncomment if it gains more than one option: See [SoundCloud options](#soundcloud-options) for all options. -->
 
 #### Getting the OAuth token
 

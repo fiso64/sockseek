@@ -366,14 +366,12 @@ Input types
     - Wishlist URLs, to download all albums on the wishlist.
     Extraction might fail due to Cloudflare; download the HTML to a local file and point Sockseek to
     it using --from-html in case of issues.
-    See Bandcamp options for all options.
 
   MusicBrainz
     MusicBrainz inputs support:
     - /release/... URLs
     - /release-group/... URLs, where it picks the most common version of the album.
     - /collection/... URLs, to download a list of albums.
-    See MusicBrainz options for all options.
 
   SoundCloud
     SoundCloud inputs support:
@@ -382,7 +380,6 @@ Input types
     Requires a SoundCloud OAuth token, passed with --soundcloud-token, also for public items.
     When a track has no publisher artist, the artist is taken from titles like ""Artist - Title"",
     falling back to the uploader's name.
-    See SoundCloud options for all options.
 
     Getting the OAuth token
       1. Log in to https://soundcloud.com in your browser.
