@@ -302,7 +302,7 @@ internal static partial class Program
             localSubmissionOptionsResolver,
             loggerFactory: loggerFactory,
             sensitiveOutput: new CliSensitiveOutput(output));
-        var backend = new LocalCliBackend(
+        await using var backend = new LocalCliBackend(
             engine,
             rootSettings,
             localSubmissionOptionsResolver,
@@ -387,10 +387,7 @@ internal static partial class Program
                 cliReporter = null;
                 PrintOutputRenderer.PrintRequestedOutput(
                     engine.Queue,
-                    engine.UserSuccessCounts.ToDictionary(
-                        pair => pair.Key,
-                        pair => pair.Value,
-                        StringComparer.Ordinal));
+                    engine.GetUserSuccessCounts);
             }
 
             var exitCode = LogCliSessionExit(logger, DetermineLocalExitCode(engine.Queue));
@@ -439,7 +436,7 @@ internal static partial class Program
     {
         public DownloadSettings Resolve(
             DownloadSettings inherited,
-            Job job,
+            JobSettingsContext job,
             JobSettingsInheritance inheritance = JobSettingsInheritance.None)
         {
             var settings = inner.Resolve(inherited, job, inheritance);
@@ -449,7 +446,7 @@ internal static partial class Program
 
         public DownloadSettings Resolve(
             DownloadSettings inherited,
-            Job job,
+            JobSettingsContext job,
             JobSettingsInheritance inheritance,
             JobSettingsRequestLayers? request)
         {
@@ -697,8 +694,12 @@ internal static partial class Program
                 new AlbumAggregateJob(ToAlbumQuery(node.AlbumQuery)),
             _ => null,
         };
-        if (job != null && !string.IsNullOrWhiteSpace(node.ItemName))
-            job.ItemName = node.ItemName;
+        if (job != null)
+        {
+            job.ExtractorInfo = node.ExtractorInfo;
+            if (!string.IsNullOrWhiteSpace(node.ItemName))
+                job.ItemName = node.ItemName;
+        }
         return job;
     }
 
@@ -1393,9 +1394,8 @@ internal static partial class Program
                 => effectiveSettings.PrintResults
                     ? await ToAggregateResultsJobAsync(
                         backend,
+                        detail.Summary.JobId,
                         aggregate,
-                        ChildrenOf(detail, details).Select(child => child.Summary).ToArray(),
-                        details,
                         ct)
                     : ToAggregateJob(aggregate, ChildrenOf(detail, details)),
 
@@ -1403,9 +1403,8 @@ internal static partial class Program
                 => effectiveSettings.PrintResults
                     ? await ToAlbumAggregateResultsJobAsync(
                         backend,
+                        detail.Summary.JobId,
                         albumAggregate,
-                        ChildrenOf(detail, details).Select(child => child.Summary).ToArray(),
-                        details,
                         ct)
                     : ToAlbumAggregateJob(albumAggregate, detail.Summary),
 
@@ -1505,7 +1504,8 @@ internal static partial class Program
         SongJobPayloadDto song,
         CancellationToken ct)
     {
-        var files = await backend.GetFileResultsAsync(songJobId, ct);
+        var files = await backend.GetFileResultsAsync(songJobId,
+            new FileSearchProjectionRequestDto(IncludeFullResults: true), ct);
         var job = ToSongJob(song);
         job.Candidates = files?.Items.Select(CliSearchProjectionMapper.ToCore).ToList();
         return job;
@@ -1526,54 +1526,44 @@ internal static partial class Program
 
     private static async Task<Job?> ToAggregateResultsJobAsync(
         ICliBackend backend,
+        Guid aggregateJobId,
         AggregateJobPayloadDto aggregate,
-        IReadOnlyList<JobSummaryDto> children,
-        IReadOnlyDictionary<Guid, JobDetailDto> details,
         CancellationToken ct)
     {
-        var job = new AggregateJob(ToSongQuery(aggregate.Query));
-        foreach (var summary in children.Where(child => child.Kind == ServerJobKind.Song).OrderBy(child => child.DisplayId))
+        // Print-only discovery does not execute/register child jobs. Read the
+        // same source projection as the UI instead of depending on those jobs.
+        var results = await backend.GetAggregateTrackResultsAsync(
+            aggregateJobId,
+            new AggregateTrackProjectionRequestDto(aggregate.Query, IncludeCandidates: true),
+            ct);
+        return results == null ? null : new AggregateJob(ToSongQuery(aggregate.Query))
         {
-            if (!details.TryGetValue(summary.JobId, out var detail))
-                detail = await backend.GetJobDetailAsync(summary.JobId, ct);
-
-            if (detail?.Payload is not SongJobPayloadDto payload)
-                continue;
-
-            var song = ToSongJob(payload);
-            if (payload.CandidateCount.GetValueOrDefault() > 0)
+            Songs = results.Items.Select(result => new SongJob(ToSongQuery(result.Query))
             {
-                var files = await backend.GetFileResultsAsync(summary.JobId, ct);
-                song.Candidates = files?.Items.Select(CliSearchProjectionMapper.ToCore).ToList();
-            }
-
-            job.Songs.Add(song);
-        }
-
-        return job;
+                ItemName = result.ItemName,
+                Candidates = result.Candidates?.Select(CliSearchProjectionMapper.ToCore).ToList(),
+            }).ToList(),
+        };
     }
 
     private static async Task<Job?> ToAlbumAggregateResultsJobAsync(
         ICliBackend backend,
+        Guid aggregateJobId,
         AlbumAggregateJobPayloadDto aggregate,
-        IReadOnlyList<JobSummaryDto> children,
-        IReadOnlyDictionary<Guid, JobDetailDto> details,
         CancellationToken ct)
     {
-        var job = new AlbumAggregateJob(ToAlbumQuery(aggregate.Query));
-        foreach (var summary in children.Where(child => child.Kind == ServerJobKind.Album).OrderBy(child => child.DisplayId))
+        var results = await backend.GetAggregateAlbumResultsAsync(
+            aggregateJobId,
+            new AggregateAlbumProjectionRequestDto(aggregate.Query, IncludeFolders: true),
+            ct);
+        return results == null ? null : new AlbumAggregateJob(ToAlbumQuery(aggregate.Query))
         {
-            if (!details.TryGetValue(summary.JobId, out var detail))
-                detail = await backend.GetJobDetailAsync(summary.JobId, ct);
-
-            if (detail?.Payload is not AlbumJobPayloadDto payload)
-                continue;
-
-            if (await ToAlbumResultsJobAsync(backend, summary.JobId, payload, summary, ct) is AlbumJob album)
-                job.Albums.Add(album);
-        }
-
-        return job;
+            Albums = results.Items.Select(result => new AlbumJob(ToAlbumQuery(result.Query))
+            {
+                ItemName = result.ItemName,
+                Results = result.Folders?.Select(CliSearchProjectionMapper.ToCore).ToList() ?? [],
+            }).ToList(),
+        };
     }
 
     private static SearchJob ToSearchJob(SearchJobPayloadDto search, JobSummaryDto summary)
@@ -1746,7 +1736,9 @@ internal static partial class Program
             },
         };
 
-        var app = ServerHost.Build(args, options, url);
+        // A published CLI carries the WebUI beside the executable. Resolve
+        // static assets there even when launched from a different directory.
+        var app = ServerHost.Build([..args, "--contentRoot", AppContext.BaseDirectory], options, url);
         var logger = app.Services.GetRequiredService<ILoggerFactory>()
             .CreateLogger("Sockseek.Cli.Daemon");
         CliLogMessages.DaemonStarting(logger, url);

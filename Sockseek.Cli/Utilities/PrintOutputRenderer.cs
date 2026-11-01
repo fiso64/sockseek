@@ -12,7 +12,7 @@ internal static class PrintOutputRenderer
 
     public static bool PrintRequestedOutput(
         JobList queue,
-        IReadOnlyDictionary<string, int>? reputationSnapshot = null)
+        Func<Guid, IReadOnlyDictionary<string, int>>? getUserSuccessCounts = null)
     {
         var requests = queue.Jobs.SelectMany(CollectPrintRequests).ToList();
         if (requests.Count == 0)
@@ -44,7 +44,7 @@ internal static class PrintOutputRenderer
                     request.Job,
                     request.Option,
                     request.Job.Config.Search,
-                    reputationSnapshot);
+                    getUserSuccessCounts?.Invoke(request.Job.WorkflowId));
                 i++;
             }
 
@@ -220,6 +220,8 @@ internal static class JobPrintFormatter
                 yield return $"  Name:               {DisplayName(job, noInfo: true)}";
                 break;
         }
+        if (!string.IsNullOrWhiteSpace(job.ExtractorInfo))
+            yield return $"  Extractor info:     {job.ExtractorInfo}";
     }
 
     private static IEnumerable<string> SongFields(SongJob song)
@@ -228,8 +230,6 @@ internal static class JobPrintFormatter
             yield return line;
         if (!string.IsNullOrWhiteSpace(song.DownloadPath))
             yield return $"Local path:         {song.DownloadPath}";
-        if (!string.IsNullOrWhiteSpace(song.Other))
-            yield return $"Other:              {song.Other}";
     }
 
     private static IEnumerable<string> AlbumFields(AlbumJob album)
@@ -339,7 +339,8 @@ internal static class ResultPrintFormatter
     {
         if (searchJob.DefaultFolderProjection != null)
         {
-            var folders = searchJob.GetAlbumFolders(search);
+            var folders = searchJob.GetAlbumFolders(
+                searchJob.DefaultFolderProjection, search, includeLocked: true);
             var album = new AlbumJob(searchJob.DefaultFolderProjection.Query)
             {
                 Results = folders.Items.ToList(),
@@ -359,7 +360,7 @@ internal static class ResultPrintFormatter
             searchJob.Revision,
             searchJob.IsComplete);
         var candidates = kernel.Snapshot().Files
-            .Select(file => file.Candidate.WithProjectionFacts(file.ConditionFacts))
+            .Select(file => file.Input.ToFileCandidate(file.ConditionFacts))
             .ToArray();
         var song = new SongJob(projection.Query)
         {
@@ -400,9 +401,10 @@ internal static class ResultPrintFormatter
         }
         else if (printOption.HasFlag(PrintOption.Link))
         {
-            var first = aggregate.Songs.FirstOrDefault(s => s.ResolvedTarget != null);
-            if (first?.ResolvedTarget != null)
-                Printing.PrintLink(first.ResolvedTarget.Username, first.ResolvedTarget.Filename);
+            var first = aggregate.Songs.SelectMany(song => song.Candidates ?? [])
+                .FirstOrDefault(candidate => candidate.Visibility == SearchResultVisibility.Public);
+            if (first != null)
+                Printing.PrintLink(first.Username, first.Filename);
         }
         else
         {
@@ -453,8 +455,10 @@ internal static class ResultPrintFormatter
 
         if (printOption.HasFlag(PrintOption.Link))
         {
-            if (album.Results.Count > 0)
-                Printing.PrintAlbumLink(album.Results[0]);
+            var first = album.Results.FirstOrDefault(folder =>
+                folder.Files.Any(file => file.Candidate.Visibility == SearchResultVisibility.Public));
+            if (first != null)
+                Printing.PrintAlbumLink(first);
             return;
         }
 
@@ -474,7 +478,7 @@ internal static class ResultPrintFormatter
 
         foreach (var folder in album.Results)
         {
-            Printing.PrintAlbum(folder);
+            Printing.PrintAlbum(folder, showConditions: printOption.HasFlag(PrintOption.Full));
             if (!printOption.HasFlag(PrintOption.Full))
                 break;
         }
@@ -504,7 +508,10 @@ internal static class ResultPrintFormatter
         if (printOption.HasFlag(PrintOption.Json))
             JsonPrinter.PrintTrackResultJson(song.Query, orderedResults, printFull);
         else if (printOption.HasFlag(PrintOption.Link))
-            Printing.PrintLink(orderedResults[0].Username, orderedResults[0].Filename);
+        {
+            var first = orderedResults.FirstOrDefault(candidate => candidate.Visibility == SearchResultVisibility.Public);
+            if (first != null) Printing.PrintLink(first.Username, first.Filename);
+        }
         else
             Printing.PrintTrackCandidates(
                 orderedResults,

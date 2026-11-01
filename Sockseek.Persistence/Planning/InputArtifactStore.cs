@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Data.Common;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
@@ -16,18 +17,20 @@ public sealed record StoredInputArtifact(
     DateTimeOffset ExpiresAtUtc,
     string? OriginalName);
 
-public sealed record InputArtifactLease(
+public sealed record ResolvedInputArtifact(
     StoredInputArtifact Artifact,
     string Path);
 
 /// <summary>
 /// Immutable disk-spooled browser input. Blob files remain owner-managed, while
-/// metadata and pins use the main persistence database and lifecycle.
+/// metadata uses the main database. Active readers retain blobs only for this
+/// daemon session; accepted submissions contain their extracted input already.
 /// </summary>
 public sealed class InputArtifactStore(
     string directory,
     IDbContextFactory<SockseekDbContext> contextFactory,
     PersistenceHealth health,
+    PersistenceInbox writes,
     TimeProvider? timeProvider = null) : IAsyncDisposable
 {
     public static readonly TimeSpan DefaultRetention = TimeSpan.FromHours(24);
@@ -35,7 +38,10 @@ public sealed class InputArtifactStore(
     private readonly string root = Path.GetFullPath(directory);
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     private readonly SemaphoreSlim uploadSlots = new(2, 2);
-    private readonly SemaphoreSlim writeGate = new(1, 1);
+    // The existing writer serializes retention changes with pruning. Counts also
+    // support independent metadata reads without queuing them behind the writer.
+    private readonly Dictionary<Guid, HashSet<string>> owners = [];
+    private readonly ConcurrentDictionary<string, int> retained = new(StringComparer.Ordinal);
     private int initialized;
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -121,10 +127,10 @@ public sealed class InputArtifactStore(
                 SafeName(originalName));
             try
             {
-                await WithWriteAsync(async (context, ct) =>
+                await WithWriteAsync((context, _) =>
                 {
                     context.InputArtifacts.Add(ToEntity(artifact));
-                    await context.SaveChangesAsync(ct).ConfigureAwait(false);
+                    return Task.CompletedTask;
                 }, cancellationToken).ConfigureAwait(false);
             }
             catch
@@ -146,7 +152,7 @@ public sealed class InputArtifactStore(
         }
     }
 
-    public async Task<InputArtifactLease?> ResolveAsync(
+    public async Task<ResolvedInputArtifact?> ResolveAsync(
         string artifactId,
         CancellationToken cancellationToken = default)
     {
@@ -160,92 +166,73 @@ public sealed class InputArtifactStore(
             return await context.InputArtifacts
                 .AsNoTracking()
                 .SingleOrDefaultAsync(
-                    artifact => artifact.Id == artifactId
-                        && (artifact.ExpiresAtUtc > now
-                            || context.InputArtifactPins.Any(pin =>
-                                pin.ArtifactId == artifact.Id)),
+                    artifact => artifact.Id == artifactId,
                     cancellationToken).ConfigureAwait(false);
         }).ConfigureAwait(false);
-        if (row is null)
+        if (row is null || row.ExpiresAtUtc <= now && !retained.ContainsKey(artifactId))
             return null;
-        StoredInputArtifact artifact = FromEntity(row);
-        string path = BlobPath(artifact.Id);
-        if (!File.Exists(path))
-        {
-            throw new InvalidDataException(
-                "The input artifact metadata exists but its immutable content is missing.");
-        }
-        return new(artifact, path);
+        return Resolve(row);
     }
 
-    public async Task<bool> PinAsync(
-        string artifactId,
-        string ownerKind,
+    /// <summary>
+    /// Atomically retains the requested inputs against expiry/pruning. No durable
+    /// write is needed: previews and in-flight admission cannot survive restart.
+    /// Repeated acquisition by the same owner is idempotent.
+    /// </summary>
+    public Task<IReadOnlyDictionary<string, ResolvedInputArtifact>> RetainAsync(
+        IEnumerable<string> artifactIds,
         Guid ownerId,
         CancellationToken cancellationToken = default)
     {
         EnsureInitialized();
-        ValidateId(artifactId);
-        ValidateOwnerKind(ownerKind);
-        return await WithWriteAsync(async (context, ct) =>
+        string[] ids = artifactIds.Distinct(StringComparer.Ordinal).ToArray();
+        foreach (string id in ids)
+            ValidateId(id);
+        return writes.ExecuteAsync<IReadOnlyDictionary<string, ResolvedInputArtifact>>(async (context, ct) =>
         {
             long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
-            bool available = await context.InputArtifacts.AnyAsync(
-                artifact => artifact.Id == artifactId
-                    && (artifact.ExpiresAtUtc > now
-                        || context.InputArtifactPins.Any(pin =>
-                            pin.ArtifactId == artifact.Id)),
-                ct).ConfigureAwait(false);
-            if (!available || await context.InputArtifactPins.AnyAsync(
-                    pin => pin.ArtifactId == artifactId
-                        && pin.OwnerKind == ownerKind
-                        && pin.OwnerId == ownerId,
-                    ct).ConfigureAwait(false))
+            InputArtifactEntity[] rows = await context.InputArtifacts.AsNoTracking()
+                .Where(artifact => ids.Contains(artifact.Id))
+                .ToArrayAsync(ct).ConfigureAwait(false);
+            var result = new Dictionary<string, ResolvedInputArtifact>(StringComparer.Ordinal);
+            foreach (InputArtifactEntity row in rows)
             {
-                return false;
+                if (row.ExpiresAtUtc > now || retained.ContainsKey(row.Id))
+                    result.Add(row.Id, Resolve(row));
             }
-            context.InputArtifactPins.Add(new InputArtifactPinEntity
+            if (result.Count != ids.Length)
+                throw new ArgumentException("An input artifact was not found or has expired.");
+            ct.ThrowIfCancellationRequested();
+            if (ids.Length > 0)
             {
-                ArtifactId = artifactId,
-                OwnerKind = ownerKind,
-                OwnerId = ownerId,
-                CreatedAtUtc = now,
-            });
-            await context.SaveChangesAsync(ct).ConfigureAwait(false);
-            return true;
-        }, cancellationToken).ConfigureAwait(false);
+                if (!owners.TryGetValue(ownerId, out HashSet<string>? owned))
+                    owners.Add(ownerId, owned = new(StringComparer.Ordinal));
+                foreach (string id in ids)
+                    if (owned.Add(id))
+                        retained.AddOrUpdate(id, 1, (_, count) => checked(count + 1));
+            }
+            return result;
+        }, cancellationToken, requiresTransaction: false);
     }
 
-    public async Task UnpinAsync(
-        string artifactId,
-        string ownerKind,
+    public Task<int> ReleaseAsync(
         Guid ownerId,
         CancellationToken cancellationToken = default)
     {
         EnsureInitialized();
-        ValidateId(artifactId);
-        ValidateOwnerKind(ownerKind);
-        await WithWriteAsync(async (context, ct) =>
+        return writes.ExecuteAsync((_, _) =>
         {
-            await context.InputArtifactPins
-                .Where(pin => pin.ArtifactId == artifactId
-                    && pin.OwnerKind == ownerKind
-                    && pin.OwnerId == ownerId)
-                .ExecuteDeleteAsync(ct).ConfigureAwait(false);
-        }, cancellationToken).ConfigureAwait(false);
-    }
-
-    public async Task<int> ReleasePinsAsync(
-        string ownerKind,
-        CancellationToken cancellationToken = default)
-    {
-        EnsureInitialized();
-        ValidateOwnerKind(ownerKind);
-        return await WithWriteAsync(
-            (context, ct) => context.InputArtifactPins
-                .Where(pin => pin.OwnerKind == ownerKind)
-                .ExecuteDeleteAsync(ct),
-            cancellationToken).ConfigureAwait(false);
+            if (!owners.Remove(ownerId, out HashSet<string>? ids))
+                return Task.FromResult(0);
+            foreach (string id in ids)
+            {
+                if (retained[id] == 1)
+                    retained.TryRemove(id, out _);
+                else
+                    retained[id]--;
+            }
+            return Task.FromResult(ids.Count);
+        }, cancellationToken, requiresTransaction: false);
     }
 
     public async Task<int> PruneExpiredAsync(CancellationToken cancellationToken = default)
@@ -257,10 +244,10 @@ public sealed class InputArtifactStore(
             string[] expired = await WithWriteAsync(async (context, ct) =>
             {
                 long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
+                string[] active = retained.Keys.ToArray();
                 string[] ids = await context.InputArtifacts
                     .Where(artifact => artifact.ExpiresAtUtc <= now
-                        && !context.InputArtifactPins.Any(pin =>
-                            pin.ArtifactId == artifact.Id))
+                        && !active.Contains(artifact.Id))
                     .OrderBy(artifact => artifact.ExpiresAtUtc)
                     .ThenBy(artifact => artifact.Id)
                     .Select(artifact => artifact.Id)
@@ -273,7 +260,7 @@ public sealed class InputArtifactStore(
                         .ExecuteDeleteAsync(ct).ConfigureAwait(false);
                 }
                 return ids;
-            }, cancellationToken).ConfigureAwait(false);
+            }, cancellationToken, background: true).ConfigureAwait(false);
             if (expired.Length == 0)
                 return total;
             total += expired.Length;
@@ -323,29 +310,11 @@ public sealed class InputArtifactStore(
             return true;
         }, cancellationToken).ConfigureAwait(false);
 
-    private async Task<T> WithWriteAsync<T>(
+    private Task<T> WithWriteAsync<T>(
         Func<SockseekDbContext, CancellationToken, Task<T>> action,
-        CancellationToken cancellationToken)
-    {
-        await writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            return await ObserveAsync(async () =>
-            {
-                await using SockseekDbContext context = await contextFactory
-                    .CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-                await using var transaction = await context.Database
-                    .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-                T result = await action(context, cancellationToken).ConfigureAwait(false);
-                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                return result;
-            }).ConfigureAwait(false);
-        }
-        finally
-        {
-            writeGate.Release();
-        }
-    }
+        CancellationToken cancellationToken,
+        bool background = false)
+        => writes.ExecuteAsync(action, cancellationToken, background);
 
     private async Task<T> ObserveAsync<T>(Func<Task<T>> operation)
     {
@@ -400,10 +369,13 @@ public sealed class InputArtifactStore(
             throw new ArgumentException("The input artifact ID is invalid.", nameof(id));
     }
 
-    private static void ValidateOwnerKind(string ownerKind)
+    private ResolvedInputArtifact Resolve(InputArtifactEntity row)
     {
-        if (string.IsNullOrWhiteSpace(ownerKind) || ownerKind.Length > 32)
-            throw new ArgumentException("Artifact pin owner kind is invalid.", nameof(ownerKind));
+        string path = BlobPath(row.Id);
+        if (!File.Exists(path))
+            throw new InvalidDataException(
+                "The input artifact metadata exists but its immutable content is missing.");
+        return new(FromEntity(row), path);
     }
 
     private void EnsureInitialized()
@@ -416,7 +388,6 @@ public sealed class InputArtifactStore(
     {
         Interlocked.Exchange(ref initialized, 0);
         uploadSlots.Dispose();
-        writeGate.Dispose();
         return ValueTask.CompletedTask;
     }
 }

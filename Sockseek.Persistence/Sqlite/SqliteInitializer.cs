@@ -26,6 +26,59 @@ public sealed class SqliteInitializer(
         "20260831120000_AddPeerRestrictions",
         "20260901010000_AddInputArtifacts",
         "20260901020000_AddSearchViews",
+        "20260923120000_AddSearchViewDirectoryPathIndex",
+        "20260924120000_AddDirectoryManifests",
+        "20261001090000_AddTransferGroupIndex",
+        "20261004100000_AddJobSourceDetail",
+        "20261006100000_AddSearchDirectoryObservations",
+        // Lossless in-transaction payload move; upgrade, rollback and downgrade
+        // preserve accepted intent, receipts, metadata and rerun relationships.
+        "20261016090000_SeparateSubmissionSpecifications",
+        "20261024090000_AddSearchViewFileMembershipIndex",
+        // Normalize display ownership only; preserve every job, payload and outcome.
+        "20261025090000_NormalizeAggregateAlbumParents",
+        // Lossless membership-table rebuild; retain identities and revision history.
+        "20261025110000_ConsolidateSearchViewMembershipIndexes",
+        // Reuse the existing unique sequence identity; preserve all result IDs/data.
+        "20261025120000_UseSearchSequencePrimaryKey",
+        // Additive nullable metadata; existing transfer identities and history are unchanged.
+        "20261025140000_AddTransferGroupRelativePath",
+        // Index-only replacement; every retained row and identity is preserved.
+        "20261025160000_AlignHistoryIndexes",
+        "20261025170000_CoverSearchViewFileOrdering",
+        "20261026100000_ShareSearchObservations",
+        // Normalize ambiguous grouping metadata; preserve transfers and attempts.
+        "20261027100000_NormalizeUploadGroupRefs",
+        // Compact internal links; retain public refs, revisions and row identities.
+        "20261027120000_CompactSearchDirectoryMembership",
+        "20261027140000_CompactSearchFileIdentity",
+        // Discard unsupported derived caches; preserve sources and accepted jobs.
+        "20261027150000_ExpireObsoleteGenericSearchViews",
+        // Lossless set encoding in one transaction; keep names, tiers and revisions.
+        "20261028190000_CompactSearchConditionFacts",
+        // Copy immutable best-child ranks once; retain refs, membership and revisions.
+        "20261029100000_IndexSearchDirectoryRanking",
+        "20261029110000_IndexAggregateAlbumPaging",
+        // Lossless group-key rebuild; retain canonical refs and every snapshot edge/version.
+        "20261030100000_CompactAggregateTrackMembership",
+        // Remove only derived candidate rows with no historical group membership.
+        "20261030140000_RemoveUnpublishedTrackCandidates",
+        // Keep all historical album links; discard only unreferenced candidates.
+        "20261030170000_RemoveUnpublishedAlbumCandidates",
+        // Directory versions own child visibility; expire incompatible album caches.
+        "20261030200000_UseDirectoryVisibility",
+        // Pin facts by source, with database-enforced View/fact ownership.
+        "20261030220000_ScopeSearchFactRetention",
+        "20261030230000_CompactSearchRevisions",
+        "20261031010000_CompactSearchDirectories",
+        // Discard outdated projected facts; raw sources and accepted work remain.
+        "20261031020000_ExpireObsoleteConditionFacts",
+        // Drop an unused hash; retain numeric references, facts and raw visibility.
+        "20261031100000_SimplifySearchObservationIdentity",
+        "20261101090000_RemoveUnusedJobCreationIndexes",
+        "20261101110000_CompactSearchAttributes",
+        // Pins only belonged to previews/in-flight admission from a dead session.
+        "20261101130000_RemoveTemporaryArtifactPins",
     };
 
     public async Task<SqliteInitializationResult> InitializeAsync(CancellationToken cancellationToken = default)
@@ -58,7 +111,7 @@ public sealed class SqliteInitializer(
         if (unapproved.Length > 0)
         {
             throw new PersistenceSchemaCompatibilityException(
-                "Automatic migration is blocked because these migrations have no reviewed additive-safety classification: "
+                "Automatic migration is blocked because these migrations have no reviewed safety classification: "
                 + string.Join(", ", unapproved)
                 + ". Back up the database and use a release that explicitly supports this schema transition.");
         }

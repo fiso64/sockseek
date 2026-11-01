@@ -10,12 +10,238 @@ using Sockseek.Server.Persistence;
 using Sockseek.Persistence.Read;
 using Sockseek.Persistence.Sqlite;
 using Sockseek.Persistence.Write;
+using ServerHost = Tests.TestServerHost;
 
 namespace Sockseek.Server.Tests;
 
 [TestClass]
 public sealed class PersistenceDaemonTests
 {
+    [TestMethod]
+    public async Task RetiredJobMetadataRemainsReadableWhileItsDurableCommitIsHeld()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "sockseek-readable-handoff-" + Guid.NewGuid().ToString("N"));
+        var peer = global::Tests.Server.SoulseekClientProxy.Create();
+        var searchesStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSearches = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int searchCount = 0;
+        peer.SearchHandler = async (_, ct) =>
+        {
+            if (Interlocked.Increment(ref searchCount) == 2) searchesStarted.TrySetResult();
+            await releaseSearches.Task.WaitAsync(ct);
+        };
+        await using var app = ServerHost.Build([], new ServerOptions
+        {
+            Engine = new EngineSettings { Username = "test", Password = "test", LogLevel = Microsoft.Extensions.Logging.LogLevel.None },
+            OperatorDownloadSettings = new DownloadSettingsPatchDto(Output: new OutputSettingsPatchDto(ParentDir: Path.Combine(directory, "out"))),
+            Persistence = new ServerPersistenceOptions { Enabled = true, DataDirectory = directory, RetentionEnabled = false },
+            ClientFactory = _ => peer.Client,
+        }, "http://127.0.0.1:0");
+        var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
+        var created = new TaskCompletionSource<Sockseek.Core.DownloadEngine>(TaskCreationOptions.RunContinuationsAsynchronously);
+        supervisor.EngineCreated += engine => created.TrySetResult(engine);
+        try
+        {
+            await app.StartAsync();
+            using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+            var client = new SockseekApiClient(http);
+            var engine = await created.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var retired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var removed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Guid workflowId = Guid.Empty;
+            engine.Events.WorkflowRetired += change => { if (change.WorkflowId == workflowId) retired.TrySetResult(); };
+            supervisor.StateStore.StateBatchPublished += source =>
+            {
+                var batch = source.ToDto();
+                if (workflowId != Guid.Empty && batch.Scope == StateStreamScopeDto.Workflow(workflowId)
+                    && batch.State.RemovedWorkflowIds.Contains(workflowId)) removed.TrySetResult();
+            };
+            await using var fullClient = new SockseekLiveClient(http);
+            var fullChildren = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            fullClient.Updated += _ =>
+            {
+                if (fullClient.Store.GetJobs().Count(job => job.ParentJobId != null) == 2) fullChildren.TrySetResult();
+            };
+            await fullClient.StartDaemonAsync();
+            var root = await supervisor.SubmitJobListAsync(new SubmitJobListRequestDto("held metadata",
+                [new GenericSearchJobDraftDto("held one"), new GenericSearchJobDraftDto("held two")]), CancellationToken.None);
+            var expectedStats = new JobSummaryStatsDto(MemberCount: 2, CompletedMemberCount: 2, FailedMemberCount: 0);
+            workflowId = root.WorkflowId;
+            await searchesStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await fullChildren.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.AreEqual(3, fullClient.Store.GetJobs().Count, "The full SDK stream still carries children.");
+            await using var overviewClient = new SockseekLiveClient(http, detail: DaemonStateDetail.Overview);
+            await overviewClient.StartDaemonAsync();
+            Assert.AreEqual(root.JobId, overviewClient.Store.GetJobs().Single().JobId);
+            Guid observedChild = fullClient.Store.GetJobs().First(job => job.ParentJobId == root.JobId).JobId;
+            using var observationDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await using var observed = overviewClient.ObserveJobsAsync(root.JobId, [observedChild], observationDeadline.Token)
+                .GetAsyncEnumerator();
+            Assert.IsTrue(await observed.MoveNextAsync());
+            CollectionAssert.AreEquivalent(new[] { root.JobId, observedChild },
+                observed.Current.State.Jobs.Select(job => job.JobId).ToArray());
+            Assert.AreEqual(2, observed.Current.ChildCount);
+            await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = SockseekDataPaths.ResolveDatabasePath(directory),
+            }.ToString());
+            await connection.OpenAsync();
+            await using (var held = connection.BeginTransaction(deferred: false))
+            {
+                releaseSearches.TrySetResult();
+                await retired.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                bool finalObserved = false;
+                while (!finalObserved && await observed.MoveNextAsync())
+                    finalObserved = observed.Current.State.Jobs.Any(job => job.JobId == observedChild
+                        && (job.Lifecycle?.LifecycleState ?? job.Added?.Lifecycle.LifecycleState) == ServerJobLifecycleState.Terminal);
+                Assert.IsTrue(finalObserved, "The SDK's scoped final facts do not wait for a held SQL commit.");
+                Assert.IsNotNull(supervisor.StateStore.GetJobDetail(root.JobId),
+                    "Do not discard the readable final projection before its durable replacement is ready.");
+                var metadata = app.Services.GetRequiredService<PersistenceCoordinator>()
+                    .WaitForWorkflowHandoffAsync(workflowId, CancellationToken.None, includeSearchResults: false);
+                Assert.IsFalse(metadata.IsCompleted, "The writer must still be held before the read probe.");
+                var queries = app.Services.GetRequiredService<HistoricalQueryFacade>();
+                var detail = await queries.GetJobAsync(root.JobId).WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.IsNotNull(detail);
+                Assert.AreEqual(ServerJobLifecycleState.Terminal, detail.Summary.LifecycleState);
+                Assert.AreEqual(2, detail.ChildCount);
+                Assert.AreEqual(expectedStats, detail.Summary.Stats);
+                var children = await queries.GetJobsAsync(new JobQuery(null, null, null, workflowId,
+                    ParentJobId: root.JobId, IncludeAll: true), null, 100).WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.AreEqual(2, children.Items.Count);
+                var summaries = await client.LookupJobsAsync(new JobLookupRequestDto(
+                    [root.JobId, children.Items[0].JobId, Guid.NewGuid(), root.JobId])).WaitAsync(TimeSpan.FromSeconds(5));
+                CollectionAssert.AreEqual(new[] { root.JobId, children.Items[0].JobId }, summaries.Select(job => job.JobId).ToArray());
+                Assert.AreEqual(expectedStats, summaries[0].Stats);
+                Assert.IsTrue(children.Items.All(job => job.LifecycleState == ServerJobLifecycleState.Terminal));
+                var global = await queries.GetJobsAsync(new JobQuery(null, null, null, null, IncludeAll: true), null, 100)
+                    .WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.AreEqual(3, global.Items.Count);
+                Assert.IsNotNull(await queries.GetWorkflowAsync(workflowId).WaitAsync(TimeSpan.FromSeconds(5)));
+                Assert.AreEqual(1, (await queries.GetWorkflowsAsync(null, 100).WaitAsync(TimeSpan.FromSeconds(5))).Items.Count);
+                Assert.IsNotNull(await queries.GetJobByDisplayIdAsync(workflowId, root.DisplayId).WaitAsync(TimeSpan.FromSeconds(5)));
+                var submission = await queries.GetSubmissionAsync(root.SubmissionId!.Value).WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.IsNotNull(submission);
+                Assert.AreEqual(3, submission.Summary.TotalJobCount);
+                Assert.AreEqual(0, submission.Summary.ActiveJobCount);
+                Assert.AreEqual(3, (await queries.GetSubmissionsAsync(null, 100, false).WaitAsync(TimeSpan.FromSeconds(5)))
+                    .Items.Single(item => item.SubmissionId == root.SubmissionId).TotalJobCount);
+                Assert.IsFalse(removed.Task.IsCompleted,
+                    $"Read ownership must last until acknowledgement; metadata={metadata.Status}, error={metadata.Exception?.GetBaseException().Message}.");
+                held.Rollback();
+            }
+            await removed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var retainedSummaries = await client.LookupJobsAsync(new JobLookupRequestDto([root.JobId]));
+            Assert.AreEqual(expectedStats, retainedSummaries.Single().Stats);
+            Assert.IsNull(supervisor.StateStore.GetJobDetail(root.JobId));
+            var retained = await app.Services.GetRequiredService<HistoricalQueryFacade>().GetJobAsync(root.JobId);
+            Assert.IsNotNull(retained);
+            Assert.AreEqual(2, retained.ChildCount);
+            Assert.AreEqual(ServerJobLifecycleState.Terminal, retained.Summary.LifecycleState);
+            Assert.AreEqual(expectedStats, retained.Summary.Stats,
+                "Read ownership must not change the public completion counts.");
+        }
+        finally
+        {
+            releaseSearches.TrySetResult();
+            await app.StopAsync();
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task SubmissionOperationsIgnoreAnotherWorkflowsLostSearchHistory()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "sockseek-isolated-submission-" + Guid.NewGuid().ToString("N"));
+        var peer = global::Tests.Server.SoulseekClientProxy.Create();
+        await using var app = ServerHost.Build([], new ServerOptions
+        {
+            Engine = new EngineSettings { Username = "test", Password = "test", LogLevel = Microsoft.Extensions.Logging.LogLevel.None },
+            OperatorDownloadSettings = new DownloadSettingsPatchDto(Output: new OutputSettingsPatchDto(ParentDir: Path.Combine(directory, "out"))),
+            Persistence = new ServerPersistenceOptions { Enabled = true, DataDirectory = directory, RetentionEnabled = false },
+            ClientFactory = _ => peer.Client,
+        }, "http://127.0.0.1:0");
+        var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
+        var created = new TaskCompletionSource<Sockseek.Core.DownloadEngine>(TaskCreationOptions.RunContinuationsAsynchronously);
+        supervisor.EngineCreated += engine => created.TrySetResult(engine);
+        try
+        {
+            await app.StartAsync();
+            var engine = await created.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var retired = new System.Collections.Concurrent.ConcurrentDictionary<Guid, TaskCompletionSource>();
+            TaskCompletionSource Retirement(Guid id) => retired.GetOrAdd(id,
+                _ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+            engine.Events.WorkflowRetired += change => Retirement(change.WorkflowId).TrySetResult();
+            var persistence = app.Services.GetRequiredService<PersistenceCoordinator>();
+            var original = await supervisor.SubmitSearchJobAsync(
+                new SubmitSearchJobRequestDto("independent accepted intent"), CancellationToken.None);
+            await Retirement(original.WorkflowId).Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await persistence.WaitForWorkflowHandoffAsync(original.WorkflowId, CancellationToken.None);
+            string? originalIntent = await persistence.Submissions!.GetSpecificationJsonAsync(original.SubmissionId!.Value);
+            Assert.IsNotNull(originalIntent);
+            Guid lostSearchId;
+
+            await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            { DataSource = Path.Combine(directory, "sockseek.db") }.ToString()))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                // Lose only the other workflow's completed search projection;
+                // its terminal job metadata and immutable accepted intent survive.
+                command.CommandText = """
+                    CREATE TRIGGER lose_search_insert BEFORE INSERT ON search_jobs
+                    WHEN NEW.query = 'lost search history' AND NEW.is_complete = 1
+                    BEGIN SELECT RAISE(FAIL, 'isolated search completion fault'); END;
+                    CREATE TRIGGER lose_search_update BEFORE UPDATE ON search_jobs
+                    WHEN NEW.query = 'lost search history' AND NEW.is_complete = 1
+                    BEGIN SELECT RAISE(FAIL, 'isolated search completion fault'); END;
+                    """;
+                await command.ExecuteNonQueryAsync();
+                var other = await supervisor.SubmitSearchJobAsync(
+                    new SubmitSearchJobRequestDto("lost search history"), CancellationToken.None);
+                lostSearchId = other.JobId;
+                await Retirement(other.WorkflowId).Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await Assert.ThrowsExactlyAsync<PersistenceHandoffException>(() =>
+                    persistence.WaitForWorkflowHandoffAsync(other.WorkflowId, CancellationToken.None)
+                        .WaitAsync(TimeSpan.FromSeconds(5)));
+                await persistence.WaitForWorkflowHandoffAsync(other.WorkflowId, CancellationToken.None, includeSearchResults: false);
+                command.CommandText = "DROP TRIGGER lose_search_insert; DROP TRIGGER lose_search_update;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var recoveredSearch = await supervisor.RerunSearchJobAsync(lostSearchId, CancellationToken.None);
+            Assert.IsNotNull(recoveredSearch);
+            Assert.AreEqual("lost search history", recoveredSearch.QueryText);
+            Assert.AreNotEqual(lostSearchId, recoveredSearch.JobId);
+            await Retirement(recoveredSearch.WorkflowId).Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.IsNull(await supervisor.RerunSubmissionAsync(Guid.NewGuid(), CancellationToken.None),
+                "An unrelated history failure must not turn a missing submission into a server error.");
+            var replay = await supervisor.RerunSubmissionAsync(original.SubmissionId.Value, CancellationToken.None);
+            Assert.IsNotNull(replay);
+            Assert.AreNotEqual(original.SubmissionId, replay.SubmissionId);
+            Assert.AreEqual("independent accepted intent", replay.QueryText);
+            await Retirement(replay.WorkflowId).Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var retained = await persistence.Submissions.GetSubmissionAsync(replay.SubmissionId!.Value);
+            Assert.IsNotNull(retained);
+            Assert.AreEqual(original.SubmissionId, retained.RerunOfSubmissionId);
+            var archived = await supervisor.SetSubmissionArchivedAsync(original.SubmissionId.Value, true, CancellationToken.None);
+            Assert.AreEqual(1, archived.AffectedSubmissionCount);
+            Assert.AreEqual(0, archived.RejectedSubmissionCount);
+            Assert.AreEqual(originalIntent, await persistence.Submissions.GetSpecificationJsonAsync(original.SubmissionId.Value),
+                "Archiving mutable metadata must preserve the immutable replay intent.");
+            var restored = await supervisor.SetSubmissionArchivedAsync(original.SubmissionId.Value, false, CancellationToken.None);
+            Assert.AreEqual(1, restored.AffectedSubmissionCount);
+        }
+        finally
+        {
+            await app.StopAsync();
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
     [TestMethod]
     public void RetentionBatchCeiling_RequestsBoundedCatchUpWork()
     {
@@ -137,11 +363,12 @@ public sealed class PersistenceDaemonTests
             var options = new ServerOptions
             {
                 ConfigDir = directory,
-                Engine = new EngineSettings { MockFilesDir = mockFiles },
+                Engine = new EngineSettings { MockFilesDir = mockFiles, LogLevel = Microsoft.Extensions.Logging.LogLevel.None },
                 Persistence = new ServerPersistenceOptions
                 {
                     Enabled = true,
                     DataDirectory = Path.GetDirectoryName(databasePath),
+                    RetentionEnabled = false,
                 },
             };
             var app = ServerHost.Build([], options, "http://127.0.0.1:0");
@@ -157,9 +384,7 @@ public sealed class PersistenceDaemonTests
                 Assert.AreEqual("Healthy", status.Persistence.State);
                 Assert.IsNotNull(status.Persistence.RuntimeId);
                 Assert.IsNotNull(status.Persistence.RuntimeStartedAtUtc);
-                StringAssert.Contains(
-                    status.Persistence.SchemaVersion,
-                    "AddSearchViews");
+                Assert.IsFalse(string.IsNullOrWhiteSpace(status.Persistence.SchemaVersion));
                 Assert.AreEqual(0, status.Persistence.ReconciledUnfinishedRuntimeCount);
 
                 var coordinator = app.Services.GetRequiredService<PersistenceCoordinator>();
@@ -183,8 +408,57 @@ public sealed class PersistenceDaemonTests
                 Assert.IsTrue(File.Exists(backup.BackupPath));
                 var checkpoint = await coordinator.CheckpointAsync(CancellationToken.None);
                 Assert.IsTrue(checkpoint.Busy is 0 or 1);
-                var retention = await coordinator.RunRetentionAsync(CancellationToken.None);
-                Assert.AreEqual(0, retention.PrunedJobs);
+                Guid expiredTransfer = Guid.NewGuid(), retainedTransfer = Guid.NewGuid();
+                await using (var seed = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString()))
+                {
+                    await seed.OpenAsync();
+                    await using var insert = seed.CreateCommand();
+                    insert.CommandText = """
+                        INSERT INTO transfers (id, last_runtime_id, last_sequence, direction, source,
+                            username, remote_path, state, terminal_outcome, total_bytes, transferred_bytes,
+                            attempt_count, created_at_utc, completed_at_utc, failure_reason,
+                            cancellation_source, revision, group_ref, group_display_path)
+                        VALUES ($id, $runtime, 1, 'Download', 'SoulseekPeer', 'peer', $path,
+                            'Completed', 'Succeeded', 10, 10, 1, $at, $at, 'None', 'None', 1,
+                            'retained-folder', 'Share');
+                        """;
+                    foreach (var (id, age, path) in new[]
+                    {
+                        (expiredTransfer, TimeSpan.FromDays(100), @"Share\Expired.bin"),
+                        (retainedTransfer, TimeSpan.FromMinutes(1), @"Share\Recent.bin"),
+                    })
+                    {
+                        insert.Parameters.Clear();
+                        insert.Parameters.AddWithValue("$id", id);
+                        insert.Parameters.AddWithValue("$runtime", coordinator.Runtime!.RuntimeId);
+                        insert.Parameters.AddWithValue("$path", path);
+                        insert.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.Subtract(age).ToUnixTimeMilliseconds());
+                        await insert.ExecuteNonQueryAsync();
+                    }
+                }
+                using (var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) })
+                await using (var live = new SockseekLiveClient(http))
+                {
+                    var scope = new TransferTimelineScopeDto(TransferCommandDirection.Download,
+                        Limit: 2, IncludeGroupSummaries: true);
+                    using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                    await using var observed = live.ObserveTransferTimelineAsync(scope, deadline.Token).GetAsyncEnumerator();
+                    Assert.IsTrue(await observed.MoveNextAsync());
+                    Assert.AreEqual(2, observed.Current.Items.Count);
+                    Assert.AreEqual(2L, observed.Current.GroupSummaries!.Items.Single().FileCount);
+                    var initialPosition = observed.Current.ReadPosition!;
+                    var retention = await coordinator.RunRetentionAsync(CancellationToken.None);
+                    Assert.AreEqual(0, retention.PrunedJobs);
+                    Assert.AreEqual(1, retention.PrunedTransfers);
+                    var afterPruning = await new SockseekApiClient(http).GetTransferTimelineAsync(scope, deadline.Token);
+                    Assert.IsTrue(afterPruning.ReadPosition!.Sequence > initialPosition.Sequence,
+                        "Pruning changes the readable timeline and must invalidate existing observations.");
+                    Assert.AreEqual(retainedTransfer, afterPruning.Items.Single().TransferId);
+                    Assert.IsTrue(await observed.MoveNextAsync());
+                    CollectionAssert.AreEqual(new[] { expiredTransfer }, observed.Current.RemovedTransferIds.ToArray());
+                    Assert.AreEqual(1L, observed.Current.GroupSummaries!.Items.Single().FileCount,
+                        "An open folder must lose pruned members without an unrelated transfer event.");
+                }
                 var statusAfterMaintenance = supervisor.GetStatus().Persistence!;
                 Assert.IsNotNull(statusAfterMaintenance.LastRetentionAtUtc);
                 Assert.AreEqual(0, statusAfterMaintenance.LastRetentionPrunedJobs);
@@ -525,7 +799,7 @@ public sealed class PersistenceDaemonTests
                         fileView.Revision,
                         null,
                         10,
-                        CancellationToken.None))!;
+                        cancellationToken: CancellationToken.None))!;
                     Assert.AreEqual(1, results.Items.Count);
 
                     sourceJobId = search.JobId;
@@ -570,7 +844,7 @@ public sealed class PersistenceDaemonTests
                         directoryView.Revision,
                         null,
                         10,
-                        CancellationToken.None))!;
+                        cancellationToken: CancellationToken.None))!;
                     Assert.AreEqual(1, folders.Items.Count);
                     directoryViewId = directoryView.ViewId;
                     directoryViewRevision = directoryView.Revision;
@@ -614,7 +888,7 @@ public sealed class PersistenceDaemonTests
                         fileViewRevision,
                         null,
                         10,
-                        CancellationToken.None))!;
+                        cancellationToken: CancellationToken.None))!;
                     Assert.AreEqual(1, historicalProjection.Items.Count);
                     Assert.AreEqual(expectedCandidate.Ref, historicalProjection.Items[0].Ref);
                     Assert.AreEqual(expectedCandidate.File.Size, historicalProjection.Items[0].File.Size);
@@ -655,13 +929,73 @@ public sealed class PersistenceDaemonTests
                     Assert.AreEqual(
                         expectedAggregateTrack.Representative.Ref,
                         historicalTracks.Items[0].Representative.Ref);
+                    var trackOptions = (await views.GetAggregateTrackOptionsAsync(
+                        aggregateTrackViewId,
+                        expectedAggregateTrack.Ref,
+                        aggregateTrackViewRevision,
+                        null,
+                        10,
+                        CancellationToken.None))!;
+                    Assert.AreEqual(1, trackOptions.Items.Count);
+                    var chosenTrack = new CommitSearchViewSelectionRequestDto(
+                        aggregateTrackViewRevision,
+                        new RefSelectionExpressionDto(RefSelectionMode.Only, [expectedAggregateTrack.Ref]),
+                        Guid.NewGuid(),
+                        ChosenOptions: new Dictionary<string, string>
+                        {
+                            [expectedAggregateTrack.Ref] = trackOptions.Items[0].Ref,
+                        });
+                    var chosenReceipt = (await views.CommitSelectionAsync(
+                        aggregateTrackViewId, chosenTrack, CancellationToken.None))!;
+                    Assert.AreEqual(1L, chosenReceipt.SubmittedCount);
+                    await Assert.ThrowsExactlyAsync<IdempotencyConflictException>(() =>
+                        views.CommitSelectionAsync(aggregateTrackViewId,
+                            chosenTrack with { ChosenOptions = new Dictionary<string, string>() },
+                            CancellationToken.None));
+                    var unavailableChoice = (await views.CommitSelectionAsync(
+                        aggregateTrackViewId,
+                        chosenTrack with
+                        {
+                            IdempotencyKey = Guid.NewGuid(),
+                            ChosenOptions = new Dictionary<string, string>
+                            {
+                                [expectedAggregateTrack.Ref] = "missing-option",
+                            },
+                        }, CancellationToken.None))!;
+                    Assert.AreEqual(0L, unavailableChoice.SubmittedCount);
+                    Assert.AreEqual("unavailable-option", unavailableChoice.RejectionReasons.Single().Reason);
+
+                    SearchViewSummaryDto hiddenTrackView = await CreateCompleteSearchViewAsync(
+                        views,
+                        sourceJobId,
+                        new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.AggregateTracks,
+                            FilterText: "no-such-track"));
+                    Assert.AreEqual(0, (await views.GetAggregateTracksAsync(
+                        hiddenTrackView.ViewId, hiddenTrackView.Revision, null, 10,
+                        CancellationToken.None))!.Items.Count);
+                    var hiddenChoiceCount = (await views.CountSelectionAsync(
+                        hiddenTrackView.ViewId,
+                        new CountSearchViewSelectionRequestDto(hiddenTrackView.Revision,
+                            new RefSelectionExpressionDto(RefSelectionMode.Only,
+                                [expectedAggregateTrack.Ref]),
+                            ChosenOptions: chosenTrack.ChosenOptions), CancellationToken.None))!;
+                    Assert.AreEqual(0L, hiddenChoiceCount.SelectedItemCount);
+                    var hiddenChoiceReceipt = (await views.CommitSelectionAsync(
+                        hiddenTrackView.ViewId,
+                        chosenTrack with
+                        {
+                            Revision = hiddenTrackView.Revision,
+                            IdempotencyKey = Guid.NewGuid(),
+                        }, CancellationToken.None))!;
+                    Assert.AreEqual(0L, hiddenChoiceReceipt.SubmittedCount);
+                    Assert.AreEqual("missing-ref", hiddenChoiceReceipt.RejectionReasons.Single().Reason);
 
                     SearchViewDirectoryPageDto historicalFolders = (await views.GetDirectoriesAsync(
                         directoryViewId,
                         directoryViewRevision,
                         null,
                         10,
-                        CancellationToken.None))!;
+                        cancellationToken: CancellationToken.None))!;
                     Assert.AreEqual(1, historicalFolders.Items.Count);
                     Assert.AreEqual(expectedFolder.Ref, historicalFolders.Items[0].Ref);
                     SearchViewDirectoryFilePageDto historicalChildren = (await views
@@ -684,15 +1018,104 @@ public sealed class PersistenceDaemonTests
                             CancellationToken.None))!;
                     Assert.AreEqual(1, historicalAlbums.Items.Count);
                     Assert.AreEqual(expectedAggregateAlbum.Query, historicalAlbums.Items[0].Query);
+                    Assert.AreEqual(1, historicalAlbums.Items[0].Representative.InitialFiles?.Items.Count);
                     Assert.AreEqual(
                         expectedAggregateAlbum.Representative.Ref,
                         historicalAlbums.Items[0].Representative.Ref);
+                    var albumOptions = (await views.GetAggregateAlbumOptionsAsync(
+                        aggregateAlbumViewId,
+                        expectedAggregateAlbum.Ref,
+                        aggregateAlbumViewRevision,
+                        null,
+                        10,
+                        CancellationToken.None))!;
+                    Assert.AreEqual(1, albumOptions.Items.Count);
+                    Assert.AreEqual(1, albumOptions.Items[0].InitialFiles?.Items.Count);
+                    var chosenAlbum = new CommitSearchViewSelectionRequestDto(
+                        aggregateAlbumViewRevision,
+                        new RefSelectionExpressionDto(RefSelectionMode.Only, [expectedAggregateAlbum.Ref]),
+                        Guid.NewGuid(),
+                        ChosenOptions: new Dictionary<string, string>
+                        {
+                            [expectedAggregateAlbum.Ref] = albumOptions.Items[0].Ref.Ref,
+                        });
+                    var chosenAlbumCount = (await views.CountSelectionAsync(
+                        aggregateAlbumViewId,
+                        new CountSearchViewSelectionRequestDto(
+                            chosenAlbum.Revision, chosenAlbum.Selection,
+                            ChosenOptions: chosenAlbum.ChosenOptions),
+                        CancellationToken.None))!;
+                    Assert.AreEqual(albumOptions.Items[0].PublicMatchingFileCount,
+                        chosenAlbumCount.PublicFileCount);
+                    Assert.AreEqual(albumOptions.Items[0].LockedMatchingFileCount,
+                        chosenAlbumCount.LockedFileCount);
+                    var albumChoiceReceipt = (await views.CommitSelectionAsync(
+                        aggregateAlbumViewId, chosenAlbum, CancellationToken.None))!;
+                    Assert.AreEqual(1L, albumChoiceReceipt.SubmittedCount);
+                    var chosenAlbumFiles = (await views.GetDirectoryFilesAsync(
+                        aggregateAlbumViewId,
+                        albumOptions.Items[0].Ref.Ref,
+                        aggregateAlbumViewRevision,
+                        null,
+                        10,
+                        CancellationToken.None))!;
+                    Assert.AreEqual(1, chosenAlbumFiles.Items.Count);
+                    var oneAlbumFile = chosenAlbum with
+                    {
+                        IdempotencyKey = Guid.NewGuid(),
+                        AlbumFileSelections = new Dictionary<string, RefSelectionExpressionDto>
+                        {
+                            [expectedAggregateAlbum.Ref] = new(
+                                RefSelectionMode.Only, [chosenAlbumFiles.Items[0].Ref]),
+                        },
+                    };
+                    var oneAlbumFileCount = (await views.CountSelectionAsync(
+                        aggregateAlbumViewId,
+                        new CountSearchViewSelectionRequestDto(
+                            oneAlbumFile.Revision, oneAlbumFile.Selection,
+                            ChosenOptions: oneAlbumFile.ChosenOptions,
+                            AlbumFileSelections: oneAlbumFile.AlbumFileSelections),
+                        CancellationToken.None))!;
+                    Assert.AreEqual(1L, oneAlbumFileCount.PublicFileCount);
+                    Assert.AreEqual(0L, oneAlbumFileCount.LockedFileCount);
+                    var oneFileReceipt = (await views.CommitSelectionAsync(
+                        aggregateAlbumViewId, oneAlbumFile, CancellationToken.None))!;
+                    Assert.AreEqual(1L, oneFileReceipt.SubmittedCount);
+                    await Assert.ThrowsExactlyAsync<IdempotencyConflictException>(() =>
+                        views.CommitSelectionAsync(aggregateAlbumViewId,
+                            oneAlbumFile with { AlbumFileSelections = null },
+                            CancellationToken.None));
+                    var wrongAlbumFile = (await views.CommitSelectionAsync(
+                        aggregateAlbumViewId,
+                        oneAlbumFile with
+                        {
+                            IdempotencyKey = Guid.NewGuid(),
+                            AlbumFileSelections = new Dictionary<string, RefSelectionExpressionDto>
+                            {
+                                [expectedAggregateAlbum.Ref] = new(RefSelectionMode.Only, ["missing-file"]),
+                            },
+                        }, CancellationToken.None))!;
+                    Assert.AreEqual(0L, wrongAlbumFile.SubmittedCount);
+                    Assert.AreEqual("invalid-item", wrongAlbumFile.RejectionReasons.Single().Reason);
+                    var wrongAlbumChoice = (await views.CommitSelectionAsync(
+                        aggregateAlbumViewId,
+                        chosenAlbum with
+                        {
+                            IdempotencyKey = Guid.NewGuid(),
+                            ChosenOptions = new Dictionary<string, string>
+                            {
+                                [expectedAggregateAlbum.Ref] = "missing-option",
+                            },
+                        }, CancellationToken.None))!;
+                    Assert.AreEqual(0L, wrongAlbumChoice.SubmittedCount);
+                    Assert.AreEqual("unavailable-option", wrongAlbumChoice.RejectionReasons.Single().Reason);
 
                     var retrieved = await views.StartDirectoryRetrievalAsync(
                         directoryViewId,
                         new RetrieveSearchViewDirectoryRequestDto(
                             directoryViewRevision,
-                            expectedFolder.Ref),
+                            expectedFolder.Ref,
+                            Guid.NewGuid()),
                         CancellationToken.None);
                     Assert.IsNotNull(retrieved);
                     Assert.AreEqual(albumSearchJobId, retrieved.SourceJobId);
@@ -728,6 +1151,16 @@ public sealed class PersistenceDaemonTests
                     Assert.AreEqual(workflowId, downloads[0].WorkflowId);
                     Assert.IsTrue(downloads[0].DisplayId > 2);
                     Assert.AreEqual(3, new[] { retrieved.DisplayId, albumDownload.DisplayId, downloads[0].DisplayId }.Distinct().Count());
+                    var acceptedDownload = await second.Services.GetRequiredService<PersistenceCoordinator>()
+                        .Submissions!.GetSubmissionAsync(downloads[0].SubmissionId!.Value, CancellationToken.None);
+                    var acceptedSong = (Sockseek.Core.Jobs.SongJob)Sockseek.Core.Planning.SubmissionSpecificationCodec
+                        .Deserialize(acceptedDownload!.SpecificationJson).MaterializeJob();
+                    Assert.IsNotNull(acceptedSong.ResolvedTarget);
+                    Assert.AreEqual(expectedCandidate.Peer.QueueLength, acceptedSong.ResolvedTarget.QueueLength,
+                        "Restart must preserve the observed peer queue instead of rebuilding partial search metadata.");
+                    Assert.AreEqual(expectedCandidate.Peer.ObservedAtUtc, acceptedSong.ResolvedTarget.ObservedAtUtc);
+                    Assert.IsTrue(acceptedSong.ResolvedTarget.Evidence.Sequence > 0);
+                    Assert.IsTrue(acceptedSong.ResolvedTarget.Evidence.Revision > 0);
                     await WaitForTerminalSuccessAsync(
                         second.Services.GetRequiredService<PersistenceCoordinator>(),
                         downloads[0].JobId);
@@ -818,7 +1251,7 @@ public sealed class PersistenceDaemonTests
         CreateSearchViewRequestDto request)
     {
         var publications = System.Threading.Channels.Channel.CreateUnbounded<(Guid Id, long Revision)>();
-        void OnPublished(Guid id, long revision) => publications.Writer.TryWrite((id, revision));
+        void OnPublished(Sockseek.Persistence.Planning.StoredSearchView view) => publications.Writer.TryWrite((view.Id, view.Revision));
         views.ViewPublished += OnPublished;
         try
         {

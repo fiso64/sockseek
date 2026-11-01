@@ -159,6 +159,9 @@ public sealed class UploadCoordinator : IAsyncDisposable
     private readonly TimeSpan shutdownGrace;
     private readonly ILogger<UploadCoordinator> logger;
     private readonly Dictionary<Guid, Work> work = [];
+    private string? lastAdmittedGroupUsername;
+    private string? lastAdmittedGroupPath;
+    private string? lastAdmittedGroupRef;
     private readonly ConcurrentDictionary<Guid, Task> activeTasks = [];
     private volatile bool stopping;
 
@@ -243,26 +246,42 @@ public sealed class UploadCoordinator : IAsyncDisposable
             }
 
             var request = new UploadAdmissionRequest(
-                Guid.NewGuid(),
+                TransferIds.New(),
                 exactUsername,
                 resolved.File.RemotePath,
                 pathKey,
                 resolved.File.SizeBytes,
                 DateTimeOffset.UtcNow);
-            var item = new Work(
-                request,
-                endpoint,
-                resolved.File.ModifiedAtUtc,
-                ToTransferFileMetadata(resolved.File),
-                ContainingDirectory(resolved.File.RemotePath));
+            string directoryPath = ContainingDirectory(resolved.File.RemotePath);
+            TransferFileMetadataSnapshot fileMetadata = ToTransferFileMetadata(resolved.File);
+            Work? item = null;
             UploadAdmissionResult admitted;
             lock (sync)
             {
                 if (stopping)
                     return Rejected(UploadAdmissionRejection.Unavailable, peerHash);
+                request = request with { RequestedAtUtc = DateTimeOffset.UtcNow };
                 admitted = scheduler.Admit(request);
                 if (admitted.Kind == UploadAdmissionResultKind.Accepted)
+                {
+                    // A folder card represents one adjacent admission run, not
+                    // every request for this path throughout daemon history.
+                    string groupRef = string.Equals(lastAdmittedGroupUsername, exactUsername, StringComparison.Ordinal)
+                        && string.Equals(lastAdmittedGroupPath, directoryPath, StringComparison.Ordinal)
+                        ? lastAdmittedGroupRef!
+                        : "upload-run:" + Guid.NewGuid().ToString("D");
+                    lastAdmittedGroupUsername = exactUsername;
+                    lastAdmittedGroupPath = directoryPath;
+                    lastAdmittedGroupRef = groupRef;
+                    item = new Work(
+                        request,
+                        endpoint,
+                        resolved.File.ModifiedAtUtc,
+                        fileMetadata,
+                        groupRef,
+                        directoryPath);
                     work.Add(request.TransferId, item);
+                }
             }
             if (admitted.Kind == UploadAdmissionResultKind.Duplicate)
             {
@@ -276,6 +295,8 @@ public sealed class UploadCoordinator : IAsyncDisposable
                     admitted.Entry!.TransferId,
                     UploadAdmissionRejection.None);
             }
+            if (item is null)
+                throw new InvalidOperationException("An accepted upload is missing its transfer state.");
             PublishQueueChanged();
             Publish(item);
             UploadLogMessages.Accepted(
@@ -491,7 +512,7 @@ public sealed class UploadCoordinator : IAsyncDisposable
             if (!cancelled)
             {
                 item.State = UploadTransferState.Initializing;
-                item.Attempt = new MutableAttempt(Guid.NewGuid(), DateTimeOffset.UtcNow);
+                item.Attempt = new MutableAttempt(TransferAttemptIds.New(), DateTimeOffset.UtcNow);
                 item.Revision++;
             }
         }
@@ -710,7 +731,7 @@ public sealed class UploadCoordinator : IAsyncDisposable
         Action<UploadTransferSnapshot>? handlers = TransferChanged;
         if (handlers is null)
             return;
-        foreach (Action<UploadTransferSnapshot> handler in handlers.GetInvocationList())
+        foreach (Action<UploadTransferSnapshot> handler in Delegate.EnumerateInvocationList(handlers))
         {
             try
             {
@@ -729,7 +750,7 @@ public sealed class UploadCoordinator : IAsyncDisposable
         Action? handlers = QueueChanged;
         if (handlers is null)
             return;
-        foreach (Action handler in handlers.GetInvocationList())
+        foreach (Action handler in Delegate.EnumerateInvocationList(handlers))
         {
             try
             {
@@ -915,14 +936,15 @@ public sealed class UploadCoordinator : IAsyncDisposable
         IPEndPoint? endpoint,
         DateTimeOffset expectedModifiedAtUtc,
         TransferFileMetadataSnapshot file,
-        string groupRef)
+        string groupRef,
+        string groupDisplayPath)
     {
         public UploadAdmissionRequest Request { get; } = request;
         public IPEndPoint? Endpoint { get; } = endpoint;
         public DateTimeOffset ExpectedModifiedAtUtc { get; } = expectedModifiedAtUtc;
         public TransferFileMetadataSnapshot File { get; } = file;
         public string GroupRef { get; } = groupRef;
-        public string GroupDisplayPath { get; } = groupRef;
+        public string GroupDisplayPath { get; } = groupDisplayPath;
         public CancellationTokenSource Cancellation { get; } = new();
         public UploadTransferState State { get; set; } = UploadTransferState.Queued;
         public UploadFailureReason FailureReason { get; set; }

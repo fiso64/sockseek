@@ -2,17 +2,23 @@ using Sockseek.Api;
 using Sockseek.Core.Services;
 using Sockseek.Persistence.Read;
 using Sockseek.Persistence.Write;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Sockseek.Core.Diagnostics;
 
 namespace Sockseek.Server.Persistence;
 
-public sealed record CombinedJobPage(IReadOnlyList<JobSummaryDto> Items, string? NextCursor);
+public sealed record CombinedJobPage(
+    IReadOnlyList<JobSummaryDto> Items, string? NextCursor, StateStreamPositionDto ReadPosition);
 public sealed record CombinedSearchRawPage(IReadOnlyList<SearchRawResultDto> Items, long? NextSequence);
 public sealed record CombinedTransferAttemptPage(IReadOnlyList<TransferAttemptHistoryDto> Items, int? NextAttemptNumber);
 public sealed record CombinedWorkflowPage(IReadOnlyList<WorkflowSummaryDto> Items, string? NextCursor);
 public sealed record CombinedSubmissionPage(IReadOnlyList<SubmissionSummaryDto> Items, string? NextCursor);
 
-public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSupervisor supervisor, PersistenceCoordinator persistence)
+public sealed partial class HistoricalQueryFacade(EngineStateStore live, EngineSupervisor supervisor,
+    PersistenceCoordinator persistence, ILogger<HistoricalQueryFacade>? logger = null)
 {
+    private readonly RepeatedWarningGate groupReadWarnings = new();
     public async Task<CombinedSubmissionPage> GetSubmissionsAsync(
         string? cursor,
         int limit,
@@ -28,7 +34,7 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
             null,
             IncludeAll: true,
             Archived: archived));
-        await persistence.WaitForAllHandoffsAsync(cancellationToken).ConfigureAwait(false);
+        persistence.EnsureJobProjectionsAvailable();
         var page = await persistence.Submissions.GetSubmissionsAsync(
             new SubmissionHistoryQuery(cursor, limit, archived),
             cancellationToken).ConfigureAwait(false);
@@ -52,7 +58,7 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
             null,
             IncludeAll: true,
             SubmissionId: submissionId));
-        await persistence.WaitForAllHandoffsAsync(cancellationToken).ConfigureAwait(false);
+        persistence.EnsureJobProjectionsAvailable();
         var submission = await persistence.Submissions
             .GetSubmissionAsync(submissionId, cancellationToken)
             .ConfigureAwait(false);
@@ -77,6 +83,24 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
         };
     }
 
+    public Task<TransferTimelinePageDto> LookupTransfersAsync(
+        TransferLookupRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request.TransferIds);
+        string? direction = null;
+        if (request.Direction is { } value)
+        {
+            if (!Enum.TryParse<TransferCommandDirection>(value, ignoreCase: true, out var parsed) || !Enum.IsDefined(parsed))
+                throw new ArgumentException("Transfer direction must be Download or Upload.");
+            direction = parsed.ToString();
+        }
+        var ids = request.TransferIds.ToHashSet();
+        return GetTransfersAsync(null, Math.Max(1, ids.Count), null, null,
+            direction, null, null, null, null, null, null,
+            cancellationToken: cancellationToken, transferIds: ids);
+    }
+
     public async Task<TransferTimelinePageDto> GetTransfersAsync(
         string? cursor,
         int limit,
@@ -90,76 +114,194 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
         DateTimeOffset? fromUtc,
         DateTimeOffset? toUtc,
         bool archived = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? groupRef = null,
+        IReadOnlySet<Guid>? transferIds = null)
     {
-        if (limit is < 1 or > TransferHistoryReader.MaximumPageSize)
+        if (limit < 1)
             throw new ArgumentOutOfRangeException(nameof(limit));
         TransferHistoryReader.TransferCursorValue? boundary =
             TransferHistoryReader.DecodeCursor(cursor);
 
+        // Capture before either source: claiming a later commit could conceal
+        // a completion in the gap between the HTTP read and live subscription.
+        StateStreamPositionDto readPosition = live.GetReadPosition();
         var retainedCoverage = RetainedTransferCoverage();
-        PersistedTransferPage? retained = persistence.TransferHistory == null
-            || retainedCoverage.State == TransferRetainedCoverageState.Unavailable
-            ? null
-            : await persistence.TransferHistory.GetTransfersAsync(
-                new TransferHistoryQuery(
-                    cursor, limit, jobId, workflowId, direction, source, state,
-                    terminalOutcome, username, fromUtc, toUtc, archived),
-                cancellationToken).ConfigureAwait(false);
-
-        var retainedRows = (retained?.Items ?? [])
-            .Select(ToTransfer)
-            .ToArray();
-        var liveRows = new List<TransferHistoryDto>();
-
-        foreach (TransferStateDto transfer in archived
-                     ? []
-                     : live.GetActiveTransferSnapshot())
-        {
-            TransferHistoryDto row = ToTimelineTransfer(transfer);
-            if (MatchesTransferFilter(
-                    row, boundary, jobId, workflowId, direction, source, state,
-                    terminalOutcome, username, fromUtc, toUtc))
-                liveRows.Add(row);
-        }
-
+        // Keep captured facts until membership is known. Wire metadata and
+        // retained file attributes belong to the selected page, not every live row.
+        var current = (archived ? [] : transferIds is not null
+            ? live.GetTransferFactsSnapshot(transferIds)
+            : live.GetTransferPageCandidates(groupRef, direction, username))
+            .ToDictionary(row => row.TransferId);
         bool queueHasMore = false;
-        var queuedRows = new List<TransferHistoryDto>();
-        if (!archived
+        if (!archived && groupRef is null && transferIds is null
             && CanIncludeQueuedUploads(direction, source, state, terminalOutcome)
             && supervisor?.Sharing is { } sharing)
         {
-            DateTimeOffset? before = boundary is { } value
-                ? DateTimeOffset.FromUnixTimeMilliseconds(value.CreatedAtUtc)
-                : null;
             var queued = sharing.Uploads.GetNewestQueuePage(
-                before,
-                boundary?.Id,
-                limit + 1,
-                username,
-                fromUtc,
-                toUtc);
+                boundary is { } value ? DateTimeOffset.FromUnixTimeMilliseconds(value.CreatedAtUtc) : null,
+                boundary?.Id, limit == int.MaxValue ? limit : limit + 1, username, fromUtc, toUtc);
             queueHasMore = queued.NextTransferId != null;
-            foreach (var queuedItem in queued.Items)
-            {
-                if (live.GetLiveTransfer(queuedItem.TransferId) is not { } transfer)
-                    continue;
-                TransferHistoryDto row = ToTimelineTransfer(transfer);
-                if (MatchesTransferFilter(
-                    row, boundary, jobId, workflowId, direction, source, state,
-                    terminalOutcome, username, fromUtc, toUtc))
-                    queuedRows.Add(row);
-            }
+            var queuedIds = queued.Items.Select(item => item.TransferId).ToHashSet();
+            foreach (var row in live.GetTransferFactsSnapshot(queuedIds))
+                if (!current.TryGetValue(row.TransferId, out var previous) || row.Revision > previous.Revision)
+                    current[row.TransferId] = row;
+        }
+        var candidates = current.Values.Select(row => new LiveTransferCandidate(
+            row.TransferId, row.Revision, row.RequestedAtUtc?.ToUnixTimeMilliseconds() ?? 0,
+            MatchesTransferFilter(row, null, jobId, workflowId, direction, source, state,
+                terminalOutcome, username, null, null, groupRef))).ToArray();
+        if (persistence.TransferHistory is not null && retainedCoverage.State != TransferRetainedCoverageState.Unavailable)
+        {
+            var retained = await persistence.TransferHistory.GetTransfersAsync(
+                new TransferHistoryQuery(cursor, limit, jobId, workflowId, direction, source, state,
+                    terminalOutcome, username, fromUtc, toUtc, archived, groupRef, transferIds?.ToArray(),
+                    candidates, queueHasMore), cancellationToken).ConfigureAwait(false);
+            var rows = retained.Items.ToDictionary(row => row.Id, TransferReadModel.FromRetained);
+            foreach (Guid id in retained.TransferIds)
+                if (current.TryGetValue(id, out var captured))
+                {
+                    if (rows.TryGetValue(id, out var newer) && newer.Revision > captured.Revision)
+                        continue;
+                    var row = TransferReadModel.FromLive(captured.ToDto());
+                    rows[id] = rows.TryGetValue(id, out var predecessor)
+                        ? TransferReadModel.Merge(predecessor, row) : row;
+                }
+            return new(retained.TransferIds.Select(id => rows[id]).ToArray(), retained.NextCursor,
+                retainedCoverage, readPosition);
         }
 
-        return ComposeTransferTimeline(
-            retainedRows,
-            liveRows,
-            queuedRows,
-            limit,
-            retained?.NextCursor != null,
-            queueHasMore,
-            retainedCoverage);
+        var selected = current.Values.Where(row => MatchesTransferFilter(row, boundary,
+                jobId, workflowId, direction, source, state, terminalOutcome, username, fromUtc, toUtc, groupRef))
+            .OrderByDescending(row => row.RequestedAtUtc?.ToUnixTimeMilliseconds() ?? 0)
+            .ThenByDescending(row => row.TransferId)
+            .Take(limit == int.MaxValue ? limit : limit + 1).ToArray();
+        return ComposeTransferTimeline([], selected.Select(row => TransferReadModel.FromLive(row.ToDto())).ToArray(), [],
+            limit, false, queueHasMore, retainedCoverage) with { ReadPosition = readPosition };
+    }
+
+    private static HashSet<TransferGroupKeyDto> TransferGroups(IEnumerable<TransferHistoryDto> rows)
+        => rows.Where(row => row.GroupRef is not null)
+            .Select(row => new TransferGroupKeyDto(
+                Enum.Parse<TransferCommandDirection>(row.Direction, ignoreCase: true), row.Username, row.GroupRef!))
+            .ToHashSet();
+
+    private async Task<TransferGroupSummariesResponseDto> ReadRequestedTransferGroupSummariesAsync(
+        IReadOnlyCollection<TransferGroupKeyDto> groups, CancellationToken cancellationToken)
+    {
+        using var activity = TransferReads.StartActivity("timeline.groups");
+        activity?.SetTag("group.count", groups.Count);
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            return await GetTransferGroupSummariesAsync(groups.ToArray(), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            activity?.SetStatus(System.Diagnostics.ActivityStatusCode.Error);
+            // Totals are optional metadata, not ownership of valid file rows.
+            // Repeated observations must not flood logs during a storage outage.
+            if (groupReadWarnings.TryAcquire(out long suppressed))
+                ServerLogMessages.TransferGroupReadFailed(logger ?? NullLogger<HistoricalQueryFacade>.Instance,
+                    ex, activity?.TraceId.ToString() ?? Guid.NewGuid().ToString("N"), groups.Count,
+                    (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, suppressed);
+            return new([], new(TransferRetainedCoverageState.Unavailable,
+                "Transfer folder totals could not be read."));
+        }
+    }
+
+    public async Task<TransferGroupSummariesResponseDto> GetTransferGroupSummariesAsync(
+        IReadOnlyList<TransferGroupKeyDto> groups,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(groups);
+        var readPosition = live.GetTransferReadPosition();
+        var coverage = RetainedTransferCoverage();
+        if (coverage.State == TransferRetainedCoverageState.Unavailable
+            || persistence.TransferHistory is null)
+            return new([], coverage, readPosition);
+
+        var requested = groups.Select(group => new TransferGroupKey(
+                group.Direction.ToString(), group.Username, group.GroupRef))
+            .ToHashSet();
+        if (requested.Count == 0)
+            return new([], coverage, readPosition);
+
+        // Capture volatile rows before their durable successors. The reader
+        // obtains aggregate totals and overlap rows from one SQLite snapshot.
+        var current = live.GetTransferGroupSnapshot(groups.ToHashSet());
+        PersistedTransferGroupProjection retained = await persistence.TransferHistory
+            .GetGroupProjectionAsync(requested, current.Select(row => row.TransferId).ToArray(), cancellationToken)
+            .ConfigureAwait(false);
+        var totals = retained.Summaries.ToDictionary(summary => summary.Key);
+        var persistedById = retained.OverlappingTransfers.ToDictionary(transfer => transfer.Id);
+
+        foreach (TransferReadSnapshot liveRow in current)
+        {
+            persistedById.TryGetValue(liveRow.TransferId, out TransferGroupMember? persisted);
+            if (persisted is { ArchivedAtUtc: null })
+                AdjustGroupTotals(totals, persisted, -1);
+            var chosen = TransferReadModel.ForGroup(liveRow, persisted);
+            if (chosen.ArchivedAtUtc is null)
+                AdjustGroupTotals(totals, chosen, 1);
+        }
+
+        return new(totals.Values
+            .Where(summary => summary.FileCount > 0 && requested.Contains(summary.Key))
+            .Select(summary => new TransferGroupSummaryDto(
+                    new TransferGroupKeyDto(
+                        Enum.Parse<TransferCommandDirection>(summary.Key.Direction, ignoreCase: true),
+                        summary.Key.Username,
+                        summary.Key.GroupRef),
+                    summary.FileCount,
+                    summary.KnownTotalBytes,
+                    summary.TransferredBytes,
+                    summary.SpeedBytesPerSecond,
+                    summary.UnknownTotalCount,
+                    summary.KnownRemainingActiveBytes,
+                    summary.UnknownActiveTotalCount,
+                    summary.QueuedCount,
+                    summary.InProgressCount,
+                    summary.SucceededCount,
+                    summary.FailedCount,
+                    summary.CancelledCount,
+                    summary.InterruptedCount))
+            .OrderBy(summary => summary.Key.Direction)
+            .ThenBy(summary => summary.Key.Username, StringComparer.Ordinal)
+            .ThenBy(summary => summary.Key.GroupRef, StringComparer.Ordinal)
+            .ToArray(), coverage, readPosition);
+    }
+
+    private static void AdjustGroupTotals(
+        Dictionary<TransferGroupKey, PersistedTransferGroupSummary> totals,
+        TransferGroupMember row,
+        int sign)
+    {
+        if (row.GroupRef is null) return;
+        var key = new TransferGroupKey(row.Direction, row.Username, row.GroupRef);
+        totals.TryGetValue(key, out PersistedTransferGroupSummary? current);
+        current ??= new(key, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        long? size = row.TotalBytes ?? row.FileSize;
+        bool active = string.Equals(row.TerminalOutcome, "None", StringComparison.OrdinalIgnoreCase);
+        bool queued = active && string.Equals(row.State, "Queued", StringComparison.OrdinalIgnoreCase);
+        totals[key] = current with
+        {
+            FileCount = current.FileCount + sign,
+            KnownTotalBytes = current.KnownTotalBytes + sign * (size ?? 0),
+            TransferredBytes = current.TransferredBytes + sign * row.TransferredBytes,
+            SpeedBytesPerSecond = current.SpeedBytesPerSecond
+                + (active ? sign * (row.BytesPerSecond ?? 0) : 0),
+            UnknownTotalCount = current.UnknownTotalCount + (size is null ? sign : 0),
+            KnownRemainingActiveBytes = current.KnownRemainingActiveBytes
+                + (active && size is not null ? sign * Math.Max(0, size.Value - row.TransferredBytes) : 0),
+            UnknownActiveTotalCount = current.UnknownActiveTotalCount + (active && size is null ? sign : 0),
+            QueuedCount = current.QueuedCount + (queued ? sign : 0),
+            InProgressCount = current.InProgressCount + (active && !queued ? sign : 0),
+            SucceededCount = current.SucceededCount + (row.TerminalOutcome == "Succeeded" ? sign : 0),
+            FailedCount = current.FailedCount + (row.TerminalOutcome == "Failed" ? sign : 0),
+            CancelledCount = current.CancelledCount + (row.TerminalOutcome == "Cancelled" ? sign : 0),
+            InterruptedCount = current.InterruptedCount + (row.TerminalOutcome == "Interrupted" ? sign : 0),
+        };
     }
 
     internal static TransferTimelinePageDto ComposeTransferTimeline(
@@ -174,11 +316,11 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
         var candidates = retained.ToDictionary(item => item.TransferId);
         foreach (TransferHistoryDto row in liveRows)
             candidates[row.TransferId] = candidates.TryGetValue(row.TransferId, out TransferHistoryDto? retainedRow)
-                ? OverlayLiveTransfer(retainedRow, row)
+                ? TransferReadModel.Merge(retainedRow, row)
                 : row;
         foreach (TransferHistoryDto row in queuedRows)
             candidates[row.TransferId] = candidates.TryGetValue(row.TransferId, out TransferHistoryDto? queuedRetainedRow)
-                ? OverlayLiveTransfer(queuedRetainedRow, row)
+                ? TransferReadModel.Merge(queuedRetainedRow, row)
                 : row;
 
         var ordered = candidates.Values
@@ -198,25 +340,6 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
         return new TransferTimelinePageDto(ordered, next, retainedCoverage);
     }
 
-    private static TransferHistoryDto OverlayLiveTransfer(
-        TransferHistoryDto retained,
-        TransferHistoryDto current)
-        => current with
-        {
-            // Creation order is immutable once retained. Mutable live state
-            // must never move an existing row to a different keyset page.
-            CreatedAtUtc = retained.CreatedAtUtc,
-            RequestedAtUtc = current.RequestedAtUtc ?? retained.RequestedAtUtc,
-            StartedAtUtc = current.StartedAtUtc ?? retained.StartedAtUtc,
-            LastProgressAtUtc = current.LastProgressAtUtc ?? retained.LastProgressAtUtc,
-            CompletedAtUtc = current.CompletedAtUtc ?? retained.CompletedAtUtc,
-            FailureMessage = current.FailureMessage ?? retained.FailureMessage,
-            File = current.File ?? retained.File,
-            ArchivedAtUtc = retained.ArchivedAtUtc,
-            GroupRef = current.GroupRef ?? retained.GroupRef,
-            GroupDisplayPath = current.GroupDisplayPath ?? retained.GroupDisplayPath,
-        };
-
     public async Task<TransferCommandReceiptDto> SetTransfersArchivedAsync(
         TransferArchiveFilter filter,
         bool archived,
@@ -225,20 +348,23 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
         if (persistence.TransferHistory is null)
             throw new NotSupportedException(
                 "Transfer archive is unavailable because persistence is disabled or not started.");
+        // A terminal delta is readable before its durable successor exists.
+        // Archive only after those known terminal writes can participate, then
+        // release the same captured population rather than newer completions.
+        var terminal = archived ? live.GetActiveTransferSnapshot()
+            .Where(transfer => transfer.Status.IsTerminal && MatchesArchiveFilter(transfer, filter)).ToArray() : [];
+        foreach (var transfer in terminal)
+            await persistence.WaitForTransferHandoffAsync(
+                transfer.TransferId, transfer.Revision, cancellationToken).ConfigureAwait(false);
         TransferArchiveResult result = await persistence.TransferHistory
             .SetArchivedAsync(filter, archived, cancellationToken)
             .ConfigureAwait(false);
 
-        if (archived)
-        {
-            foreach (TransferStateDto transfer in live.GetCancellableTransferSnapshot()
-                         .Where(transfer =>
-                             transfer.Status.IsTerminal
-                             && MatchesArchiveFilter(transfer, filter)))
-            {
-                live.RemoveTerminalTransfer(transfer.TransferId);
-            }
-        }
+        foreach (var transfer in terminal)
+            live.RemoveTerminalTransfer(transfer.TransferId);
+
+        if (result.ChangedCount > 0)
+            live.MarkTransferHistoryChanged();
 
         return new TransferCommandReceiptDto(
             result.ResolvedCount,
@@ -263,6 +389,8 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
                 || EqualsFilter(transfer.Status.TerminalOutcome.ToString(), filter.TerminalOutcome))
             && (filter.Username is null
                 || string.Equals(transfer.Identity.Username, filter.Username, StringComparison.Ordinal))
+            && (filter.GroupRef is null
+                || string.Equals(transfer.Identity.GroupRef, filter.GroupRef, StringComparison.Ordinal))
             && (!filter.FromUtc.HasValue || created >= filter.FromUtc.Value)
             && (!filter.ToUtc.HasValue || created <= filter.ToUtc.Value);
     }
@@ -296,7 +424,7 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
             && (terminalOutcome == null || EqualsFilter(terminalOutcome, "None"));
 
     private static bool MatchesTransferFilter(
-        TransferHistoryDto row,
+        TransferReadSnapshot row,
         TransferHistoryReader.TransferCursorValue? boundary,
         Guid? jobId,
         Guid? workflowId,
@@ -306,9 +434,10 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
         string? terminalOutcome,
         string? username,
         DateTimeOffset? fromUtc,
-        DateTimeOffset? toUtc)
+        DateTimeOffset? toUtc,
+        string? groupRef = null)
     {
-        long created = row.CreatedAtUtc.ToUnixTimeMilliseconds();
+        long created = row.RequestedAtUtc?.ToUnixTimeMilliseconds() ?? 0;
         if (boundary is { } cursor
             && (created > cursor.CreatedAtUtc
                 || created == cursor.CreatedAtUtc
@@ -319,10 +448,11 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
             && (direction == null || EqualsFilter(row.Direction, direction))
             && (source == null || EqualsFilter(row.Source, source))
             && (state == null || EqualsFilter(row.State, state))
-            && (terminalOutcome == null || EqualsFilter(row.TerminalOutcome, terminalOutcome))
+            && (terminalOutcome == null || EqualsFilter(row.TerminalOutcome.ToString(), terminalOutcome))
             && (username == null || string.Equals(row.Username, username, StringComparison.Ordinal))
-            && (!fromUtc.HasValue || row.CreatedAtUtc >= fromUtc.Value)
-            && (!toUtc.HasValue || row.CreatedAtUtc <= toUtc.Value);
+            && (groupRef == null || string.Equals(row.GroupRef, groupRef, StringComparison.Ordinal))
+            && (!fromUtc.HasValue || created >= fromUtc.Value.ToUnixTimeMilliseconds())
+            && (!toUtc.HasValue || created <= toUtc.Value.ToUnixTimeMilliseconds());
     }
 
     private static bool EqualsFilter(string left, string right)
@@ -338,8 +468,8 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
         var liveRows = live.GetWorkflowPageCandidates(
             decoded?.DisplayId,
             decoded?.Id,
-            limit + 1);
-        await persistence.WaitForAllHandoffsAsync(cancellationToken).ConfigureAwait(false);
+            limit == int.MaxValue ? limit : limit + 1);
+        persistence.EnsureJobProjectionsAvailable();
         PersistedWorkflowPage? persisted = persistence.JobHistory == null
             ? null
             : await persistence.JobHistory.GetWorkflowsAsync(cursor, limit, cancellationToken).ConfigureAwait(false);
@@ -373,7 +503,7 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
         var liveWorkflow = live.GetWorkflow(workflowId);
         if (liveWorkflow != null)
             return liveWorkflow;
-        await persistence.WaitForWorkflowHandoffAsync(workflowId, cancellationToken)
+        await persistence.WaitForWorkflowHandoffAsync(workflowId, cancellationToken, includeSearchResults: false)
             .ConfigureAwait(false);
         if (persistence.JobHistory == null)
             return null;
@@ -389,7 +519,7 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
         var liveDetail = supervisor.GetJobDetailByDisplayId(workflowId, displayId);
         if (liveDetail != null)
             return liveDetail;
-        await persistence.WaitForWorkflowHandoffAsync(workflowId, cancellationToken)
+        await persistence.WaitForWorkflowHandoffAsync(workflowId, cancellationToken, includeSearchResults: false)
             .ConfigureAwait(false);
         if (persistence.JobHistory == null)
             return null;
@@ -409,7 +539,7 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
         var detail = await persistence.TransferHistory.GetTransferAsync(transferId, cancellationToken).ConfigureAwait(false);
         return detail == null
             ? null
-            : (ToTransfer(detail.Transfer), detail.LatestAttempt == null ? null : ToAttempt(detail.LatestAttempt));
+            : (TransferReadModel.FromRetained(detail.Transfer), detail.LatestAttempt == null ? null : ToAttempt(detail.LatestAttempt));
     }
 
     public async Task<TransferDetailDto?> GetTransferDetailAsync(
@@ -455,12 +585,30 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
         int limit,
         CancellationToken cancellationToken = default)
     {
-        if (persistence.TransferHistory == null)
+        // Capture live attempts before reading their durable successors, so a
+        // transfer cannot disappear between retirement and the SQLite snapshot.
+        // Never wait for the writer just to read an already-visible transfer.
+        var current = live.GetLiveTransferAttempts(
+            transferId, afterAttemptNumber, limit == int.MaxValue ? limit : limit + 1);
+        var retained = persistence.TransferHistory == null ? null
+            : await persistence.TransferHistory.GetAttemptsAsync(
+                transferId, afterAttemptNumber, limit, cancellationToken).ConfigureAwait(false);
+        if (current == null && retained == null)
             return null;
-        var page = await persistence.TransferHistory.GetAttemptsAsync(transferId, afterAttemptNumber, limit, cancellationToken).ConfigureAwait(false);
-        return page == null
-            ? null
-            : new CombinedTransferAttemptPage(page.Items.Select(ToAttempt).ToArray(), page.NextAttemptNumber);
+        var attempts = (current ?? []).ToDictionary(attempt => attempt.AttemptNumber);
+        foreach (var item in retained?.Items ?? [])
+        {
+            var attempt = ToAttempt(item);
+            if (!attempts.TryGetValue(attempt.AttemptNumber, out var previous)
+                || previous.Revision < attempt.Revision)
+                attempts[attempt.AttemptNumber] = attempt;
+        }
+        var ordered = attempts.Values.OrderBy(attempt => attempt.AttemptNumber).ToList();
+        bool hasMore = ordered.Count > limit || retained?.NextAttemptNumber != null;
+        if (ordered.Count > limit)
+            ordered.RemoveRange(limit, ordered.Count - limit);
+        return new CombinedTransferAttemptPage(ordered,
+            hasMore && ordered.Count > 0 ? ordered[^1].AttemptNumber : null);
     }
 
     public async Task<CombinedJobPage> GetJobsAsync(
@@ -471,53 +619,52 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
     {
         ValidateJobPageLimit(limit);
         var decoded = JobHistoryReader.DecodeCursor(cursor);
-        var liveRows = live.GetJobPageCandidates(query, decoded?.DisplayId, decoded?.Id, limit + 1);
-        if (query.WorkflowId is { } workflowId)
+        if (decoded is { } position && position.NewestFirst != query.NewestFirst)
+            throw new ArgumentException("The job cursor has a different sort direction.", nameof(cursor));
+        var capture = live.CaptureJobPage(query, decoded?.DisplayId, decoded?.Id,
+            limit == int.MaxValue ? limit : limit + 1);
+        if (capture.IsCompleteScope || persistence.JobHistory is null)
         {
-            await persistence.WaitForWorkflowHandoffAsync(workflowId, cancellationToken)
-                .ConfigureAwait(false);
+            bool more = capture.Items.Count > limit;
+            var items = capture.Items.Take(limit).ToArray();
+            return new(items, more && items.Length > 0
+                ? JobHistoryReader.EncodeCursor(items[^1].DisplayId, items[^1].JobId, query.NewestFirst) : null,
+                capture.Position);
         }
-        else
-        {
-            await persistence.WaitForAllHandoffsAsync(cancellationToken)
-                .ConfigureAwait(false);
-        }
-        PersistedJobPage? persisted = persistence.JobHistory == null
-            ? null
-            : await persistence.JobHistory.GetJobsAsync(new JobHistoryQuery(
-                cursor,
-                limit,
-                query.LifecycleState?.ToString(),
-                query.TerminalOutcome?.ToString(),
-                query.SkipReason?.ToString(),
-                query.Kind?.ToString(),
-                query.WorkflowId,
-                query.IncludeAll,
-                query.ParentJobId,
-                query.SubmissionId,
-                query.Role?.ToString(),
-                query.Archived), cancellationToken).ConfigureAwait(false);
+        persistence.EnsureJobProjectionsAvailable(query.WorkflowId);
+        var persisted = await persistence.JobHistory.GetJobsAsync(new JobHistoryQuery(
+            cursor, limit, query.LifecycleState?.ToString(), query.TerminalOutcome?.ToString(),
+            query.SkipReason?.ToString(), query.Kind?.ToString(), query.WorkflowId, query.IncludeAll,
+            query.ParentJobId, query.SubmissionId, query.Role?.ToString(), query.Archived,
+            query.NewestFirst, query.ExcludeExtractResults, capture.OwnedJobIds), cancellationToken).ConfigureAwait(false);
+        // Runtime rows and retained rows are disjoint by ownership. Capture and
+        // exact-ID reads use this same runtime-first rule, rather than choosing
+        // different authorities for detail, status filtering and list paging.
+        var merged = persisted.Items.Select(HistoricalJobDtoMapper.ToSummary).Concat(capture.Items);
+        var ordered = (query.NewestFirst
+                ? merged.OrderByDescending(row => row.DisplayId).ThenByDescending(row => row.JobId)
+                : merged.OrderBy(row => row.DisplayId).ThenBy(row => row.JobId))
+            .Take(limit == int.MaxValue ? limit : limit + 1).ToArray();
+        bool hasMore = ordered.Length > limit || persisted.NextCursor is not null || capture.Items.Count > limit;
+        var pageItems = ordered.Take(limit).ToArray();
+        return new(pageItems, hasMore && pageItems.Length > 0
+            ? JobHistoryReader.EncodeCursor(pageItems[^1].DisplayId, pageItems[^1].JobId, query.NewestFirst) : null,
+            capture.Position);
+    }
 
-        var merged = persisted?.Items
-            .Select(HistoricalJobDtoMapper.ToSummary)
-            .ToDictionary(job => job.JobId)
-            ?? new Dictionary<Guid, JobSummaryDto>();
-        foreach (var job in liveRows)
-            merged[job.JobId] = job;
-
-        var ordered = merged.Values
-            .OrderBy(job => job.DisplayId)
-            .ThenBy(job => job.JobId)
-            .ToList();
-        bool hasMore = ordered.Count > limit
-            || liveRows.Count > limit
-            || persisted?.NextCursor != null;
-        if (ordered.Count > limit)
-            ordered.RemoveRange(limit, ordered.Count - limit);
-        string? next = hasMore && ordered.Count > 0
-            ? JobHistoryReader.EncodeCursor(ordered[^1].DisplayId, ordered[^1].JobId)
-            : null;
-        return new CombinedJobPage(ordered, next);
+    public async Task<IReadOnlyList<JobSummaryDto>> LookupJobsAsync(
+        JobLookupRequestDto request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request.JobIds);
+        Guid[] ids = request.JobIds.Distinct().ToArray();
+        var found = live.GetJobSummaries(ids).ToDictionary(job => job.JobId);
+        Guid[] missing = ids.Where(id => !found.ContainsKey(id)).ToArray();
+        foreach (Guid id in missing)
+            await persistence.WaitForJobHandoffAsync(id, cancellationToken, includeSearchResults: false).ConfigureAwait(false);
+        if (missing.Length > 0 && persistence.JobHistory is { } history)
+            foreach (var job in await history.GetJobsByIdsAsync(missing, cancellationToken).ConfigureAwait(false))
+                found[job.Id] = HistoricalJobDtoMapper.ToSummary(job);
+        return ids.Where(found.ContainsKey).Select(id => found[id]).ToArray();
     }
 
     public async Task<JobDetailDto?> GetJobAsync(Guid jobId, CancellationToken cancellationToken = default)
@@ -525,7 +672,7 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
         var liveDetail = live.GetJobDetail(jobId);
         if (liveDetail != null)
             return liveDetail;
-        await persistence.WaitForJobHandoffAsync(jobId, cancellationToken)
+        await persistence.WaitForJobHandoffAsync(jobId, cancellationToken, includeSearchResults: false)
             .ConfigureAwait(false);
         if (persistence.JobHistory == null)
             return null;
@@ -540,18 +687,72 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
             childCount);
     }
 
+    public async Task<DirectoryManifestPageDto?> GetDirectoryManifestAsync(
+        Guid jobId,
+        int? attemptNumber,
+        int afterOrdinal,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit));
+        if (afterOrdinal < -1 || afterOrdinal == int.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(afterOrdinal));
+        if (attemptNumber is < 1)
+            throw new ArgumentOutOfRangeException(nameof(attemptNumber));
+
+        var livePage = live.GetDirectoryManifest(jobId, attemptNumber, afterOrdinal, limit);
+        if (livePage != null)
+            return livePage;
+        if (live.GetJobSummary(jobId) != null && attemptNumber == null)
+            return null;
+        await persistence.WaitForJobHandoffAsync(jobId, cancellationToken, includeSearchResults: false).ConfigureAwait(false);
+        if (persistence.JobHistory == null)
+            return null;
+        var retained = await persistence.JobHistory.GetDirectoryManifestAsync(
+            jobId, attemptNumber, afterOrdinal, limit, cancellationToken).ConfigureAwait(false);
+        if (retained == null)
+            return null;
+        return new DirectoryManifestPageDto(
+            retained.AttemptNumber,
+            retained.DisplayRoot,
+            retained.EntryCount,
+            retained.TotalKnownBytes,
+            retained.ChildrenMaterialized,
+            retained.SupplementalEntryCount,
+            retained.JobRevision,
+            retained.Items.Select(item =>
+            {
+                var file = item.Child == null ? null : HistoricalJobDtoMapper.ToPayload(item.Child) switch
+                {
+                    SongJobPayloadDto song => song.File,
+                    RemoteFileJobPayloadDto remote => remote.File,
+                    _ => null,
+                };
+                return new DirectoryManifestEntryDto(
+                    item.Ordinal,
+                    item.Target != null ? ServerSnapshotMapper.ToPeerFileTargetDto(item.Target)
+                        : item.Child == null ? null : HistoricalJobDtoMapper.ToSelectedFileTarget(item.Child),
+                    item.RelativeDirectoryComponents,
+                    item.ChildJobId,
+                    item.Child == null ? null : HistoricalJobDtoMapper.ToSummary(item.Child),
+                    file);
+            }).ToArray(),
+            retained.NextOrdinal);
+    }
+
     public async Task<CombinedSearchRawPage?> GetRawSearchResultsAsync(
         Guid jobId,
         long afterSequence,
         int limit,
         CancellationToken cancellationToken = default)
     {
-        if (limit is < 1 or > SearchHistoryReader.MaximumPageSize)
-            throw new ArgumentOutOfRangeException(nameof(limit), $"Search result page size must be between 1 and {SearchHistoryReader.MaximumPageSize}.");
-        var liveResults = supervisor.GetSearchRawResults(jobId, afterSequence);
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
+        var liveResults = supervisor.GetSearchRawResults(jobId, afterSequence, limit == int.MaxValue ? limit : limit + 1);
         if (liveResults != null)
         {
-            var items = liveResults.Take(limit + 1).ToList();
+            var items = liveResults.ToList();
             bool hasMore = items.Count > limit;
             if (hasMore) items.RemoveAt(items.Count - 1);
             return new CombinedSearchRawPage(items, hasMore && items.Count > 0 ? items[^1].Sequence : null);
@@ -565,94 +766,9 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
         if (page == null)
             return null;
         return new CombinedSearchRawPage(
-            page.Items.Select(result => new SearchRawResultDto(
-                result.Sequence,
-                checked((int)result.Revision),
-                result.Username,
-                result.RemoteFilename,
-                result.SizeBytes,
-                result.BitRate,
-                result.SampleRate,
-                result.DurationSeconds,
-                result.Visibility.ToServer(),
-                result.QueueLength,
-                result.ObservedAtUtc)).ToArray(),
+            page.Items.Select(ServerSnapshotMapper.ToSearchRawResultDto).ToArray(),
             page.NextSequence);
     }
-
-    private static TransferHistoryDto ToTransfer(PersistedTransfer transfer)
-        => new(
-            transfer.Id, transfer.JobId, transfer.WorkflowId, transfer.Direction, transfer.Source, transfer.Username,
-            transfer.RemotePath, transfer.LocalPath, transfer.State, transfer.TerminalOutcome, transfer.TotalBytes,
-            transfer.TransferredBytes, transfer.AttemptCount, transfer.CreatedAtUtc, transfer.CompletedAtUtc,
-            transfer.FailureReason, transfer.FailureMessage,
-            Enum.TryParse(
-                transfer.CancellationSource,
-                ignoreCase: true,
-                out TransferCancellationSource cancellationSource)
-                ? cancellationSource
-                : TransferCancellationSource.None,
-            transfer.Revision,
-            RequestedAtUtc: transfer.CreatedAtUtc,
-            transfer.StartedAtUtc,
-            transfer.LastProgressAtUtc,
-            transfer.BytesPerSecond,
-            ToFileMetadata(transfer.File),
-            AvailableActions: [],
-            transfer.ArchivedAtUtc,
-            transfer.GroupRef);
-
-    private static TransferHistoryDto ToTimelineTransfer(TransferStateDto transfer)
-    {
-        DateTimeOffset created = transfer.Scheduling?.RequestedAtUtc
-            ?? DateTimeOffset.UnixEpoch;
-        created = DateTimeOffset.FromUnixTimeMilliseconds(
-            created.ToUnixTimeMilliseconds());
-        return new TransferHistoryDto(
-            transfer.TransferId,
-            transfer.Identity.JobId,
-            transfer.Identity.WorkflowId,
-            transfer.Identity.Direction,
-            transfer.Identity.Source,
-            transfer.Identity.Username,
-            transfer.Identity.RemotePath,
-            transfer.Status.LocalPath,
-            transfer.Status.State,
-            transfer.Status.TerminalOutcome.ToString(),
-            transfer.Progress.TotalBytes < 0 ? null : transfer.Progress.TotalBytes,
-            transfer.Progress.BytesTransferred,
-            transfer.Status.AttemptCount,
-            created,
-            CompletedAtUtc: null,
-            transfer.Status.FailureReason.ToString(),
-            FailureMessage: null,
-            transfer.Status.CancellationSource,
-            transfer.Revision,
-            transfer.Scheduling?.RequestedAtUtc,
-            transfer.Scheduling?.StartedAtUtc,
-            transfer.Progress.LastProgressAtUtc,
-            transfer.Progress.BytesPerSecond,
-            transfer.File,
-            transfer.Status.AvailableActions,
-            GroupRef: transfer.Identity.GroupRef,
-            GroupDisplayPath: transfer.Identity.GroupDisplayPath);
-    }
-
-    private static FileMetadataDto? ToFileMetadata(
-        Sockseek.Core.Snapshots.TransferFileMetadataSnapshot? file)
-        => file is null
-            ? null
-            : new FileMetadataDto(
-                file.Name,
-                file.Size,
-                file.Extension,
-                file.BitRate,
-                file.BitDepth,
-                file.SampleRate,
-                file.Length,
-                file.Attributes?.Select(attribute => new FileAttributeDto(
-                    attribute.Type,
-                    attribute.Value)).ToArray());
 
     private static TransferAttemptHistoryDto ToAttempt(PersistedTransferAttempt attempt)
         => new(
@@ -674,9 +790,9 @@ public sealed class HistoricalQueryFacade(EngineStateStore live, EngineSuperviso
 
     private static void ValidateJobPageLimit(int limit)
     {
-        if (limit is < 1 or > JobHistoryReader.MaximumPageSize)
+        if (limit < 1)
             throw new ArgumentOutOfRangeException(
                 nameof(limit),
-                $"Page size must be between 1 and {JobHistoryReader.MaximumPageSize}.");
+                "Page size must be positive.");
     }
 }

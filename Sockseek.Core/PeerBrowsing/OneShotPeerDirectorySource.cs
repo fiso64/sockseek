@@ -21,7 +21,10 @@ public sealed class OneShotPeerDirectorySource(IPeerBrowseTransport transport)
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(directory);
+        directory.RequireAdvertisedFolder();
         var sink = new RequestedDirectorySink(directory);
+        // A directory-content reply cannot establish complete subtree membership;
+        // see IPeerDirectorySource for the full-browse compatibility requirement.
         await transport.ReceiveAsync(
             directory.Username,
             sink,
@@ -41,10 +44,7 @@ public sealed class OneShotPeerDirectorySource(IPeerBrowseTransport transport)
         private PeerBrowseFilePath currentFilePath;
         private string? currentExtension;
         private List<FileAttributeSnapshot>? currentAttributes;
-        private int? bitRate;
-        private int? bitDepth;
-        private int? sampleRate;
-        private int? length;
+        private PeerBrowseFileMetadata metadata;
         private bool collectingDirectory;
         private bool completed;
 
@@ -90,10 +90,7 @@ public sealed class OneShotPeerDirectorySource(IPeerBrowseTransport transport)
                 ? null
                 : PeerIdentityValidator.ValidateRemotePath(file.Extension);
             currentAttributes = file.AttributeCount == 0 ? null : [];
-            bitRate = null;
-            bitDepth = null;
-            sampleRate = null;
-            length = null;
+            metadata = default;
             return ValueTask.CompletedTask;
         }
 
@@ -112,13 +109,7 @@ public sealed class OneShotPeerDirectorySource(IPeerBrowseTransport transport)
                 ((FileAttributeType)attribute.Type).ToString(),
                 attribute.Value,
                 attribute.Type));
-            switch (attribute.Type)
-            {
-                case 0 when attribute.Value > 0: bitRate ??= attribute.Value; break;
-                case 1 when attribute.Value >= 0: length ??= attribute.Value; break;
-                case 4 when attribute.Value > 0: sampleRate ??= attribute.Value; break;
-                case 5 when attribute.Value > 0: bitDepth ??= attribute.Value; break;
-            }
+            metadata = metadata.WithAttribute(attribute.Type, attribute.Value);
             return ValueTask.CompletedTask;
         }
 
@@ -135,10 +126,10 @@ public sealed class OneShotPeerDirectorySource(IPeerBrowseTransport transport)
                 new PeerFileIdentity(identity.Username, currentFilePath.WireFilename),
                 currentFile.Size,
                 currentExtension,
-                bitRate,
-                bitDepth,
-                sampleRate,
-                length,
+                metadata.BitRate,
+                metadata.BitDepth,
+                metadata.SampleRate,
+                metadata.Length,
                 currentAttributes));
             currentFile = null;
             currentExtension = null;

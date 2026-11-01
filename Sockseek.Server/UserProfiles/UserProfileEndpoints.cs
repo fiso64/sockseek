@@ -16,6 +16,14 @@ internal static class UserProfileEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
+        app.MapGet("/api/users/{username}/presence", GetPresenceAsync)
+            .RequireOperator()
+            .WithTags("User Browsing")
+            .WithSummary("Observes a peer's presence without fetching profile details.")
+            .Produces<UserPresenceObservationDto>()
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
+            .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
+
         app.MapGet("/api/users/{username}/picture", GetPictureAsync)
             .RequireOperator()
             .WithTags("User Browsing")
@@ -101,6 +109,31 @@ internal static class UserProfileEndpoints
 
             response.ContentLength = picture.Bytes.Length;
             return Results.Bytes(picture.Bytes, picture.MediaType);
+        }
+        catch (Exception exception)
+        {
+            return Failure(exception);
+        }
+    }
+
+    private static async Task<IResult> GetPresenceAsync(
+        string username,
+        EngineSupervisor supervisor,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        UserProfileService? service = supervisor.UserProfiles;
+        if (service is null)
+        {
+            ServerLogMessages.FeatureRequestUnavailable(
+                loggerFactory.CreateLogger("Sockseek.Server.UserProfiles.UserProfileEndpoints"),
+                "user presence");
+            return Unavailable();
+        }
+        try
+        {
+            return Results.Ok(await service.ObservePresenceAsync(
+                username, cancellationToken).ConfigureAwait(false));
         }
         catch (Exception exception)
         {

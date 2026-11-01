@@ -1,5 +1,7 @@
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
+using Sockseek.Core.Services;
+using Sockseek.Core.Snapshots;
 using System.Collections;
 using System.Globalization;
 using System.Reflection;
@@ -38,7 +40,7 @@ public interface IJobSettingsRequestResolver
 {
     DownloadSettings Resolve(
         DownloadSettings inherited,
-        Job job,
+        JobSettingsContext job,
         JobSettingsInheritance inheritance,
         JobSettingsRequestLayers? request);
 }
@@ -47,21 +49,19 @@ public interface IDetailedJobSettingsRequestResolver : IJobSettingsRequestResolv
 {
     JobSettingsCompositionResult ResolveDetailed(
         DownloadSettings inherited,
-        Job job,
+        JobSettingsContext job,
         JobSettingsInheritance inheritance = JobSettingsInheritance.None,
         JobSettingsRequestLayers? request = null);
 }
 
 public static class SearchSettingsBaselines
 {
-    public static SearchSettingsBaselineKind For(Job job) => job switch
+    public static SearchSettingsBaselineKind For(JobSettingsContext job) => job switch
     {
-        SearchJob search when search.DefaultFileProjection != null
-            || search.DefaultFolderProjection != null
-            || search.DefaultAggregateTrackProjection != null
-            || search.DefaultAggregateAlbumProjection != null
+        { Kind: JobSnapshotKind.Search, SearchProjection: SearchDefaultProjectionKind.Track or SearchDefaultProjectionKind.Album }
+            or { Kind: JobSnapshotKind.Search, MusicSearchDefaults: true }
             => SearchSettingsBaselineKind.Music,
-        SongJob or AlbumJob or AggregateJob or AlbumAggregateJob
+        { Kind: JobSnapshotKind.Song or JobSnapshotKind.Album or JobSnapshotKind.Aggregate or JobSnapshotKind.AlbumAggregate }
             => SearchSettingsBaselineKind.Music,
         _ => SearchSettingsBaselineKind.Generic,
     };
@@ -120,14 +120,14 @@ public sealed class JobSettingsComposer
 
     public DownloadSettings Compose(
         DownloadSettings inherited,
-        Job job,
+        JobSettingsContext job,
         JobSettingsInheritance inheritance = JobSettingsInheritance.None,
         JobSettingsRequestLayers? request = null)
         => ComposeCore(inherited, job, inheritance, request, provenance: null, out _);
 
     public JobSettingsCompositionResult ComposeDetailed(
         DownloadSettings inherited,
-        Job job,
+        JobSettingsContext job,
         JobSettingsInheritance inheritance = JobSettingsInheritance.None,
         JobSettingsRequestLayers? request = null)
     {
@@ -144,7 +144,7 @@ public sealed class JobSettingsComposer
 
     private DownloadSettings ComposeCore(
         DownloadSettings inherited,
-        Job job,
+        JobSettingsContext job,
         JobSettingsInheritance inheritance,
         JobSettingsRequestLayers? request,
         Dictionary<string, string>? provenance,
@@ -152,21 +152,43 @@ public sealed class JobSettingsComposer
     {
         var requestNamedProfiles = catalog.ResolveNamedProfiles(request?.ProfileNames);
         var allNamedProfiles = launchNamedProfiles.Concat(requestNamedProfiles).ToList();
-        var context = MergeContext(launchContext, request?.ProfileContext);
-
-        // Auto-profile predicates see the same higher-precedence, typed request
-        // that will be executed. Each predicate is evaluated exactly once.
-        var conditionSettings = ComposeWithoutAuto(job, allNamedProfiles);
-        if (inheritance == JobSettingsInheritance.SearchConstraints)
-            PreserveInheritedSearchConstraints(conditionSettings, inherited);
-        request?.Download?.ApplyTo(conditionSettings);
-
-        var matchingAutoProfiles = catalog.AutoProfiles
-            .Where(p => p.Condition != null
-                && ProfileConditionEvaluator.Satisfied(p.Condition, conditionSettings, job, context))
-            .ToList();
-
         baseline = SearchSettingsBaselines.For(job);
+        IReadOnlyList<SettingsProfile> matchingAutoProfiles = [];
+        DownloadSettings? conditionSettings = null;
+        if (catalog.AutoProfiles.Count > 0)
+        {
+            var context = MergeContext(launchContext, request?.ProfileContext);
+            // Predicates see the same precedence as execution, without their
+            // own patches. Evaluate each once; retain this value if none match.
+            conditionSettings = ComposeLayers(inherited, baseline, inheritance,
+                [], allNamedProfiles, request?.Download, provenance: null);
+            matchingAutoProfiles = catalog.AutoProfiles
+                .Where(p => p.Condition != null
+                    && ProfileConditionEvaluator.SatisfiedForContext(p.Condition, conditionSettings, job, context))
+                .ToArray();
+        }
+
+        // Detailed callers still need field provenance from the actual layers.
+        // Ordinary jobs need no second composition when auto-profiles do not
+        // apply, and no predicate-only settings when no auto-profiles exist.
+        var settings = conditionSettings is not null && matchingAutoProfiles.Count == 0 && provenance is null
+            ? conditionSettings
+            : ComposeLayers(inherited, baseline, inheritance, matchingAutoProfiles,
+                allNamedProfiles, request?.Download, provenance);
+        settings.AppliedAutoProfiles = [.. matchingAutoProfiles.Select(p => p.Name)];
+        finalize?.Invoke(settings);
+        return settings;
+    }
+
+    private DownloadSettings ComposeLayers(
+        DownloadSettings inherited,
+        SearchSettingsBaselineKind baseline,
+        JobSettingsInheritance inheritance,
+        IReadOnlyList<SettingsProfile> autoProfiles,
+        IReadOnlyList<SettingsProfile> namedProfiles,
+        DownloadSettingsPatch? request,
+        Dictionary<string, string>? provenance)
+    {
         var settings = CreateBuiltInBase(baseline);
         if (provenance != null)
         {
@@ -176,9 +198,9 @@ public sealed class JobSettingsComposer
         }
         ApplyTracked(settings, operatorDefault, "operator-default", provenance);
         ApplyTracked(settings, catalog.DefaultProfile?.Download, "profile", provenance);
-        foreach (var profile in matchingAutoProfiles)
+        foreach (var profile in autoProfiles)
             ApplyTracked(settings, profile.Download, "profile", provenance);
-        foreach (var profile in allNamedProfiles)
+        foreach (var profile in namedProfiles)
             ApplyTracked(settings, profile.Download, "profile", provenance);
         ApplyTracked(settings, launchDownload, "operator-default", provenance);
 
@@ -200,10 +222,7 @@ public sealed class JobSettingsComposer
                     new HashSet<string>(StringComparer.Ordinal));
             }
         }
-        ApplyTracked(settings, request?.Download, "request", provenance);
-
-        settings.AppliedAutoProfiles = [.. matchingAutoProfiles.Select(p => p.Name)];
-        finalize?.Invoke(settings);
+        ApplyTracked(settings, request, "request", provenance);
         return settings;
     }
 
@@ -219,25 +238,6 @@ public sealed class JobSettingsComposer
         settings.Search.PreferredFolderCond = MergeFolderConditions(
             settings.Search.PreferredFolderCond,
             inherited.Search.PreferredFolderCond);
-    }
-
-    private DownloadSettings ComposeWithoutAuto(
-        Job job,
-        IReadOnlyList<SettingsProfile> namedProfiles)
-    {
-        var settings = CreateBase(job);
-        catalog.DefaultProfile?.Download.ApplyTo(settings);
-        foreach (var profile in namedProfiles)
-            profile.Download.ApplyTo(settings);
-        launchDownload?.ApplyTo(settings);
-        return settings;
-    }
-
-    private DownloadSettings CreateBase(Job job)
-    {
-        var settings = CreateBuiltInBase(SearchSettingsBaselines.For(job));
-        operatorDefault?.ApplyTo(settings);
-        return settings;
     }
 
     private DownloadSettings CreateBuiltInBase(SearchSettingsBaselineKind baseline)

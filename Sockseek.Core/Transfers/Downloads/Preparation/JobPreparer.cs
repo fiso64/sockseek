@@ -6,7 +6,7 @@ using Sockseek.Core.Settings;
 namespace Sockseek.Core.Services;
 
 /// <summary>
-/// Tree-walks the job tree and sets up per-job Config, M3uEditors, and TrackSkippers.
+/// Tree-walks the job tree and sets up per-job Config, DownloadOutputFiles, and TrackSkippers.
 /// Config flows top-down: each job inherits its parent's config independently (siblings
 /// do not accumulate — a profile applied to one job does not affect its siblings).
 /// Returns a JobContext keyed by job ID for every job in the tree.
@@ -19,12 +19,13 @@ public static class JobPreparer
         IJobSettingsResolver? resolver = null)
     {
         var contexts = new Dictionary<Guid, JobContext>();
-        var editors  = new Dictionary<(string path, M3uOption option), M3uEditor>();
+        var editors  = new Dictionary<(string path, OutputFileKind kind, bool readOnly), DownloadOutputFile>();
         var skippers = new Dictionary<(string dir, SkipMode mode, bool checkCond), TrackSkipper>();
         resolver ??= DefaultJobSettingsResolver.Instance;
 
+        bool indexByDefault = HasDefaultIndex(queue);
         foreach (var job in queue.Jobs)
-            PrepareJob(job, queue, OutputScope.Empty, startConfig, contexts, editors, skippers, resolver,
+            PrepareJob(job, queue, indexByDefault, OutputScope.Empty, startConfig, contexts, editors, skippers, resolver,
                 JobSettingsInheritance.None);
 
         return contexts;
@@ -41,16 +42,16 @@ public static class JobPreparer
         bool rootSettingsAreFinal = false)
     {
         var newContexts = new Dictionary<Guid, JobContext>();
-        var editors     = new Dictionary<(string path, M3uOption option), M3uEditor>();
+        var editors     = new Dictionary<(string path, OutputFileKind kind, bool readOnly), DownloadOutputFile>();
         var skippers    = new Dictionary<(string dir, SkipMode mode, bool checkCond), TrackSkipper>();
         resolver ??= DefaultJobSettingsResolver.Instance;
 
         if (parentCtx != null)
         {
             if (parentCtx.IndexEditor != null)
-                editors[(parentCtx.IndexEditor.path, parentCtx.IndexEditor.option)] = parentCtx.IndexEditor;
+                editors[(parentCtx.IndexEditor.Path, parentCtx.IndexEditor.Kind, !parentCtx.IndexEditor.IsWritable)] = parentCtx.IndexEditor;
             if (parentCtx.PlaylistEditor != null)
-                editors[(parentCtx.PlaylistEditor.path, parentCtx.PlaylistEditor.option)] = parentCtx.PlaylistEditor;
+                editors[(parentCtx.PlaylistEditor.Path, parentCtx.PlaylistEditor.Kind, !parentCtx.PlaylistEditor.IsWritable)] = parentCtx.PlaylistEditor;
 
             bool checkCond = parentConfig.Skip.SkipCheckCond || parentConfig.Skip.SkipCheckPrefCond;
             if (parentCtx.OutputDirSkipper != null && parentConfig.Output.ParentDir != null)
@@ -72,8 +73,9 @@ public static class JobPreparer
         var rootInheritance = parentCtx != null || explicitOwnerList != null
             ? JobSettingsInheritance.SearchConstraints
             : JobSettingsInheritance.None;
-        PrepareJob(root, ownerList, inheritedScope, parentConfig, newContexts, editors, skippers, resolver,
-            rootInheritance, useInheritedScopeForRootEditors, rootSettingsAreFinal);
+        PrepareJob(root, ownerList, HasDefaultIndex(ownerList), inheritedScope, parentConfig, newContexts, editors, skippers, resolver,
+            rootInheritance, useInheritedScopeForRootEditors, rootSettingsAreFinal,
+            syntheticOwner: root is not JobList && explicitOwnerList is null);
         return newContexts;
     }
 
@@ -130,19 +132,21 @@ public static class JobPreparer
     private static void PrepareJob(
         Job job,
         JobList ownerList,
+        bool indexByDefault,
         OutputScope inheritedScope,
         DownloadSettings parentConfig,
         Dictionary<Guid, JobContext> contexts,
-        Dictionary<(string, M3uOption), M3uEditor> editors,
+        Dictionary<(string, OutputFileKind, bool), DownloadOutputFile> editors,
         Dictionary<(string, SkipMode, bool), TrackSkipper> skippers,
         IJobSettingsResolver resolver,
         JobSettingsInheritance inheritance,
         bool useInheritedScopeForCurrentJob = false,
-        bool settingsAreFinal = false)
+        bool settingsAreFinal = false,
+        bool syntheticOwner = false)
     {
-        var ctx = new JobContext();
+        var ctx = new JobContext { PreparationOwner = ownerList };
 
-        job.Config = job.PlannedEffectiveSettings is { } planned
+        job.Config = job.PlannedSettings is { } planned
             ? UsePlannedSettings(job, planned)
             : settingsAreFinal
                 ? ApplySemanticSettings(
@@ -160,8 +164,8 @@ public static class JobPreparer
 
         ctx.EnablesIndexByDefault = job.EnablesIndexByDefault;
 
-        SetupIndexEditor(job, ctx, ownerList, editors);
-        SetupPlaylistEditor(job, ctx, ownerList, editors);
+        SetupIndexEditor(job, ctx, ownerList, indexByDefault, editors, syntheticOwner);
+        SetupPlaylistEditor(job, ctx, ownerList, editors, syntheticOwner);
         SetupSkippers(job, ctx, skippers);
 
         contexts[job.Id] = ctx;
@@ -170,10 +174,17 @@ public static class JobPreparer
         // use this list as their ownerList for editor/index scoping.
         if (job is JobList childList)
         {
+            bool childIndexByDefault = ReferenceEquals(childList, ownerList)
+                ? indexByDefault : HasDefaultIndex(childList);
             foreach (var child in childList.Jobs)
-                PrepareJob(child, childList, childScope, job.Config, contexts, editors, skippers, resolver,
+            {
+                // A prepared list is one workflow, including directly supplied
+                // Core trees that did not pass through an extractor or daemon.
+                child.WorkflowId = childList.WorkflowId;
+                PrepareJob(child, childList, childIndexByDefault, childScope, job.Config, contexts, editors, skippers, resolver,
                     JobSettingsInheritance.SearchConstraints,
-                    settingsAreFinal: child.PlannedEffectiveSettings != null);
+                    settingsAreFinal: child.PlannedSettings != null);
+            }
         }
     }
 
@@ -193,7 +204,7 @@ public static class JobPreparer
         return ApplySemanticSettings(job, settings, consumeExtractorHints);
     }
 
-    private static DownloadSettings ApplySemanticSettings(
+    internal static DownloadSettings ApplySemanticSettings(
         Job job,
         DownloadSettings settings,
         bool consumeExtractorHints)
@@ -228,16 +239,14 @@ public static class JobPreparer
 
         if (job is SearchJob { Definition: null } searchJob)
             searchJob.Definition = SearchDefinition.Create(searchJob, settings.Search);
-        if (job is SearchJob or SongJob or AlbumJob or AggregateJob or AlbumAggregateJob)
-            job.ExecutedSearchDefinition ??= SearchDefinition.Create(job, settings.Search);
         return settings;
     }
 
     private static DownloadSettings UsePlannedSettings(
         Job job,
-        DownloadSettings planned)
+        JobSettingsSnapshot planned)
     {
-        var settings = SettingsCloner.Clone(planned);
+        var settings = planned.ReadSettings();
         // The planner already applied these patches to the retained settings
         // and propagated extractor hints to a resolved Extract result. Clearing
         // leaf hints prevents any later subtree preparation from applying them
@@ -253,14 +262,15 @@ public static class JobPreparer
     }
 
     private static void SetupIndexEditor(Job job, JobContext ctx, JobList ownerList,
-        Dictionary<(string, M3uOption), M3uEditor> editors)
+        bool indexByDefault,
+        Dictionary<(string, OutputFileKind, bool), DownloadOutputFile> editors, bool syntheticOwner)
     {
         if (job is RemoteFileJob or RemoteDirectoryJob)
             return;
         var config = job.Config;
-        var indexOption = WillWriteIndex(config, ownerList) ? M3uOption.Index : M3uOption.None;
+        bool writeIndex = WillWriteIndex(config, indexByDefault);
 
-        bool needIndex = indexOption != M3uOption.None
+        bool needIndex = writeIndex
             || (config.Skip.SkipExisting && config.Skip.SkipMode == SkipMode.Index)
             || config.Skip.SkipNotFound;
 
@@ -278,20 +288,21 @@ public static class JobPreparer
             indexPath = ctx.OutputScope.ScopedPath(config.Output, "_index.csv");
         }
 
-        var key = (indexPath, indexOption);
+        var key = (indexPath, OutputFileKind.Index, !writeIndex);
         if (editors.TryGetValue(key, out var existing))
         {
             ctx.IndexEditor = existing;
+            existing.AttachOwner(ownerList, syntheticOwner);
         }
         else
         {
-            ctx.IndexEditor = new M3uEditor(indexPath, ownerList, indexOption, true);
+            ctx.IndexEditor = new DownloadOutputFile(indexPath, ownerList, OutputFileKind.Index, true, readOnly: !writeIndex);
             editors.Add(key, ctx.IndexEditor);
         }
     }
 
     private static void SetupPlaylistEditor(Job job, JobContext ctx, JobList ownerList,
-        Dictionary<(string, M3uOption), M3uEditor> editors)
+        Dictionary<(string, OutputFileKind, bool), DownloadOutputFile> editors, bool syntheticOwner)
     {
         if (job is RemoteFileJob or RemoteDirectoryJob)
             return;
@@ -310,14 +321,15 @@ public static class JobPreparer
             m3uPath = ctx.OutputScope.ScopedPath(config.Output, playlistFileName);
         }
 
-        var key = (m3uPath, M3uOption.Playlist);
+        var key = (m3uPath, OutputFileKind.Playlist, false);
         if (editors.TryGetValue(key, out var existing))
         {
             ctx.PlaylistEditor = existing;
+            existing.AttachOwner(ownerList, syntheticOwner);
         }
         else
         {
-            ctx.PlaylistEditor = new M3uEditor(m3uPath, ownerList, M3uOption.Playlist, false);
+            ctx.PlaylistEditor = new DownloadOutputFile(m3uPath, ownerList, OutputFileKind.Playlist, false);
             editors.Add(key, ctx.PlaylistEditor);
         }
     }
@@ -359,11 +371,13 @@ public static class JobPreparer
         }
     }
 
-    public static bool WillWriteIndex(DownloadSettings dl, JobList? queue = null)
-    {
-        if (dl.DoNotDownload) return false;
-        if (!dl.Output.HasConfiguredIndex && queue != null && !queue.EnablesIndexByDefault && !queue.Jobs.Any(x => x.EnablesIndexByDefault))
-            return false;
-        return dl.Output.WriteIndex;
-    }
+    // This is an owner-list property. Compute it at each traversal boundary,
+    // rather than scanning every sibling for each leaf (quadratic on large lists).
+    // It is deliberately not cached on mutable Jobs between preparations.
+    private static bool HasDefaultIndex(JobList owner)
+        => owner.EnablesIndexByDefault || owner.Jobs.Any(job => job.EnablesIndexByDefault);
+
+    private static bool WillWriteIndex(DownloadSettings settings, bool indexByDefault)
+        => !settings.DoNotDownload && settings.Output.WriteIndex
+            && (settings.Output.HasConfiguredIndex || indexByDefault);
 }

@@ -201,16 +201,15 @@ public class StaleDownloadTests
             Cts = new CancellationTokenSource(),
         };
         var activeDownloads = new ActiveDownloadTracker();
-        var downloadedFiles = new DownloadedFileCache();
         var events = new DownloadEvents();
         var staleDownloads = new StaleDownloadCoordinator(activeDownloads, clock);
+        using var fileOperations = new DownloadFileOperations(engineSettings.ConcurrentJobs);
         var downloader = new ExactPeerFileTransferRunner(
             client,
             TestHelpers.CreateMockClientManager(client, engineSettings),
             activeDownloads,
-            downloadedFiles,
             events,
-            staleDownloads);
+            staleDownloads, fileOperations);
         var started = NewSignal();
         var releaseStarted = NewSignal();
         events.DownloadStarted += _ =>

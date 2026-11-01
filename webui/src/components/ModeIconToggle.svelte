@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import type { AppIconName } from '../prototype/icons';
+  import type { AppIconName } from '../app/icons';
   import { anchoredMenu } from '../lib/anchored-menu';
 
   export type ModeIconOption = {

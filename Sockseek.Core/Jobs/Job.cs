@@ -59,6 +59,11 @@ namespace Sockseek.Core.Jobs;
     {
         public event PropertyChangedEventHandler? PropertyChanged;
         internal event Action<Job, JobStateTransition>? StateChanged;
+        internal event Action<Job>? StructureChanged;
+        internal event Action<Job>? ExecutionChanged;
+
+        protected void NotifyStructureChanged() => StructureChanged?.Invoke(this);
+        protected void NotifyExecutionChanged() => ExecutionChanged?.Invoke(this);
 
         private bool _deferPropertyChanged;
         private readonly List<string> _deferredPropertyChanges = [];
@@ -78,7 +83,14 @@ namespace Sockseek.Core.Jobs;
         private int _displayId;
         private readonly object displayIdLock = new();
 
-        public Guid Id { get; } = Guid.NewGuid();
+        private SemaphoreSlim? executionGate;
+        // Search, resume and terminal work for this identity cannot overlap.
+        // Allocate only for jobs dispatched through the root queue.
+        internal SemaphoreSlim ExecutionGate => LazyInitializer.EnsureInitialized(
+            ref executionGate, static () => new SemaphoreSlim(1, 1));
+
+        // New durable rows use time-ordered identities to keep SQLite index inserts local.
+        public Guid Id { get; } = Guid.CreateVersion7();
         public int DisplayId => _displayId;
 
         public int EnsureDisplayId()
@@ -100,7 +112,7 @@ namespace Sockseek.Core.Jobs;
         // Multiple executable jobs can share one workflow without sharing job identity.
         public Guid WorkflowId { get; set; } = Guid.NewGuid();
 
-        // Set by the engine immediately before processing begins.
+        // Set by the engine before execution registration, including queued work.
         // Linked to appCts (and the parent job's Cts if any) so that cancelling a parent
         // propagates to all descendants. Cancelling this only affects this job and its children.
         public CancellationTokenSource? Cts { get; internal set; }
@@ -132,16 +144,43 @@ namespace Sockseek.Core.Jobs;
         private Settings.DownloadSettings? _config;
         public Settings.DownloadSettings Config
         {
-            get => _config!;
+            get
+            {
+                if (_config is { } config) return config;
+                // Planning owns a frozen value. A mutable copy exists only when
+                // execution or a caller actually asks for it, and never aliases it.
+                return PlannedSettings is { } planned
+                    ? LazyInitializer.EnsureInitialized(ref _config, planned.ReadSettings)
+                    : null!;
+            }
             set { if (_config != value) { _config = value; OnPropertyChanged(); } }
+        }
+
+        // Snapshot metadata must not materialize mutable execution settings for
+        // every pending job. Prefer live edits once that copy actually exists.
+        internal PrintOption EffectivePrintOption => _config?.PrintOption
+            ?? PlannedSettings?.PrintOption ?? PrintOption.None;
+        internal IEnumerable<string> EffectiveAutoProfiles => _config is { } config
+            ? config.AppliedAutoProfiles ?? Enumerable.Empty<string>()
+            : PlannedSettings?.AppliedAutoProfiles ?? [];
+
+        internal void BindPlannedSettings(Settings.DownloadSettings ownedSettings)
+        {
+            PlannedSettings = Settings.JobSettingsSnapshot.FromOwned(ownedSettings);
+            _config = null;
+            OnPropertyChanged(nameof(Config));
         }
 
         // A planner may bind the complete effective settings before runtime
         // preparation. This is transient execution input, not mutable config:
         // preview commit and direct Start use it to avoid resolving defaults or
         // auto profiles a second time.
-        public Settings.DownloadSettings? PlannedEffectiveSettings { get; set; }
+        public Settings.JobSettingsSnapshot? PlannedSettings { get; set; }
         public SubmissionSourceRevision? PlannedSourceRevision { get; set; }
+
+        /// <summary>Optional source-provided display information; never a search hint.</summary>
+        public string? ExtractorInfo { get; set; }
+        public JobSourceInfo? SourceInfo { get; set; }
 
         private JobLifecycleState _lifecycleState = JobLifecycleState.Pending;
         public JobLifecycleState LifecycleState
@@ -203,6 +242,9 @@ namespace Sockseek.Core.Jobs;
         // Auto-profile matching reads this instead of depending on a materialized
         // parent settings object being reused for every descendant.
         public InputType?               SourceInputType { get; set; }
+        // Outermost List provenance for presentation. Keep this separate from
+        // SourceInputType: that immediate extractor identity selects auto-profiles.
+        public InputType?               SourceCollectionInputType { get; set; }
 
         // Display / identity
         public string? ItemName { get; set; }
@@ -219,7 +261,7 @@ namespace Sockseek.Core.Jobs;
         public string? ArtifactId { get; set; }
 
         // The immutable effective definition used when this job itself performs
-        // a search. This is derived during preparation. It is especially needed
+        // a search. Captured when searching starts, before observations. It is needed
         // for search-capable children created after their root submission was
         // accepted, so retained results never fall back to current defaults.
         public SearchDefinition? ExecutedSearchDefinition { get; internal set; }
@@ -469,6 +511,8 @@ namespace Sockseek.Core.Jobs;
             ItemName                  = src.ItemName;
             EnablesIndexByDefault = src.EnablesIndexByDefault;
             SourceInputType        = src.SourceInputType;
+            SourceInfo             = src.SourceInfo;
+            SourceCollectionInputType = src.SourceCollectionInputType;
             ItemNumber            = src.ItemNumber;
             LineNumber            = src.LineNumber;
             SourceMutation        = src.SourceMutation;
@@ -480,6 +524,7 @@ namespace Sockseek.Core.Jobs;
             RerunOfSubmissionId   = src.RerunOfSubmissionId;
             PreviewId             = src.PreviewId;
             ArtifactId            = src.ArtifactId;
+            ExtractorInfo         = src.ExtractorInfo;
             DownloadBehaviorPolicy = src.DownloadBehaviorPolicy;
         }
     }

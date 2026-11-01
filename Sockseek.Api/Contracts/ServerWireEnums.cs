@@ -87,6 +87,22 @@ public enum ServerSearchViewProjectionKind
     AggregateAlbums,
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<ServerSearchViewSortOrder>))]
+public enum ServerSearchViewSortOrder
+{
+    Relevance,
+    UploadSpeed,
+    QueueDepth,
+    ItemSizeAscending,
+    ItemSizeDescending,
+    DirectorySizeAscending,
+    DirectorySizeDescending,
+    FileCountAscending,
+    FileCountDescending,
+    DirectoryNameAscending,
+    DirectoryNameDescending,
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<ServerSearchResultVisibility>))]
 public enum ServerSearchResultVisibility
 {

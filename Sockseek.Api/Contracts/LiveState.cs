@@ -5,7 +5,69 @@ namespace Sockseek.Api;
 /// <summary>The live replication protocol implemented by this API.</summary>
 public static class LiveProtocol
 {
-    public const int Version = 6;
+    public const int Version = 16;
+    public const string HubPath = "api/events";
+    public const string StateUpdateBatchMethod = "stateUpdateBatch";
+    public const string SubscribeAllMethod = nameof(LiveClientInvocation.SubscribeAll);
+    public const string ObserveJobsMethod = nameof(LiveClientInvocation.ObserveJobs);
+    public const string UnsubscribeAllMethod = nameof(LiveClientInvocation.UnsubscribeAll);
+    public const string SubscribeWorkflowMethod = nameof(LiveClientInvocation.SubscribeWorkflow);
+    public const string UnsubscribeWorkflowMethod = nameof(LiveClientInvocation.UnsubscribeWorkflow);
+    public const string SubscribeChatMethod = nameof(LiveClientInvocation.SubscribeChat);
+    public const string UnsubscribeChatMethod = nameof(LiveClientInvocation.UnsubscribeChat);
+    public const string SubscribeUserBrowseMethod = nameof(LiveClientInvocation.SubscribeUserBrowse);
+    public const string UnsubscribeUserBrowseMethod = nameof(LiveClientInvocation.UnsubscribeUserBrowse);
+    public const string ObserveSearchViewMethod = nameof(LiveClientInvocation.ObserveSearchView);
+    public const string ObserveTransferTimelineMethod = nameof(LiveClientInvocation.ObserveTransferTimeline);
+}
+
+/// <summary>Overview carries roots and global totals; Full includes every live job and transfer.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<DaemonStateDetail>))]
+public enum DaemonStateDetail { Full, Overview }
+
+/// <summary>
+/// Displayed job facts/file progress and direct counts for the open root. The first
+/// frame replaces the scope's rows; later frames are revision-ordered deltas.
+/// Retained revisions in a fresh scope need not exceed a prior live generation.
+/// </summary>
+public sealed record JobObservationUpdateDto(
+    StateDeltaDto State,
+    int? ChildCount = null,
+    int? RetrievalChildCount = null);
+
+/// <summary>The version tied to the generated live contract graph.</summary>
+public enum LiveProtocolContractVersion
+{
+    Current = LiveProtocol.Version,
+}
+
+/// <summary>The maximum bounded message tail carried by a live chat snapshot.</summary>
+public enum ChatLiveMessageTailSize
+{
+    Current = ChatProtocol.LiveMessageTailSize,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<LiveClientInvocation>))]
+public enum LiveClientInvocation
+{
+    SubscribeAll,
+    UnsubscribeAll,
+    SubscribeWorkflow,
+    UnsubscribeWorkflow,
+    SubscribeChat,
+    UnsubscribeChat,
+    SubscribeUserBrowse,
+    UnsubscribeUserBrowse,
+    ObserveSearchView,
+    ObserveTransferTimeline,
+    ObserveJobs,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<LiveServerMessage>))]
+public enum LiveServerMessage
+{
+    [JsonStringEnumMemberName(LiveProtocol.StateUpdateBatchMethod)]
+    StateUpdateBatch,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<StateStreamScopeKind>))]
@@ -70,6 +132,14 @@ public sealed record StateStreamScopeDto(
 /// </summary>
 public sealed record StateStreamPositionDto(Guid Epoch, long Sequence);
 
+/// <summary>Daemon-wide totals independent of the transfer rows a client is viewing.</summary>
+public sealed record LiveTransferSummaryDto(
+    int Active, int Downloads, int Uploads, int Queued, int Failed,
+    long DownloadRate, long UploadRate)
+{
+    public static LiveTransferSummaryDto Empty { get; } = new(0, 0, 0, 0, 0, 0, 0);
+}
+
 /// <summary>Small daemon state replicated to daemon-wide monitors.</summary>
 public sealed record DaemonStateDto(
     long Revision,
@@ -79,7 +149,10 @@ public sealed record DaemonStateDto(
     SharingStateDto Sharing,
     UploadRuntimeStateDto Uploads,
     ChatRuntimeStateDto Chat,
-    NotificationSummaryDto Notifications);
+    NotificationSummaryDto Notifications,
+    // Post-commit invalidation for retained transfer analytics. Active progress
+    // can also change accounting, so clients keep their periodic fallback.
+    long TerminalTransferCommitRevision = 0);
 
 [JsonConverter(typeof(JsonStringEnumConverter<DaemonFeatureState>))]
 public enum DaemonFeatureState
@@ -159,7 +232,13 @@ public sealed record JobDisplayFieldsDto(
     string? ItemName,
     string? QueryText,
     IReadOnlyList<string> AppliedAutoProfiles,
-    ServerPrintOption PrintOption);
+    ServerPrintOption PrintOption,
+    Guid? SubmissionId,
+    ServerJobRole Role,
+    DateTimeOffset? CreatedAtUtc,
+    ServerSearchDefaultProjectionKind? SearchDefaultProjection = null,
+    bool? SearchAggregatePresentation = null,
+    string? SourceDetail = null);
 
 /// <summary>
 /// A cohesive replacement for job lifecycle state. Nullable failure and timing fields
@@ -197,7 +276,8 @@ public sealed record JobStateDto(
     JobDisplayFieldsDto Display,
     JobLifecycleFieldsDto Lifecycle,
     JobDiscoveryFieldsDto Discovery,
-    JobRelationshipFieldsDto Relationships)
+    JobRelationshipFieldsDto Relationships,
+    JobSummaryStatsDto? Stats = null)
 {
     public static JobStateDto FromSummary(JobSummaryDto summary, long revision)
         => new(
@@ -210,7 +290,13 @@ public sealed record JobStateDto(
                 summary.ItemName,
                 summary.QueryText,
                 summary.AppliedAutoProfiles,
-                summary.PrintOption),
+                summary.PrintOption,
+                summary.SubmissionId,
+                summary.Role,
+                summary.CreatedAtUtc,
+                summary.SearchDefaultProjection,
+                summary.SearchAggregatePresentation,
+                summary.SourceDetail),
             new JobLifecycleFieldsDto(
                 summary.LifecycleState,
                 summary.ActivityPhase,
@@ -230,7 +316,8 @@ public sealed record JobStateDto(
             new JobRelationshipFieldsDto(
                 summary.ParentJobId,
                 summary.ResultJobId,
-                summary.SourceJobId));
+                summary.SourceJobId),
+            summary.Stats);
 
     public JobSummaryDto ToSummary()
         => new(
@@ -257,8 +344,15 @@ public sealed record JobStateDto(
             Lifecycle.FailureDetail,
             Lifecycle.CancellationSource,
             Display.PrintOption,
+            Display.SubmissionId,
+            Display.Role,
+            Display.CreatedAtUtc,
             DiscoveryPublicFileCount: Discovery.PublicFileCount,
-            DiscoveryObservedPeerCount: Discovery.ObservedPeerCount);
+            DiscoveryObservedPeerCount: Discovery.ObservedPeerCount,
+            Stats: Stats,
+            SearchDefaultProjection: Display.SearchDefaultProjection,
+            SearchAggregatePresentation: Display.SearchAggregatePresentation,
+            SourceDetail: Display.SourceDetail);
 
 }
 
@@ -273,7 +367,8 @@ public sealed record JobDeltaDto(
     JobDisplayFieldsDto? Display = null,
     JobLifecycleFieldsDto? Lifecycle = null,
     JobDiscoveryFieldsDto? Discovery = null,
-    JobRelationshipFieldsDto? Relationships = null);
+    JobRelationshipFieldsDto? Relationships = null,
+    JobSummaryStatsDto? Stats = null);
 
 /// <summary>A complete small workflow row with an API-owned aggregate revision.</summary>
 public sealed record WorkflowStateDto(
@@ -288,7 +383,10 @@ public sealed record SearchStateDto(
     int ResultCount,
     bool IsComplete);
 
-/// <summary>Stable source and ownership metadata for a transfer.</summary>
+/// <summary>
+/// Stable source and ownership metadata for a transfer. PeerUploadSpeed is
+/// Soulseek-advertised bytes per second, distinct from measured transfer speed.
+/// </summary>
 public sealed record TransferIdentityFieldsDto(
     Guid? JobId,
     Guid? WorkflowId,
@@ -298,7 +396,12 @@ public sealed record TransferIdentityFieldsDto(
     string? RemotePath,
     string? CandidateKey,
     string? GroupRef = null,
-    string? GroupDisplayPath = null);
+    string? GroupDisplayPath = null,
+    // Search-response evidence for this exact transfer candidate, not the
+    // transfer's measured throughput. Absent for target-only transfers.
+    int? PeerUploadSpeed = null,
+    bool? PeerHasFreeUploadSlot = null,
+    string? GroupRelativePath = null);
 
 [JsonConverter(typeof(JsonStringEnumConverter<TransferTerminalOutcome>))]
 public enum TransferTerminalOutcome
@@ -344,7 +447,9 @@ public sealed record TransferStatusFieldsDto(
     TransferTerminalOutcome TerminalOutcome = TransferTerminalOutcome.None,
     TransferFailureReason FailureReason = TransferFailureReason.None,
     TransferCancellationSource CancellationSource = TransferCancellationSource.None,
-    IReadOnlyList<ResourceActionDto>? AvailableActions = null)
+    IReadOnlyList<ResourceActionDto>? AvailableActions = null,
+    DateTimeOffset? CompletedAtUtc = null,
+    string? FailureMessage = null)
 {
     public IReadOnlyList<ResourceActionDto> AvailableActions { get; init; } =
         AvailableActions ?? [];
@@ -396,7 +501,8 @@ public sealed record StateDeltaDto(
     IReadOnlyList<Guid> RemovedTransferIds,
     IReadOnlyList<UserNotificationDto>? Notifications = null,
     IReadOnlyList<ChatTargetDeltaDto>? ChatTargets = null,
-    UserBrowseDto? UserBrowse = null)
+    UserBrowseDto? UserBrowse = null,
+    LiveTransferSummaryDto? TransferSummary = null)
 {
     public static StateDeltaDto Empty { get; } = new(null, [], [], [], [], [], [], [], []);
 
@@ -413,7 +519,8 @@ public sealed record StateDeltaDto(
         && RemovedTransferIds.Count == 0
         && Notifications is null or { Count: 0 }
         && ChatTargets is null or { Count: 0 }
-        && UserBrowse is null;
+        && UserBrowse is null
+        && TransferSummary is null;
 }
 
 public sealed record ChatTargetDeltaDto(
@@ -447,7 +554,11 @@ public sealed record StateSnapshotDto(
     IReadOnlyList<SearchStateDto> Searches,
     IReadOnlyList<TransferStateDto> Transfers,
     ChatTargetSnapshotDto? ChatTarget = null,
-    UserBrowseDto? UserBrowse = null);
+    UserBrowseDto? UserBrowse = null,
+    LiveTransferSummaryDto? TransferSummary = null,
+    // Last daemon-stream position that can invalidate Jobs history. Compare a
+    // Jobs HTTP read position against this, rather than unrelated live updates.
+    StateStreamPositionDto? JobHistoryPosition = null);
 
 /// <summary>
 /// An ordered stream batch. State is applied before Activity. PreviousSequence permits

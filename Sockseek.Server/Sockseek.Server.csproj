@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Avoid compiling Minimal API bindings on the first request. -->
+    <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
     <AssemblyName>Sockseek.Server</AssemblyName>
     <RootNamespace>Sockseek.Server</RootNamespace>
   </PropertyGroup>

@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using System.Text.Json;
 using Sockseek.Persistence.Sqlite;
 
 namespace Sockseek.Persistence.Planning;
@@ -33,29 +34,35 @@ public sealed record StoredJobPreviewNode(
     string? EffectiveSettingsJson,
     string? CredentialBindingsJson,
     string? FailureCode,
-    string? FailureMessage);
+    string? FailureMessage)
+{
+    public int SelectableSubtreeCount { get; init; }
+}
+
+public sealed record StoredPreviewSelectionOverride(string Ref, bool Selected);
 
 public sealed record StoredPreviewCommit(
     StoredJobPreview Preview,
     string Mode,
     IReadOnlyList<StoredJobPreviewNode> SelectedNodes,
     int FailedNodeCount,
-    int MissingRequestedRefCount);
+    int MissingRequestedRefCount)
+{
+    public IReadOnlyList<StoredJobPreviewNode> AncestorNodes { get; init; } = [];
+}
 
 public sealed record StoredJobPreviewWork(Guid PreviewId, string RequestJson);
-public sealed record StoredJobPreviewCleanup(Guid PreviewId, string RequestJson);
 
 /// <summary>
-/// Separate optional SQLite resource for expiring plans. It is
-/// deliberately outside runtime history so Review can fail independently of
-/// direct Start and local planning.
+/// Session-local SQLite spool for expiring plans, discarded after daemon exit.
+/// Transactions isolate readers and failed batches; the spool is never recovered
+/// after a crash. Accepted work and receipts belong to durable runtime history.
 /// </summary>
 public sealed class JobPreviewStore(
     string databasePath,
     TimeProvider? timeProvider = null) : IAsyncDisposable
 {
     public static readonly TimeSpan DefaultRetention = TimeSpan.FromHours(24);
-    public const int MaximumPageSize = 200;
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     private readonly SemaphoreSlim writeGate = new(1, 1);
     private readonly string connectionString = new SqliteConnectionStringBuilder
@@ -80,7 +87,6 @@ public sealed class JobPreviewStore(
         {
             await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
             await ExecuteAsync(connection, "PRAGMA journal_mode=WAL;", cancellationToken).ConfigureAwait(false);
-            await ExecuteAsync(connection, "PRAGMA synchronous=FULL;", cancellationToken).ConfigureAwait(false);
             await ExecuteAsync(connection, "PRAGMA foreign_keys=ON;", cancellationToken).ConfigureAwait(false);
             await ExecuteAsync(connection, """
                 CREATE TABLE IF NOT EXISTS job_previews (
@@ -134,6 +140,11 @@ public sealed class JobPreviewStore(
                 );
                 CREATE INDEX IF NOT EXISTS ix_job_preview_nodes_parent
                     ON job_preview_nodes(preview_id, parent_ref, ordinal);
+                -- Cascading preview deletion also deletes its settings records.
+                -- Foreign-key checks must find their referencing nodes without
+                -- rescanning the entire preview once per distinct settings row.
+                CREATE INDEX IF NOT EXISTS ix_job_preview_nodes_settings
+                    ON job_preview_nodes(preview_id, effective_settings_ref);
                 DROP TABLE IF EXISTS job_preview_selection_entries;
                 DROP TABLE IF EXISTS job_preview_selections;
                 """, cancellationToken).ConfigureAwait(false);
@@ -249,6 +260,7 @@ public sealed class JobPreviewStore(
             int ready = 0;
             int failed = 0;
             int selectable = 0;
+            var settings = new Dictionary<string, (string Settings, string Bindings)>(StringComparer.Ordinal);
             foreach (StoredJobPreviewNode node in nodes)
             {
                 if (node.SpecificationJson != null)
@@ -260,47 +272,46 @@ public sealed class JobPreviewStore(
                         throw new InvalidDataException(
                             "A retained preview specification must reference effective settings.");
                     }
-                    await InsertEffectiveSettingsAsync(
-                        connection,
-                        transaction,
-                        previewId,
-                        node,
-                        ct).ConfigureAwait(false);
+                    var content = (node.EffectiveSettingsJson, node.CredentialBindingsJson);
+                    if (settings.TryGetValue(node.EffectiveSettingsRef, out var previous) && previous != content)
+                        throw new InvalidDataException("A job-preview effective-settings ref resolved to different content.");
+                    settings[node.EffectiveSettingsRef] = content;
                 }
-                await using var command = connection.CreateCommand();
-                command.Transaction = transaction;
-                command.CommandText = """
+                if (node.State == "Ready") ready++; else failed++;
+                if (node.IsSelectable) selectable++;
+            }
+
+            // A planning batch commonly shares one settings record. Validate each
+            // distinct record once; the same transaction owns all node inserts.
+            // Any conflict must roll back settings, nodes and counts.
+            if (settings.Count > 0)
+                await InsertEffectiveSettingsAsync(connection, transaction, previewId, settings, ct).ConfigureAwait(false);
+            // SQLite is in-process: reuse one prepared insert in the batch's
+            // transaction instead of encoding every already-serialized command
+            // inside another JSON document and parsing it back into columns.
+            using (var writer = new SqliteWriteStatement(connection, transaction, """
                     INSERT INTO job_preview_nodes (
                         preview_id, ordinal, node_ref, parent_ref, role, state,
                         is_selectable, kind, item_name, query_text, direct_child_count,
                         applied_auto_profiles_json, specification_json,
-                        effective_settings_ref, failure_code,
-                        failure_message)
-                    VALUES (
-                        $preview, $ordinal, $ref, $parent, $role, $state,
-                        $selectable, $kind, $item, $query, $children,
-                        $profiles, $specification, $settingsRef,
-                        $failureCode, $failureMessage);
-                    """;
-                Add(command, "$preview", previewId);
-                Add(command, "$ordinal", ordinal++);
-                Add(command, "$ref", node.Ref);
-                Add(command, "$parent", node.ParentRef);
-                Add(command, "$role", node.Role);
-                Add(command, "$state", node.State);
-                Add(command, "$selectable", node.IsSelectable ? 1 : 0);
-                Add(command, "$kind", node.Kind);
-                Add(command, "$item", node.ItemName);
-                Add(command, "$query", node.QueryText);
-                Add(command, "$children", node.DirectChildCount);
-                Add(command, "$profiles", node.AppliedAutoProfilesJson);
-                Add(command, "$specification", node.SpecificationJson);
-                Add(command, "$settingsRef", node.EffectiveSettingsRef);
-                Add(command, "$failureCode", node.FailureCode);
-                Add(command, "$failureMessage", Limit(node.FailureMessage));
-                await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-                if (node.State == "Ready") ready++; else failed++;
-                if (node.IsSelectable) selectable++;
+                        effective_settings_ref, failure_code, failure_message)
+                    VALUES ($preview, $ordinal, $ref, $parent, $role, $state,
+                        $selectable, $kind, $name, $query, $children, $profiles,
+                        $specification, $settings, $failure, $message);
+                    """))
+            {
+                writer.Bind(0, previewId.ToString("D"));
+                for (int index = 0; index < nodes.Count; index++)
+                {
+                    StoredJobPreviewNode node = nodes[index];
+                    writer.BindValues([
+                        ordinal + index, node.Ref, node.ParentRef, node.Role, node.State,
+                        node.IsSelectable ? 1 : 0, node.Kind, node.ItemName, node.QueryText,
+                        node.DirectChildCount, node.AppliedAutoProfilesJson, node.SpecificationJson,
+                        node.EffectiveSettingsRef, node.FailureCode, Limit(node.FailureMessage),
+                    ], offset: 1);
+                    writer.Execute(ct);
+                }
             }
 
             await using var update = connection.CreateCommand();
@@ -319,7 +330,7 @@ public sealed class JobPreviewStore(
             Add(update, "$ready", ready);
             Add(update, "$failed", failed);
             Add(update, "$selectable", selectable);
-            Add(update, "$next", ordinal);
+            Add(update, "$next", ordinal + nodes.Count);
             Add(update, "$id", previewId);
             if (await update.ExecuteNonQueryAsync(ct).ConfigureAwait(false) != 1)
                 throw new InvalidOperationException("The job preview is no longer planning.");
@@ -375,14 +386,22 @@ public sealed class JobPreviewStore(
         CancellationToken cancellationToken = default)
     {
         EnsureInitialized();
-        if (limit is < 1 or > MaximumPageSize)
-            throw new ArgumentOutOfRangeException(nameof(limit), $"Preview node page size must be between 1 and {MaximumPageSize}.");
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
+        // Planner refs are slash-delimited paths. For a ref r, [r, r + "0")
+        // contains r and its descendants, but no sibling (including r + "0").
+        // The preview/ref primary key makes this a bounded index range per row.
         command.CommandText = parentRef == null
             ? """
                 SELECT n.*, settings.settings_json AS effective_settings_json,
-                       settings.credential_bindings_json AS credential_bindings_json
+                       settings.credential_bindings_json AS credential_bindings_json,
+                       (SELECT COUNT(*) FROM job_preview_nodes descendant
+                        WHERE descendant.preview_id = n.preview_id
+                          AND descendant.node_ref >= n.node_ref
+                          AND descendant.node_ref < n.node_ref || '0'
+                          AND descendant.is_selectable = 1) AS selectable_subtree_count
                 FROM job_preview_nodes n
                 LEFT JOIN job_preview_effective_settings settings
                   ON settings.preview_id = n.preview_id
@@ -392,7 +411,12 @@ public sealed class JobPreviewStore(
                 """
             : """
                 SELECT n.*, settings.settings_json AS effective_settings_json,
-                       settings.credential_bindings_json AS credential_bindings_json
+                       settings.credential_bindings_json AS credential_bindings_json,
+                       (SELECT COUNT(*) FROM job_preview_nodes descendant
+                        WHERE descendant.preview_id = n.preview_id
+                          AND descendant.node_ref >= n.node_ref
+                          AND descendant.node_ref < n.node_ref || '0'
+                          AND descendant.is_selectable = 1) AS selectable_subtree_count
                 FROM job_preview_nodes n
                 LEFT JOIN job_preview_effective_settings settings
                   ON settings.preview_id = n.preview_id
@@ -404,10 +428,13 @@ public sealed class JobPreviewStore(
         Add(command, "$parent", parentRef);
         Add(command, "$after", afterOrdinal);
         Add(command, "$limit", limit);
-        var rows = new List<StoredJobPreviewNode>(limit);
+        var rows = new List<StoredJobPreviewNode>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            rows.Add(ReadNode(reader));
+            rows.Add(ReadNode(reader) with
+            {
+                SelectableSubtreeCount = reader.GetInt32(reader.GetOrdinal("selectable_subtree_count")),
+            });
         return rows;
     }
 
@@ -416,6 +443,7 @@ public sealed class JobPreviewStore(
         long revision,
         string mode,
         IReadOnlySet<string> refs,
+        IReadOnlyList<StoredPreviewSelectionOverride>? subtreeOverrides = null,
         CancellationToken cancellationToken = default)
     {
         EnsureInitialized();
@@ -433,8 +461,40 @@ public sealed class JobPreviewStore(
         if (revision != preview.Revision)
             throw new InvalidOperationException("The job preview revision is stale.");
 
+        Dictionary<string, bool>? rules = null;
+        int missingOverrides = 0;
+        if (subtreeOverrides != null)
+        {
+            if (refs.Count != 0)
+                throw new ArgumentException("Exact refs and subtree overrides cannot be mixed.");
+            rules = new Dictionary<string, bool>(StringComparer.Ordinal);
+            foreach (StoredPreviewSelectionOverride rule in subtreeOverrides)
+            {
+                if (!rules.TryAdd(rule.Ref, rule.Selected))
+                    throw new ArgumentException("Duplicate subtree override ref.", nameof(subtreeOverrides));
+                await using var check = connection.CreateCommand();
+                check.CommandText = "SELECT 1 FROM job_preview_nodes WHERE preview_id = $preview AND node_ref = $ref;";
+                Add(check, "$preview", previewId);
+                Add(check, "$ref", rule.Ref);
+                if (await check.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) == null)
+                    missingOverrides++;
+            }
+        }
+
         await using var command = connection.CreateCommand();
-        command.CommandText = """
+        // Resolve the common one/few-item selection before hydrating settings
+        // and specifications. Only-rules can also discard every branch with
+        // no positive override; SelectedByRules below remains authoritative for
+        // nested exclusions and reinclusions within those candidate branches.
+        string selectionPredicate = mode != "Only" ? "" : rules == null
+            ? "AND n.node_ref IN (SELECT value FROM json_each($selected))"
+            : """
+                AND EXISTS (
+                    SELECT 1 FROM json_each($selected) branch
+                    WHERE n.node_ref >= branch.value
+                      AND n.node_ref < branch.value || '0')
+                """;
+        command.CommandText = $$"""
             SELECT n.*, settings.settings_json AS effective_settings_json,
                    settings.credential_bindings_json AS credential_bindings_json
             FROM job_preview_nodes n
@@ -442,28 +502,100 @@ public sealed class JobPreviewStore(
               ON settings.preview_id = n.preview_id
              AND settings.settings_ref = n.effective_settings_ref
             WHERE n.preview_id = $preview AND n.state = 'Ready' AND n.is_selectable = 1
+            {{selectionPredicate}}
             ORDER BY n.ordinal;
             """;
         Add(command, "$preview", previewId);
+        if (mode == "Only")
+            Add(command, "$selected", JsonSerializer.Serialize(rules == null
+                ? refs : rules.Where(rule => rule.Value).Select(rule => rule.Key)));
         var selected = new List<StoredJobPreviewNode>();
         var found = mode == "Only" ? new HashSet<string>(StringComparer.Ordinal) : null;
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
-            StoredJobPreviewNode node = ReadNode(reader);
-            bool include = mode == "Only" ? refs.Contains(node.Ref) : !refs.Contains(node.Ref);
-            if (!include)
-                continue;
-            selected.Add(node);
-            found?.Add(node.Ref);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                StoredJobPreviewNode node = ReadNode(reader);
+                bool include = rules == null
+                    ? mode == "Only" ? refs.Contains(node.Ref) : !refs.Contains(node.Ref)
+                    : SelectedByRules(node.Ref, mode == "AllExcept", rules);
+                if (!include)
+                    continue;
+                selected.Add(node);
+                found?.Add(node.Ref);
+            }
         }
-        int missing = mode == "Only" ? refs.Count - found!.Count : 0;
+        var ancestorRefs = new HashSet<string>(StringComparer.Ordinal);
+        foreach (StoredJobPreviewNode node in selected)
+        {
+            string current = node.Ref;
+            while (true)
+            {
+                int slash = current.LastIndexOf('/');
+                if (slash < 0)
+                    break;
+                current = current[..slash];
+                ancestorRefs.Add(current);
+            }
+        }
+        var ancestors = new List<StoredJobPreviewNode>(ancestorRefs.Count);
+        string[] ancestorRefArray = ancestorRefs.ToArray();
+        for (int offset = 0; offset < ancestorRefArray.Length; offset += 300)
+        {
+            string[] batch = ancestorRefArray.Skip(offset).Take(300).ToArray();
+            await using var ancestorCommand = connection.CreateCommand();
+            var parameters = new List<string>(batch.Length);
+            for (int index = 0; index < batch.Length; index++)
+            {
+                string parameter = "$ancestor" + index;
+                parameters.Add(parameter);
+                Add(ancestorCommand, parameter, batch[index]);
+            }
+            ancestorCommand.CommandText = $"""
+                SELECT n.*, settings.settings_json AS effective_settings_json,
+                       settings.credential_bindings_json AS credential_bindings_json
+                FROM job_preview_nodes n
+                LEFT JOIN job_preview_effective_settings settings
+                  ON settings.preview_id = n.preview_id
+                 AND settings.settings_ref = n.effective_settings_ref
+                WHERE n.preview_id = $preview AND n.node_ref IN ({string.Join(", ", parameters)});
+                """;
+            Add(ancestorCommand, "$preview", previewId);
+            await using var ancestorReader = await ancestorCommand.ExecuteReaderAsync(cancellationToken)
+                .ConfigureAwait(false);
+            while (await ancestorReader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                ancestors.Add(ReadNode(ancestorReader));
+        }
+        if (ancestors.Count != ancestorRefs.Count)
+            throw new InvalidDataException("A selected preview branch has missing ancestors.");
+        int missing = rules == null
+            ? mode == "Only" ? refs.Count - found!.Count : 0
+            : missingOverrides;
         return new StoredPreviewCommit(
             preview,
             mode,
             selected,
             preview.FailedNodeCount,
-            missing);
+            missing)
+        {
+            AncestorNodes = ancestors,
+        };
+    }
+
+    private static bool SelectedByRules(string nodeRef, bool defaultSelected, IReadOnlyDictionary<string, bool> rules)
+    {
+        // Planner refs are slash-delimited paths. Check from the leaf upward so
+        // commit cost depends on depth, not the number of browser-owned rules.
+        string candidate = nodeRef;
+        while (true)
+        {
+            if (rules.TryGetValue(candidate, out bool selected))
+                return selected;
+            int slash = candidate.LastIndexOf('/');
+            if (slash < 0)
+                return defaultSelected;
+            candidate = candidate[..slash];
+        }
     }
 
     public async Task<bool> MarkCommittedAsync(
@@ -488,36 +620,6 @@ public sealed class JobPreviewStore(
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    public Task<StoredJobPreviewCleanup?> DeleteCommittedAsync(
-        Guid previewId,
-        Guid submissionId,
-        CancellationToken cancellationToken = default)
-        => WithWriteAsync<StoredJobPreviewCleanup?>(async (connection, transaction, ct) =>
-        {
-            string? requestJson;
-            await using (var select = connection.CreateCommand())
-            {
-                select.Transaction = transaction;
-                select.CommandText = """
-                    SELECT request_json FROM job_previews
-                    WHERE id = $preview AND state = 'Committed'
-                        AND committed_submission_id = $submission;
-                    """;
-                Add(select, "$preview", previewId);
-                Add(select, "$submission", submissionId);
-                requestJson = Convert.ToString(
-                    await select.ExecuteScalarAsync(ct).ConfigureAwait(false),
-                    System.Globalization.CultureInfo.InvariantCulture);
-            }
-            if (requestJson == null)
-                return null;
-            await using var delete = connection.CreateCommand();
-            delete.Transaction = transaction;
-            delete.CommandText = "DELETE FROM job_previews WHERE id = $preview;";
-            Add(delete, "$preview", previewId);
-            await delete.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-            return new StoredJobPreviewCleanup(previewId, requestJson);
-        }, cancellationToken);
 
     public async Task<bool> TryBeginCommitAsync(
         Guid previewId,
@@ -608,7 +710,7 @@ public sealed class JobPreviewStore(
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<IReadOnlyList<StoredJobPreviewCleanup>> PruneTombstonesAsync(
+    public async Task<IReadOnlyList<Guid>> PruneTombstonesAsync(
         TimeSpan expiredTombstoneRetention,
         TimeSpan committedRetention,
         CancellationToken cancellationToken = default)
@@ -616,17 +718,17 @@ public sealed class JobPreviewStore(
         EnsureInitialized();
         if (expiredTombstoneRetention < TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(expiredTombstoneRetention));
-        if (committedRetention <= TimeSpan.Zero)
+        if (committedRetention < TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(committedRetention));
         return await WithWriteAsync(async (connection, transaction, ct) =>
         {
             DateTimeOffset now = clock.GetUtcNow();
-            var rows = new List<StoredJobPreviewCleanup>();
+            var rows = new List<Guid>();
             await using (var select = connection.CreateCommand())
             {
                 select.Transaction = transaction;
                 select.CommandText = """
-                    SELECT id, request_json FROM job_previews
+                    SELECT id FROM job_previews
                     WHERE (state = 'Expired' AND expires_at_utc <= $expiredBefore)
                        OR (state = 'Committed' AND created_at_utc <= $committedBefore)
                     ORDER BY created_at_utc, id;
@@ -635,7 +737,7 @@ public sealed class JobPreviewStore(
                 Add(select, "$committedBefore", now - committedRetention);
                 await using var reader = await select.ExecuteReaderAsync(ct).ConfigureAwait(false);
                 while (await reader.ReadAsync(ct).ConfigureAwait(false))
-                    rows.Add(new(Guid.Parse(reader.GetString(0)), reader.GetString(1)));
+                    rows.Add(Guid.Parse(reader.GetString(0)));
             }
             await using var delete = connection.CreateCommand();
             delete.Transaction = transaction;
@@ -660,7 +762,13 @@ public sealed class JobPreviewStore(
         var connection = new SqliteConnection(connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;";
+        // This spool belongs to one daemon session and is discarded on restart.
+        // Keep WAL transactions/reader isolation, but no power-loss durability:
+        // even NORMAL syncs the WAL and database at automatic checkpoints,
+        // stalling large previews for a spool that is never recovered. The
+        // coordinator creates a fresh directory per session. Do not use this
+        // policy for accepted submissions/receipts in the main database.
+        command.CommandText = "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA synchronous=OFF;";
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         return connection;
     }
@@ -748,7 +856,7 @@ public sealed class JobPreviewStore(
         SqliteConnection connection,
         SqliteTransaction transaction,
         Guid previewId,
-        StoredJobPreviewNode node,
+        IReadOnlyDictionary<string, (string Settings, string Bindings)> settings,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -756,28 +864,31 @@ public sealed class JobPreviewStore(
         command.CommandText = """
             INSERT OR IGNORE INTO job_preview_effective_settings (
                 preview_id, settings_ref, settings_json, credential_bindings_json)
-            VALUES ($preview, $ref, $settings, $bindings);
+            SELECT $preview, json_extract(value, '$.Ref'),
+                json_extract(value, '$.Settings'), json_extract(value, '$.Bindings')
+            FROM json_each($settings);
             """;
         Add(command, "$preview", previewId);
-        Add(command, "$ref", node.EffectiveSettingsRef);
-        Add(command, "$settings", node.EffectiveSettingsJson);
-        Add(command, "$bindings", node.CredentialBindingsJson);
+        string payload = JsonSerializer.Serialize(settings.Select(pair => new
+        {
+            Ref = pair.Key, pair.Value.Settings, pair.Value.Bindings,
+        }));
+        Add(command, "$settings", payload);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
         await using var verify = connection.CreateCommand();
         verify.Transaction = transaction;
         verify.CommandText = """
-            SELECT COUNT(*) FROM job_preview_effective_settings
-            WHERE preview_id = $preview AND settings_ref = $ref
-              AND settings_json = $settings
-              AND credential_bindings_json = $bindings;
+            SELECT COUNT(*) FROM json_each($settings) incoming
+            JOIN job_preview_effective_settings stored
+              ON stored.preview_id = $preview AND stored.settings_ref = json_extract(incoming.value, '$.Ref')
+             AND stored.settings_json = json_extract(incoming.value, '$.Settings')
+             AND stored.credential_bindings_json = json_extract(incoming.value, '$.Bindings');
             """;
         Add(verify, "$preview", previewId);
-        Add(verify, "$ref", node.EffectiveSettingsRef);
-        Add(verify, "$settings", node.EffectiveSettingsJson);
-        Add(verify, "$bindings", node.CredentialBindingsJson);
+        Add(verify, "$settings", payload);
         if (Convert.ToInt64(await verify.ExecuteScalarAsync(cancellationToken)
-                .ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) != 1)
+                .ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) != settings.Count)
         {
             throw new InvalidDataException(
                 "A job-preview effective-settings ref resolved to different content.");

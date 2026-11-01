@@ -5,19 +5,27 @@ using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using Sockseek.Core.IO;
 using Sockseek.Core.Sharing;
+using Sockseek.Persistence.Sqlite;
 
 namespace Sockseek.Persistence.Sharing;
 
 public sealed class RemotePathCollisionException(string message, Exception innerException)
     : ShareCatalogEntryCollisionException(message, innerException);
 
+/// <summary>
+/// Builds one unpublished generation. Intermediate batches retain rollback
+/// semantics; CompleteAsync validates and makes the result durable before the
+/// catalog manager can publish it. An interrupted build is discarded.
+/// </summary>
 public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
 {
     private const int BatchSize = 1_000;
 
     private readonly SqliteConnection connection;
+    private WriteBatch? batch;
     private SqliteTransaction? transaction;
     private int pendingWrites;
+    private bool searchIndexDirty;
     private bool completed;
     private bool disposed;
 
@@ -62,8 +70,10 @@ public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
                 connection,
                 """
                 PRAGMA foreign_keys=ON;
-                PRAGMA journal_mode=WAL;
-                PRAGMA synchronous=FULL;
+                -- Keep per-entry/batch rollback while avoiding durable writes
+                -- for an unpublished generation that cannot be recovered.
+                PRAGMA journal_mode=MEMORY;
+                PRAGMA synchronous=OFF;
                 PRAGMA temp_store=FILE;
                 PRAGMA busy_timeout=5000;
 
@@ -126,9 +136,12 @@ public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
                 CREATE INDEX idx_files_root_relative
                     ON files(root_id, relative_path);
 
+                -- File facts live only in files. The contentless FTS index owns
+                -- tokens and aligned row IDs, so matching never reads a second
+                -- content table merely to find the authoritative file row.
                 CREATE VIRTUAL TABLE file_search USING fts5(
-                    file_id UNINDEXED,
                     search_text,
+                    content='',
                     tokenize='unicode61 remove_diacritics 2'
                 );
                 """,
@@ -148,18 +161,8 @@ public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
         CancellationToken cancellationToken = default)
     {
         EnsureWritable();
-        await ExecuteWriteAsync(
-            """
-            INSERT INTO roots(root_id, alias, local_path, comparison_alias)
-            VALUES($root_id, $alias, $local_path, $comparison_alias);
-            """,
-            [
-                ("$root_id", root.RootId),
-                ("$alias", root.Alias),
-                ("$local_path", root.LocalPath),
-                ("$comparison_alias", root.ComparisonAlias.ToArray()),
-            ],
-            cancellationToken).ConfigureAwait(false);
+        (await GetBatchAsync(cancellationToken).ConfigureAwait(false)).AddRoot(root, cancellationToken);
+        await WrittenAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask AddDirectoryAsync(
@@ -169,30 +172,13 @@ public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
         EnsureWritable();
         try
         {
-            await ExecuteWriteAsync(
-                """
-                INSERT INTO path_identities(comparison_path, kind)
-                VALUES($comparison_path, 'directory');
-
-                INSERT INTO directories(
-                    directory_id, root_id, relative_path, remote_path, comparison_path)
-                VALUES(
-                    $directory_id, $root_id, $relative_path, $remote_path, $comparison_path);
-                """,
-                [
-                    ("$directory_id", directory.DirectoryId),
-                    ("$root_id", directory.RootId),
-                    ("$relative_path", directory.RelativePath),
-                    ("$remote_path", directory.RemotePath),
-                    ("$comparison_path", directory.ComparisonPath.ToArray()),
-                ],
-                cancellationToken).ConfigureAwait(false);
+            (await GetBatchAsync(cancellationToken).ConfigureAwait(false)).AddDirectory(directory, cancellationToken);
+            await WrittenAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
         {
             throw new RemotePathCollisionException(
-                $"Remote directory path collision at '{directory.RemotePath}'.",
-                ex);
+                $"Remote directory path collision at '{directory.RemotePath}'.", ex);
         }
     }
 
@@ -201,48 +187,16 @@ public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
         CancellationToken cancellationToken = default)
     {
         EnsureWritable();
-        string attributesJson = JsonSerializer.Serialize(file.Attributes);
-
         try
         {
-            await ExecuteWriteAsync(
-                """
-                INSERT INTO path_identities(comparison_path, kind)
-                VALUES($comparison_path, 'file');
-
-                INSERT INTO files(
-                    file_id, root_id, directory_id, relative_path, remote_path,
-                    comparison_path, search_text, size_bytes, modified_at_utc,
-                    protocol_code, extension, attributes_json)
-                VALUES(
-                    $file_id, $root_id, $directory_id, $relative_path, $remote_path,
-                    $comparison_path, $search_text, $size_bytes, $modified_at_utc,
-                    $protocol_code, $extension, $attributes_json);
-
-                INSERT INTO file_search(file_id, search_text)
-                VALUES($file_id, $search_text);
-                """,
-                [
-                    ("$file_id", file.FileId),
-                    ("$root_id", file.RootId),
-                    ("$directory_id", file.DirectoryId),
-                    ("$relative_path", file.RelativePath),
-                    ("$remote_path", file.RemotePath),
-                    ("$comparison_path", file.ComparisonPath.ToArray()),
-                    ("$search_text", file.SearchText),
-                    ("$size_bytes", file.SizeBytes),
-                    ("$modified_at_utc", Format(file.ModifiedAtUtc)),
-                    ("$protocol_code", file.ProtocolCode),
-                    ("$extension", file.Extension),
-                    ("$attributes_json", attributesJson),
-                ],
-                cancellationToken).ConfigureAwait(false);
+            (await GetBatchAsync(cancellationToken).ConfigureAwait(false)).AddFile(file, cancellationToken);
+            searchIndexDirty = true;
+            await WrittenAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
         {
             throw new RemotePathCollisionException(
-                $"Remote file path collision at '{file.RemotePath}'.",
-                ex);
+                $"Remote file path collision at '{file.RemotePath}'.", ex);
         }
     }
 
@@ -252,6 +206,15 @@ public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
     {
         EnsureWritable();
         await PrepareForReadAsync(cancellationToken).ConfigureAwait(false);
+
+        // All scan/index changes are still private. Flush them with the final
+        // metadata commit, using the same durable-publication boundary as browse
+        // artifacts. Runtime history keeps its independent FULL WAL policy.
+        await ExecuteNonQueryAsync(connection, """
+            PRAGMA optimize;
+            PRAGMA journal_mode=DELETE;
+            PRAGMA synchronous=FULL;
+            """, cancellationToken).ConfigureAwait(false);
 
         await using (var command = connection.CreateCommand())
         {
@@ -282,14 +245,6 @@ public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        await ExecuteNonQueryAsync(
-            connection,
-            """
-            PRAGMA optimize;
-            PRAGMA wal_checkpoint(TRUNCATE);
-            """,
-            cancellationToken).ConfigureAwait(false);
-
         await using var check = connection.CreateCommand();
         check.CommandText = "PRAGMA quick_check;";
         object? result = await check.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
@@ -304,30 +259,39 @@ public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
     {
         EnsureWritable();
         await CommitBatchAsync(cancellationToken).ConfigureAwait(false);
-        await ExecuteNonQueryAsync(
-            connection,
-            "PRAGMA wal_checkpoint(PASSIVE);",
-            cancellationToken).ConfigureAwait(false);
+        if (searchIndexDirty)
+        {
+            // A generation is private while scanning. Build its search index at
+            // the read boundary in one transaction, rather than creating FTS
+            // segments and merging them in every file-write batch. Explicit
+            // row IDs also let later staging reads index only newly added files,
+            // even when callers supply file IDs out of order.
+            await using var indexing = (SqliteTransaction)await connection
+                .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await using var command = connection.CreateCommand();
+            command.Transaction = indexing;
+            command.CommandText = """
+                INSERT INTO file_search(rowid, search_text)
+                SELECT file.file_id, file.search_text
+                FROM files file
+                WHERE NOT EXISTS (SELECT 1 FROM file_search existing WHERE existing.rowid = file.file_id);
+                """;
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await indexing.CommitAsync(cancellationToken).ConfigureAwait(false);
+            searchIndexDirty = false;
+        }
     }
 
-    private async ValueTask ExecuteWriteAsync(
-        string sql,
-        IReadOnlyList<(string Name, object? Value)> parameters,
-        CancellationToken cancellationToken)
+    private async ValueTask<WriteBatch> GetBatchAsync(CancellationToken cancellationToken)
     {
         transaction ??= (SqliteTransaction)await connection
-            .BeginTransactionAsync(cancellationToken)
-            .ConfigureAwait(false);
+            .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        return batch ??= new WriteBatch(connection, transaction);
+    }
 
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = sql;
-        foreach (var (name, value) in parameters)
-            Add(command, name, value);
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-
-        pendingWrites++;
-        if (pendingWrites >= BatchSize)
+    private async ValueTask WrittenAsync(CancellationToken cancellationToken)
+    {
+        if (++pendingWrites >= BatchSize)
             await CommitBatchAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -336,6 +300,8 @@ public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
         if (transaction is null)
             return;
 
+        batch?.Dispose();
+        batch = null;
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         await transaction.DisposeAsync().ConfigureAwait(false);
         transaction = null;
@@ -355,6 +321,9 @@ public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
             return;
         disposed = true;
 
+        batch?.Dispose();
+        batch = null;
+
         if (transaction is not null)
         {
             await transaction.RollbackAsync().ConfigureAwait(false);
@@ -363,6 +332,89 @@ public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
 
         await connection.DisposeAsync().ConfigureAwait(false);
         SqliteConnection.ClearPool(connection);
+    }
+
+    // A transaction owns its prepared statements. Bind each row once by ordinal;
+    // a provider command containing multiple INSERTs rebinds all parameters for
+    // every statement, including parameters that statement does not use.
+    private sealed class WriteBatch(SqliteConnection connection, SqliteTransaction transaction) : IDisposable
+    {
+        private SqliteWriteStatement? roots;
+        private SqliteWriteStatement? identities;
+        private SqliteWriteStatement? directories;
+        private SqliteWriteStatement? files;
+
+        public void AddRoot(ShareCatalogRoot root, CancellationToken cancellationToken)
+        {
+            var writer = roots ??= new(connection, transaction, """
+                INSERT INTO roots(root_id, alias, local_path, comparison_alias)
+                VALUES($id, $alias, $path, $comparison);
+                """);
+            writer.Bind(0, root.RootId);
+            writer.Bind(1, root.Alias);
+            writer.Bind(2, root.LocalPath);
+            writer.Bind(3, root.ComparisonAlias.ToArray());
+            writer.Execute(cancellationToken);
+        }
+
+        private void AddIdentity(byte[] path, string kind, CancellationToken cancellationToken)
+        {
+            var writer = identities ??= new(connection, transaction, """
+                INSERT INTO path_identities(comparison_path, kind) VALUES($path, $kind);
+                """);
+            writer.Bind(0, path);
+            writer.Bind(1, kind);
+            writer.Execute(cancellationToken);
+        }
+
+        public void AddDirectory(ShareCatalogDirectory directory, CancellationToken cancellationToken)
+        {
+            byte[] path = directory.ComparisonPath.ToArray();
+            AddIdentity(path, "directory", cancellationToken);
+            var writer = directories ??= new(connection, transaction, """
+                INSERT INTO directories(directory_id, root_id, relative_path, remote_path, comparison_path)
+                VALUES($id, $root, $relative, $remote, $comparison);
+                """);
+            writer.Bind(0, directory.DirectoryId);
+            writer.Bind(1, directory.RootId);
+            writer.Bind(2, directory.RelativePath);
+            writer.Bind(3, directory.RemotePath);
+            writer.Bind(4, path);
+            writer.Execute(cancellationToken);
+        }
+
+        public void AddFile(ShareCatalogFile file, CancellationToken cancellationToken)
+        {
+            byte[] path = file.ComparisonPath.ToArray();
+            AddIdentity(path, "file", cancellationToken);
+            var writer = files ??= new(connection, transaction, """
+                INSERT INTO files(file_id, root_id, directory_id, relative_path, remote_path,
+                    comparison_path, search_text, size_bytes, modified_at_utc, protocol_code, extension, attributes_json)
+                VALUES($id, $root, $directory, $relative, $remote, $comparison,
+                    $search, $size, $modified, $code, $extension, $attributes);
+                """);
+            writer.Bind(0, file.FileId);
+            writer.Bind(1, file.RootId);
+            writer.Bind(2, file.DirectoryId);
+            writer.Bind(3, file.RelativePath);
+            writer.Bind(4, file.RemotePath);
+            writer.Bind(5, path);
+            writer.Bind(6, file.SearchText);
+            writer.Bind(7, file.SizeBytes);
+            writer.Bind(8, Format(file.ModifiedAtUtc));
+            writer.Bind(9, (long)file.ProtocolCode);
+            writer.Bind(10, file.Extension);
+            writer.Bind(11, JsonSerializer.Serialize(file.Attributes));
+            writer.Execute(cancellationToken);
+        }
+
+        public void Dispose()
+        {
+            roots?.Dispose();
+            identities?.Dispose();
+            directories?.Dispose();
+            files?.Dispose();
+        }
     }
 
     private static void Add(SqliteCommand command, string name, object? value)
@@ -566,7 +618,7 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
             $"""
              SELECT {FileColumns("f")}
              FROM file_search s
-             INNER JOIN files f ON f.file_id = s.file_id
+             INNER JOIN files f ON f.file_id = s.rowid
              WHERE file_search MATCH $match
              ORDER BY bm25(file_search), f.remote_path
              LIMIT $limit;

@@ -3,102 +3,85 @@ using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
+using Sockseek.Core.Snapshots;
 
 namespace Sockseek.Server;
 
 public static class RemoteTransferSubmissionPolicy
 {
-    public static void NormalizeInheritedSettings(
-        Job job,
-        DownloadSettings settings,
-        Func<DownloadSettings, Job, DownloadSettingsPatchDto?, DownloadSettings>
-            resolveChildSettings)
+    public static void NormalizeSettings(JobSettingsContext job, DownloadSettings settings)
     {
         if (IsOrdinaryRemoteTransfer(job, settings))
             RemoteTransferNameFormatPolicy.ApplyInherited(settings.Output);
 
-        if (job is not JobList list)
-            return;
-
-        foreach (Job child in list.Jobs)
-        {
-            DownloadSettings childSettings = resolveChildSettings(settings, child, null);
-            NormalizeInheritedSettings(child, childSettings, resolveChildSettings);
-        }
+        // Normalize only the value the caller will use. Walking children here
+        // resolved temporary copies that were discarded; each child's real
+        // settings are normalized by JobPreparer when that child is prepared.
     }
 
-    public static bool ContainsOrdinaryRemoteTransfer(
+    // Start, Review and local CLI validate the same explicit subtree overrides.
+    // Return its capabilities from this walk instead of resolving children a
+    // second time just to decide whether the root's override applies.
+    public static bool ValidateOverrides(
         Job job,
         DownloadSettings settings,
-        Func<DownloadSettings, Job, DownloadSettingsPatchDto?, DownloadSettings>
-            resolveChildSettings)
-        => IsOrdinaryRemoteTransfer(job, settings)
-            || job is JobList list && list.Jobs.Any(child =>
-                ContainsOrdinaryRemoteTransfer(
-                    child,
-                    resolveChildSettings(settings, child, null),
-                    resolveChildSettings));
-
-    public static void ValidateChildOverrides(
-        JobList list,
-        IReadOnlyList<JobDraftDto> drafts,
-        DownloadSettings parentSettings,
-        Func<DownloadSettings, Job, DownloadSettingsPatchDto?, DownloadSettings>
-            resolveChildSettings)
-    {
-        for (int index = 0; index < list.Jobs.Count && index < drafts.Count; index++)
-        {
-            Job child = list.Jobs[index];
-            JobDraftDto draft = drafts[index];
-            DownloadSettingsPatchDto? patch = JobRequestMapper.DraftDownloadSettings(draft);
-            DownloadSettings childSettings = resolveChildSettings(
-                parentSettings,
-                child,
-                patch);
-            ValidateNode(child, draft, patch, childSettings, resolveChildSettings);
-        }
-    }
-
-    private static bool ValidateNode(
-        Job job,
-        JobDraftDto draft,
         DownloadSettingsPatchDto? patch,
-        DownloadSettings settings,
         Func<DownloadSettings, Job, DownloadSettingsPatchDto?, DownloadSettings>
-            resolveChildSettings)
+            resolveChildSettings,
+        IReadOnlyList<JobDraftDto>? childDrafts = null,
+        bool allowSearchViewAlbumFolderOption = false)
     {
         bool containsRemoteTransfer = IsOrdinaryRemoteTransfer(job, settings);
-        if (job is JobList list && draft is JobListJobDraftDto listDraft)
+        if (job is JobList list)
         {
-            for (int index = 0;
-                 index < list.Jobs.Count && index < listDraft.Jobs.Count;
-                 index++)
+            if (childDrafts is null)
             {
-                Job child = list.Jobs[index];
-                JobDraftDto childDraft = listDraft.Jobs[index];
-                DownloadSettingsPatchDto? childPatch =
-                    JobRequestMapper.DraftDownloadSettings(childDraft);
-                DownloadSettings childSettings = resolveChildSettings(
-                    settings,
-                    child,
-                    childPatch);
-                containsRemoteTransfer |= ValidateNode(
-                    child,
-                    childDraft,
-                    childPatch,
-                    childSettings,
-                    resolveChildSettings);
+                // Follow-ups without drafts have no per-child explicit patches.
+                // Finding one remote descendant is sufficient for root validation.
+                foreach (Job child in list.Jobs)
+                {
+                    if (!ContainsOrdinaryRemoteTransfer(
+                        child, resolveChildSettings(settings, child, null), resolveChildSettings)) continue;
+                    containsRemoteTransfer = true;
+                    break;
+                }
+            }
+            else
+            {
+                for (int index = 0; index < list.Jobs.Count; index++)
+                {
+                    Job child = list.Jobs[index];
+                    JobDraftDto? draft = index < childDrafts.Count ? childDrafts[index] : null;
+                    DownloadSettingsPatchDto? childPatch = draft is null ? null
+                        : JobRequestMapper.DraftDownloadSettings(draft);
+                    containsRemoteTransfer |= ValidateOverrides(
+                        child, resolveChildSettings(settings, child, childPatch), childPatch,
+                        resolveChildSettings, (draft as JobListJobDraftDto)?.Jobs);
+                }
             }
         }
 
         if (containsRemoteTransfer && patch != null)
-            RemoteTransferSettingsValidator.ValidateExplicitPatch(patch);
+            RemoteTransferSettingsValidator.ValidateExplicitPatch(patch, allowSearchViewAlbumFolderOption);
         return containsRemoteTransfer;
     }
 
-    public static bool IsOrdinaryRemoteTransfer(Job job, DownloadSettings settings)
-        => job is RemoteFileJob or RemoteDirectoryJob
-            || job is ExtractJob extract
-            && Sockseek.Core.Extractors.SoulseekExtractor.InputMatches(extract.Input)
+    private static bool ContainsOrdinaryRemoteTransfer(
+        Job job,
+        DownloadSettings settings,
+        Func<DownloadSettings, Job, DownloadSettingsPatchDto?, DownloadSettings> resolveChildSettings)
+    {
+        if (IsOrdinaryRemoteTransfer(job, settings)) return true;
+        if (job is JobList list)
+            foreach (Job child in list.Jobs)
+                if (ContainsOrdinaryRemoteTransfer(
+                    child, resolveChildSettings(settings, child, null), resolveChildSettings)) return true;
+        return false;
+    }
+
+    public static bool IsOrdinaryRemoteTransfer(JobSettingsContext job, DownloadSettings settings)
+        => job.Kind is JobSnapshotKind.RemoteFile or JobSnapshotKind.RemoteDirectory
+            || job.Kind == JobSnapshotKind.Extract && job.Input is { } input
+            && Sockseek.Core.Extractors.SoulseekExtractor.InputMatches(input)
             && settings.Extraction.RequestedMode is null or ExtractionMode.General;
 }

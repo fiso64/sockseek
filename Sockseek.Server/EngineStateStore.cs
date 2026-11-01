@@ -1,3 +1,4 @@
+using Sockseek.Core.Models;
 using Sockseek.Api;
 using Sockseek.Core;
 using Sockseek.Core.Events;
@@ -14,33 +15,56 @@ public sealed record LiveTransferDetail(TransferStateDto Transfer, TransferAttem
 
 public sealed class EngineStateStore
 {
+    private readonly bool persistenceOwnsJobRetirement;
+
+    public EngineStateStore() => stateUpdates = new(QueueStateBatches);
+
+    internal EngineStateStore(bool persistenceOwnsJobRetirement) : this()
+        => this.persistenceOwnsJobRetirement = persistenceOwnsJobRetirement;
+
     private readonly Lock gate = new();
-    // Sequence allocation is protected by gate, while event callbacks run outside it.
-    // Buffer per scope so concurrent handlers cannot publish a later sequence first.
+    // Capture and cursor allocation share gate. Only flushed immutable batches
+    // enter the publication queue; callbacks run outside both locks.
     private readonly Lock stateBatchPublicationGate = new();
-    private readonly Dictionary<StateStreamScopeDto, Dictionary<long, StateUpdateBatchDto>> pendingStateBatches = [];
-    private readonly Dictionary<StateStreamScopeDto, long> publishedStateBatchSequences = [];
+    private readonly StateUpdateCoalescer stateUpdates;
+    private readonly Queue<StateUpdate> readyStateBatches = [];
     private bool publishingStateBatches;
     // Keep records and workflow aggregate indexes in sync only through UpdateJobRecord.
     private readonly Dictionary<Guid, JobSnapshot> jobs = [];
+    private readonly Dictionary<Guid, DirectoryProjection> directoryProjections = [];
+    private readonly HashSet<Guid> changedContainerSummaries = [];
+    private DateTimeOffset containerSummaryChangedAt;
+    private readonly Dictionary<Guid, MemberOutcomeProjection> listProjections = [];
+    private readonly Dictionary<Guid, MemberOutcomeProjection> aggregateProjections = [];
+    private readonly Dictionary<Guid, AlbumAggregateProjection> albumAggregateProjections = [];
     private readonly Dictionary<Guid, HashSet<Guid>> nestedJobIdsByContainer = [];
     private readonly Dictionary<Guid, HashSet<Guid>> containerIdsByNestedJob = [];
-    private readonly Dictionary<Guid, JobRecord> records = [];
+    // One entry owns current read facts and the last published revision used for
+    // stream deltas. Both use the same immutable, payload-free model.
+    private readonly Dictionary<Guid, JobReadEntry> records = [];
+    private IEnumerable<JobReadState> CurrentJobs => records.Values.Select(entry => entry.Current);
+    private IEnumerable<JobReadState> PublishedJobs => records.Values.Select(entry => entry.Published).OfType<JobReadState>();
     private readonly Dictionary<Guid, WorkflowStateRecord> workflows = [];
+    private readonly Dictionary<Guid, SubmissionMembership> submissions = [];
     private readonly Dictionary<Guid, Guid?> parentJobIds = [];
     private readonly Dictionary<Guid, HashSet<Guid>> childJobIdsByParent = [];
+    private readonly Dictionary<Guid, int> retrievalChildCountsByParent = [];
     private readonly Dictionary<Guid, Guid> resultJobIds = [];
+    private readonly Dictionary<Guid, Guid> extractJobIdsByResult = [];
     private readonly Dictionary<Guid, Guid> sourceJobIds = [];
     private readonly HashSet<Guid> archivedSubmissionIds = [];
     private readonly HashSet<Guid> executionCompletedJobs = [];
     private readonly Dictionary<Guid, string> songTransferStates = [];
-    private readonly Dictionary<Guid, TransferStateDto> activeTransfers = [];
-    private readonly Dictionary<Guid, TransferStateDto> liveUploadTransfers = [];
-    private readonly Dictionary<Guid, TransferAttemptHistoryDto> latestTransferAttempts = [];
+    private readonly TransferReadState transferReadState = new();
+    private LiveTransferSummaryDto publishedTransferSummary = LiveTransferSummaryDto.Empty;
+    private IReadOnlyDictionary<Guid, TransferReadSnapshot> activeTransfers => transferReadState.Active;
+    private IReadOnlyDictionary<Guid, TransferReadSnapshot> liveUploadTransfers => transferReadState.Uploads;
+    // Attempts stay readable with their live transfer until the existing durable
+    // handoff releases it, including retries that have not reached SQLite yet.
+    private readonly Dictionary<Guid, SortedList<int, TransferAttemptHistoryDto>> transferAttempts = [];
     private readonly Dictionary<Guid, Guid> transferWorkflowIds = [];
     private readonly HashSet<Guid> terminalTransfersAwaitingRemoval = [];
     private readonly Dictionary<Guid, SearchStateDto> searchStates = [];
-    private readonly Dictionary<Guid, JobStateDto> projectedJobs = [];
     private readonly Dictionary<Guid, WorkflowStateDto> projectedWorkflows = [];
     private readonly Dictionary<Guid, long> workflowStreamSequences = [];
     private readonly Dictionary<Guid, Guid> workflowStreamEpochs = [];
@@ -95,7 +119,26 @@ public sealed class EngineStateStore
     public event Action<JobSummaryDto>? JobUpserted;
     public event Action<WorkflowSummaryDto>? WorkflowUpserted;
     public event Action<SearchStateDto>? SearchUpdated;
-    public event Action<StateUpdateBatchDto>? StateBatchPublished;
+    public event Action<StateUpdate>? StateBatchPublished;
+    internal event Action? StatePublicationRequested;
+    internal event Action? StateUpdatesFlushed;
+    internal event Action<JobReadChange>? JobReadChanged;
+    private long jobReadSequence;
+    // Complete terminal facts are offered before runtime eviction. Readers can
+    // coalesce them without requiring a durable history store to exist.
+    internal event Action<TransferReadChange> TransferReadChanged
+    {
+        add => transferReadState.Changed += value;
+        remove => transferReadState.Changed -= value;
+    }
+    internal StateStreamPositionDto GetTransferReadPosition()
+    {
+        lock (gate) return transferReadState.Position;
+    }
+    internal void MarkTransferHistoryChanged()
+    {
+        lock (gate) transferReadState.MarkHistoryChanged();
+    }
 
     public void SetSubmissionArchived(Guid submissionId, bool archived)
     {
@@ -127,15 +170,19 @@ public sealed class EngineStateStore
                     executionCompletedJobs.Count,
                     songTransferStates.Count,
                     activeTransfers.Count,
-                    latestTransferAttempts.Count,
+                    transferAttempts.Count,
                     transferWorkflowIds.Count,
                     searchStates.Count,
-                    projectedJobs.Count,
+                    records.Values.Count(entry => entry.Published is not null),
                     projectedWorkflows.Count,
                     workflowStreamSequences.Count,
                     workflowStreamEpochs.Count,
                     workflowStreamReservations.Count,
-                    daemonLiveWorkflowIds.Count);
+                    daemonLiveWorkflowIds.Count,
+                    listProjections.Count,
+                    extractJobIdsByResult.Count,
+                    aggregateProjections.Count,
+                    albumAggregateProjections.Count);
             }
         }
     }
@@ -143,14 +190,29 @@ public sealed class EngineStateStore
     public TransferStateDto? GetLiveTransfer(Guid transferId)
     {
         lock (gate)
-            return activeTransfers.GetValueOrDefault(transferId)
-                   ?? liveUploadTransfers.GetValueOrDefault(transferId);
+            return (activeTransfers.GetValueOrDefault(transferId)
+                   ?? liveUploadTransfers.GetValueOrDefault(transferId))?.ToDto();
     }
 
     public IReadOnlyList<TransferStateDto> GetActiveTransferSnapshot()
     {
         lock (gate)
-            return activeTransfers.Values.ToArray();
+            return activeTransfers.Values.Select(transfer => transfer.ToDto()).ToArray();
+    }
+
+    public IReadOnlyList<TransferStateDto> GetTransferSnapshot(IReadOnlySet<Guid> transferIds)
+        => GetTransferFactsSnapshot(transferIds).Select(transfer => transfer.ToDto()).ToArray();
+
+    internal IReadOnlyList<TransferReadSnapshot> GetTransferFactsSnapshot(IReadOnlySet<Guid> transferIds)
+    {
+        lock (gate)
+            return transferIds.Select(id => activeTransfers.GetValueOrDefault(id)
+                ?? liveUploadTransfers.GetValueOrDefault(id)).OfType<TransferReadSnapshot>().ToArray();
+    }
+
+    internal IReadOnlyList<TransferReadSnapshot> GetJobTransferSnapshot(IReadOnlySet<Guid> jobIds)
+    {
+        lock (gate) return transferReadState.ForJobs(jobIds);
     }
 
     /// <summary>
@@ -164,7 +226,59 @@ public sealed class EngineStateStore
             var snapshot = activeTransfers.ToDictionary(pair => pair.Key, pair => pair.Value);
             foreach (var pair in liveUploadTransfers)
                 snapshot[pair.Key] = pair.Value;
-            return snapshot.Values.ToArray();
+            return snapshot.Values.Select(transfer => transfer.ToDto()).ToArray();
+        }
+    }
+
+    /// <summary>
+    /// Captures only the requested directory groups, including queued uploads,
+    /// without allocating a copy of every cancellable transfer.
+    /// </summary>
+    internal IReadOnlyList<TransferReadSnapshot> GetTransferGroupSnapshot(
+        IReadOnlySet<TransferGroupKeyDto> groups)
+    {
+        ArgumentNullException.ThrowIfNull(groups);
+        if (groups.Count == 0) return [];
+        lock (gate)
+        {
+            var selected = new Dictionary<Guid, TransferReadSnapshot>();
+            void Include(TransferReadSnapshot transfer)
+            {
+                if (transfer.GroupRef is not { } groupRef
+                    || !Enum.TryParse<TransferCommandDirection>(
+                        transfer.Direction, ignoreCase: true, out var direction)
+                    || !groups.Contains(new TransferGroupKeyDto(
+                        direction, transfer.Username, groupRef)))
+                    return;
+                selected[transfer.TransferId] = transfer;
+            }
+            foreach (TransferReadSnapshot transfer in activeTransfers.Values)
+                Include(transfer);
+            foreach (TransferReadSnapshot transfer in liveUploadTransfers.Values)
+                Include(transfer);
+            return selected.Values.ToArray();
+        }
+    }
+
+    // Capture immutable source facts; the read owner reconciles retained keys
+    // and chooses the page before any wire metadata is built.
+    internal IReadOnlyList<TransferReadSnapshot> GetTransferPageCandidates(
+        string? groupRef, string? direction, string? username)
+    {
+        lock (gate)
+        {
+            if (groupRef is null) return activeTransfers.Values.ToArray();
+            var selected = new Dictionary<Guid, TransferReadSnapshot>();
+            void Include(TransferReadSnapshot transfer)
+            {
+                if (transfer.GroupRef == groupRef
+                    && (direction is null || string.Equals(transfer.Direction, direction, StringComparison.OrdinalIgnoreCase))
+                    && (username is null || transfer.Username == username))
+                    selected[transfer.TransferId] = transfer;
+            }
+            foreach (var transfer in activeTransfers.Values) Include(transfer);
+            foreach (var transfer in liveUploadTransfers.Values) Include(transfer);
+            return selected.Values.ToArray();
         }
     }
 
@@ -177,85 +291,94 @@ public sealed class EngineStateStore
             return transfer == null
                 ? null
                 : new LiveTransferDetail(
-                    transfer,
-                    latestTransferAttempts.GetValueOrDefault(transferId));
+                    transfer.ToDto(),
+                    LatestTransferAttempt(transferId));
         }
     }
 
-    public void UpdateUploadTransfer(UploadTransferSnapshot upload)
+    public IReadOnlyList<TransferAttemptHistoryDto>? GetLiveTransferAttempts(
+        Guid transferId, int afterAttemptNumber, int limit)
     {
-        IReadOnlyList<StateUpdateBatchDto> batches = [];
+        ArgumentOutOfRangeException.ThrowIfNegative(afterAttemptNumber);
+        ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
         lock (gate)
         {
-            TransferStateDto current = ToUploadTransferState(upload);
-            liveUploadTransfers[upload.TransferId] = current;
+            if (transferAttempts.TryGetValue(transferId, out var attempts))
+                return attempts.Values.Where(attempt => attempt.AttemptNumber > afterAttemptNumber)
+                    .Take(limit).ToArray();
+            return activeTransfers.ContainsKey(transferId) || liveUploadTransfers.ContainsKey(transferId)
+                ? [] : null;
+        }
+    }
+
+    // Called only while gate is held. Attempt revisions are independent of the
+    // transfer revision; a late older notification must not restore Started.
+    private void RecordTransferAttempt(TransferAttemptHistoryDto attempt)
+    {
+        if (!transferAttempts.TryGetValue(attempt.TransferId, out var attempts))
+            transferAttempts.Add(attempt.TransferId, attempts = new());
+        if (!attempts.TryGetValue(attempt.AttemptNumber, out var previous)
+            || previous.Revision <= attempt.Revision)
+            attempts[attempt.AttemptNumber] = attempt;
+    }
+
+    private TransferAttemptHistoryDto? LatestTransferAttempt(Guid transferId)
+        => transferAttempts.TryGetValue(transferId, out var attempts) && attempts.Count > 0
+            ? attempts.Values[^1] : null;
+
+    public void UpdateUploadTransfer(UploadTransferSnapshot upload)
+    {
+        lock (gate)
+        {
+            // Source revisions are shared with durable history. Replays must not
+            // mint a newer live version that its committed successor cannot match.
+            if (liveUploadTransfers.TryGetValue(upload.TransferId, out var observed)
+                && observed.Revision >= upload.Revision)
+                return;
+            activeTransfers.TryGetValue(upload.TransferId, out var previous);
+            var current = new TransferReadSnapshot(upload, previous);
+
             if (ToUploadAttempt(upload) is { } attempt)
-                latestTransferAttempts[upload.TransferId] = attempt;
+                RecordTransferAttempt(attempt);
 
             bool replicated = upload.State is not UploadTransferState.Queued
-                              && (upload.Attempt is not null
+                              && (current.IsTerminal
+                                  || upload.Attempt is not null
                                   || activeTransfers.ContainsKey(upload.TransferId));
-            if (!replicated)
-                return;
+            var delta = new TransferChange(current);
+            transferReadState.UpsertUpload(current, replicated, delta.Added);
+            if (!replicated) return;
 
-            TransferDeltaDto delta;
-            if (!activeTransfers.TryGetValue(upload.TransferId, out var previous))
-            {
-                activeTransfers[upload.TransferId] = current;
-                delta = new TransferDeltaDto(
-                    upload.TransferId,
-                    current.Revision,
-                    Added: current);
-            }
-            else
-            {
-                var status = TransferStatusEquals(previous.Status, current.Status)
-                    ? null
-                    : current.Status;
-                var progress = previous.Progress == current.Progress ? null : current.Progress;
-                var scheduling = previous.Scheduling == current.Scheduling
-                    ? null
-                    : current.Scheduling;
-                activeTransfers[upload.TransferId] = current;
-                if (status == null && progress == null && scheduling == null)
-                    return;
-                delta = new TransferDeltaDto(
-                    upload.TransferId,
-                    Math.Max(current.Revision, previous.Revision + 1),
-                    Status: status,
-                    Progress: progress,
-                    Scheduling: scheduling);
-            }
-
-            var daemonDelta = StateDeltaDto.Empty with
+            var daemonDelta = StateDelta.Empty with
             {
                 Transfers = [delta],
             };
-            batches = CreateStateBatches(
+            AppendDaemonChanges(
                 daemonDelta,
-                new Dictionary<Guid, StateDeltaDto>(),
                 DateTimeOffset.UtcNow);
         }
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     public void RemoveTerminalTransfer(Guid transferId)
     {
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
-            liveUploadTransfers.Remove(transferId);
+            transferReadState.RemoveUpload(transferId);
             terminalTransfersAwaitingRemoval.Remove(transferId);
             transferWorkflowIds.Remove(transferId);
-            latestTransferAttempts.Remove(transferId);
-            if (!activeTransfers.Remove(transferId))
+            transferAttempts.Remove(transferId);
+            if (!transferReadState.RemoveActive(transferId, out var transfer))
                 return;
-            batches = CreateStateBatches(
-                StateDeltaDto.Empty with { RemovedTransferIds = [transferId] },
-                new Dictionary<Guid, StateDeltaDto>(),
+            // The compact daemon stream already removed a finished workflow's
+            // transfers. Its later durable handoff only releases retained state.
+            if (transfer.WorkflowId is { } workflowId && !daemonLiveWorkflowIds.Contains(workflowId))
+                return;
+            AppendDaemonChanges(
+                StateDelta.Empty with { RemovedTransferIds = [transferId] },
                 DateTimeOffset.UtcNow);
         }
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     public void AttachEngine(DownloadEngine engine)
@@ -263,6 +386,7 @@ public sealed class EngineStateStore
         engine.Events.JobRegistered += OnJobRegistered;
         engine.Events.JobResultCreated += OnJobResultCreated;
         engine.Events.JobStateChanged += OnJobStateChanged;
+        engine.Events.JobStructureChanged += OnJobStructureChanged;
         engine.Events.JobDiscoveryChanged += OnJobDiscoveryChanged;
         engine.Events.JobExecutionCompleted += OnJobExecutionCompleted;
         engine.Events.WorkflowRetired += OnWorkflowRetired;
@@ -275,6 +399,7 @@ public sealed class EngineStateStore
         engine.Events.TransferAttemptFailed += OnTransferAttemptFailed;
         engine.Events.TransferAttemptCancelled += OnTransferAttemptCancelled;
         engine.Events.TransferCompleted += OnTransferCompleted;
+        engine.Events.TransferOutputChanged += OnTransferOutputChanged;
         engine.Events.TransferFailed += OnTransferFailed;
         engine.Events.TransferCancelled += OnTransferCancelled;
     }
@@ -284,6 +409,7 @@ public sealed class EngineStateStore
         engine.Events.JobRegistered -= OnJobRegistered;
         engine.Events.JobResultCreated -= OnJobResultCreated;
         engine.Events.JobStateChanged -= OnJobStateChanged;
+        engine.Events.JobStructureChanged -= OnJobStructureChanged;
         engine.Events.JobDiscoveryChanged -= OnJobDiscoveryChanged;
         engine.Events.JobExecutionCompleted -= OnJobExecutionCompleted;
         engine.Events.WorkflowRetired -= OnWorkflowRetired;
@@ -296,73 +422,167 @@ public sealed class EngineStateStore
         engine.Events.TransferAttemptFailed -= OnTransferAttemptFailed;
         engine.Events.TransferAttemptCancelled -= OnTransferAttemptCancelled;
         engine.Events.TransferCompleted -= OnTransferCompleted;
+        engine.Events.TransferOutputChanged -= OnTransferOutputChanged;
         engine.Events.TransferFailed -= OnTransferFailed;
         engine.Events.TransferCancelled -= OnTransferCancelled;
     }
 
     public JobSummaryDto? GetJobSummary(Guid jobId)
     {
-        lock (gate)
+        using (LockJobReads())
         {
             return records.TryGetValue(jobId, out var record)
-                ? record.Summary
+                ? record.Current.Summary
                 : null;
         }
     }
 
+    public IReadOnlyList<JobSummaryDto> GetJobSummaries(IReadOnlyCollection<Guid> jobIds)
+    {
+        using (LockJobReads())
+            return jobIds.Distinct().Where(records.ContainsKey).Select(id => records[id].Current.Summary).ToArray();
+    }
+
     public JobDetailDto? GetJobDetail(Guid jobId)
     {
-        lock (gate)
+        using (LockJobReads())
         {
-            if (jobs.TryGetValue(jobId, out var job))
-                UpdateJobRecord(job);
-
-            if (!records.TryGetValue(jobId, out var record))
+            if (!jobs.TryGetValue(jobId, out var job))
                 return null;
-
+            JobReadState record = UpdateJobRecord(job);
             int childCount = childJobIdsByParent.TryGetValue(jobId, out var childIds)
                 ? childIds.Count
                 : 0;
-            return new JobDetailDto(record.Summary, record.Payload, childCount);
+            // Detail rendering belongs to the read. Routine updates retain only
+            // compact summaries, never query/target/attribute DTOs nobody asked for.
+            JobPayloadDto payload = ServerSnapshotMapper.ToJobPayload(
+                RefreshNestedSnapshots(job), GetTransferState,
+                listProjections.GetValueOrDefault(jobId)?.Summary,
+                aggregateProjections.GetValueOrDefault(jobId)?.Summary,
+                albumAggregateProjections.GetValueOrDefault(jobId)?.Summary);
+            return new JobDetailDto(record.Summary, payload, childCount);
+        }
+    }
+
+    public JobDetailDto? GetJobDetailByDisplayId(Guid workflowId, int displayId)
+    {
+        lock (gate)
+        {
+            var record = CurrentJobs.FirstOrDefault(row => row.WorkflowId == workflowId
+                && row.DisplayId == displayId);
+            return record == null ? null : GetJobDetail(record.Id);
+        }
+    }
+
+    public DirectoryManifestPageDto? GetDirectoryManifest(
+        Guid jobId, int? attemptNumber, int afterOrdinal, int limit)
+    {
+        using (LockJobReads())
+        {
+            if (!jobs.TryGetValue(jobId, out var job))
+                return null;
+            DirectoryManifestSnapshot? manifest = job.Payload switch
+            {
+                AlbumJobSnapshotPayload album => album.Manifest,
+                RemoteDirectoryJobSnapshotPayload directory => directory.Manifest,
+                _ => null,
+            };
+            if (manifest == null || attemptNumber is { } requested && requested != manifest.AttemptNumber)
+                return null;
+            int plannedCount = manifest.Plan.Entries.Count;
+            int totalCount = checked(plannedCount + manifest.SupplementalJobIds.Count);
+            int first = (int)Math.Min((long)afterOrdinal + 1, totalCount);
+            int end = (int)Math.Min((long)first + limit, totalCount);
+            var items = new DirectoryManifestEntryDto[end - first];
+            for (int ordinal = first; ordinal < end; ordinal++)
+            {
+                var entry = ordinal < plannedCount ? manifest.Plan.Entries[ordinal] : null;
+                Guid? childId = ordinal >= plannedCount
+                    ? manifest.SupplementalJobIds[ordinal - plannedCount]
+                    : manifest.ChildrenMaterialized && ordinal < manifest.EntryJobIds.Count
+                        ? manifest.EntryJobIds[ordinal] : null;
+                JobSnapshot? child = childId is Guid id ? jobs.GetValueOrDefault(id) : null;
+                FileDownloadStateSnapshot? file = child?.Payload switch
+                {
+                    SongJobSnapshotPayload song => song.File,
+                    RemoteFileJobSnapshotPayload remote => remote.File,
+                    _ => null,
+                };
+                PeerFileTarget? retainedTarget = entry?.Target ??
+                    (manifest.SupplementalTargets is { } supplementalTargets && ordinal >= plannedCount
+                        && ordinal - plannedCount < supplementalTargets.Count ? supplementalTargets[ordinal - plannedCount] : null);
+                var target = retainedTarget != null ? ServerSnapshotMapper.ToPeerFileTargetDto(retainedTarget) : child?.Payload switch
+                {
+                    SongJobSnapshotPayload { ResolvedTarget: { } candidate } => ServerSnapshotMapper.ToPeerFileTargetDto(candidate),
+                    SongJobSnapshotPayload { ExactTarget: { } exact } => ServerSnapshotMapper.ToPeerFileTargetDto(exact),
+                    SongJobSnapshotPayload { LastAttemptedCandidate: { } attempted } => ServerSnapshotMapper.ToPeerFileTargetDto(attempted),
+                    RemoteFileJobSnapshotPayload remote => ServerSnapshotMapper.ToPeerFileTargetDto(remote.Target),
+                    _ => null,
+                };
+                items[ordinal - first] = new DirectoryManifestEntryDto(
+                    ordinal,
+                    target,
+                    entry?.RelativeDirectoryComponents ?? [],
+                    childId,
+                    child == null ? null : BuildJobSummary(child),
+                    file == null ? null : ServerSnapshotMapper.ToFileDownloadStateDto(file));
+            }
+            bool more = end < totalCount;
+            return new DirectoryManifestPageDto(
+                manifest.AttemptNumber,
+                manifest.Plan.DisplayRoot,
+                manifest.Plan.Entries.Count,
+                manifest.Plan.TotalKnownBytes,
+                manifest.ChildrenMaterialized,
+                manifest.SupplementalJobIds.Count,
+                job.Revision,
+                items,
+                more ? items[^1].Ordinal : null);
         }
     }
 
     public IReadOnlyList<JobSummaryDto> GetJobs(JobQuery query)
     {
-        lock (gate)
+        using (LockJobReads())
         {
-            return FilterJobs(records.Values, query)
-                .OrderBy(record => record.Summary.DisplayId)
+            var rows = FilterJobs(CurrentJobs, query);
+            return (query.NewestFirst
+                    ? rows.OrderByDescending(record => record.DisplayId).ThenByDescending(record => record.Id)
+                    : rows.OrderBy(record => record.DisplayId).ThenBy(record => record.Id))
                 .Select(record => record.Summary)
                 .ToList();
         }
     }
 
-    public IReadOnlyList<JobSummaryDto> GetJobPageCandidates(
-        JobQuery query,
-        long? afterDisplayId,
-        Guid? afterJobId,
-        int take)
+    internal sealed record JobPageCapture(
+        IReadOnlyList<JobSummaryDto> Items, IReadOnlyList<Guid> OwnedJobIds,
+        bool IsCompleteScope, StateStreamPositionDto Position);
+
+    internal JobPageCapture CaptureJobPage(JobQuery query, long? afterDisplayId, Guid? afterJobId, int take)
     {
-        if (take <= 0)
-            throw new ArgumentOutOfRangeException(nameof(take));
-
-        lock (gate)
+        if (take <= 0) throw new ArgumentOutOfRangeException(nameof(take));
+        using (LockJobReads())
         {
-            IEnumerable<JobRecord> filtered = FilterJobs(records.Values, query);
+            bool complete = query.ParentJobId is Guid parentId
+                && records.GetValueOrDefault(parentId)?.ChildrenCoverage == MembershipCoverage.Live
+                || query.SubmissionId is Guid submissionId
+                    && submissions.GetValueOrDefault(submissionId)?.Coverage == MembershipCoverage.Live;
+            // A newly accepted parent's children are introduced by this same
+            // owner. Until any child retires, this index is authoritative; no
+            // retained query is needed, even while persistence is busy/unavailable.
+            // Submission membership has the same positive proof, independently
+            // of workflow IDs that can span multiple accepted submissions.
+            var afterCursor = FilterJobs(CurrentJobs, query);
             if (afterDisplayId is long displayId && afterJobId is Guid jobId)
-            {
-                filtered = filtered.Where(record =>
-                    record.Summary.DisplayId > displayId
-                    || record.Summary.DisplayId == displayId && record.Id.CompareTo(jobId) > 0);
-            }
-
-            return filtered
-                .OrderBy(record => record.Summary.DisplayId)
-                .ThenBy(record => record.Id)
-                .Take(take)
-                .Select(record => record.Summary)
-                .ToArray();
+                afterCursor = query.NewestFirst
+                    ? afterCursor.Where(row => row.DisplayId < displayId || row.DisplayId == displayId && row.Id.CompareTo(jobId) < 0)
+                    : afterCursor.Where(row => row.DisplayId > displayId || row.DisplayId == displayId && row.Id.CompareTo(jobId) > 0);
+            var items = (query.NewestFirst
+                    ? afterCursor.OrderByDescending(row => row.DisplayId).ThenByDescending(row => row.Id)
+                    : afterCursor.OrderBy(row => row.DisplayId).ThenBy(row => row.Id))
+                .Take(take).Select(row => row.Summary).ToArray();
+            return new(items, complete ? [] : records.Keys.ToArray(), complete,
+                new(streamEpoch, daemonStreamSequence));
         }
     }
 
@@ -426,9 +646,9 @@ public sealed class EngineStateStore
     /// Captures bounded daemon live state and its cursor under the same ordering lock
     /// used to allocate stream sequences.
     /// </summary>
-    public StateSnapshotDto GetDaemonSnapshot()
+    public StateSnapshotDto GetDaemonSnapshot(DaemonStateDetail detail = DaemonStateDetail.Full)
     {
-        lock (gate)
+        using (LockJobReads())
         {
             var workflowIds = daemonLiveWorkflowIds.ToHashSet();
             return new StateSnapshotDto(
@@ -440,21 +660,45 @@ public sealed class EngineStateStore
                     .Where(workflow => workflowIds.Contains(workflow.Summary.WorkflowId))
                     .OrderBy(workflow => workflow.Summary.Title)
                     .ToList(),
-                projectedJobs.Values
-                    .Where(job => workflowIds.Contains(job.Display.WorkflowId))
-                    .OrderBy(job => job.Display.DisplayId)
-                    .ToList(),
+                PublishedJobs
+                    .Where(job => workflowIds.Contains(job.WorkflowId)
+                        && (detail == DaemonStateDetail.Full || job.ParentJobId is null))
+                    .OrderBy(job => job.DisplayId)
+                    .Select(job => job.ToDto()).ToList(),
                 searchStates.Values
                     .Where(search => workflowIds.Contains(search.WorkflowId))
                     .OrderBy(search => search.JobId)
                     .ToList(),
-                activeTransfers.Values
+                detail == DaemonStateDetail.Full ? activeTransfers.Values
                     .Where(transfer =>
-                        transfer.Identity.WorkflowId is null
-                        || workflowIds.Contains(transfer.Identity.WorkflowId.Value))
+                        transfer.WorkflowId is null
+                        || workflowIds.Contains(transfer.WorkflowId.Value))
                     .OrderBy(transfer => transfer.TransferId)
-                    .ToList());
+                    .Select(transfer => transfer.ToDto()).ToList() : [], TransferSummary: transferReadState.Summary,
+                JobHistoryPosition: new(streamEpoch, stateUpdates.LastJobSequence));
         }
+    }
+
+    internal (IReadOnlyList<JobReadState> Jobs, int? ChildCount, int? RetrievalChildCount, long Sequence)
+        GetJobObservationSnapshot(Guid rootId, IReadOnlySet<Guid> requested)
+    {
+        using (LockJobReads())
+        {
+            var rows = requested.Select(id => records.GetValueOrDefault(id)?.Published)
+                .OfType<JobReadState>().ToArray();
+            bool rootPresent = records.ContainsKey(rootId);
+            return (rows,
+                rootPresent ? childJobIdsByParent.GetValueOrDefault(rootId)?.Count ?? 0 : null,
+                rootPresent ? retrievalChildCountsByParent.GetValueOrDefault(rootId) : null,
+                jobReadSequence);
+        }
+    }
+
+    /// <summary>Captures the daemon position without materializing its live snapshot.</summary>
+    public StateStreamPositionDto GetReadPosition()
+    {
+        lock (gate)
+            return new(streamEpoch, daemonStreamSequence);
     }
 
     /// <summary>
@@ -463,7 +707,7 @@ public sealed class EngineStateStore
     /// </summary>
     public StateSnapshotDto GetWorkflowSnapshot(Guid workflowId)
     {
-        lock (gate)
+        using (LockJobReads())
         {
             var workflowRows = projectedWorkflows.TryGetValue(workflowId, out var workflow)
                 ? new[] { workflow }
@@ -477,18 +721,18 @@ public sealed class EngineStateStore
                 DateTimeOffset.UtcNow,
                 null,
                 workflowRows,
-                projectedJobs.Values
-                    .Where(job => job.Display.WorkflowId == workflowId)
-                    .OrderBy(job => job.Display.DisplayId)
-                    .ToList(),
+                PublishedJobs
+                    .Where(job => job.WorkflowId == workflowId)
+                    .OrderBy(job => job.DisplayId)
+                    .Select(job => job.ToDto()).ToList(),
                 searchStates.Values
                     .Where(search => search.WorkflowId == workflowId)
                     .OrderBy(search => search.JobId)
                     .ToList(),
                 activeTransfers.Values
-                    .Where(transfer => transfer.Identity.WorkflowId == workflowId)
+                    .Where(transfer => transfer.WorkflowId == workflowId)
                     .OrderBy(transfer => transfer.TransferId)
-                    .ToList());
+                    .Select(transfer => transfer.ToDto()).ToList());
         }
     }
 
@@ -497,6 +741,11 @@ public sealed class EngineStateStore
     /// This keeps the snapshot and the first delta on one epoch without retaining state
     /// for arbitrary snapshot requests that never establish a subscription.
     /// </summary>
+    internal bool HasWorkflowStreamReaders(Guid workflowId)
+    {
+        lock (gate) return workflowStreamReservations.GetValueOrDefault(workflowId) > 0;
+    }
+
     public void ReserveWorkflowStream(Guid workflowId)
     {
         if (workflowId == Guid.Empty)
@@ -525,10 +774,8 @@ public sealed class EngineStateStore
 
             workflowStreamReservations.Remove(workflowId);
             if (!workflows.ContainsKey(workflowId))
-            {
-                workflowStreamSequences.Remove(workflowId);
-                workflowStreamEpochs.Remove(workflowId);
-            }
+                ReleaseWorkflowStream(workflowId, workflowStreamEpochs.GetValueOrDefault(workflowId),
+                    workflowStreamSequences.GetValueOrDefault(workflowId));
         }
     }
 
@@ -537,7 +784,6 @@ public sealed class EngineStateStore
         int restartCount,
         DateTimeOffset? searchRateLimitResetsAtUtc)
     {
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
             var next = new DaemonStateDto(
@@ -548,18 +794,35 @@ public sealed class EngineStateStore
                 daemonState.Sharing,
                 daemonState.Uploads,
                 daemonState.Chat,
-                daemonState.Notifications);
+                daemonState.Notifications,
+                daemonState.TerminalTransferCommitRevision);
             if (daemonState with { Revision = 0 } == next with { Revision = 0 })
                 return;
 
             daemonState = next;
-            batches = CreateStateBatches(
-                StateDeltaDto.Empty with { Daemon = daemonState },
-                new Dictionary<Guid, StateDeltaDto>(),
+            AppendDaemonChanges(
+                StateDelta.Empty with { Daemon = daemonState },
                 DateTimeOffset.UtcNow);
         }
 
-        PublishStateBatches(batches);
+        PublishStateChanges();
+    }
+
+    public void NotifyTerminalTransferCommitted()
+    {
+        lock (gate)
+        {
+            daemonState = daemonState with
+            {
+                Revision = checked(daemonState.Revision + 1),
+                TerminalTransferCommitRevision = checked(
+                    daemonState.TerminalTransferCommitRevision + 1),
+            };
+            AppendDaemonChanges(
+                StateDelta.Empty with { Daemon = daemonState },
+                DateTimeOffset.UtcNow);
+        }
+        PublishStateChanges();
     }
 
     public void UpdateSearchRateLimit(DateTimeOffset? resetsAtUtc)
@@ -588,7 +851,6 @@ public sealed class EngineStateStore
         SharingStateDto sharing,
         UploadRuntimeStateDto uploads)
     {
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
             var next = daemonState with
@@ -600,19 +862,17 @@ public sealed class EngineStateStore
             if (daemonState with { Revision = 0 } == next with { Revision = 0 })
                 return;
             daemonState = next;
-            batches = CreateStateBatches(
-                StateDeltaDto.Empty with { Daemon = daemonState },
-                new Dictionary<Guid, StateDeltaDto>(),
+            AppendDaemonChanges(
+                StateDelta.Empty with { Daemon = daemonState },
                 DateTimeOffset.UtcNow);
         }
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     public void UpdateChatRuntime(
         ChatRuntimeStateDto chat,
         NotificationSummaryDto notifications)
     {
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
             var next = daemonState with
@@ -624,28 +884,25 @@ public sealed class EngineStateStore
             if (daemonState with { Revision = 0 } == next with { Revision = 0 })
                 return;
             daemonState = next;
-            batches = CreateStateBatches(
-                StateDeltaDto.Empty with { Daemon = daemonState },
-                new Dictionary<Guid, StateDeltaDto>(),
+            AppendDaemonChanges(
+                StateDelta.Empty with { Daemon = daemonState },
                 DateTimeOffset.UtcNow);
         }
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     public void PublishNotification(UserNotificationRecord notification)
     {
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
-            batches = CreateStateBatches(
-                StateDeltaDto.Empty with
+            AppendDaemonChanges(
+                StateDelta.Empty with
                 {
                     Notifications = [ChatDtoMapper.ToDto(notification)],
                 },
-                new Dictionary<Guid, StateDeltaDto>(),
                 notification.CreatedAtUtc);
         }
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     public StateStreamPositionDto GetChatPosition(StateStreamScopeDto scope)
@@ -662,25 +919,15 @@ public sealed class EngineStateStore
         StateStreamScopeDto scope = delta.Kind == ServerChatTargetKind.Direct
             ? StateStreamScopeDto.ChatConversation(delta.TargetId)
             : StateStreamScopeDto.ChatRoom(delta.TargetId);
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
             long previous = chatStreamSequences.GetValueOrDefault(scope);
             long sequence = previous + 1;
             chatStreamSequences[scope] = sequence;
-            batches =
-            [
-                new StateUpdateBatchDto(
-                    scope,
-                    streamEpoch,
-                    previous,
-                    sequence,
-                    DateTimeOffset.UtcNow,
-                    StateDeltaDto.Empty with { ChatTargets = [delta] },
-                    [])
-            ];
+            stateUpdates.Begin(scope, streamEpoch, previous, sequence, DateTimeOffset.UtcNow)
+                .Merge(StateDelta.Empty with { ChatTargets = [delta] }, []);
         }
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     public StateSnapshotDto GetUserBrowseSnapshot(UserBrowseDto resource)
@@ -715,7 +962,6 @@ public sealed class EngineStateStore
     public void UpdateUserBrowse(UserBrowseDto resource)
     {
         ArgumentNullException.ThrowIfNull(resource);
-        StateUpdateBatchDto batch;
         lock (gate)
         {
             if (userBrowses.TryGetValue(resource.BrowseId, out UserBrowseDto? current)
@@ -727,16 +973,10 @@ public sealed class EngineStateStore
             long previous = userBrowseStreamSequences.GetValueOrDefault(resource.BrowseId);
             long sequence = previous + 1;
             userBrowseStreamSequences[resource.BrowseId] = sequence;
-            batch = new StateUpdateBatchDto(
-                StateStreamScopeDto.UserBrowse(resource.BrowseId),
-                streamEpoch,
-                previous,
-                sequence,
-                resource.UpdatedAt,
-                StateDeltaDto.Empty with { UserBrowse = resource },
-                []);
+            stateUpdates.Begin(StateStreamScopeDto.UserBrowse(resource.BrowseId),
+                streamEpoch, previous, sequence, resource.UpdatedAt).SetUserBrowse(resource);
         }
-        PublishStateBatches([batch]);
+        PublishStateChanges();
     }
 
     /// <summary>
@@ -766,11 +1006,10 @@ public sealed class EngineStateStore
         Guid? transferId = null,
         DateTimeOffset? occurredAtUtc = null)
     {
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
             var occurredAt = occurredAtUtc ?? DateTimeOffset.UtcNow;
-            batches = CreateActivityBatches(
+            AppendActivity(
                 type,
                 payload,
                 workflowId,
@@ -779,7 +1018,7 @@ public sealed class EngineStateStore
                 occurredAt);
         }
 
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     public ServerStatusDto GetStatistics()
@@ -803,13 +1042,14 @@ public sealed class EngineStateStore
 
     public void MarkActiveJobsInfrastructureFailed(string reason, string? detail = null)
     {
-        List<JobSummaryDto> changedJobs;
+        List<JobReadState> changedJobs;
         List<WorkflowSummaryDto> changedWorkflows;
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
             var failedJobs = jobs.Values
-                .Where(job => EffectiveLifecycleState(job) != JobLifecycleState.Terminal)
+                // Revision zero is accepted by the submission queue, before
+                // engine registration. An engine failure does not own that work.
+                .Where(job => job.Revision > 0 && EffectiveLifecycleState(job) != JobLifecycleState.Terminal)
                 .Select(job => job with
                 {
                     LifecycleState = JobLifecycleState.Terminal,
@@ -831,7 +1071,7 @@ public sealed class EngineStateStore
             }
 
             changedJobs = failedJobs
-                .Select(job => records[job.Id].Summary)
+                .Select(job => records[job.Id].Current)
                 .OrderBy(summary => summary.DisplayId)
                 .ToList();
             changedWorkflows = changedJobs
@@ -839,7 +1079,7 @@ public sealed class EngineStateStore
                 .Distinct()
                 .Select(BuildWorkflowSummary)
                 .ToList();
-            batches = ProjectStateChanges(
+            ProjectStateChanges(
                 changedJobs,
                 changedWorkflows,
                 [],
@@ -849,7 +1089,7 @@ public sealed class EngineStateStore
         }
 
         PublishJobAndWorkflowUpserts(changedJobs, changedWorkflows);
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     public static ServerJobKind GetJobKind(Job job)
@@ -857,15 +1097,14 @@ public sealed class EngineStateStore
 
     public void SetSourceJob(Guid jobId, Guid sourceJobId)
     {
-        JobSummaryDto? summary = null;
-        IReadOnlyList<StateUpdateBatchDto> batches = [];
+        JobReadState? summary = null;
         lock (gate)
         {
             sourceJobIds[jobId] = sourceJobId;
             if (jobs.TryGetValue(jobId, out var job))
             {
-                summary = UpdateJobRecord(job).Summary;
-                batches = ProjectStateChanges(
+                summary = UpdateJobRecord(job);
+                ProjectStateChanges(
                     [summary],
                     [],
                     [],
@@ -876,65 +1115,93 @@ public sealed class EngineStateStore
         }
 
         if (summary != null)
-            JobUpserted?.Invoke(summary);
-        PublishStateBatches(batches);
+            JobUpserted?.Invoke(summary.Summary);
+        PublishStateChanges();
     }
 
+    internal void RegisterAcceptedRoot(JobSnapshot root, Guid? sourceJobId)
+        => RegisterJob(root, parentJobId: null, sourceJobId, DateTimeOffset.UtcNow, acceptedRoot: true);
+
     private void OnJobRegistered(JobRegisteredChange change)
+        => RegisterJob(change.Job, change.ParentJobId, change.SourceJobId, change.OccurredAtUtc);
+
+    private void RegisterJob(JobSnapshot job, Guid? parentJobId, Guid? sourceJobId, DateTimeOffset occurredAtUtc, bool acceptedRoot = false)
     {
-        JobSummaryDto summary;
+        List<JobReadState> summaries;
         WorkflowSummaryDto workflowSummary;
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
-            StoreJob(change.Job);
-            parentJobIds[change.Job.Id] = change.ParentJobId;
-            if (change.SourceJobId is Guid sourceJobId)
-                sourceJobIds[change.Job.Id] = sourceJobId;
-            summary = UpdateJobRecord(change.Job).Summary;
-            workflowSummary = BuildWorkflowSummary(change.Job.WorkflowId);
-            batches = ProjectStateChanges(
-                [summary],
+            StoreJob(job);
+            parentJobIds[job.Id] = parentJobId;
+            if (sourceJobId is Guid sourceId)
+                sourceJobIds[job.Id] = sourceId;
+            summaries = [UpdateJobRecord(job)];
+            var entry = records[job.Id];
+            if (entry.ChildrenCoverage == MembershipCoverage.Unknown && (acceptedRoot
+                || parentJobId is Guid parent && records.GetValueOrDefault(parent)?.ChildrenCoverage == MembershipCoverage.Live
+                || sourceJobId is Guid source && records.GetValueOrDefault(source)?.ChildrenCoverage == MembershipCoverage.Live))
+                entry.ChildrenCoverage = MembershipCoverage.Live;
+            if (acceptedRoot && job.SubmissionId is Guid acceptedId
+                && submissions[acceptedId].Coverage == MembershipCoverage.Unknown)
+                submissions[acceptedId].Coverage = MembershipCoverage.Live;
+            if (job.Kind == JobSnapshotKind.Album)
+            {
+                foreach (Guid aggregateId in UpdateAlbumAggregateProjectionsForAlbum(job.Id))
+                    summaries.Add(UpdateJobRecord(jobs[aggregateId]));
+            }
+            workflowSummary = BuildWorkflowSummary(job.WorkflowId);
+            ProjectStateChanges(
+                summaries,
                 [workflowSummary],
                 [],
                 [],
                 [],
-                change.OccurredAtUtc);
+                occurredAtUtc);
         }
 
-        PublishJobAndWorkflowUpserts([summary], [workflowSummary]);
-        PublishStateBatches(batches);
+        PublishJobAndWorkflowUpserts(summaries, [workflowSummary]);
+        PublishStateChanges();
     }
 
     private void OnJobResultCreated(JobResultCreatedChange change)
     {
-        List<JobSummaryDto> changedJobs = [];
+        List<JobReadState> changedJobs = [];
         WorkflowSummaryDto? workflowSummary = null;
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
             StoreJob(change.ExtractJob);
+            if (resultJobIds.TryGetValue(change.ExtractJob.Id, out Guid previousResultId))
+                extractJobIdsByResult.Remove(previousResultId);
             resultJobIds[change.ExtractJob.Id] = change.ResultJob.Id;
+            extractJobIdsByResult[change.ResultJob.Id] = change.ExtractJob.Id;
 
-            changedJobs.Add(UpdateJobRecord(change.ExtractJob).Summary);
+            changedJobs.Add(UpdateJobRecord(change.ExtractJob));
 
             if (jobs.ContainsKey(change.ResultJob.Id))
             {
                 StoreJob(change.ResultJob);
-                changedJobs.Add(UpdateJobRecord(change.ResultJob).Summary);
+                changedJobs.Add(UpdateJobRecord(change.ResultJob));
             }
             else if (change.ExtractJob.Payload is ExtractJobSnapshotPayload { AutoProcessResult: true })
             {
                 StoreJob(change.ResultJob);
                 parentJobIds[change.ResultJob.Id] = parentJobIds.GetValueOrDefault(change.ExtractJob.Id);
-                changedJobs.Add(UpdateJobRecord(change.ResultJob).Summary);
+                changedJobs.Add(UpdateJobRecord(change.ResultJob));
             }
+            else
+            {
+                // Persistence retains unprocessed extractor results too. Their
+                // absence here means a submission query still needs history.
+                MarkSubmissionRetained(change.ExtractJob.SubmissionId);
+            }
+
+            MarkContainingSummariesChanged(change.ExtractJob.Id, change.OccurredAtUtc);
 
             if (workflows.ContainsKey(change.ExtractJob.WorkflowId))
                 workflowSummary = BuildWorkflowSummary(change.ExtractJob.WorkflowId);
 
             changedJobs = changedJobs.DistinctBy(summary => summary.JobId).ToList();
-            batches = ProjectStateChanges(
+            ProjectStateChanges(
                 changedJobs,
                 workflowSummary != null ? [workflowSummary] : [],
                 [],
@@ -946,36 +1213,37 @@ public sealed class EngineStateStore
         PublishJobAndWorkflowUpserts(
             changedJobs,
             workflowSummary != null ? [workflowSummary] : []);
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     private void OnJobStateChanged(JobStateChangedChange change)
+        => OnJobChanged(change.Job, change.OccurredAtUtc);
+
+    private void OnJobStructureChanged(JobStructureChangedChange change)
+        => OnJobChanged(change.Job, change.OccurredAtUtc);
+
+    private void OnJobChanged(JobSnapshotHeader snapshot, DateTimeOffset occurredAtUtc)
     {
-        List<JobSummaryDto> summaries;
+        List<JobReadState> summaries;
         List<WorkflowSummaryDto> workflowSummaries;
         SearchStateDto? searchUpdate;
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
-            if (ServerSnapshotMapper.IsRunningOrPending(change.Job))
-                executionCompletedJobs.Remove(change.Job.Id);
+            if (ServerSnapshotMapper.IsRunningOrPending(snapshot))
+                executionCompletedJobs.Remove(snapshot.Id);
 
-            StoreJob(change.Job);
-            var changedRecords = UpdateRecordsContainingJob(change.Job.Id);
-            changedRecords.Add(UpdateJobRecord(change.Job));
-            summaries = changedRecords
-                .DistinctBy(record => record.Id)
-                .Select(record => record.Summary)
-                .ToList();
-            workflowSummaries = [BuildWorkflowSummary(change.Job.WorkflowId)];
-            searchUpdate = ToSearchState(change.Job);
-            batches = ProjectStateChanges(
+            var job = StoreJob(snapshot);
+            MarkContainingSummariesChanged(job.Id, occurredAtUtc);
+            summaries = [UpdateJobRecord(job)];
+            workflowSummaries = [BuildWorkflowSummary(job.WorkflowId)];
+            searchUpdate = ToSearchState(job);
+            ProjectStateChanges(
                 summaries,
                 workflowSummaries,
                 searchUpdate != null ? [searchUpdate] : [],
                 [],
                 [],
-                change.OccurredAtUtc);
+                occurredAtUtc);
         }
 
         if (summaries.Count > 0 || workflowSummaries.Count > 0)
@@ -983,24 +1251,20 @@ public sealed class EngineStateStore
 
         if (searchUpdate != null)
             SearchUpdated?.Invoke(searchUpdate);
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     private void OnJobDiscoveryChanged(JobDiscoveryChangedChange change)
     {
-        List<JobSummaryDto> summaries = [];
+        List<JobReadState> summaries = [];
         SearchStateDto? searchUpdate;
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
-            StoreJob(change.Job);
-            var changedRecords = UpdateRecordsContainingJob(change.Job.Id);
-            changedRecords.Add(UpdateJobRecord(change.Job));
-            summaries.AddRange(changedRecords
-                .DistinctBy(record => record.Id)
-                .Select(record => record.Summary));
-            searchUpdate = ToSearchState(change.Job);
-            batches = ProjectStateChanges(
+            var job = StoreJob(change.Job);
+            MarkContainingSummariesChanged(change.Job.Id, change.OccurredAtUtc);
+            summaries.Add(UpdateJobRecord(job));
+            searchUpdate = ToSearchState(job);
+            ProjectStateChanges(
                 summaries,
                 [],
                 searchUpdate != null ? [searchUpdate] : [],
@@ -1014,21 +1278,20 @@ public sealed class EngineStateStore
 
         if (searchUpdate != null)
             SearchUpdated?.Invoke(searchUpdate);
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     private void OnJobExecutionCompleted(JobExecutionCompletedChange change)
     {
-        JobSummaryDto summary;
+        JobReadState summary;
         WorkflowSummaryDto workflowSummary;
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
-            StoreJob(change.Job);
+            var job = StoreJob(change.Job);
             executionCompletedJobs.Add(change.Job.Id);
-            summary = UpdateJobRecord(change.Job).Summary;
+            summary = UpdateJobRecord(job);
             workflowSummary = BuildWorkflowSummary(change.Job.WorkflowId);
-            batches = ProjectStateChanges(
+            ProjectStateChanges(
                 [summary],
                 [workflowSummary],
                 [],
@@ -1038,71 +1301,110 @@ public sealed class EngineStateStore
         }
 
         PublishJobAndWorkflowUpserts([summary], [workflowSummary]);
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     private void OnWorkflowRetired(WorkflowRetiredChange change)
     {
-        IReadOnlyList<StateUpdateBatchDto> batches;
+        if (persistenceOwnsJobRetirement) return;
+        Guid[] jobIds;
+        lock (gate)
+            jobIds = CurrentJobs.Where(record => record.WorkflowId == change.WorkflowId)
+                .Select(record => record.Id).ToArray();
+        RetireJobProjections(change.WorkflowId, jobIds);
+    }
+
+    internal void RetireJobProjections(Guid workflowId, IReadOnlyCollection<Guid> retiredJobIds)
+    {
         lock (gate)
         {
-            Guid workflowId = change.WorkflowId;
-            var jobIds = records.Values
-                .Where(record => record.WorkflowId == workflowId)
-                .Select(record => record.Id)
+            // An acknowledgement owns one exact generation, not every record
+            // currently using its workflow. A successor may already be running.
+            bool wasDaemonLive = daemonLiveWorkflowIds.Contains(workflowId);
+            var jobIds = retiredJobIds
+                .Where(id => records.TryGetValue(id, out var record) && record.Current.WorkflowId == workflowId)
                 .ToHashSet();
+            if (jobIds.Count == 0) return;
+            foreach (Guid id in jobIds.Select(id => records[id].Current.SubmissionId).OfType<Guid>().Distinct())
+                MarkSubmissionRetained(id);
+            // Capture the whole retiring generation's membership before removing
+            // any child index. A slow observer must retain the final counts even
+            // when its next read happens after every runtime row is gone.
+            foreach (Guid jobId in jobIds) PublishJobMembership(jobId);
             var searchJobIds = searchStates.Values
-                .Where(search => search.WorkflowId == workflowId)
+                .Where(search => jobIds.Contains(search.JobId))
                 .Select(search => search.JobId)
                 .ToHashSet();
             var transferIds = transferWorkflowIds
                 .Where(pair => pair.Value == workflowId
+                    && activeTransfers.GetValueOrDefault(pair.Key)?.JobId is Guid jobId
+                    && jobIds.Contains(jobId)
                     && !terminalTransfersAwaitingRemoval.Contains(pair.Key))
                 .Select(pair => pair.Key)
                 .ToHashSet();
-
-            var removal = StateDeltaDto.Empty with
-            {
-                RemovedWorkflowIds = [workflowId],
-                RemovedJobIds = jobIds.Order().ToArray(),
-                RemovedSearchJobIds = searchJobIds.Order().ToArray(),
-                RemovedTransferIds = transferIds.Order().ToArray(),
-            };
-            batches = CreateStateBatches(
-                removal,
-                new Dictionary<Guid, StateDeltaDto> { [workflowId] = removal },
-                change.OccurredAtUtc);
-
             foreach (Guid jobId in jobIds)
+            {
+                // Partial retirement leaves a live parent with retained children.
+                // Never infer completeness merely from the parent's presence.
+                if (parentJobIds.GetValueOrDefault(jobId) is Guid parent && !jobIds.Contains(parent)
+                    && records.TryGetValue(parent, out var parentEntry))
+                    parentEntry.ChildrenCoverage = MembershipCoverage.Retained;
+                RemoveWorkflowRecord(records[jobId].Current);
                 RemoveJobState(jobId);
+            }
             foreach (Guid searchJobId in searchJobIds)
                 searchStates.Remove(searchJobId);
             foreach (Guid transferId in transferIds)
             {
-                activeTransfers.Remove(transferId);
+                transferReadState.RemoveActive(transferId, out _);
                 transferWorkflowIds.Remove(transferId);
-                latestTransferAttempts.Remove(transferId);
+                transferAttempts.Remove(transferId);
             }
 
-            workflows.Remove(workflowId);
-            projectedWorkflows.Remove(workflowId);
-            daemonLiveWorkflowIds.Remove(workflowId);
+            bool hasSuccessor = workflows.ContainsKey(workflowId);
+            WorkflowStateDto? successor = hasSuccessor ? ProjectWorkflow(BuildWorkflowSummary(workflowId)) : null;
+            if (!hasSuccessor)
+            {
+                projectedWorkflows.Remove(workflowId);
+                SetDaemonWorkflowVisible(workflowId, false);
+            }
+            var removal = StateDelta.Empty with
+            {
+                RemovedWorkflowIds = hasSuccessor ? [] : [workflowId],
+                Workflows = successor == null ? [] : [successor],
+                RemovedJobIds = jobIds.Order().ToArray(),
+                RemovedSearchJobIds = searchJobIds.Order().ToArray(),
+                RemovedTransferIds = transferIds.Order().ToArray(),
+            };
+            var occurredAtUtc = DateTimeOffset.UtcNow;
+            AppendDaemonChanges(
+                // The compact daemon stream already removed terminal workflows.
+                // Do not re-add them or invalidate history again on acknowledgement.
+                wasDaemonLive ? removal : StateDelta.Empty, occurredAtUtc);
+            AppendWorkflowChanges(workflowId, removal, occurredAtUtc);
         }
 
-        PublishStateBatches(batches);
-        ReleaseWorkflowStream(change.WorkflowId);
+        PublishStateChanges();
     }
 
     private void RemoveJobState(Guid jobId)
     {
+        RemoveChildIndex(parentJobIds.GetValueOrDefault(jobId), jobId);
+        retrievalChildCountsByParent.Remove(jobId);
         jobs.Remove(jobId);
-        records.Remove(jobId);
+        directoryProjections.Remove(jobId);
+        changedContainerSummaries.Remove(jobId);
+        listProjections.Remove(jobId);
+        aggregateProjections.Remove(jobId);
+        albumAggregateProjections.Remove(jobId);
+        if (records.Remove(jobId, out var removed)) RemoveSubmissionMember(removed.Current.SubmissionId, jobId);
         executionCompletedJobs.Remove(jobId);
         songTransferStates.Remove(jobId);
         searchStates.Remove(jobId);
-        projectedJobs.Remove(jobId);
         parentJobIds.Remove(jobId);
-        resultJobIds.Remove(jobId);
+        if (resultJobIds.Remove(jobId, out Guid resultJobId))
+            extractJobIdsByResult.Remove(resultJobId);
+        extractJobIdsByResult.Remove(jobId);
         sourceJobIds.Remove(jobId);
 
         if (childJobIdsByParent.Remove(jobId, out var directChildren))
@@ -1110,7 +1412,6 @@ public sealed class EngineStateStore
             foreach (Guid childId in directChildren)
                 parentJobIds.Remove(childId);
         }
-        RemoveIndexValue(childJobIdsByParent, jobId);
 
         if (nestedJobIdsByContainer.Remove(jobId, out var nestedIds))
         {
@@ -1150,16 +1451,21 @@ public sealed class EngineStateStore
         }
     }
 
-    private void ReleaseWorkflowStream(Guid workflowId)
+    private void ReleaseWorkflowStream(Guid workflowId, Guid epoch, long sequence)
     {
-        var scope = StateStreamScopeDto.Workflow(workflowId);
-        lock (stateBatchPublicationGate)
-        {
-            pendingStateBatches.Remove(scope);
-            publishedStateBatchSequences.Remove(scope);
-        }
         lock (gate)
         {
+            // Keep a captured generation until its last publication and reader
+            // settle, including activity captured during retirement callbacks.
+            if (workflows.ContainsKey(workflowId)
+                || workflowStreamReservations.ContainsKey(workflowId)
+                || workflowStreamEpochs.GetValueOrDefault(workflowId) != epoch
+                || workflowStreamSequences.GetValueOrDefault(workflowId) != sequence)
+                return;
+            var scope = StateStreamScopeDto.Workflow(workflowId);
+            if (stateUpdates.HasPending(scope)) return;
+            lock (stateBatchPublicationGate)
+                if (readyStateBatches.Any(batch => batch.Scope == scope && batch.Epoch == epoch)) return;
             workflowStreamSequences.Remove(workflowId);
             workflowStreamEpochs.Remove(workflowId);
         }
@@ -1167,16 +1473,14 @@ public sealed class EngineStateStore
 
     private void OnDownloadStateChanged(DownloadStateChangedChange change)
     {
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
-            songTransferStates[change.Song.Id] = change.State;
-            StoreJob(change.Song);
-            UpdateJobRecord(change.Song);
-            UpdateRecordsContainingJob(change.Song.Id);
             var transferDelta = UpsertTransfer(change.Transfer, isTerminal: false);
-            batches = ProjectStateChanges(
-                [],
+            if (transferDelta is null) return;
+            songTransferStates[change.Job.Id] = change.State;
+            var fileSummary = StoreFileProgress(change.Job, change.File, change.OccurredAtUtc);
+            ProjectStateChanges(
+                fileSummary is null ? [] : [fileSummary],
                 [],
                 [],
                 [transferDelta],
@@ -1184,26 +1488,26 @@ public sealed class EngineStateStore
                 change.OccurredAtUtc);
         }
 
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     private void OnNestedSongDownloadStarted(DownloadStartedChange change)
     {
-        List<JobSummaryDto> summaries;
+        List<JobReadState> summaries;
         List<WorkflowSummaryDto> workflowSummaries;
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
-            StoreJob(change.Song);
-            var containingRecords = UpdateRecordsContainingJob(change.Song.Id);
-            summaries = containingRecords.Select(record => record.Summary).ToList();
-            workflowSummaries = containingRecords
+            var transferDelta = UpsertTransfer(change.Transfer, isTerminal: false);
+            if (transferDelta is null) return;
+            var job = StoreJob(change.Job);
+            MarkContainingSummariesChanged(change.Job.Id, change.OccurredAtUtc);
+            summaries = [UpdateJobRecord(job)];
+            workflowSummaries = summaries
                 .Select(record => record.WorkflowId)
                 .Distinct()
                 .Select(BuildWorkflowSummary)
                 .ToList();
-            var transferDelta = UpsertTransfer(change.Transfer, isTerminal: false);
-            batches = ProjectStateChanges(
+            ProjectStateChanges(
                 summaries,
                 workflowSummaries,
                 [],
@@ -1214,16 +1518,16 @@ public sealed class EngineStateStore
 
         if (summaries.Count > 0 || workflowSummaries.Count > 0)
             PublishJobAndWorkflowUpserts(summaries, workflowSummaries);
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     private void OnFallbackTransferStarted(FallbackTransferStartedChange change)
     {
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
             var transferDelta = UpsertTransfer(change.Transfer, isTerminal: false);
-            batches = ProjectStateChanges(
+            if (transferDelta is null) return;
+            ProjectStateChanges(
                 [],
                 [],
                 [],
@@ -1232,17 +1536,20 @@ public sealed class EngineStateStore
                 change.OccurredAtUtc);
         }
 
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     private void OnDownloadProgress(DownloadProgressedChange change)
     {
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
             var transferDelta = UpsertTransfer(change.Transfer, isTerminal: false);
-            batches = ProjectStateChanges(
-                [],
+            if (transferDelta is null) return;
+            // Keep file state fresh for parent/detail reads without rebuilding
+            // every containing album/directory on each transport callback.
+            var fileSummary = StoreFileProgress(change.Job, change.File, change.OccurredAtUtc);
+            ProjectStateChanges(
+                fileSummary is null ? [] : [fileSummary],
                 [],
                 [],
                 [transferDelta],
@@ -1250,14 +1557,14 @@ public sealed class EngineStateStore
                 change.OccurredAtUtc);
         }
 
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     private void OnTransferAttemptStarted(TransferAttemptStartedChange change)
     {
         lock (gate)
         {
-            latestTransferAttempts[change.Transfer.Id] = new TransferAttemptHistoryDto(
+            RecordTransferAttempt(new TransferAttemptHistoryDto(
                 change.AttemptId,
                 change.Transfer.Id,
                 change.AttemptNumber,
@@ -1270,7 +1577,7 @@ public sealed class EngineStateStore
                 null,
                 "None",
                 null,
-                change.AttemptRevision);
+                change.AttemptRevision));
         }
     }
 
@@ -1319,8 +1626,8 @@ public sealed class EngineStateStore
     {
         lock (gate)
         {
-            var previous = latestTransferAttempts.GetValueOrDefault(transfer.Id);
-            latestTransferAttempts[transfer.Id] = new TransferAttemptHistoryDto(
+            var previous = transferAttempts.GetValueOrDefault(transfer.Id)?.GetValueOrDefault(attemptNumber);
+            RecordTransferAttempt(new TransferAttemptHistoryDto(
                 attemptId,
                 transfer.Id,
                 attemptNumber,
@@ -1335,27 +1642,30 @@ public sealed class EngineStateStore
                 occurredAtUtc,
                 failureReason,
                 failureMessage,
-                attemptRevision);
+                attemptRevision));
         }
     }
+
+    private void OnTransferOutputChanged(TransferOutputChangedChange change)
+        => OnTerminalTransfer(change.Transfer, change.OccurredAtUtc);
 
     private void OnTransferCompleted(TransferCompletedChange change)
         => OnTerminalTransfer(change.Transfer, change.OccurredAtUtc);
 
     private void OnTransferFailed(TransferFailedChange change)
-        => OnTerminalTransfer(change.Transfer, change.OccurredAtUtc);
+        => OnTerminalTransfer(change.Transfer, change.OccurredAtUtc, change.Exception.Message);
 
     private void OnTransferCancelled(TransferCancelledChange change)
         => OnTerminalTransfer(change.Transfer, change.OccurredAtUtc);
 
-    private void OnTerminalTransfer(TransferSnapshot transfer, DateTimeOffset occurredAtUtc)
+    private void OnTerminalTransfer(TransferSnapshot transfer, DateTimeOffset occurredAtUtc, string? failureMessage = null)
     {
-        IReadOnlyList<StateUpdateBatchDto> batches;
         lock (gate)
         {
+            var transferDelta = UpsertTransfer(transfer, isTerminal: true, occurredAtUtc, failureMessage);
+            if (transferDelta is null) return;
             terminalTransfersAwaitingRemoval.Add(transfer.Id);
-            var transferDelta = UpsertTransfer(transfer, isTerminal: true);
-            batches = ProjectStateChanges(
+            ProjectStateChanges(
                 [],
                 [],
                 [],
@@ -1364,184 +1674,146 @@ public sealed class EngineStateStore
                 occurredAtUtc);
         }
 
-        PublishStateBatches(batches);
+        PublishStateChanges();
     }
 
     private void PublishJobAndWorkflowUpserts(
-        IReadOnlyList<JobSummaryDto> jobSummaries,
+        IReadOnlyList<JobReadState> jobSummaries,
         IReadOnlyList<WorkflowSummaryDto> workflowSummaries)
     {
         foreach (var summary in jobSummaries)
-            JobUpserted?.Invoke(summary);
+            JobUpserted?.Invoke(summary.Summary);
 
         foreach (var workflow in workflowSummaries)
             WorkflowUpserted?.Invoke(workflow);
     }
 
-    private IReadOnlyList<StateUpdateBatchDto> ProjectStateChanges(
-        IReadOnlyList<JobSummaryDto> jobSummaries,
+    private void ProjectStateChanges(
+        IReadOnlyList<JobReadState> jobSummaries,
         IReadOnlyList<WorkflowSummaryDto> workflowSummaries,
         IReadOnlyList<SearchStateDto> searches,
-        IReadOnlyList<TransferDeltaDto> transfers,
+        IReadOnlyList<TransferChange> transfers,
         IReadOnlyList<Guid> removedTransferIds,
         DateTimeOffset occurredAtUtc)
     {
-        var jobDeltas = new List<JobDeltaDto>();
-        foreach (var summary in jobSummaries.DistinctBy(summary => summary.JobId))
+        var byWorkflow = new Dictionary<Guid, ScopedStateChanges>();
+        StateUpdateCoalescer.PendingBatch? daemon = null;
+        ScopedStateChanges? ForWorkflow(Guid workflowId)
         {
+            if (workflowId == Guid.Empty) return null;
+            if (byWorkflow.TryGetValue(workflowId, out var existing)) return existing;
+            bool wasLive = daemonLiveWorkflowIds.Contains(workflowId);
+            bool isLive = projectedWorkflows.TryGetValue(workflowId, out var workflow)
+                && workflow.Summary.State == ServerWorkflowState.Active;
+            var created = new ScopedStateChanges(BeginWorkflowChange(workflowId, occurredAtUtc),
+                wasLive || isLive ? daemon ??= BeginDaemonChange(occurredAtUtc) : null, wasLive, isLive);
+            byWorkflow.Add(workflowId, created);
+            return created;
+        }
+
+        // Establish membership before routing the fields. A workflow that just
+        // finished still publishes its final changes and daemon removals together.
+        HashSet<Guid>? seenWorkflows = workflowSummaries.Count > 1 ? [] : null;
+        for (int i = 0; i < workflowSummaries.Count; i++)
+        {
+            var summary = workflowSummaries[i];
+            if (seenWorkflows != null && !seenWorkflows.Add(summary.WorkflowId)) continue;
+            var projected = ProjectWorkflow(summary);
+            if (projected != null) ForWorkflow(summary.WorkflowId)?.Add(projected);
+        }
+        HashSet<Guid>? seenJobs = jobSummaries.Count > 1 ? [] : null;
+        for (int i = 0; i < jobSummaries.Count; i++)
+        {
+            var summary = jobSummaries[i];
+            if (seenJobs != null && !seenJobs.Add(summary.JobId)) continue;
             long coreRevision = jobs.GetValueOrDefault(summary.JobId)?.Revision ?? 0;
             var delta = ProjectJob(summary, coreRevision);
-            if (delta != null)
-                jobDeltas.Add(delta);
+            if (delta != null) ForWorkflow(JobWorkflowId(delta))?.Add(delta);
         }
-
-        var workflowStates = new List<WorkflowStateDto>();
-        foreach (var summary in workflowSummaries.DistinctBy(summary => summary.WorkflowId))
+        for (int i = 0; i < searches.Count; i++)
         {
-            var projected = ProjectWorkflow(summary);
-            if (projected != null)
-                workflowStates.Add(projected);
-        }
-
-        var searchUpdates = new List<SearchStateDto>();
-        var removedSearchJobIds = new List<Guid>();
-        foreach (var search in searches)
-        {
+            var search = searches[i];
             var current = searchStates.GetValueOrDefault(search.JobId);
-            if (current == null
-                || search.Revision > current.Revision
-                || search.ResultCount != current.ResultCount
-                || search.IsComplete != current.IsComplete)
-            {
-                searchUpdates.Add(search);
-            }
-
-            if (search.IsComplete)
-            {
-                searchStates.Remove(search.JobId);
-                removedSearchJobIds.Add(search.JobId);
-            }
-            else
-            {
-                searchStates[search.JobId] = search;
-            }
+            if (current == null || search.Revision > current.Revision
+                || search.ResultCount != current.ResultCount || search.IsComplete != current.IsComplete)
+                ForWorkflow(search.WorkflowId)?.Add(search);
+            if (search.IsComplete) searchStates.Remove(search.JobId);
+            else searchStates[search.JobId] = search;
         }
-
-        var affectedWorkflowIds = workflowSummaries.Select(workflow => workflow.WorkflowId)
-            .Concat(jobDeltas.Select(JobWorkflowId))
-            .Concat(searchUpdates.Select(search => search.WorkflowId))
-            .Concat(transfers.Select(TransferWorkflowId))
-            .Concat(removedTransferIds.Select(id => transferWorkflowIds.GetValueOrDefault(id)))
-            .Where(id => id != Guid.Empty)
-            .Distinct()
-            .ToList();
-
-        var wasDaemonLive = affectedWorkflowIds.ToDictionary(
-            workflowId => workflowId,
-            workflowId => daemonLiveWorkflowIds.Contains(workflowId));
-        var isDaemonLive = affectedWorkflowIds.ToDictionary(
-            workflowId => workflowId,
-            workflowId => projectedWorkflows.TryGetValue(workflowId, out var workflow)
-                && workflow.Summary.State == ServerWorkflowState.Active);
-
-        var workflowDeltas = new Dictionary<Guid, StateDeltaDto>();
-        foreach (var workflowId in affectedWorkflowIds)
+        for (int i = 0; i < transfers.Count; i++)
+            ForWorkflow(TransferWorkflowId(transfers[i]))?.Add(transfers[i]);
+        for (int i = 0; i < removedTransferIds.Count; i++)
         {
-            workflowDeltas[workflowId] = new StateDeltaDto(
-                null,
-                workflowStates.Where(workflow => workflow.Summary.WorkflowId == workflowId).ToList(),
-                jobDeltas.Where(job => JobWorkflowId(job) == workflowId).ToList(),
-                searchUpdates.Where(search => search.WorkflowId == workflowId).ToList(),
-                transfers.Where(transfer => TransferWorkflowId(transfer) == workflowId).ToList(),
-                [],
-                [],
-                removedSearchJobIds.Where(id => projectedJobs.GetValueOrDefault(id)?.Display.WorkflowId == workflowId).ToList(),
-                removedTransferIds.Where(id => transferWorkflowIds.GetValueOrDefault(id) == workflowId).ToList());
+            Guid id = removedTransferIds[i];
+            ForWorkflow(transferWorkflowIds.GetValueOrDefault(id))?.RemoveTransfer(id);
         }
-
-        var daemonWorkflowIds = affectedWorkflowIds
-            .Where(workflowId => wasDaemonLive[workflowId] || isDaemonLive[workflowId])
-            .ToHashSet();
-        var terminalWorkflowIds = daemonWorkflowIds
-            .Where(workflowId => wasDaemonLive[workflowId] && !isDaemonLive[workflowId])
-            .ToHashSet();
-        var removedDaemonJobIds = projectedJobs.Values
-            .Where(job => terminalWorkflowIds.Contains(job.Display.WorkflowId))
-            .Select(job => job.JobId)
-            .ToList();
-        var removedDaemonSearchIds = searchStates.Values
-            .Where(search => terminalWorkflowIds.Contains(search.WorkflowId))
-            .Select(search => search.JobId)
-            .Concat(removedSearchJobIds.Where(id =>
-                terminalWorkflowIds.Contains(projectedJobs.GetValueOrDefault(id)?.Display.WorkflowId ?? Guid.Empty)))
-            .Distinct()
-            .ToList();
-        var removedDaemonTransferIds = activeTransfers.Values
-            .Where(transfer =>
-                transfer.Identity.WorkflowId is { } workflowId
-                && terminalWorkflowIds.Contains(workflowId))
-            .Select(transfer => transfer.TransferId)
-            .Concat(removedTransferIds.Where(id => terminalWorkflowIds.Contains(transferWorkflowIds.GetValueOrDefault(id))))
-            .Distinct()
-            .ToList();
-
-        var daemonDelta = new StateDeltaDto(
-            null,
-            workflowStates.Where(workflow => daemonWorkflowIds.Contains(workflow.Summary.WorkflowId)).ToList(),
-            jobDeltas.Where(job => daemonWorkflowIds.Contains(JobWorkflowId(job))).ToList(),
-            searchUpdates.Where(search => daemonWorkflowIds.Contains(search.WorkflowId)).ToList(),
-            transfers.Where(transfer => daemonWorkflowIds.Contains(TransferWorkflowId(transfer))).ToList(),
-            terminalWorkflowIds.ToList(),
-            removedDaemonJobIds,
-            removedSearchJobIds
-                .Where(id => daemonWorkflowIds.Contains(projectedJobs.GetValueOrDefault(id)?.Display.WorkflowId ?? Guid.Empty))
-                .Concat(removedDaemonSearchIds)
-                .Distinct()
-                .ToList(),
-            removedTransferIds
-                .Where(id => daemonWorkflowIds.Contains(transferWorkflowIds.GetValueOrDefault(id)))
-                .Concat(removedDaemonTransferIds)
-                .Distinct()
-                .ToList());
-
-        foreach (var workflowId in affectedWorkflowIds)
+        for (int i = 0; i < searches.Count; i++)
         {
-            if (isDaemonLive[workflowId])
-                daemonLiveWorkflowIds.Add(workflowId);
-            else
-                daemonLiveWorkflowIds.Remove(workflowId);
+            var search = searches[i];
+            if (search.IsComplete && byWorkflow.TryGetValue(
+                records.GetValueOrDefault(search.JobId)?.Published?.WorkflowId ?? Guid.Empty, out var changes))
+                changes.RemoveSearch(search.JobId);
         }
 
-        return CreateStateBatches(daemonDelta, workflowDeltas, occurredAtUtc);
+        HashSet<Guid>? terminalWorkflows = null;
+        foreach (var pair in byWorkflow)
+        {
+            if (pair.Value.WasDaemonLive && !pair.Value.IsDaemonLive)
+                (terminalWorkflows ??= []).Add(pair.Key);
+        }
+        if (terminalWorkflows != null)
+        {
+            // This full removal happens only when a workflow leaves the daemon
+            // snapshot, never for individual child progress or retirement.
+            foreach (var job in PublishedJobs)
+                if (terminalWorkflows.Contains(job.WorkflowId)) (daemon ??= BeginDaemonChange(occurredAtUtc)).RemoveJob(job.JobId);
+            foreach (var search in searchStates.Values)
+                if (terminalWorkflows.Contains(search.WorkflowId)) (daemon ??= BeginDaemonChange(occurredAtUtc)).RemoveSearch(search.JobId);
+            foreach (var transfer in activeTransfers.Values)
+                if (transfer.WorkflowId is Guid id && terminalWorkflows.Contains(id))
+                    (daemon ??= BeginDaemonChange(occurredAtUtc)).RemoveTransfer(transfer.TransferId);
+        }
+        foreach (var pair in byWorkflow)
+        {
+            SetDaemonWorkflowVisible(pair.Key, pair.Value.IsDaemonLive);
+        }
+        if (terminalWorkflows != null)
+            foreach (Guid id in terminalWorkflows) (daemon ??= BeginDaemonChange(occurredAtUtc)).RemoveWorkflow(id);
+        AppendTransferSummary(occurredAtUtc, daemon);
     }
 
-    private JobDeltaDto? ProjectJob(JobSummaryDto summary, long coreRevision)
+    private void SetDaemonWorkflowVisible(Guid workflowId, bool visible)
     {
-        if (!projectedJobs.TryGetValue(summary.JobId, out var previous))
-        {
-            var added = JobStateDto.FromSummary(summary, Math.Max(1, coreRevision));
-            projectedJobs[summary.JobId] = added;
-            return new JobDeltaDto(summary.JobId, added.Revision, Added: added);
-        }
+        if (visible) daemonLiveWorkflowIds.Add(workflowId);
+        else daemonLiveWorkflowIds.Remove(workflowId);
+        transferReadState.SetWorkflowVisible(workflowId, visible);
+    }
 
-        var candidate = JobStateDto.FromSummary(summary, previous.Revision);
-        var display = JobDisplayEquals(previous.Display, candidate.Display) ? null : candidate.Display;
-        var lifecycle = JobLifecycleEquals(previous.Lifecycle, candidate.Lifecycle) ? null : candidate.Lifecycle;
-        var discovery = previous.Discovery == candidate.Discovery ? null : candidate.Discovery;
-        var relationships = previous.Relationships == candidate.Relationships ? null : candidate.Relationships;
-        if (display == null && lifecycle == null && discovery == null && relationships == null)
-            return null;
+    // Routing is a value scoped to one source mutation. The mutable maps live
+    // at the publication owner, so repeated progress never builds source packets.
+    private readonly record struct ScopedStateChanges(
+        StateUpdateCoalescer.PendingBatch Workflow, StateUpdateCoalescer.PendingBatch? Daemon,
+        bool WasDaemonLive, bool IsDaemonLive)
+    {
+        public void Add(WorkflowStateDto value) { Workflow.Add(value); Daemon?.Add(value); }
+        public void Add(JobChange value) { Workflow.Add(value); Daemon?.Add(value); }
+        public void Add(SearchStateDto value) { Workflow.Add(value); Daemon?.Add(value); }
+        public void Add(TransferChange value) { Workflow.Add(value); Daemon?.Add(value); }
+        public void RemoveSearch(Guid id) { Workflow.RemoveSearch(id); Daemon?.RemoveSearch(id); }
+        public void RemoveTransfer(Guid id) { Workflow.RemoveTransfer(id); Daemon?.RemoveTransfer(id); }
+    }
 
-        long revision = Math.Max(coreRevision, previous.Revision + 1);
-        var current = candidate with { Revision = revision };
-        projectedJobs[summary.JobId] = current;
-        return new JobDeltaDto(
-            summary.JobId,
-            revision,
-            Display: display,
-            Lifecycle: lifecycle,
-            Discovery: discovery,
-            Relationships: relationships);
+    private JobChange? ProjectJob(JobReadState fact, long coreRevision)
+    {
+        var entry = records[fact.JobId];
+        var previous = entry.Published;
+        JobFields fields = previous?.Difference(fact) ?? JobFields.All;
+        if (fields == JobFields.None) return null;
+        var current = fact.WithRevision(Math.Max(coreRevision, (previous?.Revision ?? 0) + 1));
+        entry.Published = current;
+        if (JobReadChanged is { } changed)
+            changed(new(++jobReadSequence, current.JobId, current));
+        return new(current, Added: previous is null, fields);
     }
 
     private WorkflowStateDto? ProjectWorkflow(WorkflowSummaryDto summary)
@@ -1561,71 +1833,53 @@ public sealed class EngineStateStore
         return current;
     }
 
-    private TransferDeltaDto UpsertTransfer(TransferSnapshot transfer, bool isTerminal)
+    private TransferChange? UpsertTransfer(TransferSnapshot transfer, bool isTerminal,
+        DateTimeOffset? completedAtUtc = null, string? failureMessage = null)
     {
+        // The engine serializes transfer events and gives each change a source
+        // revision. Use that same revision for streams, reads and commit waits.
+        if (activeTransfers.TryGetValue(transfer.Id, out var observed) && observed.Revision >= transfer.Revision)
+            return null;
         transferWorkflowIds[transfer.Id] = transfer.WorkflowId ?? Guid.Empty;
-        var current = ToTransferState(transfer, isTerminal);
-        if (!activeTransfers.TryGetValue(transfer.Id, out var previous))
-        {
-            activeTransfers[transfer.Id] = current;
-            return new TransferDeltaDto(transfer.Id, current.Revision, Added: current);
-        }
-
-        var status = TransferStatusEquals(previous.Status, current.Status)
-            ? null
-            : current.Status;
-        var progress = previous.Progress == current.Progress ? null : current.Progress;
-        var scheduling = previous.Scheduling == current.Scheduling
-            ? null
-            : current.Scheduling;
-        activeTransfers[transfer.Id] = current;
-        return new TransferDeltaDto(
-            transfer.Id,
-            Math.Max(current.Revision, previous.Revision + 1),
-            Status: status,
-            Progress: progress,
-            Scheduling: scheduling);
+        var current = new TransferReadSnapshot(transfer, isTerminal, completedAtUtc, failureMessage, observed);
+        var delta = new TransferChange(current);
+        transferReadState.UpsertActive(current, delta.Added);
+        return delta;
     }
 
-    private IReadOnlyList<StateUpdateBatchDto> CreateStateBatches(
-        StateDeltaDto daemonDelta,
-        IReadOnlyDictionary<Guid, StateDeltaDto> workflowDeltas,
-        DateTimeOffset occurredAtUtc)
+    private StateUpdateCoalescer.PendingBatch BeginDaemonChange(DateTimeOffset occurredAtUtc)
     {
-        var batches = new List<StateUpdateBatchDto>();
-        if (!daemonDelta.IsEmpty)
-        {
-            long previous = daemonStreamSequence;
-            long sequence = ++daemonStreamSequence;
-            batches.Add(new StateUpdateBatchDto(
-                StateStreamScopeDto.Daemon,
-                streamEpoch,
-                previous,
-                sequence,
-                occurredAtUtc,
-                daemonDelta,
-                []));
-        }
+        long previous = daemonStreamSequence++;
+        return stateUpdates.Begin(StateStreamScopeDto.Daemon, streamEpoch,
+            previous, daemonStreamSequence, occurredAtUtc);
+    }
 
-        foreach (var pair in workflowDeltas.OrderBy(pair => pair.Key))
-        {
-            if (pair.Value.IsEmpty)
-                continue;
+    private StateUpdateCoalescer.PendingBatch BeginWorkflowChange(Guid workflowId, DateTimeOffset occurredAtUtc)
+    {
+        long previous = workflowStreamSequences.GetValueOrDefault(workflowId);
+        workflowStreamSequences[workflowId] = previous + 1;
+        return stateUpdates.Begin(StateStreamScopeDto.Workflow(workflowId),
+            GetOrCreateWorkflowStreamEpoch(workflowId), previous, previous + 1, occurredAtUtc);
+    }
 
-            long previous = workflowStreamSequences.GetValueOrDefault(pair.Key);
-            long sequence = previous + 1;
-            workflowStreamSequences[pair.Key] = sequence;
-            batches.Add(new StateUpdateBatchDto(
-                StateStreamScopeDto.Workflow(pair.Key),
-                GetOrCreateWorkflowStreamEpoch(pair.Key),
-                previous,
-                sequence,
-                occurredAtUtc,
-                pair.Value,
-                []));
-        }
+    private void AppendTransferSummary(DateTimeOffset occurredAtUtc, StateUpdateCoalescer.PendingBatch? pending = null)
+    {
+        LiveTransferSummaryDto summary = transferReadState.Summary;
+        if (summary == publishedTransferSummary) return;
+        publishedTransferSummary = summary;
+        (pending ?? BeginDaemonChange(occurredAtUtc)).SetSummary(summary);
+    }
 
-        return batches;
+    private void AppendDaemonChanges(StateDelta delta, DateTimeOffset occurredAtUtc)
+    {
+        var pending = delta.IsEmpty ? null : BeginDaemonChange(occurredAtUtc);
+        pending?.Merge(delta, []);
+        AppendTransferSummary(occurredAtUtc, pending);
+    }
+
+    private void AppendWorkflowChanges(Guid workflowId, StateDelta delta, DateTimeOffset occurredAtUtc)
+    {
+        if (!delta.IsEmpty) BeginWorkflowChange(workflowId, occurredAtUtc).Merge(delta, []);
     }
 
     private Guid GetOrCreateWorkflowStreamEpoch(Guid workflowId)
@@ -1649,83 +1903,99 @@ public sealed class EngineStateStore
             : streamEpoch;
     }
 
-    private IReadOnlyList<StateUpdateBatchDto> CreateActivityBatches(
-        string type,
-        ActivityPayloadDto payload,
-        Guid? workflowId,
-        Guid? jobId,
-        Guid? transferId,
-        DateTimeOffset occurredAtUtc)
+    private void AppendActivity(string type, ActivityPayloadDto payload, Guid? workflowId,
+        Guid? jobId, Guid? transferId, DateTimeOffset occurredAtUtc)
     {
-        var batches = new List<StateUpdateBatchDto>();
-        long daemonPrevious = daemonStreamSequence;
-        long daemonSequence = ++daemonStreamSequence;
-        batches.Add(new StateUpdateBatchDto(
-            StateStreamScopeDto.Daemon,
-            streamEpoch,
-            daemonPrevious,
-            daemonSequence,
-            occurredAtUtc,
-            StateDeltaDto.Empty,
-            [new ActivityEventDto(
-                daemonSequence,
-                occurredAtUtc,
-                type,
-                workflowId,
-                jobId,
-                transferId,
-                payload)]));
-
+        var daemon = BeginDaemonChange(occurredAtUtc);
+        daemon.AddActivity(new(daemonStreamSequence, occurredAtUtc, type, workflowId, jobId, transferId, payload));
         if (workflowId is Guid id)
         {
-            long workflowPrevious = workflowStreamSequences.GetValueOrDefault(id);
-            long workflowSequence = workflowPrevious + 1;
-            workflowStreamSequences[id] = workflowSequence;
-            batches.Add(new StateUpdateBatchDto(
-                StateStreamScopeDto.Workflow(id),
-                GetOrCreateWorkflowStreamEpoch(id),
-                workflowPrevious,
-                workflowSequence,
-                occurredAtUtc,
-                StateDeltaDto.Empty,
-                [new ActivityEventDto(
-                    workflowSequence,
-                    occurredAtUtc,
-                    type,
-                    id,
-                    jobId,
-                    transferId,
-                    payload)]));
+            var workflow = BeginWorkflowChange(id, occurredAtUtc);
+            workflow.AddActivity(new(workflowStreamSequences[id], occurredAtUtc, type, id, jobId, transferId, payload));
         }
-
-        return batches;
     }
 
-    private void PublishStateBatches(IReadOnlyList<StateUpdateBatchDto> batches)
-    {
-        if (batches.Count == 0)
-            return;
+    /// <summary>Start the shared coalescing clock for an in-process or remote publisher.</summary>
+    public IAsyncDisposable StartStatePublication(TimeProvider? timeProvider = null)
+        => new StateUpdatePublication(this, timeProvider ?? TimeProvider.System);
 
+    // Summary reads and publication share this boundary. Transfer callbacks
+    // maintain counters immediately; a burst constructs each containing job's
+    // derived summary once, without waiting for another lifecycle transition.
+    private Lock.Scope LockJobReads()
+    {
+        var held = gate.EnterScope();
+        try
+        {
+            RefreshContainerSummaries();
+            return held;
+        }
+        catch { held.Dispose(); throw; }
+    }
+
+    private void MarkDirectorySummaryChanged(Guid id, DirectoryProjection directory, DateTimeOffset occurredAtUtc)
+    {
+        if (!directory.HasSummaryChanges) return;
+        changedContainerSummaries.Add(id);
+        containerSummaryChangedAt = occurredAtUtc;
+    }
+
+    private void RefreshContainerSummaries()
+    {
+        if (changedContainerSummaries.Count == 0) return;
+        var summaries = new List<JobReadState>(changedContainerSummaries.Count);
+        foreach (Guid id in changedContainerSummaries)
+            if (jobs.TryGetValue(id, out var job))
+                summaries.Add(directoryProjections.TryGetValue(id, out var directory)
+                    ? UpdateDirectorySummary(id, directory) : UpdateJobRecord(job));
+        changedContainerSummaries.Clear();
+        ProjectStateChanges(summaries, [], [], [], [], containerSummaryChangedAt);
+    }
+
+    /// <summary>Flush captured changes on the publisher's cadence.</summary>
+    internal void FlushStateUpdates()
+    {
+        using (LockJobReads()) stateUpdates.Flush();
+        DrainStateBatches();
+        StateUpdatesFlushed?.Invoke();
+    }
+
+    private void PublishStateChanges()
+    {
+        // Ordinary facts stay in the owner until its next clock tick. Completion,
+        // removal, notifications and messages preserve their prompt handoff.
+        // Each mutation requests publication after releasing gate. A concurrent
+        // mutation/clock may flush first; it owns draining those captured batches.
+        // Routine progress must not contend for both state/publication gates
+        // merely to discover that no prompt batch exists.
+        if (!stateUpdates.HasPromptChanges)
+        {
+            StatePublicationRequested?.Invoke();
+            return;
+        }
+        bool prompt;
+        using (LockJobReads())
+        {
+            prompt = stateUpdates.FlushIfRequired();
+        }
+        DrainStateBatches();
+        if (prompt) StateUpdatesFlushed?.Invoke();
+        else StatePublicationRequested?.Invoke();
+    }
+
+    // Called only while gate is held: capture order already is publication order.
+    // No out-of-order registry or second set of stream cursors is necessary.
+    private void QueueStateBatches(IReadOnlyList<StateUpdate> batches)
+    {
+        lock (stateBatchPublicationGate)
+            foreach (var batch in batches) readyStateBatches.Enqueue(batch);
+    }
+
+    private void DrainStateBatches()
+    {
         lock (stateBatchPublicationGate)
         {
-            foreach (var batch in batches)
-            {
-                long publishedSequence = publishedStateBatchSequences.GetValueOrDefault(batch.Scope);
-                if (batch.Sequence <= publishedSequence)
-                    continue;
-
-                if (!pendingStateBatches.TryGetValue(batch.Scope, out var pending))
-                {
-                    pending = [];
-                    pendingStateBatches[batch.Scope] = pending;
-                }
-
-                pending[batch.Sequence] = batch;
-            }
-
-            if (publishingStateBatches)
-                return;
-
+            if (publishingStateBatches || readyStateBatches.Count == 0) return;
             publishingStateBatches = true;
         }
 
@@ -1733,18 +2003,25 @@ public sealed class EngineStateStore
         {
             while (true)
             {
-                StateUpdateBatchDto? batch;
+                StateUpdate? batch;
                 lock (stateBatchPublicationGate)
                 {
-                    batch = DequeueNextStateBatch();
-                    if (batch == null)
+                    if (!readyStateBatches.TryDequeue(out batch))
                     {
                         publishingStateBatches = false;
                         return;
                     }
                 }
 
-                StateBatchPublished?.Invoke(batch);
+                try { StateBatchPublished?.Invoke(batch); }
+                finally
+                {
+                    // Closing the last reader may leave final activity queued.
+                    // Release that generation after its actual last publication.
+                    if (batch.Scope.Kind == StateStreamScopeKind.Workflow
+                        && batch.Scope.WorkflowId is Guid workflowId)
+                        ReleaseWorkflowStream(workflowId, batch.Epoch, batch.Sequence);
+                }
             }
         }
         catch
@@ -1755,192 +2032,11 @@ public sealed class EngineStateStore
         }
     }
 
-    private StateUpdateBatchDto? DequeueNextStateBatch()
-    {
-        StateStreamScopeDto? readyScope = null;
-        StateUpdateBatchDto? readyBatch = null;
+    private static Guid JobWorkflowId(JobChange delta) => delta.Current.WorkflowId;
 
-        foreach (var (scope, pending) in pendingStateBatches)
-        {
-            long nextSequence = publishedStateBatchSequences.GetValueOrDefault(scope) + 1;
-            if (!pending.TryGetValue(nextSequence, out var batch))
-                continue;
-
-            readyScope = scope;
-            readyBatch = batch;
-            break;
-        }
-
-        if (readyScope == null || readyBatch == null)
-            return null;
-
-        var readyPending = pendingStateBatches[readyScope];
-        readyPending.Remove(readyBatch.Sequence);
-        if (readyPending.Count == 0)
-            pendingStateBatches.Remove(readyScope);
-
-        publishedStateBatchSequences[readyScope] = readyBatch.Sequence;
-        return readyBatch;
-    }
-
-    private Guid JobWorkflowId(JobDeltaDto delta)
-        => delta.Added?.Display.WorkflowId
-            ?? delta.Display?.WorkflowId
-            ?? projectedJobs.GetValueOrDefault(delta.JobId)?.Display.WorkflowId
-            ?? Guid.Empty;
-
-    private Guid TransferWorkflowId(TransferDeltaDto delta)
-        => delta.Added?.Identity.WorkflowId
+    private Guid TransferWorkflowId(TransferChange delta)
+        => delta.Current.WorkflowId
             ?? transferWorkflowIds.GetValueOrDefault(delta.TransferId);
-
-    private static TransferStateDto ToTransferState(TransferSnapshot transfer, bool isTerminal)
-    {
-        bool terminal = isTerminal
-            || transfer.TerminalOutcome != TransferSnapshotTerminalOutcome.None;
-        return new(
-            transfer.Id,
-            transfer.Revision,
-            new TransferIdentityFieldsDto(
-                transfer.JobId,
-                transfer.WorkflowId,
-                transfer.Direction.ToString(),
-                transfer.Source.ToString(),
-                transfer.Username,
-                transfer.RemotePath,
-                transfer.CandidateKey),
-            new TransferStatusFieldsDto(
-                transfer.State ?? "",
-                transfer.LocalPath,
-                transfer.AttemptCount,
-                terminal,
-                transfer.TerminalOutcome switch
-                {
-                    TransferSnapshotTerminalOutcome.Succeeded => TransferTerminalOutcome.Succeeded,
-                    TransferSnapshotTerminalOutcome.Cancelled => TransferTerminalOutcome.Cancelled,
-                    TransferSnapshotTerminalOutcome.Failed => TransferTerminalOutcome.Failed,
-                    TransferSnapshotTerminalOutcome.Interrupted => TransferTerminalOutcome.Interrupted,
-                    _ => TransferTerminalOutcome.None,
-                },
-                transfer.FailureReason switch
-                {
-                    Sockseek.Core.Events.TransferFailureReason.PeerFailure => Sockseek.Api.TransferFailureReason.ConnectionFailed,
-                    Sockseek.Core.Events.TransferFailureReason.Stale => Sockseek.Api.TransferFailureReason.TransferTimedOut,
-                    Sockseek.Core.Events.TransferFailureReason.Finalization => Sockseek.Api.TransferFailureReason.Unknown,
-                    Sockseek.Core.Events.TransferFailureReason.Unknown => Sockseek.Api.TransferFailureReason.Unknown,
-                    _ => Sockseek.Api.TransferFailureReason.None,
-                },
-                transfer.CancellationReason switch
-                {
-                    Sockseek.Core.Events.TransferCancellationReason.Requested => TransferCancellationSource.User,
-                    Sockseek.Core.Events.TransferCancellationReason.ManualSkip => TransferCancellationSource.User,
-                    _ => TransferCancellationSource.None,
-                },
-                terminal
-                    ? []
-                    :
-                    [
-                        new ResourceActionDto(
-                            ServerResourceActionKind.Cancel,
-                            "POST",
-                            $"/api/transfers/{transfer.Id:D}/cancel"),
-                    ]),
-            new TransferProgressFieldsDto(
-                transfer.BytesTransferred,
-                transfer.TotalBytes,
-                transfer.BytesPerSecond,
-                transfer.LastProgressAtUtc),
-            transfer.RequestedAtUtc is { } requested
-                ? new TransferSchedulingFieldsDto(requested, transfer.StartedAtUtc)
-                : null,
-            ToFileMetadata(transfer.File));
-    }
-
-    private static TransferStateDto ToUploadTransferState(
-        UploadTransferSnapshot transfer)
-    {
-        bool terminal = transfer.State is UploadTransferState.Completed
-            or UploadTransferState.Cancelled
-            or UploadTransferState.Failed
-            or UploadTransferState.Interrupted;
-        TransferTerminalOutcome terminalOutcome = transfer.State switch
-        {
-            UploadTransferState.Completed => TransferTerminalOutcome.Succeeded,
-            UploadTransferState.Cancelled => TransferTerminalOutcome.Cancelled,
-            UploadTransferState.Failed => TransferTerminalOutcome.Failed,
-            UploadTransferState.Interrupted => TransferTerminalOutcome.Interrupted,
-            _ => TransferTerminalOutcome.None,
-        };
-        return new TransferStateDto(
-            transfer.TransferId,
-            transfer.Revision,
-            new TransferIdentityFieldsDto(
-                null,
-                null,
-                "Upload",
-                "SoulseekPeer",
-                transfer.Username,
-                transfer.RemotePath,
-                null,
-                transfer.GroupRef,
-                transfer.GroupDisplayPath),
-            new TransferStatusFieldsDto(
-                transfer.State.ToString(),
-                null,
-                transfer.Attempt?.Number ?? 0,
-                terminal,
-                terminalOutcome,
-                transfer.FailureReason switch
-                {
-                    UploadFailureReason.NotShared => Sockseek.Api.TransferFailureReason.FileNoLongerShared,
-                    UploadFailureReason.Unavailable => Sockseek.Api.TransferFailureReason.FileUnavailable,
-                    UploadFailureReason.InvalidOffset => Sockseek.Api.TransferFailureReason.InvalidOffset,
-                    UploadFailureReason.Denied => Sockseek.Api.TransferFailureReason.Denied,
-                    UploadFailureReason.InternalFailure => Sockseek.Api.TransferFailureReason.Unknown,
-                    _ => Sockseek.Api.TransferFailureReason.None,
-                },
-                transfer.CancellationSource switch
-                {
-                    UploadCancellationSource.User => TransferCancellationSource.User,
-                    UploadCancellationSource.Peer => TransferCancellationSource.Peer,
-                    UploadCancellationSource.DaemonShutdown => TransferCancellationSource.DaemonShutdown,
-                    UploadCancellationSource.CatalogInvalidation => TransferCancellationSource.CatalogInvalidation,
-                    _ => TransferCancellationSource.None,
-                },
-                terminal
-                    ? []
-                    :
-                    [
-                        new ResourceActionDto(
-                            ServerResourceActionKind.Cancel,
-                            "POST",
-                            $"/api/transfers/{transfer.TransferId:D}/cancel"),
-                    ]),
-            new TransferProgressFieldsDto(
-                transfer.BytesTransferred,
-                transfer.SizeBytes,
-                checked((long)Math.Max(0, transfer.BytesPerSecond)),
-                transfer.LastProgressAtUtc),
-            new TransferSchedulingFieldsDto(
-                transfer.RequestedAtUtc,
-                transfer.Attempt?.StartedAtUtc),
-            ToFileMetadata(transfer.File));
-    }
-
-    private static FileMetadataDto? ToFileMetadata(
-        TransferFileMetadataSnapshot? file)
-        => file is null
-            ? null
-            : new FileMetadataDto(
-                file.Name,
-                file.Size,
-                file.Extension,
-                file.BitRate,
-                file.BitDepth,
-                file.SampleRate,
-                file.Length,
-                file.Attributes?.Select(attribute => new FileAttributeDto(
-                    attribute.Type,
-                    attribute.Value)).ToArray());
 
     private static TransferAttemptHistoryDto? ToUploadAttempt(UploadTransferSnapshot transfer)
     {
@@ -1978,39 +2074,6 @@ public sealed class EngineStateStore
             transfer.Revision);
     }
 
-    private static bool JobDisplayEquals(JobDisplayFieldsDto left, JobDisplayFieldsDto right)
-        => left.DisplayId == right.DisplayId
-            && left.WorkflowId == right.WorkflowId
-            && left.Kind == right.Kind
-            && left.ItemName == right.ItemName
-            && left.QueryText == right.QueryText
-            && left.PrintOption == right.PrintOption
-            && left.AppliedAutoProfiles.SequenceEqual(right.AppliedAutoProfiles);
-
-    private static bool JobLifecycleEquals(JobLifecycleFieldsDto left, JobLifecycleFieldsDto right)
-        => left.LifecycleState == right.LifecycleState
-            && left.ActivityPhase == right.ActivityPhase
-            && left.ActivityUntilUtc == right.ActivityUntilUtc
-            && left.TerminalOutcome == right.TerminalOutcome
-            && left.SkipReason == right.SkipReason
-            && left.FailureReason == right.FailureReason
-            && left.FailureMessage == right.FailureMessage
-            && left.FailureDetail == right.FailureDetail
-            && left.CancellationSource == right.CancellationSource
-            && left.AvailableActions.SequenceEqual(right.AvailableActions);
-
-    private static bool TransferStatusEquals(
-        TransferStatusFieldsDto left,
-        TransferStatusFieldsDto right)
-        => left.State == right.State
-            && left.LocalPath == right.LocalPath
-            && left.AttemptCount == right.AttemptCount
-            && left.IsTerminal == right.IsTerminal
-            && left.TerminalOutcome == right.TerminalOutcome
-            && left.FailureReason == right.FailureReason
-            && left.CancellationSource == right.CancellationSource
-            && left.AvailableActions.SequenceEqual(right.AvailableActions);
-
     private static bool WorkflowSummaryEquals(WorkflowSummaryDto left, WorkflowSummaryDto right)
         => left.WorkflowId == right.WorkflowId
             && left.Title == right.Title
@@ -2030,69 +2093,147 @@ public sealed class EngineStateStore
             ? workflow.ToSummary(records)
             : throw new InvalidOperationException($"Workflow {workflowId} is not registered.");
 
-    private static bool IsDefaultRoot(JobRecord record)
+    private static bool IsDefaultRoot(JobReadState record)
         => record.ParentJobId == null;
 
-    private IEnumerable<JobRecord> FilterJobs(
-        IEnumerable<JobRecord> source,
+    private IEnumerable<JobReadState> FilterJobs(
+        IEnumerable<JobReadState> source,
         JobQuery query)
     {
-        IEnumerable<JobRecord> filtered;
+        IEnumerable<JobReadState> filtered;
         if (query.ParentJobId is Guid parentJobId)
         {
             filtered = childJobIdsByParent.TryGetValue(parentJobId, out var childIds)
-                ? childIds.Select(childId => records[childId])
+                ? childIds.Select(childId => records[childId].Current)
                 : [];
+        }
+        else if (query.SubmissionId is Guid submissionId)
+        {
+            filtered = submissions.TryGetValue(submissionId, out var membership)
+                ? membership.JobIds.Select(id => records[id].Current) : [];
         }
         else
         {
             filtered = source;
         }
+        if (query.ExcludeExtractResults)
+        {
+            filtered = filtered.Where(record =>
+                !(record.SourceJobId is Guid sourceId && IsCurrentExtract(sourceId, record.WorkflowId))
+                && !(extractJobIdsByResult.TryGetValue(record.Id, out Guid extractId)
+                    && IsCurrentExtract(extractId, record.WorkflowId)));
+        }
         if (query.WorkflowId.HasValue)
             filtered = filtered.Where(record => record.WorkflowId == query.WorkflowId.Value);
         if (query.Kind.HasValue)
-            filtered = filtered.Where(record => record.Summary.Kind == query.Kind.Value);
+            filtered = filtered.Where(record => record.Kind == query.Kind.Value);
         if (query.LifecycleState.HasValue)
-            filtered = filtered.Where(record => record.Summary.LifecycleState == query.LifecycleState.Value);
+            filtered = filtered.Where(record => record.LifecycleState == query.LifecycleState.Value);
         if (query.TerminalOutcome.HasValue)
-            filtered = filtered.Where(record => record.Summary.TerminalOutcome == query.TerminalOutcome.Value);
+            filtered = filtered.Where(record => record.TerminalOutcome == query.TerminalOutcome.Value);
         if (query.SkipReason.HasValue)
-            filtered = filtered.Where(record => record.Summary.SkipReason == query.SkipReason.Value);
+            filtered = filtered.Where(record => record.SkipReason == query.SkipReason.Value);
         if (query.SubmissionId.HasValue)
-            filtered = filtered.Where(record => record.Summary.SubmissionId == query.SubmissionId.Value);
+            filtered = filtered.Where(record => record.SubmissionId == query.SubmissionId.Value);
         if (query.Role.HasValue)
-            filtered = filtered.Where(record => record.Summary.Role == query.Role.Value);
-        filtered = query.Archived
-            ? filtered.Where(record => record.Summary.SubmissionId is Guid id
-                && archivedSubmissionIds.Contains(id))
-            : filtered.Where(record => record.Summary.SubmissionId is not Guid id
-                || !archivedSubmissionIds.Contains(id));
+            filtered = filtered.Where(record => record.Role == query.Role.Value);
+        filtered = filtered.Where(record => MatchesJobArchive(record, query.Archived));
         return filtered.Where(record => query.ParentJobId.HasValue || query.IncludeAll || IsDefaultRoot(record));
     }
 
-    private JobRecord UpdateJobRecord(JobSnapshot job)
+    private bool MatchesJobArchive(JobReadState record, bool archived)
+        => archived == (record.SubmissionId is Guid id && archivedSubmissionIds.Contains(id));
+
+    private bool IsCurrentExtract(Guid id, Guid workflowId)
+        => records.TryGetValue(id, out var entry) && entry.Current.Kind == ServerJobKind.Extract
+            && entry.Current.WorkflowId == workflowId;
+
+    private JobReadState UpdateJobRecord(JobSnapshot job)
     {
-        var current = RefreshNestedSnapshots(jobs.GetValueOrDefault(job.Id) ?? job);
-        var parentJobId = parentJobIds.GetValueOrDefault(current.Id);
-        if (records.TryGetValue(current.Id, out var oldRecord))
-        {
-            RemoveWorkflowRecord(oldRecord);
-            if (oldRecord.ParentJobId != parentJobId)
-                RemoveChildIndex(oldRecord.ParentJobId, current.Id);
-        }
+        var current = jobs.GetValueOrDefault(job.Id) ?? job;
+        // Headers read the maintained counters directly. Refreshing a detail
+        // snapshot here would copy its payload for every child progress event.
+        var directory = directoryProjections.GetValueOrDefault(current.Id);
+        JobSummaryStatsDto? stats = directory is not null
+            ? ServerSnapshotMapper.ToDirectorySummaryStats(directory.State,
+                (current.Payload as AlbumJobSnapshotPayload)?.ResultCount)
+            : ServerSnapshotMapper.ToJobSummaryStats(
+                current,
+                listProjections.GetValueOrDefault(current.Id)?.Summary,
+                aggregateProjections.GetValueOrDefault(current.Id)?.Summary,
+                albumAggregateProjections.GetValueOrDefault(current.Id)?.Summary);
+        var record = CreateJobRecord(current, stats);
+        directory?.MarkSummarized();
+        return StoreJobRecord(record);
+    }
 
+    private JobReadState UpdateDirectorySummary(Guid id, DirectoryProjection directory)
+    {
+        if (!records.TryGetValue(id, out var entry)) return UpdateJobRecord(jobs[id]);
+        if (!directory.HasSummaryChanges) return entry.Current;
+        int? folders = (jobs[id].Payload as AlbumJobSnapshotPayload)?.ResultCount;
+        var stats = ServerSnapshotMapper.ToDirectorySummaryStats(directory.State, folders);
+        var record = entry.Current.WithStats(stats);
+        directory.MarkSummarized();
+        return ReferenceEquals(record, entry.Current) ? record : StoreJobRecord(record);
+    }
+
+    private JobReadState StoreJobRecord(JobReadState record)
+    {
+        records.TryGetValue(record.Id, out var entry);
+        var oldRecord = entry?.Current;
+        var parentJobId = record.ParentJobId;
+        if (oldRecord is not null && oldRecord.ParentJobId != parentJobId)
+            RemoveChildIndex(oldRecord.ParentJobId, record.Id);
         if (oldRecord == null || oldRecord.ParentJobId != parentJobId)
-            AddChildIndex(parentJobId, current.Id);
+            AddChildIndex(parentJobId, record.Id);
 
-        var record = new JobRecord(
-            current.Id,
-            current.WorkflowId,
-            parentJobId,
-            BuildJobSummary(current),
-            ServerSnapshotMapper.ToJobPayload(current, GetTransferState, CountDescendants));
-        records[current.Id] = record;
-        AddWorkflowRecord(record);
+        if (oldRecord is null || oldRecord.SubmissionId != record.SubmissionId)
+        {
+            RemoveSubmissionMember(oldRecord?.SubmissionId, record.Id);
+            if (record.SubmissionId is Guid submissionId)
+            {
+                if (!submissions.TryGetValue(submissionId, out var membership))
+                    submissions.Add(submissionId, membership = new SubmissionMembership());
+                membership.JobIds.Add(record.Id);
+            }
+        }
+        if (entry is null) records.Add(record.Id, new JobReadEntry(record));
+        else entry.Current = record;
+        if (oldRecord is not null && oldRecord.WorkflowId == record.WorkflowId)
+            workflows[record.WorkflowId].Update(oldRecord, record);
+        else
+        {
+            if (oldRecord is not null) RemoveWorkflowRecord(oldRecord);
+            AddWorkflowRecord(record);
+        }
+        if (oldRecord == null || oldRecord.ParentJobId != parentJobId)
+        {
+            PublishJobMembership(oldRecord?.ParentJobId);
+            PublishJobMembership(parentJobId);
+        }
         return record;
+    }
+
+    private void MarkSubmissionRetained(Guid? id)
+    {
+        if (id is Guid submissionId && submissions.TryGetValue(submissionId, out var membership))
+            membership.Coverage = MembershipCoverage.Retained;
+    }
+
+    private void RemoveSubmissionMember(Guid? id, Guid jobId)
+    {
+        if (id is not Guid submissionId || !submissions.TryGetValue(submissionId, out var membership)) return;
+        membership.JobIds.Remove(jobId);
+        if (membership.JobIds.Count == 0) submissions.Remove(submissionId);
+    }
+
+    private void PublishJobMembership(Guid? jobId)
+    {
+        if (jobId is not Guid id || JobReadChanged is not { } changed || !records.ContainsKey(id)) return;
+        changed(new(++jobReadSequence, id, null,
+            childJobIdsByParent.GetValueOrDefault(id)?.Count ?? 0,
+            retrievalChildCountsByParent.GetValueOrDefault(id)));
     }
 
     private void AddChildIndex(Guid? parentJobId, Guid jobId)
@@ -2101,7 +2242,8 @@ public sealed class EngineStateStore
             return;
         if (!childJobIdsByParent.TryGetValue(parentId, out var childIds))
             childJobIdsByParent[parentId] = childIds = [];
-        childIds.Add(jobId);
+        if (childIds.Add(jobId) && jobs.GetValueOrDefault(jobId)?.Kind == JobSnapshotKind.RetrieveFolder)
+            retrievalChildCountsByParent[parentId] = retrievalChildCountsByParent.GetValueOrDefault(parentId) + 1;
     }
 
     private void RemoveChildIndex(Guid? parentJobId, Guid jobId)
@@ -2109,12 +2251,17 @@ public sealed class EngineStateStore
         if (parentJobId is not Guid parentId
             || !childJobIdsByParent.TryGetValue(parentId, out var childIds))
             return;
-        childIds.Remove(jobId);
+        if (childIds.Remove(jobId) && jobs.GetValueOrDefault(jobId)?.Kind == JobSnapshotKind.RetrieveFolder)
+        {
+            int remaining = retrievalChildCountsByParent.GetValueOrDefault(parentId) - 1;
+            if (remaining > 0) retrievalChildCountsByParent[parentId] = remaining;
+            else retrievalChildCountsByParent.Remove(parentId);
+        }
         if (childIds.Count == 0)
             childJobIdsByParent.Remove(parentId);
     }
 
-    private void AddWorkflowRecord(JobRecord record)
+    private void AddWorkflowRecord(JobReadState record)
     {
         if (!workflows.TryGetValue(record.WorkflowId, out var workflow))
         {
@@ -2125,7 +2272,7 @@ public sealed class EngineStateStore
         workflow.Add(record);
     }
 
-    private void RemoveWorkflowRecord(JobRecord record)
+    private void RemoveWorkflowRecord(JobReadState record)
     {
         if (!workflows.TryGetValue(record.WorkflowId, out var workflow))
             return;
@@ -2135,13 +2282,60 @@ public sealed class EngineStateStore
             workflows.Remove(record.WorkflowId);
     }
 
-    private List<JobRecord> UpdateRecordsContainingJob(Guid jobId)
-        => containerIdsByNestedJob.TryGetValue(jobId, out HashSet<Guid>? containerIds)
-            ? containerIds.Select(id => UpdateJobRecord(jobs[id])).ToList()
-            : [];
-
-    private void StoreJob(JobSnapshot job)
+    private void MarkContainingSummariesChanged(Guid jobId, DateTimeOffset occurredAtUtc)
     {
+        var ids = new HashSet<Guid>();
+        foreach (Guid memberId in LogicalResultAncestors(jobId))
+        {
+            if (containerIdsByNestedJob.TryGetValue(memberId, out HashSet<Guid>? containers))
+                ids.UnionWith(containers);
+        }
+        if (jobs.GetValueOrDefault(jobId)?.Kind == JobSnapshotKind.Album)
+            ids.UnionWith(AlbumAggregateAncestors(jobId));
+        // StoreJob already maintains each member's counter contribution. The
+        // containing summaries are derived: capture them at the shared read /
+        // publication boundary rather than rebuilding a header per child.
+        foreach (Guid id in ids)
+        {
+            if (directoryProjections.TryGetValue(id, out var directory))
+                MarkDirectorySummaryChanged(id, directory, occurredAtUtc);
+            else
+            {
+                changedContainerSummaries.Add(id);
+                containerSummaryChangedAt = occurredAtUtc;
+            }
+        }
+    }
+
+    private IEnumerable<Guid> LogicalResultAncestors(Guid jobId)
+    {
+        yield return jobId;
+        if (!extractJobIdsByResult.TryGetValue(jobId, out Guid current))
+            yield break;
+        var visited = new HashSet<Guid> { jobId };
+        while (visited.Add(current))
+        {
+            yield return current;
+            if (!extractJobIdsByResult.TryGetValue(current, out Guid extractId))
+                yield break;
+            current = extractId;
+        }
+    }
+
+    private JobSnapshot StoreJob(JobSnapshotHeader snapshot)
+    {
+        if (snapshot is JobExecutionSnapshot execution)
+            return StoreExecution(execution);
+        var job = (JobSnapshot)snapshot;
+        if (jobs.TryGetValue(job.Id, out var previous) && previous.Revision > job.Revision)
+            return previous;
+        if (containerIdsByNestedJob.TryGetValue(job.Id, out var owners))
+        {
+            foreach (Guid owner in owners)
+                if (directoryProjections.TryGetValue(owner, out var projection))
+                    projection.Update(job);
+        }
+
         if (nestedJobIdsByContainer.Remove(job.Id, out HashSet<Guid>? previousIds))
         {
             foreach (Guid nestedId in previousIds)
@@ -2168,6 +2362,173 @@ public sealed class EngineStateStore
         }
 
         jobs[job.Id] = job;
+        if (job.Payload is JobListSnapshotPayload list)
+            listProjections[job.Id] = new MemberOutcomeProjection(
+                list.Jobs, jobs.GetValueOrDefault, followExtractResults: true);
+        if (job.Payload is AggregateJobSnapshotPayload aggregate)
+            aggregateProjections[job.Id] = new MemberOutcomeProjection(
+                aggregate.Songs, jobs.GetValueOrDefault, followExtractResults: false);
+        if (job.Payload is AlbumAggregateJobSnapshotPayload && !albumAggregateProjections.ContainsKey(job.Id))
+            albumAggregateProjections[job.Id] = new AlbumAggregateProjection(
+                RegisteredAlbumDescendants(job.Id));
+        UpdateContainerProjectionsForMember(job.Id);
+        if (job.Kind == JobSnapshotKind.Album)
+            UpdateAlbumAggregateProjectionsForAlbum(job.Id);
+        switch (job.Payload)
+        {
+            case AlbumJobSnapshotPayload album:
+                if (album.Manifest is { } albumManifest)
+                    directoryProjections[job.Id] = new DirectoryProjection(
+                        album.Directory, albumManifest,
+                        CurrentDirectoryFiles(album.TrackJobs, albumManifest)
+                            .Select(child => jobs.GetValueOrDefault(child.Id) ?? child));
+                else
+                    directoryProjections.Remove(job.Id);
+                break;
+            case RemoteDirectoryJobSnapshotPayload directory:
+                if (directory.Manifest is { } directoryManifest)
+                    directoryProjections[job.Id] = new DirectoryProjection(
+                        directory.Directory, directoryManifest,
+                        directory.FileJobs.Select(child => jobs.GetValueOrDefault(child.Id) ?? child));
+                else
+                    directoryProjections.Remove(job.Id);
+                break;
+        }
+        return job;
+    }
+
+    private JobReadState? StoreFileProgress(JobReferenceSnapshot reference, FileDownloadStateSnapshot file,
+        DateTimeOffset occurredAtUtc)
+    {
+        if (!jobs.TryGetValue(reference.Id, out var previous) || previous.Revision > reference.Revision)
+            return null;
+        FileDownloadStateSnapshot? oldFile = previous.Payload switch
+        {
+            SongJobSnapshotPayload song => song.File,
+            RemoteFileJobSnapshotPayload remote => remote.File,
+            _ => null,
+        };
+        if (oldFile is null || oldFile == file) return null;
+        JobSnapshotPayload payload = previous.Payload switch
+        {
+            SongJobSnapshotPayload song => song with { File = file },
+            RemoteFileJobSnapshotPayload remote => remote with { File = file },
+            _ => throw new InvalidOperationException("A file state must belong to a file job."),
+        };
+        var current = previous with { Payload = payload };
+        jobs[current.Id] = current;
+        // Transport callbacks change file facts, never semantic membership or
+        // job outcomes. Semantic summaries refresh on job events/transfer start;
+        // only newly learned file sizes can change this file's summary here.
+        JobReadState? changedSummary = null;
+        if (previous.Payload is RemoteFileJobSnapshotPayload target
+            && (oldFile.FileSize ?? target.Target.Size) != (file.FileSize ?? target.Target.Size))
+            changedSummary = UpdateJobRecord(current);
+        if (containerIdsByNestedJob.TryGetValue(current.Id, out var owners))
+            foreach (Guid owner in owners)
+                if (directoryProjections.TryGetValue(owner, out var directory))
+                {
+                    directory.Update(current);
+                    MarkDirectorySummaryChanged(owner, directory, occurredAtUtc);
+                }
+        return changedSummary;
+    }
+
+    private JobSnapshot StoreExecution(JobExecutionSnapshot execution)
+    {
+        if (jobs.TryGetValue(execution.Id, out var previous) && previous.Revision > execution.Revision)
+            return previous;
+        var job = execution.ApplyTo(previous);
+        jobs[job.Id] = job;
+        if (containerIdsByNestedJob.TryGetValue(job.Id, out var owners))
+            foreach (Guid owner in owners)
+                if (directoryProjections.TryGetValue(owner, out var directory)) directory.Update(job);
+        if (directoryProjections.TryGetValue(job.Id, out var ownDirectory))
+        {
+            var state = execution.Payload switch
+            {
+                AlbumExecutionPayload album => album.Directory,
+                RemoteDirectoryExecutionPayload directory => directory.Directory,
+                _ => null,
+            };
+            if (state != null) ownDirectory.UpdateState(state);
+        }
+        UpdateContainerProjectionsForMember(job.Id);
+        if (job.Kind == JobSnapshotKind.Album) UpdateAlbumAggregateProjectionsForAlbum(job.Id);
+        return job;
+    }
+
+    private void UpdateContainerProjectionsForMember(Guid jobId)
+    {
+        foreach (Guid memberId in LogicalResultAncestors(jobId))
+        {
+            if (!containerIdsByNestedJob.TryGetValue(memberId, out HashSet<Guid>? containers))
+                continue;
+            foreach (Guid containerId in containers)
+            {
+                if (listProjections.TryGetValue(containerId, out MemberOutcomeProjection? projection))
+                    projection.Update(memberId, jobs.GetValueOrDefault);
+                if (aggregateProjections.TryGetValue(containerId, out MemberOutcomeProjection? aggregate))
+                    aggregate.Update(memberId, jobs.GetValueOrDefault);
+            }
+        }
+    }
+
+    private IReadOnlyList<Guid> UpdateAlbumAggregateProjectionsForAlbum(Guid albumId)
+    {
+        if (!jobs.TryGetValue(albumId, out JobSnapshot? album))
+            return [];
+        var changed = new List<Guid>();
+        foreach (Guid aggregateId in AlbumAggregateAncestors(albumId))
+        {
+            if (!albumAggregateProjections.TryGetValue(aggregateId, out AlbumAggregateProjection? projection))
+                continue;
+            projection.Update(album);
+            changed.Add(aggregateId);
+        }
+        return changed;
+    }
+
+    private IEnumerable<Guid> AlbumAggregateAncestors(Guid jobId)
+    {
+        var visited = new HashSet<Guid> { jobId };
+        while (parentJobIds.TryGetValue(jobId, out Guid? parentId)
+            && parentId is Guid parent
+            && visited.Add(parent))
+        {
+            if (jobs.GetValueOrDefault(parent)?.Payload is AlbumAggregateJobSnapshotPayload)
+                yield return parent;
+            jobId = parent;
+        }
+    }
+
+    private IEnumerable<JobSnapshot> RegisteredAlbumDescendants(Guid aggregateId)
+    {
+        var pending = new Stack<Guid>();
+        var visited = new HashSet<Guid> { aggregateId };
+        pending.Push(aggregateId);
+        while (pending.TryPop(out Guid currentId))
+        {
+            if (!childJobIdsByParent.TryGetValue(currentId, out HashSet<Guid>? childIds))
+                continue;
+            foreach (Guid childId in childIds)
+            {
+                if (!visited.Add(childId)) continue;
+                pending.Push(childId);
+                if (jobs.TryGetValue(childId, out JobSnapshot? child)
+                    && child.Kind == JobSnapshotKind.Album)
+                    yield return child;
+            }
+        }
+    }
+
+    private static IEnumerable<JobSnapshot> CurrentDirectoryFiles(
+        IReadOnlyList<JobSnapshot> children, DirectoryManifestSnapshot manifest)
+    {
+        if (!manifest.ChildrenMaterialized)
+            return [];
+        var ownedIds = manifest.EntryJobIds.Concat(manifest.SupplementalJobIds).ToHashSet();
+        return children.Where(child => ownedIds.Contains(child.Id));
     }
 
     private JobSnapshot RefreshNestedSnapshots(JobSnapshot job)
@@ -2179,33 +2540,19 @@ public sealed class EngineStateStore
         {
             AlbumJobSnapshotPayload album => RefreshAlbumPayload(job, album),
             RemoteDirectoryJobSnapshotPayload directory => RefreshRemoteDirectoryPayload(job, directory),
-            AggregateJobSnapshotPayload aggregate => job with
-            {
-                Payload = aggregate with
-                {
-                    Songs = aggregate.Songs.Select(RefreshNestedSnapshots).ToList(),
-                },
-            },
-            JobListSnapshotPayload list => job with
-            {
-                Payload = list with
-                {
-                    Jobs = list.Jobs.Select(RefreshNestedSnapshots).ToList(),
-                },
-            },
+            AggregateJobSnapshotPayload => job,
+            JobListSnapshotPayload => job,
             _ => job,
         };
     }
 
     private JobSnapshot RefreshAlbumPayload(JobSnapshot job, AlbumJobSnapshotPayload album)
     {
-        var children = album.TrackJobs.Select(RefreshNestedSnapshots).ToList();
         return job with
         {
             Payload = album with
             {
-                TrackJobs = children,
-                Directory = RefreshDirectoryState(album.Directory, children),
+                Directory = directoryProjections.GetValueOrDefault(job.Id)?.State ?? album.Directory,
             },
         };
     }
@@ -2214,60 +2561,171 @@ public sealed class EngineStateStore
         JobSnapshot job,
         RemoteDirectoryJobSnapshotPayload directory)
     {
-        var children = directory.FileJobs.Select(RefreshNestedSnapshots).ToList();
         return job with
         {
             Payload = directory with
             {
-                FileJobs = children,
-                Directory = RefreshDirectoryState(directory.Directory, children),
+                Directory = directoryProjections.GetValueOrDefault(job.Id)?.State ?? directory.Directory,
             },
         };
     }
 
-    private static DirectoryDownloadStateSnapshot RefreshDirectoryState(
-        DirectoryDownloadStateSnapshot state,
-        IReadOnlyList<JobSnapshot> children)
+    private sealed class MemberOutcomeProjection
     {
-        long bytes = children.Sum(FileBytesTransferred);
-        return state with
+        private readonly Dictionary<Guid, (JobSnapshot Fallback, int Count)> members = [];
+        private readonly Dictionary<Guid, LogicalJobProgress.Outcome> outcomes = [];
+        private readonly bool followExtractResults;
+        public JobOutcomeSummary Summary { get; private set; }
+
+        public MemberOutcomeProjection(
+            IEnumerable<JobSnapshot> jobs,
+            Func<Guid, JobSnapshot?> getJob,
+            bool followExtractResults)
         {
-            FileCount = children.Count,
-            TerminalFileCount = children.Count(child => child.LifecycleState == JobLifecycleState.Terminal),
-            SuccessfulFileCount = children.Count(child =>
-                child.TerminalOutcome == JobTerminalOutcome.Succeeded
-                || child.SkipReason == JobSkipReason.AlreadyExists),
-            FailedFileCount = children.Count(child =>
-                child.LifecycleState == JobLifecycleState.Terminal
-                && child.TerminalOutcome != JobTerminalOutcome.Succeeded
-                && child.SkipReason != JobSkipReason.AlreadyExists),
-            BytesTransferred = bytes,
-        };
+            this.followExtractResults = followExtractResults;
+            foreach (JobSnapshot job in jobs)
+            {
+                if (members.TryGetValue(job.Id, out var existing))
+                    members[job.Id] = (job, checked(existing.Count + 1));
+                else
+                    members[job.Id] = (job, 1);
+            }
+            foreach (Guid id in members.Keys)
+                Update(id, getJob);
+        }
+
+        public void Update(Guid memberId, Func<Guid, JobSnapshot?> getJob)
+        {
+            if (!members.TryGetValue(memberId, out var member))
+                return;
+            JobSnapshot snapshot = getJob(memberId) ?? member.Fallback;
+            LogicalJobProgress.Outcome current = followExtractResults
+                ? LogicalJobProgress.FromSnapshot(snapshot, getJob)
+                : new(snapshot.LifecycleState, snapshot.TerminalOutcome, snapshot.SkipReason);
+            if (outcomes.TryGetValue(memberId, out LogicalJobProgress.Outcome previous))
+            {
+                if (previous == current)
+                    return;
+                Summary = Summary.Exclude(
+                    previous.Lifecycle, previous.Terminal, previous.Skip, member.Count);
+            }
+            outcomes[memberId] = current;
+            Summary = Summary.Include(
+                current.Lifecycle, current.Terminal, current.Skip, member.Count);
+        }
     }
 
-    private static long FileBytesTransferred(JobSnapshot child)
-        => child.Payload switch
-        {
-            SongJobSnapshotPayload song => song.File.BytesTransferred,
-            RemoteFileJobSnapshotPayload remote => remote.File.BytesTransferred,
-            _ => 0,
-        };
+    private sealed class AlbumAggregateProjection
+    {
+        private readonly Dictionary<Guid, (JobLifecycleState Lifecycle, JobTerminalOutcome Terminal, JobSkipReason Skip)> albums = [];
+        public JobOutcomeSummary Summary { get; private set; }
 
-    private JobSummaryDto BuildJobSummary(JobSnapshot job)
+        public AlbumAggregateProjection(IEnumerable<JobSnapshot> registeredAlbums)
+        {
+            foreach (JobSnapshot album in registeredAlbums)
+                Update(album);
+        }
+
+        public void Update(JobSnapshot album)
+        {
+            var current = (album.LifecycleState, album.TerminalOutcome, album.SkipReason);
+            if (albums.TryGetValue(album.Id, out var previous))
+            {
+                if (previous == current)
+                    return;
+                Summary = Summary.Exclude(previous.Lifecycle, previous.Terminal, previous.Skip);
+            }
+            albums[album.Id] = current;
+            Summary = Summary.Include(
+                current.LifecycleState, current.TerminalOutcome, current.SkipReason);
+        }
+    }
+
+    private sealed class DirectoryProjection
+    {
+        private readonly DirectoryProgress progress = new();
+        private readonly long plannedBytes;
+        private readonly int plannedUnknownCount;
+        private DirectoryDownloadStateSnapshot? summarizedState;
+        public DirectoryDownloadStateSnapshot State { get; private set; }
+
+        // Transport states often leave directory counters unchanged. Track the
+        // derived state itself so those callbacks can reuse its indexed summary;
+        // changed bytes/outcomes/sizes and a new attempt invalidate it here.
+        public bool HasSummaryChanges => !ReferenceEquals(State, summarizedState);
+        public void MarkSummarized() => summarizedState = State;
+
+        public DirectoryProjection(
+            DirectoryDownloadStateSnapshot state, DirectoryManifestSnapshot manifest,
+            IEnumerable<JobSnapshot> files)
+        {
+            State = state;
+            plannedBytes = manifest.Plan.TotalKnownBytes;
+            plannedUnknownCount = manifest.Plan.Entries.Count(entry => entry.Target.Size is null);
+            var supplementalIds = manifest.SupplementalJobIds.ToHashSet();
+            if (files.TryGetNonEnumeratedCount(out int count))
+                progress.EnsureCapacity(count);
+            foreach (var file in files)
+            {
+                var data = FileState(file);
+                progress.Add(file.Id, data.BytesTransferred, data.FileSize, file.LifecycleState,
+                    file.TerminalOutcome, file.SkipReason, supplementalIds.Contains(file.Id));
+            }
+            Refresh();
+        }
+
+        public void Update(JobSnapshot file)
+        {
+            var data = FileState(file);
+            if (progress.Update(file.Id, data.BytesTransferred, data.FileSize,
+                file.LifecycleState, file.TerminalOutcome, file.SkipReason))
+                Refresh();
+        }
+
+        public void UpdateState(DirectoryDownloadStateSnapshot state)
+        {
+            State = state;
+            Refresh();
+        }
+
+        private void Refresh()
+        {
+            var summary = progress.Summary;
+            State = State with
+            {
+                FileCount = summary.FileCount,
+                TerminalFileCount = summary.TerminalFileCount,
+                SuccessfulFileCount = summary.SuccessfulFileCount,
+                FailedFileCount = summary.FailedFileCount,
+                BytesTransferred = summary.BytesTransferred,
+                TotalKnownBytes = plannedBytes + summary.SupplementalKnownBytes,
+                UnknownFileSizeCount = plannedUnknownCount + summary.SupplementalUnknownCount,
+                Progress = summary.GetProgress(plannedBytes),
+            };
+        }
+
+        private static FileDownloadStateSnapshot FileState(JobSnapshot file)
+            => file.Payload switch
+            {
+                SongJobSnapshotPayload song => song.File,
+                RemoteFileJobSnapshotPayload remote => remote.File,
+                _ => throw new InvalidOperationException("A directory member must be a file job."),
+            };
+    }
+
+    private JobSummaryDto BuildJobSummary(JobSnapshot job, JobSummaryStatsDto? stats = null)
+        => CreateJobRecord(job, stats).Summary;
+
+    private JobReadState CreateJobRecord(JobSnapshot job, JobSummaryStatsDto? stats)
     {
         var parentJobId = parentJobIds.GetValueOrDefault(job.Id);
         Guid? resultJobId = resultJobIds.TryGetValue(job.Id, out var resultId) ? resultId : null;
         Guid? sourceJobId = sourceJobIds.TryGetValue(job.Id, out var sourceId) ? sourceId : null;
 
-        return ServerSnapshotMapper.ToJobSummary(
-            job,
-            parentJobId,
-            resultJobId,
-            sourceJobId,
-            EffectiveLifecycleState(job),
-            EffectiveActivityPhase(job),
-            EffectiveActivityUntilUtc(job),
-            EffectiveTerminalOutcome(job));
+        return new JobReadState(ServerSnapshotMapper.ToJobSummary(
+            job, parentJobId, resultJobId, sourceJobId, EffectiveLifecycleState(job),
+            EffectiveActivityPhase(job), EffectiveActivityUntilUtc(job), EffectiveTerminalOutcome(job),
+            stats, includeActions: false), job.Revision, job.CanCancel);
     }
 
     private JobLifecycleState EffectiveLifecycleState(JobSnapshot job)
@@ -2295,32 +2753,15 @@ public sealed class EngineStateStore
     private string? GetTransferState(Guid jobId)
         => songTransferStates.TryGetValue(jobId, out var state) ? state : null;
 
-    private int CountDescendants(Guid parentId, ServerJobKind? kind = null)
-    {
-        if (!childJobIdsByParent.TryGetValue(parentId, out var childIds))
-            return 0;
+    private static bool IsActiveRecord(JobReadState record)
+        => record.LifecycleState != ServerJobLifecycleState.Terminal;
 
-        int count = 0;
-        foreach (Guid childId in childIds)
-        {
-            if (!records.TryGetValue(childId, out var child))
-                continue;
-            if (kind == null || child.Summary.Kind == kind)
-                count++;
-            count += CountDescendants(childId, kind);
-        }
-        return count;
-    }
-
-    private static bool IsActiveRecord(JobRecord record)
-        => record.Summary.LifecycleState != ServerJobLifecycleState.Terminal;
-
-    private static bool IsFailedRecord(JobRecord record)
-        => record.Summary.TerminalOutcome is ServerJobTerminalOutcome.Failed
+    private static bool IsFailedRecord(JobReadState record)
+        => record.TerminalOutcome is ServerJobTerminalOutcome.Failed
             or ServerJobTerminalOutcome.Cancelled
             or ServerJobTerminalOutcome.PartialSuccess
-            || (record.Summary.TerminalOutcome == ServerJobTerminalOutcome.Skipped
-                && record.Summary.SkipReason != ServerJobSkipReason.AlreadyExists);
+            || (record.TerminalOutcome == ServerJobTerminalOutcome.Skipped
+                && record.SkipReason != ServerJobSkipReason.AlreadyExists);
 
     public static ServerJobLifecycleState ToServerJobLifecycleState(JobLifecycleState state)
         => ServerSnapshotMapper.ToServerJobLifecycleState(state);
@@ -2346,12 +2787,25 @@ public sealed class EngineStateStore
     public static ServerFolderRetrievalOutcome ToServerFolderRetrievalOutcome(FolderRetrievalOutcome outcome)
         => ServerSnapshotMapper.ToServerFolderRetrievalOutcome(outcome);
 
-    private sealed record JobRecord(
-        Guid Id,
-        Guid WorkflowId,
-        Guid? ParentJobId,
-        JobSummaryDto Summary,
-        JobPayloadDto Payload);
+    private enum MembershipCoverage { Unknown, Live, Retained }
+
+    // Membership indexes share job lifetime; there is no retained cache or
+    // independent cleanup. Fresh acceptance proves completeness once. Losing a
+    // member makes it incomplete until the remaining runtime rows retire.
+    private sealed class SubmissionMembership
+    {
+        public HashSet<Guid> JobIds { get; } = [];
+        public MembershipCoverage Coverage { get; set; }
+    }
+
+    private sealed class JobReadEntry(JobReadState current)
+    {
+        // Indexed reads and the last emitted stream baseline share one fact type.
+        // The stream revision also accounts for daemon-derived member changes.
+        public JobReadState Current { get; set; } = current;
+        public JobReadState? Published { get; set; }
+        public MembershipCoverage ChildrenCoverage { get; set; }
+    }
 
     private readonly record struct WorkflowRecordRef(int DisplayId, Guid JobId);
 
@@ -2377,7 +2831,7 @@ public sealed class EngineStateStore
         public int CompletedJobCount { get; private set; }
         public int FirstDisplayId => allJobs.Count == 0 ? int.MaxValue : allJobs.Min.DisplayId;
 
-        public void Add(JobRecord record)
+        public void Add(JobReadState record)
         {
             var key = ToRef(record);
             if (!allJobs.Add(key))
@@ -2386,19 +2840,13 @@ public sealed class EngineStateStore
             if (IsDefaultRoot(record))
                 rootJobs.Add(key);
 
-            if (!string.IsNullOrWhiteSpace(record.Summary.ItemName))
+            if (HasItemName(record))
                 itemNameJobs.Add(key);
 
-            if (IsActiveRecord(record))
-                ActiveJobCount++;
-            else
-                CompletedJobCount++;
-
-            if (IsFailedRecord(record))
-                FailedJobCount++;
+            AdjustCounts(record, 1);
         }
 
-        public void Remove(JobRecord record)
+        public void Remove(JobReadState record)
         {
             var key = ToRef(record);
             if (!allJobs.Remove(key))
@@ -2407,28 +2855,54 @@ public sealed class EngineStateStore
             if (IsDefaultRoot(record))
                 rootJobs.Remove(key);
 
-            if (!string.IsNullOrWhiteSpace(record.Summary.ItemName))
+            if (HasItemName(record))
                 itemNameJobs.Remove(key);
 
-            if (IsActiveRecord(record))
-                ActiveJobCount--;
-            else
-                CompletedJobCount--;
-
-            if (IsFailedRecord(record))
-                FailedJobCount--;
+            AdjustCounts(record, -1);
         }
 
-        public WorkflowSummaryDto ToSummary(IReadOnlyDictionary<Guid, JobRecord> records)
+        public void Update(JobReadState previous, JobReadState current)
         {
-            var firstRecord = records[allJobs.Min.JobId];
+            // Progress usually changes neither order nor membership. Keep the
+            // existing index nodes instead of removing/reallocating them (or
+            // recreating the whole workflow when it contains only one job).
+            var previousKey = ToRef(previous);
+            var key = ToRef(current);
+            UpdateMembership(allJobs, previousKey, true, key, true);
+            UpdateMembership(rootJobs, previousKey, IsDefaultRoot(previous), key, IsDefaultRoot(current));
+            UpdateMembership(itemNameJobs, previousKey, HasItemName(previous), key, HasItemName(current));
+            AdjustCounts(previous, -1);
+            AdjustCounts(current, 1);
+        }
+
+        private static bool HasItemName(JobReadState record) => !string.IsNullOrWhiteSpace(record.ItemName);
+
+        private static void UpdateMembership(
+            SortedSet<WorkflowRecordRef> index,
+            WorkflowRecordRef previousKey, bool wasMember,
+            WorkflowRecordRef key, bool isMember)
+        {
+            if (wasMember && (!isMember || previousKey != key)) index.Remove(previousKey);
+            if (isMember && (!wasMember || previousKey != key)) index.Add(key);
+        }
+
+        private void AdjustCounts(JobReadState record, int delta)
+        {
+            if (IsActiveRecord(record)) ActiveJobCount += delta;
+            else CompletedJobCount += delta;
+            if (IsFailedRecord(record)) FailedJobCount += delta;
+        }
+
+        public WorkflowSummaryDto ToSummary(IReadOnlyDictionary<Guid, JobReadEntry> records)
+        {
+            var firstRecord = records[allJobs.Min.JobId].Current;
             string? itemNameTitle = itemNameJobs.Count > 0
-                ? records[itemNameJobs.Min.JobId].Summary.ItemName
+                ? records[itemNameJobs.Min.JobId].Current.ItemName
                 : null;
 
             string title = itemNameTitle
-                ?? firstRecord.Summary.QueryText
-                ?? firstRecord.Summary.Kind.ToWireString();
+                ?? firstRecord.QueryText
+                ?? firstRecord.Kind.ToWireString();
 
             var state = ActiveJobCount > 0 ? ServerWorkflowState.Active
                 : FailedJobCount > 0 ? ServerWorkflowState.Failed
@@ -2444,8 +2918,8 @@ public sealed class EngineStateStore
                 CompletedJobCount);
         }
 
-        private static WorkflowRecordRef ToRef(JobRecord record)
-            => new(record.Summary.DisplayId, record.Id);
+        private static WorkflowRecordRef ToRef(JobReadState record)
+            => new(record.DisplayId, record.Id);
     }
 }
 
@@ -2470,4 +2944,8 @@ internal sealed record EngineStateStoreRetainedWorkflowCounts(
     int WorkflowStreamSequences,
     int WorkflowStreamEpochs,
     int WorkflowStreamReservations,
-    int DaemonWorkflowLinks);
+    int DaemonWorkflowLinks,
+    int ListProjections = 0,
+    int ExtractReverseLinks = 0,
+    int AggregateProjections = 0,
+    int AlbumAggregateProjections = 0);

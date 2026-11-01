@@ -1,6 +1,8 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
+using Sockseek.Core;
 using Sockseek.Core.Jobs;
+using Sockseek.Core.Settings;
 
 namespace Sockseek.Server.Tests;
 
@@ -60,5 +62,67 @@ public sealed class SubmissionOptionsStoreTests
             [laterJob.Id],
             store.CaptureWorkflowVersion(workflowId));
         Assert.AreEqual((0, 0, 0), store.RetainedStateCounts);
+    }
+
+    [TestMethod]
+    public void PlanningScopeKeepsItsSettingsWhenWorkflowOptionsAreReplaced()
+    {
+        var resolver = new SubmissionOptionsJobSettingsResolver(new ProfileJobSettingsResolver(
+            null, ProfileCatalog.Empty, [], null));
+        Guid workflowId = Guid.NewGuid();
+        var job = new SearchJob("query") { WorkflowId = workflowId };
+        resolver.SetWorkflowOptions(workflowId, new SubmissionOptionsDto(
+            OutputParentDir: "reviewed-output",
+            DownloadSettings: new DownloadSettingsPatchDto(
+                Transfer: new TransferSettingsPatchDto(MaxStaleTime: 17))));
+        var scope = resolver.CreateScope(workflowId);
+        var inherited = new DownloadSettings();
+
+        DownloadSettings first = scope.Resolve(inherited, job);
+        first.Output.ParentDir = "edited-copy";
+        first.Transfer.MaxStaleTime = 99;
+        resolver.SetWorkflowOptions(workflowId, new SubmissionOptionsDto(
+            OutputParentDir: "later-output",
+            DownloadSettings: new DownloadSettingsPatchDto(
+                Transfer: new TransferSettingsPatchDto(MaxStaleTime: 23))));
+
+        DownloadSettings reviewed = scope.Resolve(inherited, job);
+        DownloadSettings later = resolver.Resolve(inherited, job);
+        Assert.AreEqual("reviewed-output", reviewed.Output.ParentDir);
+        Assert.AreEqual(17, reviewed.Transfer.MaxStaleTime);
+        Assert.AreEqual("later-output", later.Output.ParentDir);
+        Assert.AreEqual(23, later.Transfer.MaxStaleTime);
+    }
+
+    [TestMethod]
+    public void ReusedWorkflowPatchPreservesItemIsolationOutputPrecedenceAndProvenance()
+    {
+        var inner = new ProfileJobSettingsResolver(null, ProfileCatalog.Empty, [], null);
+        var resolver = new SubmissionOptionsJobSettingsResolver(inner);
+        Guid workflowId = Guid.NewGuid();
+        var ordinary = new SearchJob("ordinary") { WorkflowId = workflowId };
+        var patched = new SearchJob("patched") { WorkflowId = workflowId };
+        var isolated = new SearchJob("isolated") { WorkflowId = workflowId };
+        var options = new SubmissionOptionsDto(OutputParentDir: "workflow-output",
+            DownloadSettings: new DownloadSettingsPatchDto(
+                Transfer: new TransferSettingsPatchDto(MaxStaleTime: 17)));
+        resolver.SetWorkflowOptions(workflowId, options);
+        resolver.SetJobOptions(patched.Id, new SubmissionOptionsDto(OutputParentDir: "item-output"));
+        resolver.SetIsolatedJobOptions(isolated.Id, new SubmissionOptionsDto(OutputParentDir: "isolated-output"));
+        resolver.SetJobOutputParentDir(patched.Id, "source-output");
+        var inherited = new DownloadSettings();
+
+        Assert.AreEqual(17, resolver.Resolve(inherited, ordinary).Transfer.MaxStaleTime);
+        DownloadSettings item = resolver.Resolve(inherited, patched);
+        Assert.AreEqual("source-output", item.Output.ParentDir);
+        Assert.AreEqual(17, item.Transfer.MaxStaleTime);
+        DownloadSettings separate = resolver.Resolve(inherited, isolated);
+        Assert.AreEqual("isolated-output", separate.Output.ParentDir);
+        Assert.AreEqual(new DownloadSettings().Transfer.MaxStaleTime, separate.Transfer.MaxStaleTime);
+        Assert.AreEqual("workflow-output", resolver.Resolve(inherited, ordinary).Output.ParentDir);
+        var detailed = inner.ResolveDetailed(inherited, ordinary,
+            request: resolver.Options.GetRequestLayers(ordinary));
+        Assert.AreEqual("request", detailed.Provenance["Output.ParentDir"]);
+        Assert.AreEqual("request", detailed.Provenance["Transfer.MaxStaleTime"]);
     }
 }

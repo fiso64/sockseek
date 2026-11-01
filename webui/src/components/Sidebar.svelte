@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { navigationItems, type PageId } from '../prototype/navigation';
-  import { displayCountDefinitions } from '../prototype/state';
+  import { navigationItems, type PageId } from '../app/navigation';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -23,9 +22,9 @@
   }
 
   function countTitle(id: PageId): string | undefined {
-    if (id === 'downloads') return displayCountDefinitions.downloadsSidebar.label;
-    if (id === 'uploads') return displayCountDefinitions.uploadsSidebar.label;
-    if (id === 'chat') return displayCountDefinitions.chatSidebar.label;
+    if (id === 'downloads') return 'active download transfer rows';
+    if (id === 'uploads') return 'active upload transfer rows';
+    if (id === 'chat') return 'unread chat messages';
     return undefined;
   }
 </script>
@@ -35,6 +34,7 @@
     {@const count = countFor(item.id)}
     <button
       type="button"
+      aria-label={item.label}
       class:active={item.id === activePage}
       aria-current={item.id === activePage ? 'page' : undefined}
       onclick={() => onnavigate(item.id)}

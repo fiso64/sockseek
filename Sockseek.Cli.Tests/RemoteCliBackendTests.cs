@@ -212,6 +212,8 @@ public class RemoteCliBackendTests
         Assert.AreEqual(ServerJobTerminalOutcome.Failed, jobs.Single(job => job.DisplayId == 201).TerminalOutcome);
         Assert.AreEqual(2, handler.RequestCount);
         StringAssert.Contains(handler.SecondRequestUri!.Query, "cursor=second-page");
+        var page = await client.GetJobsPageAsync(new JobQuery(null, null, null, workflowId, IncludeAll: true));
+        Assert.AreEqual(new StateStreamPositionDto(workflowId, 9_007_199_254_740_993), page.ReadPosition);
     }
 
     [TestMethod]
@@ -1035,7 +1037,11 @@ public class RemoteCliBackendTests
     }
 
     [TestMethod]
-    public async Task RemoteCliBackend_PrintResults_RendersCompletedSearchPayloadWithoutDownloading()
+    [DataRow("song", "Artist - Track One")]
+    [DataRow("album", "Artist - Album")]
+    [DataRow("aggregate", "Artist")]
+    [DataRow("album-aggregate", "Artist")]
+    public async Task RemoteCliBackend_ResultsFullRendersSharedConditionFactsWithoutDownloading(string mode, string query)
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-remote-print-test-" + Guid.NewGuid());
         string outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-remote-print-out-" + Guid.NewGuid());
@@ -1043,6 +1049,17 @@ public class RemoteCliBackendTests
         Directory.CreateDirectory(trackDir);
         Directory.CreateDirectory(outputDir);
         File.WriteAllText(Path.Combine(trackDir, "01. Artist - Track One.mp3"), "a");
+        File.WriteAllText(Path.Combine(trackDir, "01. Artist - Track One.flac"), "b");
+        File.WriteAllText(Path.Combine(trackDir, "02. Artist - Track Two.mp3"), "c");
+        const string lockedName = @"Private\Artist\Album\01. Artist - Track One locked.mp3";
+        var client = new MockSoulseekClient(
+        [
+            new Soulseek.SearchResponse("public", 1, true, 1000, 0,
+                Directory.GetFiles(trackDir).Select(path =>
+                    new Soulseek.File(1, path, 1, Path.GetExtension(path)))),
+            new Soulseek.SearchResponse("private", 2, true, 1000, 0, [],
+                lockedFileList: [new Soulseek.File(1, lockedName, 1, ".mp3")]),
+        ]);
 
         string url = DynamicLoopbackUrl;
         await using var app = BuildServer(new ServerOptions
@@ -1052,6 +1069,7 @@ public class RemoteCliBackendTests
                 MockFilesDir = musicRoot,
                 MockFilesReadTags = false,
             },
+            ClientFactory = _ => client,
             DefaultDownload = new DownloadSettings
             {
                 Output =
@@ -1059,6 +1077,7 @@ public class RemoteCliBackendTests
                     ParentDir = outputDir,
                     NameFormat = "{filename}",
                 },
+                Search = { PreferredCond = new Sockseek.Core.Models.FileConditions { Formats = ["flac"] } },
             },
             Profiles = ProfileCatalog.Empty,
         }, url);
@@ -1072,7 +1091,7 @@ public class RemoteCliBackendTests
 
             var printSettings = new DownloadSettings
             {
-                PrintOption = PrintOption.Results,
+                PrintOption = PrintOption.Results | PrintOption.Full,
                 Output =
                 {
                     ParentDir = outputDir,
@@ -1080,13 +1099,17 @@ public class RemoteCliBackendTests
                 },
             };
 
+            var args = new List<string> { query, "--print-results-full", "--min-shares-aggregate", "1" };
+            if (mode == "song") args.Add("--song");
+            if (mode is "album" or "album-aggregate") args.Add("--album");
+            if (mode is "aggregate" or "album-aggregate") args.Add("--aggregate");
             var summary = await backend.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(
-                    "Artist - Track One",
+                    query,
                     "String",
                     Options: new SubmissionOptionsDto(
                         OutputParentDir: outputDir,
-                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch(["Artist - Track One", "--song", "--print-results"]))));
+                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch(args.ToArray()))));
 
             await WaitForWorkflowStateAsync(backend, summary.WorkflowId, ServerWorkflowState.Completed);
 
@@ -1099,8 +1122,22 @@ public class RemoteCliBackendTests
                 output);
 
             string rendered = output.ToString();
-            StringAssert.Contains(rendered, "Results for Artist - Track One");
+            if (mode == "song") StringAssert.Contains(rendered, "Results for Artist - Track One");
             StringAssert.Contains(rendered, "Artist - Track One.mp3");
+            StringAssert.Contains(rendered, "Artist - Track One.flac");
+            StringAssert.Contains(rendered, "Artist - Track One locked.mp3");
+            StringAssert.Contains(rendered, "[locked]");
+            int expectedFiles = mode == "song" ? 3 : 4;
+            Assert.AreEqual(expectedFiles, rendered.Split("(nec:Satisfied", StringSplitOptions.None).Length - 1, rendered);
+            Assert.AreEqual(expectedFiles - 1, rendered.Split("Format fails", StringSplitOptions.None).Length - 1, rendered);
+            if (mode == "song")
+                Assert.IsFalse(rendered.Contains("Track Two", StringComparison.Ordinal), rendered);
+            else
+                StringAssert.Contains(rendered, "Artist - Track Two.mp3");
+            Assert.IsTrue(rendered.IndexOf("Track One.flac", StringComparison.Ordinal)
+                < rendered.IndexOf("Track One.mp3", StringComparison.Ordinal),
+                "Preferred track alternatives must precede fallback formats.");
+            Assert.IsFalse(rendered.Contains("conditions:unavailable", StringComparison.Ordinal));
             Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length,
                 "Remote print-results mode should not download files.");
         }
@@ -2097,6 +2134,8 @@ public class RemoteCliBackendTests
             };
             if (!secondPage)
                 response.Headers.Add("X-Next-Cursor", "second-page");
+            response.Headers.Add(ServerProtocol.ReadEpochHeader, workflowId.ToString("D"));
+            response.Headers.Add(ServerProtocol.ReadSequenceHeader, "9007199254740993");
             return Task.FromResult(response);
         }
 

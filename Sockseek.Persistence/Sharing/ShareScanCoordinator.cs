@@ -282,7 +282,7 @@ public sealed class ShareScanCoordinator
         Action<ShareScanState>? handlers = StateChanged;
         if (handlers is null)
             return;
-        foreach (Action<ShareScanState> handler in handlers.GetInvocationList())
+        foreach (Action<ShareScanState> handler in Delegate.EnumerateInvocationList(handlers))
         {
             try
             {

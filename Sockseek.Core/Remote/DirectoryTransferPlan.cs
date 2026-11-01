@@ -53,9 +53,13 @@ public sealed record DirectoryTransferPlan
 {
     public DirectoryTransferPlan(
         string displayRoot,
-        IReadOnlyList<DirectoryTransferEntry> entries)
+        IReadOnlyList<DirectoryTransferEntry> entries,
+        bool representsDirectorySelection = true,
+        PeerDirectoryIdentity? sourceDirectory = null)
     {
-        DirectoryTransferEntry.ValidateLogicalComponent(displayRoot, nameof(displayRoot));
+        ArgumentNullException.ThrowIfNull(displayRoot);
+        if (displayRoot.Length != 0 || representsDirectorySelection)
+            DirectoryTransferEntry.ValidateLogicalComponent(displayRoot, nameof(displayRoot));
         ArgumentNullException.ThrowIfNull(entries);
 
         var source = entries.ToArray();
@@ -67,25 +71,57 @@ public sealed record DirectoryTransferPlan
         string username = source[0].Target.Username;
         if (source.Any(entry => !StringComparer.Ordinal.Equals(entry.Target.Username, username)))
             throw new ArgumentException("A directory transfer plan cannot mix peers.", nameof(entries));
+        if (sourceDirectory != null)
+        {
+            if (!representsDirectorySelection
+                || !StringComparer.Ordinal.Equals(sourceDirectory.Username, username))
+            {
+                throw new ArgumentException(
+                    "A source directory must identify this directory selection's exact peer.",
+                    nameof(sourceDirectory));
+            }
+            string prefix = sourceDirectory.FolderPath.Replace('/', '\\').TrimEnd('\\') + "\\";
+            if (source.Any(entry => !entry.Target.Filename.Replace('/', '\\')
+                    .StartsWith(prefix, StringComparison.Ordinal)))
+            {
+                throw new ArgumentException(
+                    "Every target must belong to the exact source directory.",
+                    nameof(sourceDirectory));
+            }
+        }
 
         source = source
             .DistinctBy(entry => entry.Target.Identity)
             .ToArray();
         Array.Sort(source, DirectoryTransferEntryComparer.Instance);
         long knownBytes = 0;
+        int unknownFileSizeCount = 0;
         foreach (var entry in source)
+        {
             knownBytes = SaturatingAdd(knownBytes, entry.Target.Size ?? 0);
+            if (entry.Target.Size is null)
+                unknownFileSizeCount++;
+        }
 
         DisplayRoot = displayRoot;
         Entries = Array.AsReadOnly(source);
         Username = username;
         TotalKnownBytes = knownBytes;
+        UnknownFileSizeCount = unknownFileSizeCount;
+        RepresentsDirectorySelection = representsDirectorySelection;
+        SourceDirectory = sourceDirectory;
     }
 
+    /// <summary>Placement root; empty only for independent files placed directly under the output parent.</summary>
     public string DisplayRoot { get; }
     public string Username { get; }
     public IReadOnlyList<DirectoryTransferEntry> Entries { get; }
     public long TotalKnownBytes { get; }
+    public int UnknownFileSizeCount { get; }
+    /// <summary>False when independently chosen files only share a placement root.</summary>
+    public bool RepresentsDirectorySelection { get; }
+    /// <summary>Exact source only when this plan was built from one known peer directory.</summary>
+    public PeerDirectoryIdentity? SourceDirectory { get; }
 
     private static long SaturatingAdd(long left, long right)
         => left > long.MaxValue - right ? long.MaxValue : left + right;

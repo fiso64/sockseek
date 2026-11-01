@@ -71,6 +71,11 @@ public sealed class ChatApiTests
             ChatMessageDto outgoing = await api.SendPrivateMessageAsync(
                 new SendPrivateMessageRequestDto(outgoingId, "Alice", "outbound"));
             Assert.AreEqual(ServerChatMessageState.Sent, outgoing.State);
+            ConversationSummaryDto? byPeer = await api.GetConversationByPeerAsync("Alice");
+            Assert.IsNotNull(byPeer);
+            Assert.AreEqual(outgoing.TargetId, byPeer.ConversationId);
+            Assert.IsNull(await api.GetConversationByPeerAsync("alice"));
+            Assert.IsNull(await api.GetConversationByPeerAsync(" Alice "));
             SockseekApiRequestException conflict =
                 await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
                     api.SendPrivateMessageAsync(

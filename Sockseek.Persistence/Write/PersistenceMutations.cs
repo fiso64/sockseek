@@ -1,3 +1,4 @@
+using Sockseek.Core.Models;
 using Sockseek.Core.Snapshots;
 
 namespace Sockseek.Persistence.Write;
@@ -19,9 +20,13 @@ public abstract record PersistenceMutation(
     PersistenceMutationPriority Priority)
 {
     public long OccurredAtUnixMilliseconds => OccurredAtUtc.ToUniversalTime().ToUnixTimeMilliseconds();
-    public virtual string CoalescingKey => $"{GetType().Name}:{EntityId}";
 }
 
+/// <summary>
+/// Captured job facts. PayloadJson encodes immutable input after coalescing and
+/// revision checks, before write access; a null payload clears stored detail.
+/// Lazy preserves the same bytes or encoding failure through exact replay.
+/// </summary>
 public sealed record JobPersistenceMutation(
     Guid RuntimeId,
     long Sequence,
@@ -47,7 +52,7 @@ public sealed record JobPersistenceMutation(
     string? ItemName,
     string? QueryText,
     int PayloadSchemaVersion,
-    string? PayloadJson,
+    Lazy<string?>? PayloadJson,
     Guid? SubmissionId = null,
     string SemanticRole = "Legacy",
     DateTimeOffset? RegisteredAtUtc = null,
@@ -55,7 +60,9 @@ public sealed record JobPersistenceMutation(
     Guid? RerunOfSubmissionId = null,
     Guid? PreviewId = null,
     string? ArtifactId = null,
-    DateTimeOffset? StartedAtUtc = null)
+    DateTimeOffset? StartedAtUtc = null,
+    DirectoryManifestSnapshot? DirectoryManifest = null,
+    string? SourceDetail = null)
     : PersistenceMutation(RuntimeId, Sequence, OccurredAtUtc, JobId, Revision, Priority);
 
 public sealed record TransferPersistenceMutation(
@@ -87,7 +94,9 @@ public sealed record TransferPersistenceMutation(
     TransferFileMetadataSnapshot? File = null,
     string? GroupRef = null,
     string? GroupDisplayPath = null,
-    IReadOnlyList<TransferAccountingObservation>? AccountingObservations = null)
+    IReadOnlyList<TransferAccountingObservation>? AccountingObservations = null,
+    string? GroupRelativePath = null,
+    DateTimeOffset? CompletedAtUtc = null)
     : PersistenceMutation(RuntimeId, Sequence, OccurredAtUtc, TransferId, Revision, Priority);
 
 /// <summary>
@@ -124,37 +133,14 @@ public sealed record TransferAttemptPersistenceMutation(
     DateTimeOffset? StartedAtUtc = null)
     : PersistenceMutation(RuntimeId, Sequence, OccurredAtUtc, AttemptId, Revision, Priority);
 
-public sealed record SearchResultPersistenceRecord(
-    Guid Id,
-    long Sequence,
-    long Revision,
-    string Username,
-    string RemoteFilename,
-    long SizeBytes,
-    int? BitRate,
-    int? BitDepth,
-    int ResponseFileCount,
-    int? SampleRate,
-    int? DurationSeconds,
-    string Extension,
-    int? UploadSpeed,
-    bool? HasFreeUploadSlot,
-    string? AttributesJson,
-    DateTimeOffset ObservedAtUtc,
-    int? QueueLength = null,
-    string Visibility = "Public");
-
 public sealed record SearchResultsPersistenceMutation(
     Guid RuntimeId,
     long Sequence,
     DateTimeOffset OccurredAtUtc,
     Guid SearchJobId,
     long Revision,
-    IReadOnlyList<SearchResultPersistenceRecord> Results)
-    : PersistenceMutation(RuntimeId, Sequence, OccurredAtUtc, SearchJobId, Revision, PersistenceMutationPriority.Ordinary)
-{
-    public override string CoalescingKey => $"search-results:{SearchJobId}:{Sequence}";
-}
+    IReadOnlyList<SearchProjectionInput> Results)
+    : PersistenceMutation(RuntimeId, Sequence, OccurredAtUtc, SearchJobId, Revision, PersistenceMutationPriority.Ordinary);
 
 public sealed record SearchCompletionPersistenceMutation(
     Guid RuntimeId,

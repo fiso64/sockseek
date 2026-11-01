@@ -22,6 +22,8 @@ internal sealed class RemoteDirectoryDownloadExecutor
         try
         {
             var plan = await ResolvePlan(job);
+            if (plan is null)
+                return JobOutcome.Done();
 
             var placements = placement.PlanDirectory(plan, job.Config);
             var children = placements
@@ -49,7 +51,7 @@ internal sealed class RemoteDirectoryDownloadExecutor
         }
     }
 
-    private async Task<DirectoryTransferPlan> ResolvePlan(RemoteDirectoryJob job)
+    private async Task<DirectoryTransferPlan?> ResolvePlan(RemoteDirectoryJob job)
     {
         if (job.ActiveAttempt is { } existing)
             return existing.Plan;
@@ -61,7 +63,13 @@ internal sealed class RemoteDirectoryDownloadExecutor
         job.UpdateActivity(JobActivityPhase.RetrievingFolder);
         var snapshot = await context.Runtime.Searcher.RetrieveDirectory(peer.Directory, job.Cts!.Token);
         job.ResolvedDirectory = snapshot;
-        var plan = DirectoryTransferPlanner.FromSnapshot(snapshot);
+        // A complete directory with every file explicitly deselected is valid
+        // empty work, not a failed download. Incomplete/empty peer responses still
+        // follow the planner's validation rather than being mistaken for success.
+        if (snapshot.IsComplete && snapshot.Files.Count > 0
+            && snapshot.Files.All(file => peer.ExcludedFilenames.Contains(file.Filename)))
+            return null;
+        var plan = DirectoryTransferPlanner.FromSnapshot(snapshot, peer.ExcludedFilenames);
         job.BeginDirectoryAttempt(plan);
         return plan;
     }

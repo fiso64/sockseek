@@ -321,14 +321,21 @@ namespace Sockseek.Core.Models;
             if (str.Length == 0)
                 return str;
 
-            char[] buffer = new char[str.Length];
+            // Most paths are already normalized. Use the same bounded stack
+            // buffer as fuzzy matching and retain unchanged input, rather than
+            // allocating a buffer and another string for every condition check.
+            Span<char> buffer = str.Length <= 512
+                ? stackalloc char[str.Length]
+                : new char[str.Length];
             int length = 0;
             bool previousWasSpace = false;
             bool hasOutput = false;
+            bool unchanged = true;
 
             for (int i = 0; i < str.Length; i++)
             {
                 char c = NormalizeStrictChar(str[i], diacrRemove, removeSlash);
+                unchanged &= c == str[i];
 
                 if (!hasOutput && char.IsWhiteSpace(c))
                     continue;
@@ -352,7 +359,8 @@ namespace Sockseek.Core.Models;
             while (length > 0 && char.IsWhiteSpace(buffer[length - 1]))
                 length--;
 
-            return length == 0 ? string.Empty : new string(buffer, 0, length);
+            return length == str.Length && unchanged ? str
+                : length == 0 ? string.Empty : new string(buffer[..length]);
         }
 
         public static string FuzzyPhrasePreprocess(string str, bool diacrRemove = true)
@@ -597,6 +605,15 @@ namespace Sockseek.Core.Models;
 
     public class FileConditionPatch
     {
+        public FileConditionPatch Clone()
+        {
+            var copy = (FileConditionPatch)MemberwiseClone();
+            copy.Formats = Formats?.ToArray();
+            copy.BannedUsers = BannedUsers?.ToArray();
+            copy.AllowedUsers = AllowedUsers?.ToArray();
+            return copy;
+        }
+
         public int? LengthTolerance;
         public int? MinBitrate;
         public int? MaxBitrate;

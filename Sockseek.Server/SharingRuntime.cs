@@ -489,7 +489,7 @@ public sealed class SharingRuntime : IAsyncDisposable
         if (handlers is null)
             return;
         foreach (Action<SharingStateDto, UploadRuntimeStateDto> handler
-                 in handlers.GetInvocationList())
+                 in Delegate.EnumerateInvocationList(handlers))
         {
             try
             {

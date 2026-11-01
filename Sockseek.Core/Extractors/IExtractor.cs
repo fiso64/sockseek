@@ -4,12 +4,16 @@ using Sockseek.Core.Settings;
 namespace Sockseek.Core.Extractors;
     public interface IInputMatcher
     {
+        static virtual string? SourceName => null;
         static abstract bool InputMatches(string input);
     }
 
     public interface IExtractor
     {
         Task<Job> GetTracks(string input, ExtractionSettings extraction, ExtractorContext? context = null);
+
+        // TODO [v4]: Unlike GetTracks, this function is not self-explanatory.
+        JobSourceInfo? DescribeSource(ExtractJob source, Job item) => null;
     }
 
     public static class ExtractorRegistry
@@ -17,6 +21,7 @@ namespace Sockseek.Core.Extractors;
         private interface IEntry
         {
             InputType Type { get; }
+            string SourceName { get; }
             bool InputMatches(string input);
             IExtractor Create(DownloadSettings dl);
         }
@@ -25,6 +30,7 @@ namespace Sockseek.Core.Extractors;
             where T : IExtractor, IInputMatcher
         {
             public InputType Type { get; } = type;
+            public string SourceName => T.SourceName ?? Type.ToString();
             public bool InputMatches(string input) => T.InputMatches(input);
             public IExtractor Create(DownloadSettings dl) => factory(dl);
         }
@@ -41,6 +47,9 @@ namespace Sockseek.Core.Extractors;
             new Entry<StringExtractor>     (InputType.String,      _ => new StringExtractor()),
             new Entry<ListExtractor>       (InputType.List,        dl => new ListExtractor(dl.RuntimePathContext)), // never reached without inputType=List hint
         ];
+
+        public static string SourceName(InputType inputType)
+            => extractors.Find(entry => entry.Type == inputType)?.SourceName ?? inputType.ToString();
 
         public static bool TryResolveInputType(string? input, InputType inputType, out InputType resolved)
         {

@@ -75,7 +75,9 @@ public sealed record BrowseDirectoryEntryDto(
     long RecursiveFileCount,
     long RecursiveFileBytes,
     long LockedDescendantCount,
-    bool HasChildren);
+    bool HasChildren,
+    long? TotalRecursiveFileCount = null,
+    long? TotalRecursiveFileBytes = null);
 
 public sealed record BrowseFileEntryDto(
     long FileId,
@@ -114,7 +116,11 @@ public sealed record BrowseSearchEntryDto(
     int? BitRate,
     int? BitDepth,
     int? SampleRate,
-    int? Length);
+    int? Length,
+    long? PublicSubtreeFileCount = null,
+    long? PublicSubtreeBytes = null,
+    long? TotalSubtreeFileCount = null,
+    long? TotalSubtreeBytes = null);
 
 /// <summary>
 /// A cursor page over one immutable browse revision. Totals describe the whole

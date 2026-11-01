@@ -410,6 +410,19 @@ namespace Tests.FileConditionsTests
             string result = FileConditions.StrictStringPreprocess(input);
 
             Assert.AreEqual("A B C D E F G H I/J\\K A", result);
+            Assert.AreEqual("A B C D E F G H I J K A",
+                FileConditions.StrictStringPreprocess(input, removeSlash: true));
+            Assert.AreEqual("Ä", FileConditions.StrictStringPreprocess(" Ä ", diacrRemove: false));
+            Assert.AreEqual("", FileConditions.StrictStringPreprocess("\t  \r\n"));
+            Assert.AreEqual("A\tB", FileConditions.StrictStringPreprocess("  A\tB  "));
+            Assert.AreEqual(@"Music\Artist\Album\01 - Track.flac",
+                FileConditions.StrictStringPreprocess(@"Music\Artist\Album\01 - Track.flac"));
+            foreach (int length in new[] { 512, 513, 2048 })
+            {
+                string longName = new('a', length);
+                Assert.AreEqual(longName, FileConditions.StrictStringPreprocess(longName));
+                Assert.AreEqual(longName, FileConditions.StrictStringPreprocess("_" + longName + "_"));
+            }
         }
     }
 

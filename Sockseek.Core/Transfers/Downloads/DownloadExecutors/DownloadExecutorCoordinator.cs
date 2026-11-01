@@ -33,8 +33,7 @@ internal sealed class DownloadExecutorCoordinator
     {
         var config = job.Config;
 
-        ctx.IndexEditor?.Update();
-        ctx.PlaylistEditor?.Update();
+        context.UpdateOutputs(job, ctx);
 
         try
         {
@@ -50,10 +49,7 @@ internal sealed class DownloadExecutorCoordinator
                         config.Output,
                         config.Extraction,
                         context.LoggerFactory.CreateLogger<FileManager>(),
-                        ctx.OutputScope,
-                        context.OutputFinalizer.CreateReplacementGuard(
-                            allowOverwrite: !config.Skip.SkipExisting,
-                            allowUnownedReplacement: config.Skip.SkipExisting));
+                        ctx.OutputScope);
                     outcome = await songDownloads.ProcessSongDownload(sj, songParent, songOrganizer, parentToken);
                     outcome = await songDownloads.CommitAndFinalizeSong(sj, songParent, outcome, ctx, songOrganizer, finalizePlacement: true, updateIndexes: true);
                     break;

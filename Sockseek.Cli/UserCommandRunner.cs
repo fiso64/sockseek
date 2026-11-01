@@ -8,8 +8,6 @@ namespace Sockseek.Cli;
 /// <summary>Remote profile and filesystem-shaped user-share commands.</summary>
 internal static class UserCommandRunner
 {
-    private const int DefaultPageSize = 100;
-
     public static async Task<Program.CliExitCode> RunAsync(
         IReadOnlyList<string> args,
         string? remote,
@@ -221,7 +219,8 @@ internal static class UserCommandRunner
         long? filesId = ParseLong(Option(args, "--files"), "--files");
         if (parentId is not null && filesId is not null)
             throw new ArgumentException("--parent and --files are mutually exclusive.");
-        int limit = ParseInt(Option(args, "--limit"), "--limit", 1, 500, DefaultPageSize);
+        int limit = ParseInt(Option(args, "--limit"), "--limit", 1, int.MaxValue,
+            filesId is not null ? ServerProtocol.DefaultPageSize : ServerProtocol.DefaultNestedPageSize);
         string? query = Option(args, "--query");
         string? cursor = Option(args, "--cursor");
 

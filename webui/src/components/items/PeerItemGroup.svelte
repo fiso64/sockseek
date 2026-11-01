@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import type { ItemPeerInfo } from '../../prototype/items';
-  import type { UserLinkActions } from '../../prototype/navigation';
+  import type { ItemPeerInfo } from '../../domains/presentation/items';
+  import type { UserLinkActions } from '../../app/navigation';
   import UsernameLink from '../UsernameLink.svelte';
 
   interface Props {

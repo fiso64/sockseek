@@ -51,25 +51,25 @@ public sealed class ExactPeerFileTransferRunner
     private readonly ISoulseekClient client;
     private readonly SoulseekClientManager clientManager;
     private readonly ActiveDownloadTracker activeDownloads;
-    private readonly DownloadedFileCache downloadedFiles;
     private readonly DownloadEvents events;
     private readonly StaleDownloadCoordinator staleDownloads;
+    private readonly DownloadFileOperations fileOperations;
     private readonly ILogger<ExactPeerFileTransferRunner> logger;
 
     internal ExactPeerFileTransferRunner(ISoulseekClient client,
                         SoulseekClientManager clientManager,
                         ActiveDownloadTracker activeDownloads,
-                        DownloadedFileCache downloadedFiles,
                         DownloadEvents events,
                         StaleDownloadCoordinator staleDownloads,
+                        DownloadFileOperations fileOperations,
                         ILogger<ExactPeerFileTransferRunner>? logger = null)
     {
         this.client = client;
         this.clientManager = clientManager;
         this.activeDownloads = activeDownloads;
-        this.downloadedFiles = downloadedFiles;
         this.events = events;
         this.staleDownloads = staleDownloads;
+        this.fileOperations = fileOperations;
         this.logger = logger ?? NullLogger<ExactPeerFileTransferRunner>.Instance;
     }
 
@@ -93,57 +93,21 @@ public sealed class ExactPeerFileTransferRunner
             throw new ArgumentOutOfRangeException(nameof(maxStaleTimeMs));
 
         CancellationToken cancellationToken = ct ?? CancellationToken.None;
-        using var outputClaim = await downloadedFiles.ClaimOutputPathAsync(
+        using var outputClaim = await fileOperations.ClaimOutputPathAsync(
             outputPath,
             cancellationToken).ConfigureAwait(false);
 
-        if (protectPublishedOutput
-            && File.Exists(outputPath)
-            && downloadedFiles.IsPathOwnedByAnotherTarget(outputPath, target))
+        // Cached work remains usable while disconnected. The cheap presence
+        // probe is only an optimization; PrepareAsync rechecks under the owner.
+        if (!clientManager.IsConnectedAndLoggedIn || fileOperations.MayHaveReusable(target))
         {
-            return ExactFileTransferOutcome.AlreadyExists(target, outputPath);
+            var reused = await fileOperations.TryReuseAsync(target, outputPath, owner.Id,
+                publishToDuplicateCache, allowOverwrite, protectPublishedOutput);
+            if (reused != null) return reused;
         }
-
-        if (downloadedFiles.TryGetReusable(target, out var existingDownload))
-        {
-            var existingPath     = existingDownload.OutputPath;
-            var outputFileInfo   = new FileInfo(outputPath);
-
-            DownloadLogMessages.JobDecision(
-                logger,
-                owner.Id,
-                "reusing-existing-transfer",
-                null);
-
-            if (!PathEquals(existingPath, outputPath))
-            {
-                if (outputFileInfo.Exists && !allowOverwrite)
-                    return ExactFileTransferOutcome.AlreadyExists(target, outputPath);
-                DownloadLogMessages.JobDecision(
-                    logger,
-                    owner.Id,
-                    "copying-reused-transfer",
-                    null);
-                downloadedFiles.WithExclusiveAccess(() =>
-                {
-                    downloadedFiles.InvalidatePath(outputPath);
-                    Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-                    File.Copy(existingPath, outputPath, true);
-                    downloadedFiles.Publish(outputPath, target);
-                    return true;
-                });
-            }
-
-            return ExactFileTransferOutcome.Completed(new ExactFileTransferResult(outputPath, target));
-        }
-
-        if (!allowOverwrite && File.Exists(outputPath))
-            return ExactFileTransferOutcome.AlreadyExists(target, outputPath);
 
         await clientManager.WaitUntilReadyAsync(cancellationToken);
-        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         string incompleteOutputPath = transfer.NoIncompleteExt ? outputPath : outputPath + ".incomplete";
-        downloadedFiles.InvalidatePath(incompleteOutputPath);
         var transferId = TransferIds.New();
         int attemptCount = 0;
         Guid currentAttemptId = Guid.Empty;
@@ -181,14 +145,12 @@ public sealed class ExactPeerFileTransferRunner
         );
 
         ActiveDownload? activeDownload = null;
-        void DeleteIncompleteDownloadAfterFailure()
+        async ValueTask DeleteIncompleteDownloadAfterFailureAsync()
         {
-            if (!File.Exists(incompleteOutputPath))
-                return;
-
             try
             {
-                Utils.DeleteFileAndParentsIfEmpty(incompleteOutputPath, CleanupRootForIncompletePath(incompleteOutputPath, parentDir));
+                await fileOperations.DeleteIncompleteAsync(
+                    incompleteOutputPath, CleanupRootForIncompletePath(incompleteOutputPath, parentDir));
             }
             catch (Exception ex)
             {
@@ -199,14 +161,21 @@ public sealed class ExactPeerFileTransferRunner
             }
         }
 
+        var prepared = await fileOperations.PrepareAsync(target, outputPath, incompleteOutputPath, owner.Id,
+            publishToDuplicateCache, allowOverwrite, protectPublishedOutput);
+        if (prepared.Reused != null) return prepared.Reused;
+
         try
         {
             using var downloadCts = ct != null
                 ? CancellationTokenSource.CreateLinkedTokenSource((CancellationToken)ct)
                 : new CancellationTokenSource();
 
-            using var outputStream = new FileStream(incompleteOutputPath, FileMode.Create);
+            await using var output = new DownloadOutput(
+                prepared.Output!, fileOperations);
+            Stream outputStream = output.Stream;
 
+            owner.UpdateActivity(JobActivityPhase.Downloading);
             owner.FileSize = target.Size;
             activeDownload = new ActiveDownload(transferId, owner, target, outputPath, downloadCts, parentJob);
             activeDownloads.TryAdd(activeDownload);
@@ -289,7 +258,7 @@ public sealed class ExactPeerFileTransferRunner
         }
         catch (OperationCanceledException) when (activeDownload?.IsStaleCancelled == true)
         {
-            DeleteIncompleteDownloadAfterFailure();
+            await DeleteIncompleteDownloadAfterFailureAsync();
 
             var staleException = new StaleDownloadException(
                 target,
@@ -317,7 +286,7 @@ public sealed class ExactPeerFileTransferRunner
         }
         catch (Exception ex)
         {
-            DeleteIncompleteDownloadAfterFailure();
+            await DeleteIncompleteDownloadAfterFailureAsync();
 
             if (activeDownloads.TryRemove(transferId, out var ad) && ad.IsManuallySkipped)
             {
@@ -393,26 +362,30 @@ public sealed class ExactPeerFileTransferRunner
         }
 
 
+        long completedBytes;
+        long PublishOutput(DownloadFileOperations.Cache cache)
+        {
+            if (!transfer.NoIncompleteExt)
+            {
+                cache.InvalidatePath(outputPath);
+                Utils.Move(incompleteOutputPath, outputPath);
+            }
+            if (publishToDuplicateCache) cache.Publish(outputPath, target);
+            return !deferTerminalCompletion && File.Exists(outputPath)
+                ? new FileInfo(outputPath).Length : target.Size ?? owner.BytesTransferred;
+        }
         if (!transfer.NoIncompleteExt)
         {
             try
             {
-                downloadedFiles.WithExclusiveAccess(() =>
-                {
-                    downloadedFiles.InvalidatePath(outputPath);
-                    Utils.Move(incompleteOutputPath, outputPath);
-                    if (publishToDuplicateCache)
-                        downloadedFiles.Publish(outputPath, target);
-                    return true;
-                });
+                completedBytes = await fileOperations.WithCacheAsync(PublishOutput);
             }
             catch (Exception ex)
             {
                 activeDownloads.TryRemove(transferId, out _);
                 try
                 {
-                    if (File.Exists(incompleteOutputPath))
-                        File.Delete(incompleteOutputPath);
+                    await fileOperations.DeleteIncompleteAsync(incompleteOutputPath);
                 }
                 catch (Exception cleanupEx)
                 {
@@ -439,9 +412,9 @@ public sealed class ExactPeerFileTransferRunner
             }
         }
 
+        else completedBytes = await fileOperations.WithCacheAsync(PublishOutput);
+
         var result = new ExactFileTransferResult(outputPath, target, transferId, Math.Max(attemptCount, 1));
-        if (publishToDuplicateCache && transfer.NoIncompleteExt)
-            downloadedFiles.Publish(result.OutputPath, result.Target);
         activeDownloads.TryRemove(transferId, out _);
 
         if (target.Size is > 0)
@@ -449,9 +422,6 @@ public sealed class ExactPeerFileTransferRunner
 
         if (!deferTerminalCompletion)
         {
-            long completedBytes = File.Exists(outputPath)
-                ? new FileInfo(outputPath).Length
-                : target.Size ?? owner.BytesTransferred;
             events.RaiseTransferCompleted(
                 transferId,
                 owner,
@@ -471,13 +441,22 @@ public sealed class ExactPeerFileTransferRunner
             or TransferRejectedException
             or StaleDownloadException);
 
-    private static bool PathEquals(string left, string right)
-        => string.Equals(
-            Path.GetFullPath(left),
-            Path.GetFullPath(right),
-            OperatingSystem.IsWindows()
-                ? StringComparison.OrdinalIgnoreCase
-                : StringComparison.Ordinal);
+    private sealed class DownloadOutput(Stream stream, DownloadFileOperations files) : IAsyncDisposable
+    {
+        public Stream Stream { get; } = stream;
+
+        public ValueTask DisposeAsync()
+        {
+            if (!Stream.CanWrite)
+                return ValueTask.CompletedTask;
+
+            // Native close can block even through FileStream.DisposeAsync.
+            // Reuse the run's isolated workers and await close before cleanup,
+            // rename or terminal publication.
+            return files.CloseAsync(Stream);
+        }
+    }
+
 
     static string GetStateLabel(TransferStates s)
     {

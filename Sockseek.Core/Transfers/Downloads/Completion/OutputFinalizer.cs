@@ -30,67 +30,59 @@ internal sealed record OutputFinalizationResult(JobOutcome Outcome, FileOrganiza
 // either published the final duplicate-cache entry or returned a failure outcome.
 internal sealed class OutputFinalizer
 {
-    private readonly DownloadedFileCache downloadedFiles;
+    private readonly DownloadFileOperations files;
     private readonly DownloadEvents? events;
     private readonly ILogger<OutputFinalizer> logger;
 
     public OutputFinalizer(
-        DownloadedFileCache downloadedFiles,
+        DownloadFileOperations files,
         DownloadEvents? events = null,
         ILogger<OutputFinalizer>? logger = null)
     {
-        this.downloadedFiles = downloadedFiles;
+        this.files = files;
         this.events = events;
         this.logger = logger ?? NullLogger<OutputFinalizer>.Instance;
     }
 
-    public InitialDownloadTarget GetInitialDownloadTarget(
-        DownloadSettings config,
-        SongJob song,
-        FileManager organizer,
-        FileCandidate candidate)
-    {
-        if (string.IsNullOrWhiteSpace(config.Output.NameFormat))
-            return new(organizer.GetSavePath(candidate.Filename), PublishToDuplicateCache: true);
+    public ValueTask<InitialDownloadTarget> GetInitialDownloadTargetAsync(
+        DownloadSettings config, SongJob song, FileManager organizer, FileCandidate candidate)
+        => GetInitialDownloadTargetAsync(config, song, organizer, candidate.Filename);
 
-        var sourceFileName = Utils.GetFileNameSlsk(candidate.Filename).CleanPath(config.Output.InvalidReplaceStr);
-        var stagingPath = Path.Join(OutputStaging.Root(config.Output), song.Id.ToString("N"), sourceFileName);
+    public ValueTask<InitialDownloadTarget> GetInitialDownloadTargetAsync(
+        DownloadSettings config, SongJob song, FileManager organizer, PeerFileTarget target)
+        => GetInitialDownloadTargetAsync(config, song, organizer, target.Filename);
 
-        return new(stagingPath, PublishToDuplicateCache: false);
-    }
+    private ValueTask<InitialDownloadTarget> GetInitialDownloadTargetAsync(
+        DownloadSettings config, SongJob song, FileManager organizer, string filename)
+        => files.WithCacheAsync(_ =>
+        {
+            if (string.IsNullOrWhiteSpace(config.Output.NameFormat))
+                return new InitialDownloadTarget(organizer.GetSavePath(filename), PublishToDuplicateCache: true);
+            string sourceName = Utils.GetFileNameSlsk(filename).CleanPath(config.Output.InvalidReplaceStr);
+            return new InitialDownloadTarget(Path.Join(OutputStaging.Root(config.Output), song.Id.ToString("N"), sourceName),
+                PublishToDuplicateCache: false);
+        });
 
-    public InitialDownloadTarget GetInitialDownloadTarget(
-        DownloadSettings config,
-        SongJob song,
-        FileManager organizer,
-        PeerFileTarget target)
-    {
-        if (string.IsNullOrWhiteSpace(config.Output.NameFormat))
-            return new(organizer.GetSavePath(target.Filename), PublishToDuplicateCache: true);
-
-        var sourceFileName = Utils.GetFileNameSlsk(target.Filename).CleanPath(config.Output.InvalidReplaceStr);
-        var stagingPath = Path.Join(OutputStaging.Root(config.Output), song.Id.ToString("N"), sourceFileName);
-        return new(stagingPath, PublishToDuplicateCache: false);
-    }
-
-    public OutputFinalizationResult FinalizeSongPlacement(
+    public ValueTask<OutputFinalizationResult> FinalizeSongPlacementAsync(
         SongJob song,
         Job parentJob,
         JobOutcome outcome,
         FileManager organizer,
-        bool finalizePlacement)
+        bool finalizePlacement,
+        bool allowOverwrite,
+        bool allowUnownedReplacement = false)
     {
         if (outcome.TerminalOutcome != JobTerminalOutcome.Succeeded || !finalizePlacement)
-            return OutputFinalizationResult.Completed(outcome);
+            return ValueTask.FromResult(OutputFinalizationResult.Completed(outcome));
 
-        return downloadedFiles.WithExclusiveAccess(() =>
+        return files.WithCacheAsync(cache =>
         {
             song.UpdateActivity(JobActivityPhase.Organizing);
             try
             {
-                organizer.OrganizeDownloadedFile(song);
+                organizer.OrganizeDownloadedFile(song, CreateReplacementGuard(cache, allowOverwrite, allowUnownedReplacement));
                 EnsureFileLeftStaging(song, parentJob.Config.Output);
-                PublishDownloadedFileCache(song, outcome);
+                PublishDownloadedFileCache(cache, song, outcome);
                 return OutputFinalizationResult.Completed(outcome);
             }
             catch (Exception ex)
@@ -126,34 +118,34 @@ internal sealed class OutputFinalizer
         });
     }
 
-    public OutputFinalizationResult FinalizeAlbumPlacement(
+    public ValueTask<OutputFinalizationResult> FinalizeAlbumPlacementAsync(
         AlbumJob album,
         FileManager organizer,
         List<SongJob>? chosenFiles,
         List<SongJob>? additionalImages,
-        JobOutcome outcome)
+        JobOutcome outcome,
+        bool allowOverwrite,
+        bool allowUnownedReplacement = false)
     {
         var filesToOrganize = (chosenFiles ?? [])
             .Concat(additionalImages ?? [])
             .Distinct()
             .ToList();
         if (filesToOrganize.Count == 0)
-        {
-            PublishDownloadedFileCache(chosenFiles);
-            PublishDownloadedFileCache(additionalImages);
-            return OutputFinalizationResult.Completed(outcome);
-        }
+            return ValueTask.FromResult(OutputFinalizationResult.Completed(outcome));
 
-        return downloadedFiles.WithExclusiveAccess(() =>
+        return files.WithCacheAsync(cache =>
         {
+            var previousPaths = filesToOrganize.Select(file => (File: file, Path: file.DownloadPath)).ToArray();
             try
             {
                 if (!string.IsNullOrEmpty(album.DownloadPath))
-                    organizer.OrganizeAlbum(album, filesToOrganize, additionalImages);
+                    organizer.OrganizeAlbum(album, filesToOrganize, additionalImages,
+                        beforeReplace: CreateReplacementGuard(cache, allowOverwrite, allowUnownedReplacement));
                 EnsureAlbumFilesLeftStaging(album, chosenFiles, additionalImages, outcome);
                 RefreshSuccessfulAlbumPath(album, filesToOrganize, outcome);
-                PublishDownloadedFileCache(chosenFiles);
-                PublishDownloadedFileCache(additionalImages);
+                PublishDownloadedFileCache(cache, chosenFiles);
+                PublishDownloadedFileCache(cache, additionalImages);
                 return OutputFinalizationResult.Completed(outcome);
             }
             catch (Exception ex)
@@ -166,6 +158,18 @@ internal sealed class OutputFinalizer
                 return OutputFinalizationResult.Failed(
                     organizationException,
                     RetainedStagedPayload(strandedPath, album.Config.Output));
+            }
+            finally
+            {
+                // Album-owned placement can move children that are already
+                // terminal. Their live/retained metadata still needs the new
+                // path, including files moved before a later sibling failed.
+                foreach (var (file, previousPath) in previousPaths)
+                    if (!string.Equals(previousPath, file.DownloadPath, StringComparison.Ordinal))
+                    {
+                        if (file.DownloadPath is { } path) events?.RaiseTransferOutputChanged(file, path);
+                        events?.RaiseJobStateChanged(file);
+                    }
             }
         });
     }
@@ -184,72 +188,132 @@ internal sealed class OutputFinalizer
             "download completed, but organizing the output failed");
     }
 
-    public void PublishDownloadedFileCache(SongJob song)
-    {
-        if (song.TerminalOutcome != JobTerminalOutcome.Succeeded)
-            return;
+    public ValueTask<bool> PublishDownloadedFileCacheAsync(SongJob song, JobOutcome outcome)
+        => files.WithCacheAsync(cache => { PublishDownloadedFileCache(cache, song, outcome); return true; });
 
-        PublishDownloadedFileCache(song, JobOutcome.Done(song.DownloadPath, song.ResolvedTarget, song.DownloadSource));
+    private static void PublishDownloadedFileCache(DownloadFileOperations.Cache cache, SongJob song, JobOutcome outcome)
+    {
+        if (outcome.TerminalOutcome != JobTerminalOutcome.Succeeded) return;
+        PeerFileTarget? target = song.ResolvedPeerTarget;
+        if (target == null || string.IsNullOrEmpty(song.DownloadPath)) return;
+        if (song.Config != null && OutputStaging.Contains(song.DownloadPath, song.Config.Output)) return;
+        cache.Publish(song.DownloadPath, target);
     }
 
-    public void PublishDownloadedFileCache(SongJob song, JobOutcome outcome)
+    private static void PublishDownloadedFileCache(DownloadFileOperations.Cache cache, IEnumerable<SongJob>? songs)
     {
-        if (outcome.TerminalOutcome != JobTerminalOutcome.Succeeded)
-            return;
-
-        var target = song.ResolvedPeerTarget;
-        if (target == null || string.IsNullOrEmpty(song.DownloadPath))
-            return;
-        if (song.Config != null && OutputStaging.Contains(song.DownloadPath, song.Config.Output))
-            return;
-
-        downloadedFiles.Publish(song.DownloadPath, target);
-    }
-
-    public void PublishDownloadedFileCache(IEnumerable<SongJob>? songs)
-    {
-        if (songs == null)
-            return;
-
+        if (songs == null) return;
         foreach (var song in songs)
-            PublishDownloadedFileCache(song);
+            if (song.TerminalOutcome == JobTerminalOutcome.Succeeded)
+                PublishDownloadedFileCache(cache, song, JobOutcome.Done(song.DownloadPath, song.ResolvedTarget, song.DownloadSource));
     }
 
-    public Action<string> CreateReplacementGuard(
-        bool allowOverwrite,
-        bool allowUnownedReplacement = false)
-        => outputPath =>
+    private static Action<string> CreateReplacementGuard(
+        DownloadFileOperations.Cache cache, bool allowOverwrite, bool allowUnownedReplacement = false)
+        => path =>
         {
-            if (!allowOverwrite
-                && File.Exists(outputPath)
-                && (!allowUnownedReplacement
-                    || downloadedFiles.HasPublishedPathOwner(outputPath)))
-            {
-                throw new OutputPathAlreadyExistsException(outputPath);
-            }
-            downloadedFiles.InvalidatePath(outputPath);
+            if (!allowOverwrite && File.Exists(path)
+                && (!allowUnownedReplacement || cache.HasPublishedPathOwner(path)))
+                throw new OutputPathAlreadyExistsException(path);
+            cache.InvalidatePath(path);
         };
 
-    public void DeleteOutputFile(string path)
+    public async Task HandleIncompleteAlbumAsync(AlbumJob job, AlbumFolder folder, ResolvedIncompleteAlbumAction action, DownloadSettings config)
     {
-        downloadedFiles.WithExclusiveAccess(() =>
+        if (action.Kind == IncompleteAlbumActionKind.Keep)
+            return;
+
+        var failedAlbumPath = action.Path;
+        var outputParentDir = config.Output.ParentDir;
+        var tracks = job.EnsureTrackJobs(folder);
+        var filesToHandle = await files.WithCacheAsync(_ => tracks
+            .Where(song => IsIncompleteAlbumActionFile(song, config.Output)).ToList());
+
+        if (filesToHandle.Count == 0)
         {
-            downloadedFiles.InvalidatePath(path);
-            File.Delete(path);
-            return true;
-        });
+            DownloadLogMessages.JobDecision(
+                logger,
+                job.Id,
+                "incomplete-album-action-not-needed",
+                0);
+            return;
+        }
+
+        if (action.Kind == IncompleteAlbumActionKind.Delete)
+        {
+            events?.RaiseJobStatus(job, "deleting files");
+        }
+        else if (action.Kind == IncompleteAlbumActionKind.Move)
+        {
+            if (string.IsNullOrEmpty(outputParentDir))
+                throw new InvalidOperationException("Cannot move incomplete album files because Output.ParentDir is not set.");
+            if (string.IsNullOrEmpty(failedAlbumPath))
+                throw new InvalidOperationException("Cannot move incomplete album files because incomplete album action path is not set.");
+
+            events?.RaiseJobStatus(job, $"moving to {failedAlbumPath}");
+        }
+
+        foreach (var af in filesToHandle)
+        {
+            var downloadPath = af.DownloadPath!;
+            try
+            {
+                await files.WithCacheAsync(cache =>
+                {
+                    if (action.Kind == IncompleteAlbumActionKind.Delete)
+                    {
+                        cache.InvalidatePath(downloadPath);
+                        File.Delete(downloadPath);
+                    }
+                    else if (action.Kind == IncompleteAlbumActionKind.Move)
+                    {
+                        var relativeBase = outputParentDir
+                            ?? throw new InvalidOperationException("Cannot move incomplete album files because Output.ParentDir is not set.");
+                        var targetBase = failedAlbumPath
+                            ?? throw new InvalidOperationException("Cannot move incomplete album files because incomplete album action path is not set.");
+                        var newPath = Path.Join(targetBase, Path.GetRelativePath(relativeBase, downloadPath));
+                        Directory.CreateDirectory(Path.GetDirectoryName(newPath)!);
+                        CreateReplacementGuard(cache, allowOverwrite: !config.Skip.SkipExisting)(newPath);
+                        cache.InvalidatePath(downloadPath);
+                        Utils.Move(downloadPath, newPath);
+                        af.DownloadPath = newPath;
+                        events?.RaiseTransferOutputChanged(af, newPath);
+                        events?.RaiseJobStateChanged(af);
+                    }
+
+                    var downloadParent = Path.GetDirectoryName(downloadPath);
+                    if (!string.IsNullOrEmpty(downloadParent) && !string.IsNullOrEmpty(outputParentDir))
+                        Utils.DeleteAncestorsIfEmpty(downloadParent, outputParentDir);
+                    return true;
+                });
+            }
+            catch (Exception e)
+            {
+                DownloadLogMessages.ComponentFailed(
+                    logger,
+                    e,
+                    "incomplete-album-action",
+                    job.Id);
+                events?.RaiseJobMessage(
+                    job,
+                    LogLevel.Error,
+                    null,
+                    "unable to move or delete a completed file after the album failed");
+            }
+        }
+
+        if (action.Kind == IncompleteAlbumActionKind.Delete)
+            events?.RaiseJobStatus(job, "deleted files");
+        else if (action.Kind == IncompleteAlbumActionKind.Move)
+            events?.RaiseJobStatus(job, $"moved to {failedAlbumPath}");
     }
 
-    public void MoveOutputFile(string sourcePath, string outputPath, bool allowOverwrite)
-    {
-        downloadedFiles.WithExclusiveAccess(() =>
-        {
-            CreateReplacementGuard(allowOverwrite)(outputPath);
-            downloadedFiles.InvalidatePath(sourcePath);
-            Utils.Move(sourcePath, outputPath);
-            return true;
-        });
-    }
+    static bool IsIncompleteAlbumActionFile(SongJob song, OutputSettings output)
+        => song.TerminalOutcome == JobTerminalOutcome.Succeeded
+            && !string.IsNullOrEmpty(song.DownloadPath)
+            && !OutputStaging.Contains(song.DownloadPath, output)
+            && !song.DownloadPath.EndsWith(".incomplete", StringComparison.OrdinalIgnoreCase)
+            && File.Exists(song.DownloadPath);
 
     private static void EnsureFileLeftStaging(SongJob song, OutputSettings output)
     {

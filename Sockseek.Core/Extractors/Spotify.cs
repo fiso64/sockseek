@@ -10,6 +10,47 @@ using Sockseek.Core.Settings;
 namespace Sockseek.Core.Extractors;
     public class SpotifyExtractor : IExtractor, IInputMatcher
     {
+        private enum SourceKind { Playlist, Album, LikedSongs, LikedAlbums, Artist }
+        private (string? Input, SourceKind? Kind) describedSource;
+
+        public JobSourceInfo? DescribeSource(ExtractJob source, Job item)
+        {
+            if (describedSource.Input != source.Input)
+                describedSource = (source.Input, ClassifyInput(source.Input));
+            SourceKind? kind = describedSource.Kind;
+            string label = kind switch
+            {
+                SourceKind.Playlist => "Spotify playlist",
+                SourceKind.Album => "Spotify album",
+                SourceKind.LikedSongs => "Spotify liked songs",
+                SourceKind.LikedAlbums => "Spotify liked albums",
+                SourceKind.Artist => "Spotify artist",
+                _ => "Spotify",
+            };
+            // TODO [v4]: Manual code like this is concerning. Maybe handle it more generally for extractors in presentation.
+            if (ReferenceEquals(source, item))
+            {
+                string? unit = null;
+                if (kind is SourceKind.Playlist or SourceKind.LikedSongs or SourceKind.LikedAlbums)
+                {
+                    unit = kind == SourceKind.LikedAlbums ? "album" : "song";
+                    if (source.Config.Extraction.UpgradeToAlbum) unit = "album";
+                    if (source.Config.Search.IsAggregate) unit = "job";
+                }
+                return new(Detail: label, UseResultName: true,
+                    PreviewTitle: label, PreviewDetail: source.Input,
+                    CollectionLabel: label, CollectionItemName: unit);
+            }
+            if (item is JobList list) return new(Detail: label, PreviewDetail: $"{list.Count} jobs");
+            if (item.ItemNumber <= 0) return null;
+            if (item is SongJob) return new(Detail: $"Spotify · track {item.ItemNumber}",
+                PreviewDetail: kind == SourceKind.LikedSongs ? $"Liked song {item.ItemNumber}"
+                    : kind == SourceKind.Playlist ? $"Track {item.ItemNumber}" : $"Spotify · track {item.ItemNumber}");
+            if (item is AlbumJob && kind == SourceKind.LikedAlbums)
+                return new(Detail: $"Spotify · album {item.ItemNumber}", PreviewDetail: $"Liked album {item.ItemNumber}");
+            return null;
+        }
+
         private readonly SpotifySettings _spotify;
         private Spotify? spotifyClient;
         public string playlistUri = "";
@@ -18,8 +59,27 @@ namespace Sockseek.Core.Extractors;
 
         public static bool InputMatches(string input)
         {
-            input = input.ToLower();
-            return input == "spotify-likes" || input == "spotify-albums" || input.IsInternetUrl() && input.Contains("spotify.com");
+            return input.Equals("spotify-likes", StringComparison.OrdinalIgnoreCase)
+                || input.Equals("spotify-albums", StringComparison.OrdinalIgnoreCase)
+                || input.IsInternetUrl() && input.Contains("spotify.com", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Collection identity is independent of its editable name.
+        private static SourceKind? ClassifyInput(string input)
+        {
+            if (input.Equals("spotify-likes", StringComparison.OrdinalIgnoreCase)) return SourceKind.LikedSongs;
+            if (input.Equals("spotify-albums", StringComparison.OrdinalIgnoreCase)) return SourceKind.LikedAlbums;
+            string path;
+            if (Uri.TryCreate(input, UriKind.Absolute, out var uri)) path = uri.AbsolutePath;
+            else
+            {
+                int suffix = input.AsSpan().IndexOfAny('?', '#');
+                path = suffix < 0 ? input : input[..suffix];
+            }
+            // Query/fragment text is not the resource being extracted.
+            return path.Contains("/album/", StringComparison.Ordinal) ? SourceKind.Album
+                : path.Contains("/artist/", StringComparison.Ordinal) ? SourceKind.Artist
+                : path.Contains("/playlist/", StringComparison.Ordinal) ? SourceKind.Playlist : null;
         }
 
         public async Task<Job> GetTracks(string input, ExtractionSettings extraction, ExtractorContext? context = null)
@@ -32,7 +92,9 @@ namespace Sockseek.Core.Extractors;
             int max = reverse ? int.MaxValue : maxTracks;
             int off = reverse ? 0 : offset;
 
-            bool needLogin = input == "spotify-likes" || input == "spotify-albums" || extraction.RemoveTracksFromSource;
+            SourceKind? sourceKind = ClassifyInput(input);
+            bool needLogin = sourceKind is SourceKind.LikedSongs or SourceKind.LikedAlbums
+                || extraction.RemoveTracksFromSource;
 
             if (string.IsNullOrEmpty(_spotify.ClientId) || string.IsNullOrEmpty(_spotify.ClientSecret))
                 throw new Exception("Spotify client ID and secret are required. Create a Spotify developer app and pass --spotify-id and --spotify-secret.");
@@ -49,15 +111,15 @@ namespace Sockseek.Core.Extractors;
 
             Job result;
 
-            if (input == "spotify-likes")
+            if (sourceKind == SourceKind.LikedSongs)
             {
                 context.Log.Info("Loading likes..");
                 var songs = await spotifyClient.GetLikes(max, off);
                 var slj   = new JobList { ItemName = "Spotify Likes", EnablesIndexByDefault = true };
-                foreach (var s in songs) slj.Jobs.Add(s);
+                foreach (var s in songs) slj.Add(s);
                 result = slj;
             }
-            else if (input == "spotify-albums")
+            else if (sourceKind == SourceKind.LikedAlbums)
             {
                 context.Log.Info("Loading liked albums..");
                 var albumList = await spotifyClient.GetAlbums(max, off);
@@ -65,12 +127,12 @@ namespace Sockseek.Core.Extractors;
                 albumList.EnablesIndexByDefault = true;
                 result = albumList;
             }
-            else if (input.Contains("/album/"))
+            else if (sourceKind == SourceKind.Album)
             {
                 context.Log.Info("Loading album..");
                 result = await spotifyClient.GetAlbumJob(input, extraction);
             }
-            else if (input.Contains("/artist/"))
+            else if (sourceKind == SourceKind.Artist)
             {
                 throw new Exception("Spotify artist download currently not supported.");
             }
@@ -108,20 +170,20 @@ namespace Sockseek.Core.Extractors;
                 }
 
                 var slj = new JobList { ItemName = playlistName, EnablesIndexByDefault = true };
-                foreach (var s in songs) slj.Jobs.Add(s);
+                foreach (var s in songs) slj.Add(s);
                 result = slj;
             }
 
             if (reverse && result is JobList jl)
             {
-                jl.Jobs.Reverse();
+                jl.ReverseMembers();
                 if (jl.Jobs.Count > offset)
-                    jl.Jobs.RemoveRange(0, offset);
+                    jl.RemoveRange(0, offset);
                 else
-                    jl.Jobs.Clear();
+                    jl.Clear();
 
                 if (jl.Jobs.Count > maxTracks)
-                    jl.Jobs.RemoveRange(maxTracks, jl.Jobs.Count - maxTracks);
+                    jl.RemoveRange(maxTracks, jl.Jobs.Count - maxTracks);
             }
 
             return result;
@@ -484,7 +546,7 @@ namespace Sockseek.Core.Extractors;
                         EnablesIndexByDefault = true,
                         ExtractorFolderCond = new FolderConditionPatch { MinTrackCount = album.TotalTracks },
                     };
-                    queue.Jobs.Add(job);
+                    queue.Add(job);
                 }
 
                 if (items.Count < limit || queue.Jobs.Count >= max) break;

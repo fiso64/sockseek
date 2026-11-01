@@ -2,35 +2,32 @@
   import {
     createEmptySearchConditions,
     createEmptySearchRanking,
-    type PrototypeSearchConditions,
-  } from '../prototype/search-config';
+    type SearchConditions,
+  } from '../domains/search/config-state';
   import {
     SEARCH_BIT_DEPTHS as bitDepths,
     SEARCH_GENERIC_FORMATS as genericFormats,
     SEARCH_SAMPLE_RATES as sampleRates,
     searchConfigLabel,
     type SearchConfigTab as ConfigTab,
-  } from '../prototype/search-config-schema';
-  import type { SearchModeFamily, SearchResultMode } from '../prototype/search';
-  import { isAggregateSearchMode, searchModeFamily } from '../prototype/search';
-  import DownloadOptionsPanel from './DownloadOptionsPanel.svelte';
-  import { createPrototypeDownloadOptions, type DownloadOptionCapabilities, type PrototypeDownloadOptions } from '../prototype/download-options';
+  } from '../domains/search/config-schema';
+  import type { SearchModeFamily, SearchResultMode } from '../domains/search/model';
+  import { isAggregateSearchMode, searchModeFamily } from '../domains/search/model';
   import SearchFormatControl from './SearchFormatControl.svelte';
 
 
-  type PanelTab = ConfigTab | 'download';
+  type PanelTab = ConfigTab;
 
   interface Props {
     mode: SearchResultMode;
-    conditions: PrototypeSearchConditions;
+    conditions: SearchConditions;
     title?: string;
     initialTab?: PanelTab;
     section?: PanelTab;
     embedded?: boolean;
     onclose?: () => void;
     configurationFamily?: SearchModeFamily | 'mixed';
-    downloadOptions?: PrototypeDownloadOptions;
-    downloadCapabilities?: DownloadOptionCapabilities;
+    expectedLengthEditable?: boolean;
   }
 
   let {
@@ -42,14 +39,12 @@
     embedded = false,
     onclose,
     configurationFamily,
-    downloadOptions = $bindable(),
-    downloadCapabilities,
+    expectedLengthEditable = true,
   }: Props = $props();
 
   let family = $derived(configurationFamily ?? searchModeFamily(mode));
   let genericMode = $derived(family === 'generic');
   let aggregateMode = $derived(isAggregateSearchMode(mode));
-  let hasDownloadTab = $derived(Boolean(downloadOptions && downloadCapabilities));
   let activeTab = $state<PanelTab>('conditions');
   $effect(() => { activeTab = section ?? initialTab; });
   let requiredTrackTitle = $state('');
@@ -62,8 +57,6 @@
       requiredTrackTitle = '';
     } else if (activeTab === 'ranking') {
       conditions.ranking = createEmptySearchRanking();
-    } else if (downloadOptions) {
-      Object.assign(downloadOptions, createPrototypeDownloadOptions());
     }
   }
 
@@ -85,9 +78,6 @@
     <nav class="search-config-tabs" aria-label="Search configuration sections">
       <button type="button" class:active={activeTab === 'conditions'} aria-current={activeTab === 'conditions' ? 'page' : undefined} onclick={() => (activeTab = 'conditions')}>Filtering</button>
       <button type="button" class:active={activeTab === 'ranking'} aria-current={activeTab === 'ranking' ? 'page' : undefined} onclick={() => (activeTab = 'ranking')}>Ranking</button>
-      {#if hasDownloadTab}
-        <button type="button" class:active={activeTab === 'download'} aria-current={activeTab === 'download' ? 'page' : undefined} onclick={() => (activeTab = 'download')}>Download</button>
-      {/if}
     </nav>
     {#if onclose}
       <button type="button" class="search-config-close" aria-label="Close search configuration" onclick={onclose}>×</button>
@@ -173,7 +163,7 @@
               <div class="config-grid config-grid-spaced">
                 <label>
                   <span>Expected length <small>sec</small></span>
-                  <input type="number" min="0" bind:value={conditions.track.expectedLength} placeholder="Any" />
+                  <input type="number" min="0" bind:value={conditions.track.expectedLength} placeholder="Any" disabled={!expectedLengthEditable} title={!expectedLengthEditable ? 'Expected length is determined per extracted song.' : undefined} />
                 </label>
                 <label>
                   <span>{searchConfigLabel('lengthTolerance', 'conditions')} <small>sec</small></span>
@@ -330,10 +320,8 @@
       </div>
     </div>
   </div>
-{:else if downloadOptions && downloadCapabilities}
-  <DownloadOptionsPanel bind:value={downloadOptions} capabilities={downloadCapabilities} separators={!embedded} />
 {/if}
 
 <footer class:embedded class="search-config-footer">
-  <button type="button" onclick={clearActiveTab}>{activeTab === 'conditions' ? 'Clear filtering' : activeTab === 'ranking' ? 'Clear ranking' : 'Reset download options'}</button>
+  <button type="button" onclick={clearActiveTab}>{activeTab === 'conditions' ? 'Clear filtering' : 'Clear ranking'}</button>
 </footer>

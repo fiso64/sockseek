@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
 using Sockseek.Persistence.Planning;
+using Sockseek.Api;
 
 namespace Sockseek.Server.Planning;
 
@@ -22,19 +23,22 @@ public sealed class SearchViewCursorCodec
     public string EncodeFiles(
         Guid viewId,
         long revision,
-        SearchViewFilePosition position)
+        SearchViewFilePosition position,
+        ServerSearchViewSortOrder? sortOrder = null)
         => Encode(new CursorPayload(
-            1, "files", viewId, revision, position, null, null, null));
+            1, "files", viewId, revision, position, null, null, null) { SortOrder = sortOrder });
 
     public SearchViewFilePosition DecodeFiles(
         string cursor,
         Guid viewId,
-        long revision)
+        long revision,
+        ServerSearchViewSortOrder? sortOrder = null)
     {
         CursorPayload payload = Decode(cursor);
         if (payload.Kind != "files"
             || payload.ViewId != viewId
             || payload.Revision != revision
+            || payload.SortOrder != sortOrder
             || payload.FilePosition == null)
             throw Invalid();
         return payload.FilePosition;
@@ -43,19 +47,22 @@ public sealed class SearchViewCursorCodec
     public string EncodeDirectories(
         Guid viewId,
         long revision,
-        SearchViewDirectoryPosition position)
+        SearchViewDirectoryPosition position,
+        ServerSearchViewSortOrder? sortOrder = null)
         => Encode(new CursorPayload(
-            1, "directories", viewId, revision, null, position, null, null));
+            1, "directories", viewId, revision, null, position, null, null) { SortOrder = sortOrder });
 
     public SearchViewDirectoryPosition DecodeDirectories(
         string cursor,
         Guid viewId,
-        long revision)
+        long revision,
+        ServerSearchViewSortOrder? sortOrder = null)
     {
         CursorPayload payload = Decode(cursor);
         if (payload.Kind != "directories"
             || payload.ViewId != viewId
             || payload.Revision != revision
+            || payload.SortOrder != sortOrder
             || payload.DirectoryPosition == null)
             throw Invalid();
         return payload.DirectoryPosition;
@@ -249,6 +256,7 @@ public sealed class SearchViewCursorCodec
         SearchViewDirectoryFilePosition? DirectoryFilePosition,
         string? ParentRef)
     {
+        public ServerSearchViewSortOrder? SortOrder { get; init; }
         public SearchViewAggregateTrackPosition? AggregateTrackPosition { get; init; }
         public SearchViewAggregateAlbumPosition? AggregateAlbumPosition { get; init; }
     }

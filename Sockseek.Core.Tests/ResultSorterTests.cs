@@ -62,7 +62,8 @@ namespace Tests.ResultSorterTests
                 inferredTrackCount,
                 uploadSpeedMedium,
                 bitRate,
-                randomTiebreaker);
+                randomTiebreaker,
+                new SearchConditionFacts(necessaryConditionsMet, fileSatisfies));
 
         [TestMethod]
         public void CompareTo_NecessaryConditions_TrumpLowerCriteria()
@@ -431,11 +432,26 @@ namespace Tests.ResultSorterTests
             var config = TestHelpers.CreateDefaultSettings().Download;
             var counts = new ConcurrentDictionary<string, int>();
             var track = TestHelpers.CreateQuery(artist: "AC/DC", title: "Highway to Hell");
+            config.Search.PreferredCond.StrictArtist = true;
 
             var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
 
             Assert.AreEqual(2, ordered.Count);
             Assert.AreEqual("artist-match", ordered[0].response.Username);
+            SearchProjectionInput[] inputs = results.Select((pair, index) => new SearchProjectionInput(
+                index + 1, 1, pair.Item1.Username, 1, pair.Item2.Filename, pair.Item2.Size,
+                pair.Item2.BitRate, pair.Item2.BitDepth, pair.Item2.SampleRate, pair.Item2.Length,
+                pair.Item2.Extension, pair.Item1.UploadSpeed, pair.Item1.HasFreeUploadSlot,
+                null, DateTimeOffset.UnixEpoch)).ToArray();
+            CollectionAssert.AreEqual(ordered.Select(pair => pair.response.Username).ToArray(),
+                ResultSorter.OrderedInputs(inputs, track, config.Search, counts)
+                    .Select(input => input.Username).ToArray());
+            var incremental = new IncrementalResultSorter(track, config.Search, counts);
+            var projected = incremental.AddRangeAndGetProjected(inputs);
+            Assert.IsTrue(projected.Single(row => row.Input.Username == "artist-match")
+                .ConditionFacts.SatisfiedPreferredConditions!.Contains(SearchPreferenceCondition.Artist));
+            Assert.IsTrue(projected.Single(row => row.Input.Username == "fuzzy-artist")
+                .ConditionFacts.UnsatisfiedPreferredConditions.Contains(SearchPreferenceCondition.Artist));
         }
 
         // Matching the requested album is more important than matching a preferred quality.
@@ -536,6 +552,90 @@ namespace Tests.ResultSorterTests
             CollectionAssert.AreEqual(
                 expected.Select(x => x.response.Username + "\\" + x.file.Filename).ToList(),
                 actual.Select(x => x.Response.Username + "\\" + x.File.Filename).ToList());
+        }
+
+        [TestMethod]
+        [TestCategory("Load")]
+        public void IncrementalResultSorter_CollectsTenThousandSingleArrivalsWithoutCopyingTheirPrefixes()
+        {
+            var results = Enumerable.Range(0, 10_000).Select(i =>
+            {
+                var file = TestHelpers.CreateSlFile($@"Music\Artist - Track {i:D5}.mp3",
+                    bitrate: i % 3 == 0 ? 192 : 320, length: 180 + i % 10);
+                return (Response: CreateResponse($"user-{i}", uploadSpeed: (100 + i % 100) * 1024, files: file), File: file);
+            }).ToArray();
+            var settings = TestHelpers.CreateDefaultSettings().Download.Search;
+            var counts = new ConcurrentDictionary<string, int>();
+            var query = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
+            var expected = ResultSorter.OrderedResults(results, query, settings, counts)
+                .Select(item => item.response.Username + "\\" + item.file.Filename).ToArray();
+            var sorter = new IncrementalResultSorter(query, settings, counts);
+
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            foreach (var result in results.Take(500)) sorter.AddRange([result]);
+            var prefix = sorter.Snapshot();
+            var prefixNames = prefix.Select(item => item.File.Filename).ToArray();
+            foreach (var result in results.Skip(500)) sorter.AddRange([result]);
+            var final = sorter.Snapshot();
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+            Assert.AreEqual(results.Length, sorter.Count);
+            CollectionAssert.AreEqual(expected,
+                final.Select(item => item.Response.Username + "\\" + item.File.Filename).ToArray());
+            CollectionAssert.AreEqual(prefixNames, prefix.Select(item => item.File.Filename).ToArray());
+            Assert.IsLessThan(100_000_000L, allocated,
+                $"Single arrivals allocated {allocated:N0} bytes; collection must not repeatedly copy the ordered prefix.");
+
+            sorter.Clear();
+            sorter.AddRange([results[^1]]);
+            Assert.AreEqual(1, sorter.Count);
+            Assert.AreEqual(results[^1].File.Filename, sorter.Snapshot().Single().File.Filename);
+        }
+
+        [TestMethod]
+        [DataRow(true)]
+        [DataRow(false)]
+        public void IncrementalResultSorter_SingleAndBatchAdmissionPreserveConditionsAndOrdering(bool retain)
+        {
+            var settings = TestHelpers.CreateDefaultSettings().Download.Search;
+            settings.NecessaryCond.MinBitrate = 192;
+            var counts = new ConcurrentDictionary<string, int>();
+            counts["ignored"] = settings.IgnoreOn;
+            var query = new SongQuery { Artist = "Artist", Title = "Track", Length = 180 };
+            SearchProjectionInput Input(long sequence, string user, string path, int bitrate = 320,
+                SearchResultVisibility visibility = SearchResultVisibility.Public) => new(
+                    sequence, 1, user, 10, path, 1000, bitrate, null, null, 180, ".mp3",
+                    1000, true, null, DateTimeOffset.UnixEpoch, Visibility: visibility);
+            SearchProjectionInput[] inputs =
+            [
+                Input(1, "good", @"Music\Artist - Track.mp3"),
+                Input(2, "good", @"Music\Artist - Track.mp3"),
+                Input(3, "ignored", @"Music\Artist - Track.mp3"),
+                Input(4, "good", @"Other\Artist - Track.mp3", 128),
+                Input(5, "good", @"Music\Artist - Track.mp3", visibility: SearchResultVisibility.Locked),
+                Input(6, "other", @"Music\Artist - Track.mp3", 256),
+            ];
+            var batch = new IncrementalResultSorter(query, settings, counts,
+                requireFileSatisfies: true, retainProjectedRows: retain);
+            var single = new IncrementalResultSorter(query, settings, counts,
+                requireFileSatisfies: true, retainProjectedRows: retain);
+            var expected = batch.AddRangeAndGetProjected(inputs);
+            var actual = inputs.Select(single.Add).OfType<ProjectedFileCandidate>().ToArray();
+            CollectionAssert.AreEqual(new long[] { 1, 5, 6 }, actual.Select(row => row.Input.Sequence).ToArray());
+            Assert.AreEqual(expected.Count, actual.Length);
+            for (int i = 0; i < actual.Length; i++)
+            {
+                Assert.AreEqual(expected[i].SortKey, actual[i].SortKey);
+                Assert.AreEqual(expected[i].ConditionFacts.PreferenceTier, actual[i].ConditionFacts.PreferenceTier);
+                CollectionAssert.AreEqual(expected[i].ConditionFacts.SatisfiedPreferredConditions!.ToArray(),
+                    actual[i].ConditionFacts.SatisfiedPreferredConditions!.ToArray());
+                CollectionAssert.AreEqual(expected[i].ConditionFacts.ConfiguredPreferredConditions!.ToArray(),
+                    actual[i].ConditionFacts.ConfiguredPreferredConditions!.ToArray());
+            }
+            Assert.AreEqual(retain ? 3 : 0, single.Count);
+            if (retain)
+                CollectionAssert.AreEqual(batch.SnapshotInputs().Select(row => row.Sequence).ToArray(),
+                    single.SnapshotInputs().Select(row => row.Sequence).ToArray());
         }
 
         [TestMethod]

@@ -39,7 +39,8 @@ public sealed record SubmissionDetailDto(
 
 public sealed record SetSubmissionArchivedRequestDto(bool Archived = true);
 
-public sealed record SubmissionReasonCountDto(string Reason, long Count);
+/// <summary>A counted reason, with an optional explanation for this group of entries.</summary>
+public sealed record SubmissionReasonCountDto(string Reason, long Count, string? Message = null);
 
 public sealed record SubmissionArchiveResponseDto(
     Guid SubmissionId,

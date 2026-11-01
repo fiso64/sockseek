@@ -23,6 +23,8 @@ internal static class JobInfoPrinter
 
         Printing.WriteLine(status.Label, status.Color, force: true);
         PrintSplitState(s);
+        if (!string.IsNullOrEmpty(s.SourceDetail))
+            Field("Source", s.SourceDetail);
 
         switch (detail.Payload)
         {
@@ -139,7 +141,7 @@ internal static class JobInfoPrinter
         var queryText = FormatSongQuery(p.Query);
         if (queryText != null) Field("Query", queryText);
 
-        Field("Songs", $"{p.SongCount} total  •  {p.CompletedSongCount} completed  •  {p.SucceededSongCount} ok  •  {p.FailedSongCount} failed");
+        Field("Songs", $"{p.SongCount} total  •  {CountOrUnknown(p.CompletedSongCount)} completed  •  {CountOrUnknown(p.SucceededSongCount)} ok  •  {CountOrUnknown(p.FailedSongCount)} failed");
 
         if (children.Count > 0)
         {
@@ -167,7 +169,7 @@ internal static class JobInfoPrinter
 
     private static void PrintJobList(JobListPayloadDto p, IReadOnlyList<JobSummaryDto> children)
     {
-        Field("Jobs", $"{p.Count} total  •  {p.ActiveJobCount} active  •  {p.SucceededJobCount} ok  •  {p.FailedJobCount} failed");
+        Field("Jobs", $"{p.Count} total  •  {CountOrUnknown(p.ActiveJobCount)} active  •  {CountOrUnknown(p.SucceededJobCount)} ok  •  {CountOrUnknown(p.FailedJobCount)} failed");
 
         if (children.Count > 0)
         {
@@ -260,6 +262,9 @@ internal static class JobInfoPrinter
         Printing.WriteLine(value, valueColor, force: true);
     }
 
+    private static string CountOrUnknown(int? count)
+        => count?.ToString() ?? "unknown";
+
     private static string? FormatSongQuery(SongQueryDto? q)
     {
         if (q == null) return null;
@@ -289,6 +294,7 @@ internal static class JobInfoPrinter
         {
             foreach (var a in attrs)
             {
+                if (a.Value < 0) continue;
                 var formatted = a.Type switch
                 {
                     "BitRate"    => $"{a.Value} kbps",
@@ -301,9 +307,9 @@ internal static class JobInfoPrinter
             }
         }
 
-        if (sampleRate is int sr && !parts.Exists(p => p.EndsWith("Hz")))
+        if (sampleRate is int sr && sr >= 0 && !parts.Exists(p => p.EndsWith("Hz")))
             parts.Add($"{sr} Hz");
-        if (bitDepth is int bd && !parts.Exists(p => p.EndsWith("-bit")))
+        if (bitDepth is int bd && bd >= 0 && !parts.Exists(p => p.EndsWith("-bit")))
             parts.Add($"{bd}-bit");
 
         return parts.Count > 0 ? string.Join(" · ", parts) : null;

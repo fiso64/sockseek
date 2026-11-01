@@ -19,6 +19,7 @@ public sealed record StoredPeerRestrictionOverride(
 public sealed class PeerRestrictionOverrideStore(
     IDbContextFactory<SockseekDbContext> contextFactory,
     PersistenceHealth health,
+    PersistenceInbox writes,
     TimeProvider? timeProvider = null)
 {
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
@@ -46,16 +47,14 @@ public sealed class PeerRestrictionOverrideStore(
         string username,
         PeerUsernameRestrictionOverride? value,
         CancellationToken cancellationToken = default)
-        => await ObserveAsync(async () =>
+        => await writes.ExecuteAsync(async (context, ct) =>
         {
-            await using SockseekDbContext context = await contextFactory
-                .CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
             string kindValue = Kind(kind);
             PeerRestrictionOverrideEntity? row = await context.PeerRestrictionOverrides
                 .SingleOrDefaultAsync(
                     candidate => candidate.RestrictionKind == kindValue
                                  && candidate.Username == username,
-                    cancellationToken).ConfigureAwait(false);
+                    ct).ConfigureAwait(false);
             if (value is null)
             {
                 if (row is not null)
@@ -76,27 +75,14 @@ public sealed class PeerRestrictionOverrideStore(
                 row.OverrideState = Override(value.Value);
                 row.UpdatedAtUtc = clock.GetUtcNow().ToUnixTimeMilliseconds();
             }
-            await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        }).ConfigureAwait(false);
+            return true;
+        }, cancellationToken).ConfigureAwait(false);
 
     private async Task<TResult> ObserveAsync<TResult>(Func<Task<TResult>> operation)
     {
         try
         {
             return await operation().ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            health.RecordOperationalFailure(clock.GetUtcNow(), exception);
-            throw;
-        }
-    }
-
-    private async Task ObserveAsync(Func<Task> operation)
-    {
-        try
-        {
-            await operation().ConfigureAwait(false);
         }
         catch (Exception exception)
         {

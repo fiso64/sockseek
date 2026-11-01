@@ -7,8 +7,6 @@ namespace Sockseek.Core.Chat;
 public static class ChatLimits
 {
     public const int MaximumFailureReasonLength = 2_048;
-    public const int MaximumPageSize = 200;
-    public const int DefaultPageSize = 100;
     public const int MaximumDesiredRooms = 100;
     public const int MaximumRoomMembers = 20_000;
     public const int MaximumRoomOperators = 1_000;
@@ -184,8 +182,8 @@ public static class ChatIdentity
 
     public static int ValidatePageSize(int value)
     {
-        if (value is < 1 or > ChatLimits.MaximumPageSize)
-            throw new ArgumentOutOfRangeException(nameof(value), $"Page size must be between 1 and {ChatLimits.MaximumPageSize}.");
+        if (value < 1)
+            throw new ArgumentOutOfRangeException(nameof(value), "Page size must be positive.");
         return value;
     }
 

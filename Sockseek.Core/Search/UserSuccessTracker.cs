@@ -4,7 +4,7 @@ namespace Sockseek.Core.Services;
 
 public interface IUserSuccessStats
 {
-    ConcurrentDictionary<string, int> UserSuccessCounts { get; }
+    ConcurrentDictionary<string, int> GetCounts(Guid workflowId);
 }
 
 // TODO [V4]: Define the ownership, lifetime, persistence/decay, and ranking
@@ -13,8 +13,23 @@ public interface IUserSuccessStats
 // them to a shared or durable reputation resource until those semantics exist.
 public sealed class UserSuccessTracker : IUserSuccessStats
 {
-    public ConcurrentDictionary<string, int> UserSuccessCounts { get; } = new();
+    private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, int>> workflows = new();
 
-    public void RecordSuccess(string username)
-        => UserSuccessCounts.AddOrUpdate(username, 1, (_, count) => count + 1);
+    internal void StartWorkflow(Guid workflowId)
+        => workflows.GetOrAdd(workflowId, static _ => new(StringComparer.Ordinal));
+
+    public ConcurrentDictionary<string, int> GetCounts(Guid workflowId)
+        => workflows.TryGetValue(workflowId, out var counts)
+            ? counts : new(StringComparer.Ordinal);
+
+    public void RecordSuccess(Guid workflowId, string username)
+        => workflows.GetOrAdd(workflowId, static _ => new(StringComparer.Ordinal))
+            .AddOrUpdate(username, 1, static (_, count) => count + 1);
+
+    public void RecordFailure(Guid workflowId, string username)
+        => workflows.GetOrAdd(workflowId, static _ => new(StringComparer.Ordinal))
+            .AddOrUpdate(username, -1, static (_, count) => count - 1);
+
+    internal void RetireWorkflow(Guid workflowId) => workflows.TryRemove(workflowId, out _);
+    internal void Clear() => workflows.Clear();
 }

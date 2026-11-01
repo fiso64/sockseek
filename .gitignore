@@ -368,3 +368,4 @@ install.bat
 .codex
 .tools/
 **/launchSettings.json
+docs/temp/**

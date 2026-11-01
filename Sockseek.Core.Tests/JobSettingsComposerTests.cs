@@ -1,11 +1,83 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Collections.Concurrent;
+using Sockseek.Core.Planning;
+using Sockseek.Core.Snapshots;
 
 namespace Tests;
 
 [TestClass]
 public sealed class JobSettingsComposerTests
 {
+    [TestMethod]
+    public void CommandFactsComposeEverySemanticModeWithoutAnExecutionObject()
+    {
+        foreach (var (kind, mode, projection) in new[]
+        {
+            (JobSnapshotKind.Song, "song", (SearchDefaultProjectionKind?)null),
+            (JobSnapshotKind.Album, "album", null),
+            (JobSnapshotKind.Aggregate, "aggregate", null),
+            (JobSnapshotKind.AlbumAggregate, "album-aggregate", null),
+            (JobSnapshotKind.RemoteFile, "generic-file", null),
+            (JobSnapshotKind.RemoteDirectory, "generic-directory", null),
+            (JobSnapshotKind.Search, "song", SearchDefaultProjectionKind.Track),
+            (JobSnapshotKind.Search, "album", SearchDefaultProjectionKind.Album),
+        })
+        {
+            var command = new NormalizedJobCommand
+            {
+                Kind = kind, SourceInputType = InputType.CSV,
+                SongQuery = projection == SearchDefaultProjectionKind.Track
+                    ? new("Artist", "Track", "", "", -1, false) : null,
+                AlbumQuery = projection == SearchDefaultProjectionKind.Album
+                    ? new("Artist", "Album", "", "", false) : null,
+            };
+            var profile = Profile("matching", value => value.Transfer.MaxStaleTime = 4321,
+                $"input-type == \"csv\" && download-mode == \"{mode}\"");
+            var composer = new JobSettingsComposer(null, new ProfileCatalog { AutoProfiles = [profile] });
+            JobSettingsCompositionResult result = composer.ComposeDetailed(
+                new DownloadSettings(), JobSettingsContext.FromCommand(command, Guid.Empty));
+
+            Assert.AreEqual(4321, result.Settings.Transfer.MaxStaleTime, mode);
+            CollectionAssert.AreEqual(new[] { "matching" }, result.Settings.AppliedAutoProfiles.ToArray(), mode);
+            Assert.AreEqual(kind is JobSnapshotKind.RemoteFile or JobSnapshotKind.RemoteDirectory
+                ? SearchSettingsBaselineKind.Generic : SearchSettingsBaselineKind.Music, result.Baseline, mode);
+        }
+    }
+
+    [TestMethod]
+    public void CapturedSettingsFactsDoNotFollowLaterRuntimeMutations()
+    {
+        var extract = new ExtractJob("Artist - Track", InputType.String)
+        {
+            RequestedModeOverride = ExtractionMode.Song,
+        };
+        JobSettingsContext captured = extract;
+        extract.InputType = InputType.List;
+        extract.RequestedModeOverride = ExtractionMode.Album;
+        var profile = Profile("original", value => value.Transfer.MaxStaleTime = 4321,
+            "input-type == \"string\" && download-mode == \"song\"");
+        var composer = new JobSettingsComposer(null, new ProfileCatalog { AutoProfiles = [profile] });
+
+        Assert.AreEqual(4321, composer.Compose(new DownloadSettings(), captured).Transfer.MaxStaleTime);
+        Assert.IsFalse(composer.Compose(new DownloadSettings(), extract).AppliedAutoProfiles.Contains("original"));
+    }
+
+    [TestMethod]
+    public void AggregateProjectionCapabilityDoesNotInventADefaultSearchMode()
+    {
+        var search = new SearchJob("query")
+        {
+            DefaultAggregateAlbumProjection = new(new AlbumQuery { Artist = "Artist", Album = "Album" }),
+        };
+        var profile = Profile("album", value => value.Transfer.MaxStaleTime = 4321,
+            "download-mode == \"album\"");
+        var composer = new JobSettingsComposer(null, new ProfileCatalog { AutoProfiles = [profile] });
+        JobSettingsCompositionResult result = composer.ComposeDetailed(new DownloadSettings(), search);
+
+        Assert.AreEqual(SearchSettingsBaselineKind.Music, result.Baseline);
+        Assert.AreEqual(0, result.Settings.AppliedAutoProfiles.Count);
+    }
+
     [TestMethod]
     public void GenericSearchBaseline_HasNoImplicitMusicConditions()
     {
@@ -71,38 +143,45 @@ public sealed class JobSettingsComposerTests
     [TestMethod]
     public void Composition_UsesOneSharedPrecedenceAndRequestForAutoMatching()
     {
-        var defaultProfile = Profile("default", settings => settings.Transfer.MaxStaleTime = 1);
-        var autoProfile = Profile("aggregate-auto", settings => settings.Transfer.MaxStaleTime = 2,
-            condition: "aggregate");
-        var namedProfile = Profile("named", settings => settings.Transfer.MaxStaleTime = 3);
-        var launch = new DownloadSettingsPatch();
-        launch.Add(settings => settings.Transfer.MaxStaleTime = 4);
-        var request = new DownloadSettingsPatch();
-        request.Add(settings =>
+        foreach (bool matches in new[] { false, true })
         {
-            settings.Search.IsAggregate = true;
-            settings.Transfer.MaxStaleTime = 5;
-        });
-        var catalog = new ProfileCatalog
-        {
-            DefaultProfile = defaultProfile,
-            AutoProfiles = [autoProfile],
-            NamedProfiles = [namedProfile],
-        };
-        var composer = new JobSettingsComposer(
-            null,
-            catalog,
-            launchNamedProfiles: [namedProfile],
-            launchDownload: launch);
+            var defaultProfile = Profile("default", settings => settings.Transfer.MaxStaleTime = 1);
+            var autoProfile = Profile("aggregate-auto", settings => settings.Transfer.MaxStaleTime = 2,
+                condition: "aggregate");
+            var namedProfile = Profile("named", settings => settings.Transfer.MaxStaleTime = 3);
+            var launch = new DownloadSettingsPatch();
+            launch.Add(settings => settings.Transfer.MaxStaleTime = 4);
+            var request = new DownloadSettingsPatch();
+            request.Add(settings =>
+            {
+                settings.Search.IsAggregate = matches;
+                settings.Transfer.MaxStaleTime = 5;
+            });
+            var catalog = new ProfileCatalog
+            {
+                DefaultProfile = defaultProfile,
+                AutoProfiles = [autoProfile],
+                NamedProfiles = [namedProfile],
+            };
+            var composer = new JobSettingsComposer(
+                null,
+                catalog,
+                launchNamedProfiles: [namedProfile],
+                launchDownload: launch);
 
-        DownloadSettings settings = composer.Compose(
-            new DownloadSettings(),
-            new SongJob(new SongQuery { Artist = "Artist", Title = "Track" }),
-            request: new JobSettingsRequestLayers(Download: request));
+            var job = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" });
+            var layers = new JobSettingsRequestLayers(Download: request);
+            DownloadSettings settings = composer.Compose(new DownloadSettings(), job, request: layers);
+            JobSettingsCompositionResult detailed = composer.ComposeDetailed(new DownloadSettings(), job, request: layers);
+            Assert.AreEqual("request", detailed.Provenance["Transfer.MaxStaleTime"]);
+            Assert.AreEqual(SubmissionSpecification.CreateShallow(job, settings).EffectiveSettingsJson,
+                SubmissionSpecification.CreateShallow(job, detailed.Settings).EffectiveSettingsJson,
+                "Ordinary and detailed composition must resolve the same complete settings, even when no auto-profile matches.");
 
-        CollectionAssert.AreEqual(new[] { "aggregate-auto" }, settings.AppliedAutoProfiles.ToArray());
-        Assert.IsTrue(settings.Search.IsAggregate);
-        Assert.AreEqual(5, settings.Transfer.MaxStaleTime);
+            CollectionAssert.AreEqual(matches ? new[] { "aggregate-auto" } : [], settings.AppliedAutoProfiles.ToArray());
+            Assert.AreEqual(matches, settings.Search.IsAggregate);
+            Assert.AreEqual(5, settings.Transfer.MaxStaleTime);
+        }
     }
 
     [TestMethod]

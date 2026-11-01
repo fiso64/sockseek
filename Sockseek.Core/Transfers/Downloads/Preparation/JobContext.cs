@@ -1,11 +1,12 @@
-using Sockseek.Core.Services;
+using Sockseek.Core.Jobs;
 
 namespace Sockseek.Core.Services;
 
 public class JobContext
 {
-    public M3uEditor?     PlaylistEditor        { get; set; }
-    public M3uEditor?     IndexEditor           { get; set; }
+    internal JobList?     PreparationOwner    { get; set; }
+    public DownloadOutputFile?     PlaylistEditor        { get; set; }
+    public DownloadOutputFile?     IndexEditor           { get; set; }
     public TrackSkipper?  OutputDirSkipper      { get; set; }
     public TrackSkipper?  MusicDirSkipper       { get; set; }
     public OutputScope    OutputScope           { get; set; } = OutputScope.Empty;

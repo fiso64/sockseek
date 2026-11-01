@@ -12,40 +12,36 @@ namespace Sockseek.Server;
 public sealed class EngineActivityDtoAdapter
 {
     private readonly EngineStateStore stateStore;
-    private readonly Func<JobSnapshot, JobSummaryDto> getSummary;
 
-    public EngineActivityDtoAdapter(
-        EngineStateStore stateStore,
-        Func<JobSnapshot, JobSummaryDto> getSummary)
+    public EngineActivityDtoAdapter(EngineStateStore stateStore)
     {
         this.stateStore = stateStore;
-        this.getSummary = getSummary;
     }
 
     public void Attach(DownloadEvents events, SearchEvents searchEvents)
     {
         events.JobStatus += change =>
         {
-            var summary = getSummary(change.Job);
+            var job = change.Job;
             stateStore.PublishActivity(
                 "job.status",
-                new JobStatusActivityDto(summary.DisplayId, change.Status),
-                summary.WorkflowId,
-                summary.JobId,
+                new JobStatusActivityDto(job.DisplayId, change.Status),
+                job.WorkflowId,
+                job.Id,
                 occurredAtUtc: change.OccurredAtUtc);
         };
         events.JobMessage += change =>
         {
-            var summary = getSummary(change.Job);
+            var job = change.Job;
             stateStore.PublishActivity(
                 "job.message",
                 new JobMessageActivityDto(
-                    summary.DisplayId,
+                    job.DisplayId,
                     change.Level.ToString(),
                     change.Source,
                     change.Message),
-                summary.WorkflowId,
-                summary.JobId,
+                job.WorkflowId,
+                job.Id,
                 occurredAtUtc: change.OccurredAtUtc);
         };
         events.WorkflowMessage += change => stateStore.PublishActivity(
@@ -58,11 +54,11 @@ public sealed class EngineActivityDtoAdapter
             occurredAtUtc: change.OccurredAtUtc);
         events.DownloadAttemptFailed += change =>
         {
-            var summary = getSummary(change.Song);
+            var job = change.Job;
             stateStore.PublishActivity(
                 "download.attempt-failed",
                 new DownloadAttemptFailedActivityDto(
-                    summary.DisplayId,
+                    job.DisplayId,
                     change.Target.Identity.Username,
                     change.Target.Identity.Filename,
                     change.OutputPath,
@@ -71,25 +67,25 @@ public sealed class EngineActivityDtoAdapter
                     change.Exception.Type,
                     change.Exception.Message,
                     change.Exception.Detail),
-                summary.WorkflowId,
-                summary.JobId,
+                job.WorkflowId,
+                job.Id,
                 change.TransferId,
                 change.OccurredAtUtc);
         };
         events.TrackBatchResolved += change =>
         {
-            var summary = getSummary(change.Owner);
+            var job = change.Owner;
             stateStore.PublishActivity(
                 "track-batch.resolved",
                 new TrackBatchResolvedActivityDto(
-                    summary.DisplayId,
+                    job.DisplayId,
                     change.Owner.Kind == JobSnapshotKind.JobList,
                     change.Owner.PrintOption.ToServer(),
                     change.Pending.Count,
                     change.Existing.Count,
                     change.NotFound.Count),
-                summary.WorkflowId,
-                summary.JobId,
+                job.WorkflowId,
+                job.Id,
                 occurredAtUtc: change.OccurredAtUtc);
         };
         events.JobStateChanged += OnJobStateChanged;
@@ -99,19 +95,19 @@ public sealed class EngineActivityDtoAdapter
 
     private void OnJobStateChanged(JobStateChangedChange change)
     {
-        var summary = getSummary(change.Job);
+        var job = change.Job;
         if (change.Job.Payload is ExtractJobSnapshotPayload extract
             && change.Job.ActivityPhase == JobActivityPhase.Extracting)
         {
             stateStore.PublishActivity(
                 "extraction.started",
                 new ExtractionStartedActivityDto(
-                    summary.DisplayId,
+                    job.DisplayId,
                     extract.Input,
                     extract.InputType,
                     extract.InputType),
-                summary.WorkflowId,
-                summary.JobId,
+                job.WorkflowId,
+                job.Id,
                 occurredAtUtc: change.OccurredAtUtc);
         }
 
@@ -124,7 +120,7 @@ public sealed class EngineActivityDtoAdapter
         stateStore.PublishActivity(
             "diagnostic.error",
             new DiagnosticActivityDto(
-                summary.DisplayId,
+                job.DisplayId,
                 "job",
                 change.Job.FailureMessage ?? "Job failed",
                 ExceptionType(change.Job.FailureDetail),
@@ -132,8 +128,8 @@ public sealed class EngineActivityDtoAdapter
                 change.Job.Payload is ExtractJobSnapshotPayload failedExtract
                     ? failedExtract.InputType
                     : null),
-            summary.WorkflowId,
-            summary.JobId,
+            job.WorkflowId,
+            job.Id,
             occurredAtUtc: change.OccurredAtUtc);
     }
 

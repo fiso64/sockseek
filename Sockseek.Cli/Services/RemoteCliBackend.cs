@@ -82,16 +82,14 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         Guid previewId,
         CancellationToken ct = default)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(100));
         while (true)
         {
-            JobPreviewSummaryDto preview = await api.GetJobPreviewAsync(previewId, ct)
+            JobPreviewSummaryDto preview = await api.GetJobPreviewAsync(previewId, ct, waitForCompletion: true)
                 .ConfigureAwait(false)
                 ?? throw new InvalidOperationException(
                     "The Job Preview disappeared before planning completed.");
             if (preview.State != JobPreviewState.Planning)
                 return preview;
-            await timer.WaitForNextTickAsync(ct).ConfigureAwait(false);
         }
     }
 
@@ -285,7 +283,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                 view.Revision,
                 cursor,
                 SearchViewPageSize,
-                ct).ConfigureAwait(false)
+                ct: ct).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("The Search View disappeared while paging file results.");
             revision ??= page.Revision;
             items.AddRange(page.Items.Select(CliSearchProjectionMapper.ToDto));
@@ -413,7 +411,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                 view.Revision,
                 cursor,
                 SearchViewPageSize,
-                ct).ConfigureAwait(false)
+                ct: ct).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("The Search View disappeared while paging directories.");
             revision ??= page.Revision;
             foreach (SearchViewDirectoryDto directory in page.Items)
@@ -431,18 +429,8 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
     {
         SearchViewSummaryDto view = await api.CreateSearchViewAsync(jobId, request, ct)
             .ConfigureAwait(false);
-        while (view.Revision == 0 || !view.IsComplete)
-        {
-            ct.ThrowIfCancellationRequested();
-            SearchViewUpdateDto update = await api.GetSearchViewUpdatesAsync(
-                view.ViewId,
-                view.Revision,
-                ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("The Search View disappeared before it became readable.");
-            view = update.Summary;
-            if (view.Revision == 0 || !view.IsComplete)
-                await Task.Delay(SearchViewRefreshInterval, ct).ConfigureAwait(false);
-        }
+        await foreach (SearchViewSummaryDto summary in live.ObserveSearchViewAsync(view.ViewId, ct).ConfigureAwait(false))
+            view = summary;
         return view;
     }
 
@@ -564,7 +552,6 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
             view.Counters);
 
     private const int SearchViewPageSize = 200;
-    private static readonly TimeSpan SearchViewRefreshInterval = TimeSpan.FromMilliseconds(100);
     private sealed record SearchViewDirectoryHandle(
         Guid ViewId,
         long Revision,
@@ -581,7 +568,8 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
             handle.ViewId,
             new RetrieveSearchViewDirectoryRequestDto(
                 handle.Revision,
-                handle.Directory),
+                handle.Directory,
+                Guid.NewGuid()),
             ct).ConfigureAwait(false);
     }
 

@@ -1,4 +1,7 @@
+using Microsoft.Data.Sqlite;
+using Sockseek.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
+using Sockseek.Persistence.Sqlite;
 using System.Text;
 using System.Text.Json;
 using Sockseek.Core.Snapshots;
@@ -31,7 +34,8 @@ public sealed record PersistedTransfer(
     TransferFileMetadataSnapshot? File = null,
     string? GroupRef = null,
     string? GroupDisplayPath = null,
-    DateTimeOffset? ArchivedAtUtc = null);
+    DateTimeOffset? ArchivedAtUtc = null,
+    string? GroupRelativePath = null);
 
 public sealed record PersistedTransferAttempt(
     Guid Id,
@@ -49,6 +53,8 @@ public sealed record PersistedTransferAttempt(
     long Revision);
 
 public sealed record PersistedTransferDetail(PersistedTransfer Transfer, PersistedTransferAttempt? LatestAttempt);
+// Source facts needed to select a page before hydrating presentation metadata.
+public sealed record LiveTransferCandidate(Guid TransferId, long Revision, long CreatedAtUtc, bool MatchesFilter);
 public sealed record TransferHistoryQuery(
     string? Cursor = null,
     int Limit = 100,
@@ -61,8 +67,49 @@ public sealed record TransferHistoryQuery(
     string? Username = null,
     DateTimeOffset? FromUtc = null,
     DateTimeOffset? ToUtc = null,
-    bool Archived = false);
-public sealed record PersistedTransferPage(IReadOnlyList<PersistedTransfer> Items, string? NextCursor);
+    bool Archived = false,
+    string? GroupRef = null,
+    IReadOnlyCollection<Guid>? TransferIds = null,
+    IReadOnlyCollection<LiveTransferCandidate>? LiveCandidates = null,
+    bool LiveHasMore = false);
+// TransferIds is the complete ordered page, including source-only transfers.
+// Items supplies retained facts for those identities, from the same SQL snapshot.
+public sealed record PersistedTransferPage(
+    IReadOnlyList<PersistedTransfer> Items, IReadOnlyList<Guid> TransferIds, string? NextCursor);
+public sealed record TransferGroupKey(string Direction, string? Username, string GroupRef);
+public sealed record PersistedTransferGroupSummary(
+    TransferGroupKey Key,
+    long FileCount,
+    long KnownTotalBytes,
+    long TransferredBytes,
+    long SpeedBytesPerSecond,
+    long UnknownTotalCount,
+    long KnownRemainingActiveBytes,
+    long UnknownActiveTotalCount,
+    long QueuedCount,
+    long InProgressCount,
+    long SucceededCount,
+    long FailedCount,
+    long CancelledCount,
+    long InterruptedCount);
+// Group reconciliation needs scalar contributions, never paths, actions or
+// file attributes. Keep that boundary explicit so totals cannot hydrate rows.
+public sealed record TransferGroupMember(
+    Guid Id,
+    long Revision,
+    string Direction,
+    string? Username,
+    string? GroupRef,
+    string State,
+    string TerminalOutcome,
+    long? TotalBytes,
+    long? FileSize,
+    long TransferredBytes,
+    long? BytesPerSecond,
+    DateTimeOffset? ArchivedAtUtc);
+public sealed record PersistedTransferGroupProjection(
+    IReadOnlyList<PersistedTransferGroupSummary> Summaries,
+    IReadOnlyList<TransferGroupMember> OverlappingTransfers);
 public sealed record PersistedTransferAttemptPage(IReadOnlyList<PersistedTransferAttempt> Items, int? NextAttemptNumber);
 public sealed record TransferArchiveFilter(
     Guid? TransferId = null,
@@ -70,7 +117,8 @@ public sealed record TransferArchiveFilter(
     string? TerminalOutcome = null,
     string? Username = null,
     DateTimeOffset? FromUtc = null,
-    DateTimeOffset? ToUtc = null);
+    DateTimeOffset? ToUtc = null,
+    string? GroupRef = null);
 public sealed record TransferArchiveResult(
     int ResolvedCount,
     int ChangedCount,
@@ -81,6 +129,10 @@ public sealed record TransferArchiveResult(
 public interface ITransferHistoryReader
 {
     Task<PersistedTransferPage> GetTransfersAsync(TransferHistoryQuery query, CancellationToken cancellationToken = default);
+    Task<PersistedTransferGroupProjection> GetGroupProjectionAsync(
+        IReadOnlyCollection<TransferGroupKey> keys,
+        IReadOnlyCollection<Guid> overlappingTransferIds,
+        CancellationToken cancellationToken = default);
     Task<PersistedTransferDetail?> GetTransferAsync(Guid transferId, CancellationToken cancellationToken = default);
     Task<PersistedTransferAttemptPage?> GetAttemptsAsync(Guid transferId, int afterAttemptNumber, int limit, CancellationToken cancellationToken = default);
     Task<TransferArchiveResult> SetArchivedAsync(
@@ -94,62 +146,242 @@ public sealed class TransferHistoryReader(
     Persistence.Write.PersistenceInbox? inbox = null,
     TimeProvider? timeProvider = null) : ITransferHistoryReader
 {
-    public const int MaximumPageSize = 200;
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
 
     public async Task<PersistedTransferPage> GetTransfersAsync(TransferHistoryQuery query, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
-        if (query.Limit is < 1 or > MaximumPageSize) throw new ArgumentOutOfRangeException(nameof(query));
+        if (query.Limit < 1) throw new ArgumentOutOfRangeException(nameof(query));
         var cursor = DecodeCursor(query.Cursor);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        var transfers = context.Transfers.AsNoTracking().AsQueryable();
-        transfers = transfers.Where(row => query.Archived
-            ? row.ArchivedAtUtc != null
-            : row.ArchivedAtUtc == null);
-        if (query.JobId.HasValue) transfers = transfers.Where(row => row.JobId == query.JobId);
-        if (query.WorkflowId.HasValue) transfers = transfers.Where(row => row.WorkflowId == query.WorkflowId);
-        if (query.Direction != null) transfers = transfers.Where(row => EF.Functions.Collate(row.Direction, "NOCASE") == query.Direction);
-        if (query.Source != null) transfers = transfers.Where(row => EF.Functions.Collate(row.Source, "NOCASE") == query.Source);
-        if (query.State != null) transfers = transfers.Where(row => EF.Functions.Collate(row.State, "NOCASE") == query.State);
-        if (query.TerminalOutcome != null) transfers = transfers.Where(row => EF.Functions.Collate(row.TerminalOutcome, "NOCASE") == query.TerminalOutcome);
-        if (query.Username != null) transfers = transfers.Where(row => row.Username == query.Username);
-        if (query.FromUtc.HasValue)
+        var shape = HistoryRowMapping<TransferEntity>.For(context);
+        var conditions = new List<string> { query.Archived ? "t.archived_at_utc IS NOT NULL" : "t.archived_at_utc IS NULL" };
+        var values = new List<(string Name, object Value)>();
+        IEnumerable<object> Parameters() => values.Select(value => new SqliteParameter(value.Name, value.Value));
+        void Filter(string predicate, string parameter, object? value)
         {
-            long from = query.FromUtc.Value.ToUniversalTime().ToUnixTimeMilliseconds();
-            transfers = transfers.Where(row => row.CreatedAtUtc >= from);
+            if (value is null) return;
+            conditions.Add(predicate);
+            values.Add((parameter, value));
         }
-        if (query.ToUtc.HasValue)
+        Filter("t.job_id = $job", "$job", query.JobId);
+        Filter("t.workflow_id = $workflow", "$workflow", query.WorkflowId);
+        Filter("t.direction COLLATE NOCASE = $direction", "$direction", query.Direction);
+        Filter("t.source COLLATE NOCASE = $source", "$source", query.Source);
+        Filter("t.state COLLATE NOCASE = $state", "$state", query.State);
+        Filter("t.terminal_outcome COLLATE NOCASE = $outcome", "$outcome", query.TerminalOutcome);
+        Filter("t.username = $username", "$username", query.Username);
+        Filter("t.group_ref = $group", "$group", query.GroupRef);
+        Filter("t.created_at_utc >= $from", "$from", query.FromUtc?.ToUnixTimeMilliseconds());
+        Filter("t.created_at_utc <= $to", "$to", query.ToUtc?.ToUnixTimeMilliseconds());
+        if (cursor is { } boundary)
         {
-            long to = query.ToUtc.Value.ToUniversalTime().ToUnixTimeMilliseconds();
-            transfers = transfers.Where(row => row.CreatedAtUtc <= to);
+            conditions.Add("(t.created_at_utc < $before OR t.created_at_utc = $before AND t.id < $beforeId)");
+            values.Add(("$before", boundary.CreatedAtUtc));
+            values.Add(("$beforeId", boundary.Id));
         }
-        if (cursor.HasValue)
-            transfers = transfers.Where(row => row.CreatedAtUtc < cursor.Value.CreatedAtUtc
-                || row.CreatedAtUtc == cursor.Value.CreatedAtUtc && row.Id.CompareTo(cursor.Value.Id) < 0);
-        var rows = await transfers.OrderByDescending(row => row.CreatedAtUtc).ThenByDescending(row => row.Id)
-            .Take(query.Limit + 1).ToListAsync(cancellationToken).ConfigureAwait(false);
-        bool hasMore = rows.Count > query.Limit;
-        if (hasMore) rows.RemoveAt(rows.Count - 1);
-        return new PersistedTransferPage(
-            rows.Select(MapTransfer).ToArray(),
-            hasMore && rows.Count > 0 ? EncodeCursor(rows[^1].CreatedAtUtc, rows[^1].Id) : null);
+        var superseded = query.LiveCandidates?.Where(status => !status.MatchesFilter).ToArray() ?? [];
+        if (superseded.Length > 0)
+        {
+            values.Add(("$superseded", JsonSerializer.Serialize(superseded.ToDictionary(
+                status => status.TransferId.ToString().ToUpperInvariant(), status => status.Revision))));
+            conditions.Add("""
+                t.id NOT IN (
+                    SELECT predecessor.id FROM json_each($superseded) current_state
+                    CROSS JOIN transfers predecessor
+                    WHERE predecessor.id = current_state.key
+                        AND predecessor.revision <= CAST(current_state.value AS INTEGER))
+                """);
+        }
+        var matchingLive = query.LiveCandidates?.Where(row => row.MatchesFilter)
+            .DistinctBy(row => row.TransferId).ToArray() ?? [];
+        await using var snapshot = matchingLive.Length > 0
+            ? await SqliteReadSnapshot.BeginAsync(context, cancellationToken).ConfigureAwait(false)
+            : null;
+        string predicate = string.Join(" AND ", conditions);
+        string from = $"FROM {shape.TableName} t WHERE {predicate}";
+        if (query.TransferIds is { } ids)
+        {
+            values.Add(("$ids", EncodeIds(ids)));
+            // Explicit identities drive unique seeks. A filter on an ordered
+            // timeline alone can make SQLite scan all history to find them.
+            from = $"FROM json_each($ids) requested CROSS JOIN {shape.TableName} t "
+                + $"WHERE t.id = requested.value AND {predicate}";
+            predicate += " AND t.id IN (SELECT value FROM json_each($ids))";
+        }
+        values.Add(("$limit", query.Limit == int.MaxValue ? query.Limit : query.Limit + 1));
+        string ordered = from + " ORDER BY t.created_at_utc DESC, t.id DESC LIMIT $limit";
+        if (matchingLive.Length == 0)
+        {
+            var rows = await shape.ReadAsync(context,
+                $"SELECT {shape.SelectColumns("t")} {ordered}", Parameters(), cancellationToken).ConfigureAwait(false);
+            bool hasMore = rows.Count > query.Limit || query.LiveHasMore;
+            if (rows.Count > query.Limit) rows.RemoveAt(rows.Count - 1);
+            return new(rows.Select(MapTransfer).ToArray(), rows.Select(row => row.Id).ToArray(),
+                hasMore && rows.Count > 0 ? EncodeCursor(rows[^1].CreatedAtUtc, rows[^1].Id) : null);
+        }
+
+        // Reconcile scalar keys before bounded metadata hydration. All three
+        // reads share a deferred WAL snapshot and the same filter predicate;
+        // live volume cannot cause every file attribute blob to be loaded.
+        var keys = await SqliteReadQuery.ReadAsync(context,
+            "SELECT t.id, t.created_at_utc " + ordered, Parameters(),
+            static row => new TransferPageKey(row.GetGuid(0), row.GetInt64(1)), cancellationToken).ConfigureAwait(false);
+        var candidates = keys.ToDictionary(row => row.Id);
+        var overlaps = await SqliteReadQuery.ReadAsync(context, $"""
+            SELECT t.id, t.created_at_utc, t.revision, t.archived_at_utc, COALESCE(({predicate}), 0)
+            FROM json_each($liveIds) requested CROSS JOIN {shape.TableName} t
+            WHERE t.id = requested.value
+            """, Parameters().Append(new SqliteParameter("$liveIds", EncodeIds(matchingLive.Select(row => row.TransferId)))),
+            static row => new TransferPageOverlap(row.GetGuid(0), row.GetInt64(1), row.GetInt64(2),
+                row.IsDBNull(3) ? null : row.GetInt64(3), row.GetBoolean(4)), cancellationToken).ConfigureAwait(false);
+        var predecessors = overlaps.ToDictionary(row => row.Id);
+        foreach (var current in matchingLive)
+        {
+            predecessors.TryGetValue(current.TransferId, out var retained);
+            var key = new TransferPageKey(current.TransferId, retained?.CreatedAtUtc ?? current.CreatedAtUtc);
+            bool matches = retained is not null && retained.Revision > current.Revision
+                ? retained.MatchesFilter
+                : query.Archived == (retained?.ArchivedAtUtc is not null)
+                    && (!query.FromUtc.HasValue || key.CreatedAtUtc >= query.FromUtc.Value.ToUnixTimeMilliseconds())
+                    && (!query.ToUtc.HasValue || key.CreatedAtUtc <= query.ToUtc.Value.ToUnixTimeMilliseconds())
+                    && (cursor is null || key.CreatedAtUtc < cursor.Value.CreatedAtUtc
+                        || key.CreatedAtUtc == cursor.Value.CreatedAtUtc && key.Id.CompareTo(cursor.Value.Id) < 0);
+            if (matches) candidates[key.Id] = key;
+            else candidates.Remove(key.Id);
+        }
+        var selected = candidates.Values.OrderByDescending(row => row.CreatedAtUtc).ThenByDescending(row => row.Id)
+            .Take(query.Limit).ToArray();
+        var selectedRows = await ReadTransfersByIdsAsync(context, selected.Select(row => row.Id), cancellationToken)
+            .ConfigureAwait(false);
+        var rowsById = selectedRows.ToDictionary(row => row.Id);
+        bool more = candidates.Count > query.Limit || query.LiveHasMore;
+        await snapshot!.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new(selected.Where(row => rowsById.ContainsKey(row.Id)).Select(row => MapTransfer(rowsById[row.Id])).ToArray(),
+            selected.Select(row => row.Id).ToArray(),
+            more && selected.Length > 0 ? EncodeCursor(selected[^1].CreatedAtUtc, selected[^1].Id) : null);
+    }
+
+    private sealed record TransferPageKey(Guid Id, long CreatedAtUtc);
+    private sealed record TransferPageOverlap(Guid Id, long CreatedAtUtc, long Revision,
+        long? ArchivedAtUtc, bool MatchesFilter);
+
+    private static string EncodeIds(IEnumerable<Guid> ids)
+        => JsonSerializer.Serialize(ids.Distinct().Select(id => id.ToString().ToUpperInvariant()));
+
+    private static Task<List<TransferEntity>> ReadTransfersByIdsAsync(
+        SockseekDbContext context, IEnumerable<Guid> ids, CancellationToken cancellationToken)
+    {
+        var shape = HistoryRowMapping<TransferEntity>.For(context);
+        return shape.ReadAsync(context, $"""
+            SELECT {shape.SelectColumns("t")}
+            FROM json_each($ids) requested CROSS JOIN {shape.TableName} t
+            WHERE t.id = requested.value
+            """, [new SqliteParameter("$ids", EncodeIds(ids))], cancellationToken);
+    }
+
+    public async Task<PersistedTransferGroupProjection> GetGroupProjectionAsync(
+        IReadOnlyCollection<TransferGroupKey> keys,
+        IReadOnlyCollection<Guid> overlappingTransferIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        ArgumentNullException.ThrowIfNull(overlappingTransferIds);
+        if (keys.Count == 0) return new([], []);
+        string requestedKeys = JsonSerializer.Serialize(keys.Distinct()
+            .Select(key => new string?[] { key.Direction, key.Username, key.GroupRef }));
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await SqliteReadSnapshot.BeginAsync(context, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<TransferGroupMember> overlapping = [];
+        if (overlappingTransferIds.Count > 0)
+        {
+            overlapping = await SqliteReadQuery.ReadAsync(context, """
+                SELECT t.id, t.revision, t.direction, t.username, t.group_ref, t.state, t.terminal_outcome,
+                    NULLIF(t.total_bytes, $unknown),
+                    CASE WHEN t.file_name IS NOT NULL THEN t.file_size_bytes END,
+                    t.transferred_bytes, t.bytes_per_second, t.archived_at_utc
+                FROM json_each($ids) requested CROSS JOIN transfers t
+                WHERE t.id = requested.value
+                """, [new SqliteParameter("$ids", EncodeIds(overlappingTransferIds)), new SqliteParameter("$unknown", long.MaxValue)],
+                static row => new TransferGroupMember(row.GetGuid(0), row.GetInt64(1), row.GetString(2),
+                    row.IsDBNull(3) ? null : row.GetString(3), row.IsDBNull(4) ? null : row.GetString(4),
+                    row.GetString(5), row.GetString(6), row.IsDBNull(7) ? null : row.GetInt64(7),
+                    row.IsDBNull(8) ? null : row.GetInt64(8), row.GetInt64(9),
+                    row.IsDBNull(10) ? null : row.GetInt64(10), FromUnix(row.IsDBNull(11) ? null : row.GetInt64(11))),
+                cancellationToken).ConfigureAwait(false);
+        }
+        // This fixed scalar query needs no EF expression compilation or
+        // intermediate row model. Read directly within the same WAL snapshot
+        // as the overlap facts above, including on the first request.
+        using var command = ((SqliteConnection)context.Database.GetDbConnection()).CreateCommand();
+        command.Transaction = (SqliteTransaction)transaction.GetDbTransaction();
+        // Materialize keys once and keep the group-index traversal ordered. An
+        // outer JSON join instead sorts every matched file into a temporary tree.
+        // Test exact tuple membership after grouping, once per group, while the
+        // independent candidate sets let SQLite seek the existing group index.
+        // Require that index: choosing the timeline index scans unrelated history.
+        command.CommandText = """
+            WITH requested AS MATERIALIZED (
+                SELECT json_extract(value, '$[0]') AS direction,
+                    json_extract(value, '$[1]') AS username,
+                    json_extract(value, '$[2]') AS group_ref
+                FROM json_each($keys)
+            )
+            SELECT t.direction AS Direction, t.username AS Username, t.group_ref AS GroupRef,
+                COUNT(*) AS FileCount,
+                SUM(CASE WHEN t.total_bytes = $unknown THEN COALESCE(t.file_size_bytes, 0) ELSE t.total_bytes END) AS KnownTotalBytes,
+                SUM(t.transferred_bytes) AS TransferredBytes,
+                COALESCE(SUM(t.bytes_per_second) FILTER (WHERE t.terminal_outcome = 'None'), 0) AS SpeedBytesPerSecond,
+                COUNT(*) FILTER (WHERE t.total_bytes = $unknown AND t.file_size_bytes IS NULL) AS UnknownTotalCount,
+                COALESCE(SUM(MAX(
+                    (CASE WHEN t.total_bytes = $unknown THEN t.file_size_bytes ELSE t.total_bytes END)
+                        - t.transferred_bytes, 0)) FILTER (WHERE t.terminal_outcome = 'None'
+                            AND (t.total_bytes != $unknown OR t.file_size_bytes IS NOT NULL)), 0) AS KnownRemainingActiveBytes,
+                COUNT(*) FILTER (WHERE t.terminal_outcome = 'None' AND t.total_bytes = $unknown AND t.file_size_bytes IS NULL) AS UnknownActiveTotalCount,
+                COUNT(*) FILTER (WHERE t.terminal_outcome = 'None' AND t.state = 'Queued') AS QueuedCount,
+                COUNT(*) FILTER (WHERE t.terminal_outcome = 'None' AND t.state != 'Queued') AS InProgressCount,
+                COUNT(*) FILTER (WHERE t.terminal_outcome = 'Succeeded') AS SucceededCount,
+                COUNT(*) FILTER (WHERE t.terminal_outcome = 'Failed') AS FailedCount,
+                COUNT(*) FILTER (WHERE t.terminal_outcome = 'Cancelled') AS CancelledCount,
+                COUNT(*) FILTER (WHERE t.terminal_outcome = 'Interrupted') AS InterruptedCount
+            FROM transfers t INDEXED BY IX_transfers_group_ref_username_direction_archived_at_utc
+            WHERE t.archived_at_utc IS NULL
+                AND t.group_ref IN (SELECT group_ref FROM requested)
+                AND t.direction IN (SELECT direction FROM requested)
+                AND (t.username IN (SELECT username FROM requested)
+                    OR t.username IS NULL AND EXISTS (SELECT 1 FROM requested WHERE username IS NULL))
+            GROUP BY t.group_ref, t.username, t.direction
+            HAVING EXISTS (SELECT 1 FROM requested r
+                WHERE r.group_ref = t.group_ref AND r.username IS t.username AND r.direction = t.direction)
+            """;
+        command.Parameters.AddWithValue("$keys", requestedKeys);
+        command.Parameters.AddWithValue("$unknown", long.MaxValue);
+        var summaries = new List<PersistedTransferGroupSummary>();
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                summaries.Add(new(
+                    new TransferGroupKey(reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1), reader.GetString(2)),
+                    reader.GetInt64(3), reader.GetInt64(4), reader.GetInt64(5), reader.GetInt64(6),
+                    reader.GetInt64(7), reader.GetInt64(8), reader.GetInt64(9), reader.GetInt64(10),
+                    reader.GetInt64(11), reader.GetInt64(12), reader.GetInt64(13), reader.GetInt64(14), reader.GetInt64(15)));
+        }
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new(summaries, overlapping);
     }
 
     public async Task<PersistedTransferDetail?> GetTransferAsync(Guid transferId, CancellationToken cancellationToken = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var transfer = await context.Transfers.AsNoTracking()
-            .SingleOrDefaultAsync(row => row.Id == transferId, cancellationToken)
-            .ConfigureAwait(false);
+        await using var transaction = await SqliteReadSnapshot.BeginAsync(context, cancellationToken).ConfigureAwait(false);
+        var transfer = (await ReadTransfersByIdsAsync(context, [transferId], cancellationToken).ConfigureAwait(false))
+            .SingleOrDefault();
         if (transfer == null) return null;
-        var latestAttempt = await context.TransferAttempts.AsNoTracking()
-            .Where(attempt => attempt.TransferId == transferId)
-            .OrderByDescending(attempt => attempt.AttemptNumber)
-            .ThenByDescending(attempt => attempt.Id)
-            .FirstOrDefaultAsync(cancellationToken)
-            .ConfigureAwait(false);
+        var attempts = HistoryRowMapping<TransferAttemptEntity>.For(context);
+        var latestAttempt = (await attempts.ReadAsync(context, $"""
+            SELECT {attempts.SelectColumns("a")} FROM {attempts.TableName} a
+            WHERE a.transfer_id = $id ORDER BY a.attempt_number DESC, a.id DESC LIMIT 1
+            """, [new SqliteParameter("$id", transferId)], cancellationToken).ConfigureAwait(false)).SingleOrDefault();
 
         var detail = new PersistedTransferDetail(
             MapTransfer(transfer),
@@ -165,15 +397,21 @@ public sealed class TransferHistoryReader(
         CancellationToken cancellationToken = default)
     {
         if (afterAttemptNumber < 0) throw new ArgumentOutOfRangeException(nameof(afterAttemptNumber));
-        if (limit is < 1 or > MaximumPageSize) throw new ArgumentOutOfRangeException(nameof(limit));
+        if (limit < 1) throw new ArgumentOutOfRangeException(nameof(limit));
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        if (!await context.Transfers.AsNoTracking().AnyAsync(row => row.Id == transferId, cancellationToken).ConfigureAwait(false))
-            return null;
-        var rows = await context.TransferAttempts.AsNoTracking()
-            .Where(row => row.TransferId == transferId && row.AttemptNumber > afterAttemptNumber)
-            .OrderBy(row => row.AttemptNumber).Take(limit + 1)
-            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await SqliteReadSnapshot.BeginAsync(context, cancellationToken).ConfigureAwait(false);
+        var found = await SqliteReadQuery.ReadAsync(context,
+            "SELECT 1 FROM transfers WHERE id = $id", [new SqliteParameter("$id", transferId)],
+            static row => row.GetInt32(0), cancellationToken).ConfigureAwait(false);
+        if (found.Count == 0) return null;
+        var attempts = HistoryRowMapping<TransferAttemptEntity>.For(context);
+        var rows = await attempts.ReadAsync(context, $"""
+            SELECT {attempts.SelectColumns("a")} FROM {attempts.TableName} a
+            WHERE a.transfer_id = $id AND a.attempt_number > $after
+            ORDER BY a.attempt_number LIMIT $limit
+            """, [new SqliteParameter("$id", transferId), new SqliteParameter("$after", afterAttemptNumber),
+                new SqliteParameter("$limit", limit == int.MaxValue ? limit : limit + 1)],
+            cancellationToken).ConfigureAwait(false);
         bool hasMore = rows.Count > limit;
         if (hasMore) rows.RemoveAt(rows.Count - 1);
         var page = new PersistedTransferAttemptPage(
@@ -251,6 +489,8 @@ public sealed class TransferHistoryReader(
             transfers = transfers.Where(row => EF.Functions.Collate(row.TerminalOutcome, "NOCASE") == filter.TerminalOutcome);
         if (filter.Username is not null)
             transfers = transfers.Where(row => row.Username == filter.Username);
+        if (filter.GroupRef is not null)
+            transfers = transfers.Where(row => row.GroupRef == filter.GroupRef);
         if (filter.FromUtc.HasValue)
         {
             long from = filter.FromUtc.Value.ToUniversalTime().ToUnixTimeMilliseconds();
@@ -278,7 +518,8 @@ public sealed class TransferHistoryReader(
             MapFile(transfer),
             transfer.GroupRef,
             transfer.GroupDisplayPath,
-            FromUnix(transfer.ArchivedAtUtc));
+            FromUnix(transfer.ArchivedAtUtc),
+            transfer.GroupRelativePath);
 
     private static TransferFileMetadataSnapshot? MapFile(
         Entities.TransferEntity transfer)

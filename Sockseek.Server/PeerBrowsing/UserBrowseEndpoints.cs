@@ -6,8 +6,6 @@ namespace Sockseek.Server.PeerBrowsing;
 
 internal static class UserBrowseEndpoints
 {
-    private const int DefaultPageSize = 100;
-    private const int MaximumPageSize = 500;
     private const int MaximumQueryLength = 256;
 
     public static void Map(WebApplication app)
@@ -166,7 +164,7 @@ internal static class UserBrowseEndpoints
             return Unavailable();
         try
         {
-            int pageSize = PageSize(limit);
+            int pageSize = PageSize(limit, ServerProtocol.DefaultPageSize);
             UserBrowseState? dtoState = ParseState(state);
             PeerBrowseState? coreState = dtoState is null ? null : ToCore(dtoState.Value);
             PeerBrowseResourceCursor? after = cursor is null
@@ -261,7 +259,7 @@ internal static class UserBrowseEndpoints
         try
         {
             ValidateQuery(query);
-            int pageSize = PageSize(limit);
+            int pageSize = PageSize(limit, ServerProtocol.DefaultNestedPageSize);
             long? afterId = cursor is null
                 ? null
                 : cursors.DecodeRows(
@@ -341,7 +339,7 @@ internal static class UserBrowseEndpoints
         try
         {
             ValidateQuery(query);
-            int pageSize = PageSize(limit);
+            int pageSize = PageSize(limit, ServerProtocol.DefaultPageSize);
             long? afterId = cursor is null
                 ? null
                 : cursors.DecodeRows(
@@ -395,7 +393,7 @@ internal static class UserBrowseEndpoints
         try
         {
             string normalizedQuery = NormalizeSearchQuery(query);
-            int pageSize = PageSize(limit);
+            int pageSize = PageSize(limit, ServerProtocol.DefaultNestedPageSize);
             PeerBrowseResource? resource = await service.GetAccessibleAsync(
                 browseId, cancellationToken).ConfigureAwait(false);
             if (resource is null)
@@ -478,7 +476,9 @@ internal static class UserBrowseEndpoints
                             browseId,
                             request.Selections,
                             supervisor,
-                            CancellationToken.None).ConfigureAwait(false);
+                            CancellationToken.None,
+                            request.ExcludedFileIds,
+                            request.ExcludedDirectoryIds).ConfigureAwait(false);
                     string outputParent = supervisor.ResolveUserShareOutputParent(
                         resource.Username,
                         resolution,
@@ -506,7 +506,9 @@ internal static class UserBrowseEndpoints
             Guid browseId,
             IReadOnlyList<UserShareSelectionDto> selections,
             EngineSupervisor supervisor,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            IReadOnlyList<long>? excludedFileIds,
+            IReadOnlyList<long>? excludedDirectoryIds)
     {
         if (selections is null || selections.Count == 0)
             throw new PeerBrowseSelectionException("At least one folder or file must be selected.");
@@ -538,7 +540,9 @@ internal static class UserBrowseEndpoints
             browseId,
             directoryIds,
             fileIds,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            excludedFileIds,
+            excludedDirectoryIds).ConfigureAwait(false);
         return (resource, resolution);
     }
 
@@ -586,11 +590,11 @@ internal static class UserBrowseEndpoints
                 statusCode: StatusCodes.Status502BadGateway),
         };
 
-    private static int PageSize(int? limit)
+    private static int PageSize(int? limit, int defaultValue)
     {
-        int value = limit ?? DefaultPageSize;
-        if (value is < 1 or > MaximumPageSize)
-            throw new ArgumentOutOfRangeException(nameof(limit), $"Page size must be between 1 and {MaximumPageSize}.");
+        int value = limit ?? defaultValue;
+        if (value < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
         return value;
     }
 
@@ -638,8 +642,6 @@ internal static class UserBrowseEndpoints
         {
             PeerBrowseNotReadyException => Results.Conflict(
                 new ApiErrorDto("The peer browse is not complete.", "browse-not-ready")),
-            PeerBrowseSearchUnavailableException => Results.Conflict(
-                new ApiErrorDto(exception.Message, "browse-search-unavailable")),
             KeyNotFoundException => Expired(),
             ArgumentException argument when argument.ParamName == "cursor" => InvalidCursor(),
             ArgumentException => InvalidRequest(exception.Message),

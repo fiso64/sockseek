@@ -43,7 +43,8 @@ public static class SubmissionIdentity
     {
         Guid id = submissionId ?? Guid.NewGuid();
         DateTimeOffset created = submittedAtUtc ?? DateTimeOffset.UtcNow;
-        string specificationJson = SubmissionSpecificationCodec.Serialize(specification);
+        string specificationJson = SubmissionSpecificationCodec.Serialize(
+            specification.BindAcceptedJobIds(root));
         AssignTree(root, id, created, JobSemanticRole.UserRoot);
         root.SubmissionSpecificationJson = specificationJson;
         root.RerunOfSubmissionId = rerunOfSubmissionId;

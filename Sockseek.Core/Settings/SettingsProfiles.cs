@@ -4,6 +4,8 @@ using Sockseek.Core.Models;
 using Sockseek.Core.Sharing;
 using Sockseek.Core.Chat;
 using Sockseek.Core.Extractors;
+using Sockseek.Core.Services;
+using Sockseek.Core.Snapshots;
 
 namespace Sockseek.Core.Settings;
 
@@ -95,11 +97,12 @@ public sealed class ProfileContext
     public Dictionary<string, object> Values { get; } = new();
 }
 
+/// <summary>Returns fresh caller-owned settings without changing the inherited value.</summary>
 public interface IJobSettingsResolver
 {
     DownloadSettings Resolve(
         DownloadSettings inherited,
-        Job job,
+        JobSettingsContext job,
         JobSettingsInheritance inheritance = JobSettingsInheritance.None);
 }
 
@@ -123,7 +126,7 @@ public sealed class DefaultJobSettingsResolver : IJobSettingsResolver
 
     public DownloadSettings Resolve(
         DownloadSettings inherited,
-        Job job,
+        JobSettingsContext job,
         JobSettingsInheritance inheritance = JobSettingsInheritance.None) =>
         SettingsCloner.Clone(inherited);
 }
@@ -175,20 +178,20 @@ public sealed class ProfileJobSettingsResolver : IJobSettingsResolver, IDetailed
 
     public DownloadSettings Resolve(
         DownloadSettings inherited,
-        Job job,
+        JobSettingsContext job,
         JobSettingsInheritance inheritance = JobSettingsInheritance.None)
         => composer.Compose(inherited, job, inheritance);
 
     public DownloadSettings Resolve(
         DownloadSettings inherited,
-        Job job,
+        JobSettingsContext job,
         JobSettingsInheritance inheritance,
         JobSettingsRequestLayers? request)
         => composer.Compose(inherited, job, inheritance, request);
 
     public JobSettingsCompositionResult ResolveDetailed(
         DownloadSettings inherited,
-        Job job,
+        JobSettingsContext job,
         JobSettingsInheritance inheritance = JobSettingsInheritance.None,
         JobSettingsRequestLayers? request = null)
         => composer.ComposeDetailed(inherited, job, inheritance, request);
@@ -272,6 +275,10 @@ public static partial class ProfileConditionEvaluator
     private const string GenericDirectoryMode = "generic-directory";
 
     public static bool Satisfied(string cond, DownloadSettings settings, Job? job = null, ProfileContext? context = null)
+        => SatisfiedForContext(cond, settings, job is null ? (JobSettingsContext?)null : (JobSettingsContext)job, context);
+
+    internal static bool SatisfiedForContext(
+        string cond, DownloadSettings settings, JobSettingsContext? job, ProfileContext? context = null)
     {
         var tokens = new Queue<string>(CondTokenRegex().Split(cond).Where(t => !string.IsNullOrWhiteSpace(t)));
 
@@ -337,7 +344,7 @@ public static partial class ProfileConditionEvaluator
         return result;
     }
 
-    private static object? GetVarValue(string var, DownloadSettings settings, Job? job, ProfileContext? context)
+    private static object? GetVarValue(string var, DownloadSettings settings, JobSettingsContext? job, ProfileContext? context)
     {
         InputType inputType = EffectiveInputType(settings, job);
 
@@ -345,19 +352,19 @@ public static partial class ProfileConditionEvaluator
         // job names and source-decided input before extraction are deliberately not modes.
         string? mode = job switch
         {
-            ExtractJob extract when SoulseekExtractor.InputMatches(extract.Input) =>
+            { Kind: JobSnapshotKind.Extract, Input: { } source } when SoulseekExtractor.InputMatches(source) =>
                 SoulseekMode(
-                    extract.Input,
-                    extract.RequestedModeOverride ?? settings.Extraction.RequestedMode),
-            SearchJob { DefaultFolderProjection: not null } => "album",
-            SearchJob { DefaultFileProjection: not null } => "song",
-            AlbumAggregateJob => "album-aggregate",
-            AlbumJob => "album",
-            AggregateJob => "aggregate",
-            SongJob => "song",
-            RemoteFileJob => GenericFileMode,
-            RemoteDirectoryJob => GenericDirectoryMode,
-            ExtractJob extract => SettingsMode(settings, inputType, extract.RequestedModeOverride),
+                    source,
+                    job.Value.RequestedMode ?? settings.Extraction.RequestedMode),
+            { Kind: JobSnapshotKind.Search, SearchProjection: SearchDefaultProjectionKind.Album } => "album",
+            { Kind: JobSnapshotKind.Search, SearchProjection: SearchDefaultProjectionKind.Track } => "song",
+            { Kind: JobSnapshotKind.AlbumAggregate } => "album-aggregate",
+            { Kind: JobSnapshotKind.Album } => "album",
+            { Kind: JobSnapshotKind.Aggregate } => "aggregate",
+            { Kind: JobSnapshotKind.Song } => "song",
+            { Kind: JobSnapshotKind.RemoteFile } => GenericFileMode,
+            { Kind: JobSnapshotKind.RemoteDirectory } => GenericDirectoryMode,
+            { Kind: JobSnapshotKind.Extract } => SettingsMode(settings, inputType, job.Value.RequestedMode),
             null when inputType == InputType.Soulseek
                 && SoulseekExtractor.InputMatches(settings.Extraction.Input ?? "") =>
                 SoulseekMode(settings.Extraction.Input!, settings.Extraction.RequestedMode),
@@ -375,12 +382,12 @@ public static partial class ProfileConditionEvaluator
         };
     }
 
-    private static InputType EffectiveInputType(DownloadSettings settings, Job? job)
+    private static InputType EffectiveInputType(DownloadSettings settings, JobSettingsContext? job)
     {
         string? input = settings.Extraction.Input;
         InputType configured = job?.SourceInputType
             ?? settings.Extraction.InputType;
-        if (job is ExtractJob extract)
+        if (job is { Kind: JobSnapshotKind.Extract } extract)
         {
             input = extract.Input;
             if (extract.InputType is { } jobInputType && jobInputType != InputType.None)
@@ -457,23 +464,7 @@ public static class SettingsCloner
         return clone;
     }
 
-    public static DownloadSettings Clone(DownloadSettings source) => new()
-    {
-        Output = Clone(source.Output),
-        Search = Clone(source.Search),
-        Skip = Clone(source.Skip),
-        Preprocess = Clone(source.Preprocess),
-        Extraction = Clone(source.Extraction),
-        Transfer = Clone(source.Transfer),
-        Spotify = Clone(source.Spotify),
-        YouTube = Clone(source.YouTube),
-        YtDlp = Clone(source.YtDlp),
-        Csv = Clone(source.Csv),
-        Bandcamp = Clone(source.Bandcamp),
-        PrintOption = source.PrintOption,
-        AppliedAutoProfiles = [.. source.AppliedAutoProfiles],
-        RuntimePathContext = source.RuntimePathContext,
-    };
+    public static DownloadSettings Clone(DownloadSettings source) => new(source);
 
     public static OutputSettings Clone(OutputSettings source)
     {

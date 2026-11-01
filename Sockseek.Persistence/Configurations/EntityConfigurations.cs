@@ -53,6 +53,7 @@ internal sealed class JobConfiguration : IEntityTypeConfiguration<JobEntity>
         builder.Property(x => x.FailureDetail).HasColumnName("failure_detail");
         builder.Property(x => x.ItemName).HasColumnName("item_name").HasMaxLength(2048);
         builder.Property(x => x.QueryText).HasColumnName("query_text").HasMaxLength(4096);
+        builder.Property(x => x.SourceDetail).HasColumnName("source_detail").HasMaxLength(128);
         builder.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         builder.Property(x => x.StartedAtUtc).HasColumnName("started_at_utc");
         builder.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");
@@ -65,13 +66,12 @@ internal sealed class JobConfiguration : IEntityTypeConfiguration<JobEntity>
         builder.HasOne<JobEntity>().WithMany().HasForeignKey(x => x.ParentJobId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne<JobEntity>().WithMany().HasForeignKey(x => x.SourceJobId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne<JobEntity>().WithMany().HasForeignKey(x => x.ResultJobId).OnDelete(DeleteBehavior.SetNull);
+        // Listing cursors use display IDs; retention and restart reconciliation
+        // use completion/lifecycle and runtime/lifecycle indexes respectively.
         builder.HasIndex(x => x.DisplayId).IsUnique();
-        builder.HasIndex(x => new { x.CreatedAtUtc, x.Id });
-        builder.HasIndex(x => new { x.WorkflowId, x.CreatedAtUtc, x.Id });
         builder.HasIndex(x => new { x.WorkflowId, x.DisplayId, x.Id });
         builder.HasIndex(x => new { x.LastRuntimeId, x.LifecycleState });
         builder.HasIndex(x => new { x.LifecycleState, x.CompletedAtUtc });
-        builder.HasIndex(x => x.ParentJobId);
         builder.HasIndex(x => new { x.ParentJobId, x.DisplayId, x.Id });
         builder.HasIndex(x => x.SourceJobId);
         builder.HasIndex(x => x.ResultJobId);
@@ -93,6 +93,13 @@ internal sealed class SubmissionConfiguration : IEntityTypeConfiguration<Submiss
         builder.Property(x => x.SubmittedAtUtc).HasColumnName("submitted_at_utc");
         builder.Property(x => x.SpecificationSchemaVersion).HasColumnName("specification_schema_version");
         builder.Property(x => x.SpecificationJson).HasColumnName("specification_json");
+        // Keep large immutable intent out of the row rewritten by receipt and
+        // archive updates. This is still one entity and one writer transaction.
+        builder.SplitToTable("submission_specifications", table =>
+        {
+            table.Property(x => x.Id).HasColumnName("submission_id");
+            table.Property(x => x.SpecificationJson).HasColumnName("specification_json");
+        });
         builder.Property(x => x.RerunOfSubmissionId).HasColumnName("rerun_of_submission_id");
         builder.Property(x => x.PreviewId).HasColumnName("preview_id");
         builder.Property(x => x.ArtifactId).HasColumnName("artifact_id").HasMaxLength(256);
@@ -132,13 +139,10 @@ internal sealed class SearchResultConfiguration : IEntityTypeConfiguration<Searc
 {
     public void Configure(EntityTypeBuilder<SearchResultEntity> builder)
     {
-        builder.ToTable("search_results", table =>
-        {
-            table.HasCheckConstraint("ck_search_results_sequence", "sequence > 0");
-            table.HasCheckConstraint("ck_search_results_revision", "revision > 0");
-        });
-        builder.HasKey(x => x.Id);
-        builder.Property(x => x.Id).HasColumnName("id");
+        // Read projection over shared facts. Writes and raw-history pruning
+        // go through the persistence owner, never EF entity mutation.
+        builder.ToView("search_results");
+        builder.HasKey(x => new { x.SearchJobId, x.Sequence });
         builder.Property(x => x.SearchJobId).HasColumnName("search_job_id");
         builder.Property(x => x.Sequence).HasColumnName("sequence");
         builder.Property(x => x.Revision).HasColumnName("revision");
@@ -157,10 +161,7 @@ internal sealed class SearchResultConfiguration : IEntityTypeConfiguration<Searc
         builder.Property(x => x.Visibility).HasColumnName("visibility").HasMaxLength(16);
         builder.Property(x => x.AttributesJson).HasColumnName("attributes_json");
         builder.Property(x => x.ObservedAtUtc).HasColumnName("observed_at_utc");
-        builder.HasOne<SearchJobEntity>().WithMany().HasForeignKey(x => x.SearchJobId).OnDelete(DeleteBehavior.Cascade);
-        builder.HasIndex(x => new { x.SearchJobId, x.Sequence }).IsUnique();
-        builder.HasIndex(x => new { x.SearchJobId, x.Username, x.RemoteFilename, x.Visibility }).IsUnique();
-        builder.HasIndex(x => new { x.SearchJobId, x.Username });
+
     }
 }
 
@@ -209,19 +210,20 @@ internal sealed class TransferConfiguration : IEntityTypeConfiguration<TransferE
         builder.Property(x => x.FileAttributesJson).HasColumnName("file_attributes_json");
         builder.Property(x => x.GroupRef).HasColumnName("group_ref").HasMaxLength(4096);
         builder.Property(x => x.GroupDisplayPath).HasColumnName("group_display_path").HasMaxLength(4096);
+        builder.Property(x => x.GroupRelativePath).HasColumnName("group_relative_path");
         builder.Property(x => x.ArchivedAtUtc).HasColumnName("archived_at_utc");
         builder.Property(x => x.Revision).HasColumnName("revision");
         builder.HasOne<JobEntity>().WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne<RuntimeSessionEntity>().WithMany().HasForeignKey(x => x.LastRuntimeId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => x.JobId);
         builder.HasIndex(x => new { x.WorkflowId, x.CreatedAtUtc, x.Id });
-        builder.HasIndex(x => new { x.Direction, x.State, x.CreatedAtUtc });
-        builder.HasIndex(x => new { x.Direction, x.StartedAtUtc, x.Id });
-        builder.HasIndex(x => new { x.Username, x.Direction, x.StartedAtUtc, x.Id });
-        builder.HasIndex(x => new { x.Direction, x.TerminalOutcome, x.CompletedAtUtc });
+        // Timeline cursors use acceptance time, which does not change on start.
+        builder.HasIndex(x => new { x.Username, x.ArchivedAtUtc, x.CreatedAtUtc, x.Id });
+        builder.HasIndex(x => new { x.TerminalOutcome, x.CompletedAtUtc });
         builder.HasIndex(x => new { x.LastRuntimeId, x.TerminalOutcome });
         builder.HasIndex(x => x.CompletedAtUtc);
         builder.HasIndex(x => new { x.ArchivedAtUtc, x.CreatedAtUtc, x.Id });
+        builder.HasIndex(x => new { x.GroupRef, x.Username, x.Direction, x.ArchivedAtUtc });
     }
 }
 
@@ -254,7 +256,6 @@ internal sealed class TransferAttemptConfiguration : IEntityTypeConfiguration<Tr
         builder.HasOne<TransferEntity>().WithMany().HasForeignKey(x => x.TransferId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<RuntimeSessionEntity>().WithMany().HasForeignKey(x => x.LastRuntimeId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => new { x.TransferId, x.AttemptNumber }).IsUnique();
-        builder.HasIndex(x => new { x.TransferId, x.StartedAtUtc });
         builder.HasIndex(x => new { x.LastRuntimeId, x.CompletedAtUtc });
     }
 }
@@ -347,25 +348,6 @@ internal sealed class InputArtifactConfiguration : IEntityTypeConfiguration<Inpu
         builder.Property(x => x.ExpiresAtUtc).HasColumnName("expires_at_utc");
         builder.Property(x => x.OriginalName).HasColumnName("original_name").HasMaxLength(255);
         builder.HasIndex(x => new { x.ExpiresAtUtc, x.Id });
-    }
-}
-
-internal sealed class InputArtifactPinConfiguration
-    : IEntityTypeConfiguration<InputArtifactPinEntity>
-{
-    public void Configure(EntityTypeBuilder<InputArtifactPinEntity> builder)
-    {
-        builder.ToTable("input_artifact_pins");
-        builder.HasKey(x => new { x.ArtifactId, x.OwnerKind, x.OwnerId });
-        builder.Property(x => x.ArtifactId).HasColumnName("artifact_id").HasMaxLength(32);
-        builder.Property(x => x.OwnerKind).HasColumnName("owner_kind").HasMaxLength(32);
-        builder.Property(x => x.OwnerId).HasColumnName("owner_id");
-        builder.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
-        builder.HasOne<InputArtifactEntity>()
-            .WithMany()
-            .HasForeignKey(x => x.ArtifactId)
-            .OnDelete(DeleteBehavior.Cascade);
-        builder.HasIndex(x => new { x.OwnerKind, x.OwnerId });
     }
 }
 

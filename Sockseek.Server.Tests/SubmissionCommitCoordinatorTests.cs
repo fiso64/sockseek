@@ -10,6 +10,62 @@ namespace Sockseek.Server.Tests;
 public sealed class SubmissionCommitCoordinatorTests
 {
     [TestMethod]
+    public void SearchViewFingerprint_UsesOptionsAndIgnoresProfileContextMapOrder()
+    {
+        Guid viewId = Guid.NewGuid();
+        var selection = new RefSelectionExpressionDto(RefSelectionMode.Only, ["file-ref"]);
+        var first = new SubmissionOptionsDto(
+            ProfileContext: new Dictionary<string, bool>
+            {
+                ["music"] = true,
+                ["lossless"] = false,
+            },
+            DownloadSettings: new DownloadSettingsPatchDto(
+                Skip: new SkipSettingsPatchDto(SkipExisting: false)));
+        var reordered = first with
+        {
+            ProfileContext = new Dictionary<string, bool>
+            {
+                ["lossless"] = false,
+                ["music"] = true,
+            },
+        };
+        string fingerprint = SubmissionCommitCoordinator.Fingerprint(
+            "search-view", viewId, 4, selection, options: first);
+        Assert.AreEqual(fingerprint, SubmissionCommitCoordinator.Fingerprint(
+            "search-view", viewId, 4, selection, options: reordered));
+        Assert.AreNotEqual(fingerprint, SubmissionCommitCoordinator.Fingerprint(
+            "search-view", viewId, 4, selection,
+            options: first with
+            {
+                DownloadSettings = new DownloadSettingsPatchDto(
+                    Skip: new SkipSettingsPatchDto(SkipExisting: true)),
+            }));
+        Assert.AreNotEqual(fingerprint, SubmissionCommitCoordinator.Fingerprint(
+            "search-view", viewId, 4, selection, options: first,
+            useRepresentativeWhenUnchosen: true));
+    }
+
+    [TestMethod]
+    public void DirectoryRetrievalFingerprint_BindsExactIdentityAndIssuingRevision()
+    {
+        Guid viewId = Guid.NewGuid();
+        var directory = new PeerDirectoryRefDto("opaque-ref", "Peer", @"Music\Album");
+        string fingerprint = SubmissionCommitCoordinator.FingerprintDirectoryRetrieval(
+            viewId, 7, directory);
+        Assert.AreEqual(fingerprint,
+            SubmissionCommitCoordinator.FingerprintDirectoryRetrieval(viewId, 7, directory));
+        Assert.AreNotEqual(fingerprint,
+            SubmissionCommitCoordinator.FingerprintDirectoryRetrieval(viewId, 8, directory));
+        Assert.AreNotEqual(fingerprint,
+            SubmissionCommitCoordinator.FingerprintDirectoryRetrieval(viewId, 7,
+                directory with { Username = "peer" }));
+        Assert.AreNotEqual(fingerprint,
+            SubmissionCommitCoordinator.FingerprintDirectoryRetrieval(viewId, 7,
+                directory with { FolderPath = @"Music\Other" }));
+    }
+
+    [TestMethod]
     public async Task AcceptedSubmissionReceiptSurvivesCoordinatorAndPersistenceRestart()
     {
         string directory = Path.Combine(
@@ -43,27 +99,54 @@ public sealed class SubmissionCommitCoordinatorTests
             try
             {
                 var first = new SubmissionCommitCoordinator(firstPersistence);
-                CommitJobPreviewResponseDto actual = await first.ExecuteAsync(
+                PersistedSubmission? registered = null;
+                SubmissionRegistration? acceptedRegistration = null;
+                await Assert.ThrowsExactlyAsync<IOException>(() => first.ExecuteAsync<CommitJobPreviewResponseDto>(
                     idempotencyKey,
                     fingerprint,
                     async cancellationToken =>
                     {
-                        await firstPersistence.Submissions!.CreateAsync(
-                            new SubmissionRegistration(
-                                idempotencyKey,
-                                DateTimeOffset.UtcNow,
-                                1,
-                                "{}",
-                                null,
-                                null,
-                                null,
-                                fingerprint),
-                            cancellationToken);
-                        return new SubmissionCommitExecution<CommitJobPreviewResponseDto>(
-                            expected,
-                            idempotencyKey);
-                    });
+                        acceptedRegistration = new SubmissionRegistration(
+                            idempotencyKey,
+                            DateTimeOffset.UtcNow,
+                            1,
+                            "{\"retained\":\"ExactPeer\\\\Music\\\\Track.flac\"}",
+                            null,
+                            expected.PreviewId,
+                            "exact-artifact",
+                            fingerprint,
+                            System.Text.Json.JsonSerializer.Serialize(expected, SockseekApiJson.CreateSerializerOptions()));
+                        await firstPersistence.Submissions!.CreateAsync(acceptedRegistration, cancellationToken);
+                        registered = await firstPersistence.Submissions.GetSubmissionAsync(idempotencyKey);
+                        Assert.IsNotNull(registered?.CommitReceiptJson,
+                            "Acceptance must retain its exact receipt before any execution can be published.");
+                        throw new IOException("The accepted response was lost.");
+                    }));
+                CommitJobPreviewResponseDto actual = await first.ExecuteAsync<CommitJobPreviewResponseDto>(
+                    idempotencyKey,
+                    fingerprint,
+                    _ => throw new AssertFailedException("An accepted retry must not run the mutation again."));
                 AssertReceipt(expected, actual);
+                var store = firstPersistence.Submissions!;
+                PersistedSubmission? retained = await store.GetSubmissionAsync(idempotencyKey);
+                Assert.IsNotNull(registered);
+                Assert.IsNotNull(retained);
+                Assert.IsNotNull(retained.CommitReceiptJson);
+                Assert.AreEqual(registered, retained, "Returning the receipt must not rewrite accepted data or advance its revision.");
+                Assert.AreEqual(1L, retained.Revision);
+                Assert.AreEqual(new PersistedSubmissionCommitReceipt(fingerprint, retained.CommitReceiptJson),
+                    await store.GetCommitReceiptAsync(idempotencyKey));
+                Assert.IsNull(await store.GetCommitReceiptAsync(Guid.NewGuid()));
+                Assert.IsNotNull(acceptedRegistration);
+                await store.CreateAsync(acceptedRegistration);
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+                    store.CreateAsync(acceptedRegistration with { CommitFingerprint = "different-fingerprint" }));
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+                    store.CreateAsync(acceptedRegistration with { CommitReceiptJson = "{}" }));
+                await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+                    store.CreateAsync(acceptedRegistration with { SpecificationJson = "{}" }));
+                Assert.AreEqual(retained, await store.GetSubmissionAsync(idempotencyKey),
+                    "Identical retries and conflicting receipts must not rewrite accepted data or advance its revision.");
             }
             finally
             {

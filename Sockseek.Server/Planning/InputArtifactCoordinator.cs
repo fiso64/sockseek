@@ -28,11 +28,6 @@ public sealed class InputArtifactCoordinator(
         }
         try
         {
-            // Preview spools are daemon-session temporary. A prior process can
-            // leave pins behind after a crash, but it cannot leave a valid
-            // preview that owns them.
-            await candidate.ReleasePinsAsync("preview", cancellationToken)
-                .ConfigureAwait(false);
             await candidate.PruneExpiredAsync(cancellationToken).ConfigureAwait(false);
             store = candidate;
         }
@@ -67,44 +62,27 @@ public sealed class InputArtifactCoordinator(
         string artifactId,
         CancellationToken cancellationToken)
     {
-        InputArtifactLease? lease = await RequiredStore().ResolveAsync(
+        ResolvedInputArtifact? lease = await RequiredStore().ResolveAsync(
             artifactId,
             cancellationToken).ConfigureAwait(false);
         return lease == null ? null : ToDto(lease.Artifact);
     }
 
-    internal Task<InputArtifactLease?> ResolveAsync(
+    internal Task<ResolvedInputArtifact?> ResolveAsync(
         string artifactId,
         CancellationToken cancellationToken)
         => RequiredStore().ResolveAsync(artifactId, cancellationToken);
 
-    internal Task<bool> PinAsync(
-        string artifactId,
-        string ownerKind,
+    internal Task<IReadOnlyDictionary<string, ResolvedInputArtifact>> RetainAsync(
+        IEnumerable<string> artifactIds,
         Guid ownerId,
         CancellationToken cancellationToken)
-        => RequiredStore().PinAsync(
-            artifactId,
-            ownerKind,
-            ownerId,
-            cancellationToken);
+        => RequiredStore().RetainAsync(artifactIds, ownerId, cancellationToken);
 
-    internal async Task UnpinAsync(
-        string artifactId,
-        string ownerKind,
-        Guid ownerId,
-        CancellationToken cancellationToken)
-    {
-        InputArtifactStore repository = RequiredStore();
-        await repository.UnpinAsync(
-            artifactId,
-            ownerKind,
-            ownerId,
-            cancellationToken).ConfigureAwait(false);
-        await repository.PruneExpiredAsync(cancellationToken).ConfigureAwait(false);
-    }
+    internal Task<int> ReleaseAsync(Guid ownerId, CancellationToken cancellationToken)
+        => RequiredStore().ReleaseAsync(ownerId, cancellationToken);
 
-    internal static SubmissionSourceRevision Revision(InputArtifactLease lease)
+    internal static SubmissionSourceRevision Revision(ResolvedInputArtifact lease)
         => new(
             "input-artifact",
             lease.Artifact.Id,

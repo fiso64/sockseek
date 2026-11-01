@@ -13,13 +13,14 @@ public sealed class UserBrowseLiveStateTests
     {
         var server = new EngineStateStore();
         var batches = new List<StateUpdateBatchDto>();
-        server.StateBatchPublished += batches.Add;
+        server.StateBatchPublished += batch => batches.Add(batch.ToDto());
         Guid browseId = Guid.NewGuid();
         UserBrowseDto queued = Browse(browseId, UserBrowseState.Queued, 1);
         server.UpdateUserBrowse(queued);
         StateSnapshotDto snapshot = server.GetUserBrowseSnapshot(queued);
         UserBrowseDto running = Browse(browseId, UserBrowseState.Running, 2);
         server.UpdateUserBrowse(running);
+        server.FlushStateUpdates();
 
         var client = new DaemonClientStore();
         DaemonClientUpdate snapshotUpdate = client.ApplySnapshot(snapshot);
@@ -40,27 +41,26 @@ public sealed class UserBrowseLiveStateTests
     public void Coalescer_PromptlyPublishesTerminalBrowseAndKeepsLatestRevision()
     {
         var published = new List<StateUpdateBatchDto>();
-        using var coalescer = new StateUpdateCoalescer(
-            batches => published.AddRange(batches),
-            TimeSpan.FromHours(1));
+        var coalescer = new StateUpdateCoalescer(
+            batches => published.AddRange(batches.Select(batch => batch.ToDto())));
         Guid epoch = Guid.NewGuid();
         Guid browseId = Guid.NewGuid();
         StateStreamScopeDto scope = StateStreamScopeDto.UserBrowse(browseId);
-        coalescer.Publish(new StateUpdateBatchDto(
+        global::Tests.Server.StateUpdateCoalescerTests.CaptureUpdate(coalescer, new StateUpdate(
             scope,
             epoch,
             0,
             1,
             DateTimeOffset.UtcNow,
-            StateDeltaDto.Empty with { UserBrowse = Browse(browseId, UserBrowseState.Running, 1) },
+            StateDelta.Empty with { UserBrowse = Browse(browseId, UserBrowseState.Running, 1) },
             []));
-        coalescer.Publish(new StateUpdateBatchDto(
+        global::Tests.Server.StateUpdateCoalescerTests.CaptureUpdate(coalescer, new StateUpdate(
             scope,
             epoch,
             1,
             2,
             DateTimeOffset.UtcNow,
-            StateDeltaDto.Empty with { UserBrowse = Browse(browseId, UserBrowseState.Complete, 2) },
+            StateDelta.Empty with { UserBrowse = Browse(browseId, UserBrowseState.Complete, 2) },
             []));
 
         Assert.AreEqual(1, published.Count);

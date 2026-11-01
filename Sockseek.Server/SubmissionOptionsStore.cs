@@ -10,9 +10,17 @@ namespace Sockseek.Server;
 public sealed class SubmissionOptionsStore
 {
     private readonly ConcurrentDictionary<Guid, WorkflowOptionsEntry> workflowOptions = [];
-    private readonly ConcurrentDictionary<Guid, SubmissionOptionsDto> jobOptions = [];
+    private readonly ConcurrentDictionary<Guid, OptionsEntry> jobOptions = [];
     private readonly ConcurrentDictionary<Guid, byte> isolatedJobOptions = [];
     private readonly ConcurrentDictionary<Guid, string> jobOutputParentDirs = [];
+
+    internal SubmissionOptionsStore CreateScope(Guid workflowId)
+    {
+        var scope = new SubmissionOptionsStore();
+        if (workflowOptions.TryGetValue(workflowId, out var entry))
+            scope.workflowOptions[workflowId] = entry;
+        return scope;
+    }
 
     public void SetWorkflowOptions(Guid workflowId, SubmissionOptionsDto? options)
     {
@@ -20,27 +28,28 @@ public sealed class SubmissionOptionsStore
         {
             workflowOptions.TryAdd(
                 workflowId,
-                new WorkflowOptionsEntry(new SubmissionOptionsDto(), Version: 1));
+                new WorkflowOptionsEntry(new OptionsEntry(new SubmissionOptionsDto()), Version: 1));
             return;
         }
 
+        var entry = new OptionsEntry(options);
         workflowOptions.AddOrUpdate(
             workflowId,
-            _ => new WorkflowOptionsEntry(options, Version: 1),
-            (_, current) => IsWorkflowOnly(options)
+            _ => new WorkflowOptionsEntry(entry, Version: 1),
+            (_, current) => !HasSettingsOverrides(options)
                 ? current
-                : new WorkflowOptionsEntry(options, checked(current.Version + 1)));
+                : new WorkflowOptionsEntry(entry, checked(current.Version + 1)));
     }
 
     public void SetJobOptions(Guid jobId, SubmissionOptionsDto? options)
     {
         isolatedJobOptions.TryRemove(jobId, out _);
-        jobOptions[jobId] = options ?? new SubmissionOptionsDto();
+        jobOptions[jobId] = new OptionsEntry(options ?? new SubmissionOptionsDto());
     }
 
     public void SetIsolatedJobOptions(Guid jobId, SubmissionOptionsDto? options)
     {
-        jobOptions[jobId] = options ?? new SubmissionOptionsDto();
+        jobOptions[jobId] = new OptionsEntry(options ?? new SubmissionOptionsDto());
         isolatedJobOptions[jobId] = 0;
     }
 
@@ -78,13 +87,29 @@ public sealed class SubmissionOptionsStore
             jobOutputParentDirs[jobId] = outputParentDir;
     }
 
-    public SubmissionOptionsDto? GetOptions(Job job)
+    public SubmissionOptionsDto? GetOptions(JobSettingsContext job)
+    {
+        var (workflow, item) = GetEntries(job);
+        return Merge(workflow?.Options, item?.Options);
+    }
+
+    internal JobSettingsRequestLayers? GetRequestLayers(JobSettingsContext job)
+    {
+        var (workflow, item) = GetEntries(job);
+        string? outputParentDir = GetJobOutputParentDir(job.Id);
+        if (outputParentDir != null || (workflow != null && item != null))
+            return SubmissionOptionsJobSettingsResolver.CreateRequestLayers(
+                Merge(workflow?.Options, item?.Options), outputParentDir);
+        return (item ?? workflow)?.RequestLayers.Value;
+    }
+
+    private (OptionsEntry? Workflow, OptionsEntry? Item) GetEntries(JobSettingsContext job)
     {
         workflowOptions.TryGetValue(job.WorkflowId, out var workflowEntry);
         jobOptions.TryGetValue(job.Id, out var itemOptions);
         if (isolatedJobOptions.ContainsKey(job.Id))
-            return itemOptions;
-        return Merge(workflowEntry?.Options, itemOptions);
+            return (null, itemOptions);
+        return (workflowEntry?.Entry, itemOptions);
     }
 
     public string? GetJobOutputParentDir(Guid jobId)
@@ -125,13 +150,24 @@ public sealed class SubmissionOptionsStore
                 item.DownloadSettings));
     }
 
-    private static bool IsWorkflowOnly(SubmissionOptionsDto options)
-        => options.OutputParentDir == null
-        && options.ProfileNames == null
-        && options.ProfileContext == null
-        && options.DownloadSettings == null;
+    public static bool HasSettingsOverrides(SubmissionOptionsDto options)
+        => options.OutputParentDir != null
+        || options.ProfileNames != null
+        || options.ProfileContext != null
+        || options.DownloadSettings != null;
 
-    private sealed record WorkflowOptionsEntry(SubmissionOptionsDto Options, long Version);
+    // Request layers are read-only during composition. Keep their conversion with
+    // the options' existing lifetime so ordinary children reuse one workflow patch,
+    // including its reflected provenance fields and profile context. A replacement
+    // gets a new entry; planning scopes retain the exact generation they captured.
+    private sealed class OptionsEntry(SubmissionOptionsDto options)
+    {
+        public SubmissionOptionsDto Options { get; } = options;
+        public Lazy<JobSettingsRequestLayers> RequestLayers { get; } = new(
+            () => SubmissionOptionsJobSettingsResolver.CreateRequestLayers(options));
+    }
+
+    private sealed record WorkflowOptionsEntry(OptionsEntry Entry, long Version);
 }
 
 public sealed class SubmissionOptionsJobSettingsResolver(
@@ -141,6 +177,12 @@ public sealed class SubmissionOptionsJobSettingsResolver(
     : IJobSettingsResolver, IWorkflowSettingsLifetime
 {
     public SubmissionOptionsStore Options { get; } = optionsStore ?? new SubmissionOptionsStore();
+
+    // Planning owns temporary request options, not execution's workflow state.
+    // Reuse the composer/normalizer with an independent options store so every
+    // exit path releases the request without retiring another workflow's options.
+    public SubmissionOptionsJobSettingsResolver CreateScope(Guid workflowId)
+        => new(inner, Options.CreateScope(workflowId), normalize);
 
     public void SetWorkflowOptions(Guid workflowId, SubmissionOptionsDto? options)
         => Options.SetWorkflowOptions(workflowId, options);
@@ -165,24 +207,23 @@ public sealed class SubmissionOptionsJobSettingsResolver(
 
     public DownloadSettings Resolve(
         DownloadSettings inherited,
-        Job job,
+        JobSettingsContext job,
         JobSettingsInheritance inheritance = JobSettingsInheritance.None)
     {
-        SubmissionOptionsDto? options = Options.GetOptions(job);
-        string? outputParentDir = Options.GetJobOutputParentDir(job.Id);
+        JobSettingsRequestLayers? request = Options.GetRequestLayers(job);
         if (inner is IJobSettingsRequestResolver requestResolver)
         {
             return requestResolver.Resolve(
                 inherited,
                 job,
                 inheritance,
-                CreateRequestLayers(options, outputParentDir));
+                request);
         }
 
         var settings = inner.Resolve(inherited, job, inheritance);
         if (inheritance == JobSettingsInheritance.SearchConstraints)
             JobSettingsComposer.PreserveInheritedSearchConstraints(settings, inherited);
-        ApplyTo(settings, options, outputParentDir);
+        request?.Download?.ApplyTo(settings);
         normalize?.Invoke(settings);
         return settings;
     }
@@ -194,8 +235,19 @@ public sealed class SubmissionOptionsJobSettingsResolver(
             options,
             JobSettingsInheritance.None);
 
+    public void ApplyManualSelectionOptions(Job source, Job selected, SubmissionOptionsDto? options)
+    {
+        if (options == null || !SubmissionOptionsStore.HasSettingsOverrides(options))
+            return;
+        selected.PlannedSettings = JobSettingsSnapshot.Capture(ResolveWithOptions(
+            selected.Config,
+            selected,
+            SubmissionOptionsStore.Merge(Options.GetOptions(source), options),
+            JobSettingsInheritance.SearchConstraints));
+    }
+
     public JobSettingsCompositionResult ResolveDetailed(
-        Job job,
+        JobSettingsContext job,
         SubmissionOptionsDto? options)
         => ResolveDetailed(
             SearchSettingsBaselines.Create(SearchSettingsBaselineKind.Generic),
@@ -205,7 +257,7 @@ public sealed class SubmissionOptionsJobSettingsResolver(
 
     public JobSettingsCompositionResult ResolveDetailed(
         DownloadSettings inherited,
-        Job job,
+        JobSettingsContext job,
         SubmissionOptionsDto? options,
         JobSettingsInheritance inheritance)
     {
@@ -222,9 +274,9 @@ public sealed class SubmissionOptionsJobSettingsResolver(
             CreateRequestLayers(options));
     }
 
-    private DownloadSettings ResolveWithOptions(
+    internal DownloadSettings ResolveWithOptions(
         DownloadSettings inherited,
-        Job job,
+        JobSettingsContext job,
         SubmissionOptionsDto? options,
         JobSettingsInheritance inheritance)
     {
@@ -243,7 +295,7 @@ public sealed class SubmissionOptionsJobSettingsResolver(
         return settings;
     }
 
-    private static JobSettingsRequestLayers CreateRequestLayers(
+    internal static JobSettingsRequestLayers CreateRequestLayers(
         SubmissionOptionsDto? options,
         string? outputParentDir = null)
     {

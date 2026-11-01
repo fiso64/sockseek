@@ -59,10 +59,10 @@ public class LocalCliBackendTests
             await Assert.ThrowsExactlyAsync<ArgumentException>(() => backend.SubmitJobListAsync(
                 new SubmitJobListRequestDto(
                     "ordinary",
-                    [new ExtractJobDraftDto(
+                    [new JobListJobDraftDto("nested", [new ExtractJobDraftDto(
                         "slsk://Peer/Share/File.bin",
                         DownloadSettings: new DownloadSettingsPatchDto(
-                            Output: new OutputSettingsPatchDto(WritePlaylist: true)))])));
+                            Output: new OutputSettingsPatchDto(WritePlaylist: true)))])])));
 
             JobSummaryDto accepted = await backend.SubmitJobListAsync(
                 new SubmitJobListRequestDto(
@@ -336,6 +336,8 @@ public class LocalCliBackendTests
             var expandedProjection = await backend.GetFolderResultsAsync(searchJob.Id, includeFiles: true, cts.Token);
             Assert.IsNotNull(expandedProjection);
             Assert.AreEqual(2, expandedProjection.Items[0].Files?.Count);
+            Assert.AreEqual(2, expandedProjection.Items[0].FileCount);
+            Assert.AreEqual(2, expandedProjection.Items[0].AudioFileCount);
 
             engine.CompleteEnqueue();
             await runTask;
@@ -417,6 +419,8 @@ public class LocalCliBackendTests
             var expandedProjection = await backend.GetFolderResultsAsync(albumJob.Id, includeFiles: true, cts.Token);
             Assert.IsNotNull(expandedProjection);
             Assert.AreEqual(2, expandedProjection.Items[0].Files?.Count);
+            Assert.AreEqual(2, expandedProjection.Items[0].FileCount);
+            Assert.AreEqual(2, expandedProjection.Items[0].AudioFileCount);
 
             engine.CompleteEnqueue();
             await runTask;
@@ -494,6 +498,8 @@ public class LocalCliBackendTests
             Assert.IsNotNull(retrievedFolder);
             Assert.IsTrue(retrievedFolder.IsFullyRetrieved);
             Assert.AreEqual(2, retrievedFolder.Files?.Count);
+            Assert.AreEqual(2, retrievedFolder.FileCount);
+            Assert.AreEqual(2, retrievedFolder.AudioFileCount);
 
             var downloadSummary = await backend.StartFolderDownloadAsync(
                 searchJob.Id,

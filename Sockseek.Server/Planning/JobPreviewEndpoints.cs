@@ -10,7 +10,7 @@ internal static class JobPreviewEndpoints
             .RequireOperator()
             .WithTags("Job Preview")
             .WithSummary("Creates an asynchronous preview from the shared Core planner.")
-            .WithDescription("Returns the Planning resource immediately. Poll its summary revision and page nodes while planning continues.")
+            .WithDescription("Returns the Planning resource immediately. Wait for completion through its summary, then page the reviewed nodes.")
             .Produces<CreateJobPreviewResponseDto>(StatusCodes.Status202Accepted)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
@@ -19,6 +19,7 @@ internal static class JobPreviewEndpoints
             .RequireOperator()
             .WithTags("Job Preview")
             .WithSummary("Gets the fixed-size preview summary and current revision.")
+            .WithDescription("With waitForCompletion=true, waits up to 30 seconds while Planning. Returns immediately on completion; request cancellation stops waiting without cancelling planning.")
             .Produces<JobPreviewSummaryDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
@@ -64,12 +65,13 @@ internal static class JobPreviewEndpoints
     private static async Task<IResult> GetAsync(
         Guid previewId,
         JobPreviewCoordinator coordinator,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool waitForCompletion = false)
     {
         try
         {
             JobPreviewSummaryDto? preview = await coordinator.GetAsync(
-                previewId, cancellationToken).ConfigureAwait(false);
+                previewId, cancellationToken, waitForCompletion).ConfigureAwait(false);
             return preview == null
                 ? NotFound()
                 : Results.Ok(preview);
@@ -87,7 +89,7 @@ internal static class JobPreviewEndpoints
         CancellationToken cancellationToken,
         string? parentRef = null,
         string? cursor = null,
-        int limit = 100)
+        int limit = ServerProtocol.DefaultNestedPageSize)
     {
         try
         {

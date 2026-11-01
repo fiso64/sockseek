@@ -39,7 +39,7 @@ public class DownloadModeEndToEndTests
         args.AddRange(["--input-type", inputType]);
         if (mode is "album" or "album-aggregate") args.Add("--album");
         if (mode is "aggregate" or "album-aggregate") args.Add("--aggregate");
-        if (printOnly) args.Add("--print-results-full");
+        if (printOnly) args.AddRange(["--print-results-full", "--pref-format", "flac"]);
 
         var (exitCode, stdout, stderr) = await RunMainAsync(args.ToArray());
 
@@ -52,6 +52,10 @@ public class DownloadModeEndToEndTests
             foreach (var path in fixture.Files.Except(expected))
                 Assert.IsFalse(stdout.Contains(Path.GetFileName(path), StringComparison.Ordinal),
                     $"An unrelated result was printed: {path}");
+            Assert.AreEqual(expected.Length, stdout.Split("(nec:", StringSplitOptions.None).Length - 1,
+                "Full results must explain every printed file using shared condition facts.");
+            Assert.AreEqual(expected.Length, stdout.Split("Format fails", StringSplitOptions.None).Length - 1);
+            Assert.IsFalse(stdout.Contains("conditions:unavailable", StringComparison.Ordinal), stdout);
             Assert.AreEqual(0, Directory.GetFiles(fixture.OutputDir, "*", SearchOption.AllDirectories).Length,
                 "Printing results must not download anything or create an index.");
         }

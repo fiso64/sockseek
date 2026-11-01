@@ -18,10 +18,6 @@ internal sealed class RemoteFileDownloadExecutor
     {
         var config = job.Config;
         var destination = placement.PlanFile(job.Target, job.OutputPath, config);
-        if (config.Skip.SkipExisting && File.Exists(destination.OutputPath))
-            return JobOutcome.AlreadyExists(destination.OutputPath);
-
-        job.UpdateActivity(JobActivityPhase.Downloading);
 
         var outcome = await context.Runtime.ExactFileTransfers.DownloadFile(
             job.Target,

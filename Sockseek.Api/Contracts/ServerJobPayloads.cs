@@ -40,6 +40,35 @@ public sealed record DirectoryTransferPlanDto(
     IReadOnlyList<DirectoryTransferEntryDto> Entries,
     long TotalKnownBytes);
 
+/// <summary>
+/// One accepted or supplemental file. Child/File may be absent before child registration or
+/// after independent child-history pruning; parent totals do not infer its outcome.
+/// </summary>
+public sealed record DirectoryManifestEntryDto(
+    int Ordinal,
+    PeerFileTargetDto? Target,
+    IReadOnlyList<string> RelativeDirectoryComponents,
+    Guid? ChildJobId,
+    JobSummaryDto? Child = null,
+    FileDownloadStateDto? File = null);
+
+/// <summary>
+/// Files in one directory attempt: immutable accepted entries followed by supplemental work.
+/// Pin AttemptNumber while paging. Legacy supplemental rows can lack targets after child-history pruning.
+/// </summary>
+/// <param name="EntryCount">Number of immutable accepted entries, excluding supplemental work.</param>
+/// <param name="TotalKnownBytes">Known bytes in the immutable accepted plan, excluding supplemental work.</param>
+public sealed record DirectoryManifestPageDto(
+    int AttemptNumber,
+    string DisplayRoot,
+    int EntryCount,
+    long TotalKnownBytes,
+    bool ChildrenMaterialized,
+    int SupplementalEntryCount,
+    long JobRevision,
+    IReadOnlyList<DirectoryManifestEntryDto> Items,
+    int? NextOrdinal);
+
 public sealed record FileDownloadStateDto(
     string? DownloadPath,
     long BytesTransferred,
@@ -56,7 +85,9 @@ public sealed record DirectoryDownloadStateDto(
     int FailedFileCount,
     long BytesTransferred,
     long TotalKnownBytes,
-    double? ProgressPercent);
+    double? ProgressPercent,
+    // Null for retained records written before the unknown-size count existed.
+    int? UnknownFileSizeCount = null);
 
 /// <summary>
 /// Payload for extract jobs.
@@ -75,6 +106,7 @@ public sealed record ExtractJobPayloadDto(
 /// <param name="SongQuery">Immutable file/track query, when applicable.</param>
 /// <param name="AlbumQuery">Immutable album query, when applicable.</param>
 /// <param name="IncludeFullResults">Whether the accepted file projection includes rows that fail necessary conditions.</param>
+/// <param name="AggregatePresentation">Whether the submitted search defaults to aggregate result groups.</param>
 /// <param name="Revision">Current raw observation revision.</param>
 public sealed record SearchJobPayloadDto(
     string QueryText,
@@ -84,7 +116,11 @@ public sealed record SearchJobPayloadDto(
     bool IncludeFullResults,
     int ResultCount,
     int Revision,
-    bool IsComplete) : JobPayloadDto;
+    bool IsComplete,
+    bool AggregatePresentation = false) : JobPayloadDto;
+
+/// <summary>An observed attempt, not a selected target or replay/download instruction.</summary>
+public sealed record AttemptedSongFileDto(PeerFileTargetDto Target, PeerInfoDto Peer);
 
 /// <summary>
 /// Payload for song jobs, including child song rows owned by album or aggregate jobs.
@@ -123,7 +159,8 @@ public sealed record SongJobPayloadDto(
     string? TransferState = null,
     ServerJobCancellationSource CancellationSource = ServerJobCancellationSource.None,
     ServerSongDownloadSource DownloadSource = ServerSongDownloadSource.None,
-    PeerFileTargetDto? ExactTarget = null) : JobPayloadDto;
+    PeerFileTargetDto? ExactTarget = null,
+    AttemptedSongFileDto? LastAttemptedFile = null) : JobPayloadDto;
 
 /// <summary>
 /// Payload for album search/download jobs.
@@ -153,11 +190,15 @@ public enum RemoteDirectorySourceKindDto
     Resolved,
 }
 
+/// <summary>Typed state for a peer-directory or exact resolved directory plan.</summary>
+/// <param name="SourceUsername">Exact peer for either source kind when known; absent on legacy retained plans without source identity.</param>
+/// <param name="SourceFolderPath">Exact original remote folder path when an explicit peer directory or a resolved plan with known directory origin owns the selection; null for independent-file logical plans and legacy rows without that identity.</param>
 public sealed record RemoteDirectoryJobPayloadDto(
     RemoteDirectorySourceKindDto SourceKind,
     string? SourceUsername,
     string? SourceFolderPath,
-    DirectoryDownloadStateDto Directory) : JobPayloadDto;
+    DirectoryDownloadStateDto Directory,
+    string? DisplayRoot = null) : JobPayloadDto;
 
 /// <summary>
 /// Payload for aggregate track download jobs.
@@ -165,26 +206,29 @@ public sealed record RemoteDirectoryJobPayloadDto(
 public sealed record AggregateJobPayloadDto(
     SongQueryDto Query,
     int SongCount,
-    int CompletedSongCount,
-    int SucceededSongCount,
-    int FailedSongCount) : JobPayloadDto;
+    int? CompletedSongCount = null,
+    int? SucceededSongCount = null,
+    int? FailedSongCount = null) : JobPayloadDto;
 
 /// <summary>
 /// Payload for album-aggregate jobs, which search for distinct album candidates.
 /// </summary>
 public sealed record AlbumAggregateJobPayloadDto(
     AlbumQueryDto Query,
-    int ResultCount) : JobPayloadDto;
+    int ResultCount,
+    int? CompletedAlbumCount = null,
+    int? SucceededAlbumCount = null,
+    int? FailedAlbumCount = null) : JobPayloadDto;
 
 /// <summary>
 /// Payload for job-list jobs. Direct children are listed through the jobs collection.
 /// </summary>
 public sealed record JobListPayloadDto(
     int Count,
-    int ActiveJobCount,
-    int CompletedJobCount,
-    int SucceededJobCount,
-    int FailedJobCount) : JobPayloadDto;
+    int? ActiveJobCount = null,
+    int? CompletedJobCount = null,
+    int? SucceededJobCount = null,
+    int? FailedJobCount = null) : JobPayloadDto;
 
 /// <summary>
 /// Payload for full-folder retrieval jobs started from album result views.

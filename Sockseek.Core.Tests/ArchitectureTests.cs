@@ -8,6 +8,7 @@ using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
+using Sockseek.Core.Snapshots;
 using System.Reflection;
 
 namespace Tests;
@@ -279,6 +280,27 @@ public class ArchitectureTests
 
         foreach (var contractType in contractTypes)
             AssertNoForbiddenPublicContractTypes(contractType, contractType.Name, []);
+
+        Type[] structuralChanges = [typeof(JobRegisteredChange), typeof(JobStructureChangedChange),
+            typeof(JobResultCreatedChange), typeof(TrackListReadyChange)];
+        foreach (Type contract in contractTypes.Where(type =>
+            (typeof(CoreChange).IsAssignableFrom(type) && !structuralChanges.Contains(type))
+            || typeof(JobExecutionPayload).IsAssignableFrom(type)))
+            AssertCompact(contract, []);
+
+        static void AssertCompact(Type type, HashSet<Type> visited)
+        {
+            if (!visited.Add(type)) return;
+            Assert.IsFalse(type == typeof(JobSnapshot) || type == typeof(JobSnapshotHeader)
+                || type == typeof(DirectoryManifestSnapshot) || type == typeof(DirectoryTransferPlanSnapshot)
+                || type == typeof(PeerDirectoryResultSnapshot) || type == typeof(AlbumFolderSnapshot),
+                $"Routine execution contracts must not carry {type.Name}; publish structural data separately.");
+            if (type.IsArray) AssertCompact(type.GetElementType()!, visited);
+            foreach (Type argument in type.GetGenericArguments()) AssertCompact(argument, visited);
+            if (type.Assembly != typeof(CoreChange).Assembly) return;
+            foreach (PropertyInfo property in type.GetProperties(BindingFlags.Instance | BindingFlags.Public))
+                AssertCompact(property.PropertyType, visited);
+        }
     }
 
     [TestMethod]
@@ -327,7 +349,7 @@ public class ArchitectureTests
             new[]
             {
                 "DirectoryState", "ActiveAttempt", "FileJobs", "BytesTransferred",
-                "TotalKnownBytes", "Progress", "DownloadPath",
+                "TotalKnownBytes", "UnknownFileSizeCount", "Progress", "DownloadPath",
             },
             directoryProperties);
 

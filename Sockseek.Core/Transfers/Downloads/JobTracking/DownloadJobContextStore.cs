@@ -8,12 +8,7 @@ internal sealed class DownloadJobContextStore
 {
     private readonly ConcurrentDictionary<Guid, JobContext> contexts = new();
     private readonly ConcurrentDictionary<Guid, Guid> workflowIds = new();
-
-    public JobContext this[Guid jobId]
-    {
-        get => contexts[jobId];
-        set => contexts[jobId] = value;
-    }
+    private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<DownloadOutputFile, byte>> outputFiles = new();
 
     public JobContext Get(Job job) => contexts[job.Id];
 
@@ -24,18 +19,25 @@ internal sealed class DownloadJobContextStore
 
     public void Set(Job job, JobContext context)
     {
-        contexts[job.Id] = context;
-        workflowIds[job.Id] = job.WorkflowId;
+        Set(job.Id, job.WorkflowId, context);
     }
 
     public void Set(Guid jobId, Guid workflowId, JobContext context)
     {
         contexts[jobId] = context;
         workflowIds[jobId] = workflowId;
+        if (context.IndexEditor is { IsWritable: true } index)
+            outputFiles.GetOrAdd(workflowId, static _ => new()).TryAdd(index, 0);
+        if (context.PlaylistEditor is { IsWritable: true } playlist)
+            outputFiles.GetOrAdd(workflowId, static _ => new()).TryAdd(playlist, 0);
     }
+
+    public IReadOnlyCollection<DownloadOutputFile> GetOutputFiles(Guid workflowId)
+        => outputFiles.TryGetValue(workflowId, out var files) ? files.Keys.ToArray() : [];
 
     public IReadOnlyList<Guid> RemoveWorkflow(Guid workflowId)
     {
+        outputFiles.TryRemove(workflowId, out _);
         var removed = new List<Guid>();
         foreach (var pair in workflowIds.Where(pair => pair.Value == workflowId))
         {

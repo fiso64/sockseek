@@ -122,7 +122,11 @@ internal static class DaemonResourceCommandRunner
                     : throw new ArgumentException(
                         "Input error: --scope must be all, queued, or in-progress.");
             TransferCommandReceiptDto receipt = await api.CancelTransfersAsync(
-                new BulkCancelTransfersRequestDto(direction, scope),
+                new BulkCancelTransfersRequestDto(
+                    direction,
+                    scope,
+                    Username: Option(args, "--username"),
+                    GroupRef: Option(args, "--group-ref")),
                 cancellationToken).ConfigureAwait(false);
             WriteReceipt(receipt, JsonRequested(args));
             return Program.CliExitCode.Success;
@@ -134,7 +138,8 @@ internal static class DaemonResourceCommandRunner
                     Archived: !args.Contains("--restore", StringComparer.OrdinalIgnoreCase),
                     Direction: Option(args, "--direction"),
                     TerminalOutcome: Option(args, "--outcome"),
-                    Username: Option(args, "--username")),
+                    Username: Option(args, "--username"),
+                    GroupRef: Option(args, "--group-ref")),
                 cancellationToken).ConfigureAwait(false);
             WriteReceipt(receipt, JsonRequested(args));
             return Program.CliExitCode.Success;
@@ -142,7 +147,7 @@ internal static class DaemonResourceCommandRunner
         if (action is not null)
             return Usage("Expected 'transfers', 'transfers cancel', or 'transfers archive'.");
 
-        int limit = ParseLimit(Option(args, "--limit"), 100);
+        int limit = ParseLimit(Option(args, "--limit"), ServerProtocol.DefaultPageSize);
         var filter = new TransferHistoryFilter(
             Direction: Option(args, "--direction"),
             State: Option(args, "--state"),
@@ -153,7 +158,7 @@ internal static class DaemonResourceCommandRunner
             filter,
             Option(args, "--cursor"),
             limit,
-            cancellationToken).ConfigureAwait(false);
+            ct: cancellationToken).ConfigureAwait(false);
 
         if (JsonRequested(args))
         {
@@ -309,6 +314,7 @@ internal static class DaemonResourceCommandRunner
            || argument.Equals("--state", StringComparison.OrdinalIgnoreCase)
            || argument.Equals("--outcome", StringComparison.OrdinalIgnoreCase)
            || argument.Equals("--username", StringComparison.OrdinalIgnoreCase)
+           || argument.Equals("--group-ref", StringComparison.OrdinalIgnoreCase)
            || argument.Equals("--cursor", StringComparison.OrdinalIgnoreCase)
            || argument.Equals("--limit", StringComparison.OrdinalIgnoreCase)
            || argument.Equals("--scope", StringComparison.OrdinalIgnoreCase);
@@ -329,6 +335,7 @@ internal static class DaemonResourceCommandRunner
                         "--state",
                         "--outcome",
                         "--username",
+                        "--group-ref",
                         "--cursor",
                         "--limit",
                         "--scope",
@@ -390,6 +397,10 @@ internal static class DaemonResourceCommandRunner
                 throw new ArgumentException("Input error: --scope is valid only with 'transfers cancel'.");
             if (seen.Contains("--archived") && action is not null)
                 throw new ArgumentException("Input error: --archived is valid only when listing transfers.");
+            if (seen.Contains("--group-ref") && !Equals(action, "cancel") && !Equals(action, "archive"))
+                throw new ArgumentException("Input error: --group-ref is valid only with 'transfers cancel' or 'transfers archive'.");
+            if (seen.Contains("--group-ref") && (!seen.Contains("--username") || !seen.Contains("--direction")))
+                throw new ArgumentException("Input error: --group-ref requires --username and --direction.");
         }
         if (!share && !transfers
             && seen.Contains("--restore")
@@ -413,9 +424,9 @@ internal static class DaemonResourceCommandRunner
         => value is null
             ? fallback
             : int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int parsed)
-              && parsed is >= 1 and <= 200
+              && parsed >= 1
                 ? parsed
-                : throw new ArgumentException("Input error: --limit must be between 1 and 200.");
+                : throw new ArgumentException("Input error: --limit must be a positive integer.");
 
     private static bool JsonRequested(IReadOnlyList<string> args)
         => args.Contains("--json", StringComparer.OrdinalIgnoreCase);
@@ -438,13 +449,16 @@ internal static class DaemonResourceCommandRunner
               sockseek share scan [--remote <url>] [--json]
               sockseek share scan --cancel [--remote <url>] [--json]
               sockseek transfers [--remote <url>] [--direction upload|download] [--state <state>]
-                                     [--username <name>] [--archived] [--limit 1..200] [--cursor <cursor>] [--json]
+                                     [--username <name>] [--archived] [--limit N] [--cursor <cursor>] [--json]
               sockseek transfers cancel --direction upload|download [--scope all|queued|in-progress]
+                                       [--username <name>] [--group-ref <ref>]
               sockseek transfers archive [--direction upload|download] [--outcome <outcome>] [--restore]
+                                        [--username <name>] [--group-ref <ref>]
               sockseek transfer cancel <id> [--remote <url>] [--json]
               sockseek transfer archive <id> [--restore] [--remote <url>] [--json]
 
             The remote URL can be set as `remote = <url>` in config; --remote overrides it.
+            --group-ref requires both --username and --direction.
             """);
     }
 }

@@ -13,13 +13,10 @@ public sealed record PersistenceHealthSnapshot(
     DateTimeOffset? LastFailureAtUtc,
     string? LastFailure,
     int CriticalQueueDepth,
-    int CriticalQueueCapacity,
     int OrdinaryQueueDepth,
-    int OrdinaryQueueCapacity,
     int ProgressEntityCount,
     int ProgressEntityCapacity,
-    int DegradedProjectionCount,
-    int DegradedProjectionCapacity,
+    int RetryMutationCount,
     int BufferedSearchResultCount,
     int BufferedSearchResultCapacity,
     long BusyRetryCount,
@@ -27,7 +24,6 @@ public sealed record PersistenceHealthSnapshot(
     long DroppedProgressCount,
     long DroppedSearchResultCount,
     long IncompleteSearchCount,
-    long EvictedTerminalProjectionCount,
     long SuccessfulCommitCount,
     long RowsWritten,
     double? LastCommitDurationMilliseconds,
@@ -55,7 +51,6 @@ public sealed class PersistenceHealth
     private long droppedProgressCount;
     private long droppedSearchResultCount;
     private long incompleteSearchCount;
-    private long evictedTerminalProjectionCount;
     private long successfulCommitCount;
     private long rowsWritten;
     private double? lastCommitDurationMilliseconds;
@@ -79,7 +74,8 @@ public sealed class PersistenceHealth
         {
             state = stickyUnhealthy
                 ? PersistenceHealthState.Unhealthy
-                : reconciliationComplete ? PersistenceHealthState.Healthy : PersistenceHealthState.Degraded;
+                : reconciliationComplete && Interlocked.Read(ref permanentlyFailedMutationCount) == 0
+                    ? PersistenceHealthState.Healthy : PersistenceHealthState.Degraded;
             lastSuccessfulCommitAtUtc = now;
             successfulCommitCount++;
             rowsWritten += rows;
@@ -91,13 +87,16 @@ public sealed class PersistenceHealth
         InvokeObservers(CommitCompleted);
     }
 
-    internal void RecordFailure(DateTimeOffset now, Exception exception, bool transient)
+    internal void RecordFailure(DateTimeOffset now, Exception exception, bool transient, bool isolated = false)
     {
         lock (gate)
         {
-            state = transient ? PersistenceHealthState.Degraded : PersistenceHealthState.Unhealthy;
-            if (!transient)
+            // A lost independent record compromises coverage, not the ability
+            // to read other committed rows. Context/operational failures still
+            // make persistence unavailable. Loss remains degraded after commits.
+            if (!transient && !isolated)
                 stickyUnhealthy = true;
+            state = stickyUnhealthy ? PersistenceHealthState.Unhealthy : PersistenceHealthState.Degraded;
             lastFailureAtUtc = now;
             lastFailure = $"{exception.GetType().Name}: {exception.Message}";
         }
@@ -132,14 +131,15 @@ public sealed class PersistenceHealth
         MarkDegraded();
     }
 
-    internal void RecordEvictedTerminalProjection()
-    {
-        Interlocked.Increment(ref evictedTerminalProjectionCount);
-        MarkDegraded();
-    }
-
     internal void RecordPermanentlyFailedMutations(int count)
-        => Interlocked.Add(ref permanentlyFailedMutationCount, count);
+    {
+        Interlocked.Add(ref permanentlyFailedMutationCount, count);
+        MarkDegraded();
+        // Final loss is known after valid siblings commit. Coverage observers
+        // must see that outcome even when no further commit follows the earlier
+        // transaction failure. Operator failure logging is already rate-limited.
+        InvokeObservers(FailureRecorded);
+    }
 
     private void MarkDegraded()
     {
@@ -153,7 +153,7 @@ public sealed class PersistenceHealth
     private static void InvokeObservers(Action? observers)
     {
         if (observers == null) return;
-        foreach (Action observer in observers.GetInvocationList())
+        foreach (Action observer in Delegate.EnumerateInvocationList(observers))
         {
             try { observer(); }
             catch { }
@@ -162,6 +162,14 @@ public sealed class PersistenceHealth
 
     public PersistenceHealthSnapshot Snapshot(PersistenceInbox inbox)
     {
+        // Queue gauges are observational and have their own owners. Read them
+        // before taking the health lock: overflow/progress admission may report
+        // degradation while holding a queue lock, so the reverse order deadlocks.
+        int criticalDepth = inbox.CriticalDepth;
+        int ordinaryDepth = inbox.OrdinaryDepth;
+        int progressCount = inbox.ProgressCount;
+        int retryMutationCount = inbox.RetryMutationCount;
+        int bufferedSearchResultCount = inbox.BufferedSearchResultCount;
         lock (gate)
         {
             return new PersistenceHealthSnapshot(
@@ -169,22 +177,18 @@ public sealed class PersistenceHealth
                 lastSuccessfulCommitAtUtc,
                 lastFailureAtUtc,
                 lastFailure,
-                inbox.CriticalDepth,
-                inbox.Options.CriticalQueueCapacity,
-                inbox.OrdinaryDepth,
-                inbox.Options.OrdinaryQueueCapacity,
-                inbox.ProgressCount,
+                criticalDepth,
+                ordinaryDepth,
+                progressCount,
                 inbox.Options.ProgressEntityCapacity,
-                inbox.DegradedCount,
-                inbox.Options.DegradedProjectionCapacity,
-                inbox.BufferedSearchResultCount,
+                retryMutationCount,
+                bufferedSearchResultCount,
                 inbox.Options.SearchResultGlobalCapacity,
                 Interlocked.Read(ref busyRetryCount),
                 Interlocked.Read(ref droppedOrdinaryCount),
                 Interlocked.Read(ref droppedProgressCount),
                 Interlocked.Read(ref droppedSearchResultCount),
                 Interlocked.Read(ref incompleteSearchCount),
-                Interlocked.Read(ref evictedTerminalProjectionCount),
                 successfulCommitCount,
                 rowsWritten,
                 lastCommitDurationMilliseconds,

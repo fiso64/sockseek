@@ -105,7 +105,7 @@ internal sealed class SkipEvaluationCoordinator
         return path;
     }
 
-    public bool TrySetNotFoundLastTime(SongJob song, M3uEditor? indexEditor)
+    public bool TrySetNotFoundLastTime(SongJob song, DownloadOutputFile? indexEditor)
     {
         if (indexEditor == null) return false;
         var prev = indexEditor.PreviousRunResult(song);
@@ -186,7 +186,7 @@ internal sealed class SkipEvaluationCoordinator
         return path;
     }
 
-    private static IndexEntry? PreviousRunResult(Job job, M3uEditor indexEditor)
+    private static IndexEntry? PreviousRunResult(Job job, DownloadOutputFile indexEditor)
         => job switch
         {
             SongJob song => indexEditor.PreviousRunResult(song),

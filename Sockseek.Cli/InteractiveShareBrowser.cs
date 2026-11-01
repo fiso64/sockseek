@@ -6,7 +6,7 @@ namespace Sockseek.Cli;
 
 internal sealed class InteractiveShareBrowser
 {
-    private const int PageSize = 24;
+    private const int PageSize = ServerProtocol.DefaultNestedPageSize;
     private const int PageCacheCapacity = 3;
 
     private readonly SockseekApiClient api;
@@ -133,7 +133,7 @@ internal sealed class InteractiveShareBrowser
                     directoryId,
                     filter,
                     cursor.FileCursor,
-                    PageSize - rows.Count,
+                    rows.Count == 0 ? ServerProtocol.DefaultPageSize : PageSize - rows.Count,
                     cancellationToken).ConfigureAwait(false);
                 rows.AddRange(files.Items.Select(item => (BrowserRow)new BrowserRow.File(item, location.DisplayPath)));
                 if (files.NextCursor is not null)
@@ -147,7 +147,7 @@ internal sealed class InteractiveShareBrowser
                 directoryId,
                 filter,
                 cursor.FileCursor,
-                PageSize,
+                ServerProtocol.DefaultPageSize,
                 cancellationToken).ConfigureAwait(false);
             rows.AddRange(files.Items.Select(item => (BrowserRow)new BrowserRow.File(item, location.DisplayPath)));
             if (files.NextCursor is not null)

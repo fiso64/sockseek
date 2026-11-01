@@ -9,6 +9,8 @@ public interface IPersistenceMutationObserver
 {
     void Committed(IReadOnlyList<PersistenceMutation> mutations);
 
+    // For writer-rejected batches, valid siblings settle before loss is reported:
+    // consumers may finish a source from its durable prefix on this notification.
     void PermanentlyFailed(
         IReadOnlyList<PersistenceMutation> mutations,
         Exception exception);

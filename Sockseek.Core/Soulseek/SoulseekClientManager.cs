@@ -183,7 +183,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         Action<SoulseekClientStates>? handlers = StateChanged;
         if (handlers is null)
             return;
-        foreach (Action<SoulseekClientStates> handler in handlers.GetInvocationList())
+        foreach (Action<SoulseekClientStates> handler in Delegate.EnumerateInvocationList(handlers))
         {
             try
             {
@@ -336,7 +336,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         Action<ISoulseekClient>? handlers = ClientCreated;
         if (handlers is null)
             return;
-        foreach (Action<ISoulseekClient> handler in handlers.GetInvocationList())
+        foreach (Action<ISoulseekClient> handler in Delegate.EnumerateInvocationList(handlers))
         {
             try { handler(client); }
             catch (Exception ex)

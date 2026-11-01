@@ -90,17 +90,39 @@ namespace Sockseek.Core.Jobs;
             {
                 ResolvedTarget = file.Candidate,
                 Candidates = [file.Candidate],
+                FileSize = file.Candidate.Target.Size,
             };
             SubmissionIdentity.AssignExecutionChild(this, child);
             return child;
         }
 
-        internal SongJob AddSupplementalTrackJob(AlbumFile file)
+        internal List<SongJob> EnsureSupplementalTrackJobs(IReadOnlyList<AlbumFile> files)
         {
-            var job = CreateTrackJob(file);
-            TrackJobs.Add(job);
-            AddSupplementalDirectoryChild(job);
-            return job;
+            if (ActiveAttempt?.ChildrenMaterialized != true)
+                throw new InvalidOperationException("Supplemental directory work requires a materialized active attempt.");
+            var jobs = EnsureSelectedTrackJobs(files);
+            AddSupplementalDirectoryChildren(jobs);
+            return jobs;
+        }
+
+        private List<SongJob> EnsureSelectedTrackJobs(IReadOnlyList<AlbumFile> files)
+        {
+            var existing = new Dictionary<PeerFileIdentity, SongJob>();
+            foreach (var song in TrackJobs)
+                if (song.ResolvedTarget is { } candidate)
+                    existing.TryAdd(candidate.Target.Identity, song);
+            var jobs = new List<SongJob>(files.Count);
+            foreach (var file in files)
+            {
+                if (!existing.TryGetValue(file.Candidate.Target.Identity, out var song))
+                {
+                    song = CreateTrackJob(file);
+                    existing.Add(file.Candidate.Target.Identity, song);
+                    TrackJobs.Add(song);
+                }
+                jobs.Add(song);
+            }
+            return jobs;
         }
 
         internal List<SongJob> BeginAlbumArtTransferAttempt(
@@ -110,19 +132,7 @@ namespace Sockseek.Core.Jobs;
             ArgumentNullException.ThrowIfNull(folder);
             ArgumentNullException.ThrowIfNull(selectedImages);
 
-            var jobs = selectedImages.Select(file =>
-            {
-                var existing = TrackJobs.FirstOrDefault(song =>
-                    song.ResolvedTarget is { } candidate
-                    && string.Equals(candidate.Username, file.Candidate.Username, StringComparison.Ordinal)
-                    && string.Equals(candidate.Filename, file.Candidate.Filename, StringComparison.Ordinal));
-                if (existing != null)
-                    return existing;
-
-                var created = CreateTrackJob(file);
-                TrackJobs.Add(created);
-                return created;
-            }).ToList();
+            var jobs = EnsureSelectedTrackJobs(selectedImages);
 
             BeginDirectoryAttempt(AlbumTransferPlanner.FromSelectedDirectory(folder, selectedImages));
             MaterializeDirectoryChildren(jobs);

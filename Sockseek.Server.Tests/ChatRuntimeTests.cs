@@ -28,7 +28,6 @@ public sealed class ChatRuntimeTests
         var settings = Settings();
         await using var session = new DaemonSoulseekRuntime(settings, _ => fake.Client);
         await using var chat = new ChatRuntime(settings, session, database.Host.Chat!);
-        await chat.StartAsync(CancellationToken.None);
         chat.NotificationCommitted += _ => throw new InvalidOperationException("observer failure");
         DateTime timestamp = DateTime.UtcNow;
         var firstAck = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -39,8 +38,13 @@ public sealed class ChatRuntimeTests
             firstAck.TrySetResult();
         };
 
+        // Another local service can initiate login before chat startup finishes.
+        // The first queued message still belongs to this runtime and is acked
+        // only after persistence, exactly like later arrivals/replays.
+        await session.EnsureStartedAsync();
         fake.RaisePrivateMessage(new PrivateMessageReceivedEventArgs(
             42, timestamp, "Alice", "hello", replayed: false));
+        await chat.StartAsync(CancellationToken.None);
         await firstAck.Task.WaitAsync(TimeSpan.FromSeconds(5));
         fake.RaisePrivateMessage(new PrivateMessageReceivedEventArgs(
             42, timestamp, "Alice", "hello", replayed: true));
@@ -639,170 +643,5 @@ public sealed class ChatRuntimeTests
             if (System.IO.Directory.Exists(directory))
                 System.IO.Directory.Delete(directory, recursive: true);
         }
-    }
-}
-
-public class SoulseekClientProxy : DispatchProxy
-{
-    private readonly Dictionary<string, Delegate?> handlers = new(StringComparer.Ordinal);
-
-    public ISoulseekClient Client { get; private set; } = null!;
-    public SoulseekClientStates ClientState { get; set; }
-        = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
-    public Func<int, Task>? Acknowledged { get; set; }
-    public Func<CancellationToken, Task>? PrivateSend { get; set; }
-    public Func<bool, Task<RoomData>>? RoomJoin { get; set; }
-    public Func<Task>? RoomLeave { get; set; }
-    public int AcknowledgeCount { get; private set; }
-    public int PrivateSendCount { get; private set; }
-    public int RoomSendCount { get; private set; }
-    public int RoomJoinCount { get; private set; }
-    public int AddMemberCount { get; private set; }
-    public bool LastJoinWasPrivate { get; private set; }
-    public RoomList Rooms { get; set; } = new([], [], [], []);
-    public RoomData JoinedRoom { get; set; } = new("room", []);
-    public UserInfo ProfileInfo { get; set; } = new("", 0, 0, false);
-    public UserStatus ProfileStatus { get; set; } = new("peer", UserPresence.Online, false);
-    public UserStatistics ProfileStatistics { get; set; } = new("peer", 0, 0, 0, 0);
-
-    public static SoulseekClientProxy Create()
-    {
-        ISoulseekClient client = DispatchProxy.Create<ISoulseekClient, SoulseekClientProxy>();
-        var proxy = (SoulseekClientProxy)(object)client;
-        proxy.Client = client;
-        return proxy;
-    }
-
-    public void RaisePrivateMessage(PrivateMessageReceivedEventArgs args)
-    {
-        if (handlers.GetValueOrDefault(nameof(ISoulseekClient.PrivateMessageReceived))
-            is EventHandler<PrivateMessageReceivedEventArgs> handler)
-        {
-            handler(Client, args);
-        }
-    }
-
-    public void RaiseRoomMessage(RoomMessageReceivedEventArgs args)
-    {
-        if (handlers.GetValueOrDefault(nameof(ISoulseekClient.RoomMessageReceived))
-            is EventHandler<RoomMessageReceivedEventArgs> handler)
-        {
-            handler(Client, args);
-        }
-    }
-
-    public void RaiseRoomJoined(string roomName, UserData user)
-    {
-        if (handlers.GetValueOrDefault(nameof(ISoulseekClient.RoomJoined))
-            is EventHandler<RoomJoinedEventArgs> handler)
-        {
-            handler(Client, new RoomJoinedEventArgs(roomName, user.Username, user));
-        }
-    }
-
-    public void RaisePrivateRoomModeration(string roomName, bool moderated)
-    {
-        string eventName = moderated
-            ? nameof(ISoulseekClient.PrivateRoomModerationAdded)
-            : nameof(ISoulseekClient.PrivateRoomModerationRemoved);
-        if (handlers.GetValueOrDefault(eventName) is EventHandler<string> handler)
-            handler(Client, roomName);
-    }
-
-    public void RaiseState(SoulseekClientStates state)
-    {
-        SoulseekClientStates previous = ClientState;
-        ClientState = state;
-        if (handlers.GetValueOrDefault(nameof(ISoulseekClient.StateChanged))
-            is EventHandler<SoulseekClientStateChangedEventArgs> handler)
-        {
-            handler(Client, new SoulseekClientStateChangedEventArgs(previous, state, null, null));
-        }
-    }
-
-    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-    {
-        ArgumentNullException.ThrowIfNull(targetMethod);
-        args ??= [];
-        if (targetMethod.Name.StartsWith("add_", StringComparison.Ordinal))
-        {
-            string name = targetMethod.Name[4..];
-            handlers[name] = Delegate.Combine(handlers.GetValueOrDefault(name), (Delegate)args[0]!);
-            return null;
-        }
-        if (targetMethod.Name.StartsWith("remove_", StringComparison.Ordinal))
-        {
-            string name = targetMethod.Name[7..];
-            handlers[name] = Delegate.Remove(handlers.GetValueOrDefault(name), (Delegate)args[0]!);
-            return null;
-        }
-        return targetMethod.Name switch
-        {
-            "get_State" => ClientState,
-            "get_MajorVersion" => 170,
-            "get_MinorVersion" => 800850000,
-            "AcknowledgePrivateMessageAsync" => AcknowledgeAsync((int)args[0]!),
-            "SendPrivateMessageAsync" => SendPrivateAsync((CancellationToken)args[^1]!),
-            "GetRoomListAsync" => Task.FromResult(Rooms),
-            "GetUserInfoAsync" => Task.FromResult(ProfileInfo),
-            "GetUserStatusAsync" => Task.FromResult(ProfileStatus),
-            "GetUserStatisticsAsync" => Task.FromResult(ProfileStatistics),
-            "JoinRoomAsync" => JoinRoom((bool)args[1]!),
-            "LeaveRoomAsync" => RoomLeave?.Invoke() ?? Task.CompletedTask,
-            "SendRoomMessageAsync" => SendRoom(),
-            "AddPrivateRoomMemberAsync" => AddMember(),
-            "ConnectAsync" => Task.CompletedTask,
-            "Dispose" => null,
-            _ => DefaultReturn(targetMethod.ReturnType),
-        };
-    }
-
-    private async Task AcknowledgeAsync(int id)
-    {
-        AcknowledgeCount++;
-        if (Acknowledged is not null)
-            await Acknowledged(id);
-    }
-
-    private Task SendPrivateAsync(CancellationToken cancellationToken)
-    {
-        PrivateSendCount++;
-        return PrivateSend?.Invoke(cancellationToken) ?? Task.CompletedTask;
-    }
-
-    private Task<RoomData> JoinRoom(bool isPrivate)
-    {
-        RoomJoinCount++;
-        LastJoinWasPrivate = isPrivate;
-        return RoomJoin?.Invoke(isPrivate) ?? Task.FromResult(JoinedRoom);
-    }
-
-    private Task SendRoom()
-    {
-        RoomSendCount++;
-        return Task.CompletedTask;
-    }
-
-    private Task AddMember()
-    {
-        AddMemberCount++;
-        return Task.CompletedTask;
-    }
-
-    private static object? DefaultReturn(Type type)
-    {
-        if (type == typeof(void))
-            return null;
-        if (type == typeof(Task))
-            return Task.CompletedTask;
-        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Task<>))
-        {
-            Type resultType = type.GetGenericArguments()[0];
-            object? value = resultType.IsValueType ? Activator.CreateInstance(resultType) : null;
-            return typeof(Task).GetMethod(nameof(Task.FromResult))!
-                .MakeGenericMethod(resultType)
-                .Invoke(null, [value]);
-        }
-        return type.IsValueType ? Activator.CreateInstance(type) : null;
     }
 }

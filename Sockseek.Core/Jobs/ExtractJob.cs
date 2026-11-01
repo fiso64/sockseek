@@ -10,11 +10,31 @@ namespace Sockseek.Core.Jobs;
         public string     Input     { get; }
         public InputType? InputType { get; set; }
         public ExtractionMode? RequestedModeOverride { get; set; }
-        public bool AutoProcessResult { get; set; } = true;
+        private bool autoProcessResult = true;
+        public bool AutoProcessResult
+        {
+            get => autoProcessResult;
+            set
+            {
+                if (autoProcessResult == value) return;
+                autoProcessResult = value;
+                OnPropertyChanged();
+            }
+        }
         public DownloadBehaviorPolicy? ResultDownloadBehaviorPolicy { get; set; }
 
         // Set by the engine after extraction. Null until the engine processes this job.
-        public Job? Result { get; set; }
+        private Job? result;
+        public Job? Result
+        {
+            get => result;
+            set
+            {
+                if (ReferenceEquals(result, value)) return;
+                result = value;
+                OnPropertyChanged();
+            }
+        }
 
         // Set by JobPlanner. Runtime consumes the captured result/failure and
         // must not read the source or invoke the extractor again.

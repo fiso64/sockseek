@@ -62,6 +62,62 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/users/{username}/presence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Observes a peer's presence without fetching profile details. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    username: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["UserPresenceObservationDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/users/{username}/picture": {
         parameters: {
             query?: never;
@@ -1175,7 +1231,7 @@ export interface paths {
         put?: never;
         /**
          * Creates an asynchronous preview from the shared Core planner.
-         * @description Returns the Planning resource immediately. Poll its summary revision and page nodes while planning continues.
+         * @description Returns the Planning resource immediately. Wait for completion through its summary, then page the reviewed nodes.
          */
         post: {
             parameters: {
@@ -1232,10 +1288,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Gets the fixed-size preview summary and current revision. */
+        /**
+         * Gets the fixed-size preview summary and current revision.
+         * @description With waitForCompletion=true, waits up to 30 seconds while Planning. Returns immediately on completion; request cancellation stops waiting without cancelling planning.
+         */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    waitForCompletion?: boolean;
+                };
                 header?: never;
                 path: {
                     previewId: string;
@@ -1547,6 +1608,62 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/search-views/{viewId}/definition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gets the exact projection and effective search settings retained for this view. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    viewId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SearchViewDefinitionDto"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/search-views/{viewId}/files": {
         parameters: {
             query?: never;
@@ -1556,7 +1673,7 @@ export interface paths {
         };
         /**
          * Pages file rows from one immutable search-view revision.
-         * @description The opaque cursor is authenticated and bound to the view and revision. Counters in the response describe the same revision as the rows.
+         * @description sortOrder reorders the existing projected rows; omitting it uses the view default. Keep the same sortOrder value (or omission) when continuing a cursor. Cursors bind the view, revision and requested order; counters describe the same revision as the rows.
          */
         get: {
             parameters: {
@@ -1564,6 +1681,7 @@ export interface paths {
                     revision: number | string;
                     cursor?: string;
                     limit?: number | string;
+                    sortOrder?: components["schemas"]["ServerSearchViewSortOrder"];
                 };
                 header?: never;
                 path: {
@@ -1626,13 +1744,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Pages exact peer-directory summaries from one immutable revision. */
+        /**
+         * Pages exact peer-directory summaries from one immutable revision.
+         * @description sortOrder reorders existing directory summaries; omitting it uses the view default. Keep the same sortOrder value (or omission) when continuing a cursor. Membership, counters and child-file ordering retain their revision semantics.
+         */
         get: {
             parameters: {
                 query: {
                     revision: number | string;
                     cursor?: string;
                     limit?: number | string;
+                    sortOrder?: components["schemas"]["ServerSearchViewSortOrder"];
                 };
                 header?: never;
                 path: {
@@ -2108,6 +2230,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/search-views/{viewId}/chosen-options/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reads exact browser-held aggregate choices in one Search View revision.
+         * @description Returns a current option DTO or an explicit miss for each requested group. Choices remain client-owned and are never saved by this read.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    viewId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ResolveSearchViewChosenOptionsRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ResolveSearchViewChosenOptionsResponseDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/search-views/{viewId}/updates": {
         parameters: {
             query?: never;
@@ -2117,12 +2311,13 @@ export interface paths {
         };
         /**
          * Gets the latest fixed-size summary for inexpensive live refresh.
-         * @description When HasNewRevision is true, refetch only visible pages and expanded groups at Summary.Revision.
+         * @description When HasNewRevision is true, refetch only visible pages and expanded groups at Summary.Revision. Optional waitForChange waits up to one second for a new revision; completed Views return immediately.
          */
         get: {
             parameters: {
                 query: {
                     afterRevision: number | string;
+                    waitForChange?: boolean;
                 };
                 header?: never;
                 path: {
@@ -2250,6 +2445,144 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/search-views/{viewId}/selection-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolves the effective download defaults for a client-owned selection. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    viewId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ResolveSearchViewSelectionSettingsRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ResolveSearchViewSelectionSettingsResponseDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/search-views/{viewId}/selection-counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Counts observed public and locked files in a client-owned selection. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    viewId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CountSearchViewSelectionRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CountSearchViewSelectionResponseDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/server/info": {
         parameters: {
             query?: never;
@@ -2335,7 +2668,9 @@ export interface paths {
          */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    detail?: components["schemas"]["DaemonStateDetail"];
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -3046,6 +3381,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chat/conversations/by-peer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gets an existing conversation by exact peer username without creating one. */
+        get: {
+            parameters: {
+                query: {
+                    username: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConversationSummaryDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat/conversations/{conversationId}": {
         parameters: {
             query?: never;
@@ -3606,7 +4033,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    kind?: components["schemas"]["ChatRoomKind"];
+                    kind?: components["schemas"]["ServerChatRoomKind"];
                     cursor?: string;
                     limit?: number | string;
                     refresh?: boolean;
@@ -4579,7 +5006,7 @@ export interface paths {
             parameters: {
                 query?: {
                     unread?: boolean;
-                    kind?: components["schemas"]["UserNotificationKind"];
+                    kind?: components["schemas"]["ServerUserNotificationKind"];
                     cursor?: string;
                     limit?: number | string;
                 };
@@ -4989,8 +5416,8 @@ export interface paths {
          */
         get: {
             parameters: {
-                query: {
-                    archived: boolean;
+                query?: {
+                    archived?: boolean;
                     cursor?: string;
                     limit?: number | string;
                 };
@@ -5185,6 +5612,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{jobId}/rerun-search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replays only one planned search job from its retained execution settings.
+         * @description Sibling jobs are not restarted. Older submissions without retained child identities cannot be replayed through this operation.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    jobId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["JobSummaryDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs": {
         parameters: {
             query?: never;
@@ -5194,21 +5685,23 @@ export interface paths {
         };
         /**
          * Lists known jobs.
-         * @description Default results contain execution roots. Set parentJobId for direct children, submissionId or role for submission semantics, or includeAll=true for a flat workflow list.
+         * @description Default results contain execution roots in ascending display order. Set newestFirst=true for newest-first moving-keyset pages; cursors are bound to that direction. Set parentJobId for direct children, submissionId or role for submission semantics, or includeAll=true for a flat workflow list. Set excludeExtractResults=true to page extraction sources without also counting their generated results.
          */
         get: {
             parameters: {
-                query: {
+                query?: {
                     lifecycleState?: components["schemas"]["ServerJobLifecycleState"];
                     terminalOutcome?: components["schemas"]["ServerJobTerminalOutcome"];
                     skipReason?: components["schemas"]["ServerJobSkipReason"];
-                    kind?: components["schemas"]["ServerJobKind"];
+                    kind?: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
                     workflowId?: string;
                     parentJobId?: string;
                     submissionId?: string;
-                    role?: components["schemas"]["ServerJobRole"];
-                    archived: boolean;
-                    includeAll: boolean;
+                    role?: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                    archived?: boolean;
+                    includeAll?: boolean;
+                    newestFirst?: boolean;
+                    excludeExtractResults?: boolean;
                     cursor?: string;
                     limit?: number | string;
                 };
@@ -5221,6 +5714,10 @@ export interface paths {
                 /** @description OK */
                 200: {
                     headers: {
+                        /** @description Daemon epoch captured before reading live and retained jobs. */
+                        "X-Sockseek-Read-Epoch"?: string;
+                        /** @description Daemon sequence at that read position, encoded as a decimal Int64 string. */
+                        "X-Sockseek-Read-Sequence"?: string;
                         [name: string]: unknown;
                     };
                     content: {
@@ -5231,6 +5728,58 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reads current live or retained job summaries by ID.
+         * @description Returns found IDs once in request order; missing IDs are omitted. Does not hydrate job details or count children.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["JobLookupRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["JobSummaryDto"][];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -5263,6 +5812,55 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["JobDetailDto"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{jobId}/directory-files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pages exact files in the accepted attempt of an album or remote-directory job. */
+        get: {
+            parameters: {
+                query?: {
+                    attemptNumber?: number | string;
+                    afterOrdinal?: number | string;
+                    limit?: number | string;
+                };
+                header?: never;
+                path: {
+                    jobId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DirectoryManifestPageDto"];
                     };
                 };
                 /** @description Not Found */
@@ -5402,6 +6000,7 @@ export interface paths {
                     state?: string;
                     terminalOutcome?: string;
                     username?: string;
+                    groupRef?: string;
                     fromUtc?: string;
                     toUtc?: string;
                     archived?: boolean;
@@ -5763,6 +6362,162 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/transfers/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Looks up current unarchived transfer timeline rows by ID.
+         * @description Uses the same live, queued and retained projection as the timeline. Returns all found IDs in newest-first order without a continuation. Missing IDs are omitted; retained availability is explicit.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TransferLookupRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TransferTimelinePageDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/transfers/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Snapshots a timeline extent, expanded files and requested folder totals.
+         * @description Uses the same scoped read as ObserveTransferTimeline. Window membership and boundary describe the moving prefix independently of explicitly requested additional files.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TransferTimelineScopeDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TransferTimelineUpdateDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/transfers/group-summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Gets moving whole-group totals for the requested transfer groups.
+         * @description Uses the retained transfer ledger with a live overlay; group refs are opaque, and an unavailable retained resource does not yield authoritative totals.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TransferGroupSummariesRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TransferGroupSummariesResponseDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/transfers/{transferId}": {
         parameters: {
             query?: never;
@@ -5894,7 +6649,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Cancels a snapshot of transfers by direction and queue state.
+         * Cancels a snapshot of transfers by direction, queue state, and optional exact peer/group.
          * @description Targets are resolved once, then cancelled independently. Races and per-transfer failures are reported in a fixed-size receipt.
          */
         post: {
@@ -5989,7 +6744,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Archives or restores filtered terminal transfer history.
+         * Archives or restores terminal transfer history, optionally scoped to an exact peer/group.
          * @description The command is reversible, excludes active transfers, and returns bounded outcome counts.
          */
         post: {
@@ -6036,7 +6791,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Lists durable attempts for one transfer. */
+        /** Lists current and retained attempts for one transfer. */
         get: {
             parameters: {
                 query: {
@@ -6637,7 +7392,7 @@ export interface paths {
         put?: never;
         /**
          * Resolves the effective settings for a job draft without submitting it.
-         * @description Uses the same typed settings composer and validation rules as direct Start. Secret and command values are redacted; matched profiles and safe per-field provenance are returned for Review and diagnostics.
+         * @description Uses the same typed settings composer as direct Start. An extract or generic-search draft may omit its not-yet-entered input for provisional settings; actual submission still validates it. Secret and command values are redacted; matched profiles and safe per-field provenance are returned for Review and diagnostics.
          */
         post: {
             parameters: {
@@ -6663,6 +7418,15 @@ export interface paths {
                 };
                 /** @description Bad Request */
                 400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -7230,10 +7994,215 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ActivityEventDto: {
+            /** Format: int64 */
+            sequence: number | string;
+            /** Format: date-time */
+            occurredAtUtc: string;
+            type: string;
+            /** Format: uuid */
+            workflowId?: null | string;
+            /** Format: uuid */
+            jobId?: null | string;
+            /** Format: uuid */
+            transferId?: null | string;
+            payload: {
+                /** @enum {string} */
+                kind?: "jobStatus";
+                /** Format: int32 */
+                displayId: number | string;
+                status: string;
+            } | {
+                /** @enum {string} */
+                kind?: "jobMessage";
+                /** Format: int32 */
+                displayId: number | string;
+                level: string;
+                source?: null | string;
+                message: string;
+            } | {
+                /** @enum {string} */
+                kind?: "workflowMessage";
+                level: string;
+                source?: null | string;
+                message: string;
+            } | {
+                /** @enum {string} */
+                kind?: "diagnostic";
+                /** Format: int32 */
+                displayId?: null | number | string;
+                scope: string;
+                message: string;
+                exceptionType: string;
+                exception: string;
+                source?: null | string;
+            } | {
+                /** @enum {string} */
+                kind?: "extractionStarted";
+                /** Format: int32 */
+                displayId: number | string;
+                input: string;
+                inputType?: null | string;
+                source?: null | string;
+            } | {
+                /** @enum {string} */
+                kind?: "downloadAttemptFailed";
+                /** Format: int32 */
+                displayId: number | string;
+                username?: null | string;
+                remotePath?: null | string;
+                outputPath: string;
+                /** Format: int32 */
+                attempt: number | string;
+                /** Format: int32 */
+                maxAttempts: number | string;
+                exceptionType: string;
+                exceptionMessage: string;
+                exception: string;
+            } | {
+                /** @enum {string} */
+                kind?: "trackBatchResolved";
+                /** Format: int32 */
+                displayId: number | string;
+                isNormal: boolean;
+                printOption: number;
+                /** Format: int32 */
+                pendingCount: number | string;
+                /** Format: int32 */
+                existingCount: number | string;
+                /** Format: int32 */
+                notFoundCount: number | string;
+            };
+        };
+        ActivityPayloadDto: {
+            /** @enum {string} */
+            kind?: "jobStatus";
+            /** Format: int32 */
+            displayId: number | string;
+            status: string;
+        } | {
+            /** @enum {string} */
+            kind?: "jobMessage";
+            /** Format: int32 */
+            displayId: number | string;
+            level: string;
+            source?: null | string;
+            message: string;
+        } | {
+            /** @enum {string} */
+            kind?: "workflowMessage";
+            level: string;
+            source?: null | string;
+            message: string;
+        } | {
+            /** @enum {string} */
+            kind?: "diagnostic";
+            /** Format: int32 */
+            displayId?: null | number | string;
+            scope: string;
+            message: string;
+            exceptionType: string;
+            exception: string;
+            source?: null | string;
+        } | {
+            /** @enum {string} */
+            kind?: "extractionStarted";
+            /** Format: int32 */
+            displayId: number | string;
+            input: string;
+            inputType?: null | string;
+            source?: null | string;
+        } | {
+            /** @enum {string} */
+            kind?: "downloadAttemptFailed";
+            /** Format: int32 */
+            displayId: number | string;
+            username?: null | string;
+            remotePath?: null | string;
+            outputPath: string;
+            /** Format: int32 */
+            attempt: number | string;
+            /** Format: int32 */
+            maxAttempts: number | string;
+            exceptionType: string;
+            exceptionMessage: string;
+            exception: string;
+        } | {
+            /** @enum {string} */
+            kind?: "trackBatchResolved";
+            /** Format: int32 */
+            displayId: number | string;
+            isNormal: boolean;
+            printOption: number;
+            /** Format: int32 */
+            pendingCount: number | string;
+            /** Format: int32 */
+            existingCount: number | string;
+            /** Format: int32 */
+            notFoundCount: number | string;
+        };
+        ActivityPayloadDtoDiagnosticActivityDto: {
+            /** Format: int32 */
+            displayId?: null | number | string;
+            scope: string;
+            message: string;
+            exceptionType: string;
+            exception: string;
+            source?: null | string;
+        };
+        ActivityPayloadDtoDownloadAttemptFailedActivityDto: {
+            /** Format: int32 */
+            displayId: number | string;
+            username?: null | string;
+            remotePath?: null | string;
+            outputPath: string;
+            /** Format: int32 */
+            attempt: number | string;
+            /** Format: int32 */
+            maxAttempts: number | string;
+            exceptionType: string;
+            exceptionMessage: string;
+            exception: string;
+        };
+        ActivityPayloadDtoExtractionStartedActivityDto: {
+            /** Format: int32 */
+            displayId: number | string;
+            input: string;
+            inputType?: null | string;
+            source?: null | string;
+        };
+        ActivityPayloadDtoJobMessageActivityDto: {
+            /** Format: int32 */
+            displayId: number | string;
+            level: string;
+            source?: null | string;
+            message: string;
+        };
+        ActivityPayloadDtoJobStatusActivityDto: {
+            /** Format: int32 */
+            displayId: number | string;
+            status: string;
+        };
+        ActivityPayloadDtoTrackBatchResolvedActivityDto: {
+            /** Format: int32 */
+            displayId: number | string;
+            isNormal: boolean;
+            printOption: number;
+            /** Format: int32 */
+            pendingCount: number | string;
+            /** Format: int32 */
+            existingCount: number | string;
+            /** Format: int32 */
+            notFoundCount: number | string;
+        };
+        ActivityPayloadDtoWorkflowMessageActivityDto: {
+            level: string;
+            source?: null | string;
+            message: string;
+        };
         AddRoomMemberRequestDto: {
             username: string;
         };
-        AlbumArtOption: number;
         AlbumFolderDownloadSelectionDto: {
             files?: null | components["schemas"]["FileCandidateRefDto"][];
             /** @default false */
@@ -7271,18 +8240,38 @@ export interface components {
             fromUtc?: null | string;
             /** Format: date-time */
             toUtc?: null | string;
+            groupRef?: null | string;
+        };
+        AttemptedSongFileDto: {
+            target: {
+                username: string;
+                filename: string;
+                /** Format: int64 */
+                size?: null | number | string;
+                extension?: null | string;
+                /** Format: int32 */
+                bitRate?: null | number | string;
+                /** Format: int32 */
+                bitDepth?: null | number | string;
+                /** Format: int32 */
+                sampleRate?: null | number | string;
+                /** Format: int32 */
+                length?: null | number | string;
+                attributes?: components["schemas"]["FileAttributeDto"][] | null;
+            };
+            peer: components["schemas"]["PeerInfoDto"];
         };
         AvailableRoomDto: {
             name: string;
             /** Format: int32 */
             userCount: number | string;
-            kind: components["schemas"]["ChatRoomKind"];
+            kind: components["schemas"]["ServerChatRoomKind"];
             owned: boolean;
             moderated: boolean;
         };
         AvailableRoomPageDto: {
             items: components["schemas"]["AvailableRoomDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
             /** Format: date-time */
             observedAtUtc: string;
             truncated: boolean;
@@ -7294,7 +8283,7 @@ export interface components {
             /** Format: int64 */
             directoryId: number | string;
             /** Format: int64 */
-            parentId: null | number | string;
+            parentId?: null | number | string;
             name: string;
             displayPath: string;
             visibility: components["schemas"]["ShareVisibility"];
@@ -7310,6 +8299,10 @@ export interface components {
             /** Format: int64 */
             lockedDescendantCount: number | string;
             hasChildren: boolean;
+            /** Format: int64 */
+            totalRecursiveFileCount?: null | number | string;
+            /** Format: int64 */
+            totalRecursiveFileBytes?: null | number | string;
         };
         BrowseFileEntryDto: {
             /** Format: int64 */
@@ -7326,7 +8319,7 @@ export interface components {
             /** Format: int64 */
             directoryId: number | string;
             /** Format: int64 */
-            parentDirectoryId: null | number | string;
+            parentDirectoryId?: null | number | string;
             name: string;
             displayPath: string;
             visibility: components["schemas"]["ShareVisibility"];
@@ -7339,16 +8332,24 @@ export interface components {
             /** Format: int64 */
             lockedMatchingBytes: number | string;
             /** Format: int64 */
-            fileSize: null | number | string;
-            extension: null | string;
+            fileSize?: null | number | string;
+            extension?: null | string;
             /** Format: int32 */
-            bitRate: null | number | string;
+            bitRate?: null | number | string;
             /** Format: int32 */
-            bitDepth: null | number | string;
+            bitDepth?: null | number | string;
             /** Format: int32 */
-            sampleRate: null | number | string;
+            sampleRate?: null | number | string;
             /** Format: int32 */
-            length: null | number | string;
+            length?: null | number | string;
+            /** Format: int64 */
+            publicSubtreeFileCount?: null | number | string;
+            /** Format: int64 */
+            publicSubtreeBytes?: null | number | string;
+            /** Format: int64 */
+            totalSubtreeFileCount?: null | number | string;
+            /** Format: int64 */
+            totalSubtreeBytes?: null | number | string;
         };
         /** @enum {unknown} */
         BrowseSearchEntryKind: "directory" | "file";
@@ -7367,7 +8368,7 @@ export interface components {
             lockedMatchingFileCount: number | string;
             /** Format: int64 */
             lockedMatchingBytes: number | string;
-            nextCursor: null | string;
+            nextCursor?: null | string;
             /** Format: int64 */
             matchingFileCount?: number | string;
             /** Format: int64 */
@@ -7376,6 +8377,8 @@ export interface components {
         BulkCancelTransfersRequestDto: {
             direction: components["schemas"]["TransferCommandDirection"];
             scope?: components["schemas"]["TransferCancellationScope"];
+            username?: null | string;
+            groupRef?: null | string;
         };
         CancelJobsResponseDto: {
             /** Format: int32 */
@@ -7385,44 +8388,38 @@ export interface components {
             /** Format: int32 */
             cancelled: number | string;
         };
-        /** @enum {unknown} */
-        ChatMessageDirection: "Incoming" | "Outgoing";
+        /** @enum {integer} */
+        ChatLiveMessageTailSize: 100;
         ChatMessageDto: {
             /** Format: uuid */
             messageId: string;
             /** Format: int64 */
             sequence: number | string;
-            targetKind: components["schemas"]["ChatTargetKind"];
+            targetKind: components["schemas"]["ServerChatTargetKind"];
             /** Format: uuid */
             targetId: string;
             sender: string;
-            direction: components["schemas"]["ChatMessageDirection"];
+            direction: components["schemas"]["ServerChatMessageDirection"];
             text: string;
             /** Format: date-time */
             occurredAtUtc: string;
             /** Format: date-time */
             recordedAtUtc: string;
-            state: components["schemas"]["ChatMessageState"];
-            failureReason: null | string;
+            state: components["schemas"]["ServerChatMessageState"];
+            failureReason?: null | string;
         };
         ChatMessagePageDto: {
             items: components["schemas"]["ChatMessageDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
         };
-        /** @enum {unknown} */
-        ChatMessageState: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
         ChatRoomDetailDto: {
             summary: components["schemas"]["ChatRoomSummaryDto"];
-            owner: null | string;
+            owner?: null | string;
             operators: string[];
         };
-        /** @enum {unknown} */
-        ChatRoomJoinPhase: "Disconnected" | "Joining" | "Joined" | "Leaving" | "Failed";
-        /** @enum {unknown} */
-        ChatRoomKind: "Unknown" | "Public" | "Private";
         ChatRoomPageDto: {
             items: components["schemas"]["ChatRoomSummaryDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
         };
         ChatRoomSummaryDto: {
             /** Format: uuid */
@@ -7431,11 +8428,11 @@ export interface components {
             configured: boolean;
             remembered: boolean;
             desired: boolean;
-            kind: components["schemas"]["ChatRoomKind"];
+            kind: components["schemas"]["ServerChatRoomKind"];
             owned: boolean;
             moderated: boolean;
-            phase: components["schemas"]["ChatRoomJoinPhase"];
-            failureReason: null | string;
+            phase: components["schemas"]["ServerChatRoomJoinPhase"];
+            failureReason?: null | string;
             /** Format: int32 */
             memberCount: number | string;
             /** Format: int64 */
@@ -7447,11 +8444,11 @@ export interface components {
             lastReadSequence: number | string;
             /** Format: int64 */
             revision: number | string;
-            lastMessage: null | components["schemas"]["ChatMessageDto"];
+            lastMessage?: null | components["schemas"]["ChatMessageDto"];
         };
         ChatRuntimeStateDto: {
             state: components["schemas"]["DaemonFeatureState"];
-            reason: null | string;
+            reason?: null | string;
             /** Format: int32 */
             desiredRoomCount: number | string;
             /** Format: int32 */
@@ -7463,14 +8460,123 @@ export interface components {
             /** Format: int64 */
             revision: number | string;
         };
-        /** @enum {unknown} */
-        ChatTargetKind: "Direct" | "Room";
-        ChatTargetSnapshotDto: {
-            kind: components["schemas"]["ChatTargetKind"];
+        ChatTargetDeltaDto: {
+            /** @enum {unknown} */
+            kind: "Direct" | "Room";
             /** Format: uuid */
             targetId: string;
-            conversation: null | components["schemas"]["ConversationSummaryDto"];
-            room: null | components["schemas"]["ChatRoomSummaryDto"];
+            conversation?: {
+                /** Format: uuid */
+                conversationId: string;
+                username: string;
+                privateMessagesBlocked: boolean;
+                archived: boolean;
+                /** Format: int32 */
+                unreadCount: number | string;
+                /** Format: int64 */
+                lastReadSequence: number | string;
+                /** Format: int64 */
+                revision: number | string;
+                lastMessage?: {
+                    /** Format: uuid */
+                    messageId: string;
+                    /** Format: int64 */
+                    sequence: number | string;
+                    /** @enum {unknown} */
+                    targetKind: "Direct" | "Room";
+                    /** Format: uuid */
+                    targetId: string;
+                    sender: string;
+                    /** @enum {unknown} */
+                    direction: "Incoming" | "Outgoing";
+                    text: string;
+                    /** Format: date-time */
+                    occurredAtUtc: string;
+                    /** Format: date-time */
+                    recordedAtUtc: string;
+                    /** @enum {unknown} */
+                    state: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
+                    failureReason?: null | string;
+                };
+            };
+            room?: {
+                /** Format: uuid */
+                roomId: string;
+                name: string;
+                configured: boolean;
+                remembered: boolean;
+                desired: boolean;
+                /** @enum {unknown} */
+                kind: "Unknown" | "Public" | "Private";
+                owned: boolean;
+                moderated: boolean;
+                /** @enum {unknown} */
+                phase: "Disconnected" | "Joining" | "Joined" | "Leaving" | "Failed";
+                failureReason?: null | string;
+                /** Format: int32 */
+                memberCount: number | string;
+                /** Format: int64 */
+                memberRevision: number | string;
+                rosterComplete: boolean;
+                /** Format: int32 */
+                unreadCount: number | string;
+                /** Format: int64 */
+                lastReadSequence: number | string;
+                /** Format: int64 */
+                revision: number | string;
+                lastMessage?: {
+                    /** Format: uuid */
+                    messageId: string;
+                    /** Format: int64 */
+                    sequence: number | string;
+                    /** @enum {unknown} */
+                    targetKind: "Direct" | "Room";
+                    /** Format: uuid */
+                    targetId: string;
+                    sender: string;
+                    /** @enum {unknown} */
+                    direction: "Incoming" | "Outgoing";
+                    text: string;
+                    /** Format: date-time */
+                    occurredAtUtc: string;
+                    /** Format: date-time */
+                    recordedAtUtc: string;
+                    /** @enum {unknown} */
+                    state: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
+                    failureReason?: null | string;
+                };
+            };
+            messages?: null | {
+                /** Format: uuid */
+                messageId: string;
+                /** Format: int64 */
+                sequence: number | string;
+                /** @enum {unknown} */
+                targetKind: "Direct" | "Room";
+                /** Format: uuid */
+                targetId: string;
+                sender: string;
+                /** @enum {unknown} */
+                direction: "Incoming" | "Outgoing";
+                text: string;
+                /** Format: date-time */
+                occurredAtUtc: string;
+                /** Format: date-time */
+                recordedAtUtc: string;
+                /** @enum {unknown} */
+                state: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
+                failureReason?: null | string;
+            }[];
+            /** @default false */
+            replaceMessages: boolean;
+            hasEarlierMessages?: null | boolean;
+        };
+        ChatTargetSnapshotDto: {
+            kind: components["schemas"]["ServerChatTargetKind"];
+            /** Format: uuid */
+            targetId: string;
+            conversation?: null | components["schemas"]["ConversationSummaryDto"];
+            room?: null | components["schemas"]["ChatRoomSummaryDto"];
             messages: components["schemas"]["ChatMessageDto"][];
             hasEarlierMessages: boolean;
         };
@@ -7488,14 +8594,15 @@ export interface components {
             selection: components["schemas"]["RefSelectionExpressionDto"];
             /** Format: uuid */
             idempotencyKey: string;
+            subtreeOverrides?: null | components["schemas"]["JobPreviewSelectionOverrideDto"][];
         };
         CommitJobPreviewResponseDto: {
             /** Format: uuid */
             previewId: string;
             /** Format: uuid */
-            submissionId: null | string;
+            submissionId?: null | string;
             /** Format: uuid */
-            workflowId: null | string;
+            workflowId?: null | string;
             /** Format: int32 */
             requestedCount: number | string;
             /** Format: int32 */
@@ -7514,6 +8621,20 @@ export interface components {
             selection: components["schemas"]["RefSelectionExpressionDto"];
             /** Format: uuid */
             idempotencyKey: string;
+            excludedFileRefs?: null | string[];
+            includedFileRefs?: null | string[];
+            chosenOptions?: null | {
+                [key: string]: string;
+            };
+            albumFileSelections?: null | {
+                [key: string]: components["schemas"]["RefSelectionExpressionDto"];
+            };
+            options?: null | components["schemas"]["SubmissionOptionsDto"];
+            excludedFileIdentities?: null | {
+                [key: string]: components["schemas"]["FileCandidateRefDto"];
+            };
+            useRepresentativeWhenUnchosen?: null | boolean;
+            directoryPathRules?: null | components["schemas"]["SearchViewDirectoryPathRuleDto"][];
         };
         CommitSearchViewSelectionResponseDto: {
             /** Format: uuid */
@@ -7521,9 +8642,9 @@ export interface components {
             /** Format: int64 */
             viewRevision: number | string;
             /** Format: uuid */
-            submissionId: null | string;
+            submissionId?: null | string;
             /** Format: uuid */
-            workflowId: null | string;
+            workflowId?: null | string;
             /** Format: int64 */
             requestedCount: number | string;
             /** Format: int64 */
@@ -7538,7 +8659,7 @@ export interface components {
         };
         ConversationPageDto: {
             items: components["schemas"]["ConversationSummaryDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
         };
         ConversationSummaryDto: {
             /** Format: uuid */
@@ -7552,7 +8673,34 @@ export interface components {
             lastReadSequence: number | string;
             /** Format: int64 */
             revision: number | string;
-            lastMessage: null | components["schemas"]["ChatMessageDto"];
+            lastMessage?: null | components["schemas"]["ChatMessageDto"];
+        };
+        CountSearchViewSelectionRequestDto: {
+            /** Format: int64 */
+            revision: number | string;
+            selection: components["schemas"]["RefSelectionExpressionDto"];
+            excludedFileRefs?: null | string[];
+            includedFileRefs?: null | string[];
+            chosenOptions?: null | {
+                [key: string]: string;
+            };
+            albumFileSelections?: null | {
+                [key: string]: components["schemas"]["RefSelectionExpressionDto"];
+            };
+            excludedFileIdentities?: null | {
+                [key: string]: components["schemas"]["FileCandidateRefDto"];
+            };
+            directoryPathRules?: null | components["schemas"]["SearchViewDirectoryPathRuleDto"][];
+        };
+        CountSearchViewSelectionResponseDto: {
+            /** Format: int64 */
+            revision: number | string;
+            /** Format: int64 */
+            publicFileCount: number | string;
+            /** Format: int64 */
+            lockedFileCount: number | string;
+            /** Format: int64 */
+            selectedItemCount: number | string;
         };
         CreateJobPreviewRequestDto: {
             job: components["schemas"]["JobDraftDto"];
@@ -7562,11 +8710,14 @@ export interface components {
             preview: components["schemas"]["JobPreviewSummaryDto"];
         };
         CreateSearchViewRequestDto: {
-            kind?: null | components["schemas"]["SearchViewProjectionKind"];
+            kind?: null | components["schemas"]["ServerSearchViewProjectionKind"];
             songQuery?: null | components["schemas"]["SongQueryDto"];
             albumQuery?: null | components["schemas"]["AlbumQueryDto"];
             /** @default false */
             includeFullResults: boolean;
+            refinementSettings?: null | components["schemas"]["SearchSettingsPatchDto"];
+            filterText?: null | string;
+            sortOrder?: null | components["schemas"]["ServerSearchViewSortOrder"];
         };
         CsvSettingsPatchDto: {
             artistCol?: null | string;
@@ -7581,6 +8732,8 @@ export interface components {
         };
         /** @enum {unknown} */
         DaemonFeatureState: "Disabled" | "Starting" | "Ready" | "Degraded";
+        /** @enum {unknown} */
+        DaemonStateDetail: "Full" | "Overview" | null;
         DaemonStateDto: {
             /** Format: int64 */
             revision: number | string;
@@ -7588,11 +8741,16 @@ export interface components {
             /** Format: int32 */
             restartCount: number | string;
             /** Format: date-time */
-            searchRateLimitResetsAtUtc: null | string;
+            searchRateLimitResetsAtUtc?: null | string;
             sharing: components["schemas"]["SharingStateDto"];
             uploads: components["schemas"]["UploadRuntimeStateDto"];
             chat: components["schemas"]["ChatRuntimeStateDto"];
             notifications: components["schemas"]["NotificationSummaryDto"];
+            /**
+             * Format: int64
+             * @default 0
+             */
+            terminalTransferCommitRevision: number | string;
         };
         DashboardAnalyticsComparisonDto: {
             /** Format: date-time */
@@ -7605,7 +8763,7 @@ export interface components {
         DashboardAnalyticsCoverageDto: {
             state: components["schemas"]["DashboardAnalyticsCoverageState"];
             /** Format: date-time */
-            completeFromUtc: null | string;
+            completeFromUtc?: null | string;
             isComplete: boolean;
             reason?: null | string;
         };
@@ -7621,7 +8779,7 @@ export interface components {
             uploadPeers: components["schemas"]["DashboardPeerAggregateDto"][];
             content: components["schemas"]["DashboardContentAggregateDto"][];
             errors: components["schemas"]["DashboardErrorAggregateDto"][];
-            comparison: null | components["schemas"]["DashboardAnalyticsComparisonDto"];
+            comparison?: null | components["schemas"]["DashboardAnalyticsComparisonDto"];
         };
         DashboardAnalyticsRangeDto: {
             range: string;
@@ -7645,7 +8803,7 @@ export interface components {
             /** Format: int32 */
             distinctPeers: number | string;
             /** Format: double */
-            shareRatio: null | number | string;
+            shareRatio?: null | number | string;
         };
         DashboardBandwidthBucketDto: {
             /** Format: date-time */
@@ -7679,11 +8837,20 @@ export interface components {
             /** Format: int32 */
             successfulFileCount: number | string;
         };
+        DiagnosticActivityDto: {
+            /** Format: int32 */
+            displayId?: null | number | string;
+            scope: string;
+            message: string;
+            exceptionType: string;
+            exception: string;
+            source?: null | string;
+        };
         DirectoryDownloadStateDto: {
             phase: string;
             /** Format: int32 */
-            attemptNumber: null | number | string;
-            downloadPath: null | string;
+            attemptNumber?: null | number | string;
+            downloadPath?: null | string;
             /** Format: int32 */
             fileCount: number | string;
             /** Format: int32 */
@@ -7697,20 +8864,100 @@ export interface components {
             /** Format: int64 */
             totalKnownBytes: number | string;
             /** Format: double */
-            progressPercent: null | number | string;
+            progressPercent?: null | number | string;
+            /** Format: int32 */
+            unknownFileSizeCount?: null | number | string;
         };
-        DirectoryTransferPlanDto: unknown;
-        /**
-         * @default Automatic
-         * @enum {unknown}
-         */
-        DownloadBehavior: "Automatic" | "Manual";
+        DirectoryManifestEntryDto: {
+            /** Format: int32 */
+            ordinal: number | string;
+            target?: null | {
+                username: string;
+                filename: string;
+                /** Format: int64 */
+                size?: null | number | string;
+                extension?: null | string;
+                /** Format: int32 */
+                bitRate?: null | number | string;
+                /** Format: int32 */
+                bitDepth?: null | number | string;
+                /** Format: int32 */
+                sampleRate?: null | number | string;
+                /** Format: int32 */
+                length?: null | number | string;
+                attributes?: components["schemas"]["FileAttributeDto"][] | null;
+            };
+            relativeDirectoryComponents: string[];
+            /** Format: uuid */
+            childJobId?: null | string;
+            child?: null | components["schemas"]["JobSummaryDto"];
+            file?: null | components["schemas"]["FileDownloadStateDto"];
+        };
+        DirectoryManifestPageDto: {
+            /** Format: int32 */
+            attemptNumber: number | string;
+            displayRoot: string;
+            /** Format: int32 */
+            entryCount: number | string;
+            /** Format: int64 */
+            totalKnownBytes: number | string;
+            childrenMaterialized: boolean;
+            /** Format: int32 */
+            supplementalEntryCount: number | string;
+            /** Format: int64 */
+            jobRevision: number | string;
+            items: components["schemas"]["DirectoryManifestEntryDto"][];
+            /** Format: int32 */
+            nextOrdinal?: null | number | string;
+        };
+        DirectoryTransferPlanDto: {
+            displayRoot: string;
+            entries: {
+                target: {
+                    username: string;
+                    filename: string;
+                    /** Format: int64 */
+                    size?: null | number | string;
+                    extension?: null | string;
+                    /** Format: int32 */
+                    bitRate?: null | number | string;
+                    /** Format: int32 */
+                    bitDepth?: null | number | string;
+                    /** Format: int32 */
+                    sampleRate?: null | number | string;
+                    /** Format: int32 */
+                    length?: null | number | string;
+                    attributes?: {
+                        type: string;
+                        /** Format: int32 */
+                        value: number | string;
+                    }[] | null;
+                };
+                relativeDirectoryComponents: string[];
+            }[];
+            /** Format: int64 */
+            totalKnownBytes: number | string;
+        };
+        DownloadAttemptFailedActivityDto: {
+            /** Format: int32 */
+            displayId: number | string;
+            username?: null | string;
+            remotePath?: null | string;
+            outputPath: string;
+            /** Format: int32 */
+            attempt: number | string;
+            /** Format: int32 */
+            maxAttempts: number | string;
+            exceptionType: string;
+            exceptionMessage: string;
+            exception: string;
+        };
         DownloadBehaviorPolicyDto: {
-            default?: components["schemas"]["DownloadBehavior"];
-            song?: null | components["schemas"]["DownloadBehavior"];
-            album?: null | components["schemas"]["DownloadBehavior"];
-            aggregate?: null | components["schemas"]["DownloadBehavior"];
-            albumAggregate?: null | components["schemas"]["DownloadBehavior"];
+            default?: components["schemas"]["ServerDownloadBehavior"];
+            song?: null | components["schemas"]["ServerDownloadBehavior"];
+            album?: null | components["schemas"]["ServerDownloadBehavior"];
+            aggregate?: null | components["schemas"]["ServerDownloadBehavior"];
+            albumAggregate?: null | components["schemas"]["ServerDownloadBehavior"];
         };
         DownloadSettingsPatchDto: {
             output?: null | components["schemas"]["OutputSettingsPatchDto"];
@@ -7724,7 +8971,7 @@ export interface components {
             ytDlp?: null | components["schemas"]["YtDlpSettingsPatchDto"];
             csv?: null | components["schemas"]["CsvSettingsPatchDto"];
             bandcamp?: null | components["schemas"]["BandcampSettingsPatchDto"];
-            printOption?: null | components["schemas"]["PrintOption"];
+            printOption?: null | components["schemas"]["ServerPrintOption"];
         };
         EffectiveDownloadSettingsDto: {
             values: components["schemas"]["DownloadSettingsPatchDto"];
@@ -7740,20 +8987,26 @@ export interface components {
             ytDlpArgumentConfigured: boolean;
             bandcampHtmlFileConfigured: boolean;
         };
-        ExtractionMode: number;
         ExtractionSettingsPatchDto: {
             input?: null | string;
-            inputType?: null | components["schemas"]["InputType"];
+            inputType?: null | components["schemas"]["ServerInputType"];
             /** Format: int32 */
             maxTracks?: null | number | string;
             /** Format: int32 */
             offset?: null | number | string;
             reverse?: null | boolean;
             removeTracksFromSource?: null | boolean;
-            requestedMode?: null | components["schemas"]["ExtractionMode"];
+            requestedMode?: null | components["schemas"]["ServerExtractionMode"];
             upgradeToAlbum?: null | boolean;
             setAlbumMinTrackCount?: null | boolean;
             setAlbumMaxTrackCount?: null | boolean;
+        };
+        ExtractionStartedActivityDto: {
+            /** Format: int32 */
+            displayId: number | string;
+            input: string;
+            inputType?: null | string;
+            source?: null | string;
         };
         FileAttributeDto: {
             type: string;
@@ -7787,29 +9040,35 @@ export interface components {
             allowedUsers?: null | components["schemas"]["CollectionPatchDtoOfstring"];
             acceptNoLength?: null | boolean;
             acceptMissingProps?: null | boolean;
+            clearMinBitrate?: null | boolean;
+            clearMaxBitrate?: null | boolean;
+            clearMinSampleRate?: null | boolean;
+            clearMaxSampleRate?: null | boolean;
+            clearMinBitDepth?: null | boolean;
+            clearMaxBitDepth?: null | boolean;
         };
         FileDownloadStateDto: {
-            downloadPath: null | string;
+            downloadPath?: null | string;
             /** Format: int64 */
             bytesTransferred: number | string;
             /** Format: int64 */
-            fileSize: null | number | string;
+            fileSize?: null | number | string;
             /** Format: double */
-            progressPercent: null | number | string;
+            progressPercent?: null | number | string;
         };
         FileMetadataDto: {
             name: string;
             /** Format: int64 */
             size: number | string;
-            extension: null | string;
+            extension?: null | string;
             /** Format: int32 */
-            bitRate: null | number | string;
+            bitRate?: null | number | string;
             /** Format: int32 */
-            bitDepth: null | number | string;
+            bitDepth?: null | number | string;
             /** Format: int32 */
-            sampleRate: null | number | string;
+            sampleRate?: null | number | string;
             /** Format: int32 */
-            length: null | number | string;
+            length?: null | number | string;
             attributes?: null | components["schemas"]["FileAttributeDto"][];
         };
         FolderConditionsPatchDto: {
@@ -7818,11 +9077,11 @@ export interface components {
             /** Format: int32 */
             maxTrackCount?: null | number | string;
             requiredTrackTitles?: null | components["schemas"]["CollectionPatchDtoOfstring"];
+            clearMinTrackCount?: null | boolean;
+            clearMaxTrackCount?: null | boolean;
         };
-        /** @enum {unknown} */
-        IncompleteAlbumActionKind: "Move" | "Delete" | "Keep" | null;
         IncompleteAlbumActionSettingsPatchDto: {
-            kind?: null | components["schemas"]["IncompleteAlbumActionKind"];
+            kind?: null | components["schemas"]["ServerIncompleteAlbumActionKind"];
             path?: null | string;
         };
         InputArtifactDto: {
@@ -7836,18 +9095,197 @@ export interface components {
             expiresAtUtc: string;
             originalName?: null | string;
         };
-        InputType: number;
+        JobDeltaDto: {
+            /** Format: uuid */
+            jobId: string;
+            /** Format: int64 */
+            revision: number | string;
+            added?: {
+                /** Format: uuid */
+                jobId: string;
+                /** Format: int64 */
+                revision: number | string;
+                display: {
+                    /** Format: int32 */
+                    displayId: number | string;
+                    /** Format: uuid */
+                    workflowId: string;
+                    /** @enum {unknown} */
+                    kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+                    itemName?: null | string;
+                    queryText?: null | string;
+                    appliedAutoProfiles: string[];
+                    printOption: number;
+                    /** Format: uuid */
+                    submissionId?: null | string;
+                    /** @enum {unknown} */
+                    role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                    /** Format: date-time */
+                    createdAtUtc?: null | string;
+                    /** @enum {unknown} */
+                    searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
+                    searchAggregatePresentation?: null | boolean;
+                    sourceDetail?: null | string;
+                };
+                lifecycle: {
+                    /** @enum {unknown} */
+                    lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
+                    /** @enum {unknown} */
+                    activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
+                    /** Format: date-time */
+                    activityUntilUtc?: null | string;
+                    /** @enum {unknown} */
+                    terminalOutcome: "None" | "Succeeded" | "Failed" | "Skipped" | "Cancelled" | "PartialSuccess";
+                    /** @enum {unknown} */
+                    skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
+                    /** @enum {unknown} */
+                    failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
+                    failureMessage?: null | string;
+                    failureDetail?: null | string;
+                    /** @enum {unknown} */
+                    cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
+                    availableActions: {
+                        /** @enum {unknown} */
+                        kind: "cancel";
+                        method: string;
+                        href: string;
+                    }[];
+                };
+                discovery: {
+                    /** Format: int32 */
+                    rawResultCount?: null | number | string;
+                    /** Format: int32 */
+                    lockedFileCount?: null | number | string;
+                    /** Format: int32 */
+                    publicFileCount?: null | number | string;
+                    /** Format: int32 */
+                    observedPeerCount?: null | number | string;
+                };
+                relationships: {
+                    /** Format: uuid */
+                    parentJobId?: null | string;
+                    /** Format: uuid */
+                    resultJobId?: null | string;
+                    /** Format: uuid */
+                    sourceJobId?: null | string;
+                };
+                stats?: {
+                    /** Format: int32 */
+                    memberCount?: null | number | string;
+                    /** Format: int32 */
+                    completedMemberCount?: null | number | string;
+                    /** Format: int32 */
+                    failedMemberCount?: null | number | string;
+                    /** Format: int32 */
+                    candidateCount?: null | number | string;
+                    /** Format: int32 */
+                    folderCount?: null | number | string;
+                    /** Format: int32 */
+                    fileCount?: null | number | string;
+                    /** Format: int64 */
+                    knownBytes?: null | number | string;
+                    /** Format: int32 */
+                    newFilesFoundCount?: null | number | string;
+                    /** Format: double */
+                    progressPercent?: null | number | string;
+                };
+            };
+            display?: {
+                /** Format: int32 */
+                displayId: number | string;
+                /** Format: uuid */
+                workflowId: string;
+                /** @enum {unknown} */
+                kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+                itemName?: null | string;
+                queryText?: null | string;
+                appliedAutoProfiles: string[];
+                printOption: number;
+                /** Format: uuid */
+                submissionId?: null | string;
+                /** @enum {unknown} */
+                role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                /** Format: date-time */
+                createdAtUtc?: null | string;
+                /** @enum {unknown} */
+                searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
+                searchAggregatePresentation?: null | boolean;
+                sourceDetail?: null | string;
+            };
+            lifecycle?: {
+                /** @enum {unknown} */
+                lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
+                /** @enum {unknown} */
+                activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
+                /** Format: date-time */
+                activityUntilUtc?: null | string;
+                /** @enum {unknown} */
+                terminalOutcome: "None" | "Succeeded" | "Failed" | "Skipped" | "Cancelled" | "PartialSuccess";
+                /** @enum {unknown} */
+                skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
+                /** @enum {unknown} */
+                failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
+                failureMessage?: null | string;
+                failureDetail?: null | string;
+                /** @enum {unknown} */
+                cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
+                availableActions: {
+                    /** @enum {unknown} */
+                    kind: "cancel";
+                    method: string;
+                    href: string;
+                }[];
+            };
+            discovery?: {
+                /** Format: int32 */
+                rawResultCount?: null | number | string;
+                /** Format: int32 */
+                lockedFileCount?: null | number | string;
+                /** Format: int32 */
+                publicFileCount?: null | number | string;
+                /** Format: int32 */
+                observedPeerCount?: null | number | string;
+            };
+            relationships?: {
+                /** Format: uuid */
+                parentJobId?: null | string;
+                /** Format: uuid */
+                resultJobId?: null | string;
+                /** Format: uuid */
+                sourceJobId?: null | string;
+            };
+            stats?: {
+                /** Format: int32 */
+                memberCount?: null | number | string;
+                /** Format: int32 */
+                completedMemberCount?: null | number | string;
+                /** Format: int32 */
+                failedMemberCount?: null | number | string;
+                /** Format: int32 */
+                candidateCount?: null | number | string;
+                /** Format: int32 */
+                folderCount?: null | number | string;
+                /** Format: int32 */
+                fileCount?: null | number | string;
+                /** Format: int64 */
+                knownBytes?: null | number | string;
+                /** Format: int32 */
+                newFilesFoundCount?: null | number | string;
+                /** Format: double */
+                progressPercent?: null | number | string;
+            };
+        };
         JobDetailDto: {
             summary: components["schemas"]["JobSummaryDto"];
-            payload: null | components["schemas"]["JobPayloadDto"];
+            payload?: null | components["schemas"]["JobPayloadDto"];
             /** Format: int32 */
             childCount: number | string;
         };
         JobDiscoveryFieldsDto: {
             /** Format: int32 */
-            rawResultCount: null | number | string;
+            rawResultCount?: null | number | string;
             /** Format: int32 */
-            lockedFileCount: null | number | string;
+            lockedFileCount?: null | number | string;
             /** Format: int32 */
             publicFileCount?: null | number | string;
             /** Format: int32 */
@@ -7859,12 +9297,20 @@ export interface components {
             /** Format: uuid */
             workflowId: string;
             kind: components["schemas"]["ServerJobKind"];
-            itemName: null | string;
-            queryText: null | string;
+            itemName?: null | string;
+            queryText?: null | string;
             appliedAutoProfiles: string[];
-            printOption: components["schemas"]["PrintOption"];
+            printOption: components["schemas"]["ServerPrintOption"];
+            /** Format: uuid */
+            submissionId?: null | string;
+            role: components["schemas"]["ServerJobRole"];
+            /** Format: date-time */
+            createdAtUtc?: null | string;
+            searchDefaultProjection?: null | components["schemas"]["ServerSearchDefaultProjectionKind"];
+            searchAggregatePresentation?: null | boolean;
+            sourceDetail?: null | string;
         };
-        JobDraftDto: components["schemas"]["JobDraftDtoExtractJobDraftDto"] | components["schemas"]["JobDraftDtoTrackSearchJobDraftDto"] | components["schemas"]["JobDraftDtoAlbumSearchJobDraftDto"] | components["schemas"]["JobDraftDtoSongJobDraftDto"] | components["schemas"]["JobDraftDtoAlbumJobDraftDto"] | components["schemas"]["JobDraftDtoAggregateJobDraftDto"] | components["schemas"]["JobDraftDtoAlbumAggregateJobDraftDto"] | components["schemas"]["JobDraftDtoJobListJobDraftDto"] | components["schemas"]["JobDraftDtoRemoteFileJobDraftDto"] | components["schemas"]["JobDraftDtoRemoteDirectoryJobDraftDto"];
+        JobDraftDto: components["schemas"]["JobDraftDtoExtractJobDraftDto"] | components["schemas"]["JobDraftDtoGenericSearchJobDraftDto"] | components["schemas"]["JobDraftDtoTrackSearchJobDraftDto"] | components["schemas"]["JobDraftDtoAlbumSearchJobDraftDto"] | components["schemas"]["JobDraftDtoSongJobDraftDto"] | components["schemas"]["JobDraftDtoAlbumJobDraftDto"] | components["schemas"]["JobDraftDtoAggregateJobDraftDto"] | components["schemas"]["JobDraftDtoAlbumAggregateJobDraftDto"] | components["schemas"]["JobDraftDtoJobListJobDraftDto"] | components["schemas"]["JobDraftDtoRemoteFileJobDraftDto"] | components["schemas"]["JobDraftDtoRemoteDirectoryJobDraftDto"];
         JobDraftDtoAggregateJobDraftDto: {
             /** @enum {string} */
             kind?: "aggregate";
@@ -7906,10 +9352,17 @@ export interface components {
             provenance?: null | components["schemas"]["JobProvenanceDto"];
             artifactId?: null | string;
         };
+        JobDraftDtoGenericSearchJobDraftDto: {
+            /** @enum {string} */
+            kind?: "search-generic";
+            queryText: string;
+            downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
+            provenance?: null | components["schemas"]["JobProvenanceDto"];
+        };
         JobDraftDtoJobListJobDraftDto: {
             /** @enum {string} */
             kind?: "job-list";
-            name: null | string;
+            name?: null | string;
             jobs: components["schemas"]["JobDraftDto"][];
             downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
             provenance?: null | components["schemas"]["JobProvenanceDto"];
@@ -7919,14 +9372,14 @@ export interface components {
             kind?: "remote-directory";
             username?: null | string;
             folderPath?: null | string;
-            plan?: null | components["schemas"]["DirectoryTransferPlanDto"];
+            plan?: unknown;
             downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
             provenance?: null | components["schemas"]["JobProvenanceDto"];
         };
         JobDraftDtoRemoteFileJobDraftDto: {
             /** @enum {string} */
             kind?: "remote-file";
-            target: components["schemas"]["PeerFileTargetDto"];
+            target: unknown;
             outputPathComponents?: unknown;
             downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
             provenance?: null | components["schemas"]["JobProvenanceDto"];
@@ -7952,14 +9405,682 @@ export interface components {
             lifecycleState: components["schemas"]["ServerJobLifecycleState"];
             activityPhase: components["schemas"]["ServerJobActivityPhase"];
             /** Format: date-time */
-            activityUntilUtc: null | string;
+            activityUntilUtc?: null | string;
             terminalOutcome: components["schemas"]["ServerJobTerminalOutcome"];
             skipReason: components["schemas"]["ServerJobSkipReason"];
-            failureReason: null | components["schemas"]["ServerJobFailureReason"];
-            failureMessage: null | string;
-            failureDetail: null | string;
+            failureReason?: null | components["schemas"]["ServerJobFailureReason"];
+            failureMessage?: null | string;
+            failureDetail?: null | string;
             cancellationSource: components["schemas"]["ServerJobCancellationSource"];
             availableActions: components["schemas"]["ResourceActionDto"][];
+        };
+        JobLookupRequestDto: {
+            jobIds: string[];
+        };
+        JobMessageActivityDto: {
+            /** Format: int32 */
+            displayId: number | string;
+            level: string;
+            source?: null | string;
+            message: string;
+        };
+        JobObservationUpdateDto: {
+            state: {
+                daemon?: null | {
+                    /** Format: int64 */
+                    revision: number | string;
+                    soulseekClient: {
+                        state: string;
+                        flags: string[];
+                        isReady: boolean;
+                    };
+                    /** Format: int32 */
+                    restartCount: number | string;
+                    /** Format: date-time */
+                    searchRateLimitResetsAtUtc?: null | string;
+                    sharing: {
+                        /** @enum {unknown} */
+                        state: "Disabled" | "Starting" | "Ready" | "Degraded";
+                        reason?: null | string;
+                        aliases: string[];
+                        /** Format: int32 */
+                        uploadBlockedUsernameCount: number | string;
+                        /** Format: int32 */
+                        uploadBlockedIpAddressCount: number | string;
+                        catalog: {
+                            /** Format: uuid */
+                            generationId?: null | string;
+                            /** Format: int64 */
+                            directoryCount: number | string;
+                            /** Format: int64 */
+                            fileCount: number | string;
+                            /** Format: int64 */
+                            totalBytes: number | string;
+                            browseAvailable: boolean;
+                            /** Format: int64 */
+                            browseArtifactBytes?: null | number | string;
+                            /** Format: date-time */
+                            publishedAtUtc?: null | string;
+                        };
+                        activeScan?: {
+                            /** Format: uuid */
+                            scanId: string;
+                            /** Format: int64 */
+                            revision: number | string;
+                            /** @enum {unknown} */
+                            phase: "Idle" | "Preparing" | "Enumerating" | "FinalizingIndex" | "BuildingBrowseArtifact" | "Validating" | "Publishing" | "Completed" | "Cancelling" | "Cancelled" | "Failed";
+                            /** Format: date-time */
+                            startedAtUtc: string;
+                            /** Format: date-time */
+                            completedAtUtc?: null | string;
+                            /** Format: int64 */
+                            directoriesDiscovered: number | string;
+                            /** Format: int64 */
+                            filesDiscovered: number | string;
+                            /** Format: int64 */
+                            bytesDiscovered: number | string;
+                            /** Format: int32 */
+                            errorCount: number | string;
+                            errorSamples: {
+                                code: string;
+                                relativePath: string;
+                                message: string;
+                            }[];
+                            availableActions: {
+                                /** @enum {unknown} */
+                                kind: "cancel";
+                                method: string;
+                                href: string;
+                            }[];
+                        };
+                        lastScan?: {
+                            /** Format: uuid */
+                            scanId: string;
+                            /** Format: int64 */
+                            revision: number | string;
+                            /** @enum {unknown} */
+                            phase: "Idle" | "Preparing" | "Enumerating" | "FinalizingIndex" | "BuildingBrowseArtifact" | "Validating" | "Publishing" | "Completed" | "Cancelling" | "Cancelled" | "Failed";
+                            /** Format: date-time */
+                            startedAtUtc: string;
+                            /** Format: date-time */
+                            completedAtUtc?: null | string;
+                            /** Format: int64 */
+                            directoriesDiscovered: number | string;
+                            /** Format: int64 */
+                            filesDiscovered: number | string;
+                            /** Format: int64 */
+                            bytesDiscovered: number | string;
+                            /** Format: int32 */
+                            errorCount: number | string;
+                            errorSamples: {
+                                code: string;
+                                relativePath: string;
+                                message: string;
+                            }[];
+                            availableActions: {
+                                /** @enum {unknown} */
+                                kind: "cancel";
+                                method: string;
+                                href: string;
+                            }[];
+                        };
+                    };
+                    uploads: {
+                        /** @enum {unknown} */
+                        state: "Disabled" | "Starting" | "Ready" | "Degraded";
+                        reason?: null | string;
+                        acceptingUploads: boolean;
+                        /** Format: int32 */
+                        slots: number | string;
+                        /** Format: int32 */
+                        activeSlots: number | string;
+                        /** Format: int32 */
+                        queuedFiles: number | string;
+                        /** Format: int64 */
+                        queuedBytes: number | string;
+                        /** Format: int64 */
+                        queueRevision: number | string;
+                        /** Format: int32 */
+                        speedLimitKiBPerSecond?: null | number | string;
+                    };
+                    chat: {
+                        /** @enum {unknown} */
+                        state: "Disabled" | "Starting" | "Ready" | "Degraded";
+                        reason?: null | string;
+                        /** Format: int32 */
+                        desiredRoomCount: number | string;
+                        /** Format: int32 */
+                        joinedRoomCount: number | string;
+                        /** Format: int32 */
+                        unreadPrivateMessageCount: number | string;
+                        /** Format: int32 */
+                        unreadRoomMessageCount: number | string;
+                        /** Format: int64 */
+                        revision: number | string;
+                    };
+                    notifications: {
+                        /** Format: int32 */
+                        unreadCount: number | string;
+                        /** Format: int64 */
+                        revision: number | string;
+                    };
+                    /**
+                     * Format: int64
+                     * @default 0
+                     */
+                    terminalTransferCommitRevision: number | string;
+                };
+                workflows: {
+                    /** Format: int64 */
+                    revision: number | string;
+                    summary: {
+                        /** Format: uuid */
+                        workflowId: string;
+                        title: string;
+                        /** @enum {unknown} */
+                        state: "active" | "failed" | "completed";
+                        /** Format: int32 */
+                        rootJobCount: number | string;
+                        /** Format: int32 */
+                        activeJobCount: number | string;
+                        /** Format: int32 */
+                        failedJobCount: number | string;
+                        /** Format: int32 */
+                        completedJobCount: number | string;
+                    };
+                }[];
+                jobs: {
+                    /** Format: uuid */
+                    jobId: string;
+                    /** Format: int64 */
+                    revision: number | string;
+                    added?: {
+                        /** Format: uuid */
+                        jobId: string;
+                        /** Format: int64 */
+                        revision: number | string;
+                        display: {
+                            /** Format: int32 */
+                            displayId: number | string;
+                            /** Format: uuid */
+                            workflowId: string;
+                            /** @enum {unknown} */
+                            kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+                            itemName?: null | string;
+                            queryText?: null | string;
+                            appliedAutoProfiles: string[];
+                            printOption: number;
+                            /** Format: uuid */
+                            submissionId?: null | string;
+                            /** @enum {unknown} */
+                            role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                            /** Format: date-time */
+                            createdAtUtc?: null | string;
+                            /** @enum {unknown} */
+                            searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
+                            searchAggregatePresentation?: null | boolean;
+                            sourceDetail?: null | string;
+                        };
+                        lifecycle: {
+                            /** @enum {unknown} */
+                            lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
+                            /** @enum {unknown} */
+                            activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
+                            /** Format: date-time */
+                            activityUntilUtc?: null | string;
+                            /** @enum {unknown} */
+                            terminalOutcome: "None" | "Succeeded" | "Failed" | "Skipped" | "Cancelled" | "PartialSuccess";
+                            /** @enum {unknown} */
+                            skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
+                            /** @enum {unknown} */
+                            failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
+                            failureMessage?: null | string;
+                            failureDetail?: null | string;
+                            /** @enum {unknown} */
+                            cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
+                            availableActions: {
+                                /** @enum {unknown} */
+                                kind: "cancel";
+                                method: string;
+                                href: string;
+                            }[];
+                        };
+                        discovery: {
+                            /** Format: int32 */
+                            rawResultCount?: null | number | string;
+                            /** Format: int32 */
+                            lockedFileCount?: null | number | string;
+                            /** Format: int32 */
+                            publicFileCount?: null | number | string;
+                            /** Format: int32 */
+                            observedPeerCount?: null | number | string;
+                        };
+                        relationships: {
+                            /** Format: uuid */
+                            parentJobId?: null | string;
+                            /** Format: uuid */
+                            resultJobId?: null | string;
+                            /** Format: uuid */
+                            sourceJobId?: null | string;
+                        };
+                        stats?: {
+                            /** Format: int32 */
+                            memberCount?: null | number | string;
+                            /** Format: int32 */
+                            completedMemberCount?: null | number | string;
+                            /** Format: int32 */
+                            failedMemberCount?: null | number | string;
+                            /** Format: int32 */
+                            candidateCount?: null | number | string;
+                            /** Format: int32 */
+                            folderCount?: null | number | string;
+                            /** Format: int32 */
+                            fileCount?: null | number | string;
+                            /** Format: int64 */
+                            knownBytes?: null | number | string;
+                            /** Format: int32 */
+                            newFilesFoundCount?: null | number | string;
+                            /** Format: double */
+                            progressPercent?: null | number | string;
+                        };
+                    };
+                    display?: {
+                        /** Format: int32 */
+                        displayId: number | string;
+                        /** Format: uuid */
+                        workflowId: string;
+                        /** @enum {unknown} */
+                        kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+                        itemName?: null | string;
+                        queryText?: null | string;
+                        appliedAutoProfiles: string[];
+                        printOption: number;
+                        /** Format: uuid */
+                        submissionId?: null | string;
+                        /** @enum {unknown} */
+                        role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                        /** Format: date-time */
+                        createdAtUtc?: null | string;
+                        /** @enum {unknown} */
+                        searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
+                        searchAggregatePresentation?: null | boolean;
+                        sourceDetail?: null | string;
+                    };
+                    lifecycle?: {
+                        /** @enum {unknown} */
+                        lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
+                        /** @enum {unknown} */
+                        activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
+                        /** Format: date-time */
+                        activityUntilUtc?: null | string;
+                        /** @enum {unknown} */
+                        terminalOutcome: "None" | "Succeeded" | "Failed" | "Skipped" | "Cancelled" | "PartialSuccess";
+                        /** @enum {unknown} */
+                        skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
+                        /** @enum {unknown} */
+                        failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
+                        failureMessage?: null | string;
+                        failureDetail?: null | string;
+                        /** @enum {unknown} */
+                        cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
+                        availableActions: {
+                            /** @enum {unknown} */
+                            kind: "cancel";
+                            method: string;
+                            href: string;
+                        }[];
+                    };
+                    discovery?: {
+                        /** Format: int32 */
+                        rawResultCount?: null | number | string;
+                        /** Format: int32 */
+                        lockedFileCount?: null | number | string;
+                        /** Format: int32 */
+                        publicFileCount?: null | number | string;
+                        /** Format: int32 */
+                        observedPeerCount?: null | number | string;
+                    };
+                    relationships?: {
+                        /** Format: uuid */
+                        parentJobId?: null | string;
+                        /** Format: uuid */
+                        resultJobId?: null | string;
+                        /** Format: uuid */
+                        sourceJobId?: null | string;
+                    };
+                    stats?: {
+                        /** Format: int32 */
+                        memberCount?: null | number | string;
+                        /** Format: int32 */
+                        completedMemberCount?: null | number | string;
+                        /** Format: int32 */
+                        failedMemberCount?: null | number | string;
+                        /** Format: int32 */
+                        candidateCount?: null | number | string;
+                        /** Format: int32 */
+                        folderCount?: null | number | string;
+                        /** Format: int32 */
+                        fileCount?: null | number | string;
+                        /** Format: int64 */
+                        knownBytes?: null | number | string;
+                        /** Format: int32 */
+                        newFilesFoundCount?: null | number | string;
+                        /** Format: double */
+                        progressPercent?: null | number | string;
+                    };
+                }[];
+                searches: {
+                    /** Format: uuid */
+                    jobId: string;
+                    /** Format: uuid */
+                    workflowId: string;
+                    /** Format: int64 */
+                    revision: number | string;
+                    /** Format: int32 */
+                    resultCount: number | string;
+                    isComplete: boolean;
+                }[];
+                transfers: {
+                    /** Format: uuid */
+                    transferId: string;
+                    /** Format: int64 */
+                    revision: number | string;
+                    added?: {
+                        /** Format: uuid */
+                        transferId: string;
+                        /** Format: int64 */
+                        revision: number | string;
+                        identity: {
+                            /** Format: uuid */
+                            jobId?: null | string;
+                            /** Format: uuid */
+                            workflowId?: null | string;
+                            direction: string;
+                            source: string;
+                            username?: null | string;
+                            remotePath?: null | string;
+                            candidateKey?: null | string;
+                            groupRef?: null | string;
+                            groupDisplayPath?: null | string;
+                            /** Format: int32 */
+                            peerUploadSpeed?: null | number | string;
+                            peerHasFreeUploadSlot?: null | boolean;
+                            groupRelativePath?: null | string;
+                        };
+                        status: {
+                            state: string;
+                            localPath?: null | string;
+                            /** Format: int32 */
+                            attemptCount: number | string;
+                            isTerminal: boolean;
+                            /**
+                             * @default None
+                             * @enum {unknown}
+                             */
+                            terminalOutcome: "None" | "Succeeded" | "Cancelled" | "Failed" | "Interrupted";
+                            /**
+                             * @default None
+                             * @enum {unknown}
+                             */
+                            failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "Unknown";
+                            /**
+                             * @default None
+                             * @enum {unknown}
+                             */
+                            cancellationSource: "None" | "User" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
+                            /** Format: date-time */
+                            completedAtUtc?: null | string;
+                            failureMessage?: null | string;
+                            availableActions?: {
+                                /** @enum {unknown} */
+                                kind: "cancel";
+                                method: string;
+                                href: string;
+                            }[] | null;
+                        };
+                        progress: {
+                            /** Format: int64 */
+                            bytesTransferred: number | string;
+                            /** Format: int64 */
+                            totalBytes: number | string;
+                            /** Format: int64 */
+                            bytesPerSecond?: null | number | string;
+                            /** Format: date-time */
+                            lastProgressAtUtc?: null | string;
+                        };
+                        scheduling?: {
+                            /** Format: date-time */
+                            requestedAtUtc: string;
+                            /** Format: date-time */
+                            startedAtUtc?: null | string;
+                        };
+                        file?: {
+                            name: string;
+                            /** Format: int64 */
+                            size: number | string;
+                            extension?: null | string;
+                            /** Format: int32 */
+                            bitRate?: null | number | string;
+                            /** Format: int32 */
+                            bitDepth?: null | number | string;
+                            /** Format: int32 */
+                            sampleRate?: null | number | string;
+                            /** Format: int32 */
+                            length?: null | number | string;
+                            attributes?: null | {
+                                type: string;
+                                /** Format: int32 */
+                                value: number | string;
+                            }[];
+                        };
+                    };
+                    status?: {
+                        state: string;
+                        localPath?: null | string;
+                        /** Format: int32 */
+                        attemptCount: number | string;
+                        isTerminal: boolean;
+                        /**
+                         * @default None
+                         * @enum {unknown}
+                         */
+                        terminalOutcome: "None" | "Succeeded" | "Cancelled" | "Failed" | "Interrupted";
+                        /**
+                         * @default None
+                         * @enum {unknown}
+                         */
+                        failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "Unknown";
+                        /**
+                         * @default None
+                         * @enum {unknown}
+                         */
+                        cancellationSource: "None" | "User" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
+                        /** Format: date-time */
+                        completedAtUtc?: null | string;
+                        failureMessage?: null | string;
+                        availableActions?: {
+                            /** @enum {unknown} */
+                            kind: "cancel";
+                            method: string;
+                            href: string;
+                        }[] | null;
+                    };
+                    progress?: {
+                        /** Format: int64 */
+                        bytesTransferred: number | string;
+                        /** Format: int64 */
+                        totalBytes: number | string;
+                        /** Format: int64 */
+                        bytesPerSecond?: null | number | string;
+                        /** Format: date-time */
+                        lastProgressAtUtc?: null | string;
+                    };
+                    scheduling?: {
+                        /** Format: date-time */
+                        requestedAtUtc: string;
+                        /** Format: date-time */
+                        startedAtUtc?: null | string;
+                    };
+                }[];
+                removedWorkflowIds: string[];
+                removedJobIds: string[];
+                removedSearchJobIds: string[];
+                removedTransferIds: string[];
+                notifications?: null | {
+                    /** Format: uuid */
+                    notificationId: string;
+                    /** Format: int64 */
+                    sequence: number | string;
+                    /** @enum {unknown} */
+                    kind: "PrivateMessage" | "RoomMention";
+                    /** Format: date-time */
+                    createdAtUtc: string;
+                    /** Format: date-time */
+                    readAtUtc?: null | string;
+                    actor: string;
+                    /** @enum {unknown} */
+                    targetKind: "Direct" | "Room";
+                    /** Format: uuid */
+                    targetId: string;
+                    targetName: string;
+                    /** Format: uuid */
+                    sourceMessageId: string;
+                    preview: string;
+                    resourcePath: string;
+                }[];
+                chatTargets?: null | {
+                    /** @enum {unknown} */
+                    kind: "Direct" | "Room";
+                    /** Format: uuid */
+                    targetId: string;
+                    conversation?: {
+                        /** Format: uuid */
+                        conversationId: string;
+                        username: string;
+                        privateMessagesBlocked: boolean;
+                        archived: boolean;
+                        /** Format: int32 */
+                        unreadCount: number | string;
+                        /** Format: int64 */
+                        lastReadSequence: number | string;
+                        /** Format: int64 */
+                        revision: number | string;
+                        lastMessage?: {
+                            /** Format: uuid */
+                            messageId: string;
+                            /** Format: int64 */
+                            sequence: number | string;
+                            /** @enum {unknown} */
+                            targetKind: "Direct" | "Room";
+                            /** Format: uuid */
+                            targetId: string;
+                            sender: string;
+                            /** @enum {unknown} */
+                            direction: "Incoming" | "Outgoing";
+                            text: string;
+                            /** Format: date-time */
+                            occurredAtUtc: string;
+                            /** Format: date-time */
+                            recordedAtUtc: string;
+                            /** @enum {unknown} */
+                            state: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
+                            failureReason?: null | string;
+                        };
+                    };
+                    room?: {
+                        /** Format: uuid */
+                        roomId: string;
+                        name: string;
+                        configured: boolean;
+                        remembered: boolean;
+                        desired: boolean;
+                        /** @enum {unknown} */
+                        kind: "Unknown" | "Public" | "Private";
+                        owned: boolean;
+                        moderated: boolean;
+                        /** @enum {unknown} */
+                        phase: "Disconnected" | "Joining" | "Joined" | "Leaving" | "Failed";
+                        failureReason?: null | string;
+                        /** Format: int32 */
+                        memberCount: number | string;
+                        /** Format: int64 */
+                        memberRevision: number | string;
+                        rosterComplete: boolean;
+                        /** Format: int32 */
+                        unreadCount: number | string;
+                        /** Format: int64 */
+                        lastReadSequence: number | string;
+                        /** Format: int64 */
+                        revision: number | string;
+                        lastMessage?: {
+                            /** Format: uuid */
+                            messageId: string;
+                            /** Format: int64 */
+                            sequence: number | string;
+                            /** @enum {unknown} */
+                            targetKind: "Direct" | "Room";
+                            /** Format: uuid */
+                            targetId: string;
+                            sender: string;
+                            /** @enum {unknown} */
+                            direction: "Incoming" | "Outgoing";
+                            text: string;
+                            /** Format: date-time */
+                            occurredAtUtc: string;
+                            /** Format: date-time */
+                            recordedAtUtc: string;
+                            /** @enum {unknown} */
+                            state: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
+                            failureReason?: null | string;
+                        };
+                    };
+                    messages?: null | {
+                        /** Format: uuid */
+                        messageId: string;
+                        /** Format: int64 */
+                        sequence: number | string;
+                        /** @enum {unknown} */
+                        targetKind: "Direct" | "Room";
+                        /** Format: uuid */
+                        targetId: string;
+                        sender: string;
+                        /** @enum {unknown} */
+                        direction: "Incoming" | "Outgoing";
+                        text: string;
+                        /** Format: date-time */
+                        occurredAtUtc: string;
+                        /** Format: date-time */
+                        recordedAtUtc: string;
+                        /** @enum {unknown} */
+                        state: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
+                        failureReason?: null | string;
+                    }[];
+                    /** @default false */
+                    replaceMessages: boolean;
+                    hasEarlierMessages?: null | boolean;
+                }[];
+                userBrowse?: components["schemas"]["UserBrowseDto"] | null;
+                transferSummary?: {
+                    /** Format: int32 */
+                    active: number | string;
+                    /** Format: int32 */
+                    downloads: number | string;
+                    /** Format: int32 */
+                    uploads: number | string;
+                    /** Format: int32 */
+                    queued: number | string;
+                    /** Format: int32 */
+                    failed: number | string;
+                    /** Format: int64 */
+                    downloadRate: number | string;
+                    /** Format: int64 */
+                    uploadRate: number | string;
+                };
+            };
+            /** Format: int32 */
+            childCount?: null | number | string;
+            /** Format: int32 */
+            retrievalChildCount?: null | number | string;
         };
         JobPayloadDto: components["schemas"]["JobPayloadDtoExtractJobPayloadDto"] | components["schemas"]["JobPayloadDtoSearchJobPayloadDto"] | components["schemas"]["JobPayloadDtoSongJobPayloadDto"] | components["schemas"]["JobPayloadDtoAlbumJobPayloadDto"] | components["schemas"]["JobPayloadDtoAggregateJobPayloadDto"] | components["schemas"]["JobPayloadDtoAlbumAggregateJobPayloadDto"] | components["schemas"]["JobPayloadDtoJobListPayloadDto"] | components["schemas"]["JobPayloadDtoRetrieveFolderJobPayloadDto"] | components["schemas"]["JobPayloadDtoRemoteFileJobPayloadDto"] | components["schemas"]["JobPayloadDtoRemoteDirectoryJobPayloadDto"] | components["schemas"]["JobPayloadDtoGenericJobPayloadDto"];
         JobPayloadDtoAggregateJobPayloadDto: {
@@ -7969,11 +10090,11 @@ export interface components {
             /** Format: int32 */
             songCount: number | string;
             /** Format: int32 */
-            completedSongCount: number | string;
+            completedSongCount?: null | number | string;
             /** Format: int32 */
-            succeededSongCount: number | string;
+            succeededSongCount?: null | number | string;
             /** Format: int32 */
-            failedSongCount: number | string;
+            failedSongCount?: null | number | string;
         };
         JobPayloadDtoAlbumAggregateJobPayloadDto: {
             /** @enum {string} */
@@ -7981,6 +10102,12 @@ export interface components {
             query: components["schemas"]["AlbumQueryDto"];
             /** Format: int32 */
             resultCount: number | string;
+            /** Format: int32 */
+            completedAlbumCount?: null | number | string;
+            /** Format: int32 */
+            succeededAlbumCount?: null | number | string;
+            /** Format: int32 */
+            failedAlbumCount?: null | number | string;
         };
         JobPayloadDtoAlbumJobPayloadDto: {
             /** @enum {string} */
@@ -7989,16 +10116,16 @@ export interface components {
             /** Format: int32 */
             resultCount: number | string;
             directory: components["schemas"]["DirectoryDownloadStateDto"];
-            resolvedFolderUsername: null | string;
-            resolvedFolderPath: null | string;
+            resolvedFolderUsername?: null | string;
+            resolvedFolderPath?: null | string;
         };
         JobPayloadDtoExtractJobPayloadDto: {
             /** @enum {string} */
             kind?: "extract";
             input: string;
-            inputType: null | string;
+            inputType?: null | string;
             /** Format: uuid */
-            resultJobId: null | string;
+            resultJobId?: null | string;
         };
         JobPayloadDtoGenericJobPayloadDto: {
             /** @enum {string} */
@@ -8011,26 +10138,42 @@ export interface components {
             /** Format: int32 */
             count: number | string;
             /** Format: int32 */
-            activeJobCount: number | string;
+            activeJobCount?: null | number | string;
             /** Format: int32 */
-            completedJobCount: number | string;
+            completedJobCount?: null | number | string;
             /** Format: int32 */
-            succeededJobCount: number | string;
+            succeededJobCount?: null | number | string;
             /** Format: int32 */
-            failedJobCount: number | string;
+            failedJobCount?: null | number | string;
         };
         JobPayloadDtoRemoteDirectoryJobPayloadDto: {
             /** @enum {string} */
             kind?: "remote-directory";
             sourceKind: components["schemas"]["RemoteDirectorySourceKindDto"];
-            sourceUsername: null | string;
-            sourceFolderPath: null | string;
+            sourceUsername?: null | string;
+            sourceFolderPath?: null | string;
             directory: components["schemas"]["DirectoryDownloadStateDto"];
+            displayRoot?: null | string;
         };
         JobPayloadDtoRemoteFileJobPayloadDto: {
             /** @enum {string} */
             kind?: "remote-file";
-            target: components["schemas"]["PeerFileTargetDto"];
+            target: {
+                username: string;
+                filename: string;
+                /** Format: int64 */
+                size?: null | number | string;
+                extension?: null | string;
+                /** Format: int32 */
+                bitRate?: null | number | string;
+                /** Format: int32 */
+                bitDepth?: null | number | string;
+                /** Format: int32 */
+                sampleRate?: null | number | string;
+                /** Format: int32 */
+                length?: null | number | string;
+                attributes?: components["schemas"]["FileAttributeDto"][] | null;
+            };
             outputPathComponents: string[];
             file: components["schemas"]["FileDownloadStateDto"];
         };
@@ -8048,22 +10191,24 @@ export interface components {
             /** @enum {string} */
             kind?: "search";
             queryText: string;
-            defaultProjection: components["schemas"]["SearchDefaultProjectionKind"];
-            songQuery: null | components["schemas"]["SongQueryDto"];
-            albumQuery: null | components["schemas"]["AlbumQueryDto"];
+            defaultProjection: components["schemas"]["ServerSearchDefaultProjectionKind"];
+            songQuery?: null | components["schemas"]["SongQueryDto"];
+            albumQuery?: null | components["schemas"]["AlbumQueryDto"];
             includeFullResults: boolean;
             /** Format: int32 */
             resultCount: number | string;
             /** Format: int32 */
             revision: number | string;
             isComplete: boolean;
+            /** @default false */
+            aggregatePresentation: boolean;
         };
         JobPayloadDtoSongJobPayloadDto: {
             /** @enum {string} */
             kind?: "song";
             query: components["schemas"]["SongQueryDto"];
             /** Format: int32 */
-            candidateCount: null | number | string;
+            candidateCount?: null | number | string;
             file: components["schemas"]["FileDownloadStateDto"];
             resolvedUsername?: null | string;
             resolvedFilename?: null | string;
@@ -8092,17 +10237,33 @@ export interface components {
             transferState?: null | string;
             cancellationSource?: components["schemas"]["ServerJobCancellationSource"];
             downloadSource?: components["schemas"]["ServerSongDownloadSource"];
-            exactTarget?: null | components["schemas"]["PeerFileTargetDto"];
+            exactTarget?: null | {
+                username: string;
+                filename: string;
+                /** Format: int64 */
+                size?: null | number | string;
+                extension?: null | string;
+                /** Format: int32 */
+                bitRate?: null | number | string;
+                /** Format: int32 */
+                bitDepth?: null | number | string;
+                /** Format: int32 */
+                sampleRate?: null | number | string;
+                /** Format: int32 */
+                length?: null | number | string;
+                attributes?: components["schemas"]["FileAttributeDto"][] | null;
+            };
+            lastAttemptedFile?: null | components["schemas"]["AttemptedSongFileDto"];
         };
         JobPreviewNodeDto: {
             ref: string;
-            parentRef: null | string;
+            parentRef?: null | string;
             role: components["schemas"]["ServerJobRole"];
             isReady: boolean;
             isSelectable: boolean;
             kind: components["schemas"]["ServerJobKind"];
-            itemName: null | string;
-            queryText: null | string;
+            itemName?: null | string;
+            queryText?: null | string;
             /** Format: int32 */
             directChildCount: number | string;
             appliedAutoProfiles: string[];
@@ -8110,6 +10271,18 @@ export interface components {
             albumQuery?: null | components["schemas"]["AlbumQueryDto"];
             failureCode?: null | string;
             failureMessage?: null | string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            selectableSubtreeCount: number | string;
+            sourceDetail?: null | string;
+            sourceLabel?: null | string;
+            extractorInfo?: null | string;
+        };
+        JobPreviewSelectionOverrideDto: {
+            ref: string;
+            selected: boolean;
         };
         /** @enum {unknown} */
         JobPreviewState: "Planning" | "Ready" | "PartiallyReady" | "Failed" | "Committing" | "Committed" | "Expired";
@@ -8149,11 +10322,11 @@ export interface components {
         };
         JobRelationshipFieldsDto: {
             /** Format: uuid */
-            parentJobId: null | string;
+            parentJobId?: null | string;
             /** Format: uuid */
-            resultJobId: null | string;
+            resultJobId?: null | string;
             /** Format: uuid */
-            sourceJobId: null | string;
+            sourceJobId?: null | string;
         };
         JobStateDto: {
             /** Format: uuid */
@@ -8164,6 +10337,12 @@ export interface components {
             lifecycle: components["schemas"]["JobLifecycleFieldsDto"];
             discovery: components["schemas"]["JobDiscoveryFieldsDto"];
             relationships: components["schemas"]["JobRelationshipFieldsDto"];
+            stats?: null | components["schemas"]["JobSummaryStatsDto"];
+        };
+        JobStatusActivityDto: {
+            /** Format: int32 */
+            displayId: number | string;
+            status: string;
         };
         JobSummaryDto: {
             /** Format: uuid */
@@ -8197,7 +10376,7 @@ export interface components {
             availableActions?: components["schemas"]["ResourceActionDto"][];
             failureDetail?: null | string;
             cancellationSource?: components["schemas"]["ServerJobCancellationSource"];
-            printOption?: components["schemas"]["PrintOption"];
+            printOption?: components["schemas"]["ServerPrintOption"];
             /** Format: uuid */
             submissionId?: null | string;
             role?: components["schemas"]["ServerJobRole"];
@@ -8207,18 +10386,64 @@ export interface components {
             discoveryPublicFileCount?: null | number | string;
             /** Format: int32 */
             discoveryObservedPeerCount?: null | number | string;
+            stats?: null | components["schemas"]["JobSummaryStatsDto"];
+            searchDefaultProjection?: null | components["schemas"]["ServerSearchDefaultProjectionKind"];
+            searchAggregatePresentation?: null | boolean;
+            sourceDetail?: null | string;
+        };
+        JobSummaryStatsDto: {
+            /** Format: int32 */
+            memberCount?: null | number | string;
+            /** Format: int32 */
+            completedMemberCount?: null | number | string;
+            /** Format: int32 */
+            failedMemberCount?: null | number | string;
+            /** Format: int32 */
+            candidateCount?: null | number | string;
+            /** Format: int32 */
+            folderCount?: null | number | string;
+            /** Format: int32 */
+            fileCount?: null | number | string;
+            /** Format: int64 */
+            knownBytes?: null | number | string;
+            /** Format: int32 */
+            newFilesFoundCount?: null | number | string;
+            /** Format: double */
+            progressPercent?: null | number | string;
         };
         JoinRoomRequestDto: {
             roomName: string;
             /** @default true */
             remember: boolean;
         };
+        /** @enum {unknown} */
+        LiveClientInvocation: "SubscribeAll" | "UnsubscribeAll" | "SubscribeWorkflow" | "UnsubscribeWorkflow" | "SubscribeChat" | "UnsubscribeChat" | "SubscribeUserBrowse" | "UnsubscribeUserBrowse" | "ObserveSearchView" | "ObserveTransferTimeline" | "ObserveJobs";
+        /** @enum {integer} */
+        LiveProtocolContractVersion: 16;
+        /** @enum {unknown} */
+        LiveServerMessage: "stateUpdateBatch";
         LiveTransferPageDto: {
             items: components["schemas"]["TransferStateDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
             /** Format: int64 */
             observedQueueRevision: number | string;
             queueChanged: boolean;
+        };
+        LiveTransferSummaryDto: {
+            /** Format: int32 */
+            active: number | string;
+            /** Format: int32 */
+            downloads: number | string;
+            /** Format: int32 */
+            uploads: number | string;
+            /** Format: int32 */
+            queued: number | string;
+            /** Format: int32 */
+            failed: number | string;
+            /** Format: int64 */
+            downloadRate: number | string;
+            /** Format: int64 */
+            uploadRate: number | string;
         };
         MarkChatReadRequestDto: {
             /** Format: uuid */
@@ -8226,12 +10451,12 @@ export interface components {
         };
         MarkNotificationsReadRequestDto: {
             /** Format: int64 */
-            throughSequence: null | number | string;
-            ids: null | string[];
+            throughSequence?: null | number | string;
+            ids?: null | string[];
         };
         NotificationPageDto: {
             items: components["schemas"]["UserNotificationDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
         };
         NotificationSummaryDto: {
             /** Format: int32 */
@@ -8251,26 +10476,45 @@ export interface components {
             incompleteAlbumAction?: null | components["schemas"]["IncompleteAlbumActionSettingsPatchDto"];
             onComplete?: null | components["schemas"]["CollectionPatchDtoOfstring"];
             albumArtOnly?: null | boolean;
-            albumArtOption?: null | components["schemas"]["AlbumArtOption"];
+            albumArtOption?: null | components["schemas"]["ServerAlbumArtOption"];
         };
         PageDtoOfBrowseDirectoryEntryDto: {
             items: components["schemas"]["BrowseDirectoryEntryDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
         };
         PageDtoOfBrowseFileEntryDto: {
             items: components["schemas"]["BrowseFileEntryDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
         };
         PageDtoOfUserBrowseDto: {
             items: components["schemas"]["UserBrowseDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
         };
         PeerDirectoryRefDto: {
             ref: string;
             username: string;
             folderPath: string;
         };
-        PeerFileTargetDto: unknown;
+        PeerFileTargetDto: {
+            username: string;
+            filename: string;
+            /** Format: int64 */
+            size?: null | number | string;
+            extension?: null | string;
+            /** Format: int32 */
+            bitRate?: null | number | string;
+            /** Format: int32 */
+            bitDepth?: null | number | string;
+            /** Format: int32 */
+            sampleRate?: null | number | string;
+            /** Format: int32 */
+            length?: null | number | string;
+            attributes?: {
+                type: string;
+                /** Format: int32 */
+                value: number | string;
+            }[] | null;
+        };
         PeerInfoDto: {
             username: string;
             hasFreeUploadSlot?: null | boolean;
@@ -8332,24 +10576,20 @@ export interface components {
             enabled: boolean;
             initialized: boolean;
             state: string;
-            schemaVersion: null | string;
+            schemaVersion?: null | string;
             /** Format: uuid */
-            runtimeId: null | string;
+            runtimeId?: null | string;
             /** Format: date-time */
-            runtimeStartedAtUtc: null | string;
+            runtimeStartedAtUtc?: null | string;
             /** Format: date-time */
-            lastSuccessfulCommitAtUtc: null | string;
+            lastSuccessfulCommitAtUtc?: null | string;
             /** Format: date-time */
-            lastFailureAtUtc: null | string;
-            lastFailure: null | string;
+            lastFailureAtUtc?: null | string;
+            lastFailure?: null | string;
             /** Format: int32 */
             criticalQueueDepth: number | string;
             /** Format: int32 */
-            criticalQueueCapacity: number | string;
-            /** Format: int32 */
             ordinaryQueueDepth: number | string;
-            /** Format: int32 */
-            ordinaryQueueCapacity: number | string;
             /** Format: int32 */
             progressEntityCount: number | string;
             /** Format: int32 */
@@ -8359,9 +10599,7 @@ export interface components {
             /** Format: int32 */
             bufferedSearchResultCapacity: number | string;
             /** Format: int32 */
-            degradedProjectionCount: number | string;
-            /** Format: int32 */
-            degradedProjectionCapacity: number | string;
+            retryMutationCount: number | string;
             /** Format: int64 */
             busyRetryCount: number | string;
             /** Format: int64 */
@@ -8372,8 +10610,6 @@ export interface components {
             droppedSearchResultCount: number | string;
             /** Format: int64 */
             incompleteSearchCount: number | string;
-            /** Format: int64 */
-            evictedTerminalProjectionCount: number | string;
             /** Format: int64 */
             successfulCommitCount: number | string;
             /** Format: int64 */
@@ -8460,10 +10696,9 @@ export interface components {
             parseTitleTemplate?: null | string;
             regex?: null | components["schemas"]["CollectionPatchDtoOfRegexRuleDto"];
         };
-        PrintOption: number;
         ProfileSummaryDto: {
             name: string;
-            condition: null | string;
+            condition?: null | string;
             isAutoProfile: boolean;
             hasEngineSettings: boolean;
             hasDownloadSettings: boolean;
@@ -8490,13 +10725,38 @@ export interface components {
             options?: null | components["schemas"]["SubmissionOptionsDto"];
         };
         ResolveEffectiveSettingsResponseDto: {
-            baseline: components["schemas"]["SearchSettingsBaselineKind"];
+            baseline: components["schemas"]["ServerSearchSettingsBaselineKind"];
             settings: components["schemas"]["EffectiveDownloadSettingsDto"];
             appliedAutoProfiles: string[];
             namedProfiles: string[];
             provenance: {
                 [key: string]: string;
             };
+            /** @default false */
+            isProvisional: boolean;
+        };
+        ResolveSearchViewChosenOptionsRequestDto: {
+            /** Format: int64 */
+            revision: number | string;
+            chosenOptions: {
+                [key: string]: string;
+            };
+        };
+        ResolveSearchViewChosenOptionsResponseDto: {
+            revision: components["schemas"]["SearchViewRevisionDto"];
+            items: components["schemas"]["SearchViewChosenOptionDto"][];
+        };
+        ResolveSearchViewSelectionSettingsRequestDto: {
+            /** Format: int64 */
+            revision: number | string;
+            selection: components["schemas"]["RefSelectionExpressionDto"];
+            includedFileRefs?: null | string[];
+            directoryPathRules?: null | components["schemas"]["SearchViewDirectoryPathRuleDto"][];
+        };
+        ResolveSearchViewSelectionSettingsResponseDto: {
+            /** Format: int64 */
+            revision: number | string;
+            variants: components["schemas"]["SearchViewSelectionSettingsVariantDto"][];
         };
         ResourceActionDto: {
             kind: components["schemas"]["ServerResourceActionKind"];
@@ -8513,27 +10773,23 @@ export interface components {
             /** Format: int64 */
             revision: number | string;
             directory: components["schemas"]["PeerDirectoryRefDto"];
+            /** Format: uuid */
+            idempotencyKey: string;
         };
         RoomMemberDto: {
             username: string;
             presence: string;
-            countryCode: null | string;
+            countryCode?: null | string;
             isOwner: boolean;
             isOperator: boolean;
         };
         RoomMemberPageDto: {
             items: components["schemas"]["RoomMemberDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
             /** Format: int64 */
             revision: number | string;
             complete: boolean;
         };
-        /** @enum {unknown} */
-        SearchDefaultProjectionKind: "GenericFile" | "Track" | "Album";
-        /** @enum {unknown} */
-        SearchPreferenceCondition: "Format" | "Length" | "Bitrate" | "SampleRate" | "BitDepth" | "Title" | "Artist" | "Album" | "Username";
-        /** @enum {unknown} */
-        SearchPreferenceTier: "Preferred" | "Other";
         SearchRawResultDto: {
             /** Format: int64 */
             sequence: number | string;
@@ -8544,20 +10800,17 @@ export interface components {
             /** Format: int64 */
             size: number | string;
             /** Format: int32 */
-            bitRate: null | number | string;
+            bitRate?: null | number | string;
             /** Format: int32 */
-            sampleRate: null | number | string;
+            sampleRate?: null | number | string;
             /** Format: int32 */
-            length: null | number | string;
-            visibility?: components["schemas"]["SearchResultVisibility"];
+            length?: null | number | string;
+            visibility?: components["schemas"]["ServerSearchResultVisibility"];
             /** Format: int32 */
             queueLength?: null | number | string;
             /** Format: date-time */
             observedAtUtc?: null | string;
         };
-        /** @enum {unknown} */
-        SearchResultVisibility: "Public" | "Locked";
-        SearchSettingsBaselineKind: number;
         SearchSettingsPatchDto: {
             necessaryCond?: null | components["schemas"]["FileConditionsPatchDto"];
             preferredCond?: null | components["schemas"]["FileConditionsPatchDto"];
@@ -8611,12 +10864,12 @@ export interface components {
             revision: components["schemas"]["SearchViewRevisionDto"];
             groupRef: string;
             items: components["schemas"]["SearchViewDirectoryDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
         };
         SearchViewAggregateAlbumPageDto: {
             revision: components["schemas"]["SearchViewRevisionDto"];
             items: components["schemas"]["SearchViewAggregateAlbumGroupDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
         };
         SearchViewAggregateTrackGroupDto: {
             ref: string;
@@ -8631,12 +10884,18 @@ export interface components {
             revision: components["schemas"]["SearchViewRevisionDto"];
             groupRef: string;
             items: components["schemas"]["SearchViewFileDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
         };
         SearchViewAggregateTrackPageDto: {
             revision: components["schemas"]["SearchViewRevisionDto"];
             items: components["schemas"]["SearchViewAggregateTrackGroupDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
+        };
+        SearchViewChosenOptionDto: {
+            groupRef: string;
+            optionRef: string;
+            track?: null | components["schemas"]["SearchViewFileDto"];
+            album?: null | components["schemas"]["SearchViewDirectoryDto"];
         };
         SearchViewCountersDto: {
             /** Format: int64 */
@@ -8664,11 +10923,17 @@ export interface components {
             /** Format: int64 */
             selectableOptionCount: number | string;
         };
+        SearchViewDefinitionDto: {
+            /** Format: uuid */
+            viewId: string;
+            projection: components["schemas"]["CreateSearchViewRequestDto"];
+            effectiveSearchSettings: components["schemas"]["SearchSettingsPatchDto"];
+        };
         SearchViewDirectoryDto: {
             ref: components["schemas"]["PeerDirectoryRefDto"];
             visibility: components["schemas"]["SearchViewDirectoryVisibility"];
-            preferenceTier: components["schemas"]["SearchPreferenceTier"];
-            satisfiedPreferredConditions: components["schemas"]["SearchPreferenceCondition"][];
+            preferenceTier: components["schemas"]["ServerSearchPreferenceTier"];
+            satisfiedPreferredConditions: components["schemas"]["ServerSearchPreferenceCondition"][];
             /** Format: int64 */
             publicMatchingFileCount: number | string;
             /** Format: int64 */
@@ -8678,12 +10943,13 @@ export interface components {
             /** Format: int64 */
             lockedMatchingBytes: number | string;
             /** Format: int64 */
-            retrievedFileCount: null | number | string;
+            retrievedFileCount?: null | number | string;
             /** Format: int64 */
-            retrievedBytes: null | number | string;
+            retrievedBytes?: null | number | string;
             retrievalState: components["schemas"]["SearchViewDirectoryRetrievalState"];
             peer: components["schemas"]["PeerInfoDto"];
             bestChild: components["schemas"]["SearchViewFileDto"];
+            initialFiles?: null | components["schemas"]["SearchViewDirectoryFilePreviewDto"];
         };
         SearchViewDirectoryFileDto: {
             ref: string;
@@ -8694,12 +10960,22 @@ export interface components {
             revision: components["schemas"]["SearchViewRevisionDto"];
             directory: components["schemas"]["PeerDirectoryRefDto"];
             items: components["schemas"]["SearchViewDirectoryFileDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
+            directorySummary: components["schemas"]["SearchViewDirectoryDto"];
+        };
+        SearchViewDirectoryFilePreviewDto: {
+            items: components["schemas"]["SearchViewDirectoryFileDto"][];
+            nextCursor?: null | string;
         };
         SearchViewDirectoryPageDto: {
             revision: components["schemas"]["SearchViewRevisionDto"];
             items: components["schemas"]["SearchViewDirectoryDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
+        };
+        SearchViewDirectoryPathRuleDto: {
+            directoryRef: string;
+            relativePath: string;
+            selected: boolean;
         };
         /** @enum {unknown} */
         SearchViewDirectoryRetrievalState: "SearchResultsOnly" | "Complete" | "Incomplete";
@@ -8707,11 +10983,11 @@ export interface components {
         SearchViewDirectoryVisibility: "Public" | "Locked" | "Mixed";
         SearchViewFileDto: {
             ref: string;
-            visibility: components["schemas"]["SearchResultVisibility"];
-            preferenceTier: components["schemas"]["SearchPreferenceTier"];
+            visibility: components["schemas"]["ServerSearchResultVisibility"];
+            preferenceTier: components["schemas"]["ServerSearchPreferenceTier"];
             necessaryConditionsSatisfied: boolean;
-            satisfiedPreferredConditions: components["schemas"]["SearchPreferenceCondition"][];
-            unsatisfiedPreferredConditions: components["schemas"]["SearchPreferenceCondition"][];
+            satisfiedPreferredConditions: components["schemas"]["ServerSearchPreferenceCondition"][];
+            unsatisfiedPreferredConditions: components["schemas"]["ServerSearchPreferenceCondition"][];
             remoteFilename: string;
             peer: components["schemas"]["PeerInfoDto"];
             file: components["schemas"]["FileMetadataDto"];
@@ -8719,10 +10995,8 @@ export interface components {
         SearchViewFilePageDto: {
             revision: components["schemas"]["SearchViewRevisionDto"];
             items: components["schemas"]["SearchViewFileDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
         };
-        /** @enum {unknown} */
-        SearchViewProjectionKind: "Files" | "GenericDirectories" | "AlbumDirectories" | "AggregateTracks" | "AggregateAlbums" | null;
         /** @enum {unknown} */
         SearchViewRetentionState: "Live" | "Complete" | "Incomplete" | "Interrupted" | "Pruned";
         SearchViewRevisionDto: {
@@ -8738,11 +11012,16 @@ export interface components {
             retentionState: components["schemas"]["SearchViewRetentionState"];
             counters: components["schemas"]["SearchViewCountersDto"];
         };
+        SearchViewSelectionSettingsVariantDto: {
+            jobKind: components["schemas"]["ServerJobKind"];
+            settings: components["schemas"]["EffectiveDownloadSettingsDto"];
+        };
         SearchViewSummaryDto: {
             /** Format: uuid */
             viewId: string;
             /** Format: uuid */
             sourceJobId: string;
+            kind: components["schemas"]["ServerSearchViewProjectionKind"];
             /** Format: date-time */
             createdAtUtc: string;
             /** Format: date-time */
@@ -8756,6 +11035,7 @@ export interface components {
             isComplete: boolean;
             retentionState: components["schemas"]["SearchViewRetentionState"];
             counters: components["schemas"]["SearchViewCountersDto"];
+            sortOrder?: components["schemas"]["ServerSearchViewSortOrder"];
         };
         SearchViewUpdateDto: {
             summary: components["schemas"]["SearchViewSummaryDto"];
@@ -8772,8 +11052,27 @@ export interface components {
             username: string;
             text: string;
         };
+        ServerAlbumArtOption: number;
+        /** @enum {unknown} */
+        ServerChatMessageDirection: "Incoming" | "Outgoing";
+        /** @enum {unknown} */
+        ServerChatMessageState: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
+        /** @enum {unknown} */
+        ServerChatRoomJoinPhase: "Disconnected" | "Joining" | "Joined" | "Leaving" | "Failed";
+        /** @enum {unknown} */
+        ServerChatRoomKind: "Unknown" | "Public" | "Private";
+        /** @enum {unknown} */
+        ServerChatTargetKind: "Direct" | "Room";
+        /**
+         * @default Automatic
+         * @enum {unknown}
+         */
+        ServerDownloadBehavior: "Automatic" | "Manual";
+        ServerExtractionMode: number;
         /** @enum {unknown} */
         ServerFolderRetrievalOutcome: "none" | "completed" | "cancelled" | "failed";
+        /** @enum {unknown} */
+        ServerIncompleteAlbumActionKind: "Move" | "Delete" | "Keep" | null;
         ServerInfoDto: {
             name: string;
             version: string;
@@ -8782,6 +11081,7 @@ export interface components {
             /** Format: int32 */
             liveProtocolVersion: number | string;
         };
+        ServerInputType: number;
         /** @enum {unknown} */
         ServerJobActivityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
         /** @enum {unknown} */
@@ -8798,8 +11098,28 @@ export interface components {
         ServerJobSkipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
         /** @enum {unknown} */
         ServerJobTerminalOutcome: "None" | "Succeeded" | "Failed" | "Skipped" | "Cancelled" | "PartialSuccess";
+        ServerPrintOption: number;
         /** @enum {unknown} */
         ServerResourceActionKind: "cancel";
+        /** @enum {unknown} */
+        ServerSearchDefaultProjectionKind: "GenericFile" | "Track" | "Album" | null;
+        /** @enum {unknown} */
+        ServerSearchPreferenceCondition: "Format" | "Length" | "Bitrate" | "SampleRate" | "BitDepth" | "Title" | "Artist" | "Album" | "Username";
+        /** @enum {unknown} */
+        ServerSearchPreferenceTier: "Preferred" | "Other";
+        /** @enum {unknown} */
+        ServerSearchResultVisibility: "Public" | "Locked";
+        ServerSearchSettingsBaselineKind: number;
+        /** @enum {unknown} */
+        ServerSearchViewProjectionKind: "Files" | "GenericDirectories" | "AlbumDirectories" | "AggregateTracks" | "AggregateAlbums";
+        /**
+         * @default Relevance
+         * @enum {unknown}
+         */
+        ServerSearchViewSortOrder: "Relevance" | "UploadSpeed" | "QueueDepth" | "ItemSizeAscending" | "ItemSizeDescending" | "DirectorySizeAscending" | "DirectorySizeDescending" | "FileCountAscending" | "FileCountDescending" | "DirectoryNameAscending" | "DirectoryNameDescending";
+        /** @enum {unknown} */
+        ServerShareScanPhase: "Idle" | "Preparing" | "Enumerating" | "FinalizingIndex" | "BuildingBrowseArtifact" | "Validating" | "Publishing" | "Completed" | "Cancelling" | "Cancelled" | "Failed";
+        ServerSkipMode: number;
         /**
          * @default None
          * @enum {unknown}
@@ -8820,6 +11140,8 @@ export interface components {
             persistence?: null | components["schemas"]["PersistenceStatusDto"];
         };
         /** @enum {unknown} */
+        ServerUserNotificationKind: "PrivateMessage" | "RoomMention";
+        /** @enum {unknown} */
         ServerWorkflowState: "active" | "failed" | "completed";
         SetSubmissionArchivedRequestDto: {
             /** @default true */
@@ -8831,11 +11153,11 @@ export interface components {
         };
         SetUserRestrictionOverrideRequestDto: {
             kind: components["schemas"]["UserRestrictionKind"];
-            override: null | components["schemas"]["UserRestrictionOverrideState"];
+            override?: null | components["schemas"]["UserRestrictionOverrideState"];
         };
         ShareCatalogStateDto: {
             /** Format: uuid */
-            generationId: null | string;
+            generationId?: null | string;
             /** Format: int64 */
             directoryCount: number | string;
             /** Format: int64 */
@@ -8844,27 +11166,25 @@ export interface components {
             totalBytes: number | string;
             browseAvailable: boolean;
             /** Format: int64 */
-            browseArtifactBytes: null | number | string;
+            browseArtifactBytes?: null | number | string;
             /** Format: date-time */
-            publishedAtUtc: null | string;
+            publishedAtUtc?: null | string;
         };
         ShareScanErrorSampleDto: {
             code: string;
             relativePath: string;
             message: string;
         };
-        /** @enum {unknown} */
-        ShareScanPhase: "Idle" | "Preparing" | "Enumerating" | "FinalizingIndex" | "BuildingBrowseArtifact" | "Validating" | "Publishing" | "Completed" | "Cancelling" | "Cancelled" | "Failed";
         ShareScanStateDto: {
             /** Format: uuid */
             scanId: string;
             /** Format: int64 */
             revision: number | string;
-            phase: components["schemas"]["ShareScanPhase"];
+            phase: components["schemas"]["ServerShareScanPhase"];
             /** Format: date-time */
             startedAtUtc: string;
             /** Format: date-time */
-            completedAtUtc: null | string;
+            completedAtUtc?: null | string;
             /** Format: int64 */
             directoriesDiscovered: number | string;
             /** Format: int64 */
@@ -8880,23 +11200,22 @@ export interface components {
         ShareVisibility: "public" | "locked" | "mixed";
         SharingStateDto: {
             state: components["schemas"]["DaemonFeatureState"];
-            reason: null | string;
+            reason?: null | string;
             aliases: string[];
             /** Format: int32 */
             uploadBlockedUsernameCount: number | string;
             /** Format: int32 */
             uploadBlockedIpAddressCount: number | string;
             catalog: components["schemas"]["ShareCatalogStateDto"];
-            activeScan: null | components["schemas"]["ShareScanStateDto"];
-            lastScan: null | components["schemas"]["ShareScanStateDto"];
+            activeScan?: null | components["schemas"]["ShareScanStateDto"];
+            lastScan?: null | components["schemas"]["ShareScanStateDto"];
         };
-        SkipMode: number;
         SkipSettingsPatchDto: {
             skipExisting?: null | boolean;
             skipNotFound?: null | boolean;
-            skipMode?: null | components["schemas"]["SkipMode"];
+            skipMode?: null | components["schemas"]["ServerSkipMode"];
             skipMusicDir?: null | string;
-            skipModeMusicDir?: null | components["schemas"]["SkipMode"];
+            skipModeMusicDir?: null | components["schemas"]["ServerSkipMode"];
             skipCheckCond?: null | boolean;
             skipCheckPrefCond?: null | boolean;
         };
@@ -8944,14 +11263,14 @@ export interface components {
         StartFileDownloadsRequestDto: {
             files: components["schemas"]["FileCandidateRefDto"][];
             options?: null | components["schemas"]["SubmissionOptionsDto"];
-            requestedMode?: null | components["schemas"]["ExtractionMode"];
+            requestedMode?: null | components["schemas"]["ServerExtractionMode"];
         };
         StartFolderDownloadRequestDto: {
             folder: components["schemas"]["AlbumFolderRefDto"];
             options?: null | components["schemas"]["SubmissionOptionsDto"];
             albumQuery?: null | components["schemas"]["AlbumQueryDto"];
             selection?: null | components["schemas"]["AlbumFolderDownloadSelectionDto"];
-            requestedMode?: null | components["schemas"]["ExtractionMode"];
+            requestedMode?: null | components["schemas"]["ServerExtractionMode"];
         };
         StartShareScanResponseDto: {
             result: components["schemas"]["StartShareScanResult"];
@@ -8968,23 +11287,679 @@ export interface components {
             requestId: string;
             selections: components["schemas"]["UserShareSelectionDto"][];
             options?: null | components["schemas"]["SubmissionOptionsDto"];
+            excludedFileIds?: null | (number | string)[];
+            excludedDirectoryIds?: null | (number | string)[];
         };
         StartUserShareDownloadsResponseDto: {
             workflow: components["schemas"]["JobSummaryDto"];
             resolution: components["schemas"]["UserShareResolutionSummaryDto"];
+        };
+        StateDeltaDto: {
+            daemon?: null | {
+                /** Format: int64 */
+                revision: number | string;
+                soulseekClient: {
+                    state: string;
+                    flags: string[];
+                    isReady: boolean;
+                };
+                /** Format: int32 */
+                restartCount: number | string;
+                /** Format: date-time */
+                searchRateLimitResetsAtUtc?: null | string;
+                sharing: {
+                    /** @enum {unknown} */
+                    state: "Disabled" | "Starting" | "Ready" | "Degraded";
+                    reason?: null | string;
+                    aliases: string[];
+                    /** Format: int32 */
+                    uploadBlockedUsernameCount: number | string;
+                    /** Format: int32 */
+                    uploadBlockedIpAddressCount: number | string;
+                    catalog: {
+                        /** Format: uuid */
+                        generationId?: null | string;
+                        /** Format: int64 */
+                        directoryCount: number | string;
+                        /** Format: int64 */
+                        fileCount: number | string;
+                        /** Format: int64 */
+                        totalBytes: number | string;
+                        browseAvailable: boolean;
+                        /** Format: int64 */
+                        browseArtifactBytes?: null | number | string;
+                        /** Format: date-time */
+                        publishedAtUtc?: null | string;
+                    };
+                    activeScan?: {
+                        /** Format: uuid */
+                        scanId: string;
+                        /** Format: int64 */
+                        revision: number | string;
+                        /** @enum {unknown} */
+                        phase: "Idle" | "Preparing" | "Enumerating" | "FinalizingIndex" | "BuildingBrowseArtifact" | "Validating" | "Publishing" | "Completed" | "Cancelling" | "Cancelled" | "Failed";
+                        /** Format: date-time */
+                        startedAtUtc: string;
+                        /** Format: date-time */
+                        completedAtUtc?: null | string;
+                        /** Format: int64 */
+                        directoriesDiscovered: number | string;
+                        /** Format: int64 */
+                        filesDiscovered: number | string;
+                        /** Format: int64 */
+                        bytesDiscovered: number | string;
+                        /** Format: int32 */
+                        errorCount: number | string;
+                        errorSamples: {
+                            code: string;
+                            relativePath: string;
+                            message: string;
+                        }[];
+                        availableActions: {
+                            /** @enum {unknown} */
+                            kind: "cancel";
+                            method: string;
+                            href: string;
+                        }[];
+                    };
+                    lastScan?: {
+                        /** Format: uuid */
+                        scanId: string;
+                        /** Format: int64 */
+                        revision: number | string;
+                        /** @enum {unknown} */
+                        phase: "Idle" | "Preparing" | "Enumerating" | "FinalizingIndex" | "BuildingBrowseArtifact" | "Validating" | "Publishing" | "Completed" | "Cancelling" | "Cancelled" | "Failed";
+                        /** Format: date-time */
+                        startedAtUtc: string;
+                        /** Format: date-time */
+                        completedAtUtc?: null | string;
+                        /** Format: int64 */
+                        directoriesDiscovered: number | string;
+                        /** Format: int64 */
+                        filesDiscovered: number | string;
+                        /** Format: int64 */
+                        bytesDiscovered: number | string;
+                        /** Format: int32 */
+                        errorCount: number | string;
+                        errorSamples: {
+                            code: string;
+                            relativePath: string;
+                            message: string;
+                        }[];
+                        availableActions: {
+                            /** @enum {unknown} */
+                            kind: "cancel";
+                            method: string;
+                            href: string;
+                        }[];
+                    };
+                };
+                uploads: {
+                    /** @enum {unknown} */
+                    state: "Disabled" | "Starting" | "Ready" | "Degraded";
+                    reason?: null | string;
+                    acceptingUploads: boolean;
+                    /** Format: int32 */
+                    slots: number | string;
+                    /** Format: int32 */
+                    activeSlots: number | string;
+                    /** Format: int32 */
+                    queuedFiles: number | string;
+                    /** Format: int64 */
+                    queuedBytes: number | string;
+                    /** Format: int64 */
+                    queueRevision: number | string;
+                    /** Format: int32 */
+                    speedLimitKiBPerSecond?: null | number | string;
+                };
+                chat: {
+                    /** @enum {unknown} */
+                    state: "Disabled" | "Starting" | "Ready" | "Degraded";
+                    reason?: null | string;
+                    /** Format: int32 */
+                    desiredRoomCount: number | string;
+                    /** Format: int32 */
+                    joinedRoomCount: number | string;
+                    /** Format: int32 */
+                    unreadPrivateMessageCount: number | string;
+                    /** Format: int32 */
+                    unreadRoomMessageCount: number | string;
+                    /** Format: int64 */
+                    revision: number | string;
+                };
+                notifications: {
+                    /** Format: int32 */
+                    unreadCount: number | string;
+                    /** Format: int64 */
+                    revision: number | string;
+                };
+                /**
+                 * Format: int64
+                 * @default 0
+                 */
+                terminalTransferCommitRevision: number | string;
+            };
+            workflows: {
+                /** Format: int64 */
+                revision: number | string;
+                summary: {
+                    /** Format: uuid */
+                    workflowId: string;
+                    title: string;
+                    /** @enum {unknown} */
+                    state: "active" | "failed" | "completed";
+                    /** Format: int32 */
+                    rootJobCount: number | string;
+                    /** Format: int32 */
+                    activeJobCount: number | string;
+                    /** Format: int32 */
+                    failedJobCount: number | string;
+                    /** Format: int32 */
+                    completedJobCount: number | string;
+                };
+            }[];
+            jobs: {
+                /** Format: uuid */
+                jobId: string;
+                /** Format: int64 */
+                revision: number | string;
+                added?: {
+                    /** Format: uuid */
+                    jobId: string;
+                    /** Format: int64 */
+                    revision: number | string;
+                    display: {
+                        /** Format: int32 */
+                        displayId: number | string;
+                        /** Format: uuid */
+                        workflowId: string;
+                        /** @enum {unknown} */
+                        kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+                        itemName?: null | string;
+                        queryText?: null | string;
+                        appliedAutoProfiles: string[];
+                        printOption: number;
+                        /** Format: uuid */
+                        submissionId?: null | string;
+                        /** @enum {unknown} */
+                        role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                        /** Format: date-time */
+                        createdAtUtc?: null | string;
+                        /** @enum {unknown} */
+                        searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
+                        searchAggregatePresentation?: null | boolean;
+                        sourceDetail?: null | string;
+                    };
+                    lifecycle: {
+                        /** @enum {unknown} */
+                        lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
+                        /** @enum {unknown} */
+                        activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
+                        /** Format: date-time */
+                        activityUntilUtc?: null | string;
+                        /** @enum {unknown} */
+                        terminalOutcome: "None" | "Succeeded" | "Failed" | "Skipped" | "Cancelled" | "PartialSuccess";
+                        /** @enum {unknown} */
+                        skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
+                        /** @enum {unknown} */
+                        failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
+                        failureMessage?: null | string;
+                        failureDetail?: null | string;
+                        /** @enum {unknown} */
+                        cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
+                        availableActions: {
+                            /** @enum {unknown} */
+                            kind: "cancel";
+                            method: string;
+                            href: string;
+                        }[];
+                    };
+                    discovery: {
+                        /** Format: int32 */
+                        rawResultCount?: null | number | string;
+                        /** Format: int32 */
+                        lockedFileCount?: null | number | string;
+                        /** Format: int32 */
+                        publicFileCount?: null | number | string;
+                        /** Format: int32 */
+                        observedPeerCount?: null | number | string;
+                    };
+                    relationships: {
+                        /** Format: uuid */
+                        parentJobId?: null | string;
+                        /** Format: uuid */
+                        resultJobId?: null | string;
+                        /** Format: uuid */
+                        sourceJobId?: null | string;
+                    };
+                    stats?: {
+                        /** Format: int32 */
+                        memberCount?: null | number | string;
+                        /** Format: int32 */
+                        completedMemberCount?: null | number | string;
+                        /** Format: int32 */
+                        failedMemberCount?: null | number | string;
+                        /** Format: int32 */
+                        candidateCount?: null | number | string;
+                        /** Format: int32 */
+                        folderCount?: null | number | string;
+                        /** Format: int32 */
+                        fileCount?: null | number | string;
+                        /** Format: int64 */
+                        knownBytes?: null | number | string;
+                        /** Format: int32 */
+                        newFilesFoundCount?: null | number | string;
+                        /** Format: double */
+                        progressPercent?: null | number | string;
+                    };
+                };
+                display?: {
+                    /** Format: int32 */
+                    displayId: number | string;
+                    /** Format: uuid */
+                    workflowId: string;
+                    /** @enum {unknown} */
+                    kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+                    itemName?: null | string;
+                    queryText?: null | string;
+                    appliedAutoProfiles: string[];
+                    printOption: number;
+                    /** Format: uuid */
+                    submissionId?: null | string;
+                    /** @enum {unknown} */
+                    role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                    /** Format: date-time */
+                    createdAtUtc?: null | string;
+                    /** @enum {unknown} */
+                    searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
+                    searchAggregatePresentation?: null | boolean;
+                    sourceDetail?: null | string;
+                };
+                lifecycle?: {
+                    /** @enum {unknown} */
+                    lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
+                    /** @enum {unknown} */
+                    activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
+                    /** Format: date-time */
+                    activityUntilUtc?: null | string;
+                    /** @enum {unknown} */
+                    terminalOutcome: "None" | "Succeeded" | "Failed" | "Skipped" | "Cancelled" | "PartialSuccess";
+                    /** @enum {unknown} */
+                    skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
+                    /** @enum {unknown} */
+                    failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
+                    failureMessage?: null | string;
+                    failureDetail?: null | string;
+                    /** @enum {unknown} */
+                    cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
+                    availableActions: {
+                        /** @enum {unknown} */
+                        kind: "cancel";
+                        method: string;
+                        href: string;
+                    }[];
+                };
+                discovery?: {
+                    /** Format: int32 */
+                    rawResultCount?: null | number | string;
+                    /** Format: int32 */
+                    lockedFileCount?: null | number | string;
+                    /** Format: int32 */
+                    publicFileCount?: null | number | string;
+                    /** Format: int32 */
+                    observedPeerCount?: null | number | string;
+                };
+                relationships?: {
+                    /** Format: uuid */
+                    parentJobId?: null | string;
+                    /** Format: uuid */
+                    resultJobId?: null | string;
+                    /** Format: uuid */
+                    sourceJobId?: null | string;
+                };
+                stats?: {
+                    /** Format: int32 */
+                    memberCount?: null | number | string;
+                    /** Format: int32 */
+                    completedMemberCount?: null | number | string;
+                    /** Format: int32 */
+                    failedMemberCount?: null | number | string;
+                    /** Format: int32 */
+                    candidateCount?: null | number | string;
+                    /** Format: int32 */
+                    folderCount?: null | number | string;
+                    /** Format: int32 */
+                    fileCount?: null | number | string;
+                    /** Format: int64 */
+                    knownBytes?: null | number | string;
+                    /** Format: int32 */
+                    newFilesFoundCount?: null | number | string;
+                    /** Format: double */
+                    progressPercent?: null | number | string;
+                };
+            }[];
+            searches: {
+                /** Format: uuid */
+                jobId: string;
+                /** Format: uuid */
+                workflowId: string;
+                /** Format: int64 */
+                revision: number | string;
+                /** Format: int32 */
+                resultCount: number | string;
+                isComplete: boolean;
+            }[];
+            transfers: {
+                /** Format: uuid */
+                transferId: string;
+                /** Format: int64 */
+                revision: number | string;
+                added?: {
+                    /** Format: uuid */
+                    transferId: string;
+                    /** Format: int64 */
+                    revision: number | string;
+                    identity: {
+                        /** Format: uuid */
+                        jobId?: null | string;
+                        /** Format: uuid */
+                        workflowId?: null | string;
+                        direction: string;
+                        source: string;
+                        username?: null | string;
+                        remotePath?: null | string;
+                        candidateKey?: null | string;
+                        groupRef?: null | string;
+                        groupDisplayPath?: null | string;
+                        /** Format: int32 */
+                        peerUploadSpeed?: null | number | string;
+                        peerHasFreeUploadSlot?: null | boolean;
+                        groupRelativePath?: null | string;
+                    };
+                    status: {
+                        state: string;
+                        localPath?: null | string;
+                        /** Format: int32 */
+                        attemptCount: number | string;
+                        isTerminal: boolean;
+                        /**
+                         * @default None
+                         * @enum {unknown}
+                         */
+                        terminalOutcome: "None" | "Succeeded" | "Cancelled" | "Failed" | "Interrupted";
+                        /**
+                         * @default None
+                         * @enum {unknown}
+                         */
+                        failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "Unknown";
+                        /**
+                         * @default None
+                         * @enum {unknown}
+                         */
+                        cancellationSource: "None" | "User" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
+                        /** Format: date-time */
+                        completedAtUtc?: null | string;
+                        failureMessage?: null | string;
+                        availableActions?: {
+                            /** @enum {unknown} */
+                            kind: "cancel";
+                            method: string;
+                            href: string;
+                        }[] | null;
+                    };
+                    progress: {
+                        /** Format: int64 */
+                        bytesTransferred: number | string;
+                        /** Format: int64 */
+                        totalBytes: number | string;
+                        /** Format: int64 */
+                        bytesPerSecond?: null | number | string;
+                        /** Format: date-time */
+                        lastProgressAtUtc?: null | string;
+                    };
+                    scheduling?: {
+                        /** Format: date-time */
+                        requestedAtUtc: string;
+                        /** Format: date-time */
+                        startedAtUtc?: null | string;
+                    };
+                    file?: {
+                        name: string;
+                        /** Format: int64 */
+                        size: number | string;
+                        extension?: null | string;
+                        /** Format: int32 */
+                        bitRate?: null | number | string;
+                        /** Format: int32 */
+                        bitDepth?: null | number | string;
+                        /** Format: int32 */
+                        sampleRate?: null | number | string;
+                        /** Format: int32 */
+                        length?: null | number | string;
+                        attributes?: null | {
+                            type: string;
+                            /** Format: int32 */
+                            value: number | string;
+                        }[];
+                    };
+                };
+                status?: {
+                    state: string;
+                    localPath?: null | string;
+                    /** Format: int32 */
+                    attemptCount: number | string;
+                    isTerminal: boolean;
+                    /**
+                     * @default None
+                     * @enum {unknown}
+                     */
+                    terminalOutcome: "None" | "Succeeded" | "Cancelled" | "Failed" | "Interrupted";
+                    /**
+                     * @default None
+                     * @enum {unknown}
+                     */
+                    failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "Unknown";
+                    /**
+                     * @default None
+                     * @enum {unknown}
+                     */
+                    cancellationSource: "None" | "User" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
+                    /** Format: date-time */
+                    completedAtUtc?: null | string;
+                    failureMessage?: null | string;
+                    availableActions?: {
+                        /** @enum {unknown} */
+                        kind: "cancel";
+                        method: string;
+                        href: string;
+                    }[] | null;
+                };
+                progress?: {
+                    /** Format: int64 */
+                    bytesTransferred: number | string;
+                    /** Format: int64 */
+                    totalBytes: number | string;
+                    /** Format: int64 */
+                    bytesPerSecond?: null | number | string;
+                    /** Format: date-time */
+                    lastProgressAtUtc?: null | string;
+                };
+                scheduling?: {
+                    /** Format: date-time */
+                    requestedAtUtc: string;
+                    /** Format: date-time */
+                    startedAtUtc?: null | string;
+                };
+            }[];
+            removedWorkflowIds: string[];
+            removedJobIds: string[];
+            removedSearchJobIds: string[];
+            removedTransferIds: string[];
+            notifications?: null | {
+                /** Format: uuid */
+                notificationId: string;
+                /** Format: int64 */
+                sequence: number | string;
+                /** @enum {unknown} */
+                kind: "PrivateMessage" | "RoomMention";
+                /** Format: date-time */
+                createdAtUtc: string;
+                /** Format: date-time */
+                readAtUtc?: null | string;
+                actor: string;
+                /** @enum {unknown} */
+                targetKind: "Direct" | "Room";
+                /** Format: uuid */
+                targetId: string;
+                targetName: string;
+                /** Format: uuid */
+                sourceMessageId: string;
+                preview: string;
+                resourcePath: string;
+            }[];
+            chatTargets?: null | {
+                /** @enum {unknown} */
+                kind: "Direct" | "Room";
+                /** Format: uuid */
+                targetId: string;
+                conversation?: {
+                    /** Format: uuid */
+                    conversationId: string;
+                    username: string;
+                    privateMessagesBlocked: boolean;
+                    archived: boolean;
+                    /** Format: int32 */
+                    unreadCount: number | string;
+                    /** Format: int64 */
+                    lastReadSequence: number | string;
+                    /** Format: int64 */
+                    revision: number | string;
+                    lastMessage?: {
+                        /** Format: uuid */
+                        messageId: string;
+                        /** Format: int64 */
+                        sequence: number | string;
+                        /** @enum {unknown} */
+                        targetKind: "Direct" | "Room";
+                        /** Format: uuid */
+                        targetId: string;
+                        sender: string;
+                        /** @enum {unknown} */
+                        direction: "Incoming" | "Outgoing";
+                        text: string;
+                        /** Format: date-time */
+                        occurredAtUtc: string;
+                        /** Format: date-time */
+                        recordedAtUtc: string;
+                        /** @enum {unknown} */
+                        state: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
+                        failureReason?: null | string;
+                    };
+                };
+                room?: {
+                    /** Format: uuid */
+                    roomId: string;
+                    name: string;
+                    configured: boolean;
+                    remembered: boolean;
+                    desired: boolean;
+                    /** @enum {unknown} */
+                    kind: "Unknown" | "Public" | "Private";
+                    owned: boolean;
+                    moderated: boolean;
+                    /** @enum {unknown} */
+                    phase: "Disconnected" | "Joining" | "Joined" | "Leaving" | "Failed";
+                    failureReason?: null | string;
+                    /** Format: int32 */
+                    memberCount: number | string;
+                    /** Format: int64 */
+                    memberRevision: number | string;
+                    rosterComplete: boolean;
+                    /** Format: int32 */
+                    unreadCount: number | string;
+                    /** Format: int64 */
+                    lastReadSequence: number | string;
+                    /** Format: int64 */
+                    revision: number | string;
+                    lastMessage?: {
+                        /** Format: uuid */
+                        messageId: string;
+                        /** Format: int64 */
+                        sequence: number | string;
+                        /** @enum {unknown} */
+                        targetKind: "Direct" | "Room";
+                        /** Format: uuid */
+                        targetId: string;
+                        sender: string;
+                        /** @enum {unknown} */
+                        direction: "Incoming" | "Outgoing";
+                        text: string;
+                        /** Format: date-time */
+                        occurredAtUtc: string;
+                        /** Format: date-time */
+                        recordedAtUtc: string;
+                        /** @enum {unknown} */
+                        state: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
+                        failureReason?: null | string;
+                    };
+                };
+                messages?: null | {
+                    /** Format: uuid */
+                    messageId: string;
+                    /** Format: int64 */
+                    sequence: number | string;
+                    /** @enum {unknown} */
+                    targetKind: "Direct" | "Room";
+                    /** Format: uuid */
+                    targetId: string;
+                    sender: string;
+                    /** @enum {unknown} */
+                    direction: "Incoming" | "Outgoing";
+                    text: string;
+                    /** Format: date-time */
+                    occurredAtUtc: string;
+                    /** Format: date-time */
+                    recordedAtUtc: string;
+                    /** @enum {unknown} */
+                    state: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
+                    failureReason?: null | string;
+                }[];
+                /** @default false */
+                replaceMessages: boolean;
+                hasEarlierMessages?: null | boolean;
+            }[];
+            userBrowse?: components["schemas"]["UserBrowseDto"] | null;
+            transferSummary?: {
+                /** Format: int32 */
+                active: number | string;
+                /** Format: int32 */
+                downloads: number | string;
+                /** Format: int32 */
+                uploads: number | string;
+                /** Format: int32 */
+                queued: number | string;
+                /** Format: int32 */
+                failed: number | string;
+                /** Format: int64 */
+                downloadRate: number | string;
+                /** Format: int64 */
+                uploadRate: number | string;
+            };
         };
         StateSnapshotDto: {
             scope: components["schemas"]["StateStreamScopeDto"];
             position: components["schemas"]["StateStreamPositionDto"];
             /** Format: date-time */
             capturedAtUtc: string;
-            daemon: null | components["schemas"]["DaemonStateDto"];
+            daemon?: null | components["schemas"]["DaemonStateDto"];
             workflows: components["schemas"]["WorkflowStateDto"][];
             jobs: components["schemas"]["JobStateDto"][];
             searches: components["schemas"]["SearchStateDto"][];
             transfers: components["schemas"]["TransferStateDto"][];
             chatTarget?: null | components["schemas"]["ChatTargetSnapshotDto"];
             userBrowse?: null | components["schemas"]["UserBrowseDto"];
+            transferSummary?: null | components["schemas"]["LiveTransferSummaryDto"];
+            jobHistoryPosition?: null | components["schemas"]["StateStreamPositionDto"];
         };
         StateStreamPositionDto: {
             /** Format: uuid */
@@ -9003,6 +11978,758 @@ export interface components {
         };
         /** @enum {unknown} */
         StateStreamScopeKind: "daemon" | "workflow" | "chatConversation" | "chatRoom" | "userBrowse";
+        StateUpdateBatchDto: {
+            scope: {
+                /** @enum {unknown} */
+                kind: "daemon" | "workflow" | "chatConversation" | "chatRoom" | "userBrowse";
+                /** Format: uuid */
+                workflowId?: null | string;
+                /** Format: uuid */
+                chatTargetId?: null | string;
+                /** Format: uuid */
+                userBrowseId?: null | string;
+            };
+            /** Format: uuid */
+            epoch: string;
+            /** Format: int64 */
+            previousSequence: number | string;
+            /** Format: int64 */
+            sequence: number | string;
+            /** Format: date-time */
+            occurredAtUtc: string;
+            state: {
+                daemon?: null | {
+                    /** Format: int64 */
+                    revision: number | string;
+                    soulseekClient: {
+                        state: string;
+                        flags: string[];
+                        isReady: boolean;
+                    };
+                    /** Format: int32 */
+                    restartCount: number | string;
+                    /** Format: date-time */
+                    searchRateLimitResetsAtUtc?: null | string;
+                    sharing: {
+                        /** @enum {unknown} */
+                        state: "Disabled" | "Starting" | "Ready" | "Degraded";
+                        reason?: null | string;
+                        aliases: string[];
+                        /** Format: int32 */
+                        uploadBlockedUsernameCount: number | string;
+                        /** Format: int32 */
+                        uploadBlockedIpAddressCount: number | string;
+                        catalog: {
+                            /** Format: uuid */
+                            generationId?: null | string;
+                            /** Format: int64 */
+                            directoryCount: number | string;
+                            /** Format: int64 */
+                            fileCount: number | string;
+                            /** Format: int64 */
+                            totalBytes: number | string;
+                            browseAvailable: boolean;
+                            /** Format: int64 */
+                            browseArtifactBytes?: null | number | string;
+                            /** Format: date-time */
+                            publishedAtUtc?: null | string;
+                        };
+                        activeScan?: {
+                            /** Format: uuid */
+                            scanId: string;
+                            /** Format: int64 */
+                            revision: number | string;
+                            /** @enum {unknown} */
+                            phase: "Idle" | "Preparing" | "Enumerating" | "FinalizingIndex" | "BuildingBrowseArtifact" | "Validating" | "Publishing" | "Completed" | "Cancelling" | "Cancelled" | "Failed";
+                            /** Format: date-time */
+                            startedAtUtc: string;
+                            /** Format: date-time */
+                            completedAtUtc?: null | string;
+                            /** Format: int64 */
+                            directoriesDiscovered: number | string;
+                            /** Format: int64 */
+                            filesDiscovered: number | string;
+                            /** Format: int64 */
+                            bytesDiscovered: number | string;
+                            /** Format: int32 */
+                            errorCount: number | string;
+                            errorSamples: {
+                                code: string;
+                                relativePath: string;
+                                message: string;
+                            }[];
+                            availableActions: {
+                                /** @enum {unknown} */
+                                kind: "cancel";
+                                method: string;
+                                href: string;
+                            }[];
+                        };
+                        lastScan?: {
+                            /** Format: uuid */
+                            scanId: string;
+                            /** Format: int64 */
+                            revision: number | string;
+                            /** @enum {unknown} */
+                            phase: "Idle" | "Preparing" | "Enumerating" | "FinalizingIndex" | "BuildingBrowseArtifact" | "Validating" | "Publishing" | "Completed" | "Cancelling" | "Cancelled" | "Failed";
+                            /** Format: date-time */
+                            startedAtUtc: string;
+                            /** Format: date-time */
+                            completedAtUtc?: null | string;
+                            /** Format: int64 */
+                            directoriesDiscovered: number | string;
+                            /** Format: int64 */
+                            filesDiscovered: number | string;
+                            /** Format: int64 */
+                            bytesDiscovered: number | string;
+                            /** Format: int32 */
+                            errorCount: number | string;
+                            errorSamples: {
+                                code: string;
+                                relativePath: string;
+                                message: string;
+                            }[];
+                            availableActions: {
+                                /** @enum {unknown} */
+                                kind: "cancel";
+                                method: string;
+                                href: string;
+                            }[];
+                        };
+                    };
+                    uploads: {
+                        /** @enum {unknown} */
+                        state: "Disabled" | "Starting" | "Ready" | "Degraded";
+                        reason?: null | string;
+                        acceptingUploads: boolean;
+                        /** Format: int32 */
+                        slots: number | string;
+                        /** Format: int32 */
+                        activeSlots: number | string;
+                        /** Format: int32 */
+                        queuedFiles: number | string;
+                        /** Format: int64 */
+                        queuedBytes: number | string;
+                        /** Format: int64 */
+                        queueRevision: number | string;
+                        /** Format: int32 */
+                        speedLimitKiBPerSecond?: null | number | string;
+                    };
+                    chat: {
+                        /** @enum {unknown} */
+                        state: "Disabled" | "Starting" | "Ready" | "Degraded";
+                        reason?: null | string;
+                        /** Format: int32 */
+                        desiredRoomCount: number | string;
+                        /** Format: int32 */
+                        joinedRoomCount: number | string;
+                        /** Format: int32 */
+                        unreadPrivateMessageCount: number | string;
+                        /** Format: int32 */
+                        unreadRoomMessageCount: number | string;
+                        /** Format: int64 */
+                        revision: number | string;
+                    };
+                    notifications: {
+                        /** Format: int32 */
+                        unreadCount: number | string;
+                        /** Format: int64 */
+                        revision: number | string;
+                    };
+                    /**
+                     * Format: int64
+                     * @default 0
+                     */
+                    terminalTransferCommitRevision: number | string;
+                };
+                workflows: {
+                    /** Format: int64 */
+                    revision: number | string;
+                    summary: {
+                        /** Format: uuid */
+                        workflowId: string;
+                        title: string;
+                        /** @enum {unknown} */
+                        state: "active" | "failed" | "completed";
+                        /** Format: int32 */
+                        rootJobCount: number | string;
+                        /** Format: int32 */
+                        activeJobCount: number | string;
+                        /** Format: int32 */
+                        failedJobCount: number | string;
+                        /** Format: int32 */
+                        completedJobCount: number | string;
+                    };
+                }[];
+                jobs: {
+                    /** Format: uuid */
+                    jobId: string;
+                    /** Format: int64 */
+                    revision: number | string;
+                    added?: {
+                        /** Format: uuid */
+                        jobId: string;
+                        /** Format: int64 */
+                        revision: number | string;
+                        display: {
+                            /** Format: int32 */
+                            displayId: number | string;
+                            /** Format: uuid */
+                            workflowId: string;
+                            /** @enum {unknown} */
+                            kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+                            itemName?: null | string;
+                            queryText?: null | string;
+                            appliedAutoProfiles: string[];
+                            printOption: number;
+                            /** Format: uuid */
+                            submissionId?: null | string;
+                            /** @enum {unknown} */
+                            role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                            /** Format: date-time */
+                            createdAtUtc?: null | string;
+                            /** @enum {unknown} */
+                            searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
+                            searchAggregatePresentation?: null | boolean;
+                            sourceDetail?: null | string;
+                        };
+                        lifecycle: {
+                            /** @enum {unknown} */
+                            lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
+                            /** @enum {unknown} */
+                            activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
+                            /** Format: date-time */
+                            activityUntilUtc?: null | string;
+                            /** @enum {unknown} */
+                            terminalOutcome: "None" | "Succeeded" | "Failed" | "Skipped" | "Cancelled" | "PartialSuccess";
+                            /** @enum {unknown} */
+                            skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
+                            /** @enum {unknown} */
+                            failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
+                            failureMessage?: null | string;
+                            failureDetail?: null | string;
+                            /** @enum {unknown} */
+                            cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
+                            availableActions: {
+                                /** @enum {unknown} */
+                                kind: "cancel";
+                                method: string;
+                                href: string;
+                            }[];
+                        };
+                        discovery: {
+                            /** Format: int32 */
+                            rawResultCount?: null | number | string;
+                            /** Format: int32 */
+                            lockedFileCount?: null | number | string;
+                            /** Format: int32 */
+                            publicFileCount?: null | number | string;
+                            /** Format: int32 */
+                            observedPeerCount?: null | number | string;
+                        };
+                        relationships: {
+                            /** Format: uuid */
+                            parentJobId?: null | string;
+                            /** Format: uuid */
+                            resultJobId?: null | string;
+                            /** Format: uuid */
+                            sourceJobId?: null | string;
+                        };
+                        stats?: {
+                            /** Format: int32 */
+                            memberCount?: null | number | string;
+                            /** Format: int32 */
+                            completedMemberCount?: null | number | string;
+                            /** Format: int32 */
+                            failedMemberCount?: null | number | string;
+                            /** Format: int32 */
+                            candidateCount?: null | number | string;
+                            /** Format: int32 */
+                            folderCount?: null | number | string;
+                            /** Format: int32 */
+                            fileCount?: null | number | string;
+                            /** Format: int64 */
+                            knownBytes?: null | number | string;
+                            /** Format: int32 */
+                            newFilesFoundCount?: null | number | string;
+                            /** Format: double */
+                            progressPercent?: null | number | string;
+                        };
+                    };
+                    display?: {
+                        /** Format: int32 */
+                        displayId: number | string;
+                        /** Format: uuid */
+                        workflowId: string;
+                        /** @enum {unknown} */
+                        kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+                        itemName?: null | string;
+                        queryText?: null | string;
+                        appliedAutoProfiles: string[];
+                        printOption: number;
+                        /** Format: uuid */
+                        submissionId?: null | string;
+                        /** @enum {unknown} */
+                        role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                        /** Format: date-time */
+                        createdAtUtc?: null | string;
+                        /** @enum {unknown} */
+                        searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
+                        searchAggregatePresentation?: null | boolean;
+                        sourceDetail?: null | string;
+                    };
+                    lifecycle?: {
+                        /** @enum {unknown} */
+                        lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
+                        /** @enum {unknown} */
+                        activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
+                        /** Format: date-time */
+                        activityUntilUtc?: null | string;
+                        /** @enum {unknown} */
+                        terminalOutcome: "None" | "Succeeded" | "Failed" | "Skipped" | "Cancelled" | "PartialSuccess";
+                        /** @enum {unknown} */
+                        skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
+                        /** @enum {unknown} */
+                        failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
+                        failureMessage?: null | string;
+                        failureDetail?: null | string;
+                        /** @enum {unknown} */
+                        cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
+                        availableActions: {
+                            /** @enum {unknown} */
+                            kind: "cancel";
+                            method: string;
+                            href: string;
+                        }[];
+                    };
+                    discovery?: {
+                        /** Format: int32 */
+                        rawResultCount?: null | number | string;
+                        /** Format: int32 */
+                        lockedFileCount?: null | number | string;
+                        /** Format: int32 */
+                        publicFileCount?: null | number | string;
+                        /** Format: int32 */
+                        observedPeerCount?: null | number | string;
+                    };
+                    relationships?: {
+                        /** Format: uuid */
+                        parentJobId?: null | string;
+                        /** Format: uuid */
+                        resultJobId?: null | string;
+                        /** Format: uuid */
+                        sourceJobId?: null | string;
+                    };
+                    stats?: {
+                        /** Format: int32 */
+                        memberCount?: null | number | string;
+                        /** Format: int32 */
+                        completedMemberCount?: null | number | string;
+                        /** Format: int32 */
+                        failedMemberCount?: null | number | string;
+                        /** Format: int32 */
+                        candidateCount?: null | number | string;
+                        /** Format: int32 */
+                        folderCount?: null | number | string;
+                        /** Format: int32 */
+                        fileCount?: null | number | string;
+                        /** Format: int64 */
+                        knownBytes?: null | number | string;
+                        /** Format: int32 */
+                        newFilesFoundCount?: null | number | string;
+                        /** Format: double */
+                        progressPercent?: null | number | string;
+                    };
+                }[];
+                searches: {
+                    /** Format: uuid */
+                    jobId: string;
+                    /** Format: uuid */
+                    workflowId: string;
+                    /** Format: int64 */
+                    revision: number | string;
+                    /** Format: int32 */
+                    resultCount: number | string;
+                    isComplete: boolean;
+                }[];
+                transfers: {
+                    /** Format: uuid */
+                    transferId: string;
+                    /** Format: int64 */
+                    revision: number | string;
+                    added?: {
+                        /** Format: uuid */
+                        transferId: string;
+                        /** Format: int64 */
+                        revision: number | string;
+                        identity: {
+                            /** Format: uuid */
+                            jobId?: null | string;
+                            /** Format: uuid */
+                            workflowId?: null | string;
+                            direction: string;
+                            source: string;
+                            username?: null | string;
+                            remotePath?: null | string;
+                            candidateKey?: null | string;
+                            groupRef?: null | string;
+                            groupDisplayPath?: null | string;
+                            /** Format: int32 */
+                            peerUploadSpeed?: null | number | string;
+                            peerHasFreeUploadSlot?: null | boolean;
+                            groupRelativePath?: null | string;
+                        };
+                        status: {
+                            state: string;
+                            localPath?: null | string;
+                            /** Format: int32 */
+                            attemptCount: number | string;
+                            isTerminal: boolean;
+                            /**
+                             * @default None
+                             * @enum {unknown}
+                             */
+                            terminalOutcome: "None" | "Succeeded" | "Cancelled" | "Failed" | "Interrupted";
+                            /**
+                             * @default None
+                             * @enum {unknown}
+                             */
+                            failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "Unknown";
+                            /**
+                             * @default None
+                             * @enum {unknown}
+                             */
+                            cancellationSource: "None" | "User" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
+                            /** Format: date-time */
+                            completedAtUtc?: null | string;
+                            failureMessage?: null | string;
+                            availableActions?: {
+                                /** @enum {unknown} */
+                                kind: "cancel";
+                                method: string;
+                                href: string;
+                            }[] | null;
+                        };
+                        progress: {
+                            /** Format: int64 */
+                            bytesTransferred: number | string;
+                            /** Format: int64 */
+                            totalBytes: number | string;
+                            /** Format: int64 */
+                            bytesPerSecond?: null | number | string;
+                            /** Format: date-time */
+                            lastProgressAtUtc?: null | string;
+                        };
+                        scheduling?: {
+                            /** Format: date-time */
+                            requestedAtUtc: string;
+                            /** Format: date-time */
+                            startedAtUtc?: null | string;
+                        };
+                        file?: {
+                            name: string;
+                            /** Format: int64 */
+                            size: number | string;
+                            extension?: null | string;
+                            /** Format: int32 */
+                            bitRate?: null | number | string;
+                            /** Format: int32 */
+                            bitDepth?: null | number | string;
+                            /** Format: int32 */
+                            sampleRate?: null | number | string;
+                            /** Format: int32 */
+                            length?: null | number | string;
+                            attributes?: null | {
+                                type: string;
+                                /** Format: int32 */
+                                value: number | string;
+                            }[];
+                        };
+                    };
+                    status?: {
+                        state: string;
+                        localPath?: null | string;
+                        /** Format: int32 */
+                        attemptCount: number | string;
+                        isTerminal: boolean;
+                        /**
+                         * @default None
+                         * @enum {unknown}
+                         */
+                        terminalOutcome: "None" | "Succeeded" | "Cancelled" | "Failed" | "Interrupted";
+                        /**
+                         * @default None
+                         * @enum {unknown}
+                         */
+                        failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "Unknown";
+                        /**
+                         * @default None
+                         * @enum {unknown}
+                         */
+                        cancellationSource: "None" | "User" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
+                        /** Format: date-time */
+                        completedAtUtc?: null | string;
+                        failureMessage?: null | string;
+                        availableActions?: {
+                            /** @enum {unknown} */
+                            kind: "cancel";
+                            method: string;
+                            href: string;
+                        }[] | null;
+                    };
+                    progress?: {
+                        /** Format: int64 */
+                        bytesTransferred: number | string;
+                        /** Format: int64 */
+                        totalBytes: number | string;
+                        /** Format: int64 */
+                        bytesPerSecond?: null | number | string;
+                        /** Format: date-time */
+                        lastProgressAtUtc?: null | string;
+                    };
+                    scheduling?: {
+                        /** Format: date-time */
+                        requestedAtUtc: string;
+                        /** Format: date-time */
+                        startedAtUtc?: null | string;
+                    };
+                }[];
+                removedWorkflowIds: string[];
+                removedJobIds: string[];
+                removedSearchJobIds: string[];
+                removedTransferIds: string[];
+                notifications?: null | {
+                    /** Format: uuid */
+                    notificationId: string;
+                    /** Format: int64 */
+                    sequence: number | string;
+                    /** @enum {unknown} */
+                    kind: "PrivateMessage" | "RoomMention";
+                    /** Format: date-time */
+                    createdAtUtc: string;
+                    /** Format: date-time */
+                    readAtUtc?: null | string;
+                    actor: string;
+                    /** @enum {unknown} */
+                    targetKind: "Direct" | "Room";
+                    /** Format: uuid */
+                    targetId: string;
+                    targetName: string;
+                    /** Format: uuid */
+                    sourceMessageId: string;
+                    preview: string;
+                    resourcePath: string;
+                }[];
+                chatTargets?: null | {
+                    /** @enum {unknown} */
+                    kind: "Direct" | "Room";
+                    /** Format: uuid */
+                    targetId: string;
+                    conversation?: {
+                        /** Format: uuid */
+                        conversationId: string;
+                        username: string;
+                        privateMessagesBlocked: boolean;
+                        archived: boolean;
+                        /** Format: int32 */
+                        unreadCount: number | string;
+                        /** Format: int64 */
+                        lastReadSequence: number | string;
+                        /** Format: int64 */
+                        revision: number | string;
+                        lastMessage?: {
+                            /** Format: uuid */
+                            messageId: string;
+                            /** Format: int64 */
+                            sequence: number | string;
+                            /** @enum {unknown} */
+                            targetKind: "Direct" | "Room";
+                            /** Format: uuid */
+                            targetId: string;
+                            sender: string;
+                            /** @enum {unknown} */
+                            direction: "Incoming" | "Outgoing";
+                            text: string;
+                            /** Format: date-time */
+                            occurredAtUtc: string;
+                            /** Format: date-time */
+                            recordedAtUtc: string;
+                            /** @enum {unknown} */
+                            state: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
+                            failureReason?: null | string;
+                        };
+                    };
+                    room?: {
+                        /** Format: uuid */
+                        roomId: string;
+                        name: string;
+                        configured: boolean;
+                        remembered: boolean;
+                        desired: boolean;
+                        /** @enum {unknown} */
+                        kind: "Unknown" | "Public" | "Private";
+                        owned: boolean;
+                        moderated: boolean;
+                        /** @enum {unknown} */
+                        phase: "Disconnected" | "Joining" | "Joined" | "Leaving" | "Failed";
+                        failureReason?: null | string;
+                        /** Format: int32 */
+                        memberCount: number | string;
+                        /** Format: int64 */
+                        memberRevision: number | string;
+                        rosterComplete: boolean;
+                        /** Format: int32 */
+                        unreadCount: number | string;
+                        /** Format: int64 */
+                        lastReadSequence: number | string;
+                        /** Format: int64 */
+                        revision: number | string;
+                        lastMessage?: {
+                            /** Format: uuid */
+                            messageId: string;
+                            /** Format: int64 */
+                            sequence: number | string;
+                            /** @enum {unknown} */
+                            targetKind: "Direct" | "Room";
+                            /** Format: uuid */
+                            targetId: string;
+                            sender: string;
+                            /** @enum {unknown} */
+                            direction: "Incoming" | "Outgoing";
+                            text: string;
+                            /** Format: date-time */
+                            occurredAtUtc: string;
+                            /** Format: date-time */
+                            recordedAtUtc: string;
+                            /** @enum {unknown} */
+                            state: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
+                            failureReason?: null | string;
+                        };
+                    };
+                    messages?: null | {
+                        /** Format: uuid */
+                        messageId: string;
+                        /** Format: int64 */
+                        sequence: number | string;
+                        /** @enum {unknown} */
+                        targetKind: "Direct" | "Room";
+                        /** Format: uuid */
+                        targetId: string;
+                        sender: string;
+                        /** @enum {unknown} */
+                        direction: "Incoming" | "Outgoing";
+                        text: string;
+                        /** Format: date-time */
+                        occurredAtUtc: string;
+                        /** Format: date-time */
+                        recordedAtUtc: string;
+                        /** @enum {unknown} */
+                        state: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
+                        failureReason?: null | string;
+                    }[];
+                    /** @default false */
+                    replaceMessages: boolean;
+                    hasEarlierMessages?: null | boolean;
+                }[];
+                userBrowse?: components["schemas"]["UserBrowseDto"] | null;
+                transferSummary?: {
+                    /** Format: int32 */
+                    active: number | string;
+                    /** Format: int32 */
+                    downloads: number | string;
+                    /** Format: int32 */
+                    uploads: number | string;
+                    /** Format: int32 */
+                    queued: number | string;
+                    /** Format: int32 */
+                    failed: number | string;
+                    /** Format: int64 */
+                    downloadRate: number | string;
+                    /** Format: int64 */
+                    uploadRate: number | string;
+                };
+            };
+            activity: {
+                /** Format: int64 */
+                sequence: number | string;
+                /** Format: date-time */
+                occurredAtUtc: string;
+                type: string;
+                /** Format: uuid */
+                workflowId?: null | string;
+                /** Format: uuid */
+                jobId?: null | string;
+                /** Format: uuid */
+                transferId?: null | string;
+                payload: {
+                    /** @enum {string} */
+                    kind?: "jobStatus";
+                    /** Format: int32 */
+                    displayId: number | string;
+                    status: string;
+                } | {
+                    /** @enum {string} */
+                    kind?: "jobMessage";
+                    /** Format: int32 */
+                    displayId: number | string;
+                    level: string;
+                    source?: null | string;
+                    message: string;
+                } | {
+                    /** @enum {string} */
+                    kind?: "workflowMessage";
+                    level: string;
+                    source?: null | string;
+                    message: string;
+                } | {
+                    /** @enum {string} */
+                    kind?: "diagnostic";
+                    /** Format: int32 */
+                    displayId?: null | number | string;
+                    scope: string;
+                    message: string;
+                    exceptionType: string;
+                    exception: string;
+                    source?: null | string;
+                } | {
+                    /** @enum {string} */
+                    kind?: "extractionStarted";
+                    /** Format: int32 */
+                    displayId: number | string;
+                    input: string;
+                    inputType?: null | string;
+                    source?: null | string;
+                } | {
+                    /** @enum {string} */
+                    kind?: "downloadAttemptFailed";
+                    /** Format: int32 */
+                    displayId: number | string;
+                    username?: null | string;
+                    remotePath?: null | string;
+                    outputPath: string;
+                    /** Format: int32 */
+                    attempt: number | string;
+                    /** Format: int32 */
+                    maxAttempts: number | string;
+                    exceptionType: string;
+                    exceptionMessage: string;
+                    exception: string;
+                } | {
+                    /** @enum {string} */
+                    kind?: "trackBatchResolved";
+                    /** Format: int32 */
+                    displayId: number | string;
+                    isNormal: boolean;
+                    printOption: number;
+                    /** Format: int32 */
+                    pendingCount: number | string;
+                    /** Format: int32 */
+                    existingCount: number | string;
+                    /** Format: int32 */
+                    notFoundCount: number | string;
+                };
+            }[];
+        };
         SubmissionArchiveResponseDto: {
             /** Format: uuid */
             submissionId: string;
@@ -9017,7 +12744,7 @@ export interface components {
         };
         SubmissionDetailDto: {
             summary: components["schemas"]["SubmissionSummaryDto"];
-            commandKind: null | components["schemas"]["ServerJobKind"];
+            commandKind?: null | components["schemas"]["ServerJobKind"];
             credentialBindings: string[];
         };
         SubmissionOptionsDto: {
@@ -9034,6 +12761,7 @@ export interface components {
             reason: string;
             /** Format: int64 */
             count: number | string;
+            message?: null | string;
         };
         SubmissionSummaryDto: {
             /** Format: uuid */
@@ -9041,14 +12769,14 @@ export interface components {
             /** Format: date-time */
             submittedAtUtc: string;
             /** Format: uuid */
-            rerunOfSubmissionId: null | string;
+            rerunOfSubmissionId?: null | string;
             /** Format: uuid */
-            previewId: null | string;
-            artifactId: null | string;
+            previewId?: null | string;
+            artifactId?: null | string;
             /** Format: int64 */
             revision: number | string;
             /** Format: date-time */
-            archivedAtUtc: null | string;
+            archivedAtUtc?: null | string;
             /** Format: int32 */
             totalJobCount: number | string;
             /** Format: int32 */
@@ -9076,6 +12804,8 @@ export interface components {
         SubmitAlbumSearchJobRequestDto: {
             albumQuery: components["schemas"]["AlbumQueryDto"];
             options?: null | components["schemas"]["SubmissionOptionsDto"];
+            /** @default false */
+            aggregatePresentation: boolean;
         };
         SubmitExtractJobRequestDto: {
             input: string;
@@ -9085,7 +12815,7 @@ export interface components {
             artifactId?: null | string;
         };
         SubmitJobListRequestDto: {
-            name: null | string;
+            name?: null | string;
             jobs: components["schemas"]["JobDraftDto"][];
             options?: null | components["schemas"]["SubmissionOptionsDto"];
         };
@@ -9103,6 +12833,20 @@ export interface components {
             /** @default false */
             includeFullResults: boolean;
             options?: null | components["schemas"]["SubmissionOptionsDto"];
+            /** @default false */
+            aggregatePresentation: boolean;
+        };
+        TrackBatchResolvedActivityDto: {
+            /** Format: int32 */
+            displayId: number | string;
+            isNormal: boolean;
+            printOption: number;
+            /** Format: int32 */
+            pendingCount: number | string;
+            /** Format: int32 */
+            existingCount: number | string;
+            /** Format: int32 */
+            notFoundCount: number | string;
         };
         TransferAttemptHistoryDto: {
             /** Format: uuid */
@@ -9113,15 +12857,15 @@ export interface components {
             attemptNumber: number | string;
             source: string;
             state: string;
-            sourceUsername: null | string;
-            sourcePath: null | string;
-            outputPath: null | string;
+            sourceUsername?: null | string;
+            sourcePath?: null | string;
+            outputPath?: null | string;
             /** Format: date-time */
             startedAtUtc: string;
             /** Format: date-time */
-            completedAtUtc: null | string;
+            completedAtUtc?: null | string;
             failureReason: string;
-            failureMessage: null | string;
+            failureMessage?: null | string;
             /** Format: int64 */
             revision: number | string;
         };
@@ -9155,14 +12899,24 @@ export interface components {
             failedCount: number | string;
             reasons: components["schemas"]["TransferCommandReasonCountDto"][];
         };
+        TransferDeltaDto: {
+            /** Format: uuid */
+            transferId: string;
+            /** Format: int64 */
+            revision: number | string;
+            added?: null | components["schemas"]["TransferStateDto"];
+            status?: null | components["schemas"]["TransferStatusFieldsDto"];
+            progress?: null | components["schemas"]["TransferProgressFieldsDto"];
+            scheduling?: null | components["schemas"]["TransferSchedulingFieldsDto"];
+        };
         TransferDetailDto: {
             source: components["schemas"]["TransferDetailSource"];
-            live: null | components["schemas"]["TransferStateDto"];
-            queueEstimate: null | components["schemas"]["TransferQueueEstimateDto"];
-            history: null | components["schemas"]["TransferHistoryDto"];
+            live?: null | components["schemas"]["TransferStateDto"];
+            queueEstimate?: null | components["schemas"]["TransferQueueEstimateDto"];
+            history?: null | components["schemas"]["TransferHistoryDto"];
             /** Format: int32 */
             attemptCount: number | string;
-            latestAttempt: null | components["schemas"]["TransferAttemptHistoryDto"];
+            latestAttempt?: null | components["schemas"]["TransferAttemptHistoryDto"];
         };
         /** @enum {unknown} */
         TransferDetailSource: "Live" | "Historical" | "Merged";
@@ -9171,22 +12925,64 @@ export interface components {
          * @enum {unknown}
          */
         TransferFailureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "Unknown";
+        TransferGroupKeyDto: {
+            direction: components["schemas"]["TransferCommandDirection"];
+            username?: null | string;
+            groupRef: string;
+        };
+        TransferGroupSummariesRequestDto: {
+            groups: components["schemas"]["TransferGroupKeyDto"][];
+        };
+        TransferGroupSummariesResponseDto: {
+            items: components["schemas"]["TransferGroupSummaryDto"][];
+            retainedCoverage: components["schemas"]["TransferRetainedCoverageDto"];
+            readPosition?: null | components["schemas"]["StateStreamPositionDto"];
+        };
+        TransferGroupSummaryDto: {
+            key: components["schemas"]["TransferGroupKeyDto"];
+            /** Format: int64 */
+            fileCount: number | string;
+            /** Format: int64 */
+            knownTotalBytes: number | string;
+            /** Format: int64 */
+            transferredBytes: number | string;
+            /** Format: int64 */
+            speedBytesPerSecond: number | string;
+            /** Format: int64 */
+            unknownTotalCount: number | string;
+            /** Format: int64 */
+            knownRemainingActiveBytes: number | string;
+            /** Format: int64 */
+            unknownActiveTotalCount: number | string;
+            /** Format: int64 */
+            queuedCount: number | string;
+            /** Format: int64 */
+            inProgressCount: number | string;
+            /** Format: int64 */
+            succeededCount: number | string;
+            /** Format: int64 */
+            failedCount: number | string;
+            /** Format: int64 */
+            cancelledCount: number | string;
+            /** Format: int64 */
+            interruptedCount: number | string;
+        };
         TransferHistoryDto: {
             /** Format: uuid */
             transferId: string;
             /** Format: uuid */
-            jobId: null | string;
+            jobId?: null | string;
             /** Format: uuid */
-            workflowId: null | string;
+            workflowId?: null | string;
             direction: string;
             source: string;
-            username: null | string;
-            remotePath: null | string;
-            localPath: null | string;
+            username?: null | string;
+            remotePath?: null | string;
+            localPath?: null | string;
             state: string;
             terminalOutcome: string;
             /** Format: int64 */
-            totalBytes: null | number | string;
+            totalBytes?: null | number | string;
             /** Format: int64 */
             transferredBytes: number | string;
             /** Format: int32 */
@@ -9194,9 +12990,9 @@ export interface components {
             /** Format: date-time */
             createdAtUtc: string;
             /** Format: date-time */
-            completedAtUtc: null | string;
+            completedAtUtc?: null | string;
             failureReason: string;
-            failureMessage: null | string;
+            failureMessage?: null | string;
             cancellationSource: components["schemas"]["TransferCancellationSource"];
             /** Format: int64 */
             revision: number | string;
@@ -9213,20 +13009,29 @@ export interface components {
             archivedAtUtc?: null | string;
             groupRef?: null | string;
             groupDisplayPath?: null | string;
+            groupRelativePath?: null | string;
             availableActions?: null | components["schemas"]["ResourceActionDto"][];
         };
         TransferIdentityFieldsDto: {
             /** Format: uuid */
-            jobId: null | string;
+            jobId?: null | string;
             /** Format: uuid */
-            workflowId: null | string;
+            workflowId?: null | string;
             direction: string;
             source: string;
-            username: null | string;
-            remotePath: null | string;
-            candidateKey: null | string;
+            username?: null | string;
+            remotePath?: null | string;
+            candidateKey?: null | string;
             groupRef?: null | string;
             groupDisplayPath?: null | string;
+            /** Format: int32 */
+            peerUploadSpeed?: null | number | string;
+            peerHasFreeUploadSlot?: null | boolean;
+            groupRelativePath?: null | string;
+        };
+        TransferLookupRequestDto: {
+            transferIds: string[];
+            direction?: null | string;
         };
         TransferProgressFieldsDto: {
             /** Format: int64 */
@@ -9240,7 +13045,7 @@ export interface components {
         };
         TransferQueueEstimateDto: {
             /** Format: int32 */
-            aheadCount: null | number | string;
+            aheadCount?: null | number | string;
             /** Format: int64 */
             queueRevision: number | string;
         };
@@ -9254,7 +13059,7 @@ export interface components {
             /** Format: date-time */
             requestedAtUtc: string;
             /** Format: date-time */
-            startedAtUtc: null | string;
+            startedAtUtc?: null | string;
         };
         TransferSettingsPatchDto: {
             /** Format: int32 */
@@ -9280,14 +13085,17 @@ export interface components {
         };
         TransferStatusFieldsDto: {
             state: string;
-            localPath: null | string;
+            localPath?: null | string;
             /** Format: int32 */
             attemptCount: number | string;
             isTerminal: boolean;
             terminalOutcome?: components["schemas"]["TransferTerminalOutcome"];
             failureReason?: components["schemas"]["TransferFailureReason"];
             cancellationSource?: components["schemas"]["TransferCancellationSource"];
-            availableActions?: null | components["schemas"]["ResourceActionDto"][];
+            /** Format: date-time */
+            completedAtUtc?: null | string;
+            failureMessage?: null | string;
+            availableActions?: components["schemas"]["ResourceActionDto"][] | null;
         };
         /**
          * @default None
@@ -9296,12 +13104,42 @@ export interface components {
         TransferTerminalOutcome: "None" | "Succeeded" | "Cancelled" | "Failed" | "Interrupted";
         TransferTimelinePageDto: {
             items: components["schemas"]["TransferHistoryDto"][];
-            nextCursor: null | string;
+            nextCursor?: null | string;
             retainedCoverage: components["schemas"]["TransferRetainedCoverageDto"];
+            readPosition?: null | components["schemas"]["StateStreamPositionDto"];
+        };
+        TransferTimelineScopeDto: {
+            direction: components["schemas"]["TransferCommandDirection"];
+            /**
+             * Format: int32
+             * @default 500
+             */
+            limit: number | string;
+            knownRevisions?: null | {
+                [key: string]: number | string;
+            };
+            username?: null | string;
+            groupRef?: null | string;
+            additionalTransferIds?: null | string[];
+            /** @default false */
+            includeGroupSummaries: boolean;
+        };
+        TransferTimelineUpdateDto: {
+            items: components["schemas"]["TransferHistoryDto"][];
+            removedTransferIds: string[];
+            retainedCoverage: components["schemas"]["TransferRetainedCoverageDto"];
+            windowTransferIds?: null | string[];
+            nextCursor?: null | string;
+            /** Format: uuid */
+            boundaryTransferId?: null | string;
+            readPosition?: null | components["schemas"]["StateStreamPositionDto"];
+            liveTransfers?: null | components["schemas"]["TransferDeltaDto"][];
+            removedLiveTransferIds?: null | string[];
+            groupSummaries?: null | components["schemas"]["TransferGroupSummariesResponseDto"];
         };
         UploadRuntimeStateDto: {
             state: components["schemas"]["DaemonFeatureState"];
-            reason: null | string;
+            reason?: null | string;
             acceptingUploads: boolean;
             /** Format: int32 */
             slots: number | string;
@@ -9314,7 +13152,7 @@ export interface components {
             /** Format: int64 */
             queueRevision: number | string;
             /** Format: int32 */
-            speedLimitKiBPerSecond: null | number | string;
+            speedLimitKiBPerSecond?: null | number | string;
         };
         UserBrowseDto: {
             /** Format: uuid */
@@ -9325,7 +13163,7 @@ export interface components {
             /** Format: int64 */
             compressedBytesReceived: number | string;
             /** Format: int64 */
-            compressedBytesExpected: null | number | string;
+            compressedBytesExpected?: null | number | string;
             /** Format: int64 */
             directoryCount: number | string;
             /** Format: int64 */
@@ -9337,8 +13175,8 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
             /** Format: date-time */
-            expiresAt: null | string;
-            failure: null | components["schemas"]["ApiErrorDto"];
+            expiresAt?: null | string;
+            failure?: null | components["schemas"]["ApiErrorDto"];
             /** Format: int64 */
             revision: number | string;
         };
@@ -9349,20 +13187,20 @@ export interface components {
         UsernameRestrictionStateDto: {
             isBlocked: boolean;
             configuredUsernameBlocked: boolean;
-            override: null | components["schemas"]["UserRestrictionOverrideState"];
+            override?: null | components["schemas"]["UserRestrictionOverrideState"];
         };
         UserNotificationDto: {
             /** Format: uuid */
             notificationId: string;
             /** Format: int64 */
             sequence: number | string;
-            kind: components["schemas"]["UserNotificationKind"];
+            kind: components["schemas"]["ServerUserNotificationKind"];
             /** Format: date-time */
             createdAtUtc: string;
             /** Format: date-time */
-            readAtUtc: null | string;
+            readAtUtc?: null | string;
             actor: string;
-            targetKind: components["schemas"]["ChatTargetKind"];
+            targetKind: components["schemas"]["ServerChatTargetKind"];
             /** Format: uuid */
             targetId: string;
             targetName: string;
@@ -9371,14 +13209,19 @@ export interface components {
             preview: string;
             resourcePath: string;
         };
-        /** @enum {unknown} */
-        UserNotificationKind: "PrivateMessage" | "RoomMention";
         UserPictureRefDto: {
             url: string;
             mediaType: string;
             /** Format: int32 */
             byteLength: number | string;
             eTag: string;
+        };
+        UserPresenceObservationDto: {
+            username: string;
+            presence: components["schemas"]["UserProfilePresence"];
+            status: components["schemas"]["UserProfileSectionDto"];
+            /** Format: date-time */
+            observedAtUtc?: null | string;
         };
         UserProfileDto: {
             username: string;
@@ -9389,21 +13232,21 @@ export interface components {
             info: components["schemas"]["UserProfileSectionDto"];
             statistics: components["schemas"]["UserProfileSectionDto"];
             pictureSection: components["schemas"]["UserProfileSectionDto"];
-            description: null | string;
+            description?: null | string;
             /** Format: int64 */
-            sharedFileCount: null | number | string;
+            sharedFileCount?: null | number | string;
             /** Format: int64 */
-            sharedDirectoryCount: null | number | string;
+            sharedDirectoryCount?: null | number | string;
             /** Format: int64 */
-            averageUploadSpeed: null | number | string;
+            averageUploadSpeed?: null | number | string;
             /** Format: int32 */
-            uploadCount: null | number | string;
+            uploadCount?: null | number | string;
             /** Format: int32 */
-            uploadSlots: null | number | string;
+            uploadSlots?: null | number | string;
             /** Format: int32 */
-            queueLength: null | number | string;
-            hasFreeUploadSlot: null | boolean;
-            picture: null | components["schemas"]["UserPictureRefDto"];
+            queueLength?: null | number | string;
+            hasFreeUploadSlot?: null | boolean;
+            picture?: null | components["schemas"]["UserPictureRefDto"];
             /** Format: date-time */
             observedAt: string;
         };
@@ -9411,7 +13254,7 @@ export interface components {
         UserProfilePresence: "online" | "away" | "offline" | "unknown";
         UserProfileSectionDto: {
             state: components["schemas"]["ResourceSectionState"];
-            reason: null | string;
+            reason?: null | string;
         };
         /** @enum {unknown} */
         UserRestrictionKind: "upload-access" | "private-messages";
@@ -9452,6 +13295,11 @@ export interface components {
         };
         WorkflowDetailDto: {
             summary: components["schemas"]["WorkflowSummaryDto"];
+        };
+        WorkflowMessageActivityDto: {
+            level: string;
+            source?: null | string;
+            message: string;
         };
         WorkflowStateDto: {
             /** Format: int64 */

@@ -1,4 +1,5 @@
 using Sockseek.Core.Snapshots;
+using Sockseek.Core.Services;
 using Soulseek;
 
 using System.Text.Json.Serialization;
@@ -13,7 +14,7 @@ public enum SearchResultVisibility
 }
 
 /// <summary>
-/// Storage- and provider-neutral search input used at projection boundaries.
+/// Immutable search observation shared by collection, events, projection and persistence.
 /// </summary>
 public sealed record SearchProjectionInput(
     long Sequence,
@@ -34,7 +35,7 @@ public sealed record SearchProjectionInput(
     int? QueueLength = null,
     SearchResultVisibility Visibility = SearchResultVisibility.Public)
 {
-    public FileCandidate ToFileCandidate()
+    public FileCandidate ToFileCandidate(SearchConditionFacts? conditionFacts = null)
         => new(
             new PeerFileTarget(
                 new PeerFileIdentity(Username, Filename),
@@ -52,7 +53,8 @@ public sealed record SearchProjectionInput(
                 HasFreeUploadSlot,
                 QueueLength,
                 ObservedAtUtc),
-            new FileSearchEvidence(Sequence, Revision, ObservedAtUtc, Visibility));
+            new FileSearchEvidence(Sequence, Revision, ObservedAtUtc, Visibility),
+            conditionFacts);
 
     internal static SearchProjectionInput FromLive(
         long sequence,

@@ -17,7 +17,6 @@ public sealed class SockseekDbContext(DbContextOptions<SockseekDbContext> option
     internal DbSet<TransferAccountingStateEntity> TransferAccountingStates => Set<TransferAccountingStateEntity>();
     internal DbSet<PeerRestrictionOverrideEntity> PeerRestrictionOverrides => Set<PeerRestrictionOverrideEntity>();
     internal DbSet<InputArtifactEntity> InputArtifacts => Set<InputArtifactEntity>();
-    internal DbSet<InputArtifactPinEntity> InputArtifactPins => Set<InputArtifactPinEntity>();
     internal DbSet<ChatConversationEntity> ChatConversations => Set<ChatConversationEntity>();
     internal DbSet<ChatSequenceEntity> ChatSequences => Set<ChatSequenceEntity>();
     internal DbSet<ChatRoomSubscriptionEntity> ChatRoomSubscriptions => Set<ChatRoomSubscriptionEntity>();

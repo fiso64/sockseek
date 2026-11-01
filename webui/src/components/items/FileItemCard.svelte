@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import type { AudioAttributes, TransferPresentation } from '../../prototype/items';
-  import { audioSummary, basename, formatBytes, formatLength } from '../../prototype/items';
+  import RelativeTime from '../RelativeTime.svelte';
+  import type { AudioAttributes, TransferPresentation } from '../../domains/presentation/items';
+  import { audioSummary, basename, formatBytes, formatLength } from '../../domains/presentation/items';
 
   interface Props {
     path: string;
-    sizeBytes: number;
+    sizeBytes: number | null;
     audio?: AudioAttributes;
     locked?: boolean;
     selected?: boolean;
@@ -58,14 +59,14 @@
               <strong class="file-transfer-audio">{audioSummary(audio)}</strong>
               <strong class="file-transfer-length">{formatLength(audio.lengthSeconds)}</strong>
             {/if}
-            <strong class="file-transfer-size">{formatBytes(sizeBytes)}</strong>
+            <strong class="file-transfer-size">{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</strong>
             <span class={`transfer-state ${transfer.tone ?? ''} ${transferDirectionClass}`}>{transfer.state}</span>
             {#if actions}<span class="item-card-action">{@render actions()}</span>{/if}
           </div>
         </div>
         <div class="file-transfer-summary-secondary">
           <small class="file-transfer-path">{path}</small>
-          {#if transfer.created}<span class="file-transfer-age">{transfer.created}</span>{/if}
+          {#if transfer.createdAt}<span class="file-transfer-age">{transfer.direction === 'upload' ? 'requested' : 'created'} <RelativeTime timestamp={transfer.createdAt} lowercase /></span>{/if}
         </div>
       </div>
     </div>
@@ -88,7 +89,7 @@
         <small>{path}</small>
       </div>
 
-      <div class="item-detail result-detail item-size-detail"><strong>{formatBytes(sizeBytes)}</strong></div>
+      <div class="item-detail result-detail item-size-detail"><strong>{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</strong></div>
       {#if audio}
         <div class="item-detail result-detail audio-detail"><strong>{audioSummary(audio)}</strong></div>
         <div class="item-detail result-detail item-length-detail"><strong>{formatLength(audio.lengthSeconds)}</strong></div>
@@ -107,10 +108,10 @@
           <span style={`width:${transfer.progressPercent}%`}></span>
         </div>
       {/if}
-      {#if transfer.progressText || footerDetail}
+      {#if transfer.progressText || footerDetail || transfer.completedAt}
         <div class="transfer-progress-meta">
           <span>{transfer.progressText ?? ''}</span>
-          <span>{footerDetail}</span>
+          <span>{#if transfer.completedAt}completed <RelativeTime timestamp={transfer.completedAt} lowercase />{#if footerDetail} · {/if}{/if}{footerDetail}</span>
         </div>
       {/if}
     </div>

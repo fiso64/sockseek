@@ -706,7 +706,8 @@ public class CliEndToEndTests
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
             var workflowId = Guid.NewGuid();
             var submission = await coordinator.StartAsync(
-                new SubmitExtractJobRequestDto(csvPath, InputType.None.ToString(), Options: new SubmissionOptionsDto(workflowId)),
+                new SubmitExtractJobRequestDto(csvPath, InputType.None.ToString(), Options: new SubmissionOptionsDto(workflowId,
+                    DownloadSettings: new DownloadSettingsPatchDto(Skip: new SkipSettingsPatchDto(SkipExisting: true)))),
                 cts.Token);
             await RunInteractiveAsync(app, coordinator, submission.WorkflowId, cts);
 

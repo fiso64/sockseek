@@ -1,5 +1,12 @@
+using Sockseek.Core.Models;
 using System.Text;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
+using Sockseek.Persistence.Entities;
+using Sockseek.Persistence.Sqlite;
+using Microsoft.EntityFrameworkCore.Storage;
+using Sockseek.Core.Snapshots;
 
 namespace Sockseek.Persistence.Read;
 
@@ -15,7 +22,10 @@ public sealed record JobHistoryQuery(
     Guid? ParentJobId = null,
     Guid? SubmissionId = null,
     string? SemanticRole = null,
-    bool Archived = false);
+    bool Archived = false,
+    bool NewestFirst = false,
+    bool ExcludeExtractResults = false,
+    IReadOnlyCollection<Guid>? ExcludedJobIds = null);
 
 public sealed record PersistedJob(
     Guid Id,
@@ -46,9 +56,26 @@ public sealed record PersistedJob(
     string SemanticRole = "Legacy",
     long? DiscoveryPublicFileCount = null,
     long? DiscoveryLockedFileCount = null,
-    long? DiscoveryObservedPeerCount = null);
+    long? DiscoveryObservedPeerCount = null,
+    string? SourceDetail = null);
 
 public sealed record PersistedJobPage(IReadOnlyList<PersistedJob> Items, string? NextCursor);
+public sealed record PersistedDirectoryManifestEntry(
+    int Ordinal,
+    PeerFileTarget? Target,
+    IReadOnlyList<string> RelativeDirectoryComponents,
+    Guid? ChildJobId,
+    PersistedJob? Child = null);
+public sealed record PersistedDirectoryManifestPage(
+    int AttemptNumber,
+    string DisplayRoot,
+    int EntryCount,
+    long TotalKnownBytes,
+    bool ChildrenMaterialized,
+    int SupplementalEntryCount,
+    long JobRevision,
+    IReadOnlyList<PersistedDirectoryManifestEntry> Items,
+    int? NextOrdinal);
 public sealed record PersistedWorkflowSummary(
     Guid WorkflowId,
     long FirstDisplayId,
@@ -64,6 +91,10 @@ public interface IJobHistoryReader
 {
     Task<PersistedJobPage> GetJobsAsync(JobHistoryQuery query, CancellationToken cancellationToken = default);
     Task<PersistedJob?> GetJobAsync(Guid jobId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<PersistedJob>> GetJobsByIdsAsync(IReadOnlyCollection<Guid> jobIds, CancellationToken cancellationToken = default);
+    Task<PersistedDirectoryManifestPage?> GetDirectoryManifestAsync(
+        Guid jobId, int? attemptNumber, int afterOrdinal, int limit,
+        CancellationToken cancellationToken = default);
     Task<int> GetChildCountAsync(Guid parentJobId, CancellationToken cancellationToken = default);
     Task<PersistedWorkflowPage> GetWorkflowsAsync(string? cursor = null, int limit = 100, CancellationToken cancellationToken = default);
     Task<PersistedWorkflowSummary?> GetWorkflowAsync(Guid workflowId, CancellationToken cancellationToken = default);
@@ -72,282 +103,325 @@ public interface IJobHistoryReader
 
 public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contextFactory) : IJobHistoryReader
 {
-    public const int MaximumPageSize = 200;
+
+    public async Task<PersistedDirectoryManifestPage?> GetDirectoryManifestAsync(
+        Guid jobId, int? attemptNumber, int afterOrdinal, int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit));
+        if (afterOrdinal < -1)
+            throw new ArgumentOutOfRangeException(nameof(afterOrdinal));
+        if (attemptNumber is < 1)
+            throw new ArgumentOutOfRangeException(nameof(attemptNumber));
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await SqliteReadSnapshot.BeginAsync(context, cancellationToken).ConfigureAwait(false);
+        var connection = context.Database.GetDbConnection();
+        await using var metadata = connection.CreateCommand();
+        metadata.Transaction = transaction.GetDbTransaction();
+        metadata.CommandText = """
+            SELECT attempt_number, display_root, entry_count, total_known_bytes,
+                   children_materialized, json_array_length(supplemental_job_ids_json), job_revision
+            FROM directory_manifests
+            WHERE job_id = $job AND attempt_number = COALESCE($attempt, (
+                SELECT json_extract(payload_json, '$.Directory.AttemptNumber')
+                FROM jobs WHERE id = $job))
+            ORDER BY attempt_number DESC LIMIT 1;
+            """;
+        var jobKey = jobId;
+        var job = metadata.CreateParameter();
+        job.ParameterName = "$job";
+        job.Value = jobKey;
+        metadata.Parameters.Add(job);
+        var attempt = metadata.CreateParameter();
+        attempt.ParameterName = "$attempt";
+        attempt.Value = attemptNumber is { } requested ? requested : DBNull.Value;
+        metadata.Parameters.Add(attempt);
+        int number;
+        string root;
+        int count;
+        long bytes;
+        bool materialized;
+        int supplementalCount;
+        long revision;
+        await using (var row = await metadata.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!await row.ReadAsync(cancellationToken).ConfigureAwait(false))
+                return null;
+            number = row.GetInt32(0);
+            root = row.GetString(1);
+            count = row.GetInt32(2);
+            bytes = row.GetInt64(3);
+            materialized = row.GetInt32(4) != 0;
+            supplementalCount = row.GetInt32(5);
+            revision = row.GetInt64(6);
+        }
+
+        await using var entries = connection.CreateCommand();
+        entries.Transaction = transaction.GetDbTransaction();
+        entries.CommandText = """
+            SELECT ordinal, target_json, relative_directory_components_json, child_job_id
+            FROM directory_manifest_entries
+            WHERE job_id = $job AND attempt_number = $attempt AND ordinal > $after
+            UNION ALL
+            SELECT $count + CAST(supplemental.key AS INTEGER) AS ordinal,
+                   NULL AS target_json, '[]' AS relative_directory_components_json,
+                   supplemental.value AS child_job_id
+            FROM directory_manifests manifest, json_each(manifest.supplemental_job_ids_json) supplemental
+            WHERE manifest.job_id = $job AND manifest.attempt_number = $attempt
+              AND $count + CAST(supplemental.key AS INTEGER) > $after
+              AND NOT EXISTS (
+                  SELECT 1 FROM directory_manifest_entries entry
+                  WHERE entry.job_id = manifest.job_id AND entry.attempt_number = manifest.attempt_number
+                    AND entry.ordinal = $count + CAST(supplemental.key AS INTEGER))
+            ORDER BY ordinal LIMIT $limit;
+            """;
+        foreach (var (name, value) in new (string, object)[] {
+            ("$job", jobKey), ("$attempt", number), ("$after", afterOrdinal), ("$limit", (long)limit + 1), ("$count", count) })
+        {
+            var parameter = entries.CreateParameter();
+            parameter.ParameterName = name;
+            parameter.Value = value;
+            entries.Parameters.Add(parameter);
+        }
+        var items = new List<PersistedDirectoryManifestEntry>();
+        await using (var rows = await entries.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await rows.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                items.Add(new PersistedDirectoryManifestEntry(
+                    rows.GetInt32(0),
+                    rows.IsDBNull(1) ? null : JsonSerializer.Deserialize<PeerFileTarget>(rows.GetString(1)),
+                    JsonSerializer.Deserialize<string[]>(rows.GetString(2)) ?? [],
+                    rows.IsDBNull(3) ? null : Guid.Parse(rows.GetString(3))));
+            }
+        }
+        bool more = items.Count > limit;
+        if (more) items.RemoveAt(items.Count - 1);
+        Guid[] childIds = items.Where(item => item.ChildJobId.HasValue)
+            .Select(item => item.ChildJobId!.Value).Distinct().ToArray();
+        if (childIds.Length > 0)
+        {
+            var children = (await ReadRowsByIdsAsync(context, childIds, cancellationToken)
+                .ConfigureAwait(false)).ToDictionary(child => child.Id);
+            items = items.Select(item => item with
+            {
+                Child = item.ChildJobId is Guid id ? children.GetValueOrDefault(id) : null,
+            }).ToList();
+        }
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new PersistedDirectoryManifestPage(
+            number, root, count, bytes, materialized, supplementalCount, revision,
+            items, more ? items[^1].Ordinal : null);
+    }
 
     public async Task<PersistedJobPage> GetJobsAsync(JobHistoryQuery query, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
-        if (query.Limit is < 1 or > MaximumPageSize)
-            throw new ArgumentOutOfRangeException(nameof(query), $"Job page size must be between 1 and {MaximumPageSize}.");
+        if (query.Limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(query), "Page size must be positive.");
         var cursor = DecodeCursor(query.Cursor);
+        if (cursor is { } position && position.NewestFirst != query.NewestFirst)
+            throw new ArgumentException("The job cursor has a different sort direction.", nameof(query));
 
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var jobs = context.Jobs.AsNoTracking().AsQueryable();
-        jobs = query.Archived
-            ? jobs.Where(job => job.SubmissionId != null
-                && context.Submissions.Any(submission =>
-                    submission.Id == job.SubmissionId
-                    && submission.ArchivedAtUtc != null))
-            : jobs.Where(job => job.SubmissionId == null
-                || !context.Submissions.Any(submission =>
-                    submission.Id == job.SubmissionId
-                    && submission.ArchivedAtUtc != null));
-        if (query.ParentJobId != null)
-            jobs = jobs.Where(job => job.ParentJobId == query.ParentJobId);
+        var conditions = new List<string>();
+        var parameters = new List<object>();
+        void Filter(string predicate, string parameter, object? value)
+        {
+            if (value is null) return;
+            conditions.Add(predicate);
+            parameters.Add(new SqliteParameter(parameter, value));
+        }
+        if (query.ExcludedJobIds is { Count: > 0 } excluded)
+        {
+            // Runtime owns captured identities until handoff, including rows
+            // that no longer match. Exclude before filtering and paging.
+            Filter("job.id NOT IN (SELECT value FROM json_each($excluded))", "$excluded", EncodeIds(excluded));
+        }
+        const string archived = """
+            EXISTS (SELECT 1 FROM submissions submission
+                WHERE submission.id=job.submission_id AND submission.archived_at_utc IS NOT NULL)
+            """;
+        conditions.Add(query.Archived ? archived : "NOT " + archived);
+        if (query.ParentJobId is Guid parent)
+            Filter("job.parent_job_id=$parent", "$parent", parent);
         else if (!query.IncludeAll)
-            jobs = jobs.Where(job => job.ParentJobId == null);
-        if (query.LifecycleState != null) jobs = jobs.Where(job => job.LifecycleState == query.LifecycleState);
-        if (query.TerminalOutcome != null) jobs = jobs.Where(job => job.TerminalOutcome == query.TerminalOutcome);
-        if (query.SkipReason != null) jobs = jobs.Where(job => job.SkipReason == query.SkipReason);
-        if (query.Kind != null) jobs = jobs.Where(job => job.Kind == query.Kind);
-        if (query.WorkflowId != null) jobs = jobs.Where(job => job.WorkflowId == query.WorkflowId);
-        if (query.SubmissionId != null) jobs = jobs.Where(job => job.SubmissionId == query.SubmissionId);
-        if (query.SemanticRole != null) jobs = jobs.Where(job => job.SemanticRole == query.SemanticRole);
-        if (cursor != null)
-            jobs = jobs.Where(job => job.DisplayId > cursor.DisplayId
-                || job.DisplayId == cursor.DisplayId && job.Id.CompareTo(cursor.Id) > 0);
-
-        var rows = await jobs
-            .OrderBy(job => job.DisplayId)
-            .ThenBy(job => job.Id)
-            .Take(query.Limit + 1)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
+            conditions.Add("job.parent_job_id IS NULL");
+        if (query.ExcludeExtractResults)
+        {
+            // Keep workflow comparison outside each identity lookup. Including
+            // it inside EXISTS lets SQLite choose a broad workflow scan
+            // instead of the source/result indexes, even without an OR.
+            conditions.Add("""
+                job.workflow_id NOT IN (SELECT source.workflow_id FROM jobs source
+                    WHERE source.id=job.source_job_id AND source.kind='Extract')
+                AND job.workflow_id NOT IN (SELECT source.workflow_id FROM jobs source
+                    WHERE source.result_job_id=job.id AND source.kind='Extract')
+                """);
+        }
+        Filter("job.lifecycle_state=$state", "$state", query.LifecycleState);
+        Filter("job.terminal_outcome=$outcome", "$outcome", query.TerminalOutcome);
+        Filter("job.skip_reason=$skip", "$skip", query.SkipReason);
+        Filter("job.kind=$kind", "$kind", query.Kind);
+        Filter("job.workflow_id=$workflow", "$workflow", query.WorkflowId);
+        Filter("job.submission_id=$submission", "$submission", query.SubmissionId);
+        Filter("job.semantic_role=$role", "$role", query.SemanticRole);
+        if (cursor is not null)
+        {
+            string comparison = query.NewestFirst ? "<" : ">";
+            conditions.Add($"(job.display_id,job.id){comparison}($display,$id)");
+            parameters.Add(new SqliteParameter("$display", cursor.DisplayId));
+            parameters.Add(new SqliteParameter("$id", cursor.Id));
+        }
+        string order = query.NewestFirst ? "DESC" : "ASC";
+        parameters.Add(new SqliteParameter("$limit", query.Limit == int.MaxValue ? query.Limit : query.Limit + 1));
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await ReadRowsAsync(context, "FROM jobs job", $"""
+            WHERE {string.Join(" AND ", conditions)}
+            ORDER BY job.display_id {order},job.id {order} LIMIT $limit
+            """, parameters, cancellationToken).ConfigureAwait(false);
         bool hasMore = rows.Count > query.Limit;
         if (hasMore) rows.RemoveAt(rows.Count - 1);
-        var searchMetadata = await LoadSearchMetadataAsync(
-            context,
-            rows,
-            cancellationToken).ConfigureAwait(false);
-        var items = rows.Select(row => Map(
-            row,
-            searchMetadata.GetValueOrDefault(row.Id))).ToArray();
-        string? next = hasMore && rows.Count > 0 ? EncodeCursor(rows[^1].DisplayId, rows[^1].Id) : null;
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return new PersistedJobPage(items, next);
+        return new(rows, hasMore && rows.Count > 0
+            ? EncodeCursor(rows[^1].DisplayId, rows[^1].Id, query.NewestFirst) : null);
+    }
+
+    public async Task<IReadOnlyList<PersistedJob>> GetJobsByIdsAsync(
+        IReadOnlyCollection<Guid> jobIds, CancellationToken cancellationToken = default)
+    {
+        if (jobIds.Count == 0) return [];
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        return await ReadRowsByIdsAsync(context, jobIds, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PersistedJob?> GetJobAsync(Guid jobId, CancellationToken cancellationToken = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var entity = await context.Jobs.AsNoTracking().SingleOrDefaultAsync(job => job.Id == jobId, cancellationToken).ConfigureAwait(false);
-        if (entity == null)
-            return null;
-        var search = await LoadSearchMetadataAsync(
-            context,
-            entity,
-            cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return Map(entity, search);
+        var rows = await ReadRowsAsync(context, "FROM jobs job", "WHERE job.id=$id",
+            [new SqliteParameter("$id", jobId)], cancellationToken).ConfigureAwait(false);
+        return rows.SingleOrDefault();
     }
 
     public async Task<int> GetChildCountAsync(Guid parentJobId, CancellationToken cancellationToken = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        return await context.Jobs.AsNoTracking()
-            .CountAsync(job => job.ParentJobId == parentJobId, cancellationToken)
-            .ConfigureAwait(false);
+        var rows = await SqliteReadQuery.ReadAsync(context,
+            "SELECT COUNT(*) FROM jobs WHERE parent_job_id=$parent",
+            [new SqliteParameter("$parent", parentJobId)], row => row.GetInt32(0), cancellationToken).ConfigureAwait(false);
+        return rows.Single();
     }
 
     public async Task<PersistedWorkflowPage> GetWorkflowsAsync(
-        string? cursor = null,
-        int limit = 100,
-        CancellationToken cancellationToken = default)
+        string? cursor = null, int limit = 100, CancellationToken cancellationToken = default)
     {
-        if (limit is < 1 or > MaximumPageSize) throw new ArgumentOutOfRangeException(nameof(limit));
+        if (limit < 1) throw new ArgumentOutOfRangeException(nameof(limit));
         var decoded = DecodeCursor(cursor);
+        if (decoded?.NewestFirst == true)
+            throw new ArgumentException("The workflow cursor has a different sort direction.", nameof(cursor));
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var groups = WorkflowAggregates(context);
-        if (decoded != null)
-            groups = groups.Where(group => group.WorkflowId.CompareTo(decoded.Id) > 0);
-        var aggregateRows = await groups
-            .OrderBy(group => group.WorkflowId)
-            .Take(limit + 1)
-            .ToListAsync(cancellationToken).ConfigureAwait(false);
-        bool hasMore = aggregateRows.Count > limit;
-        if (hasMore) aggregateRows.RemoveAt(aggregateRows.Count - 1);
-        var workflowRows = await LoadWorkflowSummariesAsync(context, aggregateRows, cancellationToken).ConfigureAwait(false);
-        var page = new PersistedWorkflowPage(
-            workflowRows,
-            hasMore && workflowRows.Count > 0
-                ? EncodeCursor(0, workflowRows[^1].WorkflowId)
-                : null);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return page;
+        var parameters = new List<object> { new SqliteParameter("$limit", limit == int.MaxValue ? limit : limit + 1) };
+        if (decoded is not null) parameters.Add(new SqliteParameter("$after", decoded.Id));
+        var rows = await ReadWorkflowsAsync(context, $"""
+            SELECT workflow_id FROM jobs {(decoded is null ? "" : "WHERE workflow_id>$after")}
+            GROUP BY workflow_id ORDER BY workflow_id LIMIT $limit
+            """, parameters, cancellationToken).ConfigureAwait(false);
+        bool more = rows.Count > limit;
+        if (more) rows.RemoveAt(rows.Count - 1);
+        return new(rows, more && rows.Count > 0 ? EncodeCursor(0, rows[^1].WorkflowId) : null);
     }
 
     public async Task<PersistedWorkflowSummary?> GetWorkflowAsync(
-        Guid workflowId,
-        CancellationToken cancellationToken = default)
+        Guid workflowId, CancellationToken cancellationToken = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var aggregate = await WorkflowAggregates(context)
-            .SingleOrDefaultAsync(workflow => workflow.WorkflowId == workflowId, cancellationToken)
-            .ConfigureAwait(false);
-        if (aggregate == null)
-            return null;
-        var rows = await LoadWorkflowSummariesAsync(context, [aggregate], cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return rows[0];
+        var rows = await ReadWorkflowsAsync(context,
+            "SELECT workflow_id FROM jobs WHERE workflow_id=$workflow GROUP BY workflow_id",
+            [new SqliteParameter("$workflow", workflowId)], cancellationToken).ConfigureAwait(false);
+        return rows.SingleOrDefault();
     }
 
     public async Task<PersistedJob?> GetJobByDisplayIdAsync(
-        Guid workflowId,
-        long displayId,
-        CancellationToken cancellationToken = default)
+        Guid workflowId, long displayId, CancellationToken cancellationToken = default)
     {
         if (displayId <= 0) throw new ArgumentOutOfRangeException(nameof(displayId));
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var job = await context.Jobs.AsNoTracking()
-            .SingleOrDefaultAsync(row => row.WorkflowId == workflowId && row.DisplayId == displayId, cancellationToken)
+        var rows = await ReadRowsAsync(context, "FROM jobs job", "WHERE job.workflow_id=$workflow AND job.display_id=$display",
+            [new SqliteParameter("$workflow", workflowId), new SqliteParameter("$display", displayId)], cancellationToken)
             .ConfigureAwait(false);
-        if (job == null)
-            return null;
-        var search = await LoadSearchMetadataAsync(
-            context,
-            job,
-            cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return Map(job, search);
+        return rows.SingleOrDefault();
     }
 
-    private static IQueryable<WorkflowAggregate> WorkflowAggregates(SockseekDbContext context)
-        => context.Jobs.AsNoTracking()
-            .GroupBy(job => job.WorkflowId)
-            .Select(group => new WorkflowAggregate
-            {
-                WorkflowId = group.Key,
-                FirstDisplayId = group.Min(job => job.DisplayId),
-                RootJobCount = group.Count(job => job.ParentJobId == null),
-                ActiveJobCount = group.Count(job => job.LifecycleState != "Terminal"),
-                FailedJobCount = group.Count(job => job.TerminalOutcome == "Failed"
-                    || job.TerminalOutcome == "Cancelled"
-                    || job.TerminalOutcome == "PartialSuccess"
-                    || job.TerminalOutcome == "Skipped" && job.SkipReason != "AlreadyExists"),
-                CompletedJobCount = group.Count(job => job.LifecycleState == "Terminal"),
-            });
+    private static Task<List<PersistedJob>> ReadRowsByIdsAsync(
+        SockseekDbContext context, IEnumerable<Guid> ids, CancellationToken cancellationToken)
+        // Requested identities drive seeks, irrespective of ordered history size.
+        => ReadRowsAsync(context, "FROM json_each($ids) requested CROSS JOIN jobs job",
+            "WHERE job.id=requested.value", [new SqliteParameter("$ids", EncodeIds(ids))], cancellationToken);
 
-    private static async Task<IReadOnlyList<PersistedWorkflowSummary>> LoadWorkflowSummariesAsync(
-        SockseekDbContext context,
-        IReadOnlyList<WorkflowAggregate> aggregates,
+    private static Task<List<PersistedJob>> ReadRowsAsync(
+        SockseekDbContext context, string from, string suffix, IEnumerable<object> parameters,
         CancellationToken cancellationToken)
     {
-        if (aggregates.Count == 0)
-            return [];
-
-        long[] firstDisplayIds = aggregates.Select(row => row.FirstDisplayId).ToArray();
-        var firstJobs = await context.Jobs.AsNoTracking()
-            .Where(job => firstDisplayIds.Contains(job.DisplayId))
-            .Select(job => new { job.WorkflowId, job.QueryText, job.Kind })
-            .ToDictionaryAsync(job => job.WorkflowId, cancellationToken)
-            .ConfigureAwait(false);
-
-        Guid[] workflowIds = aggregates.Select(row => row.WorkflowId).ToArray();
-        var firstItemIndexes = await context.Jobs.AsNoTracking()
-            .Where(job => workflowIds.Contains(job.WorkflowId)
-                && job.ItemName != null
-                && job.ItemName != "")
-            .GroupBy(job => job.WorkflowId)
-            .Select(group => new
+        // One scalar mapper belongs to the existing EF model and serves writes,
+        // lists, details, explicit selections and manifest children. Join counters
+        // in the same statement: no per-query LINQ compilation or second snapshot.
+        var shape = HistoryRowMapping<JobEntity>.For(context);
+        return SqliteReadQuery.ReadAsync(context, $"""
+            SELECT {shape.SelectColumns("job")},search.result_count,search.locked_file_count,search.observed_peer_count
+            {from} LEFT JOIN search_jobs search ON job.kind='Search' AND search.job_id=job.id
+            {suffix}
+            """, parameters, row =>
             {
-                WorkflowId = group.Key,
-                DisplayId = group.Min(job => job.DisplayId),
-            })
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-        long[] firstItemDisplayIds = firstItemIndexes.Select(row => row.DisplayId).ToArray();
-        var firstItemNames = firstItemDisplayIds.Length == 0
-            ? new Dictionary<Guid, string?>()
-            : await context.Jobs.AsNoTracking()
-                .Where(job => firstItemDisplayIds.Contains(job.DisplayId))
-                .Select(job => new { job.WorkflowId, job.ItemName })
-                .ToDictionaryAsync(job => job.WorkflowId, job => job.ItemName, cancellationToken)
-                .ConfigureAwait(false);
-
-        return aggregates.Select(aggregate =>
-        {
-            var first = firstJobs[aggregate.WorkflowId];
-            firstItemNames.TryGetValue(aggregate.WorkflowId, out string? itemName);
-            return new PersistedWorkflowSummary(
-                aggregate.WorkflowId,
-                aggregate.FirstDisplayId,
-                itemName ?? first.QueryText ?? first.Kind,
-                aggregate.ActiveJobCount > 0
-                    ? "Active"
-                    : aggregate.FailedJobCount > 0
-                        ? "Failed"
-                        : "Completed",
-                aggregate.RootJobCount,
-                aggregate.ActiveJobCount,
-                aggregate.FailedJobCount,
-                aggregate.CompletedJobCount);
-        }).ToArray();
+                int start = shape.Properties.Length;
+                return Map(shape.Read(row), row.IsDBNull(start) ? null : row.GetInt64(start),
+                    row.IsDBNull(start + 1) ? null : row.GetInt64(start + 1),
+                    row.IsDBNull(start + 2) ? null : row.GetInt64(start + 2));
+            }, cancellationToken);
     }
 
-    private static async Task<Dictionary<Guid, Entities.SearchJobEntity>> LoadSearchMetadataAsync(
-        SockseekDbContext context,
-        IReadOnlyList<Entities.JobEntity> jobs,
-        CancellationToken cancellationToken)
-    {
-        Guid[] ids = jobs
-            .Where(job => string.Equals(job.Kind, "Search", StringComparison.Ordinal))
-            .Select(job => job.Id)
-            .ToArray();
-        if (ids.Length == 0)
-            return [];
-        return await context.SearchJobs.AsNoTracking()
-            .Where(search => ids.Contains(search.JobId))
-            .ToDictionaryAsync(search => search.JobId, cancellationToken)
-            .ConfigureAwait(false);
-    }
+    private static string EncodeIds(IEnumerable<Guid> ids)
+        => JsonSerializer.Serialize(ids.Distinct().Select(id => id.ToString("D").ToUpperInvariant()));
 
-    private static Task<Entities.SearchJobEntity?> LoadSearchMetadataAsync(
-        SockseekDbContext context,
-        Entities.JobEntity job,
+    private static Task<List<PersistedWorkflowSummary>> ReadWorkflowsAsync(
+        SockseekDbContext context, string selected, IEnumerable<object> parameters,
         CancellationToken cancellationToken)
-        => !string.Equals(job.Kind, "Search", StringComparison.Ordinal)
-            ? Task.FromResult<Entities.SearchJobEntity?>(null)
-            : context.SearchJobs.AsNoTracking()
-                .SingleOrDefaultAsync(search => search.JobId == job.Id, cancellationToken);
+        // Page workflow identities first; aggregate only those workflows. Titles
+        // retain the earliest nonempty item name, otherwise the first query/kind.
+        // Aggregate in workflow-index order without a temporary grouping tree;
+        // discover the first named job in that same pass, then seek its row.
+        => SqliteReadQuery.ReadAsync(context, $"""
+            WITH selected AS MATERIALIZED ({selected}),
+            totals AS (
+                SELECT job.workflow_id,MIN(job.display_id) AS first_display_id,
+                    SUM(job.parent_job_id IS NULL) AS root_count,
+                    SUM(job.lifecycle_state<>'Terminal') AS active_count,
+                    SUM(job.terminal_outcome IN ('Failed','Cancelled','PartialSuccess')
+                        OR job.terminal_outcome='Skipped' AND job.skip_reason<>'AlreadyExists') AS failed_count,
+                    SUM(job.lifecycle_state='Terminal') AS completed_count,
+                    MIN(CASE WHEN job.item_name<>'' THEN job.display_id END) AS first_item_display_id
+                FROM jobs job WHERE job.workflow_id IN (SELECT workflow_id FROM selected)
+                GROUP BY job.workflow_id)
+            SELECT totals.workflow_id,totals.first_display_id,totals.root_count,
+                totals.active_count,totals.failed_count,totals.completed_count,
+                COALESCE(named.item_name,first.query_text,first.kind)
+            FROM totals CROSS JOIN jobs first ON first.display_id=totals.first_display_id
+            LEFT JOIN jobs named ON named.display_id=totals.first_item_display_id
+            ORDER BY totals.workflow_id
+            """, parameters, row => new PersistedWorkflowSummary(
+                row.GetGuid(0), row.GetInt64(1), row.GetString(6),
+                row.GetInt32(3) > 0 ? "Active" : row.GetInt32(4) > 0 ? "Failed" : "Completed",
+                row.GetInt32(2), row.GetInt32(3), row.GetInt32(4), row.GetInt32(5)), cancellationToken);
 
-    private static PersistedJob Map(
-        Entities.JobEntity job,
-        Entities.SearchJobEntity? search = null)
+    private static PersistedJob Map(JobEntity job, long? publicCount, long? lockedCount, long? peerCount)
         => new(
-            job.Id,
-            job.DisplayId,
-            job.WorkflowId,
-            job.ParentJobId,
-            job.SourceJobId,
-            job.ResultJobId,
-            job.Kind,
-            job.LifecycleState,
-            job.ActivityPhase,
-            FromUnixMilliseconds(job.ActivityUntilUtc),
-            job.TerminalOutcome,
-            job.SkipReason,
-            job.CancellationSource,
-            job.FailureReason,
-            job.FailureMessage,
-            job.FailureDetail,
-            job.ItemName,
-            job.QueryText,
+            job.Id, job.DisplayId, job.WorkflowId, job.ParentJobId, job.SourceJobId, job.ResultJobId,
+            job.Kind, job.LifecycleState, job.ActivityPhase, FromUnixMilliseconds(job.ActivityUntilUtc),
+            job.TerminalOutcome, job.SkipReason, job.CancellationSource, job.FailureReason,
+            job.FailureMessage, job.FailureDetail, job.ItemName, job.QueryText,
             DateTimeOffset.FromUnixTimeMilliseconds(job.CreatedAtUtc),
-            DateTimeOffset.FromUnixTimeMilliseconds(job.UpdatedAtUtc),
-            FromUnixMilliseconds(job.CompletedAtUtc),
-            job.Revision,
-            job.PayloadSchemaVersion,
-            job.PayloadJson,
-            job.SubmissionId,
-            job.SemanticRole,
-            search?.ResultCount,
-            search?.LockedFileCount,
-            search?.ObservedPeerCount);
+            DateTimeOffset.FromUnixTimeMilliseconds(job.UpdatedAtUtc), FromUnixMilliseconds(job.CompletedAtUtc),
+            job.Revision, job.PayloadSchemaVersion, job.PayloadJson, job.SubmissionId, job.SemanticRole,
+            publicCount, lockedCount, peerCount, job.SourceDetail);
 
     private static DateTimeOffset? FromUnixMilliseconds(long? value)
         => value.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds(value.Value) : null;
@@ -365,8 +439,9 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
             string padded = cursor.Replace('-', '+').Replace('_', '/');
             padded = padded.PadRight((padded.Length + 3) / 4 * 4, '=');
             string value = Encoding.UTF8.GetString(Convert.FromBase64String(padded));
-            string[] parts = value.Split(':', 2);
-            return new CursorValue(long.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture), Guid.ParseExact(parts[1], "N"));
+            bool newestFirst = value.StartsWith("d:", StringComparison.Ordinal);
+            string[] parts = (newestFirst ? value[2..] : value).Split(':', 2);
+            return new CursorValue(long.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture), Guid.ParseExact(parts[1], "N"), newestFirst);
         }
         catch (Exception ex) when (ex is FormatException or IndexOutOfRangeException or OverflowException)
         {
@@ -374,21 +449,12 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
         }
     }
 
-    public static string EncodeCursor(long displayId, Guid id)
-        => Convert.ToBase64String(Encoding.UTF8.GetBytes($"{displayId}:{id:N}"))
+    public static string EncodeCursor(long displayId, Guid id, bool newestFirst = false)
+        => Convert.ToBase64String(Encoding.UTF8.GetBytes($"{(newestFirst ? "d:" : "")}{displayId}:{id:N}"))
             .TrimEnd('=')
             .Replace('+', '-')
             .Replace('/', '_');
 
-    public sealed record CursorValue(long DisplayId, Guid Id);
+    public sealed record CursorValue(long DisplayId, Guid Id, bool NewestFirst = false);
 
-    private sealed class WorkflowAggregate
-    {
-        public Guid WorkflowId { get; init; }
-        public long FirstDisplayId { get; init; }
-        public int RootJobCount { get; init; }
-        public int ActiveJobCount { get; init; }
-        public int FailedJobCount { get; init; }
-        public int CompletedJobCount { get; init; }
-    }
 }

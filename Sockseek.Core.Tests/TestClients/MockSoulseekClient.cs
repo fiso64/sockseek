@@ -37,6 +37,7 @@ namespace Tests.ClientTests
         public Func<string, string, CancellationToken, Task>? BeforeDownloadCompletesAsync;
         public Func<string, string, TransferStates, CancellationToken, Task>? AfterDownloadStateChangedAsync;
         public Action<long, long>? AfterDownloadProgress;
+        public Action<Stream>? DownloadStreamOpened;
         public bool BrowseReturnsBasenames { get; set; }
         public BrowseResponse? BrowseResponseOverride { get; set; }
         public long? BrowseProgressSize { get; set; }
@@ -284,8 +285,12 @@ namespace Tests.ClientTests
             var totalLockedFileCount = 0;
             var ct = cancellationToken ?? CancellationToken.None;
 
-            if (BeforeSearchAsync is not null)
-                await BeforeSearchAsync(query, ct);
+            bool Matches(Soulseek.File file)
+            {
+                var path = file.Filename.ToLowerInvariant();
+                return query.Terms.All(term => path.Contains(term.ToLowerInvariant()))
+                    && (options.FileFilter?.Invoke(file) ?? true);
+            }
 
             foreach (var user in index)
             {
@@ -295,16 +300,14 @@ namespace Tests.ClientTests
 
                 foreach (var file in user.Files)
                 {
-                    var path = file.Filename.ToLower();
-                    bool matches = query.Terms.All(term => path.Contains(term.ToLower()));
-
-                    if (matches && (options.FileFilter?.Invoke(file) ?? true))
+                    if (Matches(file))
                     {
                         matchingFiles.Add(file);
                     }
                 }
+                var matchingLockedFiles = user.LockedFiles.Where(Matches).ToArray();
 
-                if (matchingFiles.Count > 0)
+                if (matchingFiles.Count > 0 || matchingLockedFiles.Length > 0)
                 {
                     var response = new SearchResponse(
                         username: user.Username,
@@ -312,7 +315,8 @@ namespace Tests.ClientTests
                         hasFreeUploadSlot: user.HasFreeUploadSlot,
                         uploadSpeed: user.UploadSpeed,
                         queueLength: user.QueueLength,
-                        fileList: matchingFiles
+                        fileList: matchingFiles,
+                        lockedFileList: matchingLockedFiles
                     );
 
                     if (!options.FilterResponses ||
@@ -363,15 +367,17 @@ namespace Tests.ClientTests
                 return System.IO.File.Create(localFilename);
             }
 
-            return await DownloadAsyncInternal(username, remoteFilename, StreamFactory, size, startOffset, token, options, cancellationToken);
+            return await DownloadAsyncInternal(username, remoteFilename, StreamFactory, size, startOffset, token, options, cancellationToken,
+                ownsOutputStream: true);
         }
 
         public Task<Transfer> DownloadAsync(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
-            return DownloadAsyncInternal(username, remoteFilename, outputStreamFactory, size, startOffset, token, options, cancellationToken);
+            return DownloadAsyncInternal(username, remoteFilename, outputStreamFactory, size, startOffset, token, options, cancellationToken,
+                ownsOutputStream: options?.DisposeOutputStreamOnCompletion ?? false);
         }
 
-        private async Task<Transfer> DownloadAsyncInternal(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
+        private async Task<Transfer> DownloadAsyncInternal(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null, bool ownsOutputStream = false)
         {
             Interlocked.Increment(ref DownloadCallCount);
             var ct = cancellationToken.GetValueOrDefault(CancellationToken.None);
@@ -469,7 +475,9 @@ namespace Tests.ClientTests
                     // Initialising — peer has accepted the transfer
                     await FireStateAsync(TransferStates.Initializing);
 
-                    using var outputStream = await outputStreamFactory();
+                    var outputStream = await outputStreamFactory();
+                    await using var ownedOutputStream = ownsOutputStream ? outputStream : null;
+                    DownloadStreamOpened?.Invoke(outputStream);
                     var startTime = DateTime.UtcNow;
                     var bytesTransferred = startOffset;
                     const int chunkSize = 16384;

@@ -184,6 +184,7 @@ input[type="checkbox"]:indeterminate {
   min-height: 0;
   height: 100dvh;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
 }
@@ -477,7 +478,7 @@ input[type="checkbox"]:indeterminate {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: 58px minmax(0, 1fr) auto;
+  grid-template-rows: 58px auto minmax(0, 1fr) auto;
 }
 .chat-thread-heading {
   min-width: 0;
@@ -1085,6 +1086,7 @@ input[type="checkbox"]:indeterminate {
 .dashboard-metric-card > small { display: block; margin-top: 4px; color: var(--muted); font-size: 0.7rem; }
 .metric-sparkline { height: 27px; display: flex; align-items: flex-end; gap: 3px; margin-top: 11px; }
 .metric-sparkline i { flex: 1; max-height: 100%; min-height: 3px; border-radius: 2px 2px 0 0; background: color-mix(in srgb, var(--accent) 68%, var(--surface)); }
+.metric-sparkline i.zero { min-height: 0; }
 .metric-sparkline.upload i { background: color-mix(in srgb, var(--success) 68%, var(--surface)); }
 .metric-sparkline.ratio i { background: color-mix(in srgb, var(--muted) 58%, var(--surface)); }
 
@@ -1095,8 +1097,8 @@ input[type="checkbox"]:indeterminate {
 .dashboard-panel-heading p { margin: 4px 0 0; color: var(--muted); font-size: 0.72rem; }
 .dashboard-panel-heading.compact { padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .panel-context { color: var(--faint); font-size: 0.68rem; }
-.activity-chart { display: grid; grid-template-columns: 55px minmax(0, 1fr); gap: 8px; margin-top: 15px; }
-.chart-y-labels { height: 150px; display: flex; flex-direction: column; justify-content: space-between; padding: 0 0 1px; color: var(--faint); font-size: 0.64rem; text-align: right; }
+.activity-chart { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px; margin-top: 15px; }
+.chart-y-labels { min-width: 55px; height: 150px; display: flex; flex-direction: column; justify-content: space-between; padding: 0 0 1px; color: var(--faint); font-size: 0.64rem; text-align: right; white-space: nowrap; }
 .chart-canvas { min-width: 0; }
 .chart-canvas svg { width: 100%; height: 150px; display: block; overflow: visible; }
 .chart-grid line { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 5; }
@@ -1151,7 +1153,7 @@ input[type="checkbox"]:indeterminate {
   .dashboard-range-control { justify-content: space-between; }
   .dashboard-metrics { grid-template-columns: 1fr; }
   .health-list { grid-template-columns: 1fr; }
-  .activity-chart { grid-template-columns: 42px minmax(0, 1fr); }
+  .chart-y-labels { min-width: 42px; }
   .chart-x-labels span:nth-child(even) { display: none; }
 }
 
@@ -1319,6 +1321,8 @@ input[type="checkbox"]:indeterminate {
 .search-again-button .app-icon,
 .delete-search-button .app-icon { --app-icon-size: 16px; }
 .search-again-button:hover { background: var(--surface-subtle); color: var(--text); }
+.search-again-button:disabled { opacity: .5; cursor: not-allowed; }
+.search-again-button:disabled:hover { background: var(--surface); color: var(--muted); }
 
 .delete-search-button:hover {
   border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
@@ -1715,8 +1719,7 @@ input[type="checkbox"]:indeterminate {
 }
 .folder-item-card.tree-layout .folder-subfolder-path small { display: none; }
 .folder-file-row.tree-row .folder-file-path { padding-left: calc(var(--folder-tree-depth, 0) * 18px); }
-.folder-file-path { min-width: 0; display: grid; gap: 5px; }
-.folder-file-name-line { min-width: 0; display: flex; align-items: baseline; gap: 7px; }
+.folder-file-path { min-width: 0; display: flex; align-items: baseline; gap: 7px; }
 .folder-file-path strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 0.76rem; font-weight: 520; }
 .folder-file-path small { color: var(--warning); font-size: 0.62rem; }
 .folder-file-audio { grid-column: 3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
@@ -1754,14 +1757,27 @@ input[type="checkbox"]:indeterminate {
   .search-results-actions { gap: 5px; }
   .search-again-button span, .delete-search-button span { display: none; }
   .search-again-button, .delete-search-button { width: 36px; justify-content: center; padding: 0; }
-  .search-history-open { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; }
-  .search-history-stats { gap: 5px; font-size: 0.66rem; }
+  .search-history-open {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "query status" "context context" "stats stats";
+    gap: 5px 8px;
+  }
+  .search-history-context { min-width: 0; flex-wrap: wrap; }
+  .search-history-stats {
+    min-width: 0;
+    justify-self: start;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    font-size: 0.66rem;
+    white-space: normal;
+  }
   .stat-separator { display: none; }
   .search-results-summary > span:nth-last-child(-n+2) { display: none; }
   .result-refine-row { align-items: stretch; }
   .edit-conditions-button { margin-left: 0; }
   .result-sort-control { margin-left: auto; }
-  .result-peer-header { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 9px; }
+  .result-peer-header,
+  .result-peer-header.compact { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 9px; }
   .peer-metadata { display: block; }
   .peer-stat { display: none; }
   .peer-result-count { display: block; }
@@ -2190,6 +2206,13 @@ input[type="checkbox"]:indeterminate {
   grid-template-areas: 'path size action';
 }
 .transfer-peer-list .folder-file-row { min-height: 46px; }
+/* Keep every fetched row in the DOM. Compact rows use their existing minimum
+   height offscreen; the browser remembers measured sizes as they become visible.
+   Details and locked labels keep their content-driven layout. */
+.transfer-peer-list .folder-file-row:where(:not(.has-transfer-detail):not(.locked)) {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 0px;
+}
 .transfer-peer-list .folder-file-size { display: block; text-align: right; }
 
 @media (hover: none) {
@@ -2197,6 +2220,12 @@ input[type="checkbox"]:indeterminate {
 }
 
 @media (max-width: 980px) {
+  /* Audio gains another grid row here. Clear the remembered compact size so
+     returning to desktop cannot reuse a taller mobile row. */
+  .transfer-peer-list .folder-file-row.has-audio {
+    content-visibility: visible;
+    contain-intrinsic-block-size: none;
+  }
   .file-transfer-summary-meta { gap: 14px; }
   .file-transfer-audio { max-width: 160px; }
   .folder-file-row.has-transfer {
@@ -2235,13 +2264,31 @@ input[type="checkbox"]:indeterminate {
   .folder-transfer-summary-secondary { font-size: 0.64rem; }
   .folder-transfer-summary-secondary .folder-transfer-path { font-size: 0.66rem; }
   .folder-file-row.has-transfer {
-    grid-template-columns: 22px minmax(0, 1fr) 58px minmax(190px, 230px) 28px;
+    grid-template-columns: 22px minmax(0, 1fr) 58px 20px;
+    gap: 7px;
   }
-  .folder-file-row.has-transfer .folder-file-audio { grid-column: 2; }
+  .folder-file-row.has-transfer.has-file-action { grid-template-columns: 22px minmax(0, 1fr) 58px 20px 28px; }
+  .folder-file-row.has-transfer .folder-file-path { grid-column: 2; grid-row: 1; }
+  .folder-file-row.has-transfer .folder-file-audio { grid-column: 2; grid-row: 2; }
   .folder-file-row.has-transfer .folder-file-length { display: none; }
-  .folder-file-row.has-transfer .folder-file-size { grid-column: 3; }
-  .folder-file-row.has-transfer .folder-file-transfer-strip { grid-column: 4; }
-  .folder-file-row.has-transfer .folder-file-action { grid-column: 5; }
+  .folder-file-row.has-transfer .folder-file-size { grid-column: 3; grid-row: 1; }
+  .folder-file-row.has-transfer .folder-file-transfer-strip { grid-column: 4; grid-row: 1; }
+  .folder-file-row.has-transfer .folder-file-action { grid-column: 5; grid-row: 1; }
+  .folder-file-row.has-transfer.has-transfer-detail .folder-file-transfer-strip {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    row-gap: 3px;
+  }
+  .folder-file-row.has-transfer.has-transfer-detail .folder-file-transfer-detail {
+    order: 1;
+    flex: 0 0 100%;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+  .folder-file-row.has-transfer.has-audio.has-transfer-detail .folder-file-transfer-strip { grid-row: 3; }
   .folder-file-transfer-strip { gap: 6px; }
   .folder-file-progress { min-width: 56px; max-width: 82px; }
   .transfer-peer-list .file-result-row:not(.transfer-summary) {
@@ -2871,7 +2918,8 @@ input[type="checkbox"]:indeterminate {
 }
 .resource-state-notice.blocking .resource-state-dot { width: 22px; height: 22px; margin-bottom: 2px; background: color-mix(in srgb, var(--muted) 18%, transparent); border: 1px solid var(--border-strong); }
 .resource-state-notice.blocking.loading .resource-state-dot { width: 22px; height: 22px; border-width: 2px; border-color: var(--accent); border-right-color: transparent; background: transparent; }
-.resource-state-notice.blocking.offline .resource-state-dot { background: color-mix(in srgb, var(--danger) 14%, transparent); border-color: color-mix(in srgb, var(--danger) 38%, var(--border)); }
+.resource-state-notice.blocking.offline .resource-state-dot,
+.resource-state-notice.blocking.unavailable .resource-state-dot { background: color-mix(in srgb, var(--danger) 14%, transparent); border-color: color-mix(in srgb, var(--danger) 38%, var(--border)); }
 .resource-state-notice.blocking .resource-state-copy { display: grid; justify-items: center; gap: 5px; }
 .resource-state-notice.blocking .resource-state-copy strong { font-size: .86rem; }
 .resource-state-notice.blocking .resource-state-copy small { max-width: 390px; line-height: 1.45; }
@@ -2917,6 +2965,22 @@ input[type="checkbox"]:indeterminate {
 .share-visibility.mixed { background: color-mix(in srgb, var(--warning) 10%, var(--surface)); color: var(--warning); }
 
 .floating-selection-detail { max-width: 220px; color: var(--muted); font-size: 0.68rem; text-align: right; }
+@media (max-width: 560px) {
+  .floating-selection-actions {
+    max-width: calc(100vw - 84px);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .floating-selection-detail {
+    flex: 1 0 100%;
+    max-width: 100%;
+    padding: 4px 6px;
+    border-radius: 6px;
+    background: var(--surface);
+  }
+  .floating-deselect-action,
+  .floating-download-action { flex-shrink: 0; white-space: nowrap; }
+}
 .floating-download-action:disabled { opacity: .5; cursor: default; }
 
 .direct-message-meta { display: flex; justify-content: flex-end; align-items: center; gap: 7px; min-width: 0; }
@@ -2984,6 +3048,14 @@ input[type="checkbox"]:indeterminate {
   background: transparent;
 }
 .aggregate-result-group.selected > .result-card { background: color-mix(in srgb, var(--accent-soft) 18%, transparent); }
+.aggregate-result-group > .aggregate-choice-notice {
+  min-height: 34px;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  padding: 5px 15px;
+}
 .aggregate-result-header {
   position: relative;
   min-height: 66px;
@@ -3116,6 +3188,13 @@ input[type="checkbox"]:indeterminate {
 }
 .aggregate-select-all-button:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-raised); color: var(--text); }
 .aggregate-select-all-button:disabled { opacity: .45; cursor: default; }
+.ordinary-select-all-button { margin-left: 0; }
+.ordinary-select-all-icon { display: none; }
+@media (max-width: 700px) {
+  .ordinary-select-all-button { width: 40px; min-height: 40px; flex: 0 0 40px; margin-left: 0; padding: 0; display: grid; place-items: center; }
+  .ordinary-select-all-button .ordinary-select-all-label { display: none; }
+  .ordinary-select-all-button .ordinary-select-all-icon { display: block; --app-icon-size: 16px; }
+}
 .aggregate-options-button {
   min-height: 28px;
   padding: 4px 9px;
@@ -3227,6 +3306,8 @@ input[type="checkbox"]:indeterminate {
   border-color: var(--border-strong);
   background: color-mix(in srgb, var(--surface-subtle) 45%, var(--surface));
 }
+/* The card picker must not cover an alternative's paged child-file control. */
+.aggregate-option-card-wrap > .load-more-row { position: relative; z-index: 3; }
 /* Non-selectable aggregate options still use the full content width; no phantom checkbox column. */
 .aggregate-option .file-result-row { grid-template-columns: minmax(280px, 1fr) minmax(190px, auto) 68px 92px; grid-template-areas: "path audio length size"; }
 .aggregate-option .file-result-row .result-path-block { grid-area: path; }

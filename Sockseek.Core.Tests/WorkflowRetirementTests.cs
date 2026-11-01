@@ -115,13 +115,15 @@ public sealed class WorkflowRetirementTests
         await engine.RunAsync(CancellationToken.None);
 
         Assert.AreSame(job, engine.GetJob(job.Id));
-        CollectionAssert.Contains(engine.Queue.Jobs, job);
+        CollectionAssert.Contains(engine.Queue.Jobs.ToArray(), job);
         Assert.IsTrue(job.IsTerminal);
     }
 
     [TestMethod]
     public async Task PreparationFailureFailsAndRetiresOnlyItsWorkflow()
     {
+        var broken = new SearchJob("broken");
+        var healthy = new SearchJob("healthy");
         var engineSettings = new EngineSettings
         {
             Username = "test_user",
@@ -132,10 +134,8 @@ public sealed class WorkflowRetirementTests
         await using var engine = new DownloadEngine(
             engineSettings,
             TestHelpers.CreateMockClientManager(client, engineSettings),
-            new SelectiveFailureResolver(),
+            new SelectiveFailureResolver(broken.Id),
             retireTerminalWorkflows: true);
-        var broken = new SearchJob("broken");
-        var healthy = new SearchJob("healthy");
         var retired = new HashSet<Guid>();
         var failures = new List<JobStateChangedChange>();
         engine.Events.JobStateChanged += change =>
@@ -167,14 +167,14 @@ public sealed class WorkflowRetirementTests
             await Task.Delay(10, timeout.Token);
     }
 
-    private sealed class SelectiveFailureResolver : IJobSettingsResolver
+    private sealed class SelectiveFailureResolver(Guid failedJobId) : IJobSettingsResolver
     {
         public DownloadSettings Resolve(
             DownloadSettings inherited,
-            Job job,
+            JobSettingsContext job,
             JobSettingsInheritance inheritance = JobSettingsInheritance.None)
         {
-            if (job is SearchJob { QueryText: "broken" })
+            if (job.Id == failedJobId)
                 throw new InvalidOperationException("synthetic preparation failure");
             return SettingsCloner.Clone(inherited);
         }

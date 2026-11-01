@@ -1,4 +1,9 @@
+using System.Text.Json;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore.Storage;
+using Sockseek.Persistence.Planning;
 using Microsoft.EntityFrameworkCore;
+using Sockseek.Persistence.Write;
 
 namespace Sockseek.Persistence.Read;
 
@@ -35,13 +40,16 @@ public sealed record RetentionResult(
     int PrunedTransferAttempts);
 
 public sealed class RetentionService(
-    IDbContextFactory<SockseekDbContext> contextFactory,
+    PersistenceInbox writes,
     PersistenceRetentionOptions options,
     TimeProvider? timeProvider = null)
 {
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
 
-    public async Task<RetentionResult> RunBatchAsync(CancellationToken cancellationToken = default)
+    public Task<RetentionResult> RunBatchAsync(CancellationToken cancellationToken = default)
+        => writes.ExecuteAsync(PruneAsync, cancellationToken, background: true);
+
+    private async Task<RetentionResult> PruneAsync(SockseekDbContext context, CancellationToken cancellationToken)
     {
         options.Validate();
         long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
@@ -49,8 +57,6 @@ public sealed class RetentionService(
         long? unsuccessfulJobCutoff = Cutoff(now, options.UnsuccessfulJobHistoryAge);
         long? searchCutoff = Cutoff(now, options.SearchResultAge);
         long? transferCutoff = Cutoff(now, options.TransferHistoryAge);
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
         // Raw search-result retention is independent of job-history retention.
         // Prune eligible raw rows first, then protect every job that still owns
@@ -71,10 +77,13 @@ public sealed class RetentionService(
         int searchesMarkedPruned = 0;
         if (searchIdsToPrune.Count > 0)
         {
-            prunedResults = await context.SearchResults
-                .Where(result => searchIdsToPrune.Contains(result.SearchJobId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
+            string sources = JsonSerializer.Serialize(searchIdsToPrune.Select(id => id.ToString("D").ToUpperInvariant()));
+            prunedResults = await context.SearchResults.Where(result => searchIdsToPrune.Contains(result.SearchJobId))
+                .CountAsync(cancellationToken).ConfigureAwait(false);
+            await context.Database.ExecuteSqlInterpolatedAsync($"""
+                UPDATE search_observation_sources SET raw_search_job_id = NULL
+                WHERE raw_search_job_id IN (SELECT value FROM json_each({sources}));
+                """, cancellationToken).ConfigureAwait(false);
             searchesMarkedPruned = await context.SearchJobs
                 .Where(search => searchIdsToPrune.Contains(search.JobId))
                 .ExecuteUpdateAsync(
@@ -124,6 +133,11 @@ public sealed class RetentionService(
         if (agedJobIds.Count > 0)
             prunedJobs = await context.Jobs.Where(job => agedJobIds.Contains(job.Id)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
 
+        await SearchObservationWriter.PruneUnreferencedAsync(
+            (SqliteConnection)context.Database.GetDbConnection(),
+            (SqliteTransaction)context.Database.CurrentTransaction!.GetDbTransaction(),
+            searchIdsToPrune.Concat(agedJobIds).Distinct().ToArray(), cancellationToken).ConfigureAwait(false);
+
         int prunedAttempts = 0;
         int prunedTransfers = 0;
         if (transferCutoff.HasValue)
@@ -158,8 +172,6 @@ public sealed class RetentionService(
             }
         }
 
-        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new RetentionResult(
             prunedJobs,
             prunedResults,

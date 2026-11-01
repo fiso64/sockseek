@@ -21,6 +21,8 @@ public static class DownloadSettingsPatchDtoMapper
         if (patch == null)
             return;
 
+        ValidateSearchClears(patch.Search);
+
         ApplyOutput(settings.Output, patch.Output);
         ApplySearch(settings.Search, patch.Search);
         ApplySkip(settings.Skip, patch.Skip);
@@ -34,6 +36,12 @@ public static class DownloadSettingsPatchDtoMapper
         ApplyBandcamp(settings.Bandcamp, patch.Bandcamp);
 
         if (patch.PrintOption is { } printOption) settings.PrintOption = printOption.ToCore();
+    }
+
+    public static void ApplyTo(SearchSettings settings, SearchSettingsPatchDto? patch)
+    {
+        ValidateSearchClears(patch);
+        ApplySearch(settings, patch);
     }
 
     public static DownloadSettingsPatchDto? FromDifference(DownloadSettings baseline, DownloadSettings effective)
@@ -59,6 +67,8 @@ public static class DownloadSettingsPatchDtoMapper
         DownloadSettingsPatchDto? first,
         DownloadSettingsPatchDto? second)
     {
+        ValidateSearchClears(first?.Search);
+        ValidateSearchClears(second?.Search);
         if (first == null) return second;
         if (second == null) return first;
 
@@ -144,7 +154,13 @@ public static class DownloadSettingsPatchDtoMapper
             Changed(before.BannedUsers, after.BannedUsers),
             Changed(before.AllowedUsers, after.AllowedUsers),
             Changed(before.AcceptNoLength, after.AcceptNoLength),
-            Changed(before.AcceptMissingProps, after.AcceptMissingProps));
+            Changed(before.AcceptMissingProps, after.AcceptMissingProps),
+            ClearIfRemoved(before.MinBitrate, after.MinBitrate),
+            ClearIfRemoved(before.MaxBitrate, after.MaxBitrate),
+            ClearIfRemoved(before.MinSampleRate, after.MinSampleRate),
+            ClearIfRemoved(before.MaxSampleRate, after.MaxSampleRate),
+            ClearIfRemoved(before.MinBitDepth, after.MinBitDepth),
+            ClearIfRemoved(before.MaxBitDepth, after.MaxBitDepth));
         return NullIfEmpty(patch, new FileConditionsPatchDto());
     }
 
@@ -153,7 +169,9 @@ public static class DownloadSettingsPatchDtoMapper
         var patch = new FolderConditionsPatchDto(
             ChangedNullable(before.MinTrackCount, after.MinTrackCount),
             ChangedNullable(before.MaxTrackCount, after.MaxTrackCount),
-            Changed(before.RequiredTrackTitles, after.RequiredTrackTitles));
+            Changed(before.RequiredTrackTitles, after.RequiredTrackTitles),
+            ClearIfRemoved(before.MinTrackCount, after.MinTrackCount),
+            ClearIfRemoved(before.MaxTrackCount, after.MaxTrackCount));
         return NullIfEmpty(patch, new FolderConditionsPatchDto());
     }
 
@@ -310,12 +328,12 @@ public static class DownloadSettingsPatchDtoMapper
         if (second == null) return first;
         return new FileConditionsPatchDto(
             second.LengthTolerance ?? first.LengthTolerance,
-            second.MinBitrate ?? first.MinBitrate,
-            second.MaxBitrate ?? first.MaxBitrate,
-            second.MinSampleRate ?? first.MinSampleRate,
-            second.MaxSampleRate ?? first.MaxSampleRate,
-            second.MinBitDepth ?? first.MinBitDepth,
-            second.MaxBitDepth ?? first.MaxBitDepth,
+            CombineBound(first.MinBitrate, second.MinBitrate, second.ClearMinBitrate),
+            CombineBound(first.MaxBitrate, second.MaxBitrate, second.ClearMaxBitrate),
+            CombineBound(first.MinSampleRate, second.MinSampleRate, second.ClearMinSampleRate),
+            CombineBound(first.MaxSampleRate, second.MaxSampleRate, second.ClearMaxSampleRate),
+            CombineBound(first.MinBitDepth, second.MinBitDepth, second.ClearMinBitDepth),
+            CombineBound(first.MaxBitDepth, second.MaxBitDepth, second.ClearMaxBitDepth),
             second.StrictTitle ?? first.StrictTitle,
             second.StrictArtist ?? first.StrictArtist,
             second.StrictAlbum ?? first.StrictAlbum,
@@ -323,7 +341,13 @@ public static class DownloadSettingsPatchDtoMapper
             Combine(first.BannedUsers, second.BannedUsers),
             Combine(first.AllowedUsers, second.AllowedUsers),
             second.AcceptNoLength ?? first.AcceptNoLength,
-            second.AcceptMissingProps ?? first.AcceptMissingProps);
+            second.AcceptMissingProps ?? first.AcceptMissingProps,
+            CombineClear(first.ClearMinBitrate, second.MinBitrate, second.ClearMinBitrate),
+            CombineClear(first.ClearMaxBitrate, second.MaxBitrate, second.ClearMaxBitrate),
+            CombineClear(first.ClearMinSampleRate, second.MinSampleRate, second.ClearMinSampleRate),
+            CombineClear(first.ClearMaxSampleRate, second.MaxSampleRate, second.ClearMaxSampleRate),
+            CombineClear(first.ClearMinBitDepth, second.MinBitDepth, second.ClearMinBitDepth),
+            CombineClear(first.ClearMaxBitDepth, second.MaxBitDepth, second.ClearMaxBitDepth));
     }
 
     private static FolderConditionsPatchDto? Combine(FolderConditionsPatchDto? first, FolderConditionsPatchDto? second)
@@ -331,9 +355,44 @@ public static class DownloadSettingsPatchDtoMapper
         if (first == null) return second;
         if (second == null) return first;
         return new FolderConditionsPatchDto(
-            second.MinTrackCount ?? first.MinTrackCount,
-            second.MaxTrackCount ?? first.MaxTrackCount,
-            Combine(first.RequiredTrackTitles, second.RequiredTrackTitles));
+            CombineBound(first.MinTrackCount, second.MinTrackCount, second.ClearMinTrackCount),
+            CombineBound(first.MaxTrackCount, second.MaxTrackCount, second.ClearMaxTrackCount),
+            Combine(first.RequiredTrackTitles, second.RequiredTrackTitles),
+            CombineClear(first.ClearMinTrackCount, second.MinTrackCount, second.ClearMinTrackCount),
+            CombineClear(first.ClearMaxTrackCount, second.MaxTrackCount, second.ClearMaxTrackCount));
+    }
+
+    private static int? CombineBound(int? first, int? second, bool? secondClear)
+        => secondClear == true ? null : second ?? first;
+
+    private static bool? CombineClear(bool? first, int? second, bool? secondClear)
+        => second != null ? null : secondClear == true ? true : first;
+
+    private static void ValidateSearchClears(SearchSettingsPatchDto? search)
+    {
+        static void Exclusive(int? value, bool? clear, string name)
+        {
+            if (value != null && clear == true)
+                throw new ArgumentException($"{name} cannot be set and cleared in the same settings patch.");
+        }
+
+        if (search == null) return;
+        foreach (FileConditionsPatchDto? file in new[] { search.NecessaryCond, search.PreferredCond })
+        {
+            if (file == null) continue;
+            Exclusive(file.MinBitrate, file.ClearMinBitrate, nameof(file.MinBitrate));
+            Exclusive(file.MaxBitrate, file.ClearMaxBitrate, nameof(file.MaxBitrate));
+            Exclusive(file.MinSampleRate, file.ClearMinSampleRate, nameof(file.MinSampleRate));
+            Exclusive(file.MaxSampleRate, file.ClearMaxSampleRate, nameof(file.MaxSampleRate));
+            Exclusive(file.MinBitDepth, file.ClearMinBitDepth, nameof(file.MinBitDepth));
+            Exclusive(file.MaxBitDepth, file.ClearMaxBitDepth, nameof(file.MaxBitDepth));
+        }
+        foreach (FolderConditionsPatchDto? folder in new[] { search.NecessaryFolderCond, search.PreferredFolderCond })
+        {
+            if (folder == null) continue;
+            Exclusive(folder.MinTrackCount, folder.ClearMinTrackCount, nameof(folder.MinTrackCount));
+            Exclusive(folder.MaxTrackCount, folder.ClearMaxTrackCount, nameof(folder.MaxTrackCount));
+        }
     }
 
     private static SkipSettingsPatchDto? Combine(SkipSettingsPatchDto? first, SkipSettingsPatchDto? second)
@@ -458,6 +517,9 @@ public static class DownloadSettingsPatchDtoMapper
     private static T? ChangedNullable<T>(T? before, T? after) where T : struct
         => EqualityComparer<T?>.Default.Equals(before, after) ? null : after;
 
+    private static bool? ClearIfRemoved(int? before, int? after)
+        => before != null && after == null ? true : null;
+
     private static string? Changed(string? before, string? after)
         => before == after ? null : after;
 
@@ -488,6 +550,16 @@ public static class DownloadSettingsPatchDtoMapper
             object? child = property.GetValue(value);
             if (child == null)
                 continue;
+            if (property.Name.StartsWith("Clear", StringComparison.Ordinal)
+                && child is bool clear
+                && property.PropertyType == typeof(bool?))
+            {
+                if (clear)
+                    fields.Add(prefix.Length == 0
+                        ? property.Name[5..]
+                        : $"{prefix}.{property.Name[5..]}");
+                continue;
+            }
             string path = prefix.Length == 0 ? property.Name : $"{prefix}.{property.Name}";
             Type childType = child.GetType();
             if (childType.IsPrimitive || childType.IsEnum || child is string || child is decimal)
@@ -551,6 +623,12 @@ public static class DownloadSettingsPatchDtoMapper
     private static void ApplyFileConditions(FileConditions target, FileConditionsPatchDto? patch)
     {
         if (patch == null) return;
+        if (patch.ClearMinBitrate == true) target.MinBitrate = null;
+        if (patch.ClearMaxBitrate == true) target.MaxBitrate = null;
+        if (patch.ClearMinSampleRate == true) target.MinSampleRate = null;
+        if (patch.ClearMaxSampleRate == true) target.MaxSampleRate = null;
+        if (patch.ClearMinBitDepth == true) target.MinBitDepth = null;
+        if (patch.ClearMaxBitDepth == true) target.MaxBitDepth = null;
         if (patch.LengthTolerance is { } lengthTolerance) target.LengthTolerance = lengthTolerance;
         if (patch.MinBitrate is { } minBitrate) target.MinBitrate = minBitrate;
         if (patch.MaxBitrate is { } maxBitrate) target.MaxBitrate = maxBitrate;
@@ -571,6 +649,8 @@ public static class DownloadSettingsPatchDtoMapper
     private static void ApplyFolderConditions(FolderConditions target, FolderConditionsPatchDto? patch)
     {
         if (patch == null) return;
+        if (patch.ClearMinTrackCount == true) target.MinTrackCount = null;
+        if (patch.ClearMaxTrackCount == true) target.MaxTrackCount = null;
         if (patch.MinTrackCount is { } minTrackCount) target.MinTrackCount = minTrackCount;
         if (patch.MaxTrackCount is { } maxTrackCount) target.MaxTrackCount = maxTrackCount;
         patch.RequiredTrackTitles?.ApplyTo(target.RequiredTrackTitles);

@@ -18,11 +18,14 @@ public static class ServerSnapshotMapper
         JobLifecycleState? lifecycleState = null,
         JobActivityPhase? activityPhase = null,
         DateTimeOffset? activityUntilUtc = null,
-        JobTerminalOutcome? terminalOutcome = null)
+        JobTerminalOutcome? terminalOutcome = null,
+        JobSummaryStatsDto? stats = null,
+        bool includeActions = true)
     {
         var effectiveLifecycleState = lifecycleState ?? job.LifecycleState;
         var effectiveActivityPhase = activityPhase ?? job.ActivityPhase;
         var effectiveTerminalOutcome = terminalOutcome ?? job.TerminalOutcome;
+        SearchDefinition? searchDefinition = (job.Payload as SearchJobSnapshotPayload)?.Definition;
 
         return new JobSummaryDto(
             job.Id,
@@ -44,7 +47,7 @@ public static class ServerSnapshotMapper
             job.Discovery?.RawResultCount,
             job.Discovery?.LockedFileCount,
             job.AppliedAutoProfiles,
-            BuildActions(job),
+            includeActions ? BuildJobActions(job.Id, job.CanCancel) : [],
             job.FailureDetail,
             ToServerJobCancellationSource(job.CancellationSource),
             job.PrintOption.ToServer(),
@@ -52,7 +55,11 @@ public static class ServerSnapshotMapper
             ToServerJobRole(job.SemanticRole),
             job.CreatedAtUtc,
             DiscoveryPublicFileCount: job.Discovery?.RawResultCount,
-            DiscoveryObservedPeerCount: job.Discovery?.ObservedPeerCount);
+            DiscoveryObservedPeerCount: job.Discovery?.ObservedPeerCount,
+            Stats: stats,
+            SourceDetail: job.SourceDetail,
+            SearchDefaultProjection: searchDefinition?.DefaultProjection.ToServer(),
+            SearchAggregatePresentation: searchDefinition?.AggregatePresentation);
     }
 
     public static JobSummaryDto ToSubmittedJobSummary(Job job, Guid? sourceJobId = null)
@@ -61,7 +68,9 @@ public static class ServerSnapshotMapper
     public static JobPayloadDto ToJobPayload(
         JobSnapshot job,
         Func<Guid, string?> getTransferState,
-        Func<Guid, ServerJobKind?, int> countDescendants)
+        JobOutcomeSummary? liveListOutcomes = null,
+        JobOutcomeSummary? liveAggregateOutcomes = null,
+        JobOutcomeSummary? liveAlbumAggregateOutcomes = null)
         => job.Payload switch
         {
             ExtractJobSnapshotPayload extract => new ExtractJobPayloadDto(
@@ -84,7 +93,8 @@ public static class ServerSnapshotMapper
                 search.DefaultFileProjection?.IncludeFullResults ?? false,
                 search.ResultCount,
                 search.Revision,
-                search.IsComplete),
+                search.IsComplete,
+                search.Definition?.AggregatePresentation ?? false),
             SongJobSnapshotPayload song => ToSongJobPayloadDto(job, song, getTransferState(job.Id)),
             AlbumJobSnapshotPayload album => new AlbumJobPayloadDto(
                 ToAlbumQueryDto(album.Query),
@@ -100,40 +110,148 @@ public static class ServerSnapshotMapper
                 remoteDirectory.SourceKind == RemoteDirectorySourceSnapshotKind.PeerDirectory
                     ? RemoteDirectorySourceKindDto.PeerDirectory
                     : RemoteDirectorySourceKindDto.Resolved,
-                remoteDirectory.DirectorySource?.Username,
-                remoteDirectory.DirectorySource?.FolderPath,
-                ToDirectoryDownloadStateDto(remoteDirectory.Directory)),
-            AggregateJobSnapshotPayload aggregate => new AggregateJobPayloadDto(
-                ToSongQueryDto(aggregate.Query),
-                aggregate.Songs.Count,
-                aggregate.Songs.Count(IsTerminalJob),
-                aggregate.Songs.Count(IsSuccessfulJob),
-                aggregate.Songs.Count(IsFailedOrSkippedJob)),
-            AlbumAggregateJobSnapshotPayload albumAggregate => new AlbumAggregateJobPayloadDto(
-                ToAlbumQueryDto(albumAggregate.Query),
-                albumAggregate.AlbumCount > 0
-                    ? albumAggregate.AlbumCount
-                    : countDescendants(job.Id, ServerJobKind.Album)),
-            JobListSnapshotPayload list => new JobListPayloadDto(
-                list.Count,
-                list.Jobs.Count(IsActiveJob),
-                list.Jobs.Count(IsTerminalJob),
-                list.Jobs.Count(IsSuccessfulJob),
-                list.Jobs.Count(IsFailedOrSkippedJob)),
+                RemoteDirectorySourceUsername(remoteDirectory),
+                remoteDirectory.DirectorySource?.FolderPath
+                    ?? remoteDirectory.Manifest?.Plan.SourceDirectory?.FolderPath
+                    ?? remoteDirectory.ResolvedPlanSource?.SourceDirectory?.FolderPath,
+                ToDirectoryDownloadStateDto(remoteDirectory.Directory),
+                remoteDirectory.Manifest?.Plan.DisplayRoot ?? remoteDirectory.ResolvedPlanSource?.DisplayRoot ?? remoteDirectory.DirectorySource?.FolderPath),
+            AggregateJobSnapshotPayload aggregate => ToAggregatePayloadDto(aggregate, liveAggregateOutcomes),
+            AlbumAggregateJobSnapshotPayload albumAggregate => ToAlbumAggregatePayloadDto(
+                albumAggregate,
+                liveAlbumAggregateOutcomes),
+            JobListSnapshotPayload list => ToJobListPayloadDto(list, liveListOutcomes),
             RetrieveFolderJobSnapshotPayload retrieve => new RetrieveFolderJobPayloadDto(
                 retrieve.Directory.FolderPath,
                 retrieve.Directory.Username,
                 retrieve.NewFilesFoundCount,
                 ToServerFolderRetrievalOutcome(retrieve.RetrievalOutcome),
                 retrieve.RetrievalCancelled),
+            AlbumExecutionPayload album => new AlbumJobPayloadDto(
+                ToAlbumQueryDto(album.Query), album.ResultCount, ToDirectoryDownloadStateDto(album.Directory),
+                album.ResolvedTarget?.Username, album.ResolvedTarget?.FolderPath),
+            RemoteDirectoryExecutionPayload directory => new RemoteDirectoryJobPayloadDto(
+                directory.SourceKind == RemoteDirectorySourceSnapshotKind.PeerDirectory
+                    ? RemoteDirectorySourceKindDto.PeerDirectory : RemoteDirectorySourceKindDto.Resolved,
+                directory.SourceUsername, directory.SourceFolderPath,
+                ToDirectoryDownloadStateDto(directory.Directory), directory.DisplayRoot),
+            AggregateExecutionPayload aggregate => new AggregateJobPayloadDto(
+                ToSongQueryDto(aggregate.Query), aggregate.Outcomes.Total, aggregate.Outcomes.Completed,
+                aggregate.Outcomes.Succeeded, aggregate.Outcomes.Failed),
+            JobListExecutionPayload list => new JobListPayloadDto(
+                list.Outcomes.Total, list.Outcomes.Total - list.Outcomes.Completed,
+                list.Outcomes.Completed, list.Outcomes.Succeeded, list.Outcomes.Failed),
+            RetrieveFolderExecutionPayload retrieve => new RetrieveFolderJobPayloadDto(
+                retrieve.Directory.FolderPath, retrieve.Directory.Username, retrieve.NewFilesFoundCount,
+                ToServerFolderRetrievalOutcome(retrieve.RetrievalOutcome), retrieve.RetrievalCancelled),
             GenericJobSnapshotPayload generic => new GenericJobPayloadDto(generic.Text),
             _ => new GenericJobPayloadDto(job.QueryText ?? ToServerJobKind(job.Kind).ToWireString()),
         };
+
+    // Summary readers need scalar counters, not a rendered detail payload. Both
+    // paths use the same outcome/progress rules; targets and query DTOs are read-only work.
+    public static JobSummaryStatsDto? ToJobSummaryStats(
+        JobSnapshot job,
+        JobOutcomeSummary? liveListOutcomes = null,
+        JobOutcomeSummary? liveAggregateOutcomes = null,
+        JobOutcomeSummary? liveAlbumAggregateOutcomes = null)
+        => job.Payload switch
+        {
+            SongJobSnapshotPayload song => new(CandidateCount: song.CandidateCount),
+            AlbumJobSnapshotPayload album => ToDirectorySummaryStats(album.Directory, album.ResultCount),
+            AlbumExecutionPayload album => ToDirectorySummaryStats(album.Directory, album.ResultCount),
+            RemoteFileJobSnapshotPayload file => new(KnownBytes: file.File.FileSize ?? file.Target.Size),
+            RemoteDirectoryJobSnapshotPayload directory => ToDirectorySummaryStats(directory.Directory),
+            RemoteDirectoryExecutionPayload directory => ToDirectorySummaryStats(directory.Directory),
+            AggregateJobSnapshotPayload aggregate => MemberStats(liveAggregateOutcomes ?? aggregate.Outcomes),
+            AggregateExecutionPayload aggregate => MemberStats(aggregate.Outcomes),
+            AlbumAggregateJobSnapshotPayload aggregate => AlbumAggregateStats(aggregate, liveAlbumAggregateOutcomes),
+            JobListSnapshotPayload list => MemberStats(ListOutcomes(list, liveListOutcomes)),
+            JobListExecutionPayload list => MemberStats(list.Outcomes),
+            RetrieveFolderJobSnapshotPayload retrieve => new(NewFilesFoundCount: retrieve.NewFilesFoundCount),
+            RetrieveFolderExecutionPayload retrieve => new(NewFilesFoundCount: retrieve.NewFilesFoundCount),
+            _ => null,
+        };
+
+    internal static JobSummaryStatsDto ToDirectorySummaryStats(DirectoryDownloadStateSnapshot directory, int? folders = null)
+        => new(MemberCount: directory.FileCount, CompletedMemberCount: directory.TerminalFileCount,
+            FailedMemberCount: directory.FailedFileCount, FolderCount: folders, FileCount: directory.FileCount,
+            ProgressPercent: DirectoryProgressPercent(directory.FileCount, directory.SuccessfulFileCount,
+                directory.BytesTransferred, directory.TotalKnownBytes, directory.Progress));
+
+    private static JobSummaryStatsDto MemberStats(JobOutcomeSummary outcomes)
+        => new(MemberCount: outcomes.Total, CompletedMemberCount: outcomes.Completed,
+            FailedMemberCount: outcomes.Failed);
+
+    private static JobOutcomeSummary ListOutcomes(JobListSnapshotPayload list, JobOutcomeSummary? liveOutcomes)
+        => liveOutcomes ?? list.LogicalOutcomes ?? list.Jobs.Aggregate(new JobOutcomeSummary(),
+            (summary, job) => summary.Include(job.LifecycleState, job.TerminalOutcome, job.SkipReason));
+
+    private static JobSummaryStatsDto AlbumAggregateStats(
+        AlbumAggregateJobSnapshotPayload aggregate, JobOutcomeSummary? registeredAlbums)
+    {
+        var (count, outcomes) = AlbumAggregateProgress(aggregate, registeredAlbums);
+        return new(MemberCount: count,
+            CompletedMemberCount: outcomes.Completed, FailedMemberCount: outcomes.Failed);
+    }
+
+    private static (int Count, JobOutcomeSummary Outcomes) AlbumAggregateProgress(
+        AlbumAggregateJobSnapshotPayload aggregate, JobOutcomeSummary? registeredAlbums)
+    {
+        JobOutcomeSummary outcomes = registeredAlbums is { Total: > 0 } ? registeredAlbums.Value : aggregate.Albums;
+        return (aggregate.Albums.Total > 0 ? aggregate.Albums.Total : outcomes.Total, outcomes);
+    }
+
+    public static string? RemoteDirectorySourceUsername(RemoteDirectoryJobSnapshotPayload directory)
+        => directory.DirectorySource?.Username
+            ?? directory.Manifest?.Plan.SourceDirectory?.Username
+            ?? directory.ResolvedPlanSource?.SourceDirectory?.Username
+            ?? directory.Manifest?.Plan.Entries.FirstOrDefault()?.Target.Identity.Username
+            ?? directory.ResolvedPlanSource?.Entries.FirstOrDefault()?.Target.Identity.Username;
 
     public static SongJobPayloadDto ToSongJobPayloadDto(JobSnapshot job, string? transferState = null)
         => job.Payload is SongJobSnapshotPayload song
             ? ToSongJobPayloadDto(job, song, transferState)
             : throw new ArgumentException($"Job {job.Id} is not a song snapshot.", nameof(job));
+
+    internal static JobListPayloadDto ToJobListPayloadDto(
+        JobListSnapshotPayload list,
+        JobOutcomeSummary? liveOutcomes = null)
+    {
+        JobOutcomeSummary outcomes = ListOutcomes(list, liveOutcomes);
+        return new(
+            list.Count,
+            outcomes.Total - outcomes.Completed,
+            outcomes.Completed,
+            outcomes.Succeeded,
+            outcomes.Failed);
+    }
+
+    internal static AggregateJobPayloadDto ToAggregatePayloadDto(
+        AggregateJobSnapshotPayload aggregate,
+        JobOutcomeSummary? liveOutcomes = null)
+    {
+        JobOutcomeSummary outcomes = liveOutcomes ?? aggregate.Outcomes;
+        return new(
+            ToSongQueryDto(aggregate.Query),
+            outcomes.Total,
+            outcomes.Completed,
+            outcomes.Succeeded,
+            outcomes.Failed);
+    }
+
+    internal static AlbumAggregateJobPayloadDto ToAlbumAggregatePayloadDto(
+        AlbumAggregateJobSnapshotPayload aggregate,
+        JobOutcomeSummary? registeredAlbums = null)
+    {
+        var (count, outcomes) = AlbumAggregateProgress(aggregate, registeredAlbums);
+        return new(
+            ToAlbumQueryDto(aggregate.Query),
+            count,
+            outcomes.Completed,
+            outcomes.Succeeded,
+            outcomes.Failed);
+    }
 
     public static SongJobPayloadDto ToSongJobPayloadDto(
         JobSnapshot job,
@@ -142,7 +260,7 @@ public static class ServerSnapshotMapper
     {
         long? totalBytes = song.File.FileSize > 0
             ? song.File.FileSize
-            : song.ResolvedTarget?.Size ?? song.ExactTarget?.Size;
+            : song.ResolvedTarget?.Size ?? song.ExactTarget?.Size ?? song.LastAttemptedCandidate?.Size;
         double? progressPercent = totalBytes > 0
             ? Math.Round((double)song.File.BytesTransferred / totalBytes.Value * 100, 2)
             : null;
@@ -172,12 +290,19 @@ public static class ServerSnapshotMapper
             ToServerJobSkipReason(job.SkipReason),
             ToServerFailureReason(job.FailureReason),
             job.FailureMessage,
-            BuildActions(job),
+            BuildJobActions(job.Id, job.CanCancel),
             transferState,
             ToServerJobCancellationSource(job.CancellationSource),
             ToServerSongDownloadSource(song.DownloadSource),
-            song.ExactTarget == null ? null : ToPeerFileTargetDto(song.ExactTarget));
+            song.ExactTarget == null ? null : ToPeerFileTargetDto(song.ExactTarget),
+            ToAttemptedSongFileDto(song.LastAttemptedCandidate));
     }
+
+    internal static AttemptedSongFileDto? ToAttemptedSongFileDto(FileCandidateSnapshot? candidate)
+        => candidate == null ? null : new(
+            ToPeerFileTargetDto(candidate),
+            new PeerInfoDto(candidate.Username, candidate.Peer?.HasFreeUploadSlot,
+                candidate.Peer?.UploadSpeed, candidate.Peer?.QueueLength, candidate.Peer?.ObservedAtUtc));
 
     public static SongQueryDto ToSongQueryDto(SongQuerySnapshot query)
         => new(query.Artist, query.Title, query.Album, query.URI, query.Length, query.ArtistMaybeWrong);
@@ -257,33 +382,113 @@ public static class ServerSnapshotMapper
     };
 
     public static ServerJobRole ToServerJobRole(JobSemanticRole role)
-        => Enum.Parse<ServerJobRole>(role.ToString());
+        => role switch
+        {
+            JobSemanticRole.Legacy => ServerJobRole.Legacy,
+            JobSemanticRole.UserRoot => ServerJobRole.UserRoot,
+            JobSemanticRole.SemanticResult => ServerJobRole.SemanticResult,
+            JobSemanticRole.Orchestration => ServerJobRole.Orchestration,
+            JobSemanticRole.ExecutionChild => ServerJobRole.ExecutionChild,
+            _ => throw new ArgumentOutOfRangeException(nameof(role), role, null),
+        };
 
     public static ServerJobLifecycleState ToServerJobLifecycleState(JobLifecycleState state)
-        => Enum.Parse<ServerJobLifecycleState>(state.ToString());
+        => state switch
+        {
+            JobLifecycleState.Pending => ServerJobLifecycleState.Pending,
+            JobLifecycleState.Running => ServerJobLifecycleState.Running,
+            JobLifecycleState.AwaitingSelection => ServerJobLifecycleState.AwaitingSelection,
+            JobLifecycleState.Terminal => ServerJobLifecycleState.Terminal,
+            _ => throw new ArgumentOutOfRangeException(nameof(state), state, null),
+        };
 
     public static ServerJobActivityPhase ToServerJobActivityPhase(JobActivityPhase phase)
-        => Enum.Parse<ServerJobActivityPhase>(phase.ToString());
+        => phase switch
+        {
+            JobActivityPhase.None => ServerJobActivityPhase.None,
+            JobActivityPhase.WaitingForSearchConcurrency => ServerJobActivityPhase.WaitingForSearchConcurrency,
+            JobActivityPhase.SearchRateLimited => ServerJobActivityPhase.SearchRateLimited,
+            JobActivityPhase.Searching => ServerJobActivityPhase.Searching,
+            JobActivityPhase.ProcessingSearchResults => ServerJobActivityPhase.ProcessingSearchResults,
+            JobActivityPhase.Extracting => ServerJobActivityPhase.Extracting,
+            JobActivityPhase.Downloading => ServerJobActivityPhase.Downloading,
+            JobActivityPhase.RetrievingFolder => ServerJobActivityPhase.RetrievingFolder,
+            JobActivityPhase.RunningChildren => ServerJobActivityPhase.RunningChildren,
+            JobActivityPhase.Organizing => ServerJobActivityPhase.Organizing,
+            JobActivityPhase.RunningOnComplete => ServerJobActivityPhase.RunningOnComplete,
+            JobActivityPhase.RunningFallback => ServerJobActivityPhase.RunningFallback,
+            _ => throw new ArgumentOutOfRangeException(nameof(phase), phase, null),
+        };
 
     public static ServerJobTerminalOutcome ToServerJobTerminalOutcome(JobTerminalOutcome outcome)
-        => Enum.Parse<ServerJobTerminalOutcome>(outcome.ToString());
+        => outcome switch
+        {
+            JobTerminalOutcome.None => ServerJobTerminalOutcome.None,
+            JobTerminalOutcome.Succeeded => ServerJobTerminalOutcome.Succeeded,
+            JobTerminalOutcome.Failed => ServerJobTerminalOutcome.Failed,
+            JobTerminalOutcome.Skipped => ServerJobTerminalOutcome.Skipped,
+            JobTerminalOutcome.Cancelled => ServerJobTerminalOutcome.Cancelled,
+            JobTerminalOutcome.PartialSuccess => ServerJobTerminalOutcome.PartialSuccess,
+            _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, null),
+        };
 
     public static ServerSongDownloadSource ToServerSongDownloadSource(SongDownloadSource source)
-        => Enum.Parse<ServerSongDownloadSource>(source.ToString());
+        => source switch
+        {
+            SongDownloadSource.None => ServerSongDownloadSource.None,
+            SongDownloadSource.Soulseek => ServerSongDownloadSource.Soulseek,
+            SongDownloadSource.Fallback => ServerSongDownloadSource.Fallback,
+            _ => throw new ArgumentOutOfRangeException(nameof(source), source, null),
+        };
 
     public static ServerJobSkipReason ToServerJobSkipReason(JobSkipReason reason)
-        => Enum.Parse<ServerJobSkipReason>(reason.ToString());
+        => reason switch
+        {
+            JobSkipReason.None => ServerJobSkipReason.None,
+            JobSkipReason.AlreadyExists => ServerJobSkipReason.AlreadyExists,
+            JobSkipReason.NotFoundLastTime => ServerJobSkipReason.NotFoundLastTime,
+            JobSkipReason.Manual => ServerJobSkipReason.Manual,
+            JobSkipReason.Filtered => ServerJobSkipReason.Filtered,
+            _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
+        };
 
     public static ServerJobFailureReason? ToServerFailureReason(JobFailureReason reason)
-        => reason == JobFailureReason.None
-            ? null
-            : Enum.Parse<ServerJobFailureReason>(reason.ToString());
+        => reason switch
+        {
+            JobFailureReason.None => null,
+            JobFailureReason.InvalidSearchString => ServerJobFailureReason.InvalidSearchString,
+            JobFailureReason.OutOfDownloadRetries => ServerJobFailureReason.OutOfDownloadRetries,
+            JobFailureReason.AllDownloadsFailed => ServerJobFailureReason.AllDownloadsFailed,
+            JobFailureReason.Other => ServerJobFailureReason.Other,
+            JobFailureReason.ExtractionFailed => ServerJobFailureReason.ExtractionFailed,
+            JobFailureReason.Cancelled => ServerJobFailureReason.Cancelled,
+            JobFailureReason.ChildJobsFailed => ServerJobFailureReason.ChildJobsFailed,
+            JobFailureReason.NoSearchResults => ServerJobFailureReason.NoSearchResults,
+            JobFailureReason.NoMatchingResults => ServerJobFailureReason.NoMatchingResults,
+            _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
+        };
 
     public static ServerJobCancellationSource ToServerJobCancellationSource(JobCancellationSource source)
-        => Enum.Parse<ServerJobCancellationSource>(source.ToString());
+        => source switch
+        {
+            JobCancellationSource.None => ServerJobCancellationSource.None,
+            JobCancellationSource.UserRequestedJob => ServerJobCancellationSource.UserRequestedJob,
+            JobCancellationSource.ParentJob => ServerJobCancellationSource.ParentJob,
+            JobCancellationSource.UserRequestedWorkflow => ServerJobCancellationSource.UserRequestedWorkflow,
+            JobCancellationSource.UserRequestedAllJobs => ServerJobCancellationSource.UserRequestedAllJobs,
+            JobCancellationSource.InternalEngine => ServerJobCancellationSource.InternalEngine,
+            _ => throw new ArgumentOutOfRangeException(nameof(source), source, null),
+        };
 
     public static ServerFolderRetrievalOutcome ToServerFolderRetrievalOutcome(FolderRetrievalOutcome outcome)
-        => Enum.Parse<ServerFolderRetrievalOutcome>(outcome.ToString());
+        => outcome switch
+        {
+            FolderRetrievalOutcome.None => ServerFolderRetrievalOutcome.None,
+            FolderRetrievalOutcome.Completed => ServerFolderRetrievalOutcome.Completed,
+            FolderRetrievalOutcome.Cancelled => ServerFolderRetrievalOutcome.Cancelled,
+            FolderRetrievalOutcome.Failed => ServerFolderRetrievalOutcome.Failed,
+            _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, null),
+        };
 
     public static IEnumerable<Guid> NestedJobIds(JobSnapshot container)
         => DirectNestedJobs(container).SelectMany(EnumerateSubtreeIds);
@@ -308,7 +513,7 @@ public static class ServerSnapshotMapper
         }
     }
 
-    public static bool IsRunningOrPending(JobSnapshot job)
+    public static bool IsRunningOrPending(JobSnapshotHeader job)
         => job.LifecycleState is JobLifecycleState.Pending or JobLifecycleState.Running;
 
     public static bool IsActiveJob(JobSnapshot job)
@@ -318,27 +523,33 @@ public static class ServerSnapshotMapper
         => job.LifecycleState == JobLifecycleState.Terminal;
 
     public static bool IsSuccessfulJob(JobSnapshot job)
-        => job.TerminalOutcome == JobTerminalOutcome.Succeeded
-            || (job.TerminalOutcome == JobTerminalOutcome.Skipped && job.SkipReason == JobSkipReason.AlreadyExists);
+        => JobOutcomeSummary.IsSuccessful(job.TerminalOutcome, job.SkipReason);
 
     public static bool IsFailedOrSkippedJob(JobSnapshot job)
-        => job.TerminalOutcome is JobTerminalOutcome.Failed
-                or JobTerminalOutcome.Cancelled
-                or JobTerminalOutcome.PartialSuccess
-            || (job.TerminalOutcome == JobTerminalOutcome.Skipped && job.SkipReason != JobSkipReason.AlreadyExists);
+        => JobOutcomeSummary.IsFailedOrSkipped(job.TerminalOutcome, job.SkipReason);
 
-    private static IReadOnlyList<ResourceActionDto> BuildActions(JobSnapshot job)
-        => job.CanCancel
-            ? [CancelAction(job.Id)]
+    internal static IReadOnlyList<ResourceActionDto> BuildJobActions(Guid jobId, bool canCancel)
+        => canCancel
+            ? [CancelAction(jobId)]
             : [];
 
     private static ResourceActionDto CancelAction(Guid jobId)
         => new(ServerResourceActionKind.Cancel, "POST", $"/api/jobs/{jobId}/cancel");
 
+    public static SearchRawResultDto ToSearchRawResultDto(SearchProjectionInput input)
+        => new(input.Sequence, input.Revision, input.Username, input.Filename, input.Size,
+            input.BitRate, input.SampleRate, input.Length, input.Visibility.ToServer(),
+            input.QueueLength, input.ObservedAtUtc);
+
     private static FileAttributeDto ToFileAttributeDto(FileAttributeSnapshot attribute)
         => new(attribute.Type, attribute.Value);
 
-    private static PeerFileTargetDto ToPeerFileTargetDto(PeerFileTargetSnapshot target)
+    internal static PeerFileTargetDto ToPeerFileTargetDto(FileCandidateSnapshot candidate)
+        => new(candidate.Username, candidate.Filename, candidate.Size < 0 ? null : candidate.Size, candidate.Extension,
+            candidate.BitRate, candidate.BitDepth, candidate.SampleRate, candidate.Length,
+            candidate.Attributes?.Select(ToFileAttributeDto).ToArray());
+
+    internal static PeerFileTargetDto ToPeerFileTargetDto(PeerFileTarget target)
         => new(
             target.Identity.Username,
             target.Identity.Filename,
@@ -350,7 +561,7 @@ public static class ServerSnapshotMapper
             target.Length,
             target.Attributes?.Select(ToFileAttributeDto).ToList());
 
-    private static FileDownloadStateDto ToFileDownloadStateDto(FileDownloadStateSnapshot file)
+    internal static FileDownloadStateDto ToFileDownloadStateDto(FileDownloadStateSnapshot file)
         => new(
             file.DownloadPath,
             file.BytesTransferred,
@@ -370,7 +581,21 @@ public static class ServerSnapshotMapper
             directory.FailedFileCount,
             directory.BytesTransferred,
             directory.TotalKnownBytes,
-            directory.TotalKnownBytes > 0
-                ? Math.Round((double)directory.BytesTransferred / directory.TotalKnownBytes * 100, 2)
-                : null);
+            DirectoryProgressPercent(directory.FileCount, directory.SuccessfulFileCount,
+                directory.BytesTransferred, directory.TotalKnownBytes, directory.Progress),
+            directory.UnknownFileSizeCount);
+
+    internal static double? DirectoryProgressPercent(
+        int fileCount, int successfulFileCount, long bytesTransferred, long totalKnownBytes,
+        double? progress = null)
+    {
+        // Already-existing files are successful without transferring bytes. Once
+        // every file is successful, the directory is complete regardless of the
+        // transferred/known-byte ratio.
+        if (fileCount > 0 && successfulFileCount == fileCount)
+            return 100;
+        return totalKnownBytes > 0
+            ? Math.Round((progress ?? (double)bytesTransferred / totalKnownBytes) * 100, 2)
+            : null;
+    }
 }

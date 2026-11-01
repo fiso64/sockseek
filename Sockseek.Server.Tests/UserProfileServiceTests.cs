@@ -66,7 +66,9 @@ public sealed class UserProfileServiceTests
     }
 
     [TestMethod]
-    public async Task PartialSectionsAndInvalidPictureDoNotEraseSuccessfulInfo()
+    [DataRow("010203")]
+    [DataRow("49492B000800000010000000000000000100000000000000")]
+    public async Task PartialSectionsAndInvalidPictureDoNotEraseSuccessfulInfo(string pictureHex)
     {
         var transport = new DelegateTransport
         {
@@ -77,7 +79,7 @@ public sealed class UserProfileServiceTests
                 uploadSlots: -1,
                 queueLength: 7,
                 hasFreeUploadSlot: false,
-                picture: [1, 2, 3])),
+                picture: Convert.FromHexString(pictureHex))),
             Statistics = async (_, ct) =>
             {
                 await Task.Delay(Timeout.InfiniteTimeSpan, ct);
@@ -127,6 +129,74 @@ public sealed class UserProfileServiceTests
     }
 
     [TestMethod]
+    public async Task PresenceObservationFetchesOnlyStatusAndRetainsExactPeerIdentity()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-12T12:00:00Z");
+        var transport = new DelegateTransport
+        {
+            Status = (username, _) => Task.FromResult(new UserStatus(
+                username, Soulseek.UserPresence.Away, false)),
+        };
+        await using var service = CreateService(transport, utcNow: () => now);
+
+        UserPresenceObservationDto presence = await service.ObservePresenceAsync("Peer");
+
+        Assert.AreEqual("Peer", presence.Username);
+        Assert.AreEqual(UserProfilePresence.Away, presence.Presence);
+        Assert.AreEqual(ResourceSectionState.Available, presence.Status.State);
+        Assert.AreEqual(now, presence.ObservedAtUtc);
+        Assert.AreEqual(1, transport.StatusCalls);
+        Assert.AreEqual(0, transport.InfoCalls);
+        Assert.AreEqual(0, transport.StatisticsCalls);
+
+        now = now.AddMinutes(1);
+        presence = await service.ObservePresenceAsync("peer");
+        Assert.AreEqual("peer", presence.Username);
+        Assert.AreEqual(now, presence.ObservedAtUtc);
+        Assert.AreEqual(2, transport.StatusCalls);
+    }
+
+    [TestMethod]
+    public async Task FailedPresenceObservationDoesNotInventAnAgeOrFetchProfileSections()
+    {
+        var transport = new DelegateTransport
+        {
+            Status = (_, _) => throw new InvalidOperationException("status unavailable"),
+        };
+        await using var service = CreateService(transport);
+
+        UserPresenceObservationDto presence = await service.ObservePresenceAsync("Peer");
+
+        Assert.AreEqual(UserProfilePresence.Unknown, presence.Presence);
+        Assert.AreEqual(ResourceSectionState.Unavailable, presence.Status.State);
+        Assert.IsNull(presence.ObservedAtUtc);
+        Assert.AreEqual(0, transport.InfoCalls);
+        Assert.AreEqual(0, transport.StatisticsCalls);
+    }
+
+    [TestMethod]
+    public async Task DisposalDrainsAnActivePresenceObservationBeforeClosingNetworkConcurrency()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transport = new DelegateTransport
+        {
+            Status = async (_, cancellationToken) =>
+            {
+                started.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("The cancelled status request resumed unexpectedly.");
+            },
+        };
+        var service = CreateService(transport);
+        Task<UserPresenceObservationDto> observation = service.ObservePresenceAsync("Peer");
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        await service.DisposeAsync();
+
+        await Assert.ThrowsExactlyAsync<TaskCanceledException>(() => observation);
+    }
+
+    [TestMethod]
     public async Task UsernameValidationRunsBeforeSoulseekStartup()
     {
         int startupCalls = 0;
@@ -138,6 +208,8 @@ public sealed class UserProfileServiceTests
 
         await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
             service.GetAsync("bad\u0001name"));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+            service.ObservePresenceAsync("bad\u0001name"));
         Assert.AreEqual(0, startupCalls);
     }
 

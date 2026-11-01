@@ -1,5 +1,12 @@
 namespace Sockseek.Persistence.Entities;
 
+// History mutations accept changes only at a newer revision. Unchanged/replayed
+// rows retain theirs, so the writer need not snapshot every column again.
+internal interface IRevisionedHistoryRow
+{
+    long Revision { get; }
+}
+
 internal sealed class RuntimeSessionEntity
 {
     public Guid Id { get; set; }
@@ -9,7 +16,7 @@ internal sealed class RuntimeSessionEntity
     public string Version { get; set; } = "";
 }
 
-internal sealed class JobEntity
+internal sealed class JobEntity : IRevisionedHistoryRow
 {
     public Guid Id { get; set; }
     public Guid WorkflowId { get; set; }
@@ -33,6 +40,7 @@ internal sealed class JobEntity
     public string? FailureDetail { get; set; }
     public string? ItemName { get; set; }
     public string? QueryText { get; set; }
+    public string? SourceDetail { get; set; }
     public long CreatedAtUtc { get; set; }
     public long? StartedAtUtc { get; set; }
     public long UpdatedAtUtc { get; set; }
@@ -73,7 +81,6 @@ internal sealed class SearchJobEntity
 
 internal sealed class SearchResultEntity
 {
-    public Guid Id { get; set; }
     public Guid SearchJobId { get; set; }
     public long Sequence { get; set; }
     public long Revision { get; set; }
@@ -94,7 +101,7 @@ internal sealed class SearchResultEntity
     public long ObservedAtUtc { get; set; }
 }
 
-internal sealed class TransferEntity
+internal sealed class TransferEntity : IRevisionedHistoryRow
 {
     public Guid Id { get; set; }
     public Guid? JobId { get; set; }
@@ -129,11 +136,12 @@ internal sealed class TransferEntity
     public string? FileAttributesJson { get; set; }
     public string? GroupRef { get; set; }
     public string? GroupDisplayPath { get; set; }
+    public string? GroupRelativePath { get; set; }
     public long? ArchivedAtUtc { get; set; }
     public long Revision { get; set; }
 }
 
-internal sealed class TransferAttemptEntity
+internal sealed class TransferAttemptEntity : IRevisionedHistoryRow
 {
     public Guid Id { get; set; }
     public Guid TransferId { get; set; }
@@ -152,7 +160,7 @@ internal sealed class TransferAttemptEntity
     public long Revision { get; set; }
 }
 
-internal sealed class TransferAccountingCheckpointEntity
+internal sealed class TransferAccountingCheckpointEntity : IRevisionedHistoryRow
 {
     public Guid AttemptId { get; set; }
     public Guid TransferId { get; set; }
@@ -192,14 +200,6 @@ internal sealed class InputArtifactEntity
     public long CreatedAtUtc { get; set; }
     public long ExpiresAtUtc { get; set; }
     public string? OriginalName { get; set; }
-}
-
-internal sealed class InputArtifactPinEntity
-{
-    public string ArtifactId { get; set; } = "";
-    public string OwnerKind { get; set; } = "";
-    public Guid OwnerId { get; set; }
-    public long CreatedAtUtc { get; set; }
 }
 
 internal sealed class ChatConversationEntity

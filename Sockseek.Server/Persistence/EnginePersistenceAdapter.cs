@@ -1,12 +1,11 @@
 using System.Collections.Concurrent;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Sockseek.Core;
 using Sockseek.Core.Events;
 using Sockseek.Core.Models;
 using Sockseek.Core.Snapshots;
 using Sockseek.Persistence.Write;
+using Sockseek.Server.Planning;
 
 namespace Sockseek.Server.Persistence;
 
@@ -15,6 +14,7 @@ public sealed class EnginePersistenceAdapter
     private readonly Guid runtimeId;
     private readonly IPersistenceMutationSink sink;
     private readonly PersistenceHandoffTracker? handoffs;
+    private readonly Func<Guid, IReadOnlyCollection<Guid>, IReadOnlyDictionary<Guid, SearchViewSource>>? captureSearchSources;
     private readonly ConcurrentDictionary<Guid, JobRelationships> relationships = new();
     private readonly ConcurrentDictionary<Guid, TrackedRevision> terminalJobRevisions = new();
     private readonly ConcurrentDictionary<Guid, TrackedRevision> searchCompletionRevisions = new();
@@ -31,19 +31,22 @@ public sealed class EnginePersistenceAdapter
     internal EnginePersistenceAdapter(
         Guid runtimeId,
         IPersistenceMutationSink sink,
-        PersistenceHandoffTracker? handoffs)
+        PersistenceHandoffTracker? handoffs,
+        Func<Guid, IReadOnlyCollection<Guid>, IReadOnlyDictionary<Guid, SearchViewSource>>? captureSearchSources = null)
     {
         if (runtimeId == Guid.Empty)
             throw new ArgumentException("A non-empty runtime ID is required.", nameof(runtimeId));
         this.runtimeId = runtimeId;
         this.sink = sink;
         this.handoffs = handoffs;
+        this.captureSearchSources = captureSearchSources;
     }
 
     internal static IReadOnlySet<Type> HandledChangeTypes { get; } = new HashSet<Type>
     {
         typeof(JobRegisteredChange),
         typeof(JobStateChangedChange),
+        typeof(JobStructureChangedChange),
         typeof(JobActivityChangedChange),
         typeof(JobDiscoveryChangedChange),
         typeof(JobExecutionCompletedChange),
@@ -59,6 +62,7 @@ public sealed class EnginePersistenceAdapter
         typeof(DownloadStateChangedChange),
         typeof(DownloadAttemptFailedChange),
         typeof(TransferCompletedChange),
+        typeof(TransferOutputChangedChange),
         typeof(TransferFailedChange),
         typeof(TransferCancelledChange),
         typeof(TransferAttemptStartedChange),
@@ -114,8 +118,11 @@ public sealed class EnginePersistenceAdapter
                     state.IsTerminal ? PersistenceMutationPriority.Terminal : PersistenceMutationPriority.Ordinary);
                 break;
 
-            case JobActivityChangedChange activity:
-                EnqueueJobMutation(activity.Job, activity, PersistenceMutationPriority.Ordinary);
+            case JobStructureChangedChange structure:
+                EnqueueJobMutation(structure.Job, structure,
+                    structure.Job.LifecycleState == JobLifecycleState.Terminal
+                        ? PersistenceMutationPriority.Terminal
+                        : PersistenceMutationPriority.Structural);
                 break;
 
             case JobDiscoveryChangedChange discovery:
@@ -127,8 +134,11 @@ public sealed class EnginePersistenceAdapter
                     result.ExtractJob.Id,
                     _ => new JobRelationships(result.ExtractJob.WorkflowId, null, null, result.ResultJob.Id),
                     (_, current) => current with { ResultJobId = result.ResultJob.Id });
-                EnqueueJobMutation(result.ExtractJob, result, PersistenceMutationPriority.Structural);
                 EnqueueJobMutation(result.ResultJob, result, PersistenceMutationPriority.Structural);
+                // The extract points at its result, which may not have any
+                // earlier mutation. Admit the result first so a writer batch
+                // boundary cannot persist the forward reference alone.
+                EnqueueJobMutation(result.ExtractJob, result, PersistenceMutationPriority.Structural);
                 break;
 
             case DownloadStartedChange started:
@@ -179,6 +189,14 @@ public sealed class EnginePersistenceAdapter
                 activeAttempts.TryRemove(attempt.Transfer.Id, out _);
                 break;
 
+            case TransferOutputChangedChange moved:
+                // Preserve the terminal state/timestamps; this is a metadata update,
+                // not another download completion or accounting observation.
+                EnqueueTerminalTransfer(moved.Transfer, moved, moved.Transfer.State!,
+                    moved.Transfer.TerminalOutcome.ToString(), moved.Transfer.FailureReason?.ToString() ?? "None", null,
+                    moved.Transfer.CancellationReason?.ToString() ?? "None");
+                break;
+
             case TransferCompletedChange completed:
                 EnqueueTerminalTransfer(completed.Transfer, completed, "Completed", "Succeeded", "None", null);
                 break;
@@ -193,7 +211,7 @@ public sealed class EnginePersistenceAdapter
                     cancelled,
                     "Cancelled",
                     "Cancelled",
-                    cancelled.Reason.ToString(),
+                    cancelled.Transfer.FailureReason?.ToString() ?? "None",
                     null,
                     cancelled.Reason.ToString());
                 break;
@@ -228,6 +246,10 @@ public sealed class EnginePersistenceAdapter
                 // event so no query can fall between live removal and ownership.
                 break;
 
+            // Activity is a presentation edge emitted after the same transition's
+            // JobStateChangedChange. That ordered event already owns persistence;
+            // writing both serializes and enqueues identical payloads twice.
+            case JobActivityChangedChange:
             case JobExecutionCompletedChange:
             case EngineCompletedChange:
             case JobStatusChange:
@@ -254,7 +276,9 @@ public sealed class EnginePersistenceAdapter
         string? failureMessage,
         string cancellationSource = "None")
     {
-        pendingTerminalAttempts.TryRemove(transfer.Id, out var finalAttempt);
+        TransferAttemptPersistenceMutation? finalAttempt = null;
+        bool metadataOnly = change is TransferOutputChangedChange;
+        if (!metadataOnly) pendingTerminalAttempts.TryRemove(transfer.Id, out finalAttempt);
         var transferMutation = TransferMutation(
             transfer,
             change,
@@ -265,7 +289,9 @@ public sealed class EnginePersistenceAdapter
             failureMessage,
             cancellationSource);
         handoffs?.BeginTransferTerminal(transfer.Id, transfer.Revision);
-        bool accepted = sink.TryEnqueue(new TransferTerminalPersistenceMutation(
+        // Completion owns its final attempt and stays ordered. Later metadata
+        // headers are independently replaceable without consuming that barrier.
+        bool accepted = sink.TryEnqueue(metadataOnly ? transferMutation : new TransferTerminalPersistenceMutation(
             transferMutation,
             finalAttempt,
             OwningJob: null));
@@ -279,13 +305,30 @@ public sealed class EnginePersistenceAdapter
             sink.TryEnqueue(previous);
     }
 
+    private void EnqueueJobMutation(JobSnapshot job, CoreChange change, PersistenceMutationPriority priority)
+        => EnqueueJobMutation(job, job.Payload, job.Payload switch
+        {
+            AlbumJobSnapshotPayload album => album.Manifest,
+            RemoteDirectoryJobSnapshotPayload directory => directory.Manifest,
+            _ => null,
+        }, change, priority);
+
+    private void EnqueueJobMutation(JobExecutionSnapshot job, CoreChange change, PersistenceMutationPriority priority)
+        => EnqueueJobMutation(job, job.Payload, null, change, priority);
+
     private JobPersistenceMutation JobMutation(
-        JobSnapshot job,
+        JobSnapshotHeader job,
+        JobSnapshotPayload payload,
+        DirectoryManifestSnapshot? manifest,
         CoreChange change,
         PersistenceMutationPriority priority)
     {
         var relation = relationships.GetValueOrDefault(job.Id)
             ?? new JobRelationships(job.WorkflowId, null, null, null);
+        // Capture contains immutable values, never a runtime Job. Let the
+        // writer encode only the accepted, coalesced revision; Lazy also
+        // retains the exact bytes (or encoding failure) through retries.
+        var payloadJson = CapturePayload(payload);
         return new JobPersistenceMutation(
             runtimeId,
             change.Sequence,
@@ -311,7 +354,7 @@ public sealed class EnginePersistenceAdapter
             job.ItemName,
             job.QueryText,
             PayloadSchemaVersion: 1,
-            PayloadJson(job.Payload),
+            payloadJson,
             job.SubmissionId,
             job.SemanticRole.ToString(),
             job.CreatedAtUtc,
@@ -319,24 +362,28 @@ public sealed class EnginePersistenceAdapter
             job.RerunOfSubmissionId,
             job.PreviewId,
             job.ArtifactId,
-            jobStartedAtUtc.GetValueOrDefault(job.Id));
+            jobStartedAtUtc.GetValueOrDefault(job.Id),
+            manifest,
+            job.SourceDetail);
     }
 
     private void EnqueueJobMutation(
-        JobSnapshot job,
+        JobSnapshotHeader job,
+        JobSnapshotPayload payload,
+        DirectoryManifestSnapshot? manifest,
         CoreChange change,
         PersistenceMutationPriority priority)
     {
         handoffs?.RegisterJob(job.WorkflowId, job.Id);
         if (job.LifecycleState != JobLifecycleState.Pending)
             jobStartedAtUtc.TryAdd(job.Id, change.OccurredAtUtc);
-        var mutation = JobMutation(job, change, priority);
+        var mutation = JobMutation(job, payload, manifest, change, priority);
         if (priority == PersistenceMutationPriority.Terminal)
             terminalJobRevisions[job.Id] = new TrackedRevision(job.WorkflowId, job.Revision);
         sink.TryEnqueue(mutation);
     }
 
-    private static string? PayloadJson(JobSnapshotPayload payload)
+    private static Lazy<string?> CapturePayload(JobSnapshotPayload payload)
     {
         object compact = payload switch
         {
@@ -354,16 +401,21 @@ public sealed class EnginePersistenceAdapter
             SongJobSnapshotPayload song => new
             {
                 song.Query,
+                song.CandidateCount,
+                song.ResolvedTarget,
                 song.File,
                 song.DownloadSource,
                 song.ExactTarget,
                 song.Definition,
+                song.LastAttemptedCandidate,
             },
             AlbumJobSnapshotPayload album => new
             {
                 album.Query,
                 album.ResultCount,
                 album.Directory,
+                ResolvedFolderUsername = album.ResolvedTarget?.Username,
+                ResolvedFolderPath = album.ResolvedTarget?.FolderPath,
                 album.Definition,
             },
             RemoteFileJobSnapshotPayload remoteFile => new
@@ -376,21 +428,16 @@ public sealed class EnginePersistenceAdapter
             {
                 remoteDirectory.SourceKind,
                 remoteDirectory.DirectorySource,
+                SourceUsername = ServerSnapshotMapper.RemoteDirectorySourceUsername(remoteDirectory),
+                SourceFolderPath = remoteDirectory.DirectorySource?.FolderPath
+                    ?? remoteDirectory.Manifest?.Plan.SourceDirectory?.FolderPath
+                    ?? remoteDirectory.ResolvedPlanSource?.SourceDirectory?.FolderPath,
+                DisplayRoot = remoteDirectory.Manifest?.Plan.DisplayRoot ?? remoteDirectory.ResolvedPlanSource?.DisplayRoot ?? remoteDirectory.DirectorySource?.FolderPath,
                 remoteDirectory.Directory,
             },
-            AggregateJobSnapshotPayload aggregate => new
-            {
-                aggregate.Query,
-                SongCount = aggregate.Songs.Count,
-                aggregate.Definition,
-            },
-            AlbumAggregateJobSnapshotPayload aggregate => new
-            {
-                aggregate.Query,
-                aggregate.AlbumCount,
-                aggregate.Definition,
-            },
-            JobListSnapshotPayload list => new { list.Count },
+            AggregateJobSnapshotPayload aggregate => AggregatePayload(aggregate),
+            AlbumAggregateJobSnapshotPayload aggregate => AlbumAggregatePayload(aggregate),
+            JobListSnapshotPayload list => ServerSnapshotMapper.ToJobListPayloadDto(list),
             RetrieveFolderJobSnapshotPayload retrieve => new
             {
                 retrieve.Directory.Username,
@@ -399,10 +446,67 @@ public sealed class EnginePersistenceAdapter
                 retrieve.RetrievalOutcome,
                 retrieve.RetrievalCancelled,
             },
+            AlbumExecutionPayload album => new
+            {
+                album.Query, album.ResultCount, album.Directory,
+                ResolvedFolderUsername = album.ResolvedTarget?.Username,
+                ResolvedFolderPath = album.ResolvedTarget?.FolderPath,
+                album.Definition,
+            },
+            RemoteDirectoryExecutionPayload directory => new
+            {
+                directory.SourceKind, directory.DirectorySource, directory.SourceUsername,
+                directory.SourceFolderPath, directory.DisplayRoot, directory.Directory,
+            },
+            AggregateExecutionPayload aggregate => new
+            {
+                aggregate.Query, SongCount = aggregate.Outcomes.Total,
+                CompletedSongCount = aggregate.Outcomes.Completed,
+                SucceededSongCount = aggregate.Outcomes.Succeeded,
+                FailedSongCount = aggregate.Outcomes.Failed, aggregate.Definition,
+            },
+            JobListExecutionPayload list => new Sockseek.Api.JobListPayloadDto(
+                list.Outcomes.Total, list.Outcomes.Total - list.Outcomes.Completed,
+                list.Outcomes.Completed, list.Outcomes.Succeeded, list.Outcomes.Failed),
+            RetrieveFolderExecutionPayload retrieve => new
+            {
+                retrieve.Directory.Username, retrieve.Directory.FolderPath,
+                retrieve.NewFilesFoundCount, retrieve.RetrievalOutcome, retrieve.RetrievalCancelled,
+            },
             GenericJobSnapshotPayload generic => new { generic.Text },
             _ => throw new InvalidOperationException($"Unsupported job payload {payload.GetType().FullName}."),
         };
-        return JsonSerializer.Serialize(compact);
+        // Do not retain structural descendant graphs while a write is queued.
+        // The captured compact values are immutable; only encoding is deferred.
+        return new(() => JsonSerializer.Serialize(compact));
+    }
+
+    private static object AggregatePayload(AggregateJobSnapshotPayload aggregate)
+    {
+        var summary = ServerSnapshotMapper.ToAggregatePayloadDto(aggregate);
+        return new
+        {
+            aggregate.Query,
+            summary.SongCount,
+            summary.CompletedSongCount,
+            summary.SucceededSongCount,
+            summary.FailedSongCount,
+            aggregate.Definition,
+        };
+    }
+
+    private static object AlbumAggregatePayload(AlbumAggregateJobSnapshotPayload aggregate)
+    {
+        var summary = ServerSnapshotMapper.ToAlbumAggregatePayloadDto(aggregate);
+        return new
+        {
+            aggregate.Query,
+            AlbumCount = summary.ResultCount,
+            summary.CompletedAlbumCount,
+            summary.SucceededAlbumCount,
+            summary.FailedAlbumCount,
+            aggregate.Definition,
+        };
     }
 
     private TransferPersistenceMutation TransferMutation(
@@ -443,7 +547,11 @@ public sealed class EnginePersistenceAdapter
             transfer.LastProgressAtUtc,
             transfer.BytesPerSecond,
             transfer.File,
-            AccountingObservations: AccountingObservations(transfer, change));
+            GroupRef: transfer.GroupRef,
+            GroupDisplayPath: transfer.GroupDisplayPath,
+            AccountingObservations: change is TransferOutputChangedChange ? null : AccountingObservations(transfer, change),
+            GroupRelativePath: transfer.GroupRelativePath,
+            CompletedAtUtc: transfer.CompletedAtUtc);
     }
 
     private TransferAttemptPersistenceMutation AttemptMutation(
@@ -503,8 +611,8 @@ public sealed class EnginePersistenceAdapter
             failureReason,
             failureMessage,
             transfer.Direction.ToString(),
-            GroupRef: null,
-            GroupDisplayPath: null,
+            GroupRef: transfer.GroupRef,
+            GroupDisplayPath: transfer.GroupDisplayPath,
             AccountingObservations: AccountingObservations(transfer, change),
             StartedAtUtc: activeAttempts.GetValueOrDefault(transfer.Id)?.StartedAtUtc);
     }
@@ -546,52 +654,10 @@ public sealed class EnginePersistenceAdapter
             _ => throw new InvalidOperationException("Expected a transfer-attempt change."),
         };
 
+    // The queue owns batching before storage preparation. Reuse the frozen Core
+    // observations instead of serializing an entire peer response before its first write.
     private SearchResultsPersistenceMutation SearchResultsMutation(SearchResultsAddedChange change)
-        => new(
-            runtimeId,
-            change.Sequence,
-            change.OccurredAtUtc,
-            change.JobId,
-            change.Revision,
-            change.Results.Select(result => new SearchResultPersistenceRecord(
-                StableResultId(
-                    change.JobId,
-                    result.Username,
-                    result.Filename,
-                    result.Visibility),
-                result.Sequence,
-                result.Revision,
-                result.Username,
-                result.Filename,
-                result.Size,
-                result.BitRate,
-                result.BitDepth,
-                result.ResponseFileCount,
-                result.SampleRate,
-                result.Length,
-                result.Extension,
-                result.UploadSpeed,
-                result.HasFreeUploadSlot,
-                result.Attributes == null ? null : JsonSerializer.Serialize(result.Attributes.Select(attribute => new
-                {
-                    Code = attribute.StableCode,
-                    Name = attribute.Type,
-                    attribute.Value,
-                })),
-                result.ObservedAtUtc,
-                result.QueueLength,
-                result.Visibility.ToString())).ToArray());
-
-    private static Guid StableResultId(
-        Guid jobId,
-        string username,
-        string filename,
-        SearchResultVisibility visibility = SearchResultVisibility.Public)
-    {
-        byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(
-            $"{jobId:N}\0{username}\0{filename}\0{visibility}"));
-        return new Guid(bytes.AsSpan(0, 16));
-    }
+        => new(runtimeId, change.Sequence, change.OccurredAtUtc, change.JobId, change.Revision, change.Results);
 
     private void RetireWorkflow(Guid workflowId)
     {
@@ -601,7 +667,9 @@ public sealed class EnginePersistenceAdapter
         var searches = searchCompletionRevisions
             .Where(pair => pair.Value.WorkflowId == workflowId)
             .ToDictionary(pair => pair.Key, pair => pair.Value.Revision);
-        handoffs?.BeginRetirement(workflowId, jobs, searches);
+        IReadOnlyDictionary<Guid, SearchViewSource>? sources = searches.Count == 0
+            ? null : captureSearchSources?.Invoke(workflowId, searches.Keys);
+        handoffs?.BeginRetirement(workflowId, jobs, searches, sources);
 
         foreach (var pair in relationships.Where(pair => pair.Value.WorkflowId == workflowId))
             relationships.TryRemove(pair.Key, out _);

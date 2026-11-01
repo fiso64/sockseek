@@ -62,8 +62,11 @@ public sealed class UserProfileService : IAsyncDisposable
     private readonly CancellationTokenSource lifetime = new();
     private readonly object sessionSync = new();
     private readonly object connectionSync = new();
+    private readonly object presenceSync = new();
     private CancellationTokenSource connectionLifetime = new();
     private Task? sessionStartup;
+    private TaskCompletionSource? presenceDrained;
+    private int activePresenceOperations;
     private int observedLoggedInSession;
     private int disposeState;
 
@@ -95,6 +98,98 @@ public sealed class UserProfileService : IAsyncDisposable
         bool refresh = false,
         CancellationToken cancellationToken = default)
         => (await GetEntryAsync(username, refresh, cancellationToken).ConfigureAwait(false)).Profile;
+
+    public Task<UserPresenceObservationDto> ObservePresenceAsync(
+        string username,
+        CancellationToken cancellationToken = default)
+    {
+        lock (presenceSync)
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref disposeState) != 0, this);
+            activePresenceOperations++;
+        }
+        return ObservePresenceTrackedAsync(username, cancellationToken);
+    }
+
+    private async Task<UserPresenceObservationDto> ObservePresenceTrackedAsync(
+        string username,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await ObservePresenceCoreAsync(username, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (presenceSync)
+            {
+                activePresenceOperations--;
+                if (activePresenceOperations == 0)
+                    presenceDrained?.TrySetResult();
+            }
+        }
+    }
+
+    private async Task<UserPresenceObservationDto> ObservePresenceCoreAsync(
+        string username,
+        CancellationToken cancellationToken)
+    {
+        username = PeerUsername.Validate(username);
+        string peerHash = LogIdentity.PeerHash(username);
+        using OperationLogScope operationLog = OperationLogScope.Start(
+            logger, "user-presence.observe", peerHash);
+        bool networkAcquired = false;
+        try
+        {
+            await EnsureSessionAsync(cancellationToken).ConfigureAwait(false);
+            _ = PeerUsername.Validate(localAccountProvider()
+                ?? throw new UserProfileUnavailableException("Soulseek is not logged in."));
+            CancellationToken connectionToken;
+            lock (connectionSync)
+                connectionToken = connectionLifetime.Token;
+            using var operation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken, lifetime.Token, connectionToken);
+            await networkGate.WaitAsync(operation.Token).ConfigureAwait(false);
+            networkAcquired = true;
+            SectionResult<UserStatus> status = await CaptureAsync(
+                token => transport.GetStatusAsync(username, token),
+                operation.Token,
+                sectionTimeout,
+                logger,
+                peerHash,
+                "status").ConfigureAwait(false);
+            DateTimeOffset? observedAt = status.Section.State == ResourceSectionState.Available
+                ? utcNow() : null;
+            var observation = new UserPresenceObservationDto(
+                username, Presence(status), status.Section, observedAt);
+            if (observedAt is not null)
+                operationLog.Succeeded("available", itemCount: 1);
+            else
+                operationLog.Degraded(status.Section.State.ToString(), itemCount: 0);
+            return observation;
+        }
+        catch (OperationCanceledException exception)
+            when (!cancellationToken.IsCancellationRequested && !lifetime.IsCancellationRequested)
+        {
+            operationLog.Failed(exception, "connection-lost");
+            throw new UserProfileUnavailableException("Soulseek connection was lost.", exception);
+        }
+        catch (OperationCanceledException)
+        {
+            operationLog.Cancelled();
+            throw;
+        }
+        catch (Exception exception)
+        {
+            operationLog.Failed(exception);
+            throw;
+        }
+        finally
+        {
+            if (networkAcquired)
+                networkGate.Release();
+        }
+    }
 
     public async Task<UserPicture?> GetPictureAsync(
         string username,
@@ -475,6 +570,12 @@ public sealed class UserProfileService : IAsyncDisposable
             connectionLifetime = new CancellationTokenSource();
         }
         connection.Cancel();
+        Task? pendingPresence;
+        lock (presenceSync)
+            pendingPresence = activePresenceOperations == 0
+                ? null
+                : (presenceDrained ??= new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously)).Task;
         Task[] pending;
         await gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
@@ -488,6 +589,8 @@ public sealed class UserProfileService : IAsyncDisposable
         }
         try { await Task.WhenAll(pending).ConfigureAwait(false); }
         catch { /* disposal observes and suppresses daemon-lifetime cancellation */ }
+        if (pendingPresence is not null)
+            await pendingPresence.ConfigureAwait(false);
         connection.Dispose();
         connectionLifetime.Dispose();
         lifetime.Dispose();

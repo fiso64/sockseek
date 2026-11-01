@@ -105,11 +105,17 @@ public sealed class PeerFileTargetTests
     }
 
     [TestMethod]
-    public void RemoteDisplayText_MakesControlsAndBidiFormattingVisible()
+    public void RemoteDisplayText_PreservesUnicodeAndMakesUnsafeTextVisible()
     {
-        string display = PeerIdentityValidator.ToDisplayText("a\0\t\n\u001B\u007F\u0085\u202Eb");
-
-        Assert.AreEqual("a␀␉␊␛␡<U+0085><U+202E>b", display);
+        foreach ((string input, string expected) in new (string, string)[]
+        {
+            ("a\0\t\n\u001B\u007F\u0085\u202Eb", "a␀␉␊␛␡<U+0085><U+202E>b"),
+            ("Música\\a\u0301\\世界\\😀.flac", "Música\\a\u0301\\世界\\😀.flac"),
+            ("\ud800a\udc00", "\ufffda\ufffd"),
+            ("😀\u202E世界\U000E0001", "😀<U+202E>世界<U+000E0001>"),
+            ("a\0😀\u202E", "a␀😀<U+202E>"),
+        })
+            Assert.AreEqual(expected, PeerIdentityValidator.ToDisplayText(input));
     }
 
     [TestMethod]

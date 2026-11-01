@@ -368,6 +368,7 @@ public sealed class ChatPersistenceStoreTests
 
     [TestMethod]
     [TestCategory("Load")]
+    [DoNotParallelize] // Measure this workload without unrelated database writers.
     [Timeout(60_000)]
     public async Task RetentionWithConcurrentReadsAndNewMessagesRemainsConsistent()
     {
@@ -398,7 +399,7 @@ public sealed class ChatPersistenceStoreTests
             for (int pass = 0; pass < 20; pass++)
             {
                 ChatPage<ChatMessageRecord> page = await database.Store.GetMessagesAsync(
-                    "local", targetId, null, ChatLimits.MaximumPageSize);
+                    "local", targetId, null, 500);
                 Assert.IsTrue(page.Items.Zip(page.Items.Skip(1))
                     .All(pair => pair.First.Sequence < pair.Second.Sequence));
                 await Task.Yield();
@@ -410,7 +411,7 @@ public sealed class ChatPersistenceStoreTests
 
         Assert.AreEqual(oldMessageCount, retention.Result.PrunedMessages);
         ChatPage<ChatMessageRecord> remaining = await database.Store.GetMessagesAsync(
-            "local", targetId, null, ChatLimits.MaximumPageSize);
+            "local", targetId, null, int.MaxValue);
         Assert.AreEqual(newMessageCount, remaining.Items.Count);
         Assert.IsTrue(remaining.Items.All(message => message.Sequence > largestOldSequence));
         Assert.AreEqual(
@@ -514,6 +515,7 @@ public sealed class ChatPersistenceStoreTests
                 Path.GetTempPath(), "sockseek-chat-tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
             var sqlite = new SockseekSqliteOptions(Path.Combine(directory, "sockseek.db"));
+            global::Tests.TestDatabase.Create(sqlite.DatabasePath);
             SqliteDatabaseOwner owner = SqliteDatabaseOwner.Acquire(sqlite);
             var commandCounter = countCommands ? new CountingCommandInterceptor() : null;
             DbContextOptions<SockseekDbContext> contextOptions = SockseekDbContextOptions.Create(sqlite);

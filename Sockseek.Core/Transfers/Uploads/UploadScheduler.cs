@@ -302,8 +302,8 @@ public sealed class UploadScheduler
         long? previousQueueRevision = null,
         string? username = null)
     {
-        if (limit is < 1 or > 500)
-            throw new ArgumentOutOfRangeException(nameof(limit), "Page limit must be between 1 and 500.");
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
         if (afterRequestedAtUtc.HasValue != afterTransferId.HasValue)
             throw new ArgumentException("Both live queue cursor fields must be supplied together.");
         if (username is not null)
@@ -311,7 +311,7 @@ public sealed class UploadScheduler
 
         lock (sync)
         {
-            var items = new List<UploadSchedulerEntrySnapshot>(limit);
+            var items = new List<UploadSchedulerEntrySnapshot>();
             AdmissionKey? last = null;
             bool hasMore = false;
             AdmissionKey? after = afterRequestedAtUtc is { } time && afterTransferId is { } id
@@ -359,8 +359,8 @@ public sealed class UploadScheduler
         DateTimeOffset? fromUtc = null,
         DateTimeOffset? toUtc = null)
     {
-        if (limit is < 1 or > 500)
-            throw new ArgumentOutOfRangeException(nameof(limit), "Page limit must be between 1 and 500.");
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
         if (beforeRequestedAtUtc.HasValue != beforeTransferId.HasValue)
             throw new ArgumentException("Both timeline cursor fields must be supplied together.");
         if (username is not null)
@@ -368,7 +368,7 @@ public sealed class UploadScheduler
 
         lock (sync)
         {
-            var items = new List<UploadSchedulerEntrySnapshot>(limit);
+            var items = new List<UploadSchedulerEntrySnapshot>();
             AdmissionKey? last = null;
             bool hasMore = false;
             AdmissionKey? before = beforeRequestedAtUtc is { } time

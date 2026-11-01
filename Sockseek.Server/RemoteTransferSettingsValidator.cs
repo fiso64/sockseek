@@ -10,13 +10,19 @@ namespace Sockseek.Server;
 /// </summary>
 public static class RemoteTransferSettingsValidator
 {
-    public static void ValidateExplicitPatch(DownloadSettingsPatchDto patch)
+    public static void ValidateExplicitPatch(
+        DownloadSettingsPatchDto patch,
+        bool allowSearchViewAlbumFolderOption = false)
     {
         ArgumentNullException.ThrowIfNull(patch);
         ValidateExplicitNameFormat(patch);
 
         var invalid = new List<string>();
-        if (patch.Search != null) invalid.Add("Search");
+        if (patch.Search is { } search
+            && (!allowSearchViewAlbumFolderOption
+                || search.NoBrowseFolder is null
+                || search with { NoBrowseFolder = null } != new SearchSettingsPatchDto()))
+            invalid.Add("Search");
         if (patch.Skip is { } skip)
         {
             // Exact remote jobs support only path-based skip-existing. The

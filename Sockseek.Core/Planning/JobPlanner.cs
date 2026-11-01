@@ -22,23 +22,6 @@ public enum PlannedJobState
 }
 
 /// <summary>
-/// Fixed-size record emitted by <see cref="JobPlanner"/>. RuntimeJob and
-/// EffectiveSettings are Core values for immediate consumers; daemon adapters
-/// persist normalized command/settings projections rather than object graphs.
-/// </summary>
-public sealed record PlannedJobNode(
-    string Ref,
-    string? ParentRef,
-    PlannedJobRole Role,
-    PlannedJobState State,
-    Job RuntimeJob,
-    DownloadSettings? EffectiveSettings,
-    int DirectChildCount,
-    string? FailureCode = null,
-    string? FailureMessage = null,
-    SubmissionSourceRevision? SourceRevision = null);
-
-/// <summary>
 /// Storage-agnostic recursive planner shared by local presentation and daemon
 /// preview/submission adapters. It performs extraction but never Soulseek
 /// discovery or download, and streams records as each independent node resolves.
@@ -61,6 +44,29 @@ public sealed class JobPlanner(
             sourceRevision: null,
             cancellationToken);
 
+    // Submission validation has already composed the root's settings. Copy that
+    // value for planning ownership; resolving again repeats profiles and can
+    // discard adapter normalization. Descendants resolve against their parent.
+    public IAsyncEnumerable<PlannedJobNode> PlanResolvedAsync(
+        Job root,
+        DownloadSettings rootSettings,
+        CancellationToken cancellationToken = default)
+        => PlanNodeAsync(root, rootSettings, "0", parentRef: null,
+            PlannedJobRole.UserRoot, JobSettingsInheritance.None,
+            sourceRevision: null, cancellationToken, rootSettings);
+
+    /// <summary>
+    /// Prepare the original Jobs for direct Start without creating detached Review
+    /// nodes. Capture retained input once, at acceptance, after this traversal.
+    /// </summary>
+    public async Task PrepareResolvedAsync(Job root, DownloadSettings rootSettings,
+        CancellationToken cancellationToken = default)
+    {
+        await foreach (var _ in PlanNodeAsync(root, rootSettings, "0", parentRef: null,
+            PlannedJobRole.UserRoot, JobSettingsInheritance.None, sourceRevision: null,
+            cancellationToken, rootSettings, captureNodes: false).ConfigureAwait(false)) { }
+    }
+
     private async IAsyncEnumerable<PlannedJobNode> PlanNodeAsync(
         Job job,
         DownloadSettings inherited,
@@ -69,19 +75,21 @@ public sealed class JobPlanner(
         PlannedJobRole role,
         JobSettingsInheritance inheritance,
         SubmissionSourceRevision? sourceRevision,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken cancellationToken,
+        DownloadSettings? resolvedSettings = null,
+        bool captureNodes = true)
     {
         cancellationToken.ThrowIfCancellationRequested();
         DownloadSettings? settings = null;
         Exception? settingsFailure = null;
         try
         {
-            settings = JobPreparer.ResolveSemanticSettings(
-                job,
-                inherited,
-                settingsResolver,
-                inheritance);
-            job.Config = settings;
+            settings = resolvedSettings is null
+                ? JobPreparer.ResolveSemanticSettings(job, inherited, settingsResolver, inheritance)
+                : JobPreparer.ApplySemanticSettings(job, SettingsCloner.Clone(resolvedSettings), consumeExtractorHints: false);
+            // Extraction still uses mutable settings and can refine its input type.
+            // Other nodes transfer the fresh resolved value to their frozen binding.
+            if (job is ExtractJob) job.Config = settings;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -89,22 +97,26 @@ public sealed class JobPlanner(
         }
         if (settingsFailure != null)
         {
-            yield return Failed(nodeRef, parentRef, role, job, "settings", settingsFailure);
+            if (captureNodes) yield return Failed(nodeRef, parentRef, role, job, "settings", settingsFailure);
             yield break;
         }
         DownloadSettings effectiveSettings = settings!;
-        job.PlannedEffectiveSettings = SettingsCloner.Clone(effectiveSettings);
 
         if (job is ExtractJob extract)
         {
-            JobExtractionPlanResult? extraction = null;
+            JobExtractionResult? extraction = null;
+            SubmissionSourceRevision? extractedSourceRevision = null;
             Exception? extractionFailure = null;
             try
             {
-                extraction = await JobExtractionPlanner.ExtractAsync(
+                extraction = await JobExtraction.ExtractAsync(
                     extract,
                     extractorContext,
                     cancellationToken).ConfigureAwait(false);
+                // Source retention is part of this entry's preparation. A
+                // failed revision read must not discard later healthy siblings.
+                extractedSourceRevision = await CaptureSourceRevisionAsync(extract, cancellationToken)
+                    .ConfigureAwait(false);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -114,7 +126,9 @@ public sealed class JobPlanner(
             {
                 extract.HasPlannedExtraction = true;
                 extract.PlannedExtractionFailure = extractionFailure.Message;
-                yield return Failed(
+                effectiveSettings = SettingsCloner.Clone(effectiveSettings);
+                job.BindPlannedSettings(effectiveSettings);
+                if (captureNodes) yield return Failed(
                     nodeRef,
                     parentRef,
                     PlannedJobRole.Orchestration,
@@ -126,57 +140,58 @@ public sealed class JobPlanner(
 
             extract.HasPlannedExtraction = true;
             extract.PlannedExtractionFailure = null;
-            SubmissionSourceRevision? extractedSourceRevision =
-                await CaptureSourceRevisionAsync(extract, cancellationToken)
-                    .ConfigureAwait(false);
             extract.PlannedSourceRevision = extractedSourceRevision;
 
-            yield return new PlannedJobNode(
+            // Extraction used a mutable Config. Detach it before yielding: a
+            // caller editing the parent's Config must not change the settings
+            // that the frozen parent and its pending children share.
+            effectiveSettings = SettingsCloner.Clone(effectiveSettings);
+            job.BindPlannedSettings(effectiveSettings);
+            if (captureNodes) yield return new PlannedJobNode(
                 nodeRef,
                 parentRef,
                 PlannedJobRole.Orchestration,
                 PlannedJobState.Ready,
                 job,
-                SettingsCloner.Clone(effectiveSettings),
                 1,
-                SourceRevision: extractedSourceRevision);
+                sourceRevision: extractedSourceRevision);
             await foreach (PlannedJobNode node in PlanNodeAsync(
                 extraction!.Result,
                 effectiveSettings,
-                nodeRef + "/result",
+                captureNodes ? nodeRef + "/result" : "",
                 nodeRef,
                 PlannedJobRole.SemanticResult,
                 JobSettingsInheritance.SearchConstraints,
                 extractedSourceRevision,
-                cancellationToken).ConfigureAwait(false))
+                cancellationToken, captureNodes: captureNodes).ConfigureAwait(false))
             {
                 yield return node;
             }
             yield break;
         }
 
+        job.BindPlannedSettings(effectiveSettings);
         if (job is JobList list)
         {
-            yield return new PlannedJobNode(
+            if (captureNodes) yield return new PlannedJobNode(
                 nodeRef,
                 parentRef,
                 role == PlannedJobRole.UserRoot ? role : PlannedJobRole.Orchestration,
                 PlannedJobState.Ready,
                 job,
-                SettingsCloner.Clone(effectiveSettings),
                 list.Jobs.Count,
-                SourceRevision: sourceRevision);
+                sourceRevision: sourceRevision);
             for (int index = 0; index < list.Jobs.Count; index++)
             {
                 await foreach (PlannedJobNode node in PlanNodeAsync(
                     list.Jobs[index],
                     effectiveSettings,
-                    $"{nodeRef}/{index}",
+                    captureNodes ? $"{nodeRef}/{index}" : "",
                     nodeRef,
                     PlannedJobRole.ExecutionChild,
                     JobSettingsInheritance.SearchConstraints,
                     sourceRevision,
-                    cancellationToken).ConfigureAwait(false))
+                    cancellationToken, captureNodes: captureNodes).ConfigureAwait(false))
                 {
                     yield return node;
                 }
@@ -184,15 +199,14 @@ public sealed class JobPlanner(
             yield break;
         }
 
-        yield return new PlannedJobNode(
+        if (captureNodes) yield return new PlannedJobNode(
             nodeRef,
             parentRef,
             role,
             PlannedJobState.Ready,
             job,
-            SettingsCloner.Clone(effectiveSettings),
             DirectChildCount(job),
-            SourceRevision: sourceRevision);
+            sourceRevision: sourceRevision);
     }
 
     private static PlannedJobNode Failed(
@@ -208,7 +222,6 @@ public sealed class JobPlanner(
             role,
             PlannedJobState.Failed,
             job,
-            null,
             0,
             code,
             exception.Message);

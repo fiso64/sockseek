@@ -25,20 +25,26 @@ public sealed record SubmitSearchJobRequestDto(
 /// Starts a track discovery job.
 /// The job completes after search/projection; result endpoints expose candidates, and
 /// follow-up download endpoints start new download jobs from selected candidates.
+/// AggregatePresentation changes the default Search View presentation only;
+/// individual aggregate source choices remain client-owned until selection commit.
 /// </summary>
 public sealed record SubmitTrackSearchJobRequestDto(
     SongQueryDto SongQuery,
     bool IncludeFullResults = false,
-    SubmissionOptionsDto? Options = null);
+    SubmissionOptionsDto? Options = null,
+    bool AggregatePresentation = false);
 
 /// <summary>
 /// Starts an album discovery job.
 /// The job completes after search/projection; result endpoints expose folders, and
 /// follow-up download endpoints start new download jobs from selected folders.
+/// AggregatePresentation changes the default Search View presentation only;
+/// individual aggregate source choices remain client-owned until selection commit.
 /// </summary>
 public sealed record SubmitAlbumSearchJobRequestDto(
     AlbumQueryDto AlbumQuery,
-    SubmissionOptionsDto? Options = null);
+    SubmissionOptionsDto? Options = null,
+    bool AggregatePresentation = false);
 
 /// <summary>
 /// Starts a song download job.
@@ -107,6 +113,7 @@ public sealed record JobProvenanceDto(
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(ExtractJobDraftDto), ServerProtocol.JobDraftKinds.Extract)]
+[JsonDerivedType(typeof(GenericSearchJobDraftDto), ServerProtocol.JobDraftKinds.GenericSearch)]
 [JsonDerivedType(typeof(TrackSearchJobDraftDto), ServerProtocol.JobDraftKinds.TrackSearch)]
 [JsonDerivedType(typeof(AlbumSearchJobDraftDto), ServerProtocol.JobDraftKinds.AlbumSearch)]
 [JsonDerivedType(typeof(SongJobDraftDto), ServerProtocol.JobDraftKinds.Song)]
@@ -125,6 +132,11 @@ public sealed record ExtractJobDraftDto(
     DownloadBehaviorPolicyDto? ResultDownloadBehavior = null,
     JobProvenanceDto? Provenance = null,
     string? ArtifactId = null) : JobDraftDto;
+
+public sealed record GenericSearchJobDraftDto(
+    string QueryText,
+    DownloadSettingsPatchDto? DownloadSettings = null,
+    JobProvenanceDto? Provenance = null) : JobDraftDto;
 
 public sealed record TrackSearchJobDraftDto(
     SongQueryDto SongQuery,

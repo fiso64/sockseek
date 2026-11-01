@@ -56,7 +56,9 @@ public sealed record PeerBrowseDirectoryEntry(
     long RecursiveFileCount,
     long RecursiveFileBytes,
     long LockedDescendantCount,
-    bool HasChildren);
+    bool HasChildren,
+    long? TotalRecursiveFileCount = null,
+    long? TotalRecursiveFileBytes = null);
 
 public sealed record PeerBrowseFileAttribute(int Type, int Value);
 
@@ -102,7 +104,11 @@ public sealed record PeerBrowseSearchEntry(
     int? BitRate,
     int? BitDepth,
     int? SampleRate,
-    int? Length);
+    int? Length,
+    long? PublicSubtreeFileCount = null,
+    long? PublicSubtreeBytes = null,
+    long? TotalSubtreeFileCount = null,
+    long? TotalSubtreeBytes = null);
 
 public sealed record PeerBrowseSearchPage(
     IReadOnlyList<PeerBrowseSearchEntry> Items,
@@ -126,14 +132,6 @@ public sealed record PeerBrowseResourcePage(
 
 public sealed class PeerBrowseSelectionException(string message)
     : ArgumentException(message);
-
-/// <summary>
-/// Raised when a retained artifact predates the indexed mixed-search
-/// representation. Ordinary browsing remains available and a refreshed browse
-/// produces a current artifact.
-/// </summary>
-public sealed class PeerBrowseSearchUnavailableException(string message)
-    : InvalidOperationException(message);
 
 /// <summary>
 /// Immutable ordinary-transfer plans resolved entirely from one browse artifact.

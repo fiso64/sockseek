@@ -48,7 +48,15 @@ internal sealed class DirectoryTransferRunner
 
         if (!attempt.ChildrenMaterialized)
             directory.MaterializeDirectoryChildren(work.Select(item => item.Job));
+        for (int index = 0; index < work.Count; index++)
+        {
+            var item = work[index];
+            item.Job.WorkflowId = directory.WorkflowId;
+            item.Job.Config = config;
+            context.RegisterForExecution(item.Job, directory.Cts!.Token, directory, attempt.Plan.Entries[index]);
+        }
         directory.BeginDirectoryTransfer();
+        directory.UpdateActivity(JobActivityPhase.Downloading);
 
         await BoundedAsync.ForEachAsync(
             work,
@@ -63,24 +71,11 @@ internal sealed class DirectoryTransferRunner
         DownloadSettings config)
     {
         var child = item.Job;
-        child.WorkflowId = directory.WorkflowId;
-        child.Config = config;
-        child.Cts = CancellationTokenSource.CreateLinkedTokenSource(
-            context.Runtime.Token,
-            directory.Cts!.Token);
-        context.RegisterJob(child, directory);
 
         try
         {
-            await context.Runtime.WithJobSlot(child.Cts.Token, async () =>
+            await context.Runtime.WithJobSlot(child.Cts!.Token, async () =>
             {
-                if (config.Skip.SkipExisting && File.Exists(item.OutputPath))
-                {
-                    JobOutcomeCommitter.Commit(child, JobOutcome.AlreadyExists(item.OutputPath));
-                    return;
-                }
-
-                child.UpdateActivity(JobActivityPhase.Downloading);
                 var transfer = await context.Runtime.ExactFileTransfers.DownloadFile(
                     item.Target,
                     item.OutputPath,

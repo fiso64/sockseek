@@ -14,7 +14,8 @@ public class DaemonClientStoreTests
         var workflowId = Guid.NewGuid();
         var jobId = Guid.NewGuid();
         var transferId = Guid.NewGuid();
-        var initial = Job(jobId, workflowId, revision: 1, lifecycle: ServerJobLifecycleState.Pending);
+        var initial = Job(jobId, workflowId, revision: 1, lifecycle: ServerJobLifecycleState.Pending)
+            with { Stats = new JobSummaryStatsDto(CandidateCount: 2) };
 
         store.ApplySnapshot(Snapshot(epoch, 5, workflowId, [initial]));
         var terminal = initial.Lifecycle with
@@ -32,7 +33,8 @@ public class DaemonClientStoreTests
             new StateDeltaDto(
                 null,
                 [],
-                [new JobDeltaDto(jobId, 2, Lifecycle: terminal)],
+                [new JobDeltaDto(jobId, 2, Lifecycle: terminal,
+                    Stats: new JobSummaryStatsDto(CandidateCount: null))],
                 [],
                 [new TransferDeltaDto(transferId, 1, Added: transfer)],
                 [],
@@ -43,6 +45,7 @@ public class DaemonClientStoreTests
         Assert.AreEqual(DaemonClientApplyStatus.Applied, update.Status);
         Assert.AreEqual(ServerJobLifecycleState.Terminal, store.GetJob(jobId)?.LifecycleState);
         Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, store.GetJob(jobId)?.TerminalOutcome);
+        Assert.IsNull(store.GetJob(jobId)?.Stats?.CandidateCount);
         Assert.AreEqual(transferId, store.GetJobTransfers(jobId).Single().TransferId);
         Assert.AreEqual(0, update.Activity.Count);
     }

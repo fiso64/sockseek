@@ -9,6 +9,9 @@ using Sockseek.Core.Settings;
 namespace Sockseek.Core.Extractors;
     public partial class BandcampExtractor : IExtractor, IInputMatcher
     {
+        public JobSourceInfo? DescribeSource(ExtractJob source, Job item)
+            => ReferenceEquals(source, item) ? new(Detail: "Bandcamp import", PreviewDetail: "Bandcamp import") : null;
+
         private readonly BandcampSettings _bandcamp;
 
         public BandcampExtractor(BandcampSettings bandcamp) { _bandcamp = bandcamp; }
@@ -70,7 +73,7 @@ namespace Sockseek.Core.Extractors;
                             if (artist.StartsWith("by ", StringComparison.OrdinalIgnoreCase))
                                 artist = artist.Substring(3).Trim();
 
-                            albumList.Jobs.Add(new AlbumJob(new AlbumQuery { Album = album, Artist = artist })
+                            albumList.Add(new AlbumJob(new AlbumQuery { Album = album, Artist = artist })
                             {
                                 ItemNumber = num++,
                             });
@@ -119,7 +122,7 @@ namespace Sockseek.Core.Extractors;
                                       ?? item.GetProperty("band_name").GetString()
                                       ?? artistName;
 
-                    albumList.Jobs.Add(new AlbumJob(new AlbumQuery { Album = albumTitle, Artist = albumArtist })
+                    albumList.Add(new AlbumJob(new AlbumQuery { Album = albumTitle, Artist = albumArtist })
                     {
                         ItemNumber = num++,
                     });
@@ -178,10 +181,10 @@ namespace Sockseek.Core.Extractors;
 
             if (reverse && result is JobList jl)
             {
-                jl.Jobs.Reverse();
-                if (jl.Jobs.Count > offset) jl.Jobs.RemoveRange(0, offset);
-                else jl.Jobs.Clear();
-                if (jl.Jobs.Count > maxTracks) jl.Jobs.RemoveRange(maxTracks, jl.Jobs.Count - maxTracks);
+                jl.ReverseMembers();
+                if (jl.Jobs.Count > offset) jl.RemoveRange(0, offset);
+                else jl.Clear();
+                if (jl.Jobs.Count > maxTracks) jl.RemoveRange(maxTracks, jl.Jobs.Count - maxTracks);
             }
 
             return result;

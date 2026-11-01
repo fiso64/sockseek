@@ -1,7 +1,10 @@
 using System.Security.Cryptography;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats;
+using SixLabors.ImageSharp.Formats.Gif;
 using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.Formats.Webp;
 using SixLabors.ImageSharp.Processing;
 
 namespace Sockseek.Core.UserProfiles;
@@ -27,14 +30,13 @@ public static class UserPictureCodec
     public const int LocalOutputDimension = 512;
     public static readonly TimeSpan MaximumWorkDuration = TimeSpan.FromSeconds(5);
 
-    private static readonly IReadOnlyDictionary<string, string> AllowedFormats =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["JPEG"] = "image/jpeg",
-            ["PNG"] = "image/png",
-            ["GIF"] = "image/gif",
-            ["WEBP"] = "image/webp",
-        };
+    // Restrict identification as well as decoding: checking the detected format
+    // afterwards would already have parsed unsupported, peer-supplied metadata.
+    private static readonly Configuration PictureConfiguration = new(
+        new JpegConfigurationModule(),
+        new PngConfigurationModule(),
+        new GifConfigurationModule(),
+        new WebpConfigurationModule());
 
     public static async Task<UserPicture> ValidateRemoteAsync(
         ReadOnlyMemory<byte> bytes,
@@ -52,7 +54,8 @@ public static class UserPictureCodec
         byte[] ownedBytes = bytes.ToArray();
         await using var stream = new MemoryStream(ownedBytes, writable: false);
         ImageInfo info = await IdentifyAsync(stream, timeout.Token).ConfigureAwait(false);
-        string mediaType = GetAllowedMediaType(info);
+        string mediaType = info.Metadata.DecodedImageFormat?.DefaultMimeType
+            ?? throw new InvalidDataException("The profile picture contains no image format.");
         ValidateDimensions(info);
 
         stream.Position = 0;
@@ -77,7 +80,6 @@ public static class UserPictureCodec
         byte[] input = await ReadBoundedFileAsync(path, timeout.Token).ConfigureAwait(false);
         await using var stream = new MemoryStream(input, writable: false);
         ImageInfo info = await IdentifyAsync(stream, timeout.Token).ConfigureAwait(false);
-        _ = GetAllowedMediaType(info);
         ValidateDimensions(info);
 
         stream.Position = 0;
@@ -121,6 +123,7 @@ public static class UserPictureCodec
     private static DecoderOptions CreateDecoderOptions(bool skipMetadata, int targetDimension)
         => new()
         {
+            Configuration = PictureConfiguration,
             MaxFrames = 1,
             SkipMetadata = skipMetadata,
             TargetSize = new Size(targetDimension, targetDimension),
@@ -140,7 +143,7 @@ public static class UserPictureCodec
         }
         catch (UnknownImageFormatException ex)
         {
-            throw new InvalidDataException("The profile picture format is not recognized.", ex);
+            throw new InvalidDataException("The profile picture must be JPEG, PNG, GIF, or WebP.", ex);
         }
         catch (InvalidImageContentException ex)
         {
@@ -148,15 +151,6 @@ public static class UserPictureCodec
         }
 
         return info ?? throw new InvalidDataException("The profile picture contains no image.");
-    }
-
-    private static string GetAllowedMediaType(ImageInfo info)
-    {
-        string? name = info.Metadata.DecodedImageFormat?.Name;
-        if (name is null || !AllowedFormats.TryGetValue(name, out string? mediaType))
-            throw new InvalidDataException(
-                "The profile picture must be JPEG, PNG, GIF, or WebP.");
-        return mediaType;
     }
 
     private static void ValidateDimensions(ImageInfo info)

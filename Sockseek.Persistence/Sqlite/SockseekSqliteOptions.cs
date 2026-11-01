@@ -14,6 +14,15 @@ public sealed record SockseekSqliteOptions(
 public static class SockseekDbContextOptions
 {
     public static DbContextOptions<SockseekDbContext> Create(SockseekSqliteOptions options)
+        => Create(options, readOnly: false);
+
+    // Runtime feature stores receive these connections. SQLite itself rejects
+    // accidental direct writes; the writable context arrives only in a command
+    // executed by PersistenceWriter.
+    internal static DbContextOptions<SockseekDbContext> CreateReadOnly(SockseekSqliteOptions options)
+        => Create(options, readOnly: true);
+
+    private static DbContextOptions<SockseekDbContext> Create(SockseekSqliteOptions options, bool readOnly)
     {
         ArgumentNullException.ThrowIfNull(options);
         if (options.DefaultTimeoutSeconds <= 0)
@@ -21,7 +30,7 @@ public static class SockseekDbContextOptions
         if (options.BusyTimeoutMilliseconds <= 0)
             throw new ArgumentOutOfRangeException(nameof(options), "Busy timeout must be positive.");
 
-        string connectionString = CreateConnectionString(options);
+        string connectionString = CreateConnectionString(options, readOnly);
 
         return new DbContextOptionsBuilder<SockseekDbContext>()
             .UseSqlite(connectionString, sqlite => sqlite.MigrationsAssembly(typeof(SockseekDbContext).Assembly.FullName))
@@ -29,12 +38,13 @@ public static class SockseekDbContextOptions
             .Options;
     }
 
-    internal static string CreateConnectionString(SockseekSqliteOptions options)
+    internal static string CreateConnectionString(SockseekSqliteOptions options, bool readOnly = false)
         => new SqliteConnectionStringBuilder
         {
             DataSource = options.GetFullDatabasePath(),
-            Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Shared,
+            Mode = readOnly ? SqliteOpenMode.ReadOnly : SqliteOpenMode.ReadWriteCreate,
+            // Shared-cache table locks defeat concurrent readers even with WAL enabled.
+            Cache = SqliteCacheMode.Private,
             ForeignKeys = true,
             DefaultTimeout = options.DefaultTimeoutSeconds,
             Pooling = true,

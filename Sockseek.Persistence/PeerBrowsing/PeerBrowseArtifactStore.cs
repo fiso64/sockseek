@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Sockseek.Core;
@@ -18,8 +17,9 @@ namespace Sockseek.Persistence.PeerBrowsing;
 /// successful generation. It is deliberately separate from Sockseek's domain
 /// history database.
 /// </summary>
-public sealed class PeerBrowseArtifactStore
+public sealed class PeerBrowseArtifactStore : IAsyncDisposable
 {
+    internal const int ArtifactFormatVersion = 10;
     public static readonly TimeSpan DefaultResourceRetention = TimeSpan.FromHours(24);
     public const long DefaultArtifactByteBudget = 2L * 1024 * 1024 * 1024;
     public const int DefaultResourceCountTarget = 4_096;
@@ -39,6 +39,7 @@ public sealed class PeerBrowseArtifactStore
     private long lastCleanupLogTick = long.MinValue;
     private long lastBudgetLogTick = long.MinValue;
     private bool initialized;
+    private bool disposed;
     private readonly ILogger<PeerBrowseArtifactStore> logger;
 
     /// <summary>Raised after a browse resource has been removed from the registry.</summary>
@@ -75,6 +76,7 @@ public sealed class PeerBrowseArtifactStore
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(disposed, this);
         if (Volatile.Read(ref initialized))
             return;
 
@@ -91,6 +93,17 @@ public sealed class PeerBrowseArtifactStore
                              SqliteOpenMode.ReadWriteCreate,
                              cancellationToken).ConfigureAwait(false))
             {
+                // This registry owns disposable artifacts, not accepted jobs or
+                // history. Expire an obsolete format once at startup so every
+                // reader can use the current schema without compatibility probes.
+                await using (var version = connection.CreateCommand())
+                {
+                    version.CommandText = "PRAGMA user_version;";
+                    if (Convert.ToInt32(await version.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+                            CultureInfo.InvariantCulture) != ArtifactFormatVersion)
+                        await ExecuteAsync(connection, "DROP TABLE IF EXISTS browse_resources;", cancellationToken)
+                            .ConfigureAwait(false);
+                }
                 await ExecuteAsync(
                     connection,
                     """
@@ -107,7 +120,6 @@ public sealed class PeerBrowseArtifactStore
                         phase INTEGER NOT NULL,
                         compressed_bytes_received INTEGER NOT NULL,
                         compressed_bytes_expected INTEGER,
-                        decompressed_bytes_read INTEGER NOT NULL DEFAULT 0,
                         directory_count INTEGER NOT NULL,
                         file_count INTEGER NOT NULL,
                         total_file_bytes INTEGER NOT NULL,
@@ -129,20 +141,8 @@ public sealed class PeerBrowseArtifactStore
                     """,
                     cancellationToken).ConfigureAwait(false);
 
-                // Early user-browse builds persisted this now-unused progress
-                // value as NOT NULL without a default. Retain it internally so
-                // both that layout and the short-lived layout that omitted it can
-                // accept new rows. It is deliberately not part of the public DTO.
-                if (!await HasBrowseResourceColumnAsync(
-                        connection,
-                        "decompressed_bytes_read",
-                        cancellationToken).ConfigureAwait(false))
-                {
-                    await ExecuteAsync(
-                        connection,
-                        "ALTER TABLE browse_resources ADD COLUMN decompressed_bytes_read INTEGER NOT NULL DEFAULT 0;",
-                        cancellationToken).ConfigureAwait(false);
-                }
+                await ExecuteAsync(connection, $"PRAGMA user_version={ArtifactFormatVersion};", cancellationToken)
+                    .ConfigureAwait(false);
 
                 DateTimeOffset now = timeProvider.GetUtcNow();
                 await using var interrupted = connection.CreateCommand();
@@ -214,13 +214,13 @@ public sealed class PeerBrowseArtifactStore
             INSERT INTO browse_resources(
                 browse_id, local_account, username, state, phase,
                 compressed_bytes_received, compressed_bytes_expected,
-                decompressed_bytes_read, directory_count, file_count,
+                directory_count, file_count,
                 total_file_bytes, created_at_utc, updated_at_utc,
                 completed_at_utc, expires_at_utc, failure_code,
                 failure_message, artifact_file, artifact_bytes, revision)
             VALUES(
                 $id, $account, $username, $state, $phase,
-                0, NULL, 0, 0, 0, 0, $created, $updated,
+                0, NULL, 0, 0, 0, $created, $updated,
                 NULL, $expires, NULL, NULL, NULL, NULL, 1);
             """;
         Add(command, "$id", resource.BrowseId.ToString("D"));
@@ -335,6 +335,11 @@ public sealed class PeerBrowseArtifactStore
         await using SqliteConnection connection = await OpenRegistryAsync(
             SqliteOpenMode.ReadWrite,
             cancellationToken).ConfigureAwait(false);
+        // A restarted acquisition is failed, never resumed from progress. Keep
+        // these best-effort counters transactional without forcing an fsync for
+        // every display refresh. Acceptance/terminal writes retain FULL durability.
+        await ExecuteAsync(connection, "PRAGMA synchronous=NORMAL;", cancellationToken)
+            .ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
@@ -420,14 +425,12 @@ public sealed class PeerBrowseArtifactStore
         command.CommandText =
             """
             SELECT f.file_id, f.wire_filename, f.size_bytes, f.extension,
-                   f.bit_rate, f.bit_depth, f.sample_rate, f.length_seconds,
-                   a.attribute_type, a.attribute_value
+                   f.attributes
             FROM files f
             JOIN directories d ON d.directory_id = f.directory_id
-            LEFT JOIN file_attributes a ON a.file_id = f.file_id
             WHERE ordinal_same_or_descendant(d.identity_path, $path)
               AND f.visibility = $public
-            ORDER BY f.file_id, a.attribute_ordinal;
+            ORDER BY f.file_id;
             """;
         Add(command, "$path", identityPath);
         Add(command, "$public", (int)PeerBrowseEntryVisibility.Public);
@@ -437,8 +440,7 @@ public sealed class PeerBrowseArtifactStore
         await ReadPeerFileTargetsAsync(
             reader,
             identity.Username,
-            attributeTypeOrdinal: 8,
-            attributeValueOrdinal: 9,
+            attributesOrdinal: 4,
             static _ => false,
             (target, _) => targets.Add(target),
             cancellationToken).ConfigureAwait(false);
@@ -456,7 +458,7 @@ public sealed class PeerBrowseArtifactStore
         await using ArtifactLease lease = await AcquireLeaseAsync(browseId, cancellationToken).ConfigureAwait(false);
         await using SqliteConnection connection = await OpenArtifactAsync(lease.ArtifactPath, cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.CommandText = DirectorySelect + " WHERE directory_id = $id;";
+        command.CommandText = DirectorySelectSql + " WHERE directory_id = $id;";
         Add(command, "$id", directoryId);
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
@@ -509,7 +511,7 @@ public sealed class PeerBrowseArtifactStore
             predicates.Add("(display_path > $after_key COLLATE BINARY OR (display_path = $after_key COLLATE BINARY AND directory_id > $after_id))");
 
         await using var command = connection.CreateCommand();
-        command.CommandText = DirectorySelect
+        command.CommandText = DirectorySelectSql
                               + (predicates.Count == 0 ? "" : " WHERE " + string.Join(" AND ", predicates))
                               + " ORDER BY display_path COLLATE BINARY, directory_id LIMIT $limit;";
         if (parentId is not null)
@@ -518,9 +520,9 @@ public sealed class PeerBrowseArtifactStore
         Add(command, "$query", query);
         Add(command, "$after_key", afterSortKey);
         Add(command, "$after_id", afterId);
-        Add(command, "$limit", checked(limit + 1));
+        Add(command, "$limit", (long)limit + 1);
 
-        var items = new List<PeerBrowseDirectoryEntry>(limit + 1);
+        var items = new List<PeerBrowseDirectoryEntry>();
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             items.Add(ReadDirectoryEntry(reader));
@@ -545,88 +547,28 @@ public sealed class PeerBrowseArtifactStore
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
-            WITH page AS (
-                SELECT file_id, directory_id, visibility, name, size_bytes, extension,
-                       bit_rate, bit_depth, sample_rate, length_seconds
-                FROM files
-                WHERE directory_id = $directory_id
-                  AND ($query IS NULL OR ordinal_contains(name, $query))
-                  AND ($after_key IS NULL
-                       OR name > $after_key COLLATE BINARY
-                       OR (name = $after_key COLLATE BINARY AND file_id > $after_id))
-                ORDER BY name COLLATE BINARY, file_id
-                LIMIT $limit
-            )
-            SELECT page.file_id, page.directory_id, page.visibility, page.name, page.size_bytes,
-                   page.extension, page.bit_rate, page.bit_depth, page.sample_rate,
-                   page.length_seconds, a.attribute_type, a.attribute_value
-            FROM page
-            LEFT JOIN file_attributes a ON a.file_id = page.file_id
-            ORDER BY page.name COLLATE BINARY, page.file_id, a.attribute_ordinal;
+            SELECT file_id, directory_id, visibility, name, size_bytes, extension,
+                   attributes
+            FROM files
+            WHERE directory_id = $directory_id
+              AND ($query IS NULL OR ordinal_contains(name, $query))
+              AND ($after_key IS NULL
+                   OR name > $after_key COLLATE BINARY
+                   OR (name = $after_key COLLATE BINARY AND file_id > $after_id))
+            ORDER BY name COLLATE BINARY, file_id
+            LIMIT $limit;
             """;
         Add(command, "$directory_id", directoryId);
         Add(command, "$query", string.IsNullOrEmpty(query) ? null : query);
         Add(command, "$after_key", afterSortKey);
         Add(command, "$after_id", afterId);
-        Add(command, "$limit", checked(limit + 1));
+        Add(command, "$limit", (long)limit + 1);
 
-        var items = new List<PeerBrowseFileEntry>(limit + 1);
-        long? currentId = null;
-        long currentDirectory = 0;
-        PeerBrowseEntryVisibility visibility = PeerBrowseEntryVisibility.Public;
-        string? name = null;
-        long size = 0;
-        string? extension = null;
-        int? bitRate = null;
-        int? bitDepth = null;
-        int? sampleRate = null;
-        int? length = null;
-        List<PeerBrowseFileAttribute>? attributes = null;
+        var items = new List<PeerBrowseFileEntry>();
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            long fileId = reader.GetInt64(0);
-            if (fileId != currentId)
-            {
-                AddCurrent();
-                currentId = fileId;
-                currentDirectory = reader.GetInt64(1);
-                visibility = (PeerBrowseEntryVisibility)reader.GetInt32(2);
-                name = reader.GetString(3);
-                size = reader.GetInt64(4);
-                extension = reader.IsDBNull(5) ? null : reader.GetString(5);
-                bitRate = NullableInt(reader, 6);
-                bitDepth = NullableInt(reader, 7);
-                sampleRate = NullableInt(reader, 8);
-                length = NullableInt(reader, 9);
-                attributes = null;
-            }
-            if (!reader.IsDBNull(10))
-            {
-                attributes ??= [];
-                attributes.Add(new PeerBrowseFileAttribute(reader.GetInt32(10), reader.GetInt32(11)));
-            }
-        }
-        AddCurrent();
+            items.Add(ReadFileEntry(reader));
         return ToPage(items, limit, static item => item.Name, static item => item.FileId);
-
-        void AddCurrent()
-        {
-            if (currentId is null)
-                return;
-            items.Add(new PeerBrowseFileEntry(
-                currentId.Value,
-                currentDirectory,
-                visibility,
-                name!,
-                size,
-                extension,
-                bitRate,
-                bitDepth,
-                sampleRate,
-                length,
-                attributes));
-        }
     }
 
     public async Task<PeerBrowseFileEntry?> ReadFileEntryAsync(
@@ -643,54 +585,27 @@ public sealed class PeerBrowseArtifactStore
         command.CommandText =
             """
             SELECT f.file_id, f.directory_id, f.visibility, f.name, f.size_bytes, f.extension,
-                   f.bit_rate, f.bit_depth, f.sample_rate, f.length_seconds,
-                   a.attribute_type, a.attribute_value
+                   f.attributes
             FROM files f
-            LEFT JOIN file_attributes a ON a.file_id = f.file_id
-            WHERE f.file_id = $file_id
-            ORDER BY a.attribute_ordinal;
+            WHERE f.file_id = $file_id;
             """;
         Add(command, "$file_id", fileId);
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            return null;
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadFileEntry(reader) : null;
+    }
 
-        var attributes = new List<PeerBrowseFileAttribute>();
-        long directoryId = reader.GetInt64(1);
-        PeerBrowseEntryVisibility visibility = (PeerBrowseEntryVisibility)reader.GetInt32(2);
-        string name = reader.GetString(3);
-        long size = reader.GetInt64(4);
-        string? extension = reader.IsDBNull(5) ? null : reader.GetString(5);
-        int? bitRate = NullableInt(reader, 6);
-        int? bitDepth = NullableInt(reader, 7);
-        int? sampleRate = NullableInt(reader, 8);
-        int? length = NullableInt(reader, 9);
-        do
-        {
-            if (!reader.IsDBNull(10))
-                attributes.Add(new PeerBrowseFileAttribute(reader.GetInt32(10), reader.GetInt32(11)));
-        }
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false));
-
-        return new PeerBrowseFileEntry(
-            fileId,
-            directoryId,
-            visibility,
-            name,
-            size,
-            extension,
-            bitRate,
-            bitDepth,
-            sampleRate,
-            length,
-            attributes.Count == 0 ? null : attributes);
+    private static PeerBrowseFileEntry ReadFileEntry(SqliteDataReader reader)
+    {
+        var file = PeerBrowseAttributes.Read(reader, 6, static (type, value) => new PeerBrowseFileAttribute(type, value));
+        return new(reader.GetInt64(0), reader.GetInt64(1), (PeerBrowseEntryVisibility)reader.GetInt32(2),
+            reader.GetString(3), reader.GetInt64(4), reader.IsDBNull(5) ? null : reader.GetString(5),
+            file.Metadata.BitRate, file.Metadata.BitDepth, file.Metadata.SampleRate, file.Metadata.Length, file.Attributes);
     }
 
     /// <summary>
-    /// Searches one immutable artifact as a flat mixed projection. The FTS row
-    /// narrows candidates; <c>ordinal_contains</c> is the authoritative
-    /// post-filter so indexed and short-query fallback paths have identical
-    /// public semantics.
+    /// Searches one immutable artifact as a flat mixed projection. Native scans
+    /// of pre-folded paths preserve literal OrdinalIgnoreCase semantics without
+    /// an eagerly built full-text index or managed callbacks for every file.
     /// </summary>
     public async Task<PeerBrowseSearchPage> SearchAsync(
         Guid browseId,
@@ -704,42 +619,58 @@ public sealed class PeerBrowseArtifactStore
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
         query = query.Trim();
         ValidateSearchPage(afterSortKey, afterKind, afterId, limit);
-        await RequireCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
+        PeerBrowseResource resource = await RequireCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
         await using ArtifactLease lease = await AcquireLeaseAsync(browseId, cancellationToken).ConfigureAwait(false);
         await using SqliteConnection connection = await OpenArtifactAsync(
             lease.ArtifactPath,
             cancellationToken).ConfigureAwait(false);
-        if (!await HasSearchIndexAsync(connection, cancellationToken).ConfigureAwait(false))
-        {
-            throw new PeerBrowseSearchUnavailableException(
-                "This retained browse predates indexed share search; refresh the user's shares to search it.");
-        }
-
-        bool indexed = query.EnumerateRunes().Take(3).Count() == 3;
-        string directPredicate = indexed
-            ? "browse_search MATCH $fts AND ordinal_contains(display_path, $query)"
-            : "ordinal_contains(display_path, $query)";
+        const string totalFields = "subtree.total_recursive_file_count, subtree.total_recursive_file_bytes";
+        string searchQuery = FoldSearchPath(query);
+        string sumBytes = SumFunction(resource.TotalFileBytes);
+        // A substring without a separator lies wholly in a directory path or
+        // filename. Match directories once, avoiding a parent lookup per file.
+        // Filenames contain no separator. A crossing match therefore ends the
+        // directory with the query's prefix and starts the filename with its
+        // final component; match those directories once too.
+        int separator = searchQuery.LastIndexOf('\\');
+        string fileMatch = separator < 0
+            ? "instr(f.search_name, $search_query) > 0 OR f.directory_id IN (SELECT directory_id FROM direct_directory_matches)"
+            : """
+              f.directory_id IN (SELECT directory_id FROM direct_directory_matches)
+              OR (instr(f.search_name, $leaf_prefix) = 1 AND f.directory_id IN (
+                  SELECT directory_id FROM directories
+                  WHERE substr(search_path, length(search_path) - length($directory_suffix) + 1)
+                      = $directory_suffix COLLATE BINARY))
+              """;
+        // Aggregate matching files once at their directory, and derive global
+        // totals before ancestor expansion (which would double-count them).
+        // Materialize compact file facts only. Copying every matching display
+        // path spills tens of MB to temporary storage for ordinary long paths.
+        // Read paths for page ordering and facts for the final bounded page.
         await using var command = connection.CreateCommand();
         command.CommandText = $$"""
             WITH RECURSIVE
-            direct_matches(entry_kind, entry_id, display_path) AS MATERIALIZED (
-                SELECT CAST(entry_kind AS INTEGER), CAST(entry_id AS INTEGER), display_path
-                FROM browse_search
-                WHERE {{directPredicate}}
+            direct_directory_matches(directory_id) AS MATERIALIZED (
+                SELECT d.directory_id
+                FROM directories d
+                WHERE instr(d.search_path, $search_query) > 0
             ),
             file_matches AS MATERIALIZED (
-                SELECT f.file_id, f.directory_id, f.visibility, f.name,
-                       match.display_path, f.size_bytes, f.extension, f.bit_rate,
-                       f.bit_depth, f.sample_rate, f.length_seconds
-                FROM direct_matches match
-                JOIN files f ON f.file_id = match.entry_id
-                WHERE match.entry_kind = 1
+                SELECT f.file_id, f.directory_id, f.visibility, f.size_bytes
+                FROM files f
+                WHERE {{fileMatch}}
             ),
-            direct_directory_matches(directory_id) AS MATERIALIZED (
-                SELECT entry_id FROM direct_matches WHERE entry_kind = 0
+            file_directory_totals AS MATERIALIZED (
+                SELECT directory_id,
+                       COUNT(CASE WHEN visibility = 0 THEN 1 END) AS public_count,
+                       COALESCE({{sumBytes}}(size_bytes) FILTER (WHERE visibility = 0), 0) AS public_bytes,
+                       COUNT(CASE WHEN visibility = 1 THEN 1 END) AS locked_count,
+                       COALESCE({{sumBytes}}(size_bytes) FILTER (WHERE visibility = 1), 0) AS locked_bytes
+                FROM file_matches
+                GROUP BY directory_id
             ),
             included_directories(directory_id) AS (
-                SELECT directory_id FROM file_matches
+                SELECT directory_id FROM file_directory_totals
                 UNION
                 SELECT directory_id FROM direct_directory_matches
                 UNION
@@ -748,32 +679,55 @@ public sealed class PeerBrowseArtifactStore
                 JOIN directories d ON d.directory_id = included.directory_id
                 WHERE d.parent_id IS NOT NULL
             ),
-            file_ancestry(file_id, directory_id, visibility, size_bytes) AS (
-                SELECT file_id, directory_id, visibility, size_bytes
-                FROM file_matches
+            directory_ancestry(directory_id, public_count, public_bytes, locked_count, locked_bytes) AS (
+                SELECT directory_id, public_count, public_bytes, locked_count, locked_bytes
+                FROM file_directory_totals
                 UNION ALL
-                SELECT ancestry.file_id, d.parent_id, ancestry.visibility, ancestry.size_bytes
-                FROM file_ancestry ancestry
+                SELECT d.parent_id, ancestry.public_count, ancestry.public_bytes,
+                       ancestry.locked_count, ancestry.locked_bytes
+                FROM directory_ancestry ancestry
                 JOIN directories d ON d.directory_id = ancestry.directory_id
                 WHERE d.parent_id IS NOT NULL
             ),
             directory_totals AS MATERIALIZED (
                 SELECT directory_id,
-                       COUNT(CASE WHEN visibility = 0 THEN 1 END) AS public_count,
-                       COALESCE(saturating_sum(CASE WHEN visibility = 0 THEN size_bytes ELSE 0 END), 0) AS public_bytes,
-                       COUNT(CASE WHEN visibility = 1 THEN 1 END) AS locked_count,
-                       COALESCE(saturating_sum(CASE WHEN visibility = 1 THEN size_bytes ELSE 0 END), 0) AS locked_bytes
-                FROM file_ancestry
+                       COALESCE(sum(public_count), 0) AS public_count,
+                       COALESCE({{sumBytes}}(public_bytes), 0) AS public_bytes,
+                       COALESCE(sum(locked_count), 0) AS locked_count,
+                       COALESCE({{sumBytes}}(locked_bytes), 0) AS locked_bytes
+                FROM directory_ancestry
                 GROUP BY directory_id
             ),
             totals AS MATERIALIZED (
-                SELECT COUNT(CASE WHEN visibility = 0 THEN 1 END) AS public_count,
-                       COALESCE(saturating_sum(CASE WHEN visibility = 0 THEN size_bytes ELSE 0 END), 0) AS public_bytes,
-                       COUNT(CASE WHEN visibility = 1 THEN 1 END) AS locked_count,
-                       COALESCE(saturating_sum(CASE WHEN visibility = 1 THEN size_bytes ELSE 0 END), 0) AS locked_bytes
-                FROM file_matches
+                SELECT COALESCE(sum(public_count), 0) AS public_count,
+                       COALESCE({{sumBytes}}(public_bytes), 0) AS public_bytes,
+                       COALESCE(sum(locked_count), 0) AS locked_count,
+                       COALESCE({{sumBytes}}(locked_bytes), 0) AS locked_bytes
+                FROM file_directory_totals
             ),
-            all_rows AS MATERIALIZED (
+            page_refs AS MATERIALIZED (
+                SELECT * FROM (
+                    SELECT 0 AS entry_kind, d.directory_id AS entry_id, d.display_path
+                    FROM included_directories included
+                    CROSS JOIN directories d ON d.directory_id = included.directory_id
+                    UNION ALL
+                    SELECT 1 AS entry_kind, matched.file_id AS entry_id,
+                           d.display_path || '\' || f.name AS display_path
+                    FROM file_matches matched
+                    CROSS JOIN files f ON f.file_id = matched.file_id
+                    CROSS JOIN directories d ON d.directory_id = matched.directory_id
+                )
+                WHERE $after_path IS NULL
+                   OR display_path > $after_path COLLATE BINARY
+                   OR (display_path = $after_path COLLATE BINARY AND entry_kind > $after_kind)
+                   OR (display_path = $after_path COLLATE BINARY
+                       AND entry_kind = $after_kind AND entry_id > $after_id)
+                ORDER BY display_path COLLATE BINARY, entry_kind, entry_id
+                LIMIT $limit
+            ),
+            page_rows AS (
+                -- Keep page refs outer: reordering this join can scan the whole
+                -- artifact just to hydrate a bounded page's presentation facts.
                 SELECT 0 AS entry_kind,
                        d.directory_id AS entry_id,
                        d.directory_id,
@@ -787,12 +741,9 @@ public sealed class PeerBrowseArtifactStore
                        COALESCE(t.locked_bytes, 0) AS locked_bytes,
                        NULL AS file_size,
                        NULL AS extension,
-                       NULL AS bit_rate,
-                       NULL AS bit_depth,
-                       NULL AS sample_rate,
-                       NULL AS length_seconds
-                FROM included_directories included
-                JOIN directories d ON d.directory_id = included.directory_id
+                       NULL AS attributes
+                FROM page_refs page
+                CROSS JOIN directories d ON page.entry_kind = 0 AND d.directory_id = page.entry_id
                 LEFT JOIN directory_totals t ON t.directory_id = d.directory_id
 
                 UNION ALL
@@ -802,7 +753,7 @@ public sealed class PeerBrowseArtifactStore
                        f.directory_id,
                        f.directory_id AS parent_directory_id,
                        f.name,
-                       f.display_path,
+                       page.display_path,
                        f.visibility,
                        CASE WHEN f.visibility = 0 THEN 1 ELSE 0 END AS public_count,
                        CASE WHEN f.visibility = 0 THEN f.size_bytes ELSE 0 END AS public_bytes,
@@ -810,53 +761,47 @@ public sealed class PeerBrowseArtifactStore
                        CASE WHEN f.visibility = 1 THEN f.size_bytes ELSE 0 END AS locked_bytes,
                        f.size_bytes AS file_size,
                        f.extension,
-                       f.bit_rate,
-                       f.bit_depth,
-                       f.sample_rate,
-                       f.length_seconds
-                FROM file_matches f
-            ),
-            page_rows AS (
-                SELECT *
-                FROM all_rows
-                WHERE $after_path IS NULL
-                   OR display_path > $after_path COLLATE BINARY
-                   OR (display_path = $after_path COLLATE BINARY AND entry_kind > $after_kind)
-                   OR (display_path = $after_path COLLATE BINARY
-                       AND entry_kind = $after_kind AND entry_id > $after_id)
-                ORDER BY display_path COLLATE BINARY, entry_kind, entry_id
-                LIMIT $limit
+                       f.attributes
+                FROM page_refs page
+                CROSS JOIN files f ON page.entry_kind = 1 AND f.file_id = page.entry_id
             )
             SELECT 0 AS sentinel,
                    page.entry_kind, page.entry_id, page.directory_id,
-                   page.parent_directory_id, page.name, page.display_path,
+                   page.parent_directory_id, page.name, page.display_path AS display_path,
                    page.visibility, page.public_count, page.public_bytes,
                    page.locked_count, page.locked_bytes, page.file_size,
-                   page.extension, page.bit_rate, page.bit_depth,
-                   page.sample_rate, page.length_seconds,
+                   page.extension, page.attributes,
                    totals.public_count, totals.public_bytes,
-                   totals.locked_count, totals.locked_bytes
+                   totals.locked_count, totals.locked_bytes,
+                   subtree.recursive_file_count, subtree.recursive_file_bytes,
+                   {{totalFields}}
             FROM page_rows page
             CROSS JOIN totals
+            LEFT JOIN directories subtree ON page.entry_kind = 0 AND subtree.directory_id = page.entry_id
 
             UNION ALL
 
             SELECT 1 AS sentinel,
                    NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                   NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                    totals.public_count, totals.public_bytes,
-                   totals.locked_count, totals.locked_bytes
+                   totals.locked_count, totals.locked_bytes,
+                   NULL, NULL, NULL, NULL
             FROM totals
             ORDER BY sentinel, display_path COLLATE BINARY, entry_kind, entry_id;
             """;
-        Add(command, "$query", query);
-        Add(command, "$fts", indexed ? FtsLiteral(query) : null);
+        Add(command, "$search_query", searchQuery);
+        if (separator >= 0)
+        {
+            Add(command, "$leaf_prefix", searchQuery[(separator + 1)..]);
+            Add(command, "$directory_suffix", searchQuery[..separator]);
+        }
         Add(command, "$after_path", afterSortKey);
         Add(command, "$after_kind", afterKind is null ? null : (int)afterKind.Value);
         Add(command, "$after_id", afterId);
-        Add(command, "$limit", checked(limit + 1));
+        Add(command, "$limit", (long)limit + 1);
 
-        var items = new List<PeerBrowseSearchEntry>(limit + 1);
+        var items = new List<PeerBrowseSearchEntry>();
         long publicCount = 0;
         long publicBytes = 0;
         long lockedCount = 0;
@@ -864,12 +809,13 @@ public sealed class PeerBrowseArtifactStore
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            publicCount = reader.GetInt64(18);
-            publicBytes = reader.GetInt64(19);
-            lockedCount = reader.GetInt64(20);
-            lockedBytes = reader.GetInt64(21);
+            publicCount = reader.GetInt64(15);
+            publicBytes = reader.GetInt64(16);
+            lockedCount = reader.GetInt64(17);
+            lockedBytes = reader.GetInt64(18);
             if (reader.GetInt32(0) != 0)
                 continue;
+            PeerBrowseFileMetadata metadata = PeerBrowseAttributes.ReadMetadata(reader, 14);
             items.Add(new PeerBrowseSearchEntry(
                 (PeerBrowseSearchEntryKind)reader.GetInt32(1),
                 reader.GetInt64(2),
@@ -884,10 +830,14 @@ public sealed class PeerBrowseArtifactStore
                 reader.GetInt64(11),
                 reader.IsDBNull(12) ? null : reader.GetInt64(12),
                 reader.IsDBNull(13) ? null : reader.GetString(13),
-                NullableInt(reader, 14),
-                NullableInt(reader, 15),
-                NullableInt(reader, 16),
-                NullableInt(reader, 17)));
+                metadata.BitRate,
+                metadata.BitDepth,
+                metadata.SampleRate,
+                metadata.Length,
+                reader.IsDBNull(19) ? null : reader.GetInt64(19),
+                reader.IsDBNull(20) ? null : reader.GetInt64(20),
+                reader.IsDBNull(21) ? null : reader.GetInt64(21),
+                reader.IsDBNull(22) ? null : reader.GetInt64(22)));
         }
 
         bool hasMore = items.Count > limit;
@@ -925,7 +875,7 @@ public sealed class PeerBrowseArtifactStore
                 "SELECT display_path FROM directories WHERE directory_id = $id;",
             PeerBrowseSearchEntryKind.File =>
                 """
-                SELECT d.display_path || '\\' || f.name
+                SELECT d.display_path || '\' || f.name
                 FROM files f
                 JOIN directories d ON d.directory_id = f.directory_id
                 WHERE f.file_id = $id;
@@ -940,13 +890,18 @@ public sealed class PeerBrowseArtifactStore
         Guid browseId,
         IReadOnlyList<long> directoryIds,
         IReadOnlyList<long> fileIds,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<long>? excludedFileIds = null,
+        IReadOnlyList<long>? excludedDirectoryIds = null)
     {
         ArgumentNullException.ThrowIfNull(directoryIds);
         ArgumentNullException.ThrowIfNull(fileIds);
+        excludedFileIds ??= [];
+        excludedDirectoryIds ??= [];
         if (directoryIds.Count == 0 && fileIds.Count == 0)
             throw new PeerBrowseSelectionException("At least one directory or file must be selected.");
-        if (directoryIds.Any(id => id <= 0) || fileIds.Any(id => id <= 0))
+        if (directoryIds.Any(id => id <= 0) || fileIds.Any(id => id <= 0)
+            || excludedFileIds.Any(id => id <= 0) || excludedDirectoryIds.Any(id => id <= 0))
             throw new PeerBrowseSelectionException("Selection IDs must be positive.");
 
         PeerBrowseResource resource = await RequireCompleteAsync(
@@ -961,6 +916,18 @@ public sealed class PeerBrowseArtifactStore
 
         long[] distinctDirectoryIds = directoryIds.Distinct().ToArray();
         long[] distinctFileIds = fileIds.Distinct().ToArray();
+        HashSet<long> excluded = excludedFileIds.ToHashSet();
+        await CreateIdTableAsync(connection, "excluded_files", excluded.ToArray(), cancellationToken).ConfigureAwait(false);
+        await CreateIdTableAsync(connection, "excluded_directories", excludedDirectoryIds.Distinct().ToArray(), cancellationToken).ConfigureAwait(false);
+        await using (var validation = connection.CreateCommand())
+        {
+            validation.CommandText = "SELECT COUNT(*) FROM excluded_files e LEFT JOIN files f ON f.file_id = e.id WHERE f.file_id IS NULL;";
+            if (Convert.ToInt64(await validation.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0)
+                throw new PeerBrowseSelectionException("One or more excluded files do not exist in this browse.");
+            validation.CommandText = "SELECT COUNT(*) FROM excluded_directories e LEFT JOIN directories d ON d.directory_id = e.id WHERE d.directory_id IS NULL;";
+            if (Convert.ToInt64(await validation.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) != 0)
+                throw new PeerBrowseSelectionException("One or more excluded directories do not exist in this browse.");
+        }
         int redundant = checked(
             directoryIds.Count - distinctDirectoryIds.Length
             + fileIds.Count - distinctFileIds.Length);
@@ -1003,19 +970,30 @@ public sealed class PeerBrowseArtifactStore
         if (selectedDirectories.Any(directory => directory.Visibility == PeerBrowseEntryVisibility.Locked))
             throw new PeerBrowseSelectionException("Locked directories cannot be selected for download.");
 
+        var excludedDirectoryPaths = new HashSet<string>(StringComparer.Ordinal);
+        await using (var paths = connection.CreateCommand())
+        {
+            paths.CommandText = "SELECT d.identity_path FROM directories d JOIN excluded_directories e ON e.id = d.directory_id;";
+            await using SqliteDataReader reader = await paths.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                excludedDirectoryPaths.Add(reader.GetString(0));
+        }
+        var includedDirectoryPaths = new HashSet<string>(StringComparer.Ordinal);
         var canonicalDirectories = new List<SelectionDirectory>();
         var canonicalDirectoryPaths = new HashSet<string>(StringComparer.Ordinal);
         foreach (SelectionDirectory directory in selectedDirectories)
         {
             if (HasSameOrAncestor(canonicalDirectoryPaths, directory.IdentityPath))
             {
-                redundant = checked(redundant + 1);
+                if (IsIncludedByDirectoryRule(directory.IdentityPath, includedDirectoryPaths, excludedDirectoryPaths))
+                    redundant = checked(redundant + 1);
             }
             else
             {
                 canonicalDirectories.Add(directory);
                 canonicalDirectoryPaths.Add(directory.IdentityPath);
             }
+            includedDirectoryPaths.Add(directory.IdentityPath);
         }
 
         List<SelectedFile> selectedFiles = await ReadSelectedFilesAsync(
@@ -1030,9 +1008,11 @@ public sealed class PeerBrowseArtifactStore
         var standaloneFiles = new List<SelectedFile>();
         foreach (SelectedFile file in selectedFiles)
         {
+            if (excluded.Contains(file.FileId)) continue;
             if (HasSameOrAncestor(canonicalDirectoryPaths, file.Directory.IdentityPath))
             {
-                redundant = checked(redundant + 1);
+                if (IsIncludedByDirectoryRule(file.Directory.IdentityPath, includedDirectoryPaths, excludedDirectoryPaths))
+                    redundant = checked(redundant + 1);
             }
             else
             {
@@ -1049,13 +1029,22 @@ public sealed class PeerBrowseArtifactStore
             resource.Username,
             canonicalDirectories,
             cancellationToken).ConfigureAwait(false);
+        IReadOnlyDictionary<long, long>? includedLockedDescendants = excludedDirectoryIds.Count > 0
+            ? await ReadIncludedLockedDescendantCountsAsync(
+                connection,
+                canonicalDirectories,
+                cancellationToken).ConfigureAwait(false)
+            : null;
         foreach (SelectionDirectory directory in canonicalDirectories)
         {
-            DirectoryTransferPlan plan = directoryPlans[directory.DirectoryId];
+            if (!directoryPlans.TryGetValue(directory.DirectoryId, out DirectoryTransferPlan? plan))
+                continue;
             orderedPlans.Add(("0\0" + directory.DisplayPath, plan));
             totalFiles = checked(totalFiles + plan.Entries.Count);
             totalBytes = SaturatingAdd(totalBytes, plan.TotalKnownBytes);
-            lockedSkipped = checked(lockedSkipped + directory.LockedDescendantCount);
+            lockedSkipped = checked(lockedSkipped + (includedLockedDescendants is null
+                ? directory.LockedDescendantCount
+                : includedLockedDescendants.GetValueOrDefault(directory.DirectoryId)));
         }
 
         foreach (IGrouping<long, SelectedFile> group in standaloneFiles
@@ -1069,7 +1058,8 @@ public sealed class PeerBrowseArtifactStore
                 .ToArray();
             var plan = new DirectoryTransferPlan(
                 PeerBrowsePath.Leaf(first.Directory.IdentityPath),
-                entries);
+                entries,
+                representsDirectorySelection: false);
             orderedPlans.Add(("1\0" + first.Directory.DisplayPath, plan));
             totalFiles = checked(totalFiles + plan.Entries.Count);
             totalBytes = SaturatingAdd(totalBytes, plan.TotalKnownBytes);
@@ -1115,6 +1105,22 @@ public sealed class PeerBrowseArtifactStore
         return false;
     }
 
+    private static bool IsIncludedByDirectoryRule(
+        string identityPath, HashSet<string> included, HashSet<string> excluded)
+    {
+        // The nearest explicit rule wins; exclusion wins at the same identity,
+        // matching the recursive plan query. Never use display paths here.
+        string current = identityPath;
+        while (true)
+        {
+            if (excluded.Contains(current)) return false;
+            if (included.Contains(current)) return true;
+            int separator = current.LastIndexOf('\\');
+            if (separator <= 0) return false;
+            current = current[..separator];
+        }
+    }
+
     private static async Task<List<SelectedFile>> ReadSelectedFilesAsync(
         SqliteConnection connection,
         string username,
@@ -1124,38 +1130,81 @@ public sealed class PeerBrowseArtifactStore
         command.CommandText =
             """
             SELECT f.file_id, f.wire_filename, f.size_bytes, f.extension,
-                   f.bit_rate, f.bit_depth, f.sample_rate, f.length_seconds,
                    d.directory_id, d.identity_path, d.name, d.display_path,
                    f.visibility, d.visibility, d.locked_descendant_count,
-                   a.attribute_type, a.attribute_value
+                   f.attributes
             FROM files f
             JOIN selected_files s ON s.id = f.file_id
             JOIN directories d ON d.directory_id = f.directory_id
-            LEFT JOIN file_attributes a ON a.file_id = f.file_id
-            ORDER BY f.file_id, a.attribute_ordinal;
+            ORDER BY f.file_id;
             """;
         var files = new List<SelectedFile>();
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         await ReadPeerFileTargetsAsync(
             reader,
             username,
-            attributeTypeOrdinal: 15,
-            attributeValueOrdinal: 16,
+            attributesOrdinal: 11,
             row => new SelectedFileContext(
+                row.GetInt64(0),
                 new SelectionDirectory(
-                    row.GetInt64(8),
-                    row.GetString(9),
-                    row.GetString(10),
-                    row.GetString(11),
-                    (PeerBrowseEntryVisibility)row.GetInt32(13),
-                    row.GetInt64(14)),
-                (PeerBrowseEntryVisibility)row.GetInt32(12)),
+                    row.GetInt64(4),
+                    row.GetString(5),
+                    row.GetString(6),
+                    row.GetString(7),
+                    (PeerBrowseEntryVisibility)row.GetInt32(9),
+                    row.GetInt64(10)),
+                (PeerBrowseEntryVisibility)row.GetInt32(8)),
             (target, context) => files.Add(new SelectedFile(
+                context.FileId,
                 target,
                 context.Directory,
                 context.Visibility)),
             cancellationToken).ConfigureAwait(false);
         return files;
+    }
+
+    private const string SelectedSubtreesCte =
+        """
+        WITH RECURSIVE selected_subtrees(root_id, directory_id, included) AS (
+            SELECT CAST(value AS INTEGER), CAST(value AS INTEGER),
+                   NOT EXISTS (SELECT 1 FROM excluded_directories WHERE id = CAST(value AS INTEGER))
+            FROM json_each($root_ids)
+            UNION ALL
+            SELECT selected_subtrees.root_id, child.directory_id,
+                   CASE WHEN EXISTS (SELECT 1 FROM excluded_directories WHERE id = child.directory_id) THEN 0
+                        WHEN EXISTS (SELECT 1 FROM selected_directories WHERE id = child.directory_id) THEN 1
+                        ELSE selected_subtrees.included END
+            FROM selected_subtrees
+            JOIN directories child ON child.parent_id = selected_subtrees.directory_id
+        )
+        """;
+
+    private static async Task<IReadOnlyDictionary<long, long>> ReadIncludedLockedDescendantCountsAsync(
+        SqliteConnection connection,
+        IReadOnlyList<SelectionDirectory> roots,
+        CancellationToken cancellationToken)
+    {
+        var counts = new Dictionary<long, long>();
+        if (roots.Count == 0)
+            return counts;
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = SelectedSubtreesCte +
+            """
+            SELECT selected.root_id, COUNT(*)
+            FROM selected_subtrees selected
+            JOIN directories d ON d.directory_id = selected.directory_id
+            WHERE selected.included = 1
+              AND selected.directory_id <> selected.root_id
+              AND d.visibility = $locked
+            GROUP BY selected.root_id;
+            """;
+        Add(command, "$root_ids", JsonSerializer.Serialize(roots.Select(root => root.DirectoryId)));
+        Add(command, "$locked", (int)PeerBrowseEntryVisibility.Locked);
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            counts.Add(reader.GetInt64(0), reader.GetInt64(1));
+        return counts;
     }
 
     private static async Task<IReadOnlyDictionary<long, DirectoryTransferPlan>> ReadPlansAsync(
@@ -1168,27 +1217,19 @@ public sealed class PeerBrowseArtifactStore
             return new Dictionary<long, DirectoryTransferPlan>();
 
         await using var command = connection.CreateCommand();
-        command.CommandText =
+        command.CommandText = SelectedSubtreesCte +
             """
-            WITH RECURSIVE selected_subtrees(root_id, directory_id) AS (
-                SELECT CAST(value AS INTEGER), CAST(value AS INTEGER)
-                FROM json_each($root_ids)
-                UNION ALL
-                SELECT selected_subtrees.root_id, child.directory_id
-                FROM selected_subtrees
-                JOIN directories child ON child.parent_id = selected_subtrees.directory_id
-            )
             SELECT f.file_id, f.wire_filename, f.size_bytes, f.extension,
-                   f.bit_rate, f.bit_depth, f.sample_rate, f.length_seconds,
                    root.directory_id, root.identity_path, d.identity_path,
-                   a.attribute_type, a.attribute_value
+                   f.attributes
             FROM selected_subtrees selected
             JOIN directories root ON root.directory_id = selected.root_id
             JOIN directories d ON d.directory_id = selected.directory_id
             JOIN files f ON f.directory_id = d.directory_id
-            LEFT JOIN file_attributes a ON a.file_id = f.file_id
             WHERE f.visibility = $public
-            ORDER BY root.directory_id, f.file_id, a.attribute_ordinal;
+              AND (selected.included = 1 OR EXISTS (SELECT 1 FROM selected_files WHERE id = f.file_id))
+              AND NOT EXISTS (SELECT 1 FROM excluded_files excluded WHERE excluded.id = f.file_id)
+            ORDER BY root.directory_id, f.file_id;
             """;
         Add(command, "$root_ids", JsonSerializer.Serialize(roots.Select(root => root.DirectoryId)));
         Add(command, "$public", (int)PeerBrowseEntryVisibility.Public);
@@ -1200,9 +1241,8 @@ public sealed class PeerBrowseArtifactStore
         await ReadPeerFileTargetsAsync(
             reader,
             username,
-            attributeTypeOrdinal: 11,
-            attributeValueOrdinal: 12,
-            static row => new PlanFileContext(row.GetInt64(8), row.GetString(9), row.GetString(10)),
+            attributesOrdinal: 7,
+            static row => new PlanFileContext(row.GetInt64(4), row.GetString(5), row.GetString(6)),
             (target, context) =>
             {
                 string[] relative = StringComparer.Ordinal.Equals(context.DirectoryPath, context.RootPath)
@@ -1217,8 +1257,7 @@ public sealed class PeerBrowseArtifactStore
         {
             List<DirectoryTransferEntry> entries = entriesByRoot[root.DirectoryId];
             if (entries.Count == 0)
-                throw new PeerBrowseSelectionException(
-                    $"Selected directory '{root.Name}' contains no downloadable public files.");
+                continue;
             plans.Add(root.DirectoryId, new DirectoryTransferPlan(PeerBrowsePath.Leaf(root.IdentityPath), entries));
         }
         return plans;
@@ -1227,68 +1266,21 @@ public sealed class PeerBrowseArtifactStore
     private static async Task ReadPeerFileTargetsAsync<TContext>(
         SqliteDataReader reader,
         string username,
-        int attributeTypeOrdinal,
-        int attributeValueOrdinal,
+        int attributesOrdinal,
         Func<SqliteDataReader, TContext> readContext,
         Action<PeerFileTarget, TContext> addTarget,
         CancellationToken cancellationToken)
     {
-        long? currentId = null;
-        string? filename = null;
-        long size = 0;
-        string? extension = null;
-        int? bitRate = null;
-        int? bitDepth = null;
-        int? sampleRate = null;
-        int? length = null;
-        TContext context = default!;
-        List<FileAttributeSnapshot>? attributes = null;
-
+        // One row is one file, including all ordered attributes. Decode metadata
+        // only for returned files; local CLI and retained artifacts share its rule.
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            long fileId = reader.GetInt64(0);
-            if (currentId != fileId)
-            {
-                AddCurrent();
-                currentId = fileId;
-                filename = reader.GetString(1);
-                size = reader.GetInt64(2);
-                extension = reader.IsDBNull(3) ? null : reader.GetString(3);
-                bitRate = NullableInt(reader, 4);
-                bitDepth = NullableInt(reader, 5);
-                sampleRate = NullableInt(reader, 6);
-                length = NullableInt(reader, 7);
-                context = readContext(reader);
-                attributes = null;
-            }
-
-            if (!reader.IsDBNull(attributeTypeOrdinal))
-            {
-                int type = reader.GetInt32(attributeTypeOrdinal);
-                attributes ??= [];
-                attributes.Add(new FileAttributeSnapshot(
-                    type.ToString(CultureInfo.InvariantCulture),
-                    reader.GetInt32(attributeValueOrdinal),
-                    type));
-            }
-        }
-        AddCurrent();
-
-        void AddCurrent()
-        {
-            if (currentId is null)
-                return;
-            addTarget(
-                new PeerFileTarget(
-                    new PeerFileIdentity(username, filename!),
-                    size,
-                    extension,
-                    bitRate,
-                    bitDepth,
-                    sampleRate,
-                    length,
-                    attributes),
-                context);
+            var file = PeerBrowseAttributes.Read(reader, attributesOrdinal,
+                static (type, value) => new FileAttributeSnapshot(type.ToString(CultureInfo.InvariantCulture), value, type));
+            addTarget(new PeerFileTarget(new PeerFileIdentity(username, reader.GetString(1)), reader.GetInt64(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                file.Metadata.BitRate, file.Metadata.BitDepth, file.Metadata.SampleRate, file.Metadata.Length,
+                file.Attributes), readContext(reader));
         }
     }
 
@@ -1321,8 +1313,8 @@ public sealed class PeerBrowseArtifactStore
         Add(command, "$state", state is null ? null : (int)state.Value);
         Add(command, "$after_created", afterCreatedAt is null ? null : Format(afterCreatedAt.Value));
         Add(command, "$after_browse_id", afterBrowseId?.ToString("D"));
-        Add(command, "$limit", checked(limit + 1));
-        var items = new List<PeerBrowseResource>(limit + 1);
+        Add(command, "$limit", (long)limit + 1);
+        var items = new List<PeerBrowseResource>();
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             items.Add(ReadResource(reader));
@@ -1452,6 +1444,12 @@ public sealed class PeerBrowseArtifactStore
         await using SqliteConnection connection = await OpenRegistryAsync(
             SqliteOpenMode.ReadWrite,
             cancellationToken).ConfigureAwait(false);
+        // Running phases are progress, not a recovery boundary: startup fails
+        // both queued and running acquisitions. Acceptance and terminal outcomes
+        // remain FULL; losing an intermediate phase cannot change recovery.
+        if (state == PeerBrowseState.Running)
+            await ExecuteAsync(connection, "PRAGMA synchronous=NORMAL;", cancellationToken)
+                .ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
@@ -1648,7 +1646,7 @@ public sealed class PeerBrowseArtifactStore
         Action<Guid>? handlers = ResourceRemoved;
         if (handlers is null)
             return;
-        foreach (Action<Guid> handler in handlers.GetInvocationList())
+        foreach (Action<Guid> handler in Delegate.EnumerateInvocationList(handlers))
         {
             try
             {
@@ -1725,19 +1723,42 @@ public sealed class PeerBrowseArtifactStore
     internal void DeleteStagingBestEffort(string path)
         => TryDeleteCleanupFile(path);
 
+    public ValueTask DisposeAsync()
+    {
+        if (disposed)
+            return ValueTask.CompletedTask;
+        disposed = true;
+        foreach (SqliteOpenMode mode in new[]
+                 { SqliteOpenMode.ReadWriteCreate, SqliteOpenMode.ReadWrite, SqliteOpenMode.ReadOnly })
+        {
+            using var connection = new SqliteConnection(RegistryConnectionString(mode));
+            SqliteConnection.ClearPool(connection);
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    private string RegistryConnectionString(SqliteOpenMode mode)
+        => new SqliteConnectionStringBuilder
+        {
+            DataSource = registryPath,
+            Mode = mode,
+            // Keep the mutable registry's WAL open between operations. Closing
+            // its last connection otherwise checkpoints and recreates the WAL
+            // on subsequent progress writes. Immutable artifacts stay unpooled.
+            Pooling = true,
+        }.ToString();
+
     private async ValueTask<SqliteConnection> OpenRegistryAsync(
         SqliteOpenMode mode,
         CancellationToken cancellationToken)
     {
-        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = registryPath,
-            Mode = mode,
-            Pooling = false,
-        }.ToString());
+        ObjectDisposedException.ThrowIf(disposed, this);
+        var connection = new SqliteConnection(RegistryConnectionString(mode));
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var pragma = connection.CreateCommand();
-        pragma.CommandText = "PRAGMA busy_timeout=5000;";
+        // A pooled connection may have last served a best-effort progress write.
+        // Restore the durable default at the owner boundary for every operation.
+        pragma.CommandText = "PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;";
         await pragma.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         return connection;
     }
@@ -1841,13 +1862,10 @@ public sealed class PeerBrowseArtifactStore
     internal static string DisplayPath(string identityPath)
         => PeerBrowsePath.ToDisplayPath(identityPath);
 
-    private static int? NullableInt(SqliteDataReader reader, int ordinal)
-        => reader.IsDBNull(ordinal) ? null : reader.GetInt32(ordinal);
-
     private static void ValidatePage(string? afterSortKey, long? afterId, int limit)
     {
-        if (limit is < 1 or > 500)
-            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be between 1 and 500.");
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
         if ((afterSortKey is null) != (afterId is null))
             throw new ArgumentException("Both cursor sort key and ID must be supplied together.");
     }
@@ -1858,34 +1876,41 @@ public sealed class PeerBrowseArtifactStore
         long? afterId,
         int limit)
     {
-        if (limit is < 1 or > 500)
-            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be between 1 and 500.");
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
         bool hasCursor = afterSortKey is not null || afterKind is not null || afterId is not null;
         if (hasCursor && (afterSortKey is null || afterKind is null || afterId is null or <= 0))
             throw new ArgumentException("All mixed-search cursor values must be supplied together.");
     }
 
-    private static async Task<bool> HasSearchIndexAsync(
-        SqliteConnection connection,
-        CancellationToken cancellationToken)
+    internal static string FoldSearchPath(string value)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'browse_search');";
-        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
-            CultureInfo.InvariantCulture) != 0;
-    }
+        string upper = value.ToUpperInvariant();
+        if (value.Equals(upper, StringComparison.OrdinalIgnoreCase))
+            return upper;
 
-    private static string FtsLiteral(string value)
-        => "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+        // Invariant uppercase is almost ordinal casing, but not quite: e.g.
+        // long s uppercases to ASCII S without being ordinal-equal to it.
+        // Preserve exceptional scalars instead of importing ICU/Windows tables.
+        // This is only a search key; never apply it to display or wire identities.
+        char[] folded = upper.ToCharArray();
+        for (int offset = 0; offset < value.Length;)
+        {
+            int length = char.IsSurrogatePair(value, offset) ? 2 : 1;
+            if (!value.AsSpan(offset, length).Equals(upper.AsSpan(offset, length), StringComparison.OrdinalIgnoreCase))
+                value.AsSpan(offset, length).CopyTo(folded.AsSpan(offset, length));
+            offset += length;
+        }
+        return new string(folded);
+    }
 
     private static void ValidateResourcePage(
         DateTimeOffset? afterCreatedAt,
         Guid? afterBrowseId,
         int limit)
     {
-        if (limit is < 1 or > 500)
-            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be between 1 and 500.");
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
         if ((afterCreatedAt is null) != (afterBrowseId is null))
             throw new ArgumentException("Both resource cursor values must be supplied together.");
     }
@@ -1920,14 +1945,16 @@ public sealed class PeerBrowseArtifactStore
             reader.GetInt64(8),
             reader.GetInt64(9),
             reader.GetInt64(10),
-            reader.GetInt32(11) != 0);
+            reader.GetInt32(11) != 0,
+            reader.IsDBNull(12) ? null : reader.GetInt64(12),
+            reader.IsDBNull(13) ? null : reader.GetInt64(13));
 
-    private const string DirectorySelect =
-        """
+    private const string DirectorySelectSql = """
         SELECT directory_id, parent_id, name, display_path, visibility,
                is_synthetic, direct_directory_count, direct_file_count,
                recursive_file_count, recursive_file_bytes,
-               locked_descendant_count, has_children
+               locked_descendant_count, has_children,
+               total_recursive_file_count, total_recursive_file_bytes
         FROM directories
         """;
 
@@ -1940,11 +1967,13 @@ public sealed class PeerBrowseArtifactStore
         long LockedDescendantCount);
 
     private sealed record SelectedFile(
+        long FileId,
         PeerFileTarget Target,
         SelectionDirectory Directory,
         PeerBrowseEntryVisibility Visibility);
 
     private sealed record SelectedFileContext(
+        long FileId,
         SelectionDirectory Directory,
         PeerBrowseEntryVisibility Visibility);
 
@@ -1952,23 +1981,6 @@ public sealed class PeerBrowseArtifactStore
         long RootId,
         string RootPath,
         string DirectoryPath);
-
-    private static async Task<bool> HasBrowseResourceColumnAsync(
-        SqliteConnection connection,
-        string columnName,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA table_info(browse_resources);";
-        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken)
-            .ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            if (string.Equals(reader.GetString(1), columnName, StringComparison.Ordinal))
-                return true;
-        }
-        return false;
-    }
 
     private static async Task ExecuteAsync(
         SqliteConnection connection,
@@ -1988,6 +2000,12 @@ public sealed class PeerBrowseArtifactStore
 
     private static DateTimeOffset Parse(string value)
         => DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+
+    // Ingestion validates nonnegative sizes and records their saturated total.
+    // Every subtree/filter is a subset: below MaxValue native SUM cannot overflow.
+    // Only saturated artifacts need a managed callback for each contributing file.
+    internal static string SumFunction(long totalFileBytes)
+        => totalFileBytes < long.MaxValue ? "sum" : "saturating_sum";
 
     private static long SaturatingAdd(long left, long right)
         => left > long.MaxValue - right ? long.MaxValue : left + right;

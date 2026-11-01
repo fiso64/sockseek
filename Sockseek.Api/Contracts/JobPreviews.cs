@@ -44,14 +44,26 @@ public sealed record JobPreviewNodeDto(
     SongQueryDto? SongQuery = null,
     AlbumQueryDto? AlbumQuery = null,
     string? FailureCode = null,
-    string? FailureMessage = null);
+    string? FailureMessage = null,
+    int SelectableSubtreeCount = 0,
+    string? SourceDetail = null,
+    string? SourceLabel = null,
+    string? ExtractorInfo = null);
 
 public sealed record CreateJobPreviewResponseDto(JobPreviewSummaryDto Preview);
 
 public sealed record CommitJobPreviewRequestDto(
     long Revision,
     RefSelectionExpressionDto Selection,
-    Guid IdempotencyKey);
+    Guid IdempotencyKey,
+    IReadOnlyList<JobPreviewSelectionOverrideDto>? SubtreeOverrides = null);
+
+/// <summary>
+/// Client-owned selection rule for this preview node and its descendants. The
+/// most specific ancestor rule wins; otherwise Selection.Mode supplies the
+/// default. When these rules are used, Selection.Refs must be empty.
+/// </summary>
+public sealed record JobPreviewSelectionOverrideDto(string Ref, bool Selected);
 
 public sealed record CommitJobPreviewResponseDto(
     Guid PreviewId,

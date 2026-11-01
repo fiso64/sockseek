@@ -39,7 +39,9 @@ internal static class UserBrowseDtoMapper
             entry.RecursiveFileCount,
             entry.RecursiveFileBytes,
             entry.LockedDescendantCount,
-            entry.HasChildren);
+            entry.HasChildren,
+            entry.TotalRecursiveFileCount,
+            entry.TotalRecursiveFileBytes);
 
     public static BrowseFileEntryDto ToDto(PeerBrowseFileEntry entry)
         => new(
@@ -75,7 +77,11 @@ internal static class UserBrowseDtoMapper
             entry.BitRate,
             entry.BitDepth,
             entry.SampleRate,
-            entry.Length);
+            entry.Length,
+            entry.PublicSubtreeFileCount,
+            entry.PublicSubtreeBytes,
+            entry.TotalSubtreeFileCount,
+            entry.TotalSubtreeBytes);
 
     private static string AttributeType(int type)
         => type switch

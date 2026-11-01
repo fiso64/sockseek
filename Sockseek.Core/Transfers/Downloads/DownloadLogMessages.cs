@@ -63,4 +63,16 @@ internal static partial class DownloadLogMessages
 
     [LoggerMessage(3015, LogLevel.Debug, "Retired terminal download workflow {WorkflowId} ({JobCount} jobs)")]
     internal static partial void WorkflowRetired(ILogger logger, Guid workflowId, int jobCount);
+
+    [LoggerMessage(3016, LogLevel.Warning, "Output file {OperationId} publication failed; finalization will retry and report the outcome")]
+    internal static partial void OutputPublicationDegraded(ILogger logger, Guid operationId);
+
+    [LoggerMessage(3017, LogLevel.Information, "Output file {OperationId} publication recovered")]
+    internal static partial void OutputPublicationRecovered(ILogger logger, Guid operationId);
+
+    [LoggerMessage(3018, LogLevel.Information, "Output file {OperationId} finalized in {DurationMilliseconds} ms ({PublicationCount} writes)")]
+    internal static partial void OutputPublicationCompleted(ILogger logger, Guid operationId, long durationMilliseconds, int publicationCount);
+
+    [LoggerMessage(3019, LogLevel.Error, "Output file {OperationId} final publication failed for root {JobId}")]
+    internal static partial void OutputPublicationFailed(ILogger logger, Exception exception, Guid operationId, Guid jobId);
 }

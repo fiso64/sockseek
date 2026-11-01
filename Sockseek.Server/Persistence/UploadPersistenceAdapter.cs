@@ -132,7 +132,8 @@ public sealed class UploadPersistenceAdapter
             File: snapshot.File,
             GroupRef: snapshot.GroupRef,
             GroupDisplayPath: snapshot.GroupDisplayPath,
-            AccountingObservations: AccountingObservations(snapshot, occurredAt));
+            AccountingObservations: AccountingObservations(snapshot, occurredAt),
+            CompletedAtUtc: snapshot.FinishedAtUtc);
 
     private TransferAttemptPersistenceMutation ToAttempt(
         UploadTransferSnapshot transfer,

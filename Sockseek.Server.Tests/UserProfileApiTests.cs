@@ -14,6 +14,57 @@ namespace Tests.Server;
 public sealed class UserProfileApiTests
 {
     [TestMethod]
+    public async Task HostStart_PublishesLocalServicesWithoutWaitingForLogin()
+    {
+        string dataDirectory = Path.Combine(
+            Path.GetTempPath(), "sockseek-profile-startup", Guid.NewGuid().ToString("N"));
+        var connecting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var connected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fake = SoulseekClientProxy.Create();
+        fake.ClientState = SoulseekClientStates.Disconnected;
+        fake.Connect = () =>
+        {
+            connecting.TrySetResult();
+            return connected.Task;
+        };
+        string url = $"http://127.0.0.1:{GetFreeTcpPort()}";
+        await using var app = ServerHost.Build([], new ServerOptions
+        {
+            Engine = new EngineSettings
+            {
+                Username = "local", Password = "password", ListenPort = null,
+                LogLevel = Microsoft.Extensions.Logging.LogLevel.None,
+            },
+            Persistence = new ServerPersistenceOptions { Enabled = true, DataDirectory = dataDirectory },
+            ClientFactory = _ => fake.Client,
+        }, url);
+
+        try
+        {
+            await app.StartAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            await connecting.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsFalse(connected.Task.IsCompleted);
+            var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
+            Assert.IsNotNull(supervisor.PeerBrowses);
+            Assert.IsNotNull(supervisor.UserProfiles);
+            using var http = new HttpClient { BaseAddress = new Uri(url) };
+            var api = new SockseekApiClient(http);
+            await api.GetServerInfoAsync();
+            UserBrowseDto browse = await api.StartUserBrowseAsync("Peer");
+            Assert.AreEqual("Peer", browse.Username);
+        }
+        finally
+        {
+            fake.RaiseState(SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn);
+            connected.TrySetResult();
+            await app.StopAsync();
+            SqliteConnection.ClearAllPools();
+            if (System.IO.Directory.Exists(dataDirectory))
+                System.IO.Directory.Delete(dataDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task TypedApiReturnsCompositeAndStreamsPictureWithConditionalGet()
     {
         string dataDirectory = Path.Combine(
@@ -46,10 +97,14 @@ public sealed class UserProfileApiTests
         try
         {
             await app.StartAsync();
-            await WaitUntilAsync(() =>
-                app.Services.GetRequiredService<EngineSupervisor>().UserProfiles is not null);
             using var http = new HttpClient { BaseAddress = new Uri(url) };
             var api = new SockseekApiClient(http);
+
+            UserPresenceObservationDto presence = await api.GetUserPresenceAsync("Peer");
+            Assert.AreEqual("Peer", presence.Username);
+            Assert.AreEqual(UserProfilePresence.Away, presence.Presence);
+            Assert.AreEqual(ResourceSectionState.Available, presence.Status.State);
+            Assert.IsNotNull(presence.ObservedAtUtc);
 
             UserProfileDto profile = await api.GetUserProfileAsync("Peer");
             Assert.AreEqual(UserProfilePresence.Away, profile.Presence);
@@ -86,14 +141,6 @@ public sealed class UserProfileApiTests
             if (System.IO.Directory.Exists(dataDirectory))
                 System.IO.Directory.Delete(dataDirectory, recursive: true);
         }
-    }
-
-    private static async Task WaitUntilAsync(Func<bool> condition)
-    {
-        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
-        while (!condition() && DateTimeOffset.UtcNow < deadline)
-            await Task.Delay(20);
-        Assert.IsTrue(condition(), "The daemon did not initialize user profiles.");
     }
 
     private static int GetFreeTcpPort()

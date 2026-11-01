@@ -15,7 +15,10 @@ internal sealed class StaleDownloadCoordinator
     // Keep recent peer activity after an attempt completes, so queued same-user
     // siblings don't become stale the moment the active transfer leaves tracking.
     private readonly Dictionary<string, long> latestActivityByUser = new(StringComparer.OrdinalIgnoreCase);
-    private TaskCompletionSource deadlinesChanged = NewSignal();
+    // Keep one pending wakeup, even if activity arrives between inspecting the
+    // deadlines and waiting. Bursts update attempt facts without allocating a
+    // completion source or leaving an old timeout armed for every update.
+    private readonly SemaphoreSlim deadlinesChanged = new(0, 1);
 
     public StaleDownloadCoordinator(
         ActiveDownloadTracker activeDownloads,
@@ -81,17 +84,16 @@ internal sealed class StaleDownloadCoordinator
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
+        // The scheduler owns one reschedulable timer. Racing Task.Delay against
+        // activity leaves the losing delays alive until their original deadlines.
+        using var timer = timeProvider.CreateTimer(
+            static state => ((StaleDownloadCoordinator)state!).SignalDeadlinesChanged(),
+            this, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
                 var delay = GetDelayUntilNextStaleCheck();
-
-                if (delay == null)
-                {
-                    await WaitForDeadlinesChangedAsync(cancellationToken);
-                    continue;
-                }
 
                 if (delay <= TimeSpan.Zero)
                 {
@@ -99,7 +101,8 @@ internal sealed class StaleDownloadCoordinator
                     continue;
                 }
 
-                await WaitForDeadlinesChangedOrDelayAsync(delay.Value, cancellationToken);
+                timer.Change(delay ?? Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+                await deadlinesChanged.WaitAsync(cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -177,15 +180,18 @@ internal sealed class StaleDownloadCoordinator
 
     private TimeSpan? GetDelayUntilNextStaleCheck()
     {
-        var now = timeProvider.GetTimestamp();
         TimeSpan? nextDelay = null;
 
         lock (gate)
         {
+            // This scan includes all facts published before taking the gate.
+            // Consume their pending notification; later activity retains a wake.
+            deadlinesChanged.Wait(0);
+            var now = timeProvider.GetTimestamp();
             if (attempts.Count == 0)
                 return null;
 
-            var latestActivityByUser = GetLatestActivityByUser();
+            var latestActivityByUser = GetLatestActivePeerActivity();
             foreach (var attempt in attempts.Values)
             {
                 var referenceTimestamp = GetReferenceTimestamp(attempt, latestActivityByUser);
@@ -203,7 +209,7 @@ internal sealed class StaleDownloadCoordinator
     private List<Attempt> GetStaleAttempts(long now)
     {
         var staleAttempts = new List<Attempt>();
-        var latestActivityByUser = GetLatestActivityByUser();
+        var latestActivityByUser = GetLatestActivePeerActivity();
         foreach (var attempt in attempts.Values)
         {
             var referenceTimestamp = GetReferenceTimestamp(attempt, latestActivityByUser);
@@ -216,16 +222,22 @@ internal sealed class StaleDownloadCoordinator
         return staleAttempts;
     }
 
-    private Dictionary<string, long> GetLatestActivityByUser()
+    private Dictionary<string, long> GetLatestActivePeerActivity()
     {
-        var latest = new Dictionary<string, long>(latestActivityByUser, StringComparer.OrdinalIgnoreCase);
+        // Only tracked peers participate in deadline checks. Copying the entire
+        // recent-activity history makes each check grow with every peer the
+        // long-running engine has ever downloaded from.
+        var latest = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         foreach (var attempt in attempts.Values)
         {
             var username = attempt.Download.Target.Username;
+            long timestamp = attempt.LastOwnActivityTimestamp;
+            if (latestActivityByUser.TryGetValue(username, out long reported) && reported > timestamp)
+                timestamp = reported;
             if (!latest.TryGetValue(username, out var latestActivity)
-                || attempt.LastOwnActivityTimestamp > latestActivity)
+                || timestamp > latestActivity)
             {
-                latest[username] = attempt.LastOwnActivityTimestamp;
+                latest[username] = timestamp;
             }
         }
 
@@ -249,43 +261,17 @@ internal sealed class StaleDownloadCoordinator
         return referenceTimestamp;
     }
 
-    private async Task WaitForDeadlinesChangedOrDelayAsync(TimeSpan delay, CancellationToken cancellationToken)
-    {
-        var signal = GetDeadlinesChangedTask();
-        var signalTask = signal.WaitAsync(cancellationToken);
-        var delayTask = Task.Delay(delay, timeProvider, cancellationToken);
-        await await Task.WhenAny(signalTask, delayTask);
-    }
-
-    private async Task WaitForDeadlinesChangedAsync(CancellationToken cancellationToken)
-    {
-        var signal = GetDeadlinesChangedTask();
-        await signal.WaitAsync(cancellationToken);
-    }
-
-    private Task GetDeadlinesChangedTask()
-    {
-        lock (gate)
-            return deadlinesChanged.Task;
-    }
-
     private void SignalDeadlinesChanged()
     {
-        TaskCompletionSource previousSignal;
         lock (gate)
         {
-            previousSignal = deadlinesChanged;
-            deadlinesChanged = NewSignal();
+            if (deadlinesChanged.CurrentCount == 0)
+                deadlinesChanged.Release();
         }
-
-        previousSignal.TrySetResult();
     }
 
     private static bool IsInProgress(TransferStates? state)
-        => state.HasValue && state.Value.HasFlag(TransferStates.InProgress);
-
-    private static TaskCompletionSource NewSignal()
-        => new(TaskCreationOptions.RunContinuationsAsynchronously);
+        => state is { } value && (value & TransferStates.InProgress) == TransferStates.InProgress;
 
     internal readonly struct PeerTransferActivity
     {

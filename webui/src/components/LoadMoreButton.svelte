@@ -6,6 +6,7 @@
     disabled?: boolean;
     onclick: () => void;
   }
+
   let { label, loadingLabel = 'Loading…', loading = false, disabled = false, onclick }: Props = $props();
 </script>
 

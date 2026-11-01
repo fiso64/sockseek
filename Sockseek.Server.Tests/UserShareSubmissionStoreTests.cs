@@ -53,6 +53,10 @@ public sealed class UserShareSubmissionStoreTests
 
         Assert.AreEqual(first, UserShareSubmissionStore.Fingerprint(firstBrowse, request));
         Assert.AreNotEqual(first, UserShareSubmissionStore.Fingerprint(secondBrowse, request));
+        Assert.AreNotEqual(first, UserShareSubmissionStore.Fingerprint(firstBrowse,
+            request with { ExcludedFileIds = [7] }));
+        Assert.AreNotEqual(first, UserShareSubmissionStore.Fingerprint(firstBrowse,
+            request with { ExcludedDirectoryIds = [8] }));
     }
 
     [TestMethod]

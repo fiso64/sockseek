@@ -15,7 +15,7 @@ public sealed record PersistenceQueueSnapshot(
     int CriticalDepth,
     int OrdinaryDepth,
     int ProgressCount,
-    int DegradedCount,
+    int RetryMutationCount,
     int BufferedSearchResultCount);
 
 public sealed record PersistenceRuntimeStartup(
@@ -104,8 +104,9 @@ public sealed class PersistenceRuntimeHost
         try
         {
             var contextFactory = new SockseekDbContextFactory(SockseekDbContextOptions.Create(sqliteOptions));
-            JobHistory = new JobHistoryReader(contextFactory);
-            SearchHistory = new SearchHistoryReader(contextFactory);
+            var readers = new SockseekDbContextFactory(SockseekDbContextOptions.CreateReadOnly(sqliteOptions));
+            JobHistory = new JobHistoryReader(readers);
+            SearchHistory = new SearchHistoryReader(readers);
             // The reader and archive commands share the existing persistence
             // writer/inbox lifecycle; initialize the command-capable reader
             // after the inbox is created below.
@@ -113,12 +114,11 @@ public sealed class PersistenceRuntimeHost
             var initializer = new SqliteInitializer(contextFactory, sqliteOptions, owner);
             Initialization = await initializer.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
-            maintenance = new SqliteMaintenanceService(contextFactory, sqliteOptions);
+            maintenance = new SqliteMaintenanceService(readers, sqliteOptions);
             var integrity = await maintenance.CheckIntegrityAsync(cancellationToken).ConfigureAwait(false);
             if (!integrity.IsHealthy)
                 throw new PersistenceDatabaseCorruptionException($"SQLite integrity check failed: {integrity.Result}");
 
-            retention = new RetentionService(contextFactory, retentionOptions);
             runtimeSession = new PersistenceRuntimeSession(contextFactory);
             var reconciliation = await runtimeSession.StartAsync(version, cancellationToken).ConfigureAwait(false);
             Reconciliation = reconciliation;
@@ -127,27 +127,30 @@ public sealed class PersistenceRuntimeHost
                 .ConfigureAwait(false);
 
             inbox = new PersistenceInbox(writerOptions, Health, mutationObserver);
-            TransferHistory = new TransferHistoryReader(contextFactory, inbox);
-            TransferAnalytics = new TransferAnalyticsReader(contextFactory);
-            Submissions = new SubmissionStore(contextFactory, inbox);
+            retention = new RetentionService(inbox, retentionOptions);
+            TransferHistory = new TransferHistoryReader(readers, inbox);
+            TransferAnalytics = new TransferAnalyticsReader(readers);
+            Submissions = new SubmissionStore(readers, inbox);
             writer = new PersistenceWriter(
                 contextFactory,
                 inbox,
                 Health,
                 writerOptions,
-                mutationObserver: mutationObserver);
+                mutationObserver: mutationObserver,
+                logger: logger);
             writerStop = new CancellationTokenSource();
             writerTask = writer.RunAsync(writerStop.Token);
-            Chat = new ChatPersistenceStore(contextFactory, inbox);
+            Chat = new ChatPersistenceStore(readers, inbox);
             await Chat.ReconcilePendingMessagesAsync(cancellationToken).ConfigureAwait(false);
-            PeerRestrictions = new PeerRestrictionOverrideStore(contextFactory, Health);
+            PeerRestrictions = new PeerRestrictionOverrideStore(readers, Health, inbox);
             var inputArtifacts = new InputArtifactStore(
                 Path.Combine(
                     Path.GetDirectoryName(sqliteOptions.GetFullDatabasePath())!,
                     "planning",
                     "input-artifacts"),
-                contextFactory,
-                Health);
+                readers,
+                Health,
+                inbox);
             try
             {
                 await inputArtifacts.InitializeAsync(cancellationToken).ConfigureAwait(false);
@@ -160,7 +163,8 @@ public sealed class PersistenceRuntimeHost
                     throw;
                 PersistenceLogMessages.InputArtifactStorageUnavailable(logger, exception);
             }
-            var searchViews = new SearchViewStore(sqliteOptions.GetFullDatabasePath());
+            var searchViews = new SearchViewStore(
+                sqliteOptions.GetFullDatabasePath(), inbox);
             try
             {
                 await searchViews.InitializeAsync(cancellationToken).ConfigureAwait(false);
@@ -220,7 +224,8 @@ public sealed class PersistenceRuntimeHost
 
     public Task<WalCheckpointResult> CheckpointAsync(CancellationToken cancellationToken = default)
         => ExecuteMaintenanceAsync(
-            ct => maintenance!.CheckpointAsync(ct),
+            ct => inbox!.ExecuteAsync(SqliteMaintenanceService.CheckpointAsync, ct,
+                background: true, requiresTransaction: false),
             cancellationToken);
 
     public Task<RetentionResult> RunRetentionAsync(CancellationToken cancellationToken = default)
@@ -309,7 +314,7 @@ public sealed class PersistenceRuntimeHost
             var remaining = SnapshotQueue();
             Health.RecordOperationalFailure(DateTimeOffset.UtcNow, new TimeoutException(
                 $"Persistence drain did not complete. critical={remaining.CriticalDepth}, ordinary={remaining.OrdinaryDepth}, " +
-                $"progress={remaining.ProgressCount}, degraded={remaining.DegradedCount}, searchResults={remaining.BufferedSearchResultCount}.", ex));
+                $"progress={remaining.ProgressCount}, retry={remaining.RetryMutationCount}, searchResults={remaining.BufferedSearchResultCount}.", ex));
             return new PersistenceRuntimeStop(false, runtimeId, remaining);
         }
         finally
@@ -400,7 +405,7 @@ public sealed class PersistenceRuntimeHost
                 inbox.CriticalDepth,
                 inbox.OrdinaryDepth,
                 inbox.ProgressCount,
-                inbox.DegradedCount,
+                inbox.RetryMutationCount,
                 inbox.BufferedSearchResultCount);
 
     private void ReleaseOwnership()
@@ -408,6 +413,7 @@ public sealed class PersistenceRuntimeHost
         owner?.Dispose();
         owner = null;
         SqliteConnectionPool.Clear(SockseekDbContextOptions.CreateConnectionString(sqliteOptions));
+        SqliteConnectionPool.Clear(SockseekDbContextOptions.CreateConnectionString(sqliteOptions, readOnly: true));
     }
 
     private static long? FileSize(string path)

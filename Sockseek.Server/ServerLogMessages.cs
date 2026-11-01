@@ -46,6 +46,13 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4013, LogLevel.Error, "Historical state handoff failed for workflow {WorkflowId}; its retained history is unavailable")]
     internal static partial void PersistenceHandoffFailed(ILogger logger, Guid workflowId, Exception exception);
 
+    [LoggerMessage(4014, LogLevel.Error, "Job projection retirement observer failed for workflow {WorkflowId}")]
+    internal static partial void JobProjectionRetirementObserverFailed(ILogger logger, Guid workflowId, Exception exception);
+
+    [LoggerMessage(4015, LogLevel.Warning, "Transfer totals read {ReadId} failed after {DurationMs} ms; groups={GroupCount}, suppressed={SuppressedCount}; file rows remain available")]
+    internal static partial void TransferGroupReadFailed(ILogger logger, Exception exception,
+        string readId, int groupCount, long durationMs, long suppressedCount);
+
     [LoggerMessage(4500, LogLevel.Warning, "Input artifact storage is unavailable; browser file inputs are disabled while ordinary local inputs remain available")]
     internal static partial void InputArtifactUnavailable(ILogger logger, Exception? exception = null);
 
@@ -97,8 +104,8 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4533, LogLevel.Information, "Search View {ViewId} revision {ViewRevision} committed in {DurationMs} ms; requested={RequestedCount}, submitted={SubmittedCount}, rejected={RejectedCount}")]
     internal static partial void SearchViewCommitted(ILogger logger, Guid viewId, long viewRevision, long durationMs, long requestedCount, long submittedCount, long rejectedCount);
 
-    [LoggerMessage(4534, LogLevel.Information, "Search View {ViewId} completed with outcome {Outcome}; revision={Revision}, public={PublicCount}, locked={LockedCount}, projected={ProjectedCount}")]
-    internal static partial void SearchViewCompleted(ILogger logger, Guid viewId, string outcome, long revision, long publicCount, long lockedCount, long projectedCount);
+    [LoggerMessage(4534, LogLevel.Information, "Search View {ViewId} completed with outcome {Outcome}; activeRuntime={DurationMs} ms, revision={Revision}, public={PublicCount}, locked={LockedCount}, projected={ProjectedCount}")]
+    internal static partial void SearchViewCompleted(ILogger logger, Guid viewId, string outcome, long durationMs, long revision, long publicCount, long lockedCount, long projectedCount);
 
     [LoggerMessage(4535, LogLevel.Error, "Search View {ViewId} completed with outcome Incomplete after projection failure")]
     internal static partial void SearchViewProjectionFailed(ILogger logger, Exception exception, Guid viewId);
@@ -120,6 +127,9 @@ internal static partial class ServerLogMessages
 
     [LoggerMessage(4541, LogLevel.Warning, "Search View {ViewId} could not persist its restart outcome; its last durable revision remains readable")]
     internal static partial void SearchViewRecoveryOutcomeFailed(ILogger logger, Exception exception, Guid viewId);
+
+    [LoggerMessage(4542, LogLevel.Error, "Search View {ViewId} could not replay retrieval observation {ObservationId}")]
+    internal static partial void SearchViewRetrievalReplayFailed(ILogger logger, Exception exception, Guid viewId, Guid observationId);
 
     [LoggerMessage(4550, LogLevel.Information, "Peer restriction configured baselines reloaded")]
     internal static partial void PeerRestrictionsReloaded(ILogger logger);
@@ -151,9 +161,45 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4562, LogLevel.Error, "Bulk transfer cancellation failed for transfer {TransferId}")]
     internal static partial void BulkTransferCancellationFailed(ILogger logger, Exception exception, Guid transferId);
 
-    [LoggerMessage(4563, LogLevel.Warning, "Submission {SubmissionId} retained an unnecessary input-artifact pin after planning")]
-    internal static partial void SubmissionArtifactPinReleaseFailed(ILogger logger, Exception exception, Guid submissionId);
+    [LoggerMessage(4563, LogLevel.Warning, "Submission {SubmissionId} could not release its temporary input-artifact references")]
+    internal static partial void SubmissionArtifactReleaseFailed(ILogger logger, Exception exception, Guid submissionId);
 
     [LoggerMessage(4564, LogLevel.Error, "Terminal download persistence handoff failed for transfer {TransferId}")]
     internal static partial void TerminalDownloadHandoffFailed(ILogger logger, Exception exception, Guid transferId);
+
+    [LoggerMessage(4565, LogLevel.Error, "Terminal transfer commit observer failed")]
+    internal static partial void TerminalTransferCommitObserverFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(4566, LogLevel.Information, "Submission commit {OperationId} completed in {DurationMs} ms")]
+    internal static partial void SubmissionCommitCompleted(ILogger logger, Guid operationId, long durationMs);
+
+    [LoggerMessage(4567, LogLevel.Information, "Workflow cancellation {WorkflowId} started")]
+    internal static partial void WorkflowCancellationStarted(ILogger logger, Guid workflowId);
+
+    [LoggerMessage(4568, LogLevel.Information, "Workflow cancellation {WorkflowId} completed in {DurationMs} ms; cancelled={CancelledCount}")]
+    internal static partial void WorkflowCancellationCompleted(ILogger logger, Guid workflowId, long durationMs, int cancelledCount);
+
+    [LoggerMessage(4569, LogLevel.Information, "Submission {SourceSubmissionId} rerun accepted as {SubmissionId} in {DurationMs} ms")]
+    internal static partial void SubmissionRerunAccepted(ILogger logger, Guid sourceSubmissionId, Guid submissionId, long durationMs);
+    [LoggerMessage(4570, LogLevel.Error, "Search source observer failed for source {SourceJobId}")]
+    internal static partial void SearchSourceObserverFailed(ILogger logger, Exception exception, Guid sourceJobId);
+
+    [LoggerMessage(4571, LogLevel.Debug, "Job Preview {PreviewId} timing: planning={PlanningMs} ms, capture={CaptureMs} ms, spool={SpoolMs} ms")]
+    internal static partial void JobPreviewPlanningTiming(ILogger logger, Guid previewId, long planningMs, long captureMs, long spoolMs);
+
+    [LoggerMessage(4572, LogLevel.Debug, "Job Preview {PreviewId} commit timing: resolve={ResolveMs} ms, materialize={MaterializeMs} ms, claim={ClaimMs} ms, queue={QueueMs} ms, publish={PublishMs} ms")]
+    internal static partial void JobPreviewCommitTiming(ILogger logger, Guid previewId, long resolveMs, long materializeMs, long claimMs, long queueMs, long publishMs);
+
+    [LoggerMessage(4573, LogLevel.Debug, "Search View {ViewId} revision {ViewRevision} commit timing: resolution={ResolutionMs} ms (choice={ChoiceMs} ms, plan={PlanMs} ms), handoff={HandoffMs} ms")]
+    internal static partial void SearchViewCommitTiming(ILogger logger, Guid viewId, long viewRevision, long resolutionMs, long choiceMs, long planMs, long handoffMs);
+
+    [LoggerMessage(4574, LogLevel.Debug, "Search View {ViewId} timing: projection={ProjectionMs} ms, publication={PublicationMs} ms")]
+    internal static partial void SearchViewCompletionTiming(ILogger logger, Guid viewId, long projectionMs, long publicationMs);
+
+    [LoggerMessage(4575, LogLevel.Debug, "Submission commit {OperationId} timing: lookup={LookupMs} ms, execution={ExecutionMs} ms, receipt-encoding={ReceiptEncodingMs} ms")]
+    internal static partial void SubmissionCommitTiming(ILogger logger, Guid operationId, long lookupMs, long executionMs, long receiptEncodingMs);
+
+    [LoggerMessage(4576, LogLevel.Debug, "Submission {SourceSubmissionId} rerun as {SubmissionId} timing: read={ReadMs} ms, materialize={MaterializeMs} ms, admission={AdmissionMs} ms")]
+    internal static partial void SubmissionRerunTiming(ILogger logger, Guid sourceSubmissionId, Guid submissionId, long readMs, long materializeMs, long admissionMs);
+
 }

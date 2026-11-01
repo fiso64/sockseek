@@ -19,7 +19,7 @@ public class OutputSettings
     public bool WriteIndex { get; set; } = true;
 
     /// Set to true when any of --write-index, --no-write-index, or --index-path is explicitly
-    /// specified. When false, ConfigManager.WillWriteIndex() decides based on job queue state.
+    /// specified. When false, job preparation decides from the owner list's index defaults.
     public bool HasConfiguredIndex { get; set; }
 
     public string? M3uFilePath { get; set; }

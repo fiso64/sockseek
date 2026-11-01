@@ -4,6 +4,7 @@ using Sockseek.Core.Events;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.PeerBrowsing;
+using Sockseek.Core.Planning;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Snapshots;
@@ -23,6 +24,168 @@ namespace Tests.Eventing
         {
             downloadGate.Open();
             await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        [TestMethod]
+        public async Task IndependentWorkflowsCanRetireFromConcurrentTerminalObservers()
+        {
+            var events = new DownloadEvents();
+            var jobs = new[]
+            {
+                new RemoteFileJob(new PeerFileTarget(new("Peer", "First.bin"), 1, ".bin")),
+                new RemoteFileJob(new PeerFileTarget(new("Peer", "Second.bin"), 1, ".bin")),
+            };
+            using var arrived = new CountdownEvent(2);
+            int missed = 0;
+            events.TransferCompleted += change =>
+            {
+                arrived.Signal();
+                if (!arrived.Wait(TimeSpan.FromSeconds(5)))
+                {
+                    Interlocked.Increment(ref missed);
+                    return;
+                }
+                events.RaiseWorkflowRetired(change.Job.WorkflowId, 1);
+            };
+            await Task.WhenAll(jobs.Select(job => Task.Run(() =>
+                events.RaiseTransferCompleted(Guid.NewGuid(), job, job.Target, "output", 1, 1))))
+                .WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.AreEqual(0, missed, "Both terminal observers must run concurrently.");
+            Assert.AreEqual((0, 0, 0, 0, 0, 0), events.RetainedStateCounts);
+        }
+
+        [TestMethod]
+        public void ConcurrentTransfersKeepIndependentClocksRetriesAndRetirement()
+        {
+            var events = new DownloadEvents();
+            var first = new RemoteFileJob(new PeerFileTarget(new("Peer", @"Root\First.bin"), 128, ".bin"));
+            var second = new RemoteFileJob(new PeerFileTarget(new("Peer", @"Root\Second.bin"), 128, ".bin"));
+            Guid firstId = Guid.NewGuid(), secondId = Guid.NewGuid();
+            Guid failedAttempt = Guid.NewGuid(), successfulAttempt = Guid.NewGuid();
+            var captured = new System.Collections.Concurrent.ConcurrentQueue<TransferSnapshot>();
+            var attempts = new List<(Guid Id, long Revision)>();
+            events.DownloadStarted += change => captured.Enqueue(change.Transfer);
+            events.DownloadProgress += change => captured.Enqueue(change.Transfer);
+            events.TransferCompleted += change => captured.Enqueue(change.Transfer);
+            events.TransferAttemptStarted += change => attempts.Add((change.AttemptId, change.AttemptRevision));
+            events.TransferAttemptFailed += change => attempts.Add((change.AttemptId, change.AttemptRevision));
+            events.TransferAttemptCompleted += change => attempts.Add((change.AttemptId, change.AttemptRevision));
+            events.RaiseJobRegistered(first, null, null);
+            events.RaiseJobRegistered(second, null, null);
+            events.RaiseDownloadStarted(firstId, first, first.Target, "first");
+            events.RaiseDownloadStarted(secondId, second, second.Target, "second");
+            events.RaiseTransferAttemptStarted(firstId, failedAttempt, 1, first, first.Target, "first", "first.part");
+            Parallel.For(0, 32, index =>
+            {
+                var job = index % 2 == 0 ? first : second;
+                events.RaiseDownloadProgress(index % 2 == 0 ? firstId : secondId,
+                    job, job.Target, index % 2 == 0 ? "first" : "second", index, 128);
+            });
+            events.RaiseTransferAttemptFailed(firstId, failedAttempt, 1, first, first.Target, "first", new IOException("failed"));
+            events.RaiseTransferAttemptStarted(firstId, successfulAttempt, 2, first, first.Target, "first", "first.part");
+            events.RaiseTransferAttemptCompleted(firstId, successfulAttempt, 2, first, first.Target, "first");
+            events.RaiseTransferCompleted(firstId, first, first.Target, "first", 128, 2);
+            int terminalCount = captured.Count;
+            events.RaiseDownloadProgress(firstId, first, first.Target, "first", 0, 128);
+            Assert.AreEqual(terminalCount, captured.Count, "Late progress cannot cross the terminal barrier.");
+            events.RaiseWorkflowRetired(first.WorkflowId, 1);
+            Assert.AreEqual(1, events.RetainedStateCounts.Transfers);
+            var before = captured.Last(row => row.Id == secondId);
+            events.RaiseDownloadProgress(secondId, second, second.Target, "second", 64, 128);
+            var after = captured.Last();
+            Assert.AreEqual(before.Revision + 1, after.Revision);
+            Assert.AreEqual(64L, after.BytesTransferred);
+            Assert.AreEqual(0L, captured.First(row => row.Id == secondId).BytesTransferred);
+            events.RaiseTransferCompleted(secondId, second, second.Target, "second", 128, 1);
+            foreach (Guid id in new[] { firstId, secondId })
+            {
+                var rows = captured.Where(row => row.Id == id).ToArray();
+                Assert.IsTrue(rows.Zip(rows.Skip(1)).All(pair => pair.First.Revision < pair.Second.Revision),
+                    "Concurrent publishers must deliver each transfer's revisions in order.");
+            }
+            CollectionAssert.AreEqual(new[] { (failedAttempt, 1L), (failedAttempt, 2L),
+                (successfulAttempt, 1L), (successfulAttempt, 2L) }, attempts.ToArray());
+            events.RaiseWorkflowRetired(second.WorkflowId, 1);
+            Assert.AreEqual((0, 0, 0, 0, 0, 0), events.RetainedStateCounts);
+        }
+
+        [TestMethod]
+        public void PresentationNotifications_DoNotInspectDescendantJobs()
+        {
+            var events = new DownloadEvents();
+            var changes = new List<CoreChange>();
+            events.ChangePublished += changes.Add;
+            var list = new JobList("collection", [new UnvisitedJob()]);
+            events.RaiseJobStatus(list, "moving");
+            events.RaiseJobMessage(list, Microsoft.Extensions.Logging.LogLevel.Information, null, "message");
+            events.RaiseListProgress(list, 1, 0, 1);
+            events.RaiseTrackBatchResolved(list, [], [], []);
+            events.RaiseEngineCompleted(list);
+
+            Assert.AreEqual(5, changes.Count);
+            Assert.AreEqual(list.Id, ((JobStatusChange)changes[0]).Job.Id);
+            Assert.AreEqual("collection", ((ListProgressChange)changes[2]).List.ItemName);
+            Assert.AreEqual(list.Id, ((EngineCompletedChange)changes[4]).Queue.Id);
+        }
+
+        private sealed class UnvisitedJob : Job
+        {
+            protected override bool DefaultCanBeSkipped => false;
+            public override string ToString(bool noInfo)
+                => throw new InvalidOperationException("A presentation notification must not visit descendants.");
+        }
+
+        [TestMethod]
+        public void LifecycleCapture_UsesMemberOutcomesWithoutVisitingDescendants()
+        {
+            var events = new DownloadEvents();
+            var changes = new List<JobStateChangedChange>();
+            events.JobStateChanged += changes.Add;
+            var child = new UnvisitedJob();
+            var list = new JobList("collection", [child]);
+            events.RaiseJobStateChanged(list);
+            child.SetDone();
+            events.RaiseJobStateChanged(list);
+            Assert.AreEqual(new JobOutcomeSummary(1, 0, 0, 0),
+                ((JobListExecutionPayload)changes[0].Job.Payload).Outcomes);
+            Assert.AreEqual(new JobOutcomeSummary(1, 1, 1, 0),
+                ((JobListExecutionPayload)changes[1].Job.Payload).Outcomes);
+        }
+
+        [TestMethod]
+        [DataRow(false, false)]
+        [DataRow(false, true)]
+        [DataRow(true, false)]
+        [DataRow(true, true)]
+        public void DirectoryTransfers_KeepPlannedNestedPaths(bool album, bool explicitPlan)
+        {
+            var target = new PeerFileTarget(new PeerFileIdentity("Peer", @"Shares\Album\Artwork\cover.jpg"), 10, ".jpg");
+            var plan = new DirectoryTransferPlan(explicitPlan ? "My selection" : "Album", [new DirectoryTransferEntry(target, ["Artwork"])],
+                sourceDirectory: explicitPlan ? null : new PeerDirectoryIdentity("Peer", @"Shares\Album"));
+            DirectoryDownloadJob parent = album ? new AlbumJob(new AlbumQuery { Album = "Album" })
+                : new RemoteDirectoryJob(new RemoteDirectorySource.Resolved(plan));
+            if (album) parent.BeginDirectoryAttempt(plan);
+            FileDownloadJob child = album ? new SongJob(new SongQuery()) : new RemoteFileJob(target);
+            var events = new DownloadEvents();
+            TransferSnapshot? observed = null;
+            events.DownloadStarted += change => observed = change.Transfer;
+            events.RaiseJobRegistered(child, parent, null, plan.Entries[0]);
+            events.RaiseDownloadStarted(Guid.NewGuid(), child, target, "/downloads/Album/Artwork/cover.jpg");
+
+            Assert.IsNotNull(observed);
+            Assert.AreEqual(explicitPlan ? "My selection" : @"Shares\Album", observed.GroupDisplayPath);
+            Assert.AreEqual("Artwork/cover.jpg", observed.GroupRelativePath);
+            Assert.AreEqual(target.Filename, observed.RemotePath);
+            Assert.AreEqual(parent.Id, Guid.Parse(observed.GroupRef!));
+            var first = observed;
+            events.DownloadProgress += change => observed = change.Transfer;
+            events.UpdateDirectoryGroup(child, null, null);
+            events.RaiseDownloadProgress(first.Id, child, target, "/moved/cover.jpg", 5, 10);
+            Assert.IsNull(observed.GroupRef, "Removed grouping must not survive through reused file metadata.");
+            Assert.IsNull(observed.GroupRelativePath);
+            Assert.AreEqual("/moved/cover.jpg", observed.LocalPath);
+            Assert.AreEqual(parent.Id, Guid.Parse(first.GroupRef!));
+            Assert.AreEqual("Artwork/cover.jpg", first.GroupRelativePath);
         }
 
         [TestMethod]
@@ -103,17 +266,50 @@ namespace Tests.Eventing
             var events = new DownloadEvents(new FixedTimeProvider(now));
             var job = new SearchJob("test");
             var successfulSpecificObservers = 0;
+            var laterObservers = 0;
             CoreChange? published = null;
 
-            events.JobRegistered += _ => throw new InvalidOperationException("observer failed");
-            events.JobRegistered += _ => successfulSpecificObservers++;
+            Action<JobRegisteredChange> existing = _ => successfulSpecificObservers++;
+            Action<JobRegisteredChange> added = _ => laterObservers++;
+            events.JobRegistered += _ =>
+            {
+                events.JobRegistered -= existing;
+                events.JobRegistered += added;
+                throw new InvalidOperationException("observer failed");
+            };
+            events.JobRegistered += existing;
             events.ChangePublished += change => published = change;
 
-            Invoke(events, "RaiseJobRegistered", job, null!, null!);
+            events.RaiseJobRegistered(job, null!, null!);
 
             Assert.AreEqual(1, successfulSpecificObservers);
             Assert.IsNotNull(published);
             Assert.AreEqual(now, published.OccurredAtUtc);
+            Assert.AreEqual(now, job.CreatedAtUtc);
+            Assert.AreEqual(now, ((JobRegisteredChange)published).Job.CreatedAtUtc);
+            Assert.AreEqual(0, laterObservers, "Subscription changes take effect on the next delivery.");
+
+            events.RaiseJobRegistered(new SearchJob("next"), null!, null!);
+            Assert.AreEqual(1, successfulSpecificObservers, "The removed observer still receives the first delivery.");
+            Assert.AreEqual(1, laterObservers, "The added observer receives the next delivery despite its failing sibling.");
+        }
+
+        [TestMethod]
+        public void DownloadEvents_RegistrationPreservesAnAlreadyAcceptedCreationTime()
+        {
+            var registeredAt = new DateTimeOffset(2032, 4, 5, 6, 7, 8, TimeSpan.Zero);
+            var acceptedAt = registeredAt.AddMinutes(-2);
+            var events = new DownloadEvents(new FixedTimeProvider(registeredAt));
+            var job = new SongJob(new SongQuery { Title = "Track" }) { CreatedAtUtc = acceptedAt };
+            JobRegisteredChange? registered = null;
+            events.JobRegistered += change => registered = change;
+
+            events.RaiseJobRegistered(job, null!, null!);
+
+            Assert.IsNotNull(registered);
+            Assert.AreEqual(registeredAt, registered.OccurredAtUtc);
+            Assert.AreEqual(acceptedAt, registered.Job.CreatedAtUtc);
+            Assert.AreEqual(acceptedAt, job.CreatedAtUtc);
         }
 
         [TestMethod]
@@ -126,20 +322,33 @@ namespace Tests.Eventing
             var candidate = SoulseekSearchAdapter.ToFileCandidate(response, file);
             var transferId = Guid.NewGuid();
             var observedRevisions = new List<long>();
+            DownloadProgressedChange? captured = null;
+            events.DownloadProgress += change => captured = change;
 
             events.JobRegistered += change => observedRevisions.Add(change.Job.Revision);
-            events.DownloadStarted += change => observedRevisions.Add(change.Song.Revision);
-            events.DownloadProgress += change => observedRevisions.Add(change.Song.Revision);
-            events.DownloadStateChanged += change => observedRevisions.Add(change.Song.Revision);
-            events.DownloadAttemptFailed += change => observedRevisions.Add(change.Song.Revision);
+            events.DownloadStarted += change => observedRevisions.Add(change.Job.Revision);
+            events.DownloadProgress += change => observedRevisions.Add(change.Job.Revision);
+            events.DownloadStateChanged += change => observedRevisions.Add(change.Job.Revision);
+            events.DownloadAttemptFailed += change => observedRevisions.Add(change.Job.Revision);
 
-            Invoke(events, "RaiseJobRegistered", song, null!, null!);
+            events.RaiseJobRegistered(song, null!, null!);
+            song.DownloadPath = "C:/downloads/final-name.mp3";
+            song.FileSize = 700;
+            song.BytesTransferred = 32;
             Invoke(events, "RaiseDownloadStarted", transferId, song, candidate.Target, "C:/downloads/Track.mp3");
             Invoke(events, "RaiseDownloadProgress", transferId, song, candidate.Target, "C:/downloads/Track.mp3", 100L, 10_000L);
+            song.BytesTransferred = 64;
             Invoke(events, "RaiseDownloadStateChanged", transferId, song, candidate.Target, "C:/downloads/Track.mp3", TransferStates.InProgress, 100L, 10_000L);
             Invoke(events, "RaiseDownloadAttemptFailed", transferId, song, candidate.Target, "C:/downloads/Track.mp3", "C:/downloads/Track.mp3.incomplete", 1, 3, new IOException("failed"));
 
             CollectionAssert.AreEqual(new long[] { 1, 1, 1, 1, 1 }, observedRevisions);
+            Assert.IsNotNull(captured);
+            Assert.AreEqual("C:/downloads/final-name.mp3", captured.File.DownloadPath);
+            Assert.AreEqual(32L, captured.File.BytesTransferred);
+            Assert.AreEqual(700L, captured.File.FileSize);
+            Assert.AreEqual("C:/downloads/Track.mp3", captured.Transfer.LocalPath);
+            Assert.AreEqual(100L, captured.Transfer.BytesTransferred);
+            Assert.AreEqual(10_000L, captured.Transfer.TotalBytes);
         }
 
         [TestMethod]
@@ -288,9 +497,9 @@ namespace Tests.Eventing
             var engine = new DownloadEngine(engineSettings, clientManager);
 
             Guid? ownerId = null;
-            IReadOnlyList<Sockseek.Core.Snapshots.JobSnapshot>? pending = null;
-            IReadOnlyList<Sockseek.Core.Snapshots.JobSnapshot>? existing = null;
-            IReadOnlyList<Sockseek.Core.Snapshots.JobSnapshot>? notFound = null;
+            IReadOnlyList<JobReferenceSnapshot>? pending = null;
+            IReadOnlyList<JobReferenceSnapshot>? existing = null;
+            IReadOnlyList<JobReferenceSnapshot>? notFound = null;
 
             engine.Events.TrackBatchResolved += change =>
             {
@@ -563,18 +772,24 @@ namespace Tests.Eventing
                 downloadSettings.Skip.SkipExisting = false;
 
                 var aggregateJob = new AggregateJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
+                SubmissionIdentity.AssignAccepted(aggregateJob, downloadSettings);
                 var downloadGate = new TestHelpers.DownloadGate();
                 var client = new ClientTests.MockSoulseekClient(index)
                 {
                     BeforeDownloadCompletesAsync = downloadGate.BlockAsync,
                 };
                 var clientManager = TestHelpers.CreateMockClientManager(client, engineSettings);
-                var engine = new DownloadEngine(engineSettings, clientManager);
+                await using var engine = new DownloadEngine(engineSettings, clientManager, retireTerminalWorkflows: true);
 
                 var activeSongs = new HashSet<Guid>();
+                var registered = new List<JobRegisteredChange>();
                 int maxActiveSongs = 0;
                 object gate = new();
 
+                engine.Events.JobRegistered += change =>
+                {
+                    lock (gate) registered.Add(change);
+                };
                 engine.Events.JobStateChanged += change =>
                 {
                     if (change.Job.Kind != Sockseek.Core.Snapshots.JobSnapshotKind.Song)
@@ -605,6 +820,8 @@ namespace Tests.Eventing
                 Assert.IsTrue(aggregateJob.Songs.Count >= 2, "Aggregate should produce multiple song jobs for this test.");
                 Assert.AreEqual(1, maxActiveSongs, "--concurrent-jobs=1 should allow only one aggregate child song to download at a time.");
                 Assert.IsTrue(aggregateJob.Songs.All(song => song.TerminalOutcome == JobTerminalOutcome.Succeeded));
+                AssertAggregateRegistrationOwnership(aggregateJob, aggregateJob.Songs, registered);
+                AssertAggregateRetired(engine, aggregateJob, registered);
             }
             finally
             {
@@ -663,18 +880,24 @@ namespace Tests.Eventing
                 downloadSettings.Skip.SkipExisting = false;
 
                 var aggregateJob = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
+                SubmissionIdentity.AssignAccepted(aggregateJob, downloadSettings);
                 var downloadGate = new TestHelpers.DownloadGate();
                 var client = new ClientTests.MockSoulseekClient(index)
                 {
                     BeforeDownloadCompletesAsync = downloadGate.BlockAsync,
                 };
                 var clientManager = TestHelpers.CreateMockClientManager(client, engineSettings);
-                var engine = new DownloadEngine(engineSettings, clientManager);
+                await using var engine = new DownloadEngine(engineSettings, clientManager, retireTerminalWorkflows: true);
 
                 var activeAlbums = new HashSet<Guid>();
+                var registered = new List<JobRegisteredChange>();
                 int maxActiveAlbums = 0;
                 object gate = new();
 
+                engine.Events.JobRegistered += change =>
+                {
+                    lock (gate) registered.Add(change);
+                };
                 engine.Events.JobStateChanged += change =>
                 {
                     if (change.Job.Kind != Sockseek.Core.Snapshots.JobSnapshotKind.Album)
@@ -705,11 +928,47 @@ namespace Tests.Eventing
                 Assert.IsTrue(aggregateJob.Albums.Count >= 2, "Album aggregate should produce multiple album jobs for this test.");
                 Assert.AreEqual(1, maxActiveAlbums, "--concurrent-jobs=1 should allow only one album-aggregate child album to download at a time.");
                 Assert.IsTrue(aggregateJob.Albums.All(album => album.TerminalOutcome == JobTerminalOutcome.Succeeded));
+                AssertAggregateRegistrationOwnership(aggregateJob, aggregateJob.Albums, registered);
+                AssertAggregateRetired(engine, aggregateJob, registered);
             }
             finally
             {
                 if (System.IO.Directory.Exists(outputDir))
                     System.IO.Directory.Delete(outputDir, true);
+            }
+        }
+
+        private static void AssertAggregateRetired(
+            DownloadEngine engine, Job root, IReadOnlyList<JobRegisteredChange> registered)
+        {
+            Assert.AreEqual(0, engine.GetJobsByWorkflow(root.WorkflowId).Count);
+            Assert.IsTrue(registered.All(change => engine.GetJob(change.Job.Id) == null),
+                "Terminal daemon aggregates must release their generated jobs.");
+            Assert.AreEqual(0, engine.RetainedStateCounts.Contexts,
+                "No child context may be left under an unrelated workflow lifetime.");
+            Assert.AreEqual(0, engine.RetainedStateCounts.EventTransfers,
+                "Retired transfers must release their immutable metadata and lifecycle facts.");
+            Assert.IsNull(root.Cts);
+        }
+
+        private static void AssertAggregateRegistrationOwnership(
+            Job root, IEnumerable<Job> children, IReadOnlyList<JobRegisteredChange> registered)
+        {
+            var group = registered.Single(change => change.ParentJobId == root.Id
+                && change.Job.Kind == JobSnapshotKind.JobList);
+            Assert.AreEqual(JobSnapshotKind.JobList, group.Job.Kind);
+            Assert.AreEqual(root.WorkflowId, group.Job.WorkflowId);
+            Assert.AreEqual(root.SubmissionId, group.Job.SubmissionId);
+            Assert.AreEqual(JobSemanticRole.Orchestration, group.Job.SemanticRole);
+            foreach (var child in children)
+            {
+                var registration = registered.Single(change => change.Job.Id == child.Id);
+                Assert.AreEqual(root.Id, registration.ParentJobId,
+                    "Both aggregate modes expose generated members directly; the execution list is orchestration.");
+                Assert.AreEqual(root.WorkflowId, registration.Job.WorkflowId,
+                    "Children must have their final workflow identity at first publication.");
+                Assert.AreEqual(root.SubmissionId, registration.Job.SubmissionId);
+                Assert.AreEqual(JobSemanticRole.ExecutionChild, registration.Job.SemanticRole);
             }
         }
 
@@ -1276,8 +1535,7 @@ namespace Tests.Eventing
             song.Discovery = new DiscoverySummary { RawResultCount = 5, LockedFileCount = 2 };
             song.UpdateActivity(JobActivityPhase.Downloading);
 
-            var raiseMethod = typeof(DownloadEvents).GetMethod("RaiseJobStateChanged", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            raiseMethod?.Invoke(events, [song]);
+            events.RaiseJobStateChanged(song);
 
             Assert.AreEqual(JobActivityPhase.Downloading, capturedActivity);
             Assert.IsNotNull(capturedDiscovery);
@@ -1299,8 +1557,7 @@ namespace Tests.Eventing
             song.Discovery = new DiscoverySummary { RawResultCount = 1 };
             song.UpdateActivity(JobActivityPhase.Downloading);
 
-            var raiseMethod = typeof(DownloadEvents).GetMethod("RaiseJobStateChanged", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            raiseMethod?.Invoke(events, [song]);
+            events.RaiseJobStateChanged(song);
 
             Assert.IsTrue(sub1SawIt, "First subscriber should see metadata");
             Assert.IsTrue(sub2SawIt, "Second subscriber should see metadata (not consumed)");

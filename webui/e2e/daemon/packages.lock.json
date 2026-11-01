@@ -1,0 +1,285 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "AngleSharp": {
+        "type": "Transitive",
+        "resolved": "1.8.5",
+        "contentHash": "BUgFIpmkjwMPi6QneHUHaprjUOGSXoWEF/xi/2seHCpnI8XMHACNiC09rn9qL8jbxrP8jWyJ3DnOjsGvXWNGmw=="
+      },
+      "EmbedIO": {
+        "type": "Transitive",
+        "resolved": "3.5.2",
+        "contentHash": "YU4j+3XvuO8/VPkNf7KWOF1TpMhnyVhXnPsG1mvnDhTJ9D5BZOFXVDvCpE/SkQ1AJ0Aa+dXOVSW3ntgmLL7aJg==",
+        "dependencies": {
+          "Unosquare.Swan.Lite": "3.1.0"
+        }
+      },
+      "Google.Apis": {
+        "type": "Transitive",
+        "resolved": "1.77.0",
+        "contentHash": "zj7MKdZz7lWRM7z2meqh5S9KSf83c1xY8Fa+b1KzYxw9xMugUxcQtwPoxJgFzxKJgLE64dAra0ze++P/Up4k6Q==",
+        "dependencies": {
+          "Google.Apis.Core": "1.77.0"
+        }
+      },
+      "Google.Apis.Auth": {
+        "type": "Transitive",
+        "resolved": "1.77.0",
+        "contentHash": "lcgXlzM+JkX0nKKc7KBwTdiei2IbV20PuTe3cVQ2zOhq0j4IiS9I4xlRQY4igdCMLlmobthz5xtHiPr/wxl0Ew==",
+        "dependencies": {
+          "Google.Apis": "1.77.0",
+          "Google.Apis.Core": "1.77.0",
+          "System.Management": "7.0.2"
+        }
+      },
+      "Google.Apis.Core": {
+        "type": "Transitive",
+        "resolved": "1.77.0",
+        "contentHash": "7Yj4dpbOLFbxct6x5AFHQEZ25E8/f+5zqW39Q8f/GZknLyuS+uhnt2DIcKQplBNJTK9WNXompbYLWsPRhO6Nmg==",
+        "dependencies": {
+          "Newtonsoft.Json": "13.0.4"
+        }
+      },
+      "Google.Apis.YouTube.v3": {
+        "type": "Transitive",
+        "resolved": "1.77.0.4302",
+        "contentHash": "kgiYwbSD4aCByY6Im6GVXd5fi+bYoLVw4sh/AnbH0fvYgecui1WB2+R+JevDdW8Q5IBKV3wZvrZ7AzE/JDP/0g==",
+        "dependencies": {
+          "Google.Apis": "1.77.0",
+          "Google.Apis.Auth": "1.77.0"
+        }
+      },
+      "HtmlAgilityPack": {
+        "type": "Transitive",
+        "resolved": "1.13.1",
+        "contentHash": "wkKKu0oltLJQRBf862+O0yqBAvo+RVisLXFFTlThWCuw1gjATkna1ZKQBcwHUyJUUZhkPUvyxFJcyqXSAvNkag=="
+      },
+      "Microsoft.AspNetCore.Http.Connections.Client": {
+        "type": "Transitive",
+        "resolved": "10.0.13",
+        "contentHash": "r9hlU+te+QWFJlUCt2C22TDKY3oMER8ayC7Qzeq6yJ5toHBKcSqshhyyaLKK1jgBuyNi4ejly0wE8ANV8TyfWQ=="
+      },
+      "Microsoft.AspNetCore.OpenApi": {
+        "type": "Transitive",
+        "resolved": "10.0.13",
+        "contentHash": "XVuqUBGjVUVyb4DXR5BrSkrW0Br7sYKq39f723ILhQLlFHCyhAgWe1PkJBc42R/5mKBIgHiKVSY+PN5/4XtcQw==",
+        "dependencies": {
+          "Microsoft.OpenApi": "[2.12.2, 3.0.0)"
+        }
+      },
+      "Microsoft.AspNetCore.SignalR.Client": {
+        "type": "Transitive",
+        "resolved": "10.0.13",
+        "contentHash": "17fMUI5gkRwR9qXXTELd5OChcFn3lkgWpiblaaELQ45zOL7VuU7HJYAYnMk+Irjf2jpRxHT7b0imy+NVIFyoYQ==",
+        "dependencies": {
+          "Microsoft.AspNetCore.Http.Connections.Client": "10.0.13",
+          "Microsoft.AspNetCore.SignalR.Client.Core": "10.0.13"
+        }
+      },
+      "Microsoft.AspNetCore.SignalR.Client.Core": {
+        "type": "Transitive",
+        "resolved": "10.0.13",
+        "contentHash": "zfCQ0/J/rATKKcpwcpQYFz8sxhvrzgGyblsATcfxqSCibRkPFmDZcFmfD0UfLi38q+VDMpwEVuzOCO3TpRy99Q=="
+      },
+      "Microsoft.Data.Sqlite.Core": {
+        "type": "Transitive",
+        "resolved": "10.0.9",
+        "contentHash": "iZrONyMKPjxfVZnUktqO30QjzNwAGH+AxM61s8lKQnVhgbQ3bn0hiXI129ZmVicEbIcwljyy2OVsIYUR51ZHKQ==",
+        "dependencies": {
+          "SQLitePCLRaw.core": "2.1.11"
+        }
+      },
+      "Microsoft.EntityFrameworkCore": {
+        "type": "Transitive",
+        "resolved": "10.0.9",
+        "contentHash": "tu85SRzOT021V7EQlViCiAE7TqldVn469Y6lt5TEn/+XC4/MeNCHgMRSxqYuWqvF4zAQZUhCmtNEZuM3ss4LeA==",
+        "dependencies": {
+          "Microsoft.EntityFrameworkCore.Abstractions": "10.0.9",
+          "Microsoft.EntityFrameworkCore.Analyzers": "10.0.9"
+        }
+      },
+      "Microsoft.EntityFrameworkCore.Abstractions": {
+        "type": "Transitive",
+        "resolved": "10.0.9",
+        "contentHash": "GRMaiPkqYna/gCsyDffYDWmefGPC3hDrdMw+2rrGcQwhs6uZOsaMQXMJnoXQ35tx9SkBV2ieRRU9N/jLOO6BZw=="
+      },
+      "Microsoft.EntityFrameworkCore.Analyzers": {
+        "type": "Transitive",
+        "resolved": "10.0.9",
+        "contentHash": "aiEFB+C5EsZGqxvMPazE07hbWsp4iPaufJpanGt5O+lrwv7mJLrqma5haVIgFAPCyhQkmk75XSCEubT1zUjxtA=="
+      },
+      "Microsoft.EntityFrameworkCore.Relational": {
+        "type": "Transitive",
+        "resolved": "10.0.9",
+        "contentHash": "dEoyYKgiaZHHgOFm1WMWm1sFEsEuhPWufX4L9PekKtqd/RaIcPjkCjvbrVvJtApErb5wPSJhYvnTlxhH+p9h2g==",
+        "dependencies": {
+          "Microsoft.EntityFrameworkCore": "10.0.9"
+        }
+      },
+      "Microsoft.EntityFrameworkCore.Sqlite": {
+        "type": "Transitive",
+        "resolved": "10.0.9",
+        "contentHash": "HH9/nnRF/YmRrc3hUlgXjMBYKH5kFmd5UWC81l9U0ySQhwHTcgvDPSewB8DyQHzFJzNGgG7VFK6ynC6+XQz9WA==",
+        "dependencies": {
+          "Microsoft.EntityFrameworkCore.Sqlite.Core": "10.0.9",
+          "Microsoft.Extensions.DependencyModel": "10.0.9",
+          "SQLitePCLRaw.bundle_e_sqlite3": "2.1.11",
+          "SQLitePCLRaw.core": "2.1.11"
+        }
+      },
+      "Microsoft.EntityFrameworkCore.Sqlite.Core": {
+        "type": "Transitive",
+        "resolved": "10.0.9",
+        "contentHash": "3bPEmACAaPJJSw+m5XwTSi3yZnVtaifa4d8gLsNMzW0Qu28jS5kADSfgJRBlq49RJ1K098VCzEDRJwM8gE6f2w==",
+        "dependencies": {
+          "Microsoft.Data.Sqlite.Core": "10.0.9",
+          "Microsoft.EntityFrameworkCore.Relational": "10.0.9",
+          "Microsoft.Extensions.DependencyModel": "10.0.9",
+          "SQLitePCLRaw.core": "2.1.11"
+        }
+      },
+      "Microsoft.Extensions.DependencyModel": {
+        "type": "Transitive",
+        "resolved": "10.0.9",
+        "contentHash": "SCDTQ6HubnRvTUjR7dgMKHZvNoCb03t44ttHL8trlFTGgfDteWn/0nRdOxDhcI+lTWhKgd/flCVJEtAOPhSLNg=="
+      },
+      "Microsoft.OpenApi": {
+        "type": "Transitive",
+        "resolved": "2.12.2",
+        "contentHash": "ZkT7qiJe0Kj0+DTZOZo+xrDy1kNmdsWFQVPIQLNx9ZJ0T9cB2LG7r+Bi60so8/+yg1nkS7QCPadrzsTG4VPKrA=="
+      },
+      "Newtonsoft.Json": {
+        "type": "Transitive",
+        "resolved": "13.0.4",
+        "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
+      },
+      "SixLabors.ImageSharp": {
+        "type": "Transitive",
+        "resolved": "3.1.12",
+        "contentHash": "iAg6zifihXEFS/t7fiHhZBGAdCp3FavsF4i2ZIDp0JfeYeDVzvmlbY1CNhhIKimaIzrzSi5M/NBFcWvZT2rB/A=="
+      },
+      "SmallestCSVParser": {
+        "type": "Transitive",
+        "resolved": "1.2.0",
+        "contentHash": "yCc84rzTlnXPEJnrMo7QQUXcnG0em1NAN7BQZxhksvxUo7SGnTW+ya86R34q3EwoUV+hZ4ZoRiLAyEmY7254hA=="
+      },
+      "Soulseek": {
+        "type": "Transitive",
+        "resolved": "10.0.2",
+        "contentHash": "A28TCGK2PDUXohKXCRTjU+hECLrF1IM9fkHcbF4WgP++OTPlngHDlDSp243LZ2x2O7l7RDypYtUYrsRgre5xoA=="
+      },
+      "SpotifyAPI.Web": {
+        "type": "Transitive",
+        "resolved": "7.4.2",
+        "contentHash": "DxyIO+oxI7gyqyGJ5QzVWf31JInRDRhqGtTXIKX6HUJBie+aR+OuB4bFSYWNVO6GL4V+Tm3PQBKNBa+UJzchOA==",
+        "dependencies": {
+          "Newtonsoft.Json": "13.0.3"
+        }
+      },
+      "SpotifyAPI.Web.Auth": {
+        "type": "Transitive",
+        "resolved": "7.4.2",
+        "contentHash": "+Og2S4d8Q/lrZsBXlgPt0FieigtzVHj1Lg6+eDF+5RwVpKsfwQjW7aVfaDyktVCo56T2qOBjbqC/XluIxXGJgQ==",
+        "dependencies": {
+          "EmbedIO": "3.5.2",
+          "SpotifyAPI.Web": "7.4.2"
+        }
+      },
+      "SQLitePCLRaw.bundle_e_sqlite3": {
+        "type": "Transitive",
+        "resolved": "2.1.11",
+        "contentHash": "DC4nA7yWnf4UZdgJDF+9Mus4/cb0Y3Sfgi3gDnAoKNAIBwzkskNAbNbyu+u4atT0ruVlZNJfwZmwiEwE5oz9LQ==",
+        "dependencies": {
+          "SQLitePCLRaw.lib.e_sqlite3": "2.1.11",
+          "SQLitePCLRaw.provider.e_sqlite3": "2.1.11"
+        }
+      },
+      "SQLitePCLRaw.core": {
+        "type": "Transitive",
+        "resolved": "2.1.11",
+        "contentHash": "PK0GLFkfhZzLQeR3PJf71FmhtHox+U3vcY6ZtswoMjrefkB9k6ErNJEnwXqc5KgXDSjige2XXrezqS39gkpQKA=="
+      },
+      "SQLitePCLRaw.lib.e_sqlite3": {
+        "type": "Transitive",
+        "resolved": "3.53.3",
+        "contentHash": "ZXiSbBkrlw2Of/dBqny/qtQol7dlThrUD8zH/jkQicCFm2yn2BbhKsQW0+YHAzhANWz4ZJCz7gvo88BwluVhkA=="
+      },
+      "SQLitePCLRaw.provider.e_sqlite3": {
+        "type": "Transitive",
+        "resolved": "2.1.11",
+        "contentHash": "Y/0ZkR+r0Cg3DQFuCl1RBnv/tmxpIZRU3HUvelPw6MVaKHwYYR8YNvgs0vuNuXCMvlyJ+Fh88U1D4tah1tt6qw==",
+        "dependencies": {
+          "SQLitePCLRaw.core": "2.1.11"
+        }
+      },
+      "System.CodeDom": {
+        "type": "Transitive",
+        "resolved": "7.0.0",
+        "contentHash": "GLltyqEsE5/3IE+zYRP5sNa1l44qKl9v+bfdMcwg+M9qnQf47wK3H0SUR/T+3N4JEQXF3vV4CSuuo0rsg+nq2A=="
+      },
+      "System.Management": {
+        "type": "Transitive",
+        "resolved": "7.0.2",
+        "contentHash": "/qEUN91mP/MUQmJnM5y5BdT7ZoPuVrtxnFlbJ8a3kBJGhe2wCzBfnPFtK2wTtEEcf3DMGR9J00GZZfg6HRI6yA==",
+        "dependencies": {
+          "System.CodeDom": "7.0.0"
+        }
+      },
+      "TagLibSharp": {
+        "type": "Transitive",
+        "resolved": "2.3.0",
+        "contentHash": "Qo4z6ZjnIfbR3Us1Za5M2vQ97OWZPmODvVmepxZ8XW0UIVLGdO2T63/N3b23kCcyiwuIe0TQvMEQG8wUCCD1mA=="
+      },
+      "Unosquare.Swan.Lite": {
+        "type": "Transitive",
+        "resolved": "3.1.0",
+        "contentHash": "X3s5QE/KMj3WAPFqFve7St+Ds10BB50u8kW8PmKIn7FVkn7yEXe9Yxr2htt1WV85DRqfFR0MN/BUNHkGHtL4OQ=="
+      },
+      "YoutubeExplode": {
+        "type": "Transitive",
+        "resolved": "6.6.2",
+        "contentHash": "BN12ipOeTX1157Jx2uvFZGhR6dyHnji+8oM37NqXyu7nCL0rrSrxruea8lTSlUGewoxyvdC1owzRLThBI5Wj9Q=="
+      },
+      "sockseek.api": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.AspNetCore.SignalR.Client": "[10.0.13, )"
+        }
+      },
+      "sockseek.core": {
+        "type": "Project",
+        "dependencies": {
+          "AngleSharp": "[1.8.5, )",
+          "Google.Apis.YouTube.v3": "[1.77.0.4302, )",
+          "HtmlAgilityPack": "[1.13.1, )",
+          "SixLabors.ImageSharp": "[3.1.12, )",
+          "SmallestCSVParser": "[1.2.0, )",
+          "Soulseek": "[10.0.2, )",
+          "SpotifyAPI.Web": "[7.4.2, )",
+          "SpotifyAPI.Web.Auth": "[7.4.2, )",
+          "TagLibSharp": "[2.3.0, )",
+          "YoutubeExplode": "[6.6.2, )"
+        }
+      },
+      "sockseek.persistence": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.EntityFrameworkCore.Sqlite": "[10.0.9, )",
+          "SQLitePCLRaw.lib.e_sqlite3": "[3.53.3, )",
+          "Sockseek.Core": "[4.0.0, )"
+        }
+      },
+      "sockseek.server": {
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.AspNetCore.OpenApi": "[10.0.13, )",
+          "Microsoft.OpenApi": "[2.12.2, )",
+          "Sockseek.Api": "[4.0.0, )",
+          "Sockseek.Core": "[4.0.0, )",
+          "Sockseek.Persistence": "[4.0.0, )"
+        }
+      }
+    }
+  }
+}

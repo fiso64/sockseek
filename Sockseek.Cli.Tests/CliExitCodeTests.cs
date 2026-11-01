@@ -67,6 +67,32 @@ public class CliExitCodeTests
     }
 
     [TestMethod]
+    public async Task GroupScopedTransferCommands_RequirePeerAndDirection()
+    {
+        var originalError = Console.Error;
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetError(stderr);
+            foreach (string[] args in new[]
+            {
+                new[] { "transfers", "cancel", "--direction", "download", "--group-ref", "folder" },
+                new[] { "transfers", "archive", "--username", "peer", "--group-ref", "folder" },
+            })
+            {
+                stderr.GetStringBuilder().Clear();
+                var exitCode = await DaemonResourceCommandRunner.RunAsync(args, "http://127.0.0.1:1");
+                Assert.AreEqual(Sockseek.Cli.Program.CliExitCode.UsageError, exitCode);
+                StringAssert.Contains(stderr.ToString(), "--group-ref requires --username and --direction");
+            }
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [TestMethod]
     [DataRow("chat", "status", null)]
     [DataRow("share", "status", null)]
     [DataRow("user", "profile", "Peer")]

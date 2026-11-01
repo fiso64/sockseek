@@ -15,15 +15,19 @@ public enum FolderSortMode
 public sealed class IncrementalAlbumFolderProjector
 {
     private readonly AlbumFolderProjectionPlan projectionPlan;
-    private readonly SearchSettings search;
     private readonly FolderSortMode sortMode;
-    private readonly Dictionary<string, List<EvaluatedAlbumProjectionInput>> rowsByUser =
-        new(StringComparer.Ordinal);
-    private readonly HashSet<string> dirtyUsers = new(StringComparer.Ordinal);
+    private readonly bool rankQualityCoverage;
+    // Roots own connected album branches: an advertised ancestor absorbs its
+    // descendants. Independent albums from the same peer never rebuild each other.
+    private readonly Dictionary<PeerPathKey, List<EvaluatedAlbumProjectionInput>> rowsByRoot = [];
+    private readonly Dictionary<string, SortedSet<string>> rootsByUser = new(StringComparer.Ordinal);
+    private readonly HashSet<PeerPathKey> dirtyRoots = [];
+    private readonly HashSet<PeerPathKey> removedRoots = [];
     private readonly HashSet<(PeerPathKey Path, SearchResultVisibility Visibility)> seen = [];
     private readonly Dictionary<PeerPathKey, AlbumFolder> folders = [];
     private readonly Dictionary<PeerPathKey, AlbumFolderSignature> signatures = [];
-    private readonly Dictionary<PeerPathKey, long> firstSequences = [];
+    private readonly Dictionary<PeerPathKey, OrderedFolderEntry> orderEntries = [];
+    private readonly SortedSet<OrderedFolderEntry> orderedFolders;
     private int nextOriginalIndex;
 
     public IncrementalAlbumFolderProjector(
@@ -33,8 +37,10 @@ public sealed class IncrementalAlbumFolderProjector
         bool ignoreStringSortConditions = false,
         FolderSortMode sortMode = FolderSortMode.AlbumRanked)
     {
-        this.search = search;
         this.sortMode = sortMode;
+        rankQualityCoverage = AlbumQualityPolicy.ActiveConditions(search.NecessaryCond).IsActive;
+        orderedFolders = new SortedSet<OrderedFolderEntry>(
+            Comparer<OrderedFolderEntry>.Create(CompareOrdered));
         projectionPlan = new AlbumFolderProjectionPlan(
             query,
             search,
@@ -50,11 +56,6 @@ public sealed class IncrementalAlbumFolderProjector
             index + 1L, index + 1, result.Response, result.File, DateTimeOffset.UnixEpoch)));
 
     public int AddRange(IEnumerable<SearchProjectionInput> results)
-        => AddRange(results, admittedFiles: null);
-
-    private int AddRange(
-        IEnumerable<SearchProjectionInput> results,
-        List<ProjectedFileCandidate>? admittedFiles)
     {
         int added = 0;
         foreach (SearchProjectionInput input in results)
@@ -70,32 +71,12 @@ public sealed class IncrementalAlbumFolderProjector
             if (!seen.Add(key))
                 continue;
 
-            if (!rowsByUser.TryGetValue(
-                    input.Username,
-                    out List<EvaluatedAlbumProjectionInput>? rows))
-            {
-                rows = [];
-                rowsByUser.Add(input.Username, rows);
-            }
-            rows.Add(evaluated.Value);
-            admittedFiles?.Add(new ProjectedFileCandidate(
-                input,
-                input.ToFileCandidate(),
-                evaluated.Value.SortEntry.Key.ConditionFacts,
-                evaluated.Value.SortEntry.Key.PersistenceKey));
-            dirtyUsers.Add(input.Username);
+            if (evaluated.DirectoryPath is { } directory)
+                AddToBranch(new(input.Username, directory), evaluated);
             added++;
         }
 
         return added;
-    }
-
-    public AlbumFolderSearchViewChanges AddRangeForSearchView(
-        IEnumerable<SearchProjectionInput> results)
-    {
-        var admitted = new List<ProjectedFileCandidate>();
-        AddRange(results, admitted);
-        return new(GetChanges(), admitted);
     }
 
     internal AlbumFolderProjectionChanges AddRangeAndGetChanges(IEnumerable<(SearchResponse Response, SlFile File)> results)
@@ -112,18 +93,21 @@ public sealed class IncrementalAlbumFolderProjector
 
     public void Clear()
     {
-        rowsByUser.Clear();
-        dirtyUsers.Clear();
+        rowsByRoot.Clear();
+        rootsByUser.Clear();
+        dirtyRoots.Clear();
+        removedRoots.Clear();
         seen.Clear();
         folders.Clear();
         signatures.Clear();
-        firstSequences.Clear();
+        orderEntries.Clear();
+        orderedFolders.Clear();
         nextOriginalIndex = 0;
     }
 
     public List<AlbumFolder> Snapshot()
     {
-        RefreshDirtyUsers(null, null, null);
+        RefreshDirtyRoots(null, null, null);
         return OrderedFolders();
     }
 
@@ -132,7 +116,7 @@ public sealed class IncrementalAlbumFolderProjector
         var added = new List<AlbumFolder>();
         var updated = new List<AlbumFolder>();
         var removed = new List<AlbumFolder>();
-        RefreshDirtyUsers(added, updated, removed);
+        RefreshDirtyRoots(added, updated, removed);
         return new AlbumFolderProjectionChanges(
             OrderedFolders(),
             added,
@@ -140,60 +124,103 @@ public sealed class IncrementalAlbumFolderProjector
             removed);
     }
 
-    private void RefreshDirtyUsers(
+    private void AddToBranch(PeerPathKey directory, EvaluatedAlbumProjectionInput input)
+    {
+        PeerPathKey ancestor = directory;
+        while (true)
+        {
+            if (rowsByRoot.TryGetValue(ancestor, out var existing))
+            {
+                existing.Add(input);
+                dirtyRoots.Add(ancestor);
+                return;
+            }
+            int separator = Math.Max(ancestor.RemotePath.LastIndexOf('\\'), ancestor.RemotePath.LastIndexOf('/'));
+            if (separator <= 0) break;
+            ancestor = ancestor with { RemotePath = ancestor.RemotePath[..separator] };
+        }
+
+        if (!rootsByUser.TryGetValue(directory.Username, out var roots))
+            rootsByUser[directory.Username] = roots = new(StringComparer.Ordinal);
+        var rows = new List<EvaluatedAlbumProjectionInput> { input };
+        // A late parent joins only existing descendant roots. Seek each wire
+        // separator independently; prefix neighbours (Album/Album2) stay separate.
+        foreach (char separator in "/\\")
+        {
+            string prefix = directory.RemotePath + separator;
+            string upper = directory.RemotePath + (char)(separator + 1);
+            foreach (string child in roots.GetViewBetween(prefix, upper).TakeWhile(path =>
+                path.StartsWith(prefix, StringComparison.Ordinal)).ToArray())
+            {
+                var childKey = new PeerPathKey(directory.Username, child);
+                rows.AddRange(rowsByRoot[childKey]);
+                rowsByRoot.Remove(childKey);
+                roots.Remove(child);
+                dirtyRoots.Remove(childKey);
+                removedRoots.Add(childKey);
+            }
+        }
+        // A late parent joins earlier arrivals; keep that branch in admission
+        // order once, instead of sorting its growing prefix at every publication.
+        if (rows.Count > 1)
+            rows.Sort((x, y) => x.SortEntry.OriginalIndex.CompareTo(y.SortEntry.OriginalIndex));
+        rowsByRoot.Add(directory, rows);
+        roots.Add(directory.RemotePath);
+        dirtyRoots.Add(directory);
+    }
+
+    private void RefreshDirtyRoots(
         List<AlbumFolder>? added,
         List<AlbumFolder>? updated,
         List<AlbumFolder>? removed)
     {
-        if (dirtyUsers.Count == 0)
-            return;
-        foreach (string username in dirtyUsers.Order(StringComparer.Ordinal))
+        if (dirtyRoots.Count == 0) return;
+        var removedByUser = removedRoots.ToLookup(key => key.Username, StringComparer.Ordinal);
+        foreach (var user in dirtyRoots.GroupBy(key => key.Username).OrderBy(group => group.Key, StringComparer.Ordinal))
         {
-            PeerPathKey[] oldKeys = folders.Keys
-                .Where(key => string.Equals(key.Username, username, StringComparison.Ordinal))
-                .ToArray();
-            List<AlbumFolder> projected = projectionPlan.ProjectEvaluatedResults(
-                rowsByUser[username],
-                rowsByUser[username].Count);
-            var newKeys = new HashSet<PeerPathKey>();
+            bool singleBranch = user.Count() == 1;
+            var rows = singleBranch ? rowsByRoot[user.First()]
+                : user.SelectMany(key => rowsByRoot[key]).ToList();
+            // Equal filenames (public/locked) retain the same input order as a
+            // one-shot projection. A single branch is already in that order.
+            if (!singleBranch)
+                rows.Sort((x, y) => x.SortEntry.OriginalIndex.CompareTo(y.SortEntry.OriginalIndex));
+            List<AlbumFolder> projected = projectionPlan.ProjectEvaluatedResults(rows);
+            var previous = user.Concat(removedByUser[user.Key]).ToHashSet();
+            foreach (var key in previous)
+                if (orderEntries.TryGetValue(key, out var prior)) orderedFolders.Remove(prior);
             foreach (AlbumFolder folder in projected)
             {
                 PeerPathKey key = FolderKey(folder);
-                newKeys.Add(key);
+                previous.Remove(key);
                 AlbumFolderSignature signature = AlbumFolderSignature.Create(folder);
-                if (!signatures.TryGetValue(key, out AlbumFolderSignature previous))
-                    added?.Add(folder);
-                else if (signature != previous)
-                    updated?.Add(folder);
+                if (!signatures.TryGetValue(key, out AlbumFolderSignature prior)) added?.Add(folder);
+                else if (signature != prior) updated?.Add(folder);
                 folders[key] = folder;
                 signatures[key] = signature;
-                firstSequences[key] = folder.Files.Count == 0
-                    ? long.MaxValue
-                    : folder.Files.Min(file => file.Candidate.Evidence.Sequence);
+                IReadOnlyList<ProjectedFileCandidate> projectionFiles = folder.ProjectionFiles
+                    ?? throw new InvalidDataException("An album projection has no admitted file facts.");
+                var entry = new OrderedFolderEntry(key, folder,
+                    projectionFiles.Count == 0 ? long.MaxValue : projectionFiles.Min(file => file.Input.Sequence));
+                orderEntries[key] = entry;
+                if (!orderedFolders.Add(entry))
+                    throw new InvalidDataException("Distinct album folders have the same order identity.");
             }
-
-            foreach (PeerPathKey key in oldKeys)
+            foreach (PeerPathKey key in previous)
             {
-                if (newKeys.Contains(key))
-                    continue;
-                removed?.Add(folders[key]);
-                folders.Remove(key);
+                if (folders.Remove(key, out var prior)) removed?.Add(prior);
                 signatures.Remove(key);
-                firstSequences.Remove(key);
+                orderEntries.Remove(key);
             }
         }
-        dirtyUsers.Clear();
+        dirtyRoots.Clear();
+        removedRoots.Clear();
     }
 
     private List<AlbumFolder> OrderedFolders()
-        => sortMode == FolderSortMode.DeterministicUnranked
-            ? folders.Values
-                .OrderBy(folder => folder.Username, StringComparer.Ordinal)
-                .ThenBy(folder => folder.FolderPath, StringComparer.Ordinal)
-                .ToList()
-            : folders.Values.Order(Comparer<AlbumFolder>.Create(CompareRanked)).ToList();
+        => orderedFolders.Select(entry => entry.Folder).ToList();
 
-    private int CompareRanked(AlbumFolder? x, AlbumFolder? y)
+    private int CompareOrdered(OrderedFolderEntry? x, OrderedFolderEntry? y)
     {
         if (ReferenceEquals(x, y))
             return 0;
@@ -201,6 +228,18 @@ public sealed class IncrementalAlbumFolderProjector
             return 1;
         if (y == null)
             return -1;
+        if (sortMode == FolderSortMode.DeterministicUnranked)
+        {
+            int user = string.Compare(x.Key.Username, y.Key.Username, StringComparison.Ordinal);
+            return user != 0
+                ? user
+                : string.Compare(x.Key.RemotePath, y.Key.RemotePath, StringComparison.Ordinal);
+        }
+        return CompareRanked(x.Folder, y.Folder, x.FirstSequence, y.FirstSequence);
+    }
+
+    private int CompareRanked(AlbumFolder x, AlbumFolder y, long xFirstSequence, long yFirstSequence)
+    {
         ResultSorter.SortEntry? xEntry = x.SearchAggregateSortEntry;
         ResultSorter.SortEntry? yEntry = y.SearchAggregateSortEntry;
         if (xEntry.HasValue && yEntry.HasValue)
@@ -216,7 +255,7 @@ public sealed class IncrementalAlbumFolderProjector
         else if (yEntry.HasValue)
             return 1;
 
-        if (AlbumQualityPolicy.ActiveConditions(search.NecessaryCond).IsActive)
+        if (rankQualityCoverage)
         {
             int comparison = CompareCoverage(
                 x.SearchAudioQualityCoverage.Format,
@@ -253,7 +292,7 @@ public sealed class IncrementalAlbumFolderProjector
         else if (yEntry.HasValue)
             return 1;
 
-        int rank = firstSequences[FolderKey(x)].CompareTo(firstSequences[FolderKey(y)]);
+        int rank = xFirstSequence.CompareTo(yFirstSequence);
         if (rank != 0)
             return rank;
         int username = string.Compare(x.Username, y.Username, StringComparison.Ordinal);
@@ -269,6 +308,11 @@ public sealed class IncrementalAlbumFolderProjector
 
     private static PeerPathKey FolderKey(AlbumFolder folder)
         => new(folder.Username, folder.FolderPath);
+
+    private sealed record OrderedFolderEntry(
+        PeerPathKey Key,
+        AlbumFolder Folder,
+        long FirstSequence);
 
     private readonly record struct AlbumFolderSignature(
         int FileCount,
@@ -293,7 +337,3 @@ public sealed record AlbumFolderProjectionChanges(
 {
     public bool HasChanges => Added.Count > 0 || Updated.Count > 0 || Removed.Count > 0;
 }
-
-public sealed record AlbumFolderSearchViewChanges(
-    AlbumFolderProjectionChanges Folders,
-    IReadOnlyList<ProjectedFileCandidate> AdmittedFiles);

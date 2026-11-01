@@ -89,6 +89,56 @@ public sealed class UserCommandRunnerTests
     }
 
     [TestMethod]
+    public async Task PagedRemoteCommandsShareDefaultsAndAcceptLargeRequestedPages()
+    {
+        string browseId = Guid.NewGuid().ToString();
+        (string[] Args, int DefaultLimit)[] commands =
+        [
+            (["transfers"], 500),
+            (["chat", "conversations"], 500),
+            (["user", "shares-page", browseId, "--files", "1"], 500),
+            (["user", "shares-page", browseId], 100),
+        ];
+        TextWriter originalOutput = Console.Out;
+        TextWriter originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            foreach (var command in commands)
+            {
+                foreach (string? requested in new string?[] { null, "501", "2147483647" })
+                {
+                    using var listener = new TcpListener(IPAddress.Loopback, 0);
+                    listener.Start();
+                    int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+                    Task<string> request = RespondOnceAsync(listener,
+                        """{"items":[],"nextCursor":null,"retainedCoverage":{"state":"Available"}}""");
+                    string[] limit = requested is null ? [] : ["--limit", requested];
+                    int exitCode = await Sockseek.Cli.Program.Main(
+                        [.. command.Args, .. limit, "--json", "--remote", $"http://127.0.0.1:{port}", "--no-config"]);
+                    Assert.AreEqual(0, exitCode, stderr.ToString());
+                    string expected = requested ?? command.DefaultLimit.ToString();
+                    StringAssert.Contains(await request.WaitAsync(TimeSpan.FromSeconds(5)), $"limit={expected}");
+                }
+                foreach (string invalid in new[] { "0", "-1", "2147483648" })
+                {
+                    int exitCode = await Sockseek.Cli.Program.Main(
+                        [.. command.Args, "--limit", invalid, "--remote", "http://127.0.0.1:1", "--no-config"]);
+                    Assert.AreEqual(2, exitCode, "Invalid page sizes must fail before any HTTP request.");
+                }
+            }
+        }
+        finally
+        {
+            Console.SetOut(originalOutput);
+            Console.SetError(originalError);
+        }
+    }
+
+    [TestMethod]
     public async Task HumanProfileKeepsStatisticsVisibleWhenUserInfoIsUnavailable()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -166,10 +216,10 @@ public sealed class UserCommandRunnerTests
     [TestMethod]
     public void BrowserTransitionsToFilesWhenFinalDirectoryPageIsExactlyFull()
     {
-        Assert.IsTrue(InteractiveShareBrowser.NeedsSeparateFilePage(24, null, 42));
-        Assert.IsFalse(InteractiveShareBrowser.NeedsSeparateFilePage(23, null, 42));
-        Assert.IsFalse(InteractiveShareBrowser.NeedsSeparateFilePage(24, "next", 42));
-        Assert.IsFalse(InteractiveShareBrowser.NeedsSeparateFilePage(24, null, null));
+        Assert.IsTrue(InteractiveShareBrowser.NeedsSeparateFilePage(100, null, 42));
+        Assert.IsFalse(InteractiveShareBrowser.NeedsSeparateFilePage(99, null, 42));
+        Assert.IsFalse(InteractiveShareBrowser.NeedsSeparateFilePage(100, "next", 42));
+        Assert.IsFalse(InteractiveShareBrowser.NeedsSeparateFilePage(100, null, null));
     }
 
     [TestMethod]

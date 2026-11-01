@@ -114,7 +114,9 @@ internal static class HistoricalJobDtoMapper
     }
 
     public static JobSummaryDto ToSummary(PersistedJob job)
-        => new(
+    {
+        SearchDefinition? searchDefinition = SearchPresentationDefinition(job);
+        return new(
             job.Id,
             checked((int)job.DisplayId),
             job.WorkflowId,
@@ -141,10 +143,112 @@ internal static class HistoricalJobDtoMapper
             Role: Parse(job.SemanticRole, ServerJobRole.Legacy),
             CreatedAtUtc: job.CreatedAtUtc,
             DiscoveryPublicFileCount: ToNullableInt(job.DiscoveryPublicFileCount),
-            DiscoveryObservedPeerCount: ToNullableInt(job.DiscoveryObservedPeerCount));
+            DiscoveryObservedPeerCount: ToNullableInt(job.DiscoveryObservedPeerCount),
+            Stats: ToSummaryStats(job),
+            SearchDefaultProjection: searchDefinition?.DefaultProjection.ToServer(),
+            SearchAggregatePresentation: searchDefinition?.AggregatePresentation,
+            SourceDetail: SourceDetail(job));
+    }
+
+    private static string? SourceDetail(PersistedJob job)
+    {
+        if (job.SourceDetail != null || job.Kind != "Extract") return job.SourceDetail;
+        if (!string.IsNullOrWhiteSpace(job.PayloadJson))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(job.PayloadJson);
+                var root = document.RootElement;
+                if (Enum.TryParse<Sockseek.Core.InputType>(Text(root, "InputType"), ignoreCase: true, out var type))
+                    return $"{Sockseek.Core.Extractors.ExtractorRegistry.SourceName(type)} import";
+            }
+            catch (JsonException) { }
+        }
+        return "Import";
+    }
+
+    private static SearchDefinition? SearchPresentationDefinition(PersistedJob job)
+    {
+        if (!string.Equals(job.Kind, nameof(ServerJobKind.Search), StringComparison.OrdinalIgnoreCase))
+            return null;
+        try
+        {
+            return SearchDefinitionFromPayload(job);
+        }
+        catch (Exception error) when (error is JsonException or InvalidDataException or NotSupportedException)
+        {
+            // A malformed legacy definition must not hide the rest of a history page.
+            return null;
+        }
+    }
+
+    private static JobSummaryStatsDto? ToSummaryStats(PersistedJob job)
+    {
+        if (string.IsNullOrWhiteSpace(job.PayloadJson))
+            return null;
+        ServerJobKind kind = Parse(job.Kind, ServerJobKind.Generic);
+        if (kind is ServerJobKind.Search or ServerJobKind.Extract or ServerJobKind.Generic)
+            return null;
+        try
+        {
+            using var document = JsonDocument.Parse(job.PayloadJson);
+            JsonElement root = document.RootElement;
+            JsonElement directory = Child(root, "Directory");
+            return kind switch
+            {
+                ServerJobKind.Song => new(CandidateCount: NullableInt(root, "CandidateCount")),
+                ServerJobKind.Album => new(
+                    MemberCount: NullableInt(directory, "FileCount"),
+                    CompletedMemberCount: NullableInt(directory, "TerminalFileCount"),
+                    FailedMemberCount: NullableInt(directory, "FailedFileCount"),
+                    FolderCount: NullableInt(root, "ResultCount"),
+                    FileCount: NullableInt(directory, "FileCount"),
+                    ProgressPercent: DirectoryProgressPercent(directory)),
+                ServerJobKind.RemoteFile => new(KnownBytes:
+                    NullableLong(Child(root, "File"), "FileSize")
+                    ?? NullableLong(Child(root, "Target"), "Size")),
+                ServerJobKind.RemoteDirectory => new(
+                    MemberCount: NullableInt(directory, "FileCount"),
+                    CompletedMemberCount: NullableInt(directory, "TerminalFileCount"),
+                    FailedMemberCount: NullableInt(directory, "FailedFileCount"),
+                    FileCount: NullableInt(directory, "FileCount"),
+                    ProgressPercent: DirectoryProgressPercent(directory)),
+                ServerJobKind.Aggregate => new(
+                    MemberCount: NullableInt(root, "SongCount"),
+                    CompletedMemberCount: NullableInt(root, "CompletedSongCount"),
+                    FailedMemberCount: NullableInt(root, "FailedSongCount")),
+                ServerJobKind.AlbumAggregate => new(
+                    MemberCount: NullableInt(root, "AlbumCount"),
+                    CompletedMemberCount: NullableInt(root, "CompletedAlbumCount"),
+                    FailedMemberCount: NullableInt(root, "FailedAlbumCount")),
+                ServerJobKind.JobList => new(
+                    MemberCount: NullableInt(root, "Count"),
+                    CompletedMemberCount: NullableInt(root, "CompletedJobCount"),
+                    FailedMemberCount: NullableInt(root, "FailedJobCount")),
+                ServerJobKind.RetrieveFolder => new(
+                    NewFilesFoundCount: NullableInt(root, "NewFilesFoundCount")),
+                _ => null,
+            };
+        }
+        catch (JsonException)
+        {
+            // A malformed optional payload must not make the entire retained
+            // Jobs page unavailable; detail reads can still report that row.
+            return null;
+        }
+    }
 
     private static int? ToNullableInt(long? value)
         => value.HasValue ? checked((int)value.Value) : null;
+
+    private static double? DirectoryProgressPercent(JsonElement directory)
+        => ServerSnapshotMapper.DirectoryProgressPercent(
+            Int(directory, "FileCount"), Int(directory, "SuccessfulFileCount"),
+            Long(directory, "BytesTransferred"), Long(directory, "TotalKnownBytes"),
+            directory.ValueKind == JsonValueKind.Object
+                && directory.TryGetProperty("Progress", out var progress)
+                && progress.ValueKind == JsonValueKind.Number
+                ? progress.GetDouble() : null);
 
     public static JobPayloadDto ToPayload(PersistedJob job)
     {
@@ -174,11 +278,22 @@ internal static class HistoricalJobDtoMapper
                 DefaultFileProjection(job)?.IncludeFullResults ?? false,
                 Int(root, "ResultCount"),
                 Int(root, "Revision"),
-                Bool(root, "IsComplete")),
+                Bool(root, "IsComplete"),
+                SearchDefinitionFromPayload(job)?.AggregatePresentation ?? false),
             ServerJobKind.Song => new SongJobPayloadDto(
                 SongQuery(root),
-                null,
+                NullableInt(root, "CandidateCount"),
                 FileState(root),
+                ResolvedUsername: Text(Child(root, "ResolvedTarget"), "Username"),
+                ResolvedFilename: Text(Child(root, "ResolvedTarget"), "Filename"),
+                ResolvedHasFreeUploadSlot: NullableBool(Child(Child(root, "ResolvedTarget"), "Peer"), "HasFreeUploadSlot"),
+                ResolvedUploadSpeed: NullableInt(Child(Child(root, "ResolvedTarget"), "Peer"), "UploadSpeed"),
+                ResolvedSize: NullableLong(Child(root, "ResolvedTarget"), "Size"),
+                ResolvedSampleRate: NullableInt(Child(root, "ResolvedTarget"), "SampleRate"),
+                ResolvedExtension: Text(Child(root, "ResolvedTarget"), "Extension"),
+                ResolvedAttributes: ChildArray(Child(root, "ResolvedTarget"), "Attributes")
+                    .Select(attribute => new FileAttributeDto(Text(attribute, "Type") ?? "Unknown", Int(attribute, "Value")))
+                    .ToArray(),
                 JobId: job.Id,
                 DisplayId: checked((int)job.DisplayId),
                 LifecycleState: Parse(job.LifecycleState, ServerJobLifecycleState.Pending),
@@ -191,25 +306,33 @@ internal static class HistoricalJobDtoMapper
                 AvailableActions: [],
                 CancellationSource: Parse(job.CancellationSource, ServerJobCancellationSource.None),
                 DownloadSource: Parse(Text(root, "DownloadSource"), ServerSongDownloadSource.None),
-                ExactTarget: NullablePeerTarget(Child(root, "ExactTarget"))),
+                ExactTarget: NullablePeerTarget(Child(root, "ExactTarget")),
+                LastAttemptedFile: Child(root, "LastAttemptedCandidate") is { ValueKind: JsonValueKind.Object } attempted
+                    ? ServerSnapshotMapper.ToAttemptedSongFileDto(
+                        attempted.Deserialize<Sockseek.Core.Snapshots.FileCandidateSnapshot>()) : null),
             ServerJobKind.Album => new AlbumJobPayloadDto(
                 AlbumQuery(root),
                 Int(root, "ResultCount"),
                 DirectoryState(root),
-                null,
-                null),
+                Text(root, "ResolvedFolderUsername"),
+                Text(root, "ResolvedFolderPath")),
             ServerJobKind.RemoteFile => RemoteFilePayload(root),
             ServerJobKind.RemoteDirectory => RemoteDirectoryPayload(root),
             ServerJobKind.Aggregate => new AggregateJobPayloadDto(
                 SongQuery(root),
                 Int(root, "SongCount"),
-                0,
-                0,
-                0),
+                NullableInt(root, "CompletedSongCount"),
+                NullableInt(root, "SucceededSongCount"),
+                NullableInt(root, "FailedSongCount")),
             ServerJobKind.AlbumAggregate => new AlbumAggregateJobPayloadDto(
                 AlbumQuery(root),
-                Int(root, "AlbumCount")),
-            ServerJobKind.JobList => new JobListPayloadDto(Int(root, "Count"), 0, 0, 0, 0),
+                Int(root, "AlbumCount"),
+                NullableInt(root, "CompletedAlbumCount"),
+                NullableInt(root, "SucceededAlbumCount"),
+                NullableInt(root, "FailedAlbumCount")),
+            ServerJobKind.JobList => new JobListPayloadDto(Int(root, "Count"),
+                NullableInt(root, "ActiveJobCount"), NullableInt(root, "CompletedJobCount"),
+                NullableInt(root, "SucceededJobCount"), NullableInt(root, "FailedJobCount")),
             ServerJobKind.RetrieveFolder => new RetrieveFolderJobPayloadDto(
                 Text(root, "FolderPath") ?? "",
                 Text(root, "Username") ?? "",
@@ -267,8 +390,6 @@ internal static class HistoricalJobDtoMapper
                 "unresolved", null, Text(root, "DownloadPath"), 0, 0, 0, 0, 0, 0, null);
         }
 
-        long transferred = Long(directory, "BytesTransferred");
-        long total = Long(directory, "TotalKnownBytes");
         return new DirectoryDownloadStateDto(
             Text(directory, "Phase") ?? "unresolved",
             NullableInt(directory, "AttemptNumber"),
@@ -277,9 +398,10 @@ internal static class HistoricalJobDtoMapper
             Int(directory, "TerminalFileCount"),
             Int(directory, "SuccessfulFileCount"),
             Int(directory, "FailedFileCount"),
-            transferred,
-            total,
-            total > 0 ? Math.Round((double)transferred / total * 100, 2) : null);
+            Long(directory, "BytesTransferred"),
+            Long(directory, "TotalKnownBytes"),
+            DirectoryProgressPercent(directory),
+            NullableInt(directory, "UnknownFileSizeCount"));
     }
 
     private static RemoteFileJobPayloadDto RemoteFilePayload(JsonElement root)
@@ -294,16 +416,39 @@ internal static class HistoricalJobDtoMapper
     private static RemoteDirectoryJobPayloadDto RemoteDirectoryPayload(JsonElement root)
     {
         var source = Child(root, "DirectorySource");
+        var plan = Child(root, "ResolvedPlanSource");
+        var planSource = Child(plan, "SourceDirectory");
+        var manifestSource = Child(Child(Child(root, "Manifest"), "Plan"), "SourceDirectory");
         return new RemoteDirectoryJobPayloadDto(
             Parse(Text(root, "SourceKind"), RemoteDirectorySourceKindDto.PeerDirectory),
-            Text(source, "Username"),
-            Text(source, "FolderPath"),
-            DirectoryState(root));
+            Text(root, "SourceUsername") ?? Text(source, "Username")
+                ?? Text(planSource, "Username") ?? Text(manifestSource, "Username"),
+            Text(root, "SourceFolderPath") ?? Text(source, "FolderPath") ?? Text(planSource, "FolderPath")
+                ?? Text(manifestSource, "FolderPath"),
+            DirectoryState(root),
+            Text(root, "DisplayRoot") ?? Text(plan, "DisplayRoot")
+                ?? Text(source, "FolderPath"));
+    }
+
+    internal static PeerFileTargetDto? ToSelectedFileTarget(PersistedJob job)
+    {
+        if (string.IsNullOrWhiteSpace(job.PayloadJson)) return null;
+        using var document = JsonDocument.Parse(job.PayloadJson);
+        var root = document.RootElement;
+        var selected = job.Kind == "RemoteFile" ? Child(root, "Target") : Child(root, "ResolvedTarget");
+        if (selected.ValueKind != JsonValueKind.Object) selected = Child(root, "ExactTarget");
+        if (selected.ValueKind != JsonValueKind.Object) selected = Child(root, "LastAttemptedCandidate");
+        if (selected.ValueKind != JsonValueKind.Object) return null;
+        if (Child(selected, "Target") is { ValueKind: JsonValueKind.Object } target) selected = target;
+        var result = PeerTarget(selected);
+        if (result.Size is < 0) result = result with { Size = null };
+        return string.IsNullOrEmpty(result.Username) || string.IsNullOrEmpty(result.Filename) ? null : result;
     }
 
     private static PeerFileTargetDto PeerTarget(JsonElement element)
     {
         var identity = Child(element, "Identity");
+        if (identity.ValueKind != JsonValueKind.Object) identity = element;
         var attributes = ChildArray(element, "Attributes")
             .Select(attribute => new FileAttributeDto(
                 Text(attribute, "Type") ?? "Unknown",
@@ -325,7 +470,9 @@ internal static class HistoricalJobDtoMapper
         => element.ValueKind == JsonValueKind.Object ? PeerTarget(element) : null;
 
     private static JsonElement Child(JsonElement root, string name)
-        => root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Object ? value : default;
+        => root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.Object ? value : default;
 
     private static string? Text(JsonElement root, string name)
         => root.ValueKind == JsonValueKind.Object
@@ -368,6 +515,13 @@ internal static class HistoricalJobDtoMapper
             .Where(value => value.ValueKind == JsonValueKind.String)
             .Select(value => value.GetString() ?? "")
             .ToArray();
+
+    private static bool? NullableBool(JsonElement root, string name)
+        => root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty(name, out var value)
+            && value.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? value.GetBoolean()
+            : null;
 
     private static bool Bool(JsonElement root, string name)
         => root.ValueKind == JsonValueKind.Object

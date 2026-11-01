@@ -5,7 +5,8 @@ using System.Text.Json;
 
 namespace Sockseek.Api;
 
-public sealed record CursorPage<T>(IReadOnlyList<T> Items, string? NextCursor);
+public sealed record CursorPage<T>(
+    IReadOnlyList<T> Items, string? NextCursor, StateStreamPositionDto? ReadPosition = null);
 public sealed record SequencePage<T>(IReadOnlyList<T> Items, long? NextSequence);
 public sealed record AttemptPage<T>(IReadOnlyList<T> Items, int? NextAttemptNumber);
 
@@ -42,7 +43,8 @@ public sealed record TransferHistoryFilter(
     string? Username = null,
     DateTimeOffset? FromUtc = null,
     DateTimeOffset? ToUtc = null,
-    bool Archived = false);
+    bool Archived = false,
+    string? GroupRef = null);
 
 /// <summary>Exception raised for daemon HTTP responses that intentionally return an API error body.</summary>
 public sealed class SockseekApiRequestException : InvalidOperationException
@@ -106,8 +108,8 @@ public sealed class SockseekApiClient
     public Task<ServerInfoDto> GetServerInfoAsync(CancellationToken ct = default)
         => GetRequiredAsync<ServerInfoDto>("api/server/info", ct);
 
-    public Task<StateSnapshotDto> GetDaemonSnapshotAsync(CancellationToken ct = default)
-        => GetRequiredAsync<StateSnapshotDto>("api/daemon/snapshot", ct);
+    public Task<StateSnapshotDto> GetDaemonSnapshotAsync(CancellationToken ct = default, DaemonStateDetail detail = DaemonStateDetail.Full)
+        => GetRequiredAsync<StateSnapshotDto>($"api/daemon/snapshot?detail={detail}", ct);
 
     public Task<StateSnapshotDto> GetWorkflowSnapshotAsync(
         Guid workflowId,
@@ -208,14 +210,16 @@ public sealed class SockseekApiClient
 
     public Task<JobPreviewSummaryDto?> GetJobPreviewAsync(
         Guid previewId,
-        CancellationToken ct = default)
-        => GetOptionalAsync<JobPreviewSummaryDto>($"api/job-previews/{previewId}", ct);
+        CancellationToken ct = default,
+        bool waitForCompletion = false)
+        => GetOptionalAsync<JobPreviewSummaryDto>(
+            $"api/job-previews/{previewId}" + (waitForCompletion ? "?waitForCompletion=true" : ""), ct);
 
     public async Task<CursorPage<JobPreviewNodeDto>?> GetJobPreviewNodesPageAsync(
         Guid previewId,
         string? parentRef = null,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultNestedPageSize,
         CancellationToken ct = default)
     {
         string url = $"api/job-previews/{previewId}/nodes?limit={limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
@@ -257,30 +261,40 @@ public sealed class SockseekApiClient
         CancellationToken ct = default)
         => GetOptionalAsync<SearchViewSummaryDto>($"api/search-views/{viewId}", ct);
 
+    public Task<SearchViewDefinitionDto?> GetSearchViewDefinitionAsync(
+        Guid viewId,
+        CancellationToken ct = default)
+        => GetOptionalAsync<SearchViewDefinitionDto>(
+            $"api/search-views/{viewId}/definition", ct);
+
     public Task<SearchViewFilePageDto?> GetSearchViewFilesAsync(
         Guid viewId,
         long revision,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultPageSize,
+        ServerSearchViewSortOrder? sortOrder = null,
         CancellationToken ct = default)
         => GetOptionalAsync<SearchViewFilePageDto>(
             $"api/search-views/{viewId}/files"
             + $"?revision={revision.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             + $"&limit={limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
-            + QueryPart("cursor", cursor),
+            + QueryPart("cursor", cursor)
+            + QueryPart("sortOrder", sortOrder?.ToString()),
             ct);
 
     public Task<SearchViewDirectoryPageDto?> GetSearchViewDirectoriesAsync(
         Guid viewId,
         long revision,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultNestedPageSize,
+        ServerSearchViewSortOrder? sortOrder = null,
         CancellationToken ct = default)
         => GetOptionalAsync<SearchViewDirectoryPageDto>(
             $"api/search-views/{viewId}/directories"
             + $"?revision={revision.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             + $"&limit={limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
-            + QueryPart("cursor", cursor),
+            + QueryPart("cursor", cursor)
+            + QueryPart("sortOrder", sortOrder?.ToString()),
             ct);
 
     public Task<SearchViewDirectoryFilePageDto?> GetSearchViewDirectoryFilesAsync(
@@ -288,7 +302,7 @@ public sealed class SockseekApiClient
         string directoryRef,
         long revision,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
         => GetOptionalAsync<SearchViewDirectoryFilePageDto>(
             $"api/search-views/{viewId}/directories/{Uri.EscapeDataString(directoryRef)}/files"
@@ -310,7 +324,7 @@ public sealed class SockseekApiClient
         Guid viewId,
         long revision,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultNestedPageSize,
         CancellationToken ct = default)
         => GetOptionalAsync<SearchViewAggregateTrackPageDto>(
             $"api/search-views/{viewId}/aggregate-tracks"
@@ -324,7 +338,7 @@ public sealed class SockseekApiClient
         string groupRef,
         long revision,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
         => GetOptionalAsync<SearchViewAggregateTrackOptionPageDto>(
             $"api/search-views/{viewId}/aggregate-tracks/{Uri.EscapeDataString(groupRef)}/alternatives"
@@ -337,7 +351,7 @@ public sealed class SockseekApiClient
         Guid viewId,
         long revision,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultNestedPageSize,
         CancellationToken ct = default)
         => GetOptionalAsync<SearchViewAggregateAlbumPageDto>(
             $"api/search-views/{viewId}/aggregate-albums"
@@ -351,7 +365,7 @@ public sealed class SockseekApiClient
         string groupRef,
         long revision,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultNestedPageSize,
         CancellationToken ct = default)
         => GetOptionalAsync<SearchViewAggregateAlbumOptionPageDto>(
             $"api/search-views/{viewId}/aggregate-albums/{Uri.EscapeDataString(groupRef)}/alternatives"
@@ -363,10 +377,21 @@ public sealed class SockseekApiClient
     public Task<SearchViewUpdateDto?> GetSearchViewUpdatesAsync(
         Guid viewId,
         long afterRevision,
+        bool waitForChange = false,
         CancellationToken ct = default)
         => GetOptionalAsync<SearchViewUpdateDto>(
             $"api/search-views/{viewId}/updates"
-            + $"?afterRevision={afterRevision.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
+            + $"?afterRevision={afterRevision.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
+            + (waitForChange ? "&waitForChange=true" : ""),
+            ct);
+
+    public Task<ResolveSearchViewChosenOptionsResponseDto> ResolveSearchViewChosenOptionsAsync(
+        Guid viewId,
+        ResolveSearchViewChosenOptionsRequestDto request,
+        CancellationToken ct = default)
+        => PostRequiredAsync<ResolveSearchViewChosenOptionsResponseDto, ResolveSearchViewChosenOptionsRequestDto>(
+            $"api/search-views/{viewId}/chosen-options/resolve",
+            request,
             ct);
 
     public Task<CommitSearchViewSelectionResponseDto> CommitSearchViewSelectionAsync(
@@ -375,6 +400,24 @@ public sealed class SockseekApiClient
         CancellationToken ct = default)
         => PostRequiredAsync<CommitSearchViewSelectionResponseDto, CommitSearchViewSelectionRequestDto>(
             $"api/search-views/{viewId}/commit",
+            request,
+            ct);
+
+    public Task<ResolveSearchViewSelectionSettingsResponseDto> ResolveSearchViewSelectionSettingsAsync(
+        Guid viewId,
+        ResolveSearchViewSelectionSettingsRequestDto request,
+        CancellationToken ct = default)
+        => PostRequiredAsync<ResolveSearchViewSelectionSettingsResponseDto, ResolveSearchViewSelectionSettingsRequestDto>(
+            $"api/search-views/{viewId}/selection-settings",
+            request,
+            ct);
+
+    public Task<CountSearchViewSelectionResponseDto> CountSearchViewSelectionAsync(
+        Guid viewId,
+        CountSearchViewSelectionRequestDto request,
+        CancellationToken ct = default)
+        => PostRequiredAsync<CountSearchViewSelectionResponseDto, CountSearchViewSelectionRequestDto>(
+            $"api/search-views/{viewId}/selection-counts",
             request,
             ct);
 
@@ -426,7 +469,7 @@ public sealed class SockseekApiClient
     public async Task<CursorPage<JobSummaryDto>> GetJobsPageAsync(
         JobQuery query,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultNestedPageSize,
         CancellationToken ct = default)
     {
         var url = "api/jobs"
@@ -438,8 +481,10 @@ public sealed class SockseekApiClient
             + QueryPart("workflowId", query.WorkflowId?.ToString())
             + QueryPart("parentJobId", query.ParentJobId?.ToString())
             + QueryPart("submissionId", query.SubmissionId?.ToString())
-            + QueryPart("role", query.Role?.ToString())
+            + QueryPart("role", query.Role?.ToWireString())
             + QueryPart("archived", query.Archived.ToString().ToLowerInvariant())
+            + QueryPart("newestFirst", query.NewestFirst.ToString().ToLowerInvariant())
+            + QueryPart("excludeExtractResults", query.ExcludeExtractResults.ToString().ToLowerInvariant())
             + QueryPart("cursor", cursor)
             + QueryPart("limit", limit.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
@@ -448,6 +493,23 @@ public sealed class SockseekApiClient
 
     public Task<JobDetailDto?> GetJobDetailAsync(Guid jobId, CancellationToken ct = default)
         => GetOptionalAsync<JobDetailDto>($"api/jobs/{jobId}", ct);
+
+    public async Task<IReadOnlyList<JobSummaryDto>> LookupJobsAsync(JobLookupRequestDto request, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync("api/jobs/lookup", request, jsonOptions, ct);
+        await EnsureSuccessAsync(response, ct);
+        return await ReadRequiredAsync<IReadOnlyList<JobSummaryDto>>(response, ct);
+    }
+
+    public Task<DirectoryManifestPageDto?> GetDirectoryManifestAsync(
+        Guid jobId,
+        int? attemptNumber = null,
+        int afterOrdinal = -1,
+        int limit = ServerProtocol.DefaultPageSize,
+        CancellationToken ct = default)
+        => GetOptionalAsync<DirectoryManifestPageDto>(
+            $"api/jobs/{jobId}/directory-files?afterOrdinal={afterOrdinal}&limit={limit}"
+            + (attemptNumber is { } attempt ? $"&attemptNumber={attempt}" : ""), ct);
 
     public async Task<JobDetailDto?> GetJobDetailByDisplayIdAsync(int displayId, Guid? workflowId = null, CancellationToken ct = default)
     {
@@ -464,7 +526,7 @@ public sealed class SockseekApiClient
     public async Task<CursorPage<SubmissionSummaryDto>> GetSubmissionsPageAsync(
         bool archived = false,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
         => await GetCursorPageAsync<SubmissionSummaryDto>(
             $"api/submissions?archived={archived.ToString().ToLowerInvariant()}&limit={limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
@@ -498,7 +560,7 @@ public sealed class SockseekApiClient
 
     public async Task<CursorPage<WorkflowSummaryDto>> GetWorkflowsPageAsync(
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
         => await GetCursorPageAsync<WorkflowSummaryDto>(
             "api/workflows?limit=" + limit.ToString(System.Globalization.CultureInfo.InvariantCulture)
@@ -508,7 +570,7 @@ public sealed class SockseekApiClient
     public async Task<SequencePage<SearchRawResultDto>?> GetRawSearchResultsPageAsync(
         Guid jobId,
         long afterSequence = 0,
-        int limit = 200,
+        int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
     {
         using var response = await http.GetAsync(
@@ -524,7 +586,7 @@ public sealed class SockseekApiClient
     public async Task<TransferTimelinePageDto> GetTransfersPageAsync(
         TransferHistoryFilter? query = null,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
     {
         query ??= new TransferHistoryFilter();
@@ -536,12 +598,24 @@ public sealed class SockseekApiClient
             + QueryPart("state", query.State)
             + QueryPart("terminalOutcome", query.TerminalOutcome)
             + QueryPart("username", query.Username)
+            + QueryPart("groupRef", query.GroupRef)
             + QueryPart("fromUtc", query.FromUtc?.ToString("O"))
             + QueryPart("toUtc", query.ToUtc?.ToString("O"))
             + QueryPart("archived", query.Archived.ToString().ToLowerInvariant())
             + QueryPart("cursor", cursor);
         return await GetRequiredAsync<TransferTimelinePageDto>(url, ct);
     }
+
+    public Task<TransferTimelineUpdateDto> GetTransferTimelineAsync(
+        TransferTimelineScopeDto scope, CancellationToken ct = default)
+        => PostRequiredAsync<TransferTimelineUpdateDto, TransferTimelineScopeDto>(
+            "api/transfers/timeline", scope, ct);
+
+    public Task<TransferTimelinePageDto> LookupTransfersAsync(
+        TransferLookupRequestDto request,
+        CancellationToken ct = default)
+        => PostRequiredAsync<TransferTimelinePageDto, TransferLookupRequestDto>(
+            "api/transfers/lookup", request, ct);
 
     public Task<DashboardAnalyticsDto> GetDashboardAnalyticsAsync(
         string range = "24h",
@@ -561,6 +635,14 @@ public sealed class SockseekApiClient
         CancellationToken ct = default)
         => PostRequiredAsync<TransferCommandReceiptDto, BulkCancelTransfersRequestDto>(
             "api/transfers/cancel",
+            request,
+            ct);
+
+    public Task<TransferGroupSummariesResponseDto> GetTransferGroupSummariesAsync(
+        TransferGroupSummariesRequestDto request,
+        CancellationToken ct = default)
+        => PostRequiredAsync<TransferGroupSummariesResponseDto, TransferGroupSummariesRequestDto>(
+            "api/transfers/group-summaries",
             request,
             ct);
 
@@ -612,7 +694,7 @@ public sealed class SockseekApiClient
     public async Task<LiveTransferPageDto> LoadLiveTransferPageAsync(
         LiveTransferFilter? filter = null,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
     {
         filter ??= new LiveTransferFilter();
@@ -628,7 +710,7 @@ public sealed class SockseekApiClient
     public async Task<AttemptPage<TransferAttemptHistoryDto>?> GetTransferAttemptsPageAsync(
         Guid transferId,
         int afterAttemptNumber = 0,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
     {
         using var response = await http.GetAsync(
@@ -737,6 +819,13 @@ public sealed class SockseekApiClient
             $"api/users/{Uri.EscapeDataString(username)}/profile?refresh={refresh.ToString().ToLowerInvariant()}",
             ct);
 
+    public Task<UserPresenceObservationDto> GetUserPresenceAsync(
+        string username,
+        CancellationToken ct = default)
+        => GetRequiredAsync<UserPresenceObservationDto>(
+            $"api/users/{Uri.EscapeDataString(username)}/presence",
+            ct);
+
     public async Task<UserPictureResponse> GetUserPictureAsync(
         string username,
         string? ifNoneMatch = null,
@@ -779,7 +868,7 @@ public sealed class SockseekApiClient
         string? username = null,
         UserBrowseState? state = null,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
     {
         string url = $"api/user-browses?limit={limit}"
@@ -810,7 +899,7 @@ public sealed class SockseekApiClient
         string? query = null,
         bool recursive = false,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultNestedPageSize,
         CancellationToken ct = default)
     {
         string url = $"api/user-browses/{browseId}/directories?limit={limit}&recursive={recursive.ToString().ToLowerInvariant()}"
@@ -832,7 +921,7 @@ public sealed class SockseekApiClient
         long directoryId,
         string? query = null,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
     {
         string url = $"api/user-browses/{browseId}/directories/{directoryId}/files?limit={limit}"
@@ -845,7 +934,7 @@ public sealed class SockseekApiClient
         Guid browseId,
         string query,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultNestedPageSize,
         CancellationToken ct = default)
     {
         string url = $"api/user-browses/{browseId}/search?limit={limit}"
@@ -867,7 +956,7 @@ public sealed class SockseekApiClient
         bool? unread = null,
         bool? archived = null,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
     {
         string url = "api/chat/conversations?limit=" + limit.ToString(System.Globalization.CultureInfo.InvariantCulture)
@@ -887,13 +976,18 @@ public sealed class SockseekApiClient
         => PostRequiredAsync<ChatMessageDto, SendPrivateMessageRequestDto>(
             "api/chat/private-messages", request, ct);
 
+    public Task<ConversationSummaryDto?> GetConversationByPeerAsync(
+        string username, CancellationToken ct = default)
+        => GetOptionalAsync<ConversationSummaryDto>(
+            $"api/chat/conversations/by-peer?username={Uri.EscapeDataString(username)}", ct);
+
     public Task<ChatMessageDto> SendConversationMessageAsync(
         Guid conversationId, SendChatMessageRequestDto request, CancellationToken ct = default)
         => PostRequiredAsync<ChatMessageDto, SendChatMessageRequestDto>(
             $"api/chat/conversations/{conversationId}/messages", request, ct);
 
     public Task<ChatMessagePageDto> GetConversationMessagesAsync(
-        Guid conversationId, string? cursor = null, int limit = 100, CancellationToken ct = default)
+        Guid conversationId, string? cursor = null, int limit = ServerProtocol.DefaultPageSize, CancellationToken ct = default)
         => GetRequiredAsync<ChatMessagePageDto>(
             $"api/chat/conversations/{conversationId}/messages?limit={limit}"
             + QueryPart("cursor", cursor), ct);
@@ -916,7 +1010,7 @@ public sealed class SockseekApiClient
     public async Task<AvailableRoomPageDto> GetAvailableRoomsAsync(
         ServerChatRoomKind? kind = null,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultPageSize,
         bool refresh = false,
         CancellationToken ct = default)
     {
@@ -929,7 +1023,7 @@ public sealed class SockseekApiClient
     public async Task<ChatRoomPageDto> GetRoomsAsync(
         string? state = null,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
     {
         string url = $"api/chat/rooms?limit={limit}"
@@ -950,7 +1044,7 @@ public sealed class SockseekApiClient
         => DeleteRequiredAsync<ChatRoomSummaryDto>($"api/chat/rooms/{roomId}", ct);
 
     public Task<ChatMessagePageDto> GetRoomMessagesAsync(
-        Guid roomId, string? cursor = null, int limit = 100, CancellationToken ct = default)
+        Guid roomId, string? cursor = null, int limit = ServerProtocol.DefaultPageSize, CancellationToken ct = default)
         => GetRequiredAsync<ChatMessagePageDto>(
             $"api/chat/rooms/{roomId}/messages?limit={limit}" + QueryPart("cursor", cursor), ct);
 
@@ -967,7 +1061,7 @@ public sealed class SockseekApiClient
     public async Task<RoomMemberPageDto> GetRoomMembersAsync(
         Guid roomId,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultPageSize,
         long? revision = null,
         CancellationToken ct = default)
     {
@@ -989,7 +1083,7 @@ public sealed class SockseekApiClient
         bool? unread = null,
         ServerUserNotificationKind? kind = null,
         string? cursor = null,
-        int limit = 100,
+        int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
     {
         string url = $"api/notifications?limit={limit}"
@@ -1099,7 +1193,12 @@ public sealed class SockseekApiClient
         await EnsureSuccessAsync(response, ct);
         return new CursorPage<T>(
             await ReadRequiredAsync<IReadOnlyList<T>>(response, ct),
-            Header(response, "X-Next-Cursor"));
+            Header(response, "X-Next-Cursor"),
+            Header(response, ServerProtocol.ReadEpochHeader) is { } epoch
+                && Header(response, ServerProtocol.ReadSequenceHeader) is { } sequence
+                ? new StateStreamPositionDto(Guid.Parse(epoch), long.Parse(sequence,
+                    System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture))
+                : null);
     }
 
     private async Task<T> ReadRequiredAsync<T>(HttpResponseMessage response, CancellationToken ct)

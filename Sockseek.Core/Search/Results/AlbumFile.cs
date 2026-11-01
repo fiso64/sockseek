@@ -21,14 +21,8 @@ public sealed class AlbumFile
 
     internal static AlbumFile WithProjectionEvidence(
         Func<SongQuery> queryFactory,
-        FileCandidate candidate,
-        Services.SearchConditionFacts conditionFacts,
-        Services.SearchProjectionSortKey sortKey)
-        => new(AlbumFileMatch.WithProjectionEvidence(
-            queryFactory,
-            candidate,
-            conditionFacts,
-            sortKey));
+        Services.ProjectedFileCandidate file)
+        => new(AlbumFileMatch.WithProjectionEvidence(queryFactory, file));
 
     internal AlbumFile(AlbumFileMatch match)
     {

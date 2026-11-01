@@ -1,7 +1,7 @@
 # Daemon mode
 
 > [!WARNING]
-> This document is currently fully AI-authored.
+> This document is currently fully AI-authored. It will be rewritten in the future.
 
 Daemon mode keeps Sockseek running in the background so it can accept work from
 other terminals or applications. It also keeps job, search, and transfer history
@@ -21,6 +21,12 @@ The daemon listens on `127.0.0.1:5030` by default:
 ```bash
 sockseek daemon
 ```
+
+Open `http://127.0.0.1:5030/` in a browser to use the WebUI. Published
+Sockseek builds bundle it with the daemon; an ordinary source `dotnet build`
+does not build the frontend (see [`webui/README.md`](../webui/README.md)).
+The WebUI uses the same API and has the same network access implications
+described under [Network security](#network-security).
 
 Leave this terminal open, or run the process through your preferred service
 manager.
@@ -97,6 +103,12 @@ kernel directly and needs no daemon or database. Remote mode reads the daemon's
 disk-backed Search View pages, so it can display the same projection while
 results are arriving and after the workflow leaves memory.
 
+Print-only Song, Album and aggregate jobs retain locked observations for display,
+including condition explanations in full results. CLI text marks locked files;
+JSON emits `Visibility: "Locked"` on those files. Automatic/manual download
+candidates and printed download links use public files only. Printing reuses the
+projection's evaluated facts rather than evaluating conditions again.
+
 Legacy user-success downranking remains scoped to the active workflow. Local
 and daemon projection receive the same workflow-local counts, and a published
 Search View retains the resulting sort facts rather than creating a durable or
@@ -105,9 +117,17 @@ question.
 
 A Search View advances through immutable revisions. Each revision contains
 consistent rows, ordering, groups, explanations, and summary counters for all
-observations consumed so far. A UI should poll the compact latest summary and,
-when its revision changes, refetch its visible pages and expanded groups using
-that revision; it should not repeatedly download the complete result set.
+observations consumed so far. The UI and remote CLI observe the View through the
+`ObserveSearchView` SignalR stream. While observed, it catches up in fair batches
+independently of display refreshes. The stream delivers the first available
+summary immediately, then coalesces updates to at most once per second; completion
+is immediate. Clients
+refetch visible pages and expanded groups at the received revision.
+Closing or hiding the results cancels observation; unobserved arrivals remain
+raw. Reopening resumes from the published prefix, including after restart.
+Creation and ordinary summary/update reads still request one bounded batch.
+Idle working kernels can be released without deleting published revisions.
+Jobs listings must not request projections merely to obtain aggregate group counts.
 Retrieving a directory uses the exact view-issued peer-directory ref and the
 same Core folder-retrieval job for generic and album views. Completion adds a
 new immutable revision with browse-authoritative totals and pageable children;

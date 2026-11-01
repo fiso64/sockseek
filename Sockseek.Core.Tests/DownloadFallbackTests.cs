@@ -10,12 +10,73 @@ using Sockseek.Core.Events;
 using Sockseek.Core.Snapshots;
 using Sockseek.Core.Transfers.Downloads.State;
 using Directory = System.IO.Directory;
+using System.Collections.Concurrent;
 
 namespace Tests.Core
 {
     [TestClass]
     public class DownloadFallbackTests
     {
+        [TestMethod]
+        [DataRow(false)]
+        [DataRow(true)]
+        public async Task MusicOutputsAreSettledBeforeRetirementAndIndexFailureDoesNotLoseDownloads(bool failIndex)
+        {
+            string root = Path.Combine(Path.GetTempPath(), "sockseek-output-finalization-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            string indexPath = Path.Combine(root, "index.csv");
+            string playlistPath = Path.Combine(root, "playlist.m3u8");
+            if (failIndex) Directory.CreateDirectory(indexPath);
+            try
+            {
+                var engineSettings = new EngineSettings { Username = "u", Password = "p", ConcurrentJobs = 1 };
+                var settings = new DownloadSettings();
+                settings.Output.ParentDir = root;
+                settings.Output.WriteIndex = true;
+                settings.Output.HasConfiguredIndex = true;
+                settings.Output.IndexFilePath = indexPath;
+                settings.Output.WritePlaylist = true;
+                settings.Output.M3uFilePath = playlistPath;
+                settings.YtDlp.UseYtdlp = true;
+                var first = new SongJob(new SongQuery { Artist = "Artist", Title = "First" });
+                var second = new SongJob(new SongQuery { Artist = "Artist", Title = "Second" });
+                var workflow = new JobList("Tracks", [first, second]);
+                var messages = new ConcurrentBag<JobMessageChange>();
+                bool retiredWithOutputs = false;
+                await using var engine = new DownloadEngine(engineSettings,
+                    TestHelpers.CreateMockClientManager(new ClientTests.MockSoulseekClient([]), engineSettings),
+                    songDownloadFallback: new FakeSongDownloadFallback(), retireTerminalWorkflows: true);
+                engine.Events.JobMessage += change => { if (change.Source == "output-files") messages.Add(change); };
+                engine.Events.WorkflowRetired += _ =>
+                {
+                    retiredWithOutputs = System.IO.File.Exists(playlistPath)
+                        && System.IO.File.ReadAllLines(playlistPath).Length == 2
+                        && (failIndex ? messages.Count == 1 : System.IO.File.Exists(indexPath));
+                };
+                engine.Enqueue(workflow, settings);
+                engine.CompleteEnqueue();
+                await engine.RunAsync(CancellationToken.None);
+                Assert.IsTrue(retiredWithOutputs, "Output success/failure must settle before workflow retirement.");
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, first.TerminalOutcome);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, second.TerminalOutcome);
+                Assert.IsTrue(System.IO.File.Exists(first.DownloadPath));
+                Assert.IsTrue(System.IO.File.Exists(second.DownloadPath));
+                Assert.AreEqual(failIndex ? 1 : 0, messages.Count);
+                if (failIndex)
+                {
+                    Assert.AreEqual(Microsoft.Extensions.Logging.LogLevel.Error, messages.Single().Level);
+                    Assert.AreEqual(workflow.Id, messages.Single().Job.Id);
+                }
+                else
+                {
+                    var saved = new DownloadOutputFile(indexPath, workflow, OutputFileKind.Index, true, readOnly: true);
+                    Assert.AreEqual(first.DownloadPath, saved.PreviousRunResult(first)?.DownloadPath);
+                    Assert.AreEqual(second.DownloadPath, saved.PreviousRunResult(second)?.DownloadPath);
+                }
+            }
+            finally { Directory.Delete(root, recursive: true); }
+        }
+
         [TestMethod]
         public async Task SongJob_FallsBackToNextCandidate_OnDownloadFailure()
         {
@@ -57,10 +118,154 @@ namespace Tests.Core
                     new[] { "failuser", "gooduser" },
                     transfersStarted.Select(change => change.Target.Identity.Username).ToArray());
                 Assert.AreEqual(2, transfersStarted.Select(change => change.TransferId).Distinct().Count());
+                Assert.AreEqual(-1, app.GetUserSuccessCounts(songJob.WorkflowId)["failuser"],
+                    "Exhausting a peer's transport retries counts as one failed transfer.");
             }
             finally
             {
                 if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+            }
+        }
+
+        [TestMethod]
+        [TestCategory("Load")]
+        [DataRow(false)]
+        [DataRow(true)]
+        public async Task HundredCandidateSongFallbackPreservesAttemptsAndExactOutput(bool aggregate)
+        {
+            string outputDir = Path.Combine(Path.GetTempPath(), "sockseek-long-song-fallback-" + Guid.NewGuid().ToString("N"));
+            const int candidateCount = 100;
+            const int size = 1_024;
+            var responses = Enumerable.Range(0, candidateCount).Select(index => new SearchResponse(
+                $"Péér {index:000}", 1, true, 100_000_000 - index * 700_000, 0,
+                [TestHelpers.CreateSlFile($@"共有\Option {index:000}\Artist - Song.mp3", size: size, length: 180)]))
+                .ToList();
+            var client = new ClientTests.MockSoulseekClient(responses,
+                failingUsers: responses.Take(candidateCount - 1).Select(response => response.Username));
+            try
+            {
+                var settings = new DownloadSettings();
+                settings.Extraction.Input = "Artist - Song";
+                settings.Extraction.RequestedMode = ExtractionMode.Song;
+                settings.Search.IsAggregate = aggregate;
+                settings.Search.MinSharesAggregate = 1;
+                settings.Transfer.MaxDownloadRetries = candidateCount;
+                settings.Transfer.UnknownErrorRetries = 0;
+                settings.Output.ParentDir = outputDir;
+                var engineSettings = new EngineSettings { Username = "u", Password = "p" };
+                await using var engine = new DownloadEngine(engineSettings,
+                    TestHelpers.CreateMockClientManager(client, engineSettings));
+                var started = new List<DownloadStartedChange>();
+                var failed = new List<DownloadAttemptFailedChange>();
+                var completed = new List<TransferCompletedChange>();
+                engine.Events.DownloadStarted += started.Add;
+                engine.Events.DownloadAttemptFailed += failed.Add;
+                engine.Events.TransferCompleted += completed.Add;
+                var root = new ExtractJob(settings.Extraction.Input, settings.Extraction.InputType);
+                engine.Enqueue(root, settings);
+                engine.CompleteEnqueue();
+
+                var elapsed = System.Diagnostics.Stopwatch.StartNew();
+                await engine.RunAsync(CancellationToken.None);
+                Console.WriteLine($"100-candidate {(aggregate ? "aggregate" : "ordinary")} Song fallback: {elapsed.Elapsed.TotalMilliseconds:F1} ms.");
+
+                SongJob[] songs = root.Result is AggregateJob grouped
+                    ? grouped.Songs.ToArray() : engine.Queue.AllSongs().ToArray();
+                Assert.AreEqual(1, songs.Length, $"Root {root.TerminalOutcome}: {root.FailureMessage}; result {root.Result?.GetType().Name}: {root.Result?.TerminalOutcome}, {root.Result?.FailureMessage}");
+                SongJob song = songs.Single();
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, song.TerminalOutcome);
+                Assert.AreEqual(candidateCount, client.DownloadCallCount);
+                CollectionAssert.AreEqual(responses.Select(response => response.Username).ToArray(),
+                    started.Select(change => change.Target.Identity.Username).ToArray());
+                Assert.AreEqual(candidateCount, started.Select(change => change.TransferId).Distinct().Count());
+                Assert.AreEqual(candidateCount - 1, failed.Count);
+                Assert.AreEqual(1, completed.Count);
+                Assert.AreEqual(responses[^1].Username, song.ResolvedTarget!.Username);
+                Assert.AreEqual(responses[^1].Files.Single().Filename, song.ResolvedTarget.Filename);
+                Assert.AreEqual(song.DownloadPath, completed[0].FinalLocalPath);
+                CollectionAssert.AreEqual(Enumerable.Range(0, size).Select(index => (byte)(index % 256)).ToArray(),
+                    await System.IO.File.ReadAllBytesAsync(song.DownloadPath!));
+                Assert.AreEqual(1, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length,
+                    "Failed choices must not leave final or staging files behind.");
+                Assert.IsTrue(responses.Take(candidateCount - 1).All(response =>
+                    engine.GetUserSuccessCounts(song.WorkflowId).GetValueOrDefault(response.Username) < 0),
+                    "Failed peers must be downranked within this workflow.");
+                Assert.IsTrue(engine.GetUserSuccessCounts(song.WorkflowId)[responses[^1].Username] > 0,
+                    "Existing within-workflow success/downranking behavior is preserved.");
+            }
+            finally
+            {
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, recursive: true);
+            }
+        }
+
+        [TestMethod]
+        [DataRow(false)]
+        [DataRow(true)]
+        public async Task FailedPeerIsDownrankedOnlyWithinItsWorkflow(bool retireWorkflows)
+        {
+            string outputDir = Path.Combine(Path.GetTempPath(), "sockseek-workflow-downrank-" + Guid.NewGuid().ToString("N"));
+            var files = new[] { "First", "Second", "Third" }.Select(title =>
+                TestHelpers.CreateSlFile($@"Music\Artist - {title}.mp3", size: 512, length: 180)).ToArray();
+            var client = new ClientTests.MockSoulseekClient(
+                [new SearchResponse("failed peer", 1, true, 10_000_000, 0, files),
+                 new SearchResponse("good peer", 1, true, 100, 0, files)], failingUsers: ["failed peer"]);
+            try
+            {
+                var settings = new DownloadSettings();
+                settings.Output.ParentDir = outputDir;
+                settings.Search.NecessaryCond.StrictArtist = true;
+                settings.Search.NecessaryCond.StrictTitle = true;
+                settings.Transfer.UnknownErrorRetries = 0;
+                var engineSettings = new EngineSettings
+                {
+                    Username = "u", Password = "p", ConcurrentJobs = 1, ConcurrentExtractors = 1,
+                };
+                await using var engine = new DownloadEngine(engineSettings,
+                    TestHelpers.CreateMockClientManager(client, engineSettings), retireTerminalWorkflows: retireWorkflows);
+                var first = new SongJob(new SongQuery { Artist = "Artist", Title = "First" });
+                var second = new SongJob(new SongQuery { Artist = "Artist", Title = "Second" });
+                var third = new SongJob(new SongQuery { Artist = "Artist", Title = "Third" });
+                var workflow = new JobList(jobs: [first, second]);
+                var attempts = new ConcurrentBag<DownloadStartedChange>();
+                var terminalCounts = new ConcurrentDictionary<Guid, Dictionary<string, int>>();
+                engine.Events.DownloadStarted += attempts.Add;
+                engine.Events.WorkflowRetired += change => terminalCounts[change.WorkflowId] =
+                    new Dictionary<string, int>(engine.GetUserSuccessCounts(change.WorkflowId), StringComparer.Ordinal);
+                engine.Enqueue(workflow, settings);
+                engine.Enqueue(third, settings);
+                engine.CompleteEnqueue();
+
+                await engine.RunAsync(CancellationToken.None);
+
+                foreach (SongJob song in new[] { first, second, third })
+                {
+                    Assert.AreEqual(JobTerminalOutcome.Succeeded, song.TerminalOutcome, song.FailureMessage);
+                    Assert.AreEqual(512L, new FileInfo(song.DownloadPath!).Length);
+                }
+                Assert.AreEqual(first.WorkflowId, second.WorkflowId);
+                Assert.AreNotEqual(first.WorkflowId, third.WorkflowId);
+                string[] Peers(Guid workflowId) => attempts.OrderBy(change => change.Sequence)
+                    .Where(change => change.Job.WorkflowId == workflowId)
+                    .Select(change => change.Target.Identity.Username).ToArray();
+                CollectionAssert.AreEqual(new[] { "failed peer", "good peer", "good peer" }, Peers(first.WorkflowId),
+                    "The second song should prefer the healthy source after the first song's peer failure.");
+                CollectionAssert.AreEqual(new[] { "failed peer", "good peer" }, Peers(third.WorkflowId),
+                    "A separate workflow must start without another workflow's downranking.");
+                foreach (var (id, successes) in new[] { (first.WorkflowId, 2), (third.WorkflowId, 1) })
+                {
+                    IReadOnlyDictionary<string, int> counts = retireWorkflows
+                        ? terminalCounts[id] : engine.GetUserSuccessCounts(id);
+                    Assert.AreEqual(-1, counts["failed peer"]);
+                    Assert.AreEqual(successes, counts["good peer"]);
+                    if (retireWorkflows)
+                        Assert.AreEqual(0, engine.GetUserSuccessCounts(id).Count,
+                            "Workflow retirement releases counters after readers capture their terminal inputs.");
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, recursive: true);
             }
         }
 
@@ -83,6 +288,7 @@ namespace Tests.Core
                 var dl = new DownloadSettings();
                 dl.Output.ParentDir = outputDir;
                 dl.YtDlp.UseYtdlp = true;
+                dl.Output.NameFormat = "Fallback/{stitle}";
 
                 var fakeFallback = new FakeSongDownloadFallback();
                 var song = new SongJob(new SongQuery
@@ -193,7 +399,7 @@ namespace Tests.Core
                 });
                 var queue = new JobList();
                 queue.Add(lookupSong);
-                var index = new M3uEditor(dl.Output.IndexFilePath, queue, M3uOption.Index, true);
+                var index = new DownloadOutputFile(dl.Output.IndexFilePath, queue, OutputFileKind.Index, true);
 
                 Assert.IsTrue(index.TryGetPreviousRunResult(lookupSong, out var previous));
                 Assert.IsNotNull(previous);
@@ -323,6 +529,8 @@ namespace Tests.Core
                 dl.Skip.SkipExisting = false;
 
                 var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                var completedTransfers = new ConcurrentQueue<TransferCompletedChange>();
+                app.Events.TransferCompleted += completedTransfers.Enqueue;
                 app.Enqueue(new ExtractJob(listPath, InputType.List), dl);
                 app.CompleteEnqueue();
 
@@ -334,6 +542,9 @@ namespace Tests.Core
                 Assert.AreEqual(1, testClient.DownloadCallCount, "Second duplicate should copy/reuse the first final organized path, not redownload.");
                 Assert.IsTrue(System.IO.File.Exists(songs[0].DownloadPath), "First song should point at the organized file.");
                 Assert.IsTrue(System.IO.File.Exists(songs[1].DownloadPath), "Second song should copy from the organized cache path.");
+                Assert.AreEqual(1, completedTransfers.Count);
+                foreach (var transfer in completedTransfers)
+                    Assert.AreEqual(songs.Single(song => song.Id == transfer.Job.Id).DownloadPath, transfer.FinalLocalPath);
             }
             finally
             {
@@ -469,6 +680,8 @@ namespace Tests.Core
 
                 var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
                 var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                var completedTransfers = new ConcurrentQueue<TransferCompletedChange>();
+                app.Events.TransferCompleted += completedTransfers.Enqueue;
                 app.Enqueue(album, dl);
                 app.CompleteEnqueue();
 
@@ -483,6 +696,10 @@ namespace Tests.Core
                 Assert.IsTrue(album.TrackJobs.All(file =>
                     !string.IsNullOrEmpty(file.DownloadPath)
                     && !Utils.IsInDirectory(file.DownloadPath, Path.Combine(outputDir, ".sockseek-staging"), strict: true)));
+                Assert.AreEqual(4, completedTransfers.Count);
+                foreach (var transfer in completedTransfers)
+                    Assert.AreEqual(album.TrackJobs.Single(file => file.Id == transfer.Job.Id).DownloadPath,
+                        transfer.FinalLocalPath, "Transfer history must use each file's organized destination.");
             }
             finally
             {
@@ -502,6 +719,8 @@ namespace Tests.Core
             var testClient = new ClientTests.MockSoulseekClient([response]);
             var blockedBookletPath = Path.Combine(outputDir, "Organized", "Album", "booklet.pdf");
             Directory.CreateDirectory(blockedBookletPath);
+            var completedTransfers = new ConcurrentQueue<TransferCompletedChange>();
+            var outputUpdates = new ConcurrentQueue<TransferOutputChangedChange>();
 
             try
             {
@@ -514,6 +733,8 @@ namespace Tests.Core
 
                 var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
                 var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                app.Events.TransferCompleted += completedTransfers.Enqueue;
+                app.Events.TransferOutputChanged += outputUpdates.Enqueue;
                 app.Enqueue(album, dl);
                 app.CompleteEnqueue();
 
@@ -527,6 +748,21 @@ namespace Tests.Core
                 Assert.IsNotNull(pdf.DownloadPath);
                 Assert.IsTrue(Utils.IsInDirectory(pdf.DownloadPath, Path.Combine(outputDir, ".sockseek-staging"), strict: true));
                 Assert.IsTrue(System.IO.File.Exists(pdf.DownloadPath));
+                Assert.AreEqual(2, completedTransfers.Count,
+                    "Organization failure must still finish the downloaded payloads' transfer histories.");
+                Assert.AreEqual(1, outputUpdates.Count, "Only the organized audio moves during incomplete-album cleanup.");
+                foreach (var transfer in completedTransfers)
+                {
+                    var update = outputUpdates.SingleOrDefault(change => change.Transfer.Id == transfer.Transfer.Id);
+                    var current = update?.Transfer ?? transfer.Transfer;
+                    Assert.AreEqual(album.TrackJobs.Single(file => file.Id == transfer.Job.Id).DownloadPath, current.LocalPath);
+                    Assert.IsTrue(System.IO.File.Exists(current.LocalPath));
+                    Assert.AreEqual(transfer.Transfer.TerminalOutcome, current.TerminalOutcome);
+                    Assert.AreEqual(transfer.Transfer.StartedAtUtc, current.StartedAtUtc);
+                    Assert.AreEqual(transfer.Transfer.CompletedAtUtc, current.CompletedAtUtc);
+                    Assert.AreEqual(transfer.Transfer.BytesTransferred, current.BytesTransferred);
+                    if (update != null) Assert.IsTrue(update.Transfer.Revision > transfer.Transfer.Revision);
+                }
             }
             finally
             {
@@ -596,6 +832,8 @@ namespace Tests.Core
 
                 var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
                 var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                var completedTransfers = new ConcurrentQueue<TransferCompletedChange>();
+                app.Events.TransferCompleted += completedTransfers.Enqueue;
                 app.Enqueue(album, dl);
                 app.CompleteEnqueue();
 
@@ -607,6 +845,7 @@ namespace Tests.Core
                 Assert.AreEqual(Path.Combine(outputDir, "cover.jpg"), image.DownloadPath);
                 Assert.IsTrue(System.IO.File.Exists(image.DownloadPath));
                 Assert.IsFalse(Utils.IsInDirectory(image.DownloadPath, Path.Combine(outputDir, ".sockseek-staging"), strict: true));
+                Assert.AreEqual(image.DownloadPath, completedTransfers.Single().FinalLocalPath);
             }
             finally
             {
@@ -615,15 +854,27 @@ namespace Tests.Core
         }
 
         [TestMethod]
-        public async Task AlbumJob_SucceedsWhenOptionalAlbumArtDownloadFails()
+        [DataRow(false)]
+        [DataRow(true)]
+        public async Task AlbumJob_SucceedsWhenOptionalAlbumArtDownloadFails(bool unrelatedExtremeDuration)
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-album-art-optional-fail-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
 
-            var audio = TestHelpers.CreateSlFile(@"Music\Artist\Album\01. Artist - Song.mp3", size: 18000, length: 180);
+            var audio = TestHelpers.CreateSlFile(@"Music\Artist\Album\01. Artist - Song.mp3", size: 18000,
+                length: unrelatedExtremeDuration ? null : 180);
             var cover = TestHelpers.CreateSlFile(@"Music\Artist\Album\cover.jpg", size: 4096);
-            var response = new SearchResponse("user1", 1, true, 100, 0, [audio, cover]);
-            var testClient = new ClientTests.MockSoulseekClient([response])
+            var files = new List<Soulseek.File> { audio, cover };
+            if (unrelatedExtremeDuration)
+                files.Add(TestHelpers.CreateSlFile(@"Music\Artist\Album\02. Artist - Second.mp3", size: 18000));
+            var responses = new List<SearchResponse> { new("user1", 1, true, 100, 0, files) };
+            if (unrelatedExtremeDuration)
+                responses.Add(new SearchResponse("unrelated", 2, true, 1, 0,
+                [
+                    TestHelpers.CreateSlFile(@"Other\Artist\Album\01. Artist - Song.mp3"),
+                    TestHelpers.CreateSlFile(@"Other\Artist\Album\02. Artist - Second.mp3", length: int.MaxValue),
+                ]));
+            var testClient = new ClientTests.MockSoulseekClient(responses)
             {
                 BeforeDownloadCompletesAsync = (_, remoteFilename, _) =>
                     Utils.IsImageFile(remoteFilename)
@@ -647,7 +898,13 @@ namespace Tests.Core
                 await app.RunAsync(CancellationToken.None);
 
                 Assert.AreEqual(JobTerminalOutcome.Succeeded, album.TerminalOutcome);
-                Assert.IsTrue(System.IO.File.Exists(Path.Combine(outputDir, "Album", "01. Artist - Song.mp3")));
+                Assert.AreEqual("user1", album.ResolvedTarget?.Username);
+                Assert.AreEqual(audio.Size, new FileInfo(Path.Combine(outputDir, "Album", "01. Artist - Song.mp3")).Length);
+                if (unrelatedExtremeDuration)
+                {
+                    Assert.IsTrue(album.Results.Any(folder => folder.Username == "unrelated"));
+                    Assert.AreEqual(18_000L, new FileInfo(Path.Combine(outputDir, "Album", "02. Artist - Second.mp3")).Length);
+                }
 
                 var image = album.TrackJobs.SingleOrDefault(file => file.IsNotAudio);
                 Assert.IsNotNull(image);
@@ -667,11 +924,19 @@ namespace Tests.Core
 
             var file1 = TestHelpers.CreateSlFile(@"Music\Album\01. Artist - Song.mp3", length: 180);
             var file2 = TestHelpers.CreateSlFile(@"Shares\Album\01. Artist - Song.mp3", length: 180);
+            var booklet = TestHelpers.CreateSlFile(@"Music\Album\Artist - booklet.pdf", size: 128);
 
-            var resp1 = new SearchResponse("failuser", 1, true, 10000000, 0, [file1]);
+            var resp1 = new SearchResponse("failuser", 1, true, 10000000, 0, [file1, booklet]);
             var resp2 = new SearchResponse("gooduser", 1, true, 100, 0, [file2]);
 
-            var testClient = new ClientTests.MockSoulseekClient([resp1, resp2], failingUsers: ["failuser"]);
+            var testClient = new ClientTests.MockSoulseekClient([resp1, resp2]);
+            var bookletDownloaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            testClient.BeforeDownloadStartsAsync = async (username, filename, ct) =>
+            {
+                if (username != "failuser" || !filename.EndsWith(".mp3", StringComparison.Ordinal)) return;
+                await bookletDownloaded.Task.WaitAsync(ct);
+                throw new TransferRejectedException("The audio disappeared after the booklet finished.");
+            };
 
             try
             {
@@ -681,17 +946,35 @@ namespace Tests.Core
                 dl.Extraction.IsAlbum = true;
                 dl.Search.NoBrowseFolder = true;
                 dl.Output.ParentDir = outputDir;
+                dl.Output.NameFormat = "Organized/{filename}";
 
                 var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                var completedTransfers = new ConcurrentQueue<TransferCompletedChange>();
+                var failedTransfers = new ConcurrentQueue<TransferFailedChange>();
+                app.Events.TransferCompleted += completedTransfers.Enqueue;
+                app.Events.TransferFailed += failedTransfers.Enqueue;
+                app.Events.JobExecutionCompleted += change =>
+                {
+                    if (change.Job.Payload is SongJobSnapshotPayload { File.DownloadPath: { } path }
+                        && path.EndsWith(".pdf", StringComparison.Ordinal))
+                        bookletDownloaded.TrySetResult();
+                };
                 app.Enqueue(new ExtractJob(dl.Extraction.Input, dl.Extraction.InputType), dl);
                 app.CompleteEnqueue();
 
-                await app.RunAsync(CancellationToken.None);
+                using var watchdog = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                await app.RunAsync(watchdog.Token);
 
                 var albumJob = app.Queue.AllJobs().OfType<AlbumJob>().FirstOrDefault();
                 Assert.IsNotNull(albumJob);
                 Assert.AreEqual(JobTerminalOutcome.Succeeded, albumJob.TerminalOutcome);
                 Assert.AreEqual("gooduser", albumJob.ResolvedTarget?.Username, "AlbumJob should have fallen back to gooduser's folder after failuser failed.");
+                Assert.AreEqual(2, completedTransfers.Count,
+                    "The downloaded booklet still needs a terminal transfer when its album candidate is replaced.");
+                Assert.AreEqual(1, failedTransfers.Count);
+                foreach (var transfer in completedTransfers)
+                    Assert.IsTrue(System.IO.File.Exists(transfer.FinalLocalPath), transfer.FinalLocalPath);
+                Assert.AreEqual(1, completedTransfers.Count(change => change.FinalLocalPath.EndsWith(".pdf", StringComparison.Ordinal)));
             }
             finally
             {
@@ -822,6 +1105,8 @@ namespace Tests.Core
                 Assert.AreEqual(JobFailureReason.AllDownloadsFailed, songJob.FailureReason);
                 Assert.IsTrue(Directory.Exists(finalPath), "The blocked destination directory should be left untouched.");
                 Assert.IsFalse(System.IO.File.Exists(incompletePath), "The incomplete file should be cleaned up after a failed final rename.");
+                Assert.IsTrue(app.GetUserSuccessCounts(songJob.WorkflowId).GetValueOrDefault("user1") >= 0,
+                    "A blocked local destination must not downrank the remote peer.");
             }
             finally
             {
@@ -962,7 +1247,7 @@ namespace Tests.Core
         }
 
         [TestMethod]
-        public void OutputFinalizer_FailsIfOrganizerLeavesOwnedFileInsideStaging()
+        public async Task OutputFinalizer_FailsIfOrganizerLeavesOwnedFileInsideStaging()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-name-format-staging-invariant-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
@@ -989,14 +1274,16 @@ namespace Tests.Core
                     dl.Output,
                     dl.Extraction,
                     Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance);
-                var finalizer = new OutputFinalizer(new DownloadedFileCache());
+                using var files = new DownloadFileOperations(2);
+                var finalizer = new OutputFinalizer(files);
 
-                var result = finalizer.FinalizeSongPlacement(
+                var result = await finalizer.FinalizeSongPlacementAsync(
                     song,
                     song,
                     JobOutcome.Done(stagingPath, candidate),
                     organizer,
-                    finalizePlacement: true);
+                    finalizePlacement: true,
+                    allowOverwrite: !dl.Skip.SkipExisting);
 
                 Assert.AreEqual(JobTerminalOutcome.Failed, result.Outcome.TerminalOutcome);
                 StringAssert.Contains(result.Outcome.FailureMessage ?? "", "left the downloaded file in Sockseek staging");
@@ -1011,7 +1298,7 @@ namespace Tests.Core
         }
 
         [TestMethod]
-        public void OutputFinalizer_DoesNotReplaceAPathCreatedAfterSkipEvaluation()
+        public async Task OutputFinalizer_DoesNotReplaceAPathCreatedAfterSkipEvaluation()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-name-format-collision-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
@@ -1040,20 +1327,21 @@ namespace Tests.Core
                     ResolvedTarget = candidate,
                     DownloadPath = stagingPath,
                 };
-                var finalizer = new OutputFinalizer(new DownloadedFileCache());
+                using var files = new DownloadFileOperations(2);
+                var finalizer = new OutputFinalizer(files);
                 var organizer = new FileManager(
                     song,
                     dl.Output,
                     dl.Extraction,
-                    Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance,
-                    beforeReplace: finalizer.CreateReplacementGuard(allowOverwrite: false));
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance);
 
-                var result = finalizer.FinalizeSongPlacement(
+                var result = await finalizer.FinalizeSongPlacementAsync(
                     song,
                     song,
                     JobOutcome.Done(stagingPath, candidate),
                     organizer,
-                    finalizePlacement: true);
+                    finalizePlacement: true,
+                    allowOverwrite: !dl.Skip.SkipExisting);
 
                 Assert.AreEqual(JobTerminalOutcome.Skipped, result.Outcome.TerminalOutcome);
                 Assert.AreEqual(JobSkipReason.AlreadyExists, result.Outcome.SkipReason);

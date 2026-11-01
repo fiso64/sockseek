@@ -6,7 +6,7 @@ namespace Sockseek.Server.Persistence;
 
 internal static class SubmissionDtoMapper
 {
-    public static SubmissionSummaryDto ToSummary(PersistedSubmission submission)
+    public static SubmissionSummaryDto ToSummary(PersistedSubmissionSummary submission)
         => new(
             submission.Id,
             submission.SubmittedAtUtc,

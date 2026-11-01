@@ -90,6 +90,13 @@ public sealed class ChatRuntime : IAsyncDisposable
             SingleWriter = false,
             AllowSynchronousContinuations = false,
         });
+        // Local construction attaches ingress before any daemon API can start
+        // login. StartAsync may wait for the network; queued server messages
+        // must already have a receiver while that startup is pending.
+        soulseek.ClientManager.ClientCreated += AttachClient;
+        soulseek.ClientManager.StateChanged += OnClientStateChanged;
+        if (soulseek.ClientManager.Client is { } existing)
+            AttachClient(existing);
     }
 
     public event Action<ChatRuntimeStateDto, NotificationSummaryDto>? StateChanged;
@@ -137,11 +144,6 @@ public sealed class ChatRuntime : IAsyncDisposable
     {
         if (worker is not null)
             return;
-
-        soulseek.ClientManager.ClientCreated += AttachClient;
-        soulseek.ClientManager.StateChanged += OnClientStateChanged;
-        if (soulseek.ClientManager.Client is { } existing)
-            AttachClient(existing);
 
         try
         {
@@ -1765,7 +1767,7 @@ public sealed class ChatRuntime : IAsyncDisposable
     {
         if (handlers is null)
             return;
-        foreach (Action<T> handler in handlers.GetInvocationList())
+        foreach (Action<T> handler in Delegate.EnumerateInvocationList(handlers))
         {
             try { handler(value); }
             catch (Exception ex)

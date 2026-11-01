@@ -82,12 +82,21 @@ public sealed record FileConditionsPatchDto(
     CollectionPatchDto<string>? BannedUsers = null,
     CollectionPatchDto<string>? AllowedUsers = null,
     bool? AcceptNoLength = null,
-    bool? AcceptMissingProps = null);
+    bool? AcceptMissingProps = null,
+    // Omitted means inherit; true explicitly removes an inherited bound.
+    bool? ClearMinBitrate = null,
+    bool? ClearMaxBitrate = null,
+    bool? ClearMinSampleRate = null,
+    bool? ClearMaxSampleRate = null,
+    bool? ClearMinBitDepth = null,
+    bool? ClearMaxBitDepth = null);
 
 public sealed record FolderConditionsPatchDto(
     int? MinTrackCount = null,
     int? MaxTrackCount = null,
-    CollectionPatchDto<string>? RequiredTrackTitles = null);
+    CollectionPatchDto<string>? RequiredTrackTitles = null,
+    bool? ClearMinTrackCount = null,
+    bool? ClearMaxTrackCount = null);
 
 public sealed record SkipSettingsPatchDto(
     bool? SkipExisting = null,

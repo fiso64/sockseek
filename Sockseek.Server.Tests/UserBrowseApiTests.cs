@@ -44,7 +44,11 @@ public sealed class UserBrowseApiTests
             await app.StartAsync();
             using var http = new HttpClient { BaseAddress = new Uri(url) };
             var api = new SockseekApiClient(http);
-            await WaitUntilAsync(() => app.Services.GetRequiredService<EngineSupervisor>().PeerBrowses is not null);
+            // An immediate first request must work; waiting for an internal
+            // service here used to hide a race with BackgroundService startup.
+            var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
+            Assert.IsNotNull(supervisor.PeerBrowses);
+            Assert.IsNotNull(supervisor.UserProfiles);
 
             UserBrowseDto started = await api.StartUserBrowseAsync("local");
             UserBrowseDto complete = await WaitForCompleteAsync(api, started.BrowseId);
@@ -92,18 +96,29 @@ public sealed class UserBrowseApiTests
             CollectionAssert.AreEqual(
                 new[] { "one.flac", "two.flac" },
                 files1.Items.Concat(files2.Items).Select(item => item.File.Name).ToArray());
+            PageDto<BrowseFileEntryDto> allFiles = await api.GetUserShareFilesAsync(
+                complete.BrowseId, disc.DirectoryId, limit: int.MaxValue);
+            CollectionAssert.AreEqual(
+                new[] { "one.flac", "two.flac" },
+                allFiles.Items.Select(item => item.File.Name).ToArray());
+            Assert.IsNull(allFiles.NextCursor);
 
             BrowseSearchPageDto searchFirst = await api.SearchUserSharesAsync(
                 complete.BrowseId, "FLAC", limit: 1);
             var searchRows = new List<BrowseSearchEntryDto>(searchFirst.Items);
             string? searchCursor = searchFirst.NextCursor;
+            var cursors = new HashSet<string>(StringComparer.Ordinal);
             while (searchCursor is not null)
             {
+                Assert.IsTrue(cursors.Add(searchCursor), "Browse search paging must advance, not repeat a cursor.");
                 BrowseSearchPageDto page = await api.SearchUserSharesAsync(
                     complete.BrowseId, "FLAC", searchCursor, limit: 1);
                 Assert.AreEqual(searchFirst.BrowseRevision, page.BrowseRevision);
                 Assert.AreEqual(searchFirst.PublicMatchingFileCount, page.PublicMatchingFileCount);
                 searchRows.AddRange(page.Items);
+                Assert.AreEqual(searchRows.Count,
+                    searchRows.Select(row => (row.Kind, row.EntryId)).Distinct().Count(),
+                    "Browse search pages must not overlap.");
                 searchCursor = page.NextCursor;
             }
             Assert.AreEqual(2, searchFirst.MatchingFileCount);
@@ -174,13 +189,25 @@ public sealed class UserBrowseApiTests
                 OutputParentDir: overwriteOutput,
                 DownloadSettings: new DownloadSettingsPatchDto(
                     Skip: new SkipSettingsPatchDto(SkipExisting: false)));
-            await api.StartUserShareDownloadsAsync(
+            var stateStore = app.Services.GetRequiredService<EngineStateStore>();
+            using var overwriteChanged = new global::Tests.TestSignal()
+                .Subscribe<JobSummaryDto>(handler => stateStore.JobUpserted += handler,
+                    handler => stateStore.JobUpserted -= handler);
+            var overwrite = await api.StartUserShareDownloadsAsync(
                 complete.BrowseId,
                 new StartUserShareDownloadsRequestDto(
                     Guid.NewGuid(),
                     [new UserShareFileSelectionDto(betaFile.FileId)],
                     overwriteOptions));
-            await WaitUntilAsync(() => TryReadAllText(overwritePath) == "333");
+            JobDetailDto? overwriteJob = null;
+            await overwriteChanged.WaitUntilAsync(async () =>
+            {
+                overwriteJob = await api.GetJobDetailAsync(overwrite.Workflow.JobId);
+                return overwriteJob?.Summary.LifecycleState == ServerJobLifecycleState.Terminal;
+            }, "The overwrite workflow did not finish.", timeoutMs: 10_000);
+            Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, overwriteJob!.Summary.TerminalOutcome,
+                overwriteJob.Summary.FailureMessage);
+            Assert.AreEqual("333", await File.ReadAllTextAsync(overwritePath));
 
             await WaitUntilAsync(async () =>
             {

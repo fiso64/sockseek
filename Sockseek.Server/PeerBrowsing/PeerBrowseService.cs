@@ -195,8 +195,8 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         int limit,
         CancellationToken cancellationToken = default)
     {
-        if (limit is < 1 or > 500)
-            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be between 1 and 500.");
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
         if (username is not null)
             username = PeerUsername.Validate(username);
         return await store.ListAsync(
@@ -291,14 +291,18 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         Guid browseId,
         IReadOnlyList<long> directoryIds,
         IReadOnlyList<long> fileIds,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<long>? excludedFileIds = null,
+        IReadOnlyList<long>? excludedDirectoryIds = null)
     {
         await RequireAccessibleCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
         return await store.ResolveDownloadSelectionAsync(
             browseId,
             directoryIds,
             fileIds,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            excludedFileIds,
+            excludedDirectoryIds).ConfigureAwait(false);
     }
 
     public async Task<PeerBrowseResource> WaitForCompletionAsync(
@@ -337,6 +341,9 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(directory);
+        directory.RequireAdvertisedFolder();
+        // Keep the full-browse guarantee described by IPeerDirectorySource;
+        // a targeted directory reply may omit descendants without telling us.
         PeerBrowseResource resource = await WaitForCompletionAsync(
             directory.Username,
             refresh: false,
@@ -578,7 +585,7 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         Action<PeerBrowseResource>? handlers = Changed;
         if (handlers is null)
             return;
-        foreach (Action<PeerBrowseResource> handler in handlers.GetInvocationList())
+        foreach (Action<PeerBrowseResource> handler in Delegate.EnumerateInvocationList(handlers))
         {
             try
             {
@@ -596,7 +603,7 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         Action<Guid>? handlers = Removed;
         if (handlers is null)
             return;
-        foreach (Action<Guid> handler in handlers.GetInvocationList())
+        foreach (Action<Guid> handler in Delegate.EnumerateInvocationList(handlers))
         {
             try
             {

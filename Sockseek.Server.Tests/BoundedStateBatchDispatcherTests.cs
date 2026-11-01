@@ -21,7 +21,7 @@ public class BoundedStateBatchDispatcherTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         var latestSlowSent = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var sent = new ConcurrentQueue<StateUpdateBatchDto>();
+        var sent = new ConcurrentQueue<StateUpdate>();
 
         await using var dispatcher = new BoundedStateBatchDispatcher(
             async (batch, cancellationToken) =>
@@ -64,7 +64,7 @@ public class BoundedStateBatchDispatcherTests
 
             releaseSlow.TrySetResult();
             await latestSlowSent.Task.WaitAsync(TimeSpan.FromSeconds(2));
-            StateUpdateBatchDto[] slowBatches = sent
+            StateUpdate[] slowBatches = sent
                 .Where(batch => batch.Scope == slowScope)
                 .ToArray();
             Assert.AreEqual(20, slowBatches[^1].Sequence);
@@ -79,7 +79,7 @@ public class BoundedStateBatchDispatcherTests
         }
     }
 
-    private static StateUpdateBatchDto Batch(
+    private static StateUpdate Batch(
         StateStreamScopeDto scope,
         long previousSequence,
         long sequence)
@@ -89,6 +89,6 @@ public class BoundedStateBatchDispatcherTests
             previousSequence,
             sequence,
             DateTimeOffset.UnixEpoch,
-            StateDeltaDto.Empty,
+            StateDelta.Empty,
             []);
 }

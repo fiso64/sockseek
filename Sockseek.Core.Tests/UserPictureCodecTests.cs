@@ -1,4 +1,5 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Buffers.Binary;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using Sockseek.Core.Settings;
@@ -64,14 +65,16 @@ public sealed class UserPictureCodecTests
     }
 
     [TestMethod]
-    public async Task LocalProfile_CorruptPictureDoesNotPreventStartup()
+    [DataRow("010203")]
+    [DataRow("49492B000800000010000000000000000100000000000000")]
+    public async Task LocalProfile_CorruptPictureDoesNotPreventStartup(string pictureHex)
     {
         string path = Path.Combine(
             Path.GetTempPath(),
             $"sockseek-corrupt-picture-{Guid.NewGuid():N}.png");
         try
         {
-            await File.WriteAllTextAsync(path, "not an image");
+            await File.WriteAllBytesAsync(path, Convert.FromHexString(pictureHex));
             var settings = new EngineSettings
             {
                 UserDescription = "still advertised",
@@ -90,19 +93,27 @@ public sealed class UserPictureCodecTests
     }
 
     [TestMethod]
-    public async Task RemotePicture_ReportsDetectedFormatAndRetainsValidatedBytes()
+    [DataRow("jpeg", "image/jpeg")]
+    [DataRow("png", "image/png")]
+    [DataRow("gif", "image/gif")]
+    [DataRow("webp", "image/webp")]
+    public async Task RemotePicture_ReportsDetectedFormatAndRetainsValidatedBytes(
+        string extension, string mediaType)
     {
         byte[] bytes;
         using (var source = new Image<Rgba32>(32, 24, Color.CornflowerBlue))
         await using (var output = new MemoryStream())
         {
-            await source.SaveAsWebpAsync(output);
+            Assert.IsTrue(Configuration.Default.ImageFormatsManager.TryFindFormatByFileExtension(
+                extension, out var format));
+            Assert.IsNotNull(format);
+            await source.SaveAsync(output, format);
             bytes = output.ToArray();
         }
 
         UserPicture picture = await UserPictureCodec.ValidateRemoteAsync(bytes);
 
-        Assert.AreEqual("image/webp", picture.MediaType);
+        Assert.AreEqual(mediaType, picture.MediaType);
         Assert.AreEqual(32, picture.Width);
         Assert.AreEqual(24, picture.Height);
         CollectionAssert.AreEqual(bytes, picture.Bytes);
@@ -123,8 +134,21 @@ public sealed class UserPictureCodecTests
             tiff = output.ToArray();
         }
 
-        await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
+        var unsupported = await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
             UserPictureCodec.ValidateRemoteAsync(tiff));
+        Assert.IsInstanceOfType<UnknownImageFormatException>(unsupported.InnerException);
+
+        // Keep the truncated entry count small so a regression cannot hang CI.
+        // Format detection must reject it before any TIFF metadata parsing.
+        byte[] bigTiff = new byte[24];
+        bigTiff[0] = bigTiff[1] = 0x49;
+        bigTiff[2] = 0x2b;
+        bigTiff[4] = 8;
+        BinaryPrimitives.WriteUInt64LittleEndian(bigTiff.AsSpan(8), 16);
+        BinaryPrimitives.WriteUInt64LittleEndian(bigTiff.AsSpan(16), 1);
+        unsupported = await Assert.ThrowsExactlyAsync<InvalidDataException>(() =>
+            UserPictureCodec.ValidateRemoteAsync(bigTiff));
+        Assert.IsInstanceOfType<UnknownImageFormatException>(unsupported.InnerException);
     }
 
     [TestMethod]

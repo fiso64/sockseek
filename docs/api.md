@@ -1,3 +1,5 @@
+<!-- Maintainer note: Keep this document concise. Update existing content only when it is inaccurate; avoid adding implementation details or change history. -->
+
 # API and Client integration
 
 > [!WARNING]
@@ -20,6 +22,10 @@ for ordered live-state deltas and compact activity.
 `Sockseek.Api.SockseekLiveClient` for live monitoring. The live client supports
 daemon-wide and resource-scoped subscriptions, handles snapshot hydration and
 recovery, and exposes current state through `DaemonClientStore`.
+
+For a UI, use `includeTransferDetails: false` and observe the fetched transfer
+timeline or displayed job IDs separately. Global transfer totals remain available.
+Scoped observations end on cancellation or disconnect; reopen them after reconnect.
 
 ## OpenAPI
 

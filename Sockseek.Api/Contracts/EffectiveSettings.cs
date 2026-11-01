@@ -26,4 +26,5 @@ public sealed record ResolveEffectiveSettingsResponseDto(
     EffectiveDownloadSettingsDto Settings,
     IReadOnlyList<string> AppliedAutoProfiles,
     IReadOnlyList<string> NamedProfiles,
-    IReadOnlyDictionary<string, string> Provenance);
+    IReadOnlyDictionary<string, string> Provenance,
+    bool IsProvisional = false);

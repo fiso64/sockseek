@@ -2,18 +2,28 @@ namespace Sockseek.Persistence.Write;
 
 public sealed record PersistenceWriterOptions
 {
-    public int CriticalQueueCapacity { get; init; } = 512;
-    public int OrdinaryQueueCapacity { get; init; } = 2_048;
+    public const int DefaultMaximumBatchSize = 2_048;
+    // Admit the first results promptly, then amortize preparation/index writes
+    // across bounded batches. Canonical ingestion owns original facts; View
+    // publication checks committed identities independently of these sizes.
+    public const int InitialSearchResultFlushCount = 2_000;
+    public const int DefaultSearchResultFlushCount = 10_000;
+    // Only request commands wait for admission. History notifications describe
+    // work already accepted by Core; their callbacks must never park execution.
+    public int CommandQueueCapacity { get; init; } = 2_048;
+    public int BackgroundCommandQueueCapacity { get; init; } = 2_048;
     public int ProgressEntityCapacity { get; init; } = 512;
-    public int DegradedProjectionCapacity { get; init; } = 1_024;
     public int SearchResultCapacityPerSearch { get; init; } = 2_000;
     public int SearchResultGlobalCapacity { get; init; } = 20_000;
     public int IncompleteSearchTrackingCapacity { get; init; } = 1_024;
     public int SearchMutationQueueCapacity { get; init; } = 256;
-    public int SearchResultFlushCount { get; init; } = 200;
+    public int SearchResultFlushCount { get; init; } = DefaultSearchResultFlushCount;
     public TimeSpan SearchResultFlushInterval { get; init; } = TimeSpan.FromMilliseconds(200);
     public TimeSpan TransferProgressFlushInterval { get; init; } = TimeSpan.FromSeconds(3);
-    public int MaximumBatchSize { get; init; } = 128;
+    // Group durable history writes to avoid rewriting the same index pages in
+    // many small commits. Gather up to the batch target. Sparse work stays immediate;
+    // interactive commands run between batches. Search rows have their own bound.
+    public int MaximumBatchSize { get; init; } = DefaultMaximumBatchSize;
     public int BusyRetryCount { get; init; } = 3;
     public TimeSpan BusyRetryDelay { get; init; } = TimeSpan.FromMilliseconds(50);
     public TimeSpan FailureRetryDelay { get; init; } = TimeSpan.FromSeconds(1);
@@ -22,12 +32,11 @@ public sealed record PersistenceWriterOptions
 
     public void Validate()
     {
-        if (CriticalQueueCapacity <= 0) throw new ArgumentOutOfRangeException(nameof(CriticalQueueCapacity));
-        if (OrdinaryQueueCapacity <= 0) throw new ArgumentOutOfRangeException(nameof(OrdinaryQueueCapacity));
+        if (CommandQueueCapacity <= 0) throw new ArgumentOutOfRangeException(nameof(CommandQueueCapacity));
+        if (BackgroundCommandQueueCapacity <= 0) throw new ArgumentOutOfRangeException(nameof(BackgroundCommandQueueCapacity));
         if (ProgressEntityCapacity <= 0) throw new ArgumentOutOfRangeException(nameof(ProgressEntityCapacity));
-        if (DegradedProjectionCapacity <= 0) throw new ArgumentOutOfRangeException(nameof(DegradedProjectionCapacity));
         if (SearchMutationQueueCapacity <= 0) throw new ArgumentOutOfRangeException(nameof(SearchMutationQueueCapacity));
-        if (SearchResultFlushCount is < 100 or > 500) throw new ArgumentOutOfRangeException(nameof(SearchResultFlushCount));
+        if (SearchResultFlushCount <= 0) throw new ArgumentOutOfRangeException(nameof(SearchResultFlushCount));
         if (SearchResultFlushInterval < TimeSpan.FromMilliseconds(100)
             || SearchResultFlushInterval > TimeSpan.FromMilliseconds(250))
             throw new ArgumentOutOfRangeException(nameof(SearchResultFlushInterval));

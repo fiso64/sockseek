@@ -1,9 +1,14 @@
 using System.Reflection;
+using System.IO.Compression;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.OpenApi;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Http.Json;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.OpenApi;
 using Sockseek.Api;
 using Sockseek.Core.Chat;
 using Sockseek.Core.Diagnostics;
@@ -80,16 +85,145 @@ public static class ServerHost
             jsonOptions.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
             SockseekApiJson.ConfigureSerializerOptions(jsonOptions.SerializerOptions);
         });
+        // Search View pages can contain many repeated directory/file fields.
+        // Compress public JSON on the wire without changing the paged contract.
+        builder.Services.AddResponseCompression(compression =>
+        {
+            compression.EnableForHttps = true;
+            compression.MimeTypes = ["application/json"];
+            compression.Providers.Add<BrotliCompressionProvider>();
+            compression.Providers.Add<GzipCompressionProvider>();
+        });
+        builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+            options.Level = CompressionLevel.Fastest);
+        builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+            options.Level = CompressionLevel.Fastest);
 
-        builder.Services.AddSignalR()
-            .AddJsonProtocol(jsonOptions =>
-            {
-                jsonOptions.PayloadSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-                SockseekApiJson.ConfigureSerializerOptions(jsonOptions.PayloadSerializerOptions);
-            });
+        builder.Services.AddSignalR(options =>
+            // A legitimate fetched extent can contain thousands of row IDs
+            // and revisions. Response work is scoped by the requested extent.
+            options.MaximumReceiveMessageSize = null)
+            .AddJsonProtocol();
+        // Both transports use the public HTTP JSON rules and one metadata cache.
+        builder.Services.AddOptions<JsonHubProtocolOptions>()
+            .Configure<IOptions<JsonOptions>>((hub, http) =>
+                hub.PayloadSerializerOptions = http.Value.SerializerOptions);
         builder.Services.AddOpenApi(options =>
         {
-            options.AddDocumentTransformer((document, context, cancellationToken) =>
+            options.AddOperationTransformer(async (operation, context, cancellationToken) =>
+            {
+                if (context.Description.RelativePath == "api/jobs"
+                    && context.Description.HttpMethod == "GET")
+                {
+                    // Minimal API string binding permits public hyphenated enum
+                    // spellings; keep the generated query contract enum-typed.
+                    (string Name, Type Type)[] filters =
+                    [
+                        ("kind", typeof(ServerJobKind)),
+                        ("role", typeof(ServerJobRole)),
+                    ];
+                    foreach (var (name, type) in filters)
+                    {
+                        if (operation.Parameters?.FirstOrDefault(parameter => parameter.Name == name) is OpenApiParameter parameter)
+                            parameter.Schema = await context.GetOrCreateSchemaAsync(type, null, cancellationToken);
+                    }
+                    if (operation.Responses?.TryGetValue("200", out var response) == true
+                        && response is OpenApiResponse jobResponse)
+                    {
+                        jobResponse.Headers ??= new Dictionary<string, IOpenApiHeader>();
+                        jobResponse.Headers[ServerProtocol.ReadEpochHeader] = new OpenApiHeader
+                        {
+                            Description = "Daemon epoch captured before reading live and retained jobs.",
+                            Schema = new OpenApiSchema { Type = JsonSchemaType.String, Format = "uuid" },
+                        };
+                        jobResponse.Headers[ServerProtocol.ReadSequenceHeader] = new OpenApiHeader
+                        {
+                            Description = "Daemon sequence at that read position, encoded as a decimal Int64 string.",
+                            Schema = new OpenApiSchema { Type = JsonSchemaType.String, Pattern = "^[0-9]+$" },
+                        };
+                    }
+                }
+            });
+            // With this generator version, reference extraction collapses these
+            // nested target/plan schemas to empty components despite populated
+            // serializer metadata. Inline their uses and emit explicit canonical
+            // components below; both still derive from the DTOs, not hand-written
+            // property lists. OpenApiContractTests guards the emitted properties.
+            options.CreateSchemaReferenceId = type =>
+                type.Type == typeof(PeerFileTargetDto) || type.Type == typeof(DirectoryTransferPlanDto)
+                    ? null
+                    : Microsoft.AspNetCore.OpenApi.OpenApiOptions.CreateDefaultSchemaReferenceId(type);
+            options.AddSchemaTransformer(async (schema, context, cancellationToken) =>
+            {
+                // Constructor parameters are not necessarily present on the wire:
+                // the shared serializer omits nulls. Derive optionality from the
+                // same metadata instead of maintaining per-DTO field lists.
+                foreach (var property in context.JsonTypeInfo.Properties)
+                {
+                    JsonIgnoreCondition condition = property.AttributeProvider?
+                        .GetCustomAttributes(typeof(JsonIgnoreAttribute), inherit: true)
+                        .OfType<JsonIgnoreAttribute>().FirstOrDefault()?.Condition
+                        ?? context.JsonTypeInfo.Options.DefaultIgnoreCondition;
+                    if (!property.IsRequired
+                        && condition is JsonIgnoreCondition.WhenWritingNull or JsonIgnoreCondition.WhenWritingDefault
+                        && (Nullable.GetUnderlyingType(property.PropertyType) is not null || property.IsGetNullable))
+                        schema.Required?.Remove(property.Name);
+                }
+                if (context.JsonTypeInfo.Type == typeof(PeerFileTargetDto)
+                    && schema.Properties is { } targetProperties)
+                {
+                    var attributes = await context.GetOrCreateSchemaAsync(
+                        typeof(IReadOnlyList<FileAttributeDto>), null, cancellationToken);
+                    targetProperties["attributes"] = new OpenApiSchema
+                    {
+                        AnyOf = [attributes, new OpenApiSchema { Type = JsonSchemaType.Null }],
+                    };
+                }
+                if ((context.JsonTypeInfo.Type == typeof(TransferStatusFieldsDto)
+                     || context.JsonTypeInfo.Type == typeof(JobLifecycleFieldsDto))
+                    && schema.Properties is { } statusProperties)
+                {
+                    // Repeated inline delta generation otherwise loses action
+                    // items on some transports. Derive them from the same DTO.
+                    var actions = await context.GetOrCreateSchemaAsync(
+                        typeof(IReadOnlyList<ResourceActionDto>), null, cancellationToken);
+                    statusProperties["availableActions"] = context.JsonTypeInfo.Type == typeof(JobLifecycleFieldsDto)
+                        ? actions : new OpenApiSchema
+                        {
+                            AnyOf = [actions, new OpenApiSchema { Type = JsonSchemaType.Null }],
+                        };
+                }
+                if (context.JsonTypeInfo.Type == typeof(StateDeltaDto))
+                {
+                    schema.Required?.Remove("daemon");
+                    if (schema.Properties?.TryGetValue("daemon", out IOpenApiSchema? daemon) == true
+                        && daemon is OpenApiSchema daemonSchema)
+                    {
+                        daemonSchema.Type = (daemonSchema.Type ?? JsonSchemaType.Object)
+                            | JsonSchemaType.Null;
+                    }
+                    // Reuse the canonical resource schema: generating it inline
+                    // here loses nested nullable/omitted failure metadata.
+                    schema.Required?.Remove("userBrowse");
+                    if (schema.Properties is { } properties)
+                    {
+                        properties["userBrowse"] = new OpenApiSchema
+                        {
+                            AnyOf = [new OpenApiSchemaReference(nameof(UserBrowseDto)),
+                                new OpenApiSchema { Type = JsonSchemaType.Null }],
+                        };
+                    }
+                }
+                else if (context.JsonTypeInfo.Type == typeof(LiveProtocolContractVersion))
+                {
+                    schema.Enum = [JsonValue.Create(LiveProtocol.Version)];
+                }
+                else if (context.JsonTypeInfo.Type == typeof(ChatLiveMessageTailSize))
+                {
+                    schema.Enum = [JsonValue.Create(ChatProtocol.LiveMessageTailSize)];
+                }
+            });
+            options.AddDocumentTransformer(async (document, context, cancellationToken) =>
             {
                 document.Info = new()
                 {
@@ -98,7 +232,66 @@ public static class ServerHost
                     Description = "HTTP API for the Sockseek daemon."
                 };
 
-                return Task.CompletedTask;
+                Type[] supplementalContractTypes =
+                [
+                    typeof(PeerFileTargetDto),
+                    typeof(DirectoryTransferPlanDto),
+                    typeof(LiveProtocolContractVersion),
+                    typeof(ChatLiveMessageTailSize),
+                    typeof(LiveClientInvocation),
+                    typeof(LiveServerMessage),
+                    typeof(StateUpdateBatchDto),
+                    typeof(StateDeltaDto),
+                    typeof(UserBrowseDto),
+                    typeof(JobDeltaDto),
+                    typeof(TransferDeltaDto),
+                    typeof(TransferTimelineUpdateDto),
+                    typeof(TransferTimelineScopeDto),
+                    typeof(JobObservationUpdateDto),
+                    typeof(ChatTargetDeltaDto),
+                    typeof(ActivityEventDto),
+                    typeof(ActivityPayloadDto),
+                    typeof(JobStatusActivityDto),
+                    typeof(JobMessageActivityDto),
+                    typeof(WorkflowMessageActivityDto),
+                    typeof(DiagnosticActivityDto),
+                    typeof(ExtractionStartedActivityDto),
+                    typeof(DownloadAttemptFailedActivityDto),
+                    typeof(TrackBatchResolvedActivityDto),
+                ];
+                foreach (Type contractType in supplementalContractTypes)
+                {
+                    var schema = await context.GetOrCreateSchemaAsync(
+                        contractType,
+                        parameterDescription: null,
+                        cancellationToken);
+                    document.AddComponent(contractType.Name, schema);
+                }
+
+                // The .NET OpenAPI generator names polymorphic derived schemas in
+                // discriminator mappings as <base><derived>. These SignalR-only
+                // types are not otherwise reachable from HTTP endpoints, so add
+                // the mapped component names explicitly as well.
+                Type[] activityPayloadTypes =
+                [
+                    typeof(JobStatusActivityDto),
+                    typeof(JobMessageActivityDto),
+                    typeof(WorkflowMessageActivityDto),
+                    typeof(DiagnosticActivityDto),
+                    typeof(ExtractionStartedActivityDto),
+                    typeof(DownloadAttemptFailedActivityDto),
+                    typeof(TrackBatchResolvedActivityDto),
+                ];
+                foreach (Type payloadType in activityPayloadTypes)
+                {
+                    var schema = await context.GetOrCreateSchemaAsync(
+                        payloadType,
+                        parameterDescription: null,
+                        cancellationToken);
+                    document.AddComponent(
+                        $"{nameof(ActivityPayloadDto)}{payloadType.Name}",
+                        schema);
+                }
             });
         });
         builder.Services.AddSingleton<PersistenceCoordinator>();
@@ -130,6 +323,17 @@ public static class ServerHost
 
         var app = builder.Build();
 
+        // Resolve the live contract before accepting requests. Lazy configuration
+        // of these broad graphs otherwise blocks unrelated first responses on
+        // System.Text.Json's shared metadata lock. This is startup work, not a
+        // serialization shortcut: retain full metadata and normal async streaming.
+        var wireJson = app.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
+        wireJson.MakeReadOnly();
+        foreach (Type response in new[] { typeof(StateSnapshotDto), typeof(StateUpdateBatchDto), typeof(TransferTimelineUpdateDto) })
+            wireJson.GetTypeInfo(response);
+
+        app.UseResponseCompression();
+
         app.Use(async (context, next) =>
         {
             try
@@ -145,8 +349,34 @@ public static class ServerHost
             }
         });
 
+        string webRootPath = app.Environment.WebRootPath
+            ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+        bool hasWebUi = File.Exists(Path.Combine(webRootPath, "index.html"));
+        var webUiStaticFiles = new StaticFileOptions
+        {
+            OnPrepareResponse = context =>
+            {
+                string path = context.Context.Request.Path.Value ?? string.Empty;
+                context.Context.Response.Headers.CacheControl = path.StartsWith(
+                    "/assets/", StringComparison.Ordinal)
+                    ? "public,max-age=31536000,immutable"
+                    : "no-cache";
+            },
+        };
+        if (hasWebUi)
+        {
+            app.UseDefaultFiles();
+            app.UseStaticFiles(webUiStaticFiles);
+        }
+
         app.MapOpenApi("/api/openapi.json");
         MapEndpoints(app);
+        if (!hasWebUi)
+            app.MapGet("/", () => Results.Redirect("/api/server/info"))
+                .ExcludeFromDescription();
+        app.Map("/api/{**unmatched}", () => Results.NotFound());
+        if (hasWebUi)
+            app.MapFallbackToFile("index.html", webUiStaticFiles);
         return app;
     }
 
@@ -169,9 +399,6 @@ public static class ServerHost
         InputArtifactEndpoints.Map(app);
         JobPreviewEndpoints.Map(app);
         SearchViewEndpoints.Map(app);
-        app.MapGet("/", () => Results.Redirect("/api/server/info"))
-            .ExcludeFromDescription();
-
         app.MapGet("/api/server/info", (EngineSupervisor supervisor) => Results.Ok(supervisor.GetInfo()))
             .WithTags("Server")
             .WithSummary("Gets server identity and protocol information.")
@@ -180,8 +407,8 @@ public static class ServerHost
             .WithTags("Server")
             .WithSummary("Gets current daemon and Soulseek client status.")
             .Produces<ServerStatusDto>();
-        app.MapGet("/api/daemon/snapshot", (EngineStateStore stateStore) =>
-                Results.Ok(stateStore.GetDaemonSnapshot()))
+        app.MapGet("/api/daemon/snapshot", (EngineStateStore stateStore, DaemonStateDetail? detail) =>
+                Results.Ok(stateStore.GetDaemonSnapshot(detail ?? DaemonStateDetail.Full)))
             .WithTags("Live State")
             .WithSummary("Gets the bounded daemon replication snapshot and stream position.")
             .WithDescription("Contains active workflows and the jobs, searches, and transfers needed to render them. Retained terminal history remains paginated.")
@@ -305,7 +532,7 @@ public static class ServerHost
             return await WithChatAsync(supervisor, async chat =>
             {
                 var page = await chat.GetConversationsAsync(
-                    unread, archived, cursor, limit ?? ChatLimits.DefaultPageSize, cancellationToken);
+                    unread, archived, cursor, limit ?? ServerProtocol.DefaultPageSize, cancellationToken);
                 return Results.Ok(new ConversationPageDto(
                     page.Items.Select(chat.MapConversation).ToArray(), page.NextCursor));
             });
@@ -331,6 +558,25 @@ public static class ServerHost
             .WithTags("Chat")
             .WithSummary("Sends an idempotent private message.")
             .Produces<ChatMessageDto>()
+            .WithChatErrors();
+
+        app.MapGet("/api/chat/conversations/by-peer", async (
+            string username,
+            EngineSupervisor supervisor,
+            CancellationToken cancellationToken) =>
+        {
+            return await WithChatAsync(supervisor, async chat =>
+            {
+                var conversation = await chat.GetConversationByPeerAsync(username, cancellationToken);
+                return conversation is null
+                    ? ChatNotFound("The conversation was not found.")
+                    : Results.Ok(chat.MapConversation(conversation));
+            });
+        })
+            .RequireOperator()
+            .WithTags("Chat")
+            .WithSummary("Gets an existing conversation by exact peer username without creating one.")
+            .Produces<ConversationSummaryDto>()
             .WithChatErrors();
 
         app.MapGet("/api/chat/conversations/{conversationId:guid}", async (
@@ -364,7 +610,7 @@ public static class ServerHost
                 if (await chat.GetConversationAsync(conversationId, cancellationToken) is null)
                     return ChatNotFound("The conversation was not found.");
                 var page = await chat.GetMessagesAsync(
-                    conversationId, cursor, limit ?? ChatLimits.DefaultPageSize, cancellationToken);
+                    conversationId, cursor, limit ?? ServerProtocol.DefaultPageSize, cancellationToken);
                 return Results.Ok(new ChatMessagePageDto(
                     page.Items.Select(ChatDtoMapper.ToDto).ToArray(), page.NextCursor));
             });
@@ -462,7 +708,7 @@ public static class ServerHost
             return await WithChatAsync(supervisor, async chat =>
             {
                 return Results.Ok(await chat.GetAvailableRoomsAsync(
-                    kind, cursor, limit ?? ChatLimits.DefaultPageSize, refresh == true, cancellationToken));
+                    kind, cursor, limit ?? ServerProtocol.DefaultPageSize, refresh == true, cancellationToken));
             });
         })
             .RequireOperator()
@@ -481,7 +727,7 @@ public static class ServerHost
             return await WithChatAsync(supervisor, async chat =>
             {
                 return Results.Ok(await chat.GetRoomSummariesAsync(
-                    state, cursor, limit ?? ChatLimits.DefaultPageSize, cancellationToken));
+                    state, cursor, limit ?? ServerProtocol.DefaultPageSize, cancellationToken));
             });
         })
             .RequireOperator()
@@ -552,7 +798,7 @@ public static class ServerHost
                 if (await chat.GetRoomSummaryAsync(roomId, cancellationToken) is null)
                     return ChatNotFound("The room was not found.");
                 var page = await chat.GetMessagesAsync(
-                    roomId, cursor, limit ?? ChatLimits.DefaultPageSize, cancellationToken);
+                    roomId, cursor, limit ?? ServerProtocol.DefaultPageSize, cancellationToken);
                 return Results.Ok(new ChatMessagePageDto(
                     page.Items.Select(ChatDtoMapper.ToDto).ToArray(), page.NextCursor));
             });
@@ -611,7 +857,7 @@ public static class ServerHost
             return await WithChatAsync(supervisor, async chat =>
             {
                 return Results.Ok(await chat.GetRoomMembersAsync(
-                    roomId, cursor, limit ?? ChatLimits.DefaultPageSize, revision, cancellationToken));
+                    roomId, cursor, limit ?? ServerProtocol.DefaultPageSize, revision, cancellationToken));
             });
         })
             .RequireOperator()
@@ -666,7 +912,7 @@ public static class ServerHost
             return await WithChatAsync(supervisor, async chat =>
             {
                 var page = await chat.GetNotificationsAsync(
-                    unread, kind, cursor, limit ?? ChatLimits.DefaultPageSize, cancellationToken);
+                    unread, kind, cursor, limit ?? ServerProtocol.DefaultPageSize, cancellationToken);
                 return Results.Ok(new NotificationPageDto(
                     page.Items.Select(ChatDtoMapper.ToDto).ToArray(), page.NextCursor));
             });
@@ -743,7 +989,7 @@ public static class ServerHost
         app.MapGet("/api/submissions", async (
             HistoricalQueryFacade queryFacade,
             HttpContext httpContext,
-            bool archived,
+            bool? archived,
             string? cursor,
             int? limit,
             CancellationToken cancellationToken) =>
@@ -752,12 +998,12 @@ public static class ServerHost
             {
                 var page = await queryFacade.GetSubmissionsAsync(
                     cursor,
-                    limit ?? 100,
-                    archived,
+                    limit ?? ServerProtocol.DefaultPageSize,
+                    archived ?? false,
                     cancellationToken);
                 if (page.NextCursor != null)
                     httpContext.Response.Headers["X-Next-Cursor"] = page.NextCursor;
-                return Results.Ok(page);
+                return Results.Ok(page.Items);
             }
             catch (NotSupportedException ex)
             {
@@ -853,40 +1099,92 @@ public static class ServerHost
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status503ServiceUnavailable);
 
+        app.MapPost("/api/jobs/{jobId:guid}/rerun-search", async (
+            Guid jobId,
+            EngineSupervisor supervisor,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                JobSummaryDto? submitted = await supervisor.RerunSearchJobAsync(
+                    jobId, cancellationToken);
+                return submitted == null
+                    ? Results.NotFound()
+                    : Results.Accepted($"/api/jobs/{submitted.JobId}", submitted);
+            }
+            catch (NotSupportedException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+            catch (Exception ex) when (TryCreateBadRequest(ex, out _))
+            {
+                return BadRequest(ex);
+            }
+        })
+            .RequireOperator()
+            .WithTags("Job Submission")
+            .WithSummary("Replays only one planned search job from its retained execution settings.")
+            .WithDescription("Sibling jobs are not restarted. Older submissions without retained child identities cannot be replayed through this operation.")
+            .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status503ServiceUnavailable);
+
         app.MapGet("/api/jobs", async (
             HistoricalQueryFacade queryFacade,
             HttpContext httpContext,
             ServerJobLifecycleState? lifecycleState,
             ServerJobTerminalOutcome? terminalOutcome,
             ServerJobSkipReason? skipReason,
-            ServerJobKind? kind,
+            string? kind,
             Guid? workflowId,
             Guid? parentJobId,
             Guid? submissionId,
-            ServerJobRole? role,
-            bool archived,
-            bool includeAll,
+            string? role,
+            bool? archived,
+            bool? includeAll,
+            bool? newestFirst,
+            bool? excludeExtractResults,
             string? cursor,
             int? limit,
             CancellationToken cancellationToken) =>
         {
             try
             {
+                ServerJobKind? parsedKind = null;
+                if (kind != null)
+                {
+                    if (!ServerProtocolEnumExtensions.TryParseJobKind(kind, out var value))
+                        throw new ArgumentException($"Unknown job kind '{kind}'.", nameof(kind));
+                    parsedKind = value;
+                }
+                ServerJobRole? parsedRole = null;
+                if (role != null)
+                {
+                    if (!ServerProtocolEnumExtensions.TryParseJobRole(role, out var value))
+                        throw new ArgumentException($"Unknown job role '{role}'.", nameof(role));
+                    parsedRole = value;
+                }
                 var page = await queryFacade.GetJobsAsync(
                     new JobQuery(
                         lifecycleState,
                         terminalOutcome,
-                        kind,
+                        parsedKind,
                         workflowId,
-                        includeAll,
+                        includeAll ?? false,
                         skipReason,
                         parentJobId,
                         submissionId,
-                        role,
-                        archived),
+                        parsedRole,
+                        archived ?? false,
+                        newestFirst ?? false,
+                        excludeExtractResults ?? false),
                     cursor,
-                    limit ?? 100,
+                    limit ?? ServerProtocol.DefaultNestedPageSize,
                     cancellationToken);
+                httpContext.Response.Headers[ServerProtocol.ReadEpochHeader] = page.ReadPosition.Epoch.ToString("D");
+                httpContext.Response.Headers[ServerProtocol.ReadSequenceHeader] =
+                    page.ReadPosition.Sequence.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 if (page.NextCursor != null)
                     httpContext.Response.Headers["X-Next-Cursor"] = page.NextCursor;
                 return Results.Ok(page.Items);
@@ -898,8 +1196,20 @@ public static class ServerHost
         })
             .WithTags("Jobs")
             .WithSummary("Lists known jobs.")
-            .WithDescription("Default results contain execution roots. Set parentJobId for direct children, submissionId or role for submission semantics, or includeAll=true for a flat workflow list.")
+            .WithDescription("Default results contain execution roots in ascending display order. Set newestFirst=true for newest-first moving-keyset pages; cursors are bound to that direction. Set parentJobId for direct children, submissionId or role for submission semantics, or includeAll=true for a flat workflow list. Set excludeExtractResults=true to page extraction sources without also counting their generated results.")
             .Produces<IReadOnlyList<JobSummaryDto>>();
+
+        app.MapPost("/api/jobs/lookup", async (
+            JobLookupRequestDto request, HistoricalQueryFacade queryFacade, CancellationToken cancellationToken) =>
+        {
+            try { return Results.Ok(await queryFacade.LookupJobsAsync(request, cancellationToken)); }
+            catch (Exception ex) when (TryCreateBadRequest(ex, out _)) { return BadRequest(ex); }
+        })
+            .WithTags("Jobs")
+            .WithSummary("Reads current live or retained job summaries by ID.")
+            .WithDescription("Returns found IDs once in request order; missing IDs are omitted. Does not hydrate job details or count children.")
+            .Produces<IReadOnlyList<JobSummaryDto>>()
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
         app.MapGet("/api/jobs/{jobId:guid}", async (Guid jobId, HistoricalQueryFacade queryFacade, CancellationToken cancellationToken) =>
         {
@@ -909,6 +1219,26 @@ public static class ServerHost
             .WithTags("Jobs")
             .WithSummary("Gets a job snapshot by id.")
             .Produces<JobDetailDto>()
+            .Produces(StatusCodes.Status404NotFound);
+
+        app.MapGet("/api/jobs/{jobId:guid}/directory-files", async (
+            Guid jobId, int? attemptNumber, int? afterOrdinal, int? limit,
+            HistoricalQueryFacade queryFacade, CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var page = await queryFacade.GetDirectoryManifestAsync(
+                    jobId, attemptNumber, afterOrdinal ?? -1, limit ?? ServerProtocol.DefaultPageSize, cancellationToken);
+                return page == null ? Results.NotFound() : Results.Ok(page);
+            }
+            catch (Exception ex) when (TryCreateBadRequest(ex, out _))
+            {
+                return BadRequest(ex);
+            }
+        })
+            .WithTags("Jobs")
+            .WithSummary("Pages exact files in the accepted attempt of an album or remote-directory job.")
+            .Produces<DirectoryManifestPageDto>()
             .Produces(StatusCodes.Status404NotFound);
 
         app.MapGet("/api/workflows/{workflowId:guid}/jobs/display/{displayId:int}", async (
@@ -932,7 +1262,7 @@ public static class ServerHost
         {
             try
             {
-                var page = await queryFacade.GetRawSearchResultsAsync(jobId, afterSequence, limit ?? 200, cancellationToken);
+                var page = await queryFacade.GetRawSearchResultsAsync(jobId, afterSequence, limit ?? ServerProtocol.DefaultPageSize, cancellationToken);
                 if (page?.NextSequence != null)
                     httpContext.Response.Headers["X-Next-Sequence"] = page.NextSequence.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 return page != null
@@ -962,6 +1292,7 @@ public static class ServerHost
             string? state,
             string? terminalOutcome,
             string? username,
+            string? groupRef,
             DateTimeOffset? fromUtc,
             DateTimeOffset? toUtc,
             bool? archived,
@@ -972,10 +1303,11 @@ public static class ServerHost
             try
             {
                 var page = await queryFacade.GetTransfersAsync(
-                    cursor, limit ?? 100, jobId, workflowId,
+                    cursor, limit ?? ServerProtocol.DefaultPageSize, jobId, workflowId,
                     direction, source, state, terminalOutcome, username, fromUtc, toUtc,
                     archived ?? false,
-                    cancellationToken);
+                    cancellationToken,
+                    groupRef);
                 if (page.NextCursor != null)
                     httpContext.Response.Headers["X-Next-Cursor"] = page.NextCursor;
                 return Results.Ok(page);
@@ -1142,7 +1474,7 @@ public static class ServerHost
                 var page = sharing.Uploads.GetQueuePage(
                     decoded?.RequestedAtUtc,
                     decoded?.TransferId,
-                    limit ?? 100,
+                    limit ?? ServerProtocol.DefaultPageSize,
                     decoded?.ObservedQueueRevision,
                     username);
                 string? next = page.NextRequestedAtUtc is { } nextTime
@@ -1173,6 +1505,58 @@ public static class ServerHost
             .Produces<LiveTransferPageDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
+
+        app.MapPost("/api/transfers/lookup", async (
+            TransferLookupRequestDto request,
+            HistoricalQueryFacade queryFacade,
+            CancellationToken cancellationToken) =>
+        {
+            try { return Results.Ok(await queryFacade.LookupTransfersAsync(request, cancellationToken)); }
+            catch (Exception ex) when (TryCreateBadRequest(ex, out _)) { return BadRequest(ex); }
+        })
+            .WithTags("Transfers")
+            .WithSummary("Looks up current unarchived transfer timeline rows by ID.")
+            .WithDescription("Uses the same live, queued and retained projection as the timeline. Returns all found IDs in newest-first order without a continuation. Missing IDs are omitted; retained availability is explicit.")
+            .Produces<TransferTimelinePageDto>()
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
+
+        app.MapPost("/api/transfers/timeline", async (
+            TransferTimelineScopeDto scope,
+            HistoricalQueryFacade queryFacade,
+            ServerEventBroadcaster events,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                return Results.Ok(await queryFacade.GetTransferTimelineSnapshotAsync(scope, events, cancellationToken));
+            }
+            catch (Exception ex) when (TryCreateBadRequest(ex, out _)) { return BadRequest(ex); }
+        })
+            .RequireOperator()
+            .WithTags("Transfers")
+            .WithSummary("Snapshots a timeline extent, expanded files and requested folder totals.")
+            .WithDescription("Uses the same scoped read as ObserveTransferTimeline. Window membership and boundary describe the moving prefix independently of explicitly requested additional files.")
+            .Produces<TransferTimelineUpdateDto>()
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
+
+        app.MapPost("/api/transfers/group-summaries", async (
+            TransferGroupSummariesRequestDto request,
+            HistoricalQueryFacade queryFacade,
+            CancellationToken cancellationToken) =>
+        {
+            if (request.Groups is null || request.Groups.Any(group => group is null || string.IsNullOrEmpty(group.GroupRef)))
+                return Results.BadRequest(new ApiErrorDto(
+                    "Each transfer group needs an exact group reference.",
+                    "InvalidTransferGroup"));
+            return Results.Ok(await queryFacade.GetTransferGroupSummariesAsync(
+                request.Groups,
+                cancellationToken));
+        })
+            .WithTags("Transfers")
+            .WithSummary("Gets moving whole-group totals for the requested transfer groups.")
+            .WithDescription("Uses the retained transfer ledger with a live overlay; group refs are opaque, and an unavailable retained resource does not yield authoritative totals.")
+            .Produces<TransferGroupSummariesResponseDto>()
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
         app.MapGet("/api/transfers/{transferId:guid}", async (
             Guid transferId,
@@ -1259,7 +1643,7 @@ public static class ServerHost
             Results.Ok(supervisor.CancelTransfers(request)))
             .RequireOperatorMutation()
             .WithTags("Transfers")
-            .WithSummary("Cancels a snapshot of transfers by direction and queue state.")
+            .WithSummary("Cancels a snapshot of transfers by direction, queue state, and optional exact peer/group.")
             .WithDescription("Targets are resolved once, then cancelled independently. Races and per-transfer failures are reported in a fixed-size receipt.")
             .Produces<TransferCommandReceiptDto>();
 
@@ -1301,7 +1685,8 @@ public static class ServerHost
                         TerminalOutcome: request.TerminalOutcome,
                         Username: request.Username,
                         FromUtc: request.FromUtc,
-                        ToUtc: request.ToUtc),
+                        ToUtc: request.ToUtc,
+                        GroupRef: request.GroupRef),
                     request.Archived,
                     cancellationToken));
             }
@@ -1312,7 +1697,7 @@ public static class ServerHost
         })
             .RequireOperatorMutation()
             .WithTags("Transfers")
-            .WithSummary("Archives or restores filtered terminal transfer history.")
+            .WithSummary("Archives or restores terminal transfer history, optionally scoped to an exact peer/group.")
             .WithDescription("The command is reversible, excludes active transfers, and returns bounded outcome counts.")
             .Produces<TransferCommandReceiptDto>()
             .Produces(StatusCodes.Status503ServiceUnavailable);
@@ -1328,7 +1713,7 @@ public static class ServerHost
             try
             {
                 var page = await queryFacade.GetTransferAttemptsAsync(
-                    transferId, afterAttemptNumber, limit ?? 100, cancellationToken);
+                    transferId, afterAttemptNumber, limit ?? ServerProtocol.DefaultPageSize, cancellationToken);
                 if (page?.NextAttemptNumber != null)
                     httpContext.Response.Headers["X-Next-Attempt-Number"] = page.NextAttemptNumber.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 return page != null ? Results.Ok(page.Items) : Results.NotFound();
@@ -1339,7 +1724,7 @@ public static class ServerHost
             }
         })
             .WithTags("Transfers")
-            .WithSummary("Lists durable attempts for one transfer.")
+            .WithSummary("Lists current and retained attempts for one transfer.")
             .Produces<IReadOnlyList<TransferAttemptHistoryDto>>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status404NotFound);
@@ -1507,13 +1892,23 @@ public static class ServerHost
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
-        app.MapPost("/api/jobs/effective-settings", (
+        app.MapPost("/api/jobs/effective-settings", async (
             ResolveEffectiveSettingsRequestDto request,
-            EngineSupervisor supervisor) =>
+            EngineSupervisor supervisor,
+            JobPreviewCoordinator previews,
+            CancellationToken ct) =>
         {
             try
             {
-                return Results.Ok(supervisor.ResolveEffectiveSettings(request));
+                JobDraftDto resolved = await previews.ResolveArtifactDraftForSettingsAsync(
+                    request.Job, ct).ConfigureAwait(false);
+                return Results.Ok(supervisor.ResolveEffectiveSettings(request with { Job = resolved }));
+            }
+            catch (InputArtifactUnavailableException ex)
+            {
+                return Results.Json(
+                    new ApiErrorDto(ex.Message, "artifact-unavailable"),
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
             }
             catch (Exception ex) when (TryCreateBadRequest(ex, out _))
             {
@@ -1522,9 +1917,10 @@ public static class ServerHost
         })
             .WithTags("Job Submission")
             .WithSummary("Resolves the effective settings for a job draft without submitting it.")
-            .WithDescription("Uses the same typed settings composer and validation rules as direct Start. Secret and command values are redacted; matched profiles and safe per-field provenance are returned for Review and diagnostics.")
+            .WithDescription("Uses the same typed settings composer as direct Start. An extract or generic-search draft may omit its not-yet-entered input for provisional settings; actual submission still validates it. Secret and command values are redacted; matched profiles and safe per-field provenance are returned for Review and diagnostics.")
             .Produces<ResolveEffectiveSettingsResponseDto>()
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
+            .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapPost("/api/jobs/search", async (SubmitSearchJobRequestDto request, EngineSupervisor supervisor, CancellationToken ct) =>
             await SubmitJobAsync(() => supervisor.SubmitSearchJobAsync(request, ct)))
@@ -1599,7 +1995,7 @@ public static class ServerHost
         {
             try
             {
-                var page = await queryFacade.GetWorkflowsAsync(cursor, limit ?? 100, cancellationToken);
+                var page = await queryFacade.GetWorkflowsAsync(cursor, limit ?? ServerProtocol.DefaultPageSize, cancellationToken);
                 if (page.NextCursor != null)
                     httpContext.Response.Headers["X-Next-Cursor"] = page.NextCursor;
                 return Results.Ok(page.Items);

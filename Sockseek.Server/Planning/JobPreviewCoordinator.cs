@@ -8,6 +8,7 @@ using Sockseek.Api;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Planning;
+using Sockseek.Core.Snapshots;
 using Sockseek.Core.Settings;
 using Sockseek.Persistence.Planning;
 using Sockseek.Server.Persistence;
@@ -25,6 +26,8 @@ public sealed class JobPreviewCoordinator(
     ILogger<JobPreviewCoordinator> logger,
     InputArtifactCoordinator? artifacts = null) : IHostedService, IAsyncDisposable
 {
+    private const int InitialPlanningBatchSize = 100;
+    private const int PlanningBatchSize = 1_000;
     private readonly ServerOptions serverOptions = options.Value;
     private JobPreviewStore? store;
     private FileStream? spoolLease;
@@ -132,7 +135,7 @@ public sealed class JobPreviewCoordinator(
         }
     }
 
-    private async Task RunMaintenanceOnceAsync(CancellationToken cancellationToken)
+    internal async Task<IReadOnlyList<Guid>> RunMaintenanceOnceAsync(CancellationToken cancellationToken)
     {
         JobPreviewStore repository = RequiredStore();
         foreach (Guid previewId in await repository.ExpireDueAsync(cancellationToken)
@@ -140,15 +143,15 @@ public sealed class JobPreviewCoordinator(
         {
             ServerLogMessages.JobPreviewExpired(logger, previewId);
         }
-        IReadOnlyList<StoredJobPreviewCleanup> cleanup = await repository
+        IReadOnlyList<Guid> cleanup = await repository
             .PruneTombstonesAsync(
                 TimeSpan.FromDays(1),
-                TimeSpan.FromDays(30),
+                TimeSpan.Zero,
                 cancellationToken).ConfigureAwait(false);
-        if (artifacts == null)
-            return;
-        foreach (StoredJobPreviewCleanup row in cleanup)
-            await ReleaseArtifactPinsAsync(row, cancellationToken).ConfigureAwait(false);
+        if (artifacts != null)
+            foreach (Guid previewId in cleanup)
+                await ReleaseArtifactReferencesAsync(previewId, cancellationToken).ConfigureAwait(false);
+        return cleanup;
     }
 
     public async Task<CreateJobPreviewResponseDto> CreateAsync(
@@ -163,31 +166,32 @@ public sealed class JobPreviewCoordinator(
                 "Job Preview does not persist request credential values. Configure credential slots on the daemon and submit the preview without inline credentials.");
         }
         CreateJobPreviewRequestDto durableRequest = WithoutCredentials(request);
-        IReadOnlyDictionary<string, InputArtifactLease> artifactLeases =
-            await ResolveArtifactLeasesAsync(durableRequest.Job, cancellationToken)
-                .ConfigureAwait(false);
+        string[] artifactIds = ArtifactIds(durableRequest.Job)
+            .Distinct(StringComparer.Ordinal).ToArray();
+        if (artifactIds.Length > 0 && artifacts == null)
+            throw new InputArtifactUnavailableException(
+                "Input artifacts are unavailable; ordinary inputs remain available.");
         string requestJson = JsonSerializer.Serialize(
             durableRequest,
             SockseekApiJson.CreateSerializerOptions());
         StoredJobPreview preview = await repository.CreateAsync(
             requestJson,
             cancellationToken: cancellationToken).ConfigureAwait(false);
-        foreach (string artifactId in artifactLeases.Keys)
+        try
         {
-            if (!await artifacts!.PinAsync(
-                    artifactId,
-                    "preview",
-                    preview.Id,
-                    cancellationToken).ConfigureAwait(false))
-            {
-                throw new InvalidOperationException(
-                    $"Input artifact '{artifactId}' expired before the preview could retain it.");
-            }
+            if (artifactIds.Length > 0)
+                await artifacts!.RetainAsync(artifactIds, preview.Id, cancellationToken)
+                    .ConfigureAwait(false);
+            // Once retained, cancellation must not strand the spool outside the queue.
+            await planningQueue.Writer.WriteAsync(preview.Id, CancellationToken.None)
+                .ConfigureAwait(false);
         }
-        // The temporary planning record is now owned by this daemon session.
-        // Request cancellation must not strand it between the spool and queue.
-        await planningQueue.Writer.WriteAsync(preview.Id, CancellationToken.None)
-            .ConfigureAwait(false);
+        catch
+        {
+            await ReleaseArtifactReferencesAsync(preview.Id, CancellationToken.None)
+                .ConfigureAwait(false);
+            throw;
+        }
         ServerLogMessages.JobPreviewCreated(logger, preview.Id);
         return new(ToDto(preview));
     }
@@ -230,31 +234,59 @@ public sealed class JobPreviewCoordinator(
             .ConfigureAwait(false)
             ?? throw new KeyNotFoundException("The job preview was not found.");
         var started = Stopwatch.StartNew();
-        var batch = new List<StoredJobPreviewNode>(100);
+        TimeSpan captureDuration = TimeSpan.Zero;
+        TimeSpan spoolDuration = TimeSpan.Zero;
+        var batch = new List<StoredJobPreviewNode>(PlanningBatchSize);
+        using var capture = new PreviewCapture();
+        int batchSize = InitialPlanningBatchSize;
         try
         {
             ResolvedArtifactPlan resolvedArtifacts = await ResolveArtifactsAsync(
                 request.Job,
                 cancellationToken).ConfigureAwait(false);
+            var artifactNamesByExtractRef = new Dictionary<string, string>(StringComparer.Ordinal);
             await foreach (PlannedJobNode node in supervisor.PlanDraftAsync(
                 resolvedArtifacts.Draft,
                 request.Options,
                 resolvedArtifacts.Revisions,
                 cancellationToken).ConfigureAwait(false))
             {
-                batch.Add(ToStoredNode(previewId, node));
-                if (batch.Count >= 100)
+                string? displayName = null;
+                if (node.Kind == JobSnapshotKind.Extract && node.Input is { } input
+                    && resolvedArtifacts.DisplayNamesByPath.TryGetValue(input, out string? originalName))
                 {
+                    artifactNamesByExtractRef[node.Ref] = originalName;
+                    displayName = originalName;
+                }
+                else if (node.Kind == JobSnapshotKind.JobList
+                         && node.ParentRef != null
+                         && artifactNamesByExtractRef.TryGetValue(node.ParentRef, out string? sourceName))
+                {
+                    displayName = Path.GetFileNameWithoutExtension(sourceName);
+                }
+                long captureStarted = Stopwatch.GetTimestamp();
+                batch.Add(capture.ToStoredNode(previewId, node, displayName));
+                captureDuration += Stopwatch.GetElapsedTime(captureStarted);
+                if (batch.Count >= batchSize)
+                {
+                    long spoolStarted = Stopwatch.GetTimestamp();
                     await repository.AppendNodesAsync(previewId, batch, cancellationToken)
                         .ConfigureAwait(false);
+                    spoolDuration += Stopwatch.GetElapsedTime(spoolStarted);
                     batch.Clear();
+                    capture.Clear();
+                    // Publish initial progress promptly, then amortize storage
+                    // writes for large plans without retaining the whole stream.
+                    batchSize = PlanningBatchSize;
                 }
             }
+            long finalSpoolStarted = Stopwatch.GetTimestamp();
             if (batch.Count > 0)
                 await repository.AppendNodesAsync(previewId, batch, cancellationToken)
                     .ConfigureAwait(false);
             preview = await repository.CompleteAsync(previewId, cancellationToken)
                 .ConfigureAwait(false);
+            spoolDuration += Stopwatch.GetElapsedTime(finalSpoolStarted);
             ServerLogMessages.JobPreviewCompleted(
                 logger,
                 preview.Id,
@@ -263,6 +295,12 @@ public sealed class JobPreviewCoordinator(
                 preview.NodeCount,
                 preview.ReadyNodeCount,
                 preview.FailedNodeCount);
+            ServerLogMessages.JobPreviewPlanningTiming(
+                logger,
+                preview.Id,
+                (long)(started.Elapsed - captureDuration - spoolDuration).TotalMilliseconds,
+                (long)captureDuration.TotalMilliseconds,
+                (long)spoolDuration.TotalMilliseconds);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -300,7 +338,7 @@ public sealed class JobPreviewCoordinator(
     {
         if (PreviewCompleted == null)
             return;
-        foreach (Action<Guid> observer in PreviewCompleted.GetInvocationList())
+        foreach (Action<Guid> observer in Delegate.EnumerateInvocationList(PreviewCompleted))
         {
             try
             {
@@ -315,11 +353,46 @@ public sealed class JobPreviewCoordinator(
 
     public async Task<JobPreviewSummaryDto?> GetAsync(
         Guid previewId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool waitForCompletion = false)
     {
-        StoredJobPreview? preview = await RequiredStore()
-            .GetPreviewAsync(previewId, cancellationToken).ConfigureAwait(false);
-        return preview == null ? null : ToDto(preview);
+        if (!waitForCompletion)
+        {
+            StoredJobPreview? preview = await RequiredStore()
+                .GetPreviewAsync(previewId, cancellationToken).ConfigureAwait(false);
+            return preview == null || preview.State == "Committed" ? null : ToDto(preview);
+        }
+
+        // Subscribe before reading so completion between the read and wait cannot
+        // be lost. This uses the planning owner's notification, not a second
+        // polling loop or a separately retained progress resource.
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnCompleted(Guid id)
+        {
+            if (id == previewId) completed.TrySetResult();
+        }
+        PreviewCompleted += OnCompleted;
+        try
+        {
+            JobPreviewSummaryDto? preview = await GetAsync(previewId, cancellationToken).ConfigureAwait(false);
+            if (preview?.State != JobPreviewState.Planning)
+                return preview;
+            using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime.Token);
+            try
+            {
+                await completed.Task.WaitAsync(TimeSpan.FromSeconds(30), wait.Token).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                // Slow external extractors can outlive an HTTP long poll. Return
+                // current progress and let the caller continue or leave the page.
+            }
+            return await GetAsync(previewId, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            PreviewCompleted -= OnCompleted;
+        }
     }
 
     public async Task<CursorPage<JobPreviewNodeDto>?> GetNodesAsync(
@@ -329,10 +402,10 @@ public sealed class JobPreviewCoordinator(
         int limit,
         CancellationToken cancellationToken)
     {
-        if (limit is < 1 or > JobPreviewStore.MaximumPageSize)
+        if (limit < 1)
             throw new ArgumentOutOfRangeException(nameof(limit));
         JobPreviewStore repository = RequiredStore();
-        if (await repository.GetPreviewAsync(previewId, cancellationToken).ConfigureAwait(false) == null)
+        if (await GetAsync(previewId, cancellationToken).ConfigureAwait(false) == null)
             return null;
         long after = cursor == null ? -1 : cursors.Decode(cursor, previewId, parentRef);
         IReadOnlyList<StoredJobPreviewNode> rows = await repository.GetNodesAsync(
@@ -357,7 +430,8 @@ public sealed class JobPreviewCoordinator(
             "job-preview",
             previewId,
             request.Revision,
-            request.Selection);
+            request.Selection,
+            subtreeOverrides: request.SubtreeOverrides);
         return await commits.ExecuteAsync(
             request.IdempotencyKey,
             fingerprint,
@@ -369,9 +443,7 @@ public sealed class JobPreviewCoordinator(
                     fingerprint,
                     operationToken).ConfigureAwait(false)
                     ?? throw new KeyNotFoundException("The job preview was not found.");
-                return new SubmissionCommitExecution<CommitJobPreviewResponseDto>(
-                    receipt,
-                    receipt.SubmissionId);
+                return receipt;
             },
             cancellationToken).ConfigureAwait(false);
     }
@@ -382,6 +454,7 @@ public sealed class JobPreviewCoordinator(
         string commitFingerprint,
         CancellationToken cancellationToken)
     {
+        var started = Stopwatch.StartNew();
         var refs = new HashSet<string>(request.Selection.Refs, StringComparer.Ordinal);
         JobPreviewStore repository = RequiredStore();
         StoredPreviewCommit? resolved = await repository.ResolveCommitAsync(
@@ -389,9 +462,12 @@ public sealed class JobPreviewCoordinator(
             request.Revision,
             request.Selection.Mode.ToString(),
             refs,
+            request.SubtreeOverrides?.Select(rule =>
+                new StoredPreviewSelectionOverride(rule.Ref, rule.Selected)).ToArray(),
             cancellationToken).ConfigureAwait(false);
         if (resolved == null)
             return null;
+        long resolveMs = started.ElapsedMilliseconds;
 
         int failedCount = resolved.Mode == RefSelectionMode.AllExcept.ToString()
             ? resolved.FailedNodeCount
@@ -416,28 +492,10 @@ public sealed class JobPreviewCoordinator(
                 reasons);
         }
 
-        var specifications = resolved.SelectedNodes.Select(HydrateSpecification)
-            .ToArray();
-        var materialized = specifications
-            .Select(specification => specification.MaterializeJob(supervisor.DefaultDownloadSettings))
-            .ToArray();
-        Job root;
-        DownloadSettings rootSettings;
-        SubmissionSpecification acceptedSpecification;
-        if (materialized.Length == 1)
-        {
-            root = materialized[0];
-            rootSettings = specifications[0].MaterializeSettings(supervisor.DefaultDownloadSettings);
-            acceptedSpecification = specifications[0];
-        }
-        else
-        {
-            root = new JobList("Reviewed job preview", materialized);
-            rootSettings = SearchSettingsBaselines.Create(SearchSettingsBaselineKind.Generic);
-            root.PlannedEffectiveSettings = SettingsCloner.Clone(rootSettings);
-            acceptedSpecification = SubmissionSpecification.Create(root, rootSettings);
-        }
+        SubmissionSpecification acceptedSpecification = AssembleSelectedSpecification(resolved);
+        var (root, rootSettings) = acceptedSpecification.Materialize(supervisor.DefaultDownloadSettings);
         JobRequestMapper.AssignWorkflowId(root, root.WorkflowId);
+        long materializedMs = started.ElapsedMilliseconds;
 
         Guid submissionId = request.IdempotencyKey;
         if (!await repository.TryBeginCommitAsync(previewId, submissionId, cancellationToken)
@@ -446,17 +504,21 @@ public sealed class JobPreviewCoordinator(
             throw new InvalidOperationException("The job preview is already committed or no longer available.");
         }
 
-        var started = Stopwatch.StartNew();
-        JobSummaryDto summary;
+        long claimedMs = started.ElapsedMilliseconds;
+        var receipt = new CommitJobPreviewResponseDto(
+            previewId, submissionId, root.WorkflowId, requestedCount,
+            resolved.SelectedNodes.Count, resolved.SelectedNodes.Count, 0,
+            rejectedBeforeSubmission, RejectionReasons(failedCount, resolved.MissingRequestedRefCount));
         try
         {
-            summary = await supervisor.QueuePlannedSubmissionAsync(
+            await supervisor.QueuePlannedSubmissionAsync(
                 root,
                 rootSettings,
                 acceptedSpecification,
                 submissionId,
                 previewId,
                 commitFingerprint,
+                receipt,
                 cancellationToken).ConfigureAwait(false);
         }
         catch
@@ -466,10 +528,12 @@ public sealed class JobPreviewCoordinator(
             throw;
         }
 
+        long queuedMs = started.ElapsedMilliseconds;
         bool published = await repository.MarkCommittedAsync(
             previewId,
             submissionId,
             CancellationToken.None).ConfigureAwait(false);
+        long publishedMs = started.ElapsedMilliseconds;
         if (!published)
         {
             ServerLogMessages.JobPreviewCommitPublicationFailed(
@@ -477,47 +541,46 @@ public sealed class JobPreviewCoordinator(
                 previewId,
                 submissionId);
         }
-        else
-        {
-            StoredJobPreviewCleanup? released = await repository.DeleteCommittedAsync(
-                previewId,
-                submissionId,
-                CancellationToken.None).ConfigureAwait(false);
-            if (released != null)
-                await ReleaseArtifactPinsAsync(released, CancellationToken.None)
-                    .ConfigureAwait(false);
-        }
+        // Committed plans are no longer public resources. The existing periodic
+        // maintenance reclaims their temporary rows and input references; admission
+        // must not synchronously delete every unselected preview node.
         ServerLogMessages.JobPreviewCommitted(
             logger,
             previewId,
             submissionId,
             started.ElapsedMilliseconds,
             requestedCount,
-            materialized.Length,
+            resolved.SelectedNodes.Count,
             rejectedBeforeSubmission);
-        return new(
+        ServerLogMessages.JobPreviewCommitTiming(
+            logger,
             previewId,
-            submissionId,
-            summary.WorkflowId,
-            requestedCount,
-            materialized.Length,
-            materialized.Length,
-            0,
-            rejectedBeforeSubmission,
-            RejectionReasons(failedCount, resolved.MissingRequestedRefCount));
+            resolveMs,
+            materializedMs - resolveMs,
+            claimedMs - materializedMs,
+            queuedMs - claimedMs,
+            publishedMs - queuedMs);
+        return receipt;
     }
 
     private static void ValidateCommitRequest(CommitJobPreviewRequestDto request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(request.Selection);
-        ArgumentNullException.ThrowIfNull(request.Selection.Refs);
+        SelectionExpressionValidator.Validate(request.Selection);
         if (request.IdempotencyKey == Guid.Empty)
             throw new ArgumentException("A non-empty idempotency key is required.");
         if (request.Revision < 0)
             throw new ArgumentOutOfRangeException(nameof(request), "Preview revision cannot be negative.");
-        if (request.Selection.Refs.Any(string.IsNullOrWhiteSpace))
-            throw new ArgumentException("Selection refs cannot be empty.");
+        if (request.SubtreeOverrides != null)
+        {
+            if (request.Selection.Refs.Count != 0)
+                throw new ArgumentException("Exact refs and subtree overrides cannot be mixed.");
+            if (request.SubtreeOverrides.Any(rule => rule == null || string.IsNullOrWhiteSpace(rule.Ref)))
+                throw new ArgumentException("Subtree override refs cannot be empty.");
+            if (request.SubtreeOverrides.Select(rule => rule.Ref).Distinct(StringComparer.Ordinal).Count()
+                != request.SubtreeOverrides.Count)
+                throw new ArgumentException("Subtree override refs must be unique.");
+        }
     }
 
     private static IReadOnlyList<SubmissionReasonCountDto> RejectionReasons(
@@ -540,61 +603,116 @@ public sealed class JobPreviewCoordinator(
             "Job Preview is unavailable; direct Start remains available.",
             initializationFailure);
 
-    private static StoredJobPreviewNode ToStoredNode(Guid previewId, PlannedJobNode node)
+    // One persisted batch owns all capture scratch state. Compute settings-ref
+    // hashes once per JSON/binding pair, avoiding combined text and UTF8 bytes
+    // for every job. No cache survives a batch or preview.
+    private sealed class PreviewCapture : IDisposable
     {
-        bool ready = node.State == PlannedJobState.Ready && node.EffectiveSettings != null;
-        bool selectable = ready && node.RuntimeJob is not (ExtractJob or JobList);
-        SubmissionSpecification? completeSpecification = selectable
-            ? SubmissionSpecification.Create(
-                node.RuntimeJob,
-                node.EffectiveSettings!,
-                node.SourceRevision)
-            : null;
-        string? bindingsJson = completeSpecification == null
-            ? null
-            : JsonSerializer.Serialize(completeSpecification.CredentialBindings);
-        string? settingsRef = completeSpecification == null
-            ? null
-            : EffectiveSettingsRef(
-                completeSpecification.EffectiveSettingsJson,
-                bindingsJson!);
-        string? specification = completeSpecification == null
-            ? null
-            : SubmissionSpecificationCodec.Serialize(completeSpecification with
+        private readonly Dictionary<string, DownloadSettings> validatedSettings = new(StringComparer.Ordinal);
+        private readonly RetainedSettingsWriter settingsWriter = new();
+        // The writer interns JSON within this batch. Use that identity so a
+        // lookup need not hash a long settings string again. Equal JSON with
+        // distinct bindings still needs distinct references.
+        private readonly Dictionary<string, List<(string Bindings, string Ref)>> settingsRefs =
+            new(ReferenceEqualityComparer.Instance);
+
+        public StoredJobPreviewNode ToStoredNode(Guid previewId, PlannedJobNode node, string? displayName)
+        {
+            SubmissionSpecification? completeSpecification = node.State == PlannedJobState.Ready
+                ? node.CreateSpecification(settingsWriter) : null;
+            bool selectable = completeSpecification is not null
+                && node.Kind is not (JobSnapshotKind.Extract or JobSnapshotKind.JobList);
+            if (completeSpecification != null && displayName != null)
             {
-                Command = completeSpecification.Command with
+                completeSpecification = completeSpecification with
                 {
-                    PlannedEffectiveSettingsJson = null,
-                    PlannedCredentialBindings = null,
-                },
-                EffectiveSettingsJson = "{}",
-                CredentialBindings = [],
-            });
-        return new(
-            previewId,
-            0,
-            node.Ref,
-            node.ParentRef,
-            node.Role.ToString(),
-            node.State.ToString(),
-            selectable,
-            ServerSnapshotMapper.ToServerJobKind(node.RuntimeJob).ToString(),
-            node.RuntimeJob.ItemName,
-            node.RuntimeJob is SearchJob search ? search.QueryText : null,
-            node.DirectChildCount,
-            JsonSerializer.Serialize(
-                node.EffectiveSettings?.AppliedAutoProfiles
-                    .OrderBy(value => value, StringComparer.Ordinal)
-                    .ToArray() ?? []),
-            specification,
-            settingsRef,
-            completeSpecification?.EffectiveSettingsJson,
-            bindingsJson,
-            node.FailureCode,
-            node.FailureMessage);
+                    Command = completeSpecification.Command with
+                    {
+                        ItemName = displayName,
+                        Input = node.Kind == JobSnapshotKind.Extract
+                            ? displayName
+                            : completeSpecification.Command.Input,
+                    },
+                };
+            }
+            string? bindingsJson = completeSpecification == null
+                ? null
+                : JsonSerializer.Serialize(completeSpecification.CredentialBindings);
+            string? settingsRef = completeSpecification == null
+                ? null
+                : GetSettingsRef(
+                    completeSpecification.EffectiveSettingsJson,
+                    bindingsJson!);
+            string? specification = completeSpecification == null
+                ? null
+                : SubmissionSpecificationCodec.Serialize(completeSpecification with
+                {
+                    // PlannedJobNode owns a shallow command; effective settings
+                    // live in the separate spool record, never on that command.
+                    EffectiveSettingsJson = "{}",
+                    CredentialBindings = [],
+                    // Assembly takes submission metadata from the root. Search
+                    // jobs retain their own definition on the command; child
+                    // wrapper metadata is discarded when the plan is assembled.
+                    SourceRevision = node.ParentRef is null ? completeSpecification.SourceRevision : null,
+                    Search = node.ParentRef is null ? completeSpecification.Search : null,
+                }, validatedSettings);
+            return new(
+                previewId,
+                0,
+                node.Ref,
+                node.ParentRef,
+                node.Role.ToString(),
+                node.State.ToString(),
+                selectable,
+                ServerSnapshotMapper.ToServerJobKind(node.Kind).ToString(),
+                displayName ?? node.PreviewTitle,
+                node.QueryText,
+                node.DirectChildCount,
+                JsonSerializer.Serialize(node.AppliedAutoProfiles),
+                specification,
+                settingsRef,
+                completeSpecification?.EffectiveSettingsJson,
+                bindingsJson,
+                node.FailureCode,
+                node.FailureMessage);
+        }
+
+        private string GetSettingsRef(string json, string bindings)
+        {
+            if (!settingsRefs.TryGetValue(json, out var matches))
+                settingsRefs.Add(json, matches = []);
+            foreach (var match in matches)
+                if (match.Bindings == bindings) return match.Ref;
+            string reference = EffectiveSettingsRef(json, bindings);
+            matches.Add((bindings, reference));
+            return reference;
+        }
+
+        public void Clear()
+        {
+            validatedSettings.Clear();
+            settingsWriter.Clear();
+            settingsRefs.Clear();
+        }
+
+        public void Dispose() => settingsWriter.Dispose();
     }
 
-    private static SubmissionSpecification HydrateSpecification(StoredJobPreviewNode node)
+    private static SubmissionSpecification AssembleSelectedSpecification(StoredPreviewCommit resolved)
+    {
+        // These immutable prototypes live only for this assembly operation.
+        // Every node is still validated; equal settings are decoded once rather
+        // than once for each joined row in a large selected preview.
+        var validatedSettings = new Dictionary<string, DownloadSettings>(StringComparer.Ordinal);
+        var nodes = resolved.AncestorNodes.Concat(resolved.SelectedNodes)
+            .OrderBy(node => node.Ordinal)
+            .Select(node => (node.Ref, node.ParentRef, HydrateSpecification(node, validatedSettings)));
+        return JobPlan.AssembleSpecifications(nodes);
+    }
+
+    private static SubmissionSpecification HydrateSpecification(
+        StoredJobPreviewNode node, Dictionary<string, DownloadSettings> validatedSettings)
     {
         if (node.SpecificationJson == null
             || node.EffectiveSettingsJson == null
@@ -604,17 +722,23 @@ public sealed class JobPreviewCoordinator(
                 "A selected preview node has no retained specification or effective settings.");
         }
         SubmissionSpecification skeleton = SubmissionSpecificationCodec.Deserialize(
-            node.SpecificationJson);
+            node.SpecificationJson, validatedSettings);
         string[] bindings = JsonSerializer.Deserialize<string[]>(
                 node.CredentialBindingsJson)
             ?? throw new InvalidDataException(
                 "A selected preview node has invalid credential bindings.");
         var hydrated = skeleton with
         {
+            Command = skeleton.Command with
+            {
+                PlannedEffectiveSettingsJson = node.EffectiveSettingsJson,
+                PlannedCredentialBindings = bindings,
+                PlannedSettingsRef = null,
+            },
             EffectiveSettingsJson = node.EffectiveSettingsJson,
             CredentialBindings = bindings,
         };
-        hydrated.Validate();
+        hydrated.Validate(validatedSettings);
         return hydrated;
     }
 
@@ -661,7 +785,11 @@ public sealed class JobPreviewCoordinator(
                 ? ServerSnapshotMapper.ToAlbumQueryDto(albumQuery)
                 : null,
             node.FailureCode,
-            node.FailureMessage);
+            node.FailureMessage,
+            node.SelectableSubtreeCount,
+            command?.SourceInfo?.PreviewDetail,
+            command?.SourceInfo?.CollectionDescription(node.SelectableSubtreeCount),
+            command?.ExtractorInfo);
     }
 
     private static CreateJobPreviewRequestDto WithoutCredentials(
@@ -708,6 +836,10 @@ public sealed class JobPreviewCoordinator(
         => draft switch
         {
             ExtractJobDraftDto value => value with
+            {
+                DownloadSettings = WithoutCredentials(value.DownloadSettings),
+            },
+            GenericSearchJobDraftDto value => value with
             {
                 DownloadSettings = WithoutCredentials(value.DownloadSettings),
             },
@@ -764,7 +896,7 @@ public sealed class JobPreviewCoordinator(
                     : patch.YouTube with { ApiKey = null },
             };
 
-    private async Task<IReadOnlyDictionary<string, InputArtifactLease>> ResolveArtifactLeasesAsync(
+    private async Task<IReadOnlyDictionary<string, ResolvedInputArtifact>> ResolveInputArtifactsAsync(
         JobDraftDto draft,
         CancellationToken cancellationToken)
     {
@@ -772,14 +904,14 @@ public sealed class JobPreviewCoordinator(
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         if (ids.Length == 0)
-            return new Dictionary<string, InputArtifactLease>(StringComparer.Ordinal);
+            return new Dictionary<string, ResolvedInputArtifact>(StringComparer.Ordinal);
         if (artifacts == null)
             throw new InputArtifactUnavailableException(
                 "Input artifacts are unavailable; ordinary inputs remain available.");
-        var leases = new Dictionary<string, InputArtifactLease>(StringComparer.Ordinal);
+        var leases = new Dictionary<string, ResolvedInputArtifact>(StringComparer.Ordinal);
         foreach (string id in ids)
         {
-            InputArtifactLease? lease = await artifacts.ResolveAsync(id, cancellationToken)
+            ResolvedInputArtifact? lease = await artifacts.ResolveAsync(id, cancellationToken)
                 .ConfigureAwait(false);
             if (lease == null)
                 throw new ArgumentException(
@@ -793,20 +925,38 @@ public sealed class JobPreviewCoordinator(
         JobDraftDto draft,
         CancellationToken cancellationToken)
     {
-        IReadOnlyDictionary<string, InputArtifactLease> leases =
-            await ResolveArtifactLeasesAsync(draft, cancellationToken).ConfigureAwait(false);
+        IReadOnlyDictionary<string, ResolvedInputArtifact> leases =
+            await ResolveInputArtifactsAsync(draft, cancellationToken).ConfigureAwait(false);
         if (leases.Count == 0)
-            return new(draft, new Dictionary<string, SubmissionSourceRevision>(StringComparer.Ordinal));
+            return new(
+                draft,
+                new Dictionary<string, SubmissionSourceRevision>(StringComparer.Ordinal),
+                new Dictionary<string, string>(StringComparer.Ordinal));
         var revisions = leases.ToDictionary(
             pair => pair.Key,
             pair => InputArtifactCoordinator.Revision(pair.Value),
             StringComparer.Ordinal);
-        return new(ResolveArtifactDraft(draft, leases), revisions);
+        var displayNames = leases.Values
+            .Where(lease => !string.IsNullOrWhiteSpace(lease.Artifact.OriginalName))
+            .ToDictionary(
+                lease => lease.Path,
+                lease => lease.Artifact.OriginalName!,
+                StringComparer.Ordinal);
+        return new(ResolveArtifactDraft(draft, leases), revisions, displayNames);
     }
+
+    /// <summary>
+    /// Effective-settings reads must compose the same uploaded-source draft
+    /// that Preview will plan, without creating or retaining a preview resource.
+    /// </summary>
+    public async Task<JobDraftDto> ResolveArtifactDraftForSettingsAsync(
+        JobDraftDto draft,
+        CancellationToken cancellationToken)
+        => (await ResolveArtifactsAsync(draft, cancellationToken).ConfigureAwait(false)).Draft;
 
     private static JobDraftDto ResolveArtifactDraft(
         JobDraftDto draft,
-        IReadOnlyDictionary<string, InputArtifactLease> leases)
+        IReadOnlyDictionary<string, ResolvedInputArtifact> leases)
         => draft switch
         {
             ExtractJobDraftDto extract when extract.ArtifactId is { } id =>
@@ -820,7 +970,7 @@ public sealed class JobPreviewCoordinator(
 
     private static ExtractJobDraftDto ResolveArtifactExtract(
         ExtractJobDraftDto draft,
-        InputArtifactLease lease)
+        ResolvedInputArtifact lease)
     {
         var immutablePatch = new DownloadSettingsPatchDto(
             Extraction: new ExtractionSettingsPatchDto(RemoveTracksFromSource: false));
@@ -855,38 +1005,25 @@ public sealed class JobPreviewCoordinator(
 
     private sealed record ResolvedArtifactPlan(
         JobDraftDto Draft,
-        IReadOnlyDictionary<string, SubmissionSourceRevision> Revisions);
+        IReadOnlyDictionary<string, SubmissionSourceRevision> Revisions,
+        IReadOnlyDictionary<string, string> DisplayNamesByPath);
 
-    private async Task ReleaseArtifactPinsAsync(
-        StoredJobPreviewCleanup cleanup,
+    private async Task ReleaseArtifactReferencesAsync(
+        Guid previewId,
         CancellationToken cancellationToken)
     {
         if (artifacts == null)
             return;
         try
         {
-            CreateJobPreviewRequestDto? request =
-                JsonSerializer.Deserialize<CreateJobPreviewRequestDto>(
-                    cleanup.RequestJson,
-                    SockseekApiJson.CreateSerializerOptions());
-            if (request == null)
-                return;
-            foreach (string artifactId in ArtifactIds(request.Job)
-                .Distinct(StringComparer.Ordinal))
-            {
-                await artifacts.UnpinAsync(
-                    artifactId,
-                    "preview",
-                    cleanup.PreviewId,
-                    cancellationToken).ConfigureAwait(false);
-            }
+            await artifacts.ReleaseAsync(previewId, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             ServerLogMessages.JobPreviewArtifactCleanupDegraded(
                 logger,
                 exception,
-                cleanup.PreviewId);
+                previewId);
         }
     }
 

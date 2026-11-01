@@ -55,14 +55,14 @@ internal sealed class DiscoveryCoordinator
             return new(JobOutcome.Done(), planned, null);
         }
 
-        JobExtractionPlanResult plan;
+        JobExtractionResult plan;
         try
         {
             plan = await context.Runtime.WithExtractorSlot(job.Cts!.Token, async () =>
             {
                 job.UpdateActivity(JobActivityPhase.Extracting);
                 job.Cts.Token.ThrowIfCancellationRequested();
-                return await JobExtractionPlanner.ExtractAsync(
+                return await JobExtraction.ExtractAsync(
                     job,
                     ExtractorContext.ForExtractJob(
                         job,
@@ -108,24 +108,6 @@ internal sealed class DiscoveryCoordinator
         EnsureDisplayIdsForExecutableSubtree(extracted);
         context.ObservePreparedAutoProfiles(extracted);
         context.Events.RaiseJobResultCreated(job, extracted);
-    }
-
-    static void AssignWorkflowId(Job job, Guid workflowId)
-    {
-        job.WorkflowId = workflowId;
-
-        switch (job)
-        {
-            case JobList jl:
-                foreach (var child in jl.Jobs)
-                    AssignWorkflowId(child, workflowId);
-                break;
-
-            case AggregateJob ag:
-                foreach (var song in ag.Songs)
-                    AssignWorkflowId(song, workflowId);
-                break;
-        }
     }
 
     static void EnsureDisplayIdsForExecutableSubtree(Job job)
@@ -355,7 +337,7 @@ internal sealed class DiscoveryCoordinator
             JobOutcomeCommitter.Commit(job, outcome);
 
             if (!config.PrintResults)
-                ctx.IndexEditor?.Update();
+                context.UpdateOutputs(job, ctx, indexOnly: true);
 
             return outcome;
         }
@@ -407,7 +389,7 @@ internal sealed class DiscoveryCoordinator
             JobOutcomeCommitter.Commit(job, outcome);
 
             if (!config.PrintResults)
-                ctx.IndexEditor?.Update();
+                context.UpdateOutputs(job, ctx, indexOnly: true);
 
             return outcome;
         }
@@ -485,34 +467,10 @@ internal sealed class DiscoveryCoordinator
             return outcome;
         }
 
-        var albumList = new JobList(job.ItemName, newAlbumJobs);
-        albumList.Config = job.Config;
-        albumList.WorkflowId = job.WorkflowId;
         foreach (var aj in newAlbumJobs)
-        {
             aj.ItemName ??= job.ItemName;
-            aj.Config = job.Config;
-            context.Contexts.Set(aj, new JobContext
-            {
-                IndexEditor = ctx.IndexEditor,
-                PlaylistEditor = ctx.PlaylistEditor,
-                OutputDirSkipper = ctx.OutputDirSkipper,
-                MusicDirSkipper = ctx.MusicDirSkipper,
-                OutputScope = ctx.OutputScope,
-                PreprocessTracks = false,
-            });
-        }
-        context.Contexts.Set(albumList, new JobContext
-        {
-            IndexEditor = ctx.IndexEditor,
-            PlaylistEditor = ctx.PlaylistEditor,
-            OutputDirSkipper = ctx.OutputDirSkipper,
-            MusicDirSkipper = ctx.MusicDirSkipper,
-            OutputScope = ctx.OutputScope,
-            PreprocessTracks = false,
-        });
+        var albumList = context.PrepareAggregateChildren(job, newAlbumJobs, ctx);
 
-        context.RegisterJob(albumList, job);
         job.UpdateActivity(JobActivityPhase.RunningChildren);
         await jobs.ProcessJob(albumList, job.Cts!.Token, job);
 
@@ -563,6 +521,14 @@ internal sealed class DiscoveryCoordinator
         string? customMessage = null,
         bool consumeJobSlot = true)
     {
+        var rfJob = new RetrieveFolderJob(folder.DirectoryIdentity)
+        {
+            WorkflowId = parentJob.WorkflowId,
+            Config = parentJob.Config,
+        };
+        if (parentJob is AlbumJob album && !string.IsNullOrWhiteSpace(album.Query.Album))
+            rfJob.ItemName = $"Retrieve {album.Query.Album}";
+
         if (folder.IsFullyRetrieved)
         {
             DownloadLogMessages.JobDecision(
@@ -570,19 +536,13 @@ internal sealed class DiscoveryCoordinator
                 parentJob.Id,
                 "folder-already-retrieved",
                 folder.Files.Count);
-            var completedJob = new RetrieveFolderJob(folder.DirectoryIdentity)
-            {
-                WorkflowId = parentJob.WorkflowId,
-                Config = parentJob.Config,
-                Result = folder.Directory,
-                RetrievalOutcome = FolderRetrievalOutcome.Completed,
-            };
-            return completedJob;
+            rfJob.Result = folder.Directory;
+            rfJob.RetrievalOutcome = FolderRetrievalOutcome.Completed;
+            return rfJob;
         }
 
-        var rfJob = new RetrieveFolderJob(folder.DirectoryIdentity) { WorkflowId = parentJob.WorkflowId, Config = parentJob.Config };
-        rfJob.Cts = CancellationTokenSource.CreateLinkedTokenSource(context.Runtime.Token, parentJob.Cts!.Token);
-        context.RegisterJob(rfJob, parentJob);
+        context.RegisterForExecution(rfJob, parentJob.Cts!.Token, parentJob);
+        var retrievalToken = rfJob.Cts!.Token;
         var parentActivityBeforeRetrieval = parentJob.ActivityPhase;
         var parentActivityUntilBeforeRetrieval = parentJob.ActivityUntilUtc;
         if (!parentJob.IsTerminal)
@@ -600,13 +560,14 @@ internal sealed class DiscoveryCoordinator
             async Task<int> CompleteFolder()
             {
                 rfJob.UpdateActivity(JobActivityPhase.RetrievingFolder);
-                var snapshot = await context.Runtime.Searcher.RetrieveDirectory(rfJob.Directory, rfJob.Cts.Token);
+                var snapshot = await context.Runtime.Searcher.RetrieveDirectory(rfJob.Directory, retrievalToken);
                 rfJob.Result = snapshot;
+                if (parentJob is SearchJob searchJob) searchJob.RecordRetrievedDirectory(snapshot);
                 return Searcher.ApplyDirectorySnapshot(folder, snapshot);
             }
 
             count = consumeJobSlot
-                ? await context.Runtime.WithJobSlot(rfJob.Cts.Token, CompleteFolder)
+                ? await context.Runtime.WithJobSlot(retrievalToken, CompleteFolder)
                 : await CompleteFolder();
             rfJob.NewFilesFoundCount = count;
             rfJob.RetrievalOutcome = FolderRetrievalOutcome.Completed;

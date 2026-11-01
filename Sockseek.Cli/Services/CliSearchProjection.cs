@@ -119,8 +119,8 @@ internal static class CliSearchProjectionMapper
                 representative?.UploadSpeed,
                 representative?.QueueLength,
                 representative?.ObservedAtUtc),
-            folder.SearchFileCount,
-            folder.SearchAudioFileCount,
+            folder.IsFullyRetrieved ? folder.Files.Count : folder.SearchFileCount,
+            folder.IsFullyRetrieved ? folder.Files.Count(file => !file.IsNotAudio) : folder.SearchAudioFileCount,
             includeFiles ? folder.Files.Select(file => ToDto(file.Candidate)).ToList() : null,
             folder.IsFullyRetrieved);
     }

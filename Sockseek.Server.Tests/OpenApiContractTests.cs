@@ -1,5 +1,8 @@
 using System.Reflection;
 using System.Text.Json;
+using System.Net;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core;
 using Sockseek.Core.Models;
@@ -8,12 +11,189 @@ using Sockseek.Core.Settings;
 using Sockseek.Core.Snapshots;
 using Sockseek.Api;
 using Sockseek.Server;
+using Sockseek.Server.Persistence;
+using Sockseek.Persistence.Read;
 
 namespace Tests.Server;
 
 [TestClass]
 public class OpenApiContractTests
 {
+    [TestMethod]
+    public async Task TypedSubmissionHistory_PagesPublicSummariesAndSeparatesArchivedItems()
+    {
+        string directory = Directory.CreateTempSubdirectory("sockseek-submission-api-").FullName;
+        try
+        {
+            await using var app = ServerHost.Build([], new ServerOptions
+            {
+                Engine = new EngineSettings { LogLevel = LogLevel.None },
+                Persistence = new ServerPersistenceOptions
+                {
+                    Enabled = true,
+                    DataDirectory = directory,
+                    RetentionEnabled = false,
+                },
+            }, "http://127.0.0.1:0");
+            await app.StartAsync();
+            try
+            {
+                var store = app.Services.GetRequiredService<PersistenceCoordinator>().Submissions!;
+                Guid[] ids = Enumerable.Range(1, 3)
+                    .Select(value => Guid.Parse($"40000000-0000-0000-0000-{value:x12}")).ToArray();
+                foreach (Guid id in ids)
+                    await store.CreateAsync(new SubmissionRegistration(
+                        id, DateTimeOffset.FromUnixTimeMilliseconds(1000), 99,
+                        "{\"retained\":\"not-public\"}", null, null, "artifact"));
+                using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+                var client = new SockseekApiClient(http);
+                var first = await client.GetSubmissionsPageAsync(limit: 1);
+                Assert.AreEqual(ids[2], first.Items.Single().SubmissionId);
+                Assert.IsNotNull(first.NextCursor);
+                var second = await client.GetSubmissionsPageAsync(cursor: first.NextCursor, limit: 1);
+                var third = await client.GetSubmissionsPageAsync(cursor: second.NextCursor, limit: 1);
+                CollectionAssert.AreEqual(ids.Reverse().ToArray(),
+                    first.Items.Concat(second.Items).Concat(third.Items)
+                        .Select(item => item.SubmissionId).ToArray());
+                Assert.IsNull(third.NextCursor);
+                Assert.IsTrue(first.Items.Concat(second.Items).Concat(third.Items)
+                    .All(item => item.TotalJobCount == 0 && item.Revision == 1));
+                var archived = await client.SetSubmissionArchivedAsync(ids[1], archived: true);
+                Assert.AreEqual(0, archived.RejectedSubmissionCount);
+                CollectionAssert.AreEqual(new[] { ids[2], ids[0] },
+                    (await client.GetSubmissionsPageAsync()).Items.Select(item => item.SubmissionId).ToArray());
+                Assert.AreEqual(ids[1], (await client.GetSubmissionsPageAsync(archived: true))
+                    .Items.Single().SubmissionId);
+                using var response = await http.GetAsync("/api/submissions?limit=1");
+                response.EnsureSuccessStatusCode();
+                using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                Assert.AreEqual(JsonValueKind.Array, body.RootElement.ValueKind);
+                Assert.IsFalse(body.RootElement[0].TryGetProperty("specificationJson", out _));
+                Assert.IsTrue(response.Headers.Contains("X-Next-Cursor"));
+                foreach (string path in new[] { "/api/jobs", "/api/jobs?includeAll=true", "/api/jobs?archived=false" })
+                {
+                    using var jobsResponse = await http.GetAsync(path);
+                    jobsResponse.EnsureSuccessStatusCode();
+                    using var jobs = JsonDocument.Parse(await jobsResponse.Content.ReadAsStringAsync());
+                    Assert.AreEqual(0, jobs.RootElement.GetArrayLength(),
+                        "Optional job flags must default without making an unfiltered request invalid.");
+                }
+                Assert.AreEqual("{\"retained\":\"not-public\"}",
+                    (await store.GetSubmissionAsync(ids[1]))!.SpecificationJson);
+            }
+            finally
+            {
+                await app.StopAsync();
+            }
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void JobQueryEnums_UseCanonicalWireSpellings()
+    {
+        foreach (var kind in Enum.GetValues<ServerJobKind>())
+        {
+            Assert.IsTrue(ServerProtocolEnumExtensions.TryParseJobKind(kind.ToWireString(), out var parsed));
+            Assert.AreEqual(kind, parsed);
+        }
+        Assert.IsFalse(ServerProtocolEnumExtensions.TryParseJobKind("unknown-kind", out _));
+        Assert.IsFalse(ServerProtocolEnumExtensions.TryParseJobKind("7", out _));
+        Assert.IsTrue(ServerProtocolEnumExtensions.TryParseJobKind("RetrieveFolder", out var legacyKind));
+        Assert.AreEqual(ServerJobKind.RetrieveFolder, legacyKind);
+        foreach (var role in Enum.GetValues<ServerJobRole>())
+        {
+            Assert.IsTrue(ServerProtocolEnumExtensions.TryParseJobRole(role.ToWireString(), out var parsed));
+            Assert.AreEqual(role, parsed);
+        }
+        Assert.IsFalse(ServerProtocolEnumExtensions.TryParseJobRole("unknown-role", out _));
+        Assert.IsFalse(ServerProtocolEnumExtensions.TryParseJobRole("2", out _));
+        Assert.IsTrue(ServerProtocolEnumExtensions.TryParseJobRole("ExecutionChild", out var legacyRole));
+        Assert.AreEqual(ServerJobRole.ExecutionChild, legacyRole);
+
+        string documentPath = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "docs", "openapi.json"));
+        using var document = JsonDocument.Parse(File.ReadAllText(documentPath));
+        var parameters = document.RootElement.GetProperty("paths").GetProperty("/api/jobs")
+            .GetProperty("get").GetProperty("parameters");
+        var kindParameter = parameters.EnumerateArray()
+            .Single(parameter => parameter.GetProperty("name").GetString() == "kind");
+        var values = kindParameter.GetProperty("schema").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString()).ToArray();
+        CollectionAssert.Contains(values, ServerJobKind.RetrieveFolder.ToWireString());
+        var roleParameter = parameters.EnumerateArray()
+            .Single(parameter => parameter.GetProperty("name").GetString() == "role");
+        var roleValues = roleParameter.GetProperty("schema").GetProperty("enum")
+            .EnumerateArray().Select(value => value.GetString()).ToArray();
+        CollectionAssert.Contains(roleValues, ServerJobRole.ExecutionChild.ToWireString());
+    }
+
+    [TestMethod]
+    [DataRow(nameof(UserBrowseDto))]
+    [DataRow(nameof(UserProfileDto))]
+    [DataRow(nameof(UserProfileSectionDto))]
+    public void WireSchema_AcceptsResourcesWithOmittedUnknownFields(string resourceType)
+    {
+        string path = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "docs", "openapi.json"));
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        JsonElement schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
+        JsonElement schema = resourceType == nameof(UserBrowseDto)
+            ? schemas.GetProperty(nameof(StateDeltaDto)).GetProperty("properties").GetProperty("userBrowse")
+            : schemas.GetProperty(resourceType);
+        while (true)
+        {
+            if (schema.TryGetProperty("$ref", out var reference))
+                schema = schemas.GetProperty(reference.GetString()!.Split('/')[^1]);
+            else if (schema.TryGetProperty("anyOf", out var choices))
+                schema = choices.EnumerateArray().Single(choice =>
+                    !choice.TryGetProperty("type", out var type) || type.ValueKind != JsonValueKind.String || type.GetString() != "null");
+            else break;
+        }
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        object resource;
+        string[] unknownFields;
+        string[] requiredFields;
+        if (resourceType == nameof(UserBrowseDto))
+        {
+            resource = new UserBrowseDto(Guid.NewGuid(), "ExactPeer", UserBrowseState.Running,
+                UserBrowsePhase.Receiving, 0, null, 0, 0, 0, now, now, null, null, 1);
+            unknownFields = ["compressedBytesExpected", "expiresAt", "failure"];
+            requiredFields = ["browseId", "username", "state", "revision"];
+        }
+        else if (resourceType == nameof(UserProfileDto))
+        {
+            var unavailable = new UserProfileSectionDto(ResourceSectionState.Unavailable, "offline");
+            resource = new UserProfileDto("ExactPeer", false, false, UserProfilePresence.Unknown,
+                unavailable, unavailable, unavailable, unavailable,
+                null, null, null, null, null, null, null, null, null, now);
+            unknownFields = ["description", "sharedFileCount", "sharedDirectoryCount", "averageUploadSpeed",
+                "uploadCount", "uploadSlots", "queueLength", "hasFreeUploadSlot", "picture"];
+            requiredFields = ["username", "uploadAccessBlocked", "privateMessagesBlocked", "presence", "observedAt"];
+        }
+        else
+        {
+            resource = new UserProfileSectionDto(ResourceSectionState.Available, null);
+            unknownFields = ["reason"];
+            requiredFields = ["state"];
+        }
+        using var wire = JsonDocument.Parse(JsonSerializer.Serialize(resource, SockseekApiJson.CreateSerializerOptions()));
+        foreach (string field in unknownFields)
+        {
+            Assert.IsFalse(wire.RootElement.TryGetProperty(field, out _),
+                "The configured wire serializer omits unknown nullable fields.");
+            Assert.IsFalse(schema.GetProperty("required").EnumerateArray().Any(value => value.GetString() == field),
+                $"The {resourceType} schema requires {field}, but a valid resource omits it.");
+        }
+        foreach (string field in requiredFields)
+            Assert.IsTrue(schema.GetProperty("required").EnumerateArray().Any(value => value.GetString() == field),
+                $"The non-null {resourceType}.{field} contract must remain required.");
+    }
+
     [TestMethod]
     public void OpenApiDocument_ContainsCoreServerContractSchemas()
     {
@@ -47,6 +227,16 @@ public class OpenApiContractTests
         StringAssert.Contains(json, nameof(JobDetailDto));
         Assert.IsFalse(json.Contains("WorkflowTreeDto", StringComparison.Ordinal));
         StringAssert.Contains(json, nameof(StateSnapshotDto));
+        StringAssert.Contains(json, nameof(StateUpdateBatchDto));
+        StringAssert.Contains(json, nameof(LiveProtocolContractVersion));
+        StringAssert.Contains(json, nameof(LiveClientInvocation));
+        StringAssert.Contains(json, nameof(LiveServerMessage));
+        StringAssert.Contains(json, nameof(StateDeltaDto));
+        StringAssert.Contains(json, nameof(ActivityEventDto));
+        StringAssert.Contains(json, nameof(JobDeltaDto));
+        StringAssert.Contains(json, nameof(TransferDeltaDto));
+        StringAssert.Contains(json, $"{nameof(ActivityPayloadDto)}{nameof(JobStatusActivityDto)}");
+        StringAssert.Contains(json, $"{nameof(ActivityPayloadDto)}{nameof(DownloadAttemptFailedActivityDto)}");
         StringAssert.Contains(json, nameof(ApiErrorDto));
         StringAssert.Contains(json, nameof(SharingStateDto));
         StringAssert.Contains(json, nameof(UploadRuntimeStateDto));
@@ -65,6 +255,12 @@ public class OpenApiContractTests
         StringAssert.Contains(json, nameof(BrowseFileEntryDto));
         StringAssert.Contains(json, nameof(BrowseSearchPageDto));
         StringAssert.Contains(json, nameof(BrowseSearchEntryDto));
+        Assert.IsTrue(document.RootElement.GetProperty("components").GetProperty("schemas")
+            .GetProperty(nameof(BrowseDirectoryEntryDto)).GetProperty("properties")
+            .TryGetProperty("totalRecursiveFileCount", out _));
+        Assert.IsTrue(document.RootElement.GetProperty("components").GetProperty("schemas")
+            .GetProperty(nameof(BrowseSearchEntryDto)).GetProperty("properties")
+            .TryGetProperty("totalSubtreeFileCount", out _));
         StringAssert.Contains(json, nameof(StartUserShareDownloadsRequestDto));
         StringAssert.Contains(json, nameof(ResolveEffectiveSettingsRequestDto));
         StringAssert.Contains(json, nameof(ResolveEffectiveSettingsResponseDto));
@@ -75,6 +271,18 @@ public class OpenApiContractTests
         StringAssert.Contains(json, nameof(SearchViewSummaryDto));
         StringAssert.Contains(json, nameof(SearchViewDirectoryPageDto));
         StringAssert.Contains(json, nameof(SearchViewDirectoryFilePageDto));
+        Assert.IsTrue(document.RootElement
+            .GetProperty("components")
+            .GetProperty("schemas")
+            .GetProperty(nameof(SearchViewSummaryDto))
+            .GetProperty("properties")
+            .TryGetProperty("kind", out _));
+        Assert.IsTrue(document.RootElement
+            .GetProperty("components")
+            .GetProperty("schemas")
+            .GetProperty(nameof(CommitSearchViewSelectionRequestDto))
+            .GetProperty("properties")
+            .TryGetProperty("options", out _));
         StringAssert.Contains(json, "lifecycleState");
         StringAssert.Contains(json, "activityPhase");
         StringAssert.Contains(json, "terminalOutcome");
@@ -88,6 +296,55 @@ public class OpenApiContractTests
         JsonElement schemas = document.RootElement
             .GetProperty("components")
             .GetProperty("schemas");
+        JsonElement albumAggregateProperties = schemas.EnumerateObject()
+            .Single(schema => schema.Name.EndsWith(nameof(AlbumAggregateJobPayloadDto), StringComparison.Ordinal))
+            .Value.GetProperty("properties");
+        foreach (string property in new[] { "completedAlbumCount", "succeededAlbumCount", "failedAlbumCount" })
+            Assert.IsTrue(albumAggregateProperties.TryGetProperty(property, out _),
+                $"Album-aggregate payload schema is missing {property}.");
+        foreach (var (payload, outcomeFields) in new[]
+        {
+            (nameof(AggregateJobPayloadDto), new[] { "completedSongCount", "succeededSongCount", "failedSongCount" }),
+            (nameof(JobListPayloadDto), new[] { "activeJobCount", "completedJobCount", "succeededJobCount", "failedJobCount" }),
+        })
+        {
+            JsonElement schema = schemas.GetProperty($"{nameof(JobPayloadDto)}{payload}");
+            JsonElement requiredFields = schema.GetProperty("required");
+            foreach (string field in outcomeFields)
+            {
+                Assert.IsFalse(requiredFields.EnumerateArray().Any(entry => entry.GetString() == field),
+                    $"{payload}.{field} is omitted for legacy jobs and must not be required.");
+                Assert.IsTrue(schema.GetProperty("properties").GetProperty(field)
+                    .GetProperty("type").EnumerateArray().Any(entry => entry.GetString() == "null"),
+                    $"{payload}.{field} must allow null.");
+            }
+        }
+        JsonElement stateDelta = schemas.GetProperty(nameof(StateDeltaDto));
+        JsonElement targetProperties = schemas.GetProperty(nameof(PeerFileTargetDto))
+            .GetProperty("properties");
+        foreach (string property in new[] { "username", "filename", "size", "extension", "bitRate", "bitDepth", "sampleRate", "length", "attributes" })
+            Assert.IsTrue(targetProperties.TryGetProperty(property, out _),
+                $"Remote-file target schema is missing {property}.");
+        JsonElement planProperties = schemas.GetProperty(nameof(DirectoryTransferPlanDto))
+            .GetProperty("properties");
+        Assert.IsTrue(planProperties.TryGetProperty("displayRoot", out _));
+        Assert.IsTrue(planProperties.TryGetProperty("entries", out _));
+        Assert.IsTrue(planProperties.TryGetProperty("totalKnownBytes", out _));
+        JsonElement remoteTarget = schemas.EnumerateObject()
+            .Single(schema => schema.Name.EndsWith(nameof(RemoteFileJobPayloadDto), StringComparison.Ordinal))
+            .Value.GetProperty("properties").GetProperty("target");
+        JsonElement remoteAttributes = remoteTarget.GetProperty("properties")
+            .GetProperty("attributes").GetProperty("anyOf")[0];
+        Assert.AreEqual("array", remoteAttributes.GetProperty("type").GetString());
+        StringAssert.EndsWith(remoteAttributes.GetProperty("items").GetProperty("$ref").GetString()!,
+            "/" + nameof(FileAttributeDto));
+        Assert.IsFalse(stateDelta.GetProperty("required").EnumerateArray().Any(value =>
+            value.GetString() == "daemon"));
+        Assert.IsTrue(stateDelta.GetProperty("properties")
+            .GetProperty("daemon")
+            .GetProperty("type")
+            .EnumerateArray()
+            .Any(value => value.GetString() == "null"));
         foreach (string enumSchema in new[]
         {
             nameof(ServerSearchViewProjectionKind),
@@ -191,6 +448,13 @@ public class OpenApiContractTests
         Assert.IsTrue(document.RootElement
             .GetProperty("paths")
             .TryGetProperty("/api/search-views/{viewId}/directories/retrieve", out _));
+        Assert.IsTrue(document.RootElement
+            .GetProperty("components")
+            .GetProperty("schemas")
+            .GetProperty("RetrieveSearchViewDirectoryRequestDto")
+            .GetProperty("required")
+            .EnumerateArray()
+            .Any(field => field.GetString() == "idempotencyKey"));
         foreach (string supersededPath in new[]
         {
             "/api/jobs/{jobId}/results/files",
@@ -487,6 +751,17 @@ public class OpenApiContractTests
                     null,
                     new WorkflowMessageActivityDto("Information", "test", "monitor attached")),
             ]);
+        ActivityPayloadDto[] otherActivities =
+        [
+            new JobStatusActivityDto(4, "Running"),
+            new DiagnosticActivityDto(4, "job", "failed", "IOException", "test detail", null),
+            new ExtractionStartedActivityDto(4, "input", null, "extractor"),
+            new DownloadAttemptFailedActivityDto(4, "Peer", @"Root\File.flac", "/output/file.flac",
+                1, 3, "IOException", "retry", "test detail"),
+            new TrackBatchResolvedActivityDto(4, true, ServerPrintOption.Full, 1, 2, 3),
+        ];
+        batch = batch with { Activity = [.. batch.Activity, .. otherActivities.Select((payload, index) =>
+            new ActivityEventDto(10 + index, DateTimeOffset.UtcNow, "test", workflowId, jobId, null, payload))] };
         var options = SockseekApiJson.CreateSerializerOptions();
 
         string json = JsonSerializer.Serialize(batch, options);
@@ -505,6 +780,9 @@ public class OpenApiContractTests
         Assert.AreEqual("monitor attached", workflowMessage.Message);
         StringAssert.Contains(json, "\"kind\":\"jobMessage\"");
         StringAssert.Contains(json, "\"kind\":\"workflowMessage\"");
+
+        CollectionAssert.AreEqual(batch.Activity.Select(item => item.Payload.GetType()).ToArray(),
+            roundTripped.Activity.Select(item => item.Payload.GetType()).ToArray());
     }
 
     [TestMethod]
@@ -526,6 +804,13 @@ public class OpenApiContractTests
             var info = await new SockseekApiClient(http).GetServerInfoAsync();
 
             Assert.AreEqual(LiveProtocol.Version, info.LiveProtocolVersion);
+            using var noRedirect = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+            {
+                BaseAddress = new Uri(url),
+            };
+            using var root = await noRedirect.GetAsync("/");
+            Assert.AreEqual(HttpStatusCode.Redirect, root.StatusCode);
+            Assert.AreEqual("/api/server/info", root.Headers.Location?.OriginalString);
         }
         finally
         {

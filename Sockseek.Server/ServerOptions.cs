@@ -1,4 +1,5 @@
 using Sockseek.Core.Settings;
+using Sockseek.Persistence.Write;
 using Sockseek.Api;
 using Soulseek;
 
@@ -28,15 +29,14 @@ public sealed class ServerPersistenceOptions
 {
     public bool Enabled { get; set; }
     public string? DataDirectory { get; set; }
-    public int CriticalQueueCapacity { get; set; } = 512;
-    public int OrdinaryQueueCapacity { get; set; } = 2_048;
+    public int CommandQueueCapacity { get; set; } = 2_048;
+    public int BackgroundCommandQueueCapacity { get; set; } = 2_048;
     public int ProgressEntityCapacity { get; set; } = 512;
-    public int DegradedProjectionCapacity { get; set; } = 1_024;
     public int SearchResultCapacityPerSearch { get; set; } = 2_000;
     public int SearchResultGlobalCapacity { get; set; } = 20_000;
     public int IncompleteSearchTrackingCapacity { get; set; } = 1_024;
     public int SearchMutationQueueCapacity { get; set; } = 256;
-    public int SearchResultFlushCount { get; set; } = 200;
+    public int SearchResultFlushCount { get; set; } = PersistenceWriterOptions.DefaultSearchResultFlushCount;
     public TimeSpan SearchResultFlushInterval { get; set; } = TimeSpan.FromMilliseconds(200);
     public TimeSpan TransferProgressFlushInterval { get; set; } = TimeSpan.FromSeconds(3);
     public bool RetentionEnabled { get; set; } = true;

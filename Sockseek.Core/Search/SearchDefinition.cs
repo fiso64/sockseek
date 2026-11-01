@@ -183,7 +183,8 @@ public sealed record SearchDefinition(
     SongQueryDefinition? FileQuery,
     AlbumQueryDefinition? AlbumQuery,
     bool IncludeFullFileResults,
-    SearchProjectionSettingsDefinition ProjectionSettings)
+    SearchProjectionSettingsDefinition ProjectionSettings,
+    bool AggregatePresentation = false)
 {
     public const int CurrentSchemaVersion = 1;
 
@@ -221,7 +222,8 @@ public sealed record SearchDefinition(
             fileQuery,
             albumQuery,
             includeFullResults,
-            SearchProjectionSettingsDefinition.From(settings));
+            SearchProjectionSettingsDefinition.From(settings),
+            job.AggregatePresentation || job.Definition?.AggregatePresentation == true);
     }
 
     public static SearchDefinition Create(Job job, SearchSettings settings)
@@ -233,50 +235,35 @@ public sealed record SearchDefinition(
 
         return job switch
         {
-            SongJob song => CreateFileDefinition(
-                job,
-                song.Query,
-                song.Query.ToString(noInfo: true),
-                settings),
-            AggregateJob aggregate => CreateFileDefinition(
-                job,
-                aggregate.Query,
-                aggregate.Query.ToString(noInfo: true),
-                settings),
-            AlbumJob album => CreateAlbumDefinition(job, album.Query, settings),
-            AlbumAggregateJob aggregate => CreateAlbumDefinition(job, aggregate.Query, settings),
+            SongJob song => Create(SongQueryDefinition.From(song.Query), settings),
+            AggregateJob aggregate => Create(SongQueryDefinition.From(aggregate.Query), settings),
+            AlbumJob album => Create(AlbumQueryDefinition.From(album.Query), settings),
+            AlbumAggregateJob aggregate => Create(AlbumQueryDefinition.From(aggregate.Query), settings),
             _ => throw new ArgumentException(
                 $"Job type '{job.GetType().Name}' does not execute a search.",
                 nameof(job)),
         };
     }
 
-    private static SearchDefinition CreateFileDefinition(
-        Job job,
-        SongQuery query,
-        string networkQuery,
-        SearchSettings settings)
+    internal static SearchDefinition Create(SongQueryDefinition query, SearchSettings settings)
         => new(
             CurrentSchemaVersion,
-            SearchSettingsBaselines.For(job),
+            SearchSettingsBaselineKind.Music,
             SearchDefaultProjectionKind.Track,
-            networkQuery,
-            SongQueryDefinition.From(query),
+            query.ToQuery().ToString(noInfo: true),
+            query,
             null,
             false,
             SearchProjectionSettingsDefinition.From(settings));
 
-    private static SearchDefinition CreateAlbumDefinition(
-        Job job,
-        AlbumQuery query,
-        SearchSettings settings)
+    internal static SearchDefinition Create(AlbumQueryDefinition query, SearchSettings settings)
         => new(
             CurrentSchemaVersion,
-            SearchSettingsBaselines.For(job),
+            SearchSettingsBaselineKind.Music,
             SearchDefaultProjectionKind.Album,
-            SearchResultProjector.AlbumNetworkQuery(query).ToString(noInfo: true),
+            SearchResultProjector.AlbumNetworkQuery(query.ToQuery()).ToString(noInfo: true),
             null,
-            AlbumQueryDefinition.From(query),
+            query,
             false,
             SearchProjectionSettingsDefinition.From(settings));
 
@@ -291,6 +278,8 @@ public sealed record SearchDefinition(
             throw new InvalidDataException("File search definition has no file query.");
         if (DefaultProjection == SearchDefaultProjectionKind.Album && AlbumQuery == null)
             throw new InvalidDataException("Album search definition has no album query.");
+        if (DefaultProjection == SearchDefaultProjectionKind.GenericFile && AggregatePresentation)
+            throw new InvalidDataException("Generic search definitions cannot request aggregate presentation.");
     }
 }
 

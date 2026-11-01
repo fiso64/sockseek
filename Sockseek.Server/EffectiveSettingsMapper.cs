@@ -28,7 +28,14 @@ internal static class EffectiveSettingsMapper
             .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         return new ResolveEffectiveSettingsResponseDto(
             result.Baseline.ToServer(),
-            new EffectiveDownloadSettingsDto(
+            ToSafeSettings(settings),
+            settings.AppliedAutoProfiles.OrderBy(name => name, StringComparer.Ordinal).ToArray(),
+            namedProfiles?.ToArray() ?? [],
+            provenance);
+    }
+
+    public static EffectiveDownloadSettingsDto ToSafeSettings(DownloadSettings settings)
+        => new(
                 SafeValues(settings),
                 settings.Output.OnComplete?.Count ?? 0,
                 settings.Preprocess.Regex?.Count ?? 0,
@@ -38,11 +45,7 @@ internal static class EffectiveSettingsMapper
                 !string.IsNullOrEmpty(settings.Spotify.Refresh),
                 !string.IsNullOrEmpty(settings.YouTube.ApiKey),
                 !string.IsNullOrEmpty(settings.YtDlp.YtdlpArgument),
-                !string.IsNullOrEmpty(settings.Bandcamp.HtmlFromFile)),
-            settings.AppliedAutoProfiles.OrderBy(name => name, StringComparer.Ordinal).ToArray(),
-            namedProfiles?.ToArray() ?? [],
-            provenance);
-    }
+                !string.IsNullOrEmpty(settings.Bandcamp.HtmlFromFile));
 
     private static DownloadSettingsPatchDto SafeValues(DownloadSettings settings)
         => new(
@@ -61,27 +64,7 @@ internal static class EffectiveSettingsMapper
                 OnComplete: null,
                 settings.Output.AlbumArtOnly,
                 settings.Output.AlbumArtOption.ToServer()),
-            Search: new SearchSettingsPatchDto(
-                FileConditions(settings.Search.NecessaryCond),
-                FileConditions(settings.Search.PreferredCond),
-                FolderConditions(settings.Search.NecessaryFolderCond),
-                FolderConditions(settings.Search.PreferredFolderCond),
-                settings.Search.SearchTimeout,
-                settings.Search.DownrankOn,
-                settings.Search.IgnoreOn,
-                settings.Search.FastSearch,
-                settings.Search.FastSearchDelay,
-                settings.Search.FastSearchMinUpSpeed,
-                settings.Search.DesperateSearch,
-                settings.Search.NoRemoveSpecialChars,
-                settings.Search.RemoveSingleCharSearchTerms,
-                settings.Search.NoBrowseFolder,
-                settings.Search.Relax,
-                settings.Search.StrictAlbumQuality,
-                settings.Search.ArtistMaybeWrong,
-                settings.Search.IsAggregate,
-                settings.Search.MinSharesAggregate,
-                settings.Search.AggregateLengthTol),
+            Search: ToSearchSettings(settings.Search),
             Skip: new SkipSettingsPatchDto(
                 settings.Skip.SkipExisting,
                 settings.Skip.SkipNotFound,
@@ -133,6 +116,29 @@ internal static class EffectiveSettingsMapper
                 settings.Csv.YtParse),
             Bandcamp: null,
             settings.PrintOption.ToServer());
+
+    public static SearchSettingsPatchDto ToSearchSettings(SearchSettings settings)
+        => new(
+            FileConditions(settings.NecessaryCond),
+            FileConditions(settings.PreferredCond),
+            FolderConditions(settings.NecessaryFolderCond),
+            FolderConditions(settings.PreferredFolderCond),
+            settings.SearchTimeout,
+            settings.DownrankOn,
+            settings.IgnoreOn,
+            settings.FastSearch,
+            settings.FastSearchDelay,
+            settings.FastSearchMinUpSpeed,
+            settings.DesperateSearch,
+            settings.NoRemoveSpecialChars,
+            settings.RemoveSingleCharSearchTerms,
+            settings.NoBrowseFolder,
+            settings.Relax,
+            settings.StrictAlbumQuality,
+            settings.ArtistMaybeWrong,
+            settings.IsAggregate,
+            settings.MinSharesAggregate,
+            settings.AggregateLengthTol);
 
     private static FileConditionsPatchDto FileConditions(FileConditions conditions)
         => new(

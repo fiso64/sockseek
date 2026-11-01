@@ -5,12 +5,47 @@ using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Sharing;
+using Sockseek.Core.Transfers.Uploads;
 
 namespace Sockseek.Server;
 
 /// <summary>Owns enum translation between the public wire contract and Core.</summary>
 public static class ApiEnumMapper
 {
+    public static TransferFailureReason ToServer(this Sockseek.Core.Events.TransferFailureReason? reason)
+        => reason switch
+        {
+            Sockseek.Core.Events.TransferFailureReason.PeerFailure => TransferFailureReason.ConnectionFailed,
+            Sockseek.Core.Events.TransferFailureReason.Stale => TransferFailureReason.TransferTimedOut,
+            Sockseek.Core.Events.TransferFailureReason.Finalization or Sockseek.Core.Events.TransferFailureReason.Unknown => TransferFailureReason.Unknown,
+            _ => TransferFailureReason.None,
+        };
+
+    public static TransferFailureReason ToServer(this UploadFailureReason reason)
+        => reason switch
+        {
+            UploadFailureReason.NotShared => TransferFailureReason.FileNoLongerShared,
+            UploadFailureReason.Unavailable => TransferFailureReason.FileUnavailable,
+            UploadFailureReason.InvalidOffset => TransferFailureReason.InvalidOffset,
+            UploadFailureReason.Denied => TransferFailureReason.Denied,
+            UploadFailureReason.InternalFailure => TransferFailureReason.Unknown,
+            _ => TransferFailureReason.None,
+        };
+
+    public static TransferCancellationSource ToServer(this Sockseek.Core.Events.TransferCancellationReason? reason)
+        => reason is Sockseek.Core.Events.TransferCancellationReason.Requested or Sockseek.Core.Events.TransferCancellationReason.ManualSkip
+            ? TransferCancellationSource.User : TransferCancellationSource.None;
+
+    public static TransferCancellationSource ToServer(this UploadCancellationSource reason)
+        => reason switch
+        {
+            UploadCancellationSource.User => TransferCancellationSource.User,
+            UploadCancellationSource.Peer => TransferCancellationSource.Peer,
+            UploadCancellationSource.DaemonShutdown => TransferCancellationSource.DaemonShutdown,
+            UploadCancellationSource.CatalogInvalidation => TransferCancellationSource.CatalogInvalidation,
+            _ => TransferCancellationSource.None,
+        };
+
     private const int KnownPrintOptions =
         (int)PrintOption.Jobs
         | (int)PrintOption.Results
@@ -51,6 +86,9 @@ public static class ApiEnumMapper
 
     public static ServerSearchViewProjectionKind ToServer(this SearchViewProjectionKind value) => Map<ServerSearchViewProjectionKind>(value);
     public static SearchViewProjectionKind ToCore(this ServerSearchViewProjectionKind value) => Map<SearchViewProjectionKind>(value);
+
+    public static ServerSearchViewSortOrder ToServer(this SearchViewSortOrder value) => Map<ServerSearchViewSortOrder>(value);
+    public static SearchViewSortOrder ToCore(this ServerSearchViewSortOrder value) => Map<SearchViewSortOrder>(value);
 
     public static ServerSearchResultVisibility ToServer(this SearchResultVisibility value) => Map<ServerSearchResultVisibility>(value);
     public static SearchResultVisibility ToCore(this ServerSearchResultVisibility value) => Map<SearchResultVisibility>(value);

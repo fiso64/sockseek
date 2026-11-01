@@ -11,6 +11,32 @@ namespace Sockseek.Core.Tests;
 public sealed class UploadCoordinatorTests
 {
     [TestMethod]
+    public async Task AdjacentUploadDirectoryRunsHaveDistinctOpaqueGroupRefs()
+    {
+        await using var fixture = await CatalogFixture.CreateAsync(
+            ("One.bin", "one"), ("Two.bin", "two"), ("Three.bin", "three"));
+        var protocol = new BlockingProtocolInvoker();
+        await using var coordinator = CreateCoordinator(fixture, protocol, slots: 1);
+
+        var first = await coordinator.AdmitAsync("alice", null, @"Public\One.bin");
+        await protocol.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var second = await coordinator.AdmitAsync("alice", null, @"Public\Two.bin");
+        var otherPeer = await coordinator.AdmitAsync("bob", null, @"Public\One.bin");
+        var later = await coordinator.AdmitAsync("alice", null, @"Public\Three.bin");
+
+        var snapshots = coordinator.Snapshot().ToDictionary(snapshot => snapshot.TransferId);
+        string firstRef = snapshots[first.TransferId!.Value].GroupRef!;
+        Assert.IsFalse(string.IsNullOrWhiteSpace(firstRef));
+        Assert.AreEqual(firstRef, snapshots[second.TransferId!.Value].GroupRef);
+        Assert.AreNotEqual(firstRef, snapshots[otherPeer.TransferId!.Value].GroupRef);
+        Assert.AreNotEqual(firstRef, snapshots[later.TransferId!.Value].GroupRef);
+        Assert.IsTrue(snapshots.Values.All(snapshot => snapshot.GroupDisplayPath == @"Public"));
+
+        protocol.Release.TrySetResult();
+        await WaitForStateAsync(coordinator, later.TransferId!.Value, UploadTransferState.Completed);
+    }
+
+    [TestMethod]
     public async Task QueuedCancellation_TerminalizesWithZeroAttempts()
     {
         await using var fixture = await CatalogFixture.CreateAsync(

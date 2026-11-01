@@ -18,15 +18,16 @@ public enum SearchPreferenceTier
 [JsonConverter(typeof(JsonStringEnumConverter<SearchPreferenceCondition>))]
 public enum SearchPreferenceCondition
 {
-    Format,
-    Length,
-    Bitrate,
-    SampleRate,
-    BitDepth,
-    Title,
-    Artist,
-    Album,
-    Username,
+    // Stable identities: retained projections encode sets using these values.
+    Format = 0,
+    Length = 1,
+    Bitrate = 2,
+    SampleRate = 3,
+    BitDepth = 4,
+    Title = 5,
+    Artist = 6,
+    Album = 7,
+    Username = 8,
 }
 
 public readonly record struct SearchConditionFacts(
@@ -45,9 +46,10 @@ public readonly record struct SearchConditionFacts(
             .ToArray();
 }
 
+// Read projections retain facts and ranking only. Execution/CLI materialization
+// creates a FileCandidate from Input with these already-evaluated conditions.
 public sealed record ProjectedFileCandidate(
     SearchProjectionInput Input,
-    FileCandidate Candidate,
     SearchConditionFacts ConditionFacts,
     SearchProjectionSortKey SortKey);
 
@@ -93,6 +95,8 @@ public sealed class IncrementalResultSorter
     private readonly bool requireFileSatisfies;
     private readonly bool retainProjectedRows;
     private List<ResultSorter.SortEntry> entries = [];
+    private List<ResultSorter.SortEntry> pendingEntries = [];
+    private ResultSorter.SortEntry? bestEntry;
     private readonly HashSet<(PeerPathKey Path, SearchResultVisibility Visibility)>? seen;
     private int nextOriginalIndex;
 
@@ -125,11 +129,13 @@ public sealed class IncrementalResultSorter
             necessaryConditionEvaluator);
     }
 
-    public int Count => entries.Count;
+    public int Count => entries.Count + pendingEntries.Count;
 
     public void Clear()
     {
         entries.Clear();
+        pendingEntries.Clear();
+        bestEntry = null;
         seen?.Clear();
         nextOriginalIndex = 0;
     }
@@ -157,8 +163,7 @@ public sealed class IncrementalResultSorter
 
         if (retainProjectedRows)
         {
-            newEntries.Sort(ResultSorter.SortEntryComparer.Instance);
-            MergeSortedEntries(newEntries);
+            RetainEntries(newEntries);
         }
         return newEntries.Count;
     }
@@ -166,91 +171,131 @@ public sealed class IncrementalResultSorter
     public int AddRange(IEnumerable<SearchProjectionInput> results)
         => AddRangeAndGetProjected(results).Count;
 
+    public ProjectedFileCandidate? Add(SearchProjectionInput input)
+        => AddWithUserSuccessCount(input, userSuccessCount: null);
+
+    // Deferred aggregate ranking retains the workflow score at admission. It
+    // must not re-admit ignored peers or change earlier ranking after failures.
+    internal ProjectedFileCandidate? AddWithUserSuccessCount(SearchProjectionInput input, int? userSuccessCount)
+    {
+        var entry = CreateEntry(input, userSuccessCount);
+        if (!entry.HasValue) return null;
+        if (retainProjectedRows)
+        {
+            UpdateBest(entry.Value);
+            pendingEntries.Add(entry.Value);
+        }
+        return Projected(entry.Value);
+    }
+
     public IReadOnlyList<ProjectedFileCandidate> AddRangeAndGetProjected(
         IEnumerable<SearchProjectionInput> results)
     {
         var newEntries = new List<ResultSorter.SortEntry>();
         foreach (var input in results)
         {
-            var key = (new PeerPathKey(input.Username, input.Filename), input.Visibility);
-            if (seen != null && !seen.Add(key))
-                continue;
-            var entry = ResultSorter.CreateSortEntry(input, keyContext, nextOriginalIndex++);
-            if (!entry.HasValue)
-                continue;
-            if (requireFileSatisfies && !entry.Value.Key.ConditionFacts.NecessaryConditionsSatisfied)
-                continue;
-            newEntries.Add(entry.Value);
+            if (CreateEntry(input) is { } entry) newEntries.Add(entry);
         }
         if (newEntries.Count == 0)
             return [];
         var added = newEntries.Select(Projected).ToArray();
         if (!retainProjectedRows)
             return added;
-        newEntries.Sort(ResultSorter.SortEntryComparer.Instance);
-        MergeSortedEntries(newEntries);
+        RetainEntries(newEntries);
         return added;
     }
 
-    private void MergeSortedEntries(List<ResultSorter.SortEntry> newEntries)
+    private ResultSorter.SortEntry? CreateEntry(SearchProjectionInput input, int? userSuccessCount = null)
     {
+        var key = (new PeerPathKey(input.Username, input.Filename), input.Visibility);
+        if (seen != null && !seen.Add(key)) return null;
+        var entry = ResultSorter.CreateSortEntry(input, keyContext, nextOriginalIndex++, userSuccessCount);
+        return requireFileSatisfies && entry.HasValue && !entry.Value.Key.ConditionFacts.NecessaryConditionsSatisfied
+            ? null : entry;
+    }
+
+    private void UpdateBest(ResultSorter.SortEntry entry)
+    {
+        if (bestEntry is not { } best || ResultSorter.SortEntryComparer.Instance.Compare(entry, best) < 0)
+            bestEntry = entry;
+    }
+
+    private void RetainEntries(List<ResultSorter.SortEntry> added)
+    {
+        foreach (var entry in added)
+            UpdateBest(entry);
+        // Arrival packet size must not decide ranking cost. In particular,
+        // aggregate buckets often receive one option at a time: merging their
+        // entire ordered prefix on each arrival was quadratic in copies/bytes.
+        if (pendingEntries.Count == 0)
+            pendingEntries = added;
+        else
+            pendingEntries.AddRange(added);
+    }
+
+    private void EnsureSorted()
+    {
+        if (pendingEntries.Count == 0) return;
+        var comparer = ResultSorter.SortEntryComparer.Instance;
+        pendingEntries.Sort(comparer);
         if (entries.Count == 0)
         {
-            entries.AddRange(newEntries);
-            return;
+            entries.AddRange(pendingEntries);
         }
-
-        var merged = new List<ResultSorter.SortEntry>(entries.Count + newEntries.Count);
-        int existingIndex = 0;
-        int newIndex = 0;
-        var comparer = ResultSorter.SortEntryComparer.Instance;
-
-        while (existingIndex < entries.Count && newIndex < newEntries.Count)
+        else
         {
-            if (comparer.Compare(entries[existingIndex], newEntries[newIndex]) <= 0)
-                merged.Add(entries[existingIndex++]);
-            else
-                merged.Add(newEntries[newIndex++]);
+            // A reader asking for full ordering pays for one merge of the
+            // pending rows. Keep them separate until then: appending to the
+            // full ordered buffer would grow/copy it before this merge too.
+            var merged = new List<ResultSorter.SortEntry>(Count);
+            int previous = 0;
+            int added = 0;
+            while (previous < entries.Count && added < pendingEntries.Count)
+                merged.Add(comparer.Compare(entries[previous], pendingEntries[added]) <= 0
+                    ? entries[previous++] : pendingEntries[added++]);
+            while (previous < entries.Count) merged.Add(entries[previous++]);
+            while (added < pendingEntries.Count) merged.Add(pendingEntries[added++]);
+            entries = merged;
         }
-
-        while (existingIndex < entries.Count)
-            merged.Add(entries[existingIndex++]);
-
-        while (newIndex < newEntries.Count)
-            merged.Add(newEntries[newIndex++]);
-
-        entries = merged;
+        pendingEntries = [];
     }
+
+    internal ProjectedFileCandidate BestProjectedFile()
+        => Projected(bestEntry ?? throw new InvalidOperationException("The sorter has no retained files."));
 
     internal IEnumerable<(SearchResponse Response, SlFile File)> OrderedResults()
     {
+        EnsureSorted();
         for (int i = 0; i < entries.Count; i++)
             yield return (entries[i].Response!, entries[i].File!);
     }
 
     public List<(SearchResponse Response, SlFile File)> Snapshot()
     {
-        var snapshot = new List<(SearchResponse Response, SlFile File)>(entries.Count);
+        var snapshot = new List<(SearchResponse Response, SlFile File)>(Count);
         snapshot.AddRange(OrderedResults());
         return snapshot;
     }
 
     public List<SearchProjectionInput> SnapshotInputs()
-        => retainProjectedRows
-            ? entries.Select(entry => entry.Input).ToList()
-            : throw new InvalidOperationException(
-                "This incremental sorter was configured for disk-backed rows.");
+    {
+        if (!retainProjectedRows)
+            throw new InvalidOperationException("This incremental sorter was configured for disk-backed rows.");
+        EnsureSorted();
+        return entries.Select(entry => entry.Input).ToList();
+    }
 
     public List<ProjectedFileCandidate> SnapshotProjectedFiles()
-        => retainProjectedRows
-            ? entries.Select(Projected).ToList()
-            : throw new InvalidOperationException(
-                "This incremental sorter was configured for disk-backed rows.");
+    {
+        if (!retainProjectedRows)
+            throw new InvalidOperationException("This incremental sorter was configured for disk-backed rows.");
+        EnsureSorted();
+        return entries.Select(Projected).ToList();
+    }
 
     private static ProjectedFileCandidate Projected(ResultSorter.SortEntry entry)
         => new(
             entry.Input,
-            entry.Input.ToFileCandidate(),
             entry.Key.ConditionFacts,
             entry.Key.PersistenceKey);
 }

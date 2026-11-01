@@ -11,21 +11,57 @@ namespace Sockseek.Core.Settings;
 ///   ResultSorter.Sort(candidates, job.Config.Search)
 ///   TrackSkipper.Check(song, job.Config.Skip)
 ///
-/// Immutable (init-only). Profile re-evaluation in ConfigManager reconstructs from scratch
-/// rather than mutating — no Copy() needed.
+/// Section references are init-only; section values are mutable. Independent
+/// composition/execution uses SettingsCloner, while planned input freezes a snapshot.
 public class DownloadSettings
 {
-    public OutputSettings     Output     { get; init; } = new();
-    public SearchSettings     Search     { get; init; } = new();
-    public SkipSettings       Skip       { get; init; } = new();
-    public PreprocessSettings Preprocess { get; init; } = new();
-    public ExtractionSettings Extraction { get; init; } = new();
-    public TransferSettings   Transfer   { get; init; } = new();
-    public SpotifySettings    Spotify    { get; init; } = new();
-    public YouTubeSettings    YouTube    { get; init; } = new();
-    public YtDlpSettings      YtDlp      { get; init; } = new();
-    public CsvSettings        Csv        { get; init; } = new();
-    public BandcampSettings   Bandcamp   { get; init; } = new();
+    public OutputSettings     Output     { get; init; }
+    public SearchSettings     Search     { get; init; }
+    public SkipSettings       Skip       { get; init; }
+    public PreprocessSettings Preprocess { get; init; }
+    public ExtractionSettings Extraction { get; init; }
+    public TransferSettings   Transfer   { get; init; }
+    public SpotifySettings    Spotify    { get; init; }
+    public YouTubeSettings    YouTube    { get; init; }
+    public YtDlpSettings      YtDlp      { get; init; }
+    public CsvSettings        Csv        { get; init; }
+    public BandcampSettings   Bandcamp   { get; init; }
+
+    public DownloadSettings()
+    {
+        Output = new();
+        Search = new();
+        Skip = new();
+        Preprocess = new();
+        Extraction = new();
+        Transfer = new();
+        Spotify = new();
+        YouTube = new();
+        YtDlp = new();
+        Csv = new();
+        Bandcamp = new();
+        AppliedAutoProfiles = [];
+    }
+
+    // Copy only the sections we keep. A default instance plus an object
+    // initializer would allocate and discard every default section first.
+    internal DownloadSettings(DownloadSettings source)
+    {
+        Output = SettingsCloner.Clone(source.Output);
+        Search = SettingsCloner.Clone(source.Search);
+        Skip = SettingsCloner.Clone(source.Skip);
+        Preprocess = SettingsCloner.Clone(source.Preprocess);
+        Extraction = SettingsCloner.Clone(source.Extraction);
+        Transfer = SettingsCloner.Clone(source.Transfer);
+        Spotify = SettingsCloner.Clone(source.Spotify);
+        YouTube = SettingsCloner.Clone(source.YouTube);
+        YtDlp = SettingsCloner.Clone(source.YtDlp);
+        Csv = SettingsCloner.Clone(source.Csv);
+        Bandcamp = SettingsCloner.Clone(source.Bandcamp);
+        PrintOption = source.PrintOption;
+        AppliedAutoProfiles = [.. source.AppliedAutoProfiles];
+        RuntimePathContext = source.RuntimePathContext;
+    }
 
     // ── Top-level mode flags ──────────────────────────────────────────────────
 
@@ -34,7 +70,7 @@ public class DownloadSettings
     public PrintOption PrintOption { get; set; } = PrintOption.None;
 
     /// Tracks which auto-profiles were applied by the job settings resolver.
-    public HashSet<string> AppliedAutoProfiles { get; set; } = [];
+    public HashSet<string> AppliedAutoProfiles { get; set; }
 
     /// Runtime path expansion context. This is not a user-facing setting.
     [JsonIgnore]

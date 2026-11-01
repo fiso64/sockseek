@@ -49,6 +49,28 @@ public sealed class ShareCatalogManagerTests
     }
 
     [TestMethod]
+    public async Task Publish_RejectsUnfinishedGenerationAndKeepsCurrentOnRestart()
+    {
+        await using var directory = new TemporaryDirectory();
+        Guid currentId;
+        await using (var manager = new ShareCatalogManager(directory.Path))
+        {
+            await manager.InitializeAsync("settings");
+            var current = await CreatePublicationAsync(manager, "settings", 1);
+            await manager.PublishAsync(current);
+            currentId = current.GenerationId;
+            var unfinished = await CreatePublicationAsync(manager, "settings", 2, complete: false);
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(
+                () => manager.PublishAsync(unfinished).AsTask());
+            Assert.AreEqual(currentId, manager.CurrentMetadata!.GenerationId);
+        }
+
+        await using var restarted = new ShareCatalogManager(directory.Path);
+        Assert.IsTrue(await restarted.InitializeAsync("settings"));
+        Assert.AreEqual(currentId, restarted.CurrentMetadata!.GenerationId);
+    }
+
+    [TestMethod]
     public async Task Initialize_FallsBackToValidPreviousGeneration()
     {
         await using var directory = new TemporaryDirectory();
@@ -238,7 +260,8 @@ public sealed class ShareCatalogManagerTests
     private static async ValueTask<ShareCatalogPublication> CreatePublicationAsync(
         ShareCatalogManager manager,
         string settingsHash,
-        byte marker)
+        byte marker,
+        bool complete = true)
     {
         Guid generationId = Guid.NewGuid();
         var paths = manager.GetGenerationPaths(generationId);
@@ -272,7 +295,8 @@ public sealed class ShareCatalogManagerTests
                 "",
                 "Music",
                 RemotePathKey.Create("Music")));
-            await builder.CompleteAsync(metadata);
+            if (complete) await builder.CompleteAsync(metadata);
+            else await builder.PrepareForReadAsync();
         }
 
         return new ShareCatalogPublication(

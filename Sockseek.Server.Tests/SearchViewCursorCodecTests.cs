@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Persistence.Planning;
+using Sockseek.Api;
 using Sockseek.Server.Planning;
 
 namespace Sockseek.Server.Tests;
@@ -31,8 +32,19 @@ public sealed class SearchViewCursorCodecTests
         string childCursor = first.EncodeDirectoryFiles(
             viewId, "directory", 12, childPosition);
 
+        string orderedFiles = first.EncodeFiles(viewId, 12, position, ServerSearchViewSortOrder.UploadSpeed);
+        string orderedDirectories = first.EncodeDirectories(viewId, 12, directoryPosition,
+            ServerSearchViewSortOrder.DirectoryNameAscending);
         var restarted = new SearchViewCursorCodec(options);
         Assert.AreEqual(position, restarted.DecodeFiles(fileCursor, viewId, 12));
+        Assert.AreEqual(position, restarted.DecodeFiles(orderedFiles, viewId, 12, ServerSearchViewSortOrder.UploadSpeed));
+        Assert.AreEqual(directoryPosition, restarted.DecodeDirectories(orderedDirectories, viewId, 12,
+            ServerSearchViewSortOrder.DirectoryNameAscending));
+        Assert.ThrowsExactly<ArgumentException>(() => restarted.DecodeFiles(orderedFiles, viewId, 12,
+            ServerSearchViewSortOrder.QueueDepth));
+        Assert.ThrowsExactly<ArgumentException>(() => restarted.DecodeFiles(orderedFiles, viewId, 12));
+        Assert.ThrowsExactly<ArgumentException>(() => restarted.DecodeDirectories(orderedDirectories, viewId, 12,
+            ServerSearchViewSortOrder.DirectorySizeAscending));
         Assert.AreEqual(directoryPosition, restarted.DecodeDirectories(
             directoryCursor, viewId, 12));
         Assert.AreEqual(childPosition, restarted.DecodeDirectoryFiles(

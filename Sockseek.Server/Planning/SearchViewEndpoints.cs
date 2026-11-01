@@ -4,6 +4,8 @@ namespace Sockseek.Server.Planning;
 
 internal static class SearchViewEndpoints
 {
+    // Nullable query parameters keep generated request delegates on standard
+    // Func signatures; each handler applies its collection's default below.
     public static void Map(WebApplication app)
     {
         app.MapPost("/api/jobs/{jobId:guid}/search-views", CreateViewAsync)
@@ -24,11 +26,19 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
+        app.MapGet("/api/search-views/{viewId:guid}/definition", GetDefinitionAsync)
+            .RequireOperator()
+            .WithTags("Search Views")
+            .WithSummary("Gets the exact projection and effective search settings retained for this view.")
+            .Produces<SearchViewDefinitionDto>()
+            .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
+            .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
+
         app.MapGet("/api/search-views/{viewId:guid}/files", GetFilesAsync)
             .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Pages file rows from one immutable search-view revision.")
-            .WithDescription("The opaque cursor is authenticated and bound to the view and revision. Counters in the response describe the same revision as the rows.")
+            .WithDescription("sortOrder reorders the existing projected rows; omitting it uses the view default. Keep the same sortOrder value (or omission) when continuing a cursor. Cursors bind the view, revision and requested order; counters describe the same revision as the rows.")
             .Produces<SearchViewFilePageDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
@@ -38,6 +48,7 @@ internal static class SearchViewEndpoints
             .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Pages exact peer-directory summaries from one immutable revision.")
+            .WithDescription("sortOrder reorders existing directory summaries; omitting it uses the view default. Keep the same sortOrder value (or omission) when continuing a cursor. Membership, counters and child-file ordering retain their revision semantics.")
             .Produces<SearchViewDirectoryPageDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
@@ -106,11 +117,21 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
+        app.MapPost("/api/search-views/{viewId:guid}/chosen-options/resolve", ResolveChosenOptionsAsync)
+            .RequireOperator()
+            .WithTags("Search Views")
+            .WithSummary("Reads exact browser-held aggregate choices in one Search View revision.")
+            .WithDescription("Returns a current option DTO or an explicit miss for each requested group. Choices remain client-owned and are never saved by this read.")
+            .Produces<ResolveSearchViewChosenOptionsResponseDto>()
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
+            .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
+            .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
+
         app.MapGet("/api/search-views/{viewId:guid}/updates", GetUpdatesAsync)
             .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Gets the latest fixed-size summary for inexpensive live refresh.")
-            .WithDescription("When HasNewRevision is true, refetch only visible pages and expanded groups at Summary.Revision.")
+            .WithDescription("When HasNewRevision is true, refetch only visible pages and expanded groups at Summary.Revision. Optional waitForChange waits up to one second for a new revision; completed Views return immediately.")
             .Produces<SearchViewUpdateDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
@@ -122,6 +143,24 @@ internal static class SearchViewEndpoints
             .WithSummary("Commits a client-owned revision-bound selection as one submission.")
             .WithDescription("The fixed-size receipt reports independent resolution outcomes; runtime jobs are traversed through the jobs API.")
             .Produces<CommitSearchViewSelectionResponseDto>(StatusCodes.Status202Accepted)
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
+            .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
+            .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
+
+        app.MapPost("/api/search-views/{viewId:guid}/selection-settings", ResolveSelectionSettingsAsync)
+            .RequireOperator()
+            .WithTags("Search Views")
+            .WithSummary("Resolves the effective download defaults for a client-owned selection.")
+            .Produces<ResolveSearchViewSelectionSettingsResponseDto>()
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
+            .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
+            .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
+
+        app.MapPost("/api/search-views/{viewId:guid}/selection-counts", CountSelectionAsync)
+            .RequireOperator()
+            .WithTags("Search Views")
+            .WithSummary("Counts observed public and locked files in a client-owned selection.")
+            .Produces<CountSearchViewSelectionResponseDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
@@ -170,13 +209,68 @@ internal static class SearchViewEndpoints
         }
     }
 
+    private static async Task<IResult> ResolveSelectionSettingsAsync(
+        Guid viewId,
+        ResolveSearchViewSelectionSettingsRequestDto request,
+        SearchViewCoordinator coordinator,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var settings = await coordinator.ResolveSelectionSettingsAsync(
+                viewId, request, cancellationToken).ConfigureAwait(false);
+            return settings == null ? NotFound() : Results.Ok(settings);
+        }
+        catch (Exception exception)
+        {
+            return Failure(exception);
+        }
+    }
+
+    private static async Task<IResult> CountSelectionAsync(
+        Guid viewId,
+        CountSearchViewSelectionRequestDto request,
+        SearchViewCoordinator coordinator,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var counts = await coordinator.CountSelectionAsync(
+                viewId, request, cancellationToken).ConfigureAwait(false);
+            return counts == null ? NotFound() : Results.Ok(counts);
+        }
+        catch (Exception exception)
+        {
+            return Failure(exception);
+        }
+    }
+
+    private static async Task<IResult> ResolveChosenOptionsAsync(
+        Guid viewId,
+        ResolveSearchViewChosenOptionsRequestDto request,
+        SearchViewCoordinator coordinator,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var resolved = await coordinator.ResolveChosenOptionsAsync(
+                viewId, request, cancellationToken).ConfigureAwait(false);
+            return resolved == null ? NotFound() : Results.Ok(resolved);
+        }
+        catch (Exception exception)
+        {
+            return Failure(exception);
+        }
+    }
+
     private static async Task<IResult> GetDirectoriesAsync(
         Guid viewId,
         long revision,
         SearchViewCoordinator coordinator,
         CancellationToken cancellationToken,
-        string? cursor = null,
-        int limit = 100)
+        string? cursor,
+        int? limit,
+        ServerSearchViewSortOrder? sortOrder)
     {
         try
         {
@@ -184,8 +278,9 @@ internal static class SearchViewEndpoints
                 viewId,
                 revision,
                 cursor,
-                limit,
-                cancellationToken).ConfigureAwait(false);
+                limit ?? ServerProtocol.DefaultNestedPageSize,
+                sortOrder,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
             return page == null
                 ? NotFound("The search view directory revision was not found.")
                 : Results.Ok(page);
@@ -202,8 +297,8 @@ internal static class SearchViewEndpoints
         long revision,
         SearchViewCoordinator coordinator,
         CancellationToken cancellationToken,
-        string? cursor = null,
-        int limit = 100)
+        string? cursor,
+        int? limit)
     {
         try
         {
@@ -212,7 +307,7 @@ internal static class SearchViewEndpoints
                 directoryRef,
                 revision,
                 cursor,
-                limit,
+                limit ?? ServerProtocol.DefaultPageSize,
                 cancellationToken).ConfigureAwait(false);
             return page == null
                 ? NotFound("The search view directory revision was not found.")
@@ -251,8 +346,8 @@ internal static class SearchViewEndpoints
         long revision,
         SearchViewCoordinator coordinator,
         CancellationToken cancellationToken,
-        string? cursor = null,
-        int limit = 100)
+        string? cursor,
+        int? limit)
     {
         try
         {
@@ -260,7 +355,7 @@ internal static class SearchViewEndpoints
                 viewId,
                 revision,
                 cursor,
-                limit,
+                limit ?? ServerProtocol.DefaultNestedPageSize,
                 cancellationToken).ConfigureAwait(false);
             return page == null
                 ? NotFound("The aggregate-track revision was not found.")
@@ -278,8 +373,8 @@ internal static class SearchViewEndpoints
         long revision,
         SearchViewCoordinator coordinator,
         CancellationToken cancellationToken,
-        string? cursor = null,
-        int limit = 100)
+        string? cursor,
+        int? limit)
     {
         try
         {
@@ -289,7 +384,7 @@ internal static class SearchViewEndpoints
                     groupRef,
                     revision,
                     cursor,
-                    limit,
+                    limit ?? ServerProtocol.DefaultPageSize,
                     cancellationToken).ConfigureAwait(false);
             return page == null
                 ? NotFound("The aggregate-track group revision was not found.")
@@ -306,8 +401,8 @@ internal static class SearchViewEndpoints
         long revision,
         SearchViewCoordinator coordinator,
         CancellationToken cancellationToken,
-        string? cursor = null,
-        int limit = 100)
+        string? cursor,
+        int? limit)
     {
         try
         {
@@ -315,7 +410,7 @@ internal static class SearchViewEndpoints
                 viewId,
                 revision,
                 cursor,
-                limit,
+                limit ?? ServerProtocol.DefaultNestedPageSize,
                 cancellationToken).ConfigureAwait(false);
             return page == null
                 ? NotFound("The aggregate-album revision was not found.")
@@ -333,8 +428,8 @@ internal static class SearchViewEndpoints
         long revision,
         SearchViewCoordinator coordinator,
         CancellationToken cancellationToken,
-        string? cursor = null,
-        int limit = 100)
+        string? cursor,
+        int? limit)
     {
         try
         {
@@ -344,7 +439,7 @@ internal static class SearchViewEndpoints
                     groupRef,
                     revision,
                     cursor,
-                    limit,
+                    limit ?? ServerProtocol.DefaultNestedPageSize,
                     cancellationToken).ConfigureAwait(false);
             return page == null
                 ? NotFound("The aggregate-album group revision was not found.")
@@ -374,13 +469,31 @@ internal static class SearchViewEndpoints
         }
     }
 
+    private static async Task<IResult> GetDefinitionAsync(
+        Guid viewId,
+        SearchViewCoordinator coordinator,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            SearchViewDefinitionDto? definition = await coordinator.GetDefinitionAsync(
+                viewId, cancellationToken).ConfigureAwait(false);
+            return definition == null ? NotFound() : Results.Ok(definition);
+        }
+        catch (Exception exception)
+        {
+            return Failure(exception);
+        }
+    }
+
     private static async Task<IResult> GetFilesAsync(
         Guid viewId,
         long revision,
         SearchViewCoordinator coordinator,
         CancellationToken cancellationToken,
-        string? cursor = null,
-        int limit = 100)
+        string? cursor,
+        int? limit,
+        ServerSearchViewSortOrder? sortOrder)
     {
         try
         {
@@ -388,8 +501,9 @@ internal static class SearchViewEndpoints
                 viewId,
                 revision,
                 cursor,
-                limit,
-                cancellationToken).ConfigureAwait(false);
+                limit ?? ServerProtocol.DefaultPageSize,
+                sortOrder,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
             return page == null ? NotFound("The search view revision was not found.") : Results.Ok(page);
         }
         catch (Exception exception)
@@ -401,6 +515,7 @@ internal static class SearchViewEndpoints
     private static async Task<IResult> GetUpdatesAsync(
         Guid viewId,
         long afterRevision,
+        bool? waitForChange,
         SearchViewCoordinator coordinator,
         CancellationToken cancellationToken)
     {
@@ -409,6 +524,7 @@ internal static class SearchViewEndpoints
             SearchViewUpdateDto? update = await coordinator.GetUpdatesAsync(
                 viewId,
                 afterRevision,
+                waitForChange ?? false,
                 cancellationToken).ConfigureAwait(false);
             return update == null ? NotFound() : Results.Ok(update);
         }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SEARCH_AUDIO_FORMATS } from '../prototype/search-config-schema';
+  import { SEARCH_AUDIO_FORMATS } from '../domains/search/config-schema';
 
   interface Props {
     values: string[];

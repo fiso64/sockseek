@@ -11,6 +11,49 @@ namespace Sockseek.Persistence.Tests;
 public sealed class PersistenceMaintenanceTests
 {
     [TestMethod]
+    public async Task RuntimeStoresShareTransactionOwnershipWhileReadsRemainAvailable()
+    {
+        await using var fixture = await RuntimeFixture.StartAsync();
+        var host = fixture.Host;
+        var view = await host.SearchViews!.CreateAsync(Guid.NewGuid(),
+            Sockseek.Core.Services.SearchViewProjectionKind.Files, "{}");
+        var inbox = (PersistenceInbox)host.MutationSink!;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task held = inbox.ExecuteAsync(async (_, _) =>
+        {
+            entered.SetResult();
+            await release.Task;
+            return true;
+        }, CancellationToken.None);
+        await entered.Task;
+        Task[] pending = [];
+        try
+        {
+            pending = [
+                host.SearchViews.CreateAsync(Guid.NewGuid(), Sockseek.Core.Services.SearchViewProjectionKind.Files, "{}"),
+                host.PeerRestrictions!.SetAsync(Sockseek.Core.Sharing.PeerRestrictionKind.UploadAccess,
+                    "Peer", Sockseek.Core.Sharing.PeerUsernameRestrictionOverride.Blocked),
+                host.InputArtifacts!.CreateAsync(new MemoryStream([1, 2, 3]), "input.csv"),
+                host.RunRetentionAsync(CancellationToken.None),
+                host.CheckpointAsync(CancellationToken.None),
+            ];
+            Assert.IsTrue(pending.All(task => !task.IsCompleted), "No feature may bypass the held writer.");
+            Assert.IsNotNull(await host.SearchViews.GetAsync(view.Id));
+            Assert.AreEqual(0, (await host.PeerRestrictions.ReadAllAsync()).Count,
+                "Independent readers see committed data while commands wait.");
+        }
+        finally
+        {
+            release.TrySetResult();
+            await held;
+            await Task.WhenAll(pending);
+        }
+        Assert.AreEqual("Peer", (await host.PeerRestrictions!.ReadAllAsync()).Single().Username);
+        Assert.AreEqual(PersistenceHealthState.Healthy, host.HealthSnapshot!.State);
+    }
+
+    [TestMethod]
     public async Task EveryMaintenanceOperationUsesAndReleasesTheSharedGate()
     {
         await using var fixture = await RuntimeFixture.StartAsync();

@@ -150,7 +150,6 @@ public class FileManager
     private readonly ExtractionSettings extraction;
     private readonly OutputScope outputScope;
     private readonly ILogger<FileManager> logger;
-    private readonly Action<string>? beforeReplace;
     private int metadataReadFailureLogged;
 
     private string OutputParentDir => OutputScope.OutputParentDir(output);
@@ -161,15 +160,13 @@ public class FileManager
         OutputSettings output,
         ExtractionSettings extraction,
         ILogger<FileManager> logger,
-        OutputScope? outputScope = null,
-        Action<string>? beforeReplace = null)
+        OutputScope? outputScope = null)
     {
         this.job = job;
         this.output = output;
         this.extraction = extraction;
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
         this.outputScope = outputScope ?? OutputScope.ForLegacyOwner(job, output);
-        this.beforeReplace = beforeReplace;
     }
 
     public string GetSavePath(string sourceFname)
@@ -216,7 +213,7 @@ public class FileManager
     }
 
     // Organizes all files in a completed album download.
-    public void OrganizeAlbum(Job albumJob, List<SongJob> allFiles, List<SongJob>? additionalImages, bool remainingOnly = true)
+    public void OrganizeAlbum(Job albumJob, List<SongJob> allFiles, List<SongJob>? additionalImages, bool remainingOnly = true, Action<string>? beforeReplace = null)
     {
         lock (sync)
         {
@@ -224,7 +221,7 @@ public class FileManager
             {
                 if (remainingOnly && organized.Contains(file))
                     continue;
-                OrganizeDownloadedFile(file);
+                OrganizeDownloadedFile(file, beforeReplace);
             }
 
             var nonAudioToOrganize = string.IsNullOrEmpty(output.NameFormat)
@@ -245,12 +242,12 @@ public class FileManager
             {
                 if (remainingOnly && organized.Contains(file))
                     continue;
-                OrganizeNonAudio(file, parent, additionalImages != null && additionalImages.Contains(file));
+                OrganizeNonAudio(file, parent, additionalImages != null && additionalImages.Contains(file), beforeReplace);
             }
         }
     }
 
-    public void OrganizeDownloadedFile(SongJob song)
+    public void OrganizeDownloadedFile(SongJob song, Action<string>? beforeReplace = null)
     {
         lock (sync)
         {
@@ -313,7 +310,7 @@ public class FileManager
     public void OrganizeSong(SongJob song)
         => OrganizeDownloadedFile(song);
 
-    private void OrganizeNonAudio(SongJob file, string parent, bool isAdditionalImage)
+    private void OrganizeNonAudio(SongJob file, string parent, bool isAdditionalImage, Action<string>? beforeReplace)
     {
         if (string.IsNullOrEmpty(file.DownloadPath))
             return;
@@ -382,7 +379,8 @@ public class FileManager
             }
             return tagFile;
         }
-        return ApplyNameFormatInternal(format, output.InvalidReplaceStr, ctx, getTagFile);
+        try { return ApplyNameFormatInternal(format, output.InvalidReplaceStr, ctx, getTagFile); }
+        finally { tagFile?.Dispose(); }
     }
 
     static string ApplyNameFormatInternal(string format, string invalidReplaceStr, FileManagerContext ctx, Func<TagLib.File?> getTagFile)

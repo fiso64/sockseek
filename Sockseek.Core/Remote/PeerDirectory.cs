@@ -2,17 +2,27 @@ using Sockseek.Core.Services;
 
 namespace Sockseek.Core.Models;
 
-/// <summary>The exact peer and wire folder path used to retrieve a directory.</summary>
+/// <summary>
+/// The peer and advertised folder path. An empty path groups observed bare
+/// filenames only; it never denotes the peer root or a retrievable directory.
+/// </summary>
 public sealed record PeerDirectoryIdentity
 {
     public PeerDirectoryIdentity(string username, string folderPath)
     {
         Username = PeerIdentityValidator.ValidateUsername(username);
-        FolderPath = PeerIdentityValidator.ValidateRemotePath(folderPath);
+        ArgumentNullException.ThrowIfNull(folderPath);
+        FolderPath = folderPath.Length == 0 ? folderPath : PeerIdentityValidator.ValidateRemotePath(folderPath);
     }
 
     public string Username { get; }
     public string FolderPath { get; }
+
+    public void RequireAdvertisedFolder()
+    {
+        if (FolderPath.Length == 0)
+            throw new ArgumentException("These results did not advertise a folder. Select their observed files instead.");
+    }
 }
 
 /// <summary>An owned, immutable result of retrieving one peer directory subtree.</summary>
@@ -113,10 +123,8 @@ public sealed class AlbumFileMatch
 
     internal static AlbumFileMatch WithProjectionEvidence(
         Func<SongQuery> queryFactory,
-        FileCandidate candidate,
-        SearchConditionFacts conditionFacts,
-        SearchProjectionSortKey sortKey)
-        => new(queryFactory, candidate, conditionFacts, sortKey);
+        ProjectedFileCandidate file)
+        => new(queryFactory, file.Input.ToFileCandidate(file.ConditionFacts), file.ConditionFacts, file.SortKey);
 
     private AlbumFileMatch(
         Func<SongQuery> queryFactory,

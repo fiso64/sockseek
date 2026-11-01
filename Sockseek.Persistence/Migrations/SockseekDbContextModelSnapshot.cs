@@ -325,33 +325,6 @@ namespace Sockseek.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("Sockseek.Persistence.Entities.InputArtifactPinEntity", b =>
-                {
-                    b.Property<string>("ArtifactId")
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("artifact_id");
-
-                    b.Property<string>("OwnerKind")
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("owner_kind");
-
-                    b.Property<Guid>("OwnerId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("owner_id");
-
-                    b.Property<long>("CreatedAtUtc")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("created_at_utc");
-
-                    b.HasKey("ArtifactId", "OwnerKind", "OwnerId");
-
-                    b.HasIndex("OwnerKind", "OwnerId");
-
-                    b.ToTable("input_artifact_pins");
-                });
-
             modelBuilder.Entity("Sockseek.Persistence.Entities.JobEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -444,12 +417,6 @@ namespace Sockseek.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("query_text");
 
-                    b.Property<string>("SemanticRole")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("semantic_role");
-
                     b.Property<Guid?>("ResultJobId")
                         .HasColumnType("TEXT")
                         .HasColumnName("result_job_id");
@@ -458,23 +425,34 @@ namespace Sockseek.Persistence.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("revision");
 
+                    b.Property<string>("SemanticRole")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("semantic_role");
+
                     b.Property<string>("SkipReason")
                         .IsRequired()
                         .HasMaxLength(48)
                         .HasColumnType("TEXT")
                         .HasColumnName("skip_reason");
 
+                    b.Property<string>("SourceDetail")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("source_detail");
+
                     b.Property<Guid?>("SourceJobId")
                         .HasColumnType("TEXT")
                         .HasColumnName("source_job_id");
 
-                    b.Property<Guid?>("SubmissionId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("submission_id");
-
                     b.Property<long?>("StartedAtUtc")
                         .HasColumnType("INTEGER")
                         .HasColumnName("started_at_utc");
+
+                    b.Property<Guid?>("SubmissionId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("submission_id");
 
                     b.Property<string>("TerminalOutcome")
                         .IsRequired()
@@ -495,15 +473,9 @@ namespace Sockseek.Persistence.Migrations
                     b.HasIndex("DisplayId")
                         .IsUnique();
 
-                    b.HasIndex("ParentJobId");
-
                     b.HasIndex("ResultJobId");
 
                     b.HasIndex("SourceJobId");
-
-                    b.HasIndex("SubmissionId", "DisplayId", "Id");
-
-                    b.HasIndex("CreatedAtUtc", "Id");
 
                     b.HasIndex("LastRuntimeId", "LifecycleState");
 
@@ -511,7 +483,7 @@ namespace Sockseek.Persistence.Migrations
 
                     b.HasIndex("ParentJobId", "DisplayId", "Id");
 
-                    b.HasIndex("WorkflowId", "CreatedAtUtc", "Id");
+                    b.HasIndex("SubmissionId", "DisplayId", "Id");
 
                     b.HasIndex("WorkflowId", "DisplayId", "Id");
 
@@ -590,8 +562,8 @@ namespace Sockseek.Persistence.Migrations
                     b.Property<string>("Username")
                         .HasMaxLength(256)
                         .HasColumnType("TEXT")
-                        .UseCollation("BINARY")
-                        .HasColumnName("username");
+                        .HasColumnName("username")
+                        .UseCollation("BINARY");
 
                     b.Property<string>("OverrideState")
                         .IsRequired()
@@ -607,7 +579,7 @@ namespace Sockseek.Persistence.Migrations
 
                     b.HasIndex("Username", "RestrictionKind");
 
-                    b.ToTable("peer_restriction_overrides");
+                    b.ToTable("peer_restriction_overrides", (string)null);
                 });
 
             modelBuilder.Entity("Sockseek.Persistence.Entities.RuntimeSessionEntity", b =>
@@ -701,11 +673,6 @@ namespace Sockseek.Persistence.Migrations
 
             modelBuilder.Entity("Sockseek.Persistence.Entities.SearchResultEntity", b =>
                 {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
-
                     b.Property<string>("AttributesJson")
                         .HasColumnType("TEXT")
                         .HasColumnName("attributes_json");
@@ -786,22 +753,10 @@ namespace Sockseek.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("visibility");
 
-                    b.HasKey("Id");
+                    b.HasKey("SearchJobId", "Sequence");
 
-                    b.HasIndex("SearchJobId", "Sequence")
-                        .IsUnique();
-
-                    b.HasIndex("SearchJobId", "Username");
-
-                    b.HasIndex("SearchJobId", "Username", "RemoteFilename", "Visibility")
-                        .IsUnique();
-
-                    b.ToTable("search_results", null, t =>
-                        {
-                            t.HasCheckConstraint("ck_search_results_revision", "revision > 0");
-
-                            t.HasCheckConstraint("ck_search_results_sequence", "sequence > 0");
-                        });
+                    b.ToTable((string)null);
+                    b.ToView("search_results", (string)null);
                 });
 
             modelBuilder.Entity("Sockseek.Persistence.Entities.SubmissionEntity", b =>
@@ -841,14 +796,14 @@ namespace Sockseek.Persistence.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("revision");
 
-                    b.Property<int>("SpecificationSchemaVersion")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("specification_schema_version");
-
                     b.Property<string>("SpecificationJson")
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("specification_json");
+
+                    b.Property<int>("SpecificationSchemaVersion")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("specification_schema_version");
 
                     b.Property<long>("SubmittedAtUtc")
                         .HasColumnType("INTEGER")
@@ -867,6 +822,15 @@ namespace Sockseek.Persistence.Migrations
                             t.HasCheckConstraint("ck_submissions_revision", "revision >= 0");
 
                             t.HasCheckConstraint("ck_submissions_specification_schema", "specification_schema_version > 0");
+                        });
+
+                    b.SplitToTable("submission_specifications", null, t =>
+                        {
+                            t.Property("Id")
+                                .HasColumnName("submission_id");
+
+                            t.Property("SpecificationJson")
+                                .HasColumnName("specification_json");
                         });
                 });
 
@@ -900,6 +864,7 @@ namespace Sockseek.Persistence.Migrations
                     b.ToTable("transfer_accounting_checkpoints", null, t =>
                         {
                             t.HasCheckConstraint("ck_transfer_accounting_checkpoint_bytes", "cumulative_bytes >= 0");
+
                             t.HasCheckConstraint("ck_transfer_accounting_checkpoint_revision", "revision >= 0");
                         });
                 });
@@ -923,6 +888,7 @@ namespace Sockseek.Persistence.Migrations
                     b.ToTable("transfer_accounting_state", null, t =>
                         {
                             t.HasCheckConstraint("ck_transfer_accounting_state_coverage", "complete_from_utc >= 0");
+
                             t.HasCheckConstraint("ck_transfer_accounting_state_singleton", "state_id = 1");
                         });
                 });
@@ -1007,8 +973,6 @@ namespace Sockseek.Persistence.Migrations
                     b.HasIndex("TransferId", "AttemptNumber")
                         .IsUnique();
 
-                    b.HasIndex("TransferId", "StartedAtUtc");
-
                     b.ToTable("transfer_attempts", null, t =>
                         {
                             t.HasCheckConstraint("ck_transfer_attempts_last_sequence", "last_sequence >= 0");
@@ -1042,6 +1006,7 @@ namespace Sockseek.Persistence.Migrations
                     b.HasKey("BucketStartUtc", "Direction", "Username");
 
                     b.HasIndex("Direction", "BucketStartUtc");
+
                     b.HasIndex("Username", "BucketStartUtc");
 
                     b.ToTable("transfer_byte_buckets", null, t =>
@@ -1057,13 +1022,13 @@ namespace Sockseek.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
 
-                    b.Property<int>("AttemptCount")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("attempt_count");
-
                     b.Property<long?>("ArchivedAtUtc")
                         .HasColumnType("INTEGER")
                         .HasColumnName("archived_at_utc");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("attempt_count");
 
                     b.Property<long?>("BytesPerSecond")
                         .HasColumnType("INTEGER")
@@ -1134,15 +1099,19 @@ namespace Sockseek.Persistence.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("file_size_bytes");
 
-                    b.Property<string>("GroupRef")
-                        .HasMaxLength(4096)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("group_ref");
-
                     b.Property<string>("GroupDisplayPath")
                         .HasMaxLength(4096)
                         .HasColumnType("TEXT")
                         .HasColumnName("group_display_path");
+
+                    b.Property<string>("GroupRelativePath")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("group_relative_path");
+
+                    b.Property<string>("GroupRef")
+                        .HasMaxLength(4096)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("group_ref");
 
                     b.Property<Guid?>("JobId")
                         .HasColumnType("TEXT")
@@ -1217,21 +1186,19 @@ namespace Sockseek.Persistence.Migrations
 
                     b.HasIndex("CompletedAtUtc");
 
-                    b.HasIndex("ArchivedAtUtc", "CreatedAtUtc", "Id");
-
                     b.HasIndex("JobId");
 
                     b.HasIndex("LastRuntimeId", "TerminalOutcome");
 
-                    b.HasIndex("Direction", "StartedAtUtc", "Id");
+                    b.HasIndex("ArchivedAtUtc", "CreatedAtUtc", "Id");
 
-                    b.HasIndex("Direction", "State", "CreatedAtUtc");
-
-                    b.HasIndex("Direction", "TerminalOutcome", "CompletedAtUtc");
+                    b.HasIndex("TerminalOutcome", "CompletedAtUtc");
 
                     b.HasIndex("WorkflowId", "CreatedAtUtc", "Id");
 
-                    b.HasIndex("Username", "Direction", "StartedAtUtc", "Id");
+                    b.HasIndex("GroupRef", "Username", "Direction", "ArchivedAtUtc");
+
+                    b.HasIndex("Username", "ArchivedAtUtc", "CreatedAtUtc", "Id");
 
                     b.ToTable("transfers", null, t =>
                         {
@@ -1269,15 +1236,6 @@ namespace Sockseek.Persistence.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
                 });
 
-            modelBuilder.Entity("Sockseek.Persistence.Entities.InputArtifactPinEntity", b =>
-                {
-                    b.HasOne("Sockseek.Persistence.Entities.InputArtifactEntity", null)
-                        .WithMany()
-                        .HasForeignKey("ArtifactId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("Sockseek.Persistence.Entities.NotificationEntity", b =>
                 {
                     b.HasOne("Sockseek.Persistence.Entities.ChatMessageEntity", null)
@@ -1296,21 +1254,27 @@ namespace Sockseek.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Sockseek.Persistence.Entities.SearchResultEntity", b =>
-                {
-                    b.HasOne("Sockseek.Persistence.Entities.SearchJobEntity", null)
-                        .WithMany()
-                        .HasForeignKey("SearchJobId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("Sockseek.Persistence.Entities.SubmissionEntity", b =>
                 {
+                    b.HasOne("Sockseek.Persistence.Entities.SubmissionEntity", null)
+                        .WithOne()
+                        .HasForeignKey("Sockseek.Persistence.Entities.SubmissionEntity", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
                     b.HasOne("Sockseek.Persistence.Entities.SubmissionEntity", null)
                         .WithMany()
                         .HasForeignKey("RerunOfSubmissionId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Sockseek.Persistence.Entities.TransferAccountingCheckpointEntity", b =>
+                {
+                    b.HasOne("Sockseek.Persistence.Entities.TransferEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TransferId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Sockseek.Persistence.Entities.TransferAttemptEntity", b =>
@@ -1321,15 +1285,6 @@ namespace Sockseek.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Sockseek.Persistence.Entities.TransferEntity", null)
-                        .WithMany()
-                        .HasForeignKey("TransferId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Sockseek.Persistence.Entities.TransferAccountingCheckpointEntity", b =>
-                {
                     b.HasOne("Sockseek.Persistence.Entities.TransferEntity", null)
                         .WithMany()
                         .HasForeignKey("TransferId")

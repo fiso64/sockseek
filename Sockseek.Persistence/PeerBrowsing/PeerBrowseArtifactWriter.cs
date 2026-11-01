@@ -1,6 +1,9 @@
+using System.Buffers;
+using System.Buffers.Binary;
 using Microsoft.Data.Sqlite;
 using Sockseek.Core.IO;
 using Sockseek.Core.PeerBrowsing;
+using Sockseek.Persistence.Sqlite;
 
 namespace Sockseek.Persistence.PeerBrowsing;
 
@@ -24,15 +27,10 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
     private PeerBrowseWireFile? currentFile;
     private PeerBrowseFilePath currentFilePath;
     private string? currentFileExtension;
-    private List<PeerBrowseWireAttribute>? currentAttributes;
+    private readonly ArrayBufferWriter<byte> currentAttributes = new();
     private int expectedAttributeCount;
     private int actualAttributeCount;
-    private int? bitRate;
-    private int? bitDepth;
-    private int? sampleRate;
-    private int? length;
-    private SqliteCommand? insertFileCommand;
-    private SqliteCommand? insertAttributeCommand;
+    private SqliteWriteStatement? insertFileStatement;
     private bool completed;
     private bool disposed;
 
@@ -104,12 +102,15 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
                     wire_path TEXT NOT NULL,
                     name TEXT NOT NULL,
                     display_path TEXT NOT NULL,
+                    search_path TEXT NOT NULL,
                     visibility INTEGER NOT NULL,
                     is_synthetic INTEGER NOT NULL,
                     direct_directory_count INTEGER NOT NULL DEFAULT 0,
                     direct_file_count INTEGER NOT NULL DEFAULT 0,
                     recursive_file_count INTEGER NOT NULL DEFAULT 0,
                     recursive_file_bytes INTEGER NOT NULL DEFAULT 0,
+                    total_recursive_file_count INTEGER NOT NULL DEFAULT 0,
+                    total_recursive_file_bytes INTEGER NOT NULL DEFAULT 0,
                     locked_descendant_count INTEGER NOT NULL DEFAULT 0,
                     has_children INTEGER NOT NULL DEFAULT 0,
                     FOREIGN KEY (parent_id) REFERENCES directories(directory_id)
@@ -120,43 +121,24 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
                     directory_id INTEGER NOT NULL,
                     visibility INTEGER NOT NULL,
                     name TEXT NOT NULL,
-                    identity_filename TEXT NOT NULL COLLATE BINARY,
+                    search_name TEXT NOT NULL,
+                    identity_name TEXT NOT NULL COLLATE BINARY,
                     wire_filename TEXT NOT NULL COLLATE BINARY,
                     size_bytes INTEGER NOT NULL,
                     extension TEXT,
                     protocol_code INTEGER NOT NULL,
-                    bit_rate INTEGER,
-                    bit_depth INTEGER,
-                    sample_rate INTEGER,
-                    length_seconds INTEGER,
+                    attributes BLOB,
                     FOREIGN KEY (directory_id) REFERENCES directories(directory_id)
                 );
-
-                CREATE TABLE file_attributes (
-                    file_id INTEGER NOT NULL,
-                    attribute_ordinal INTEGER NOT NULL,
-                    attribute_type INTEGER NOT NULL,
-                    attribute_value INTEGER NOT NULL,
-                    PRIMARY KEY (file_id, attribute_ordinal),
-                    FOREIGN KEY (file_id) REFERENCES files(file_id)
-                ) WITHOUT ROWID;
 
                 CREATE INDEX idx_directories_parent_name
                     ON directories(parent_id, name, directory_id);
                 CREATE INDEX idx_directories_display_path
                     ON directories(display_path, directory_id);
 
-                -- Trigram FTS preserves interactive substring semantics while
-                -- keeping the index in the immutable artifact it projects.
-                -- entry_kind/ref columns point back to authoritative rows;
-                -- display_path is a normalized search/display representation,
-                -- never the download identity.
-                CREATE VIRTUAL TABLE browse_search USING fts5(
-                    display_path,
-                    entry_kind UNINDEXED,
-                    entry_id UNINDEXED,
-                    tokenize='trigram'
-                );
+                -- Each directory/file owns its folded search key. Mixed search
+                -- composes paths from these canonical rows instead of building
+                -- another copy of every full display path for every browse.
                 """,
                 cancellationToken).ConfigureAwait(false);
             return new PeerBrowseArtifactWriter(store, resource, stagingPath, connection);
@@ -232,13 +214,9 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
             : Core.Models.PeerIdentityValidator.ValidateRemotePath(file.Extension);
         currentFileId = checked(fileCount + 1);
         currentFile = file;
-        currentAttributes = new List<PeerBrowseWireAttribute>(Math.Min(file.AttributeCount, 16));
+        currentAttributes.Clear();
         expectedAttributeCount = file.AttributeCount;
         actualAttributeCount = 0;
-        bitRate = null;
-        bitDepth = null;
-        sampleRate = null;
-        length = null;
         fileCount = checked(fileCount + 1);
         totalFileBytes = SaturatingAdd(totalFileBytes, file.Size);
         return ValueTask.CompletedTask;
@@ -255,24 +233,9 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
         if (actualAttributeCount >= expectedAttributeCount)
             throw Invalid("a file contained more attributes than declared");
 
-        currentAttributes!.Add(attribute);
+        PeerBrowseAttributes.Append(currentAttributes, attribute);
         actualAttributeCount++;
 
-        switch (attribute.Type)
-        {
-            case 0 when attribute.Value > 0:
-                bitRate ??= attribute.Value;
-                break;
-            case 1 when attribute.Value >= 0:
-                length ??= attribute.Value;
-                break;
-            case 4 when attribute.Value > 0:
-                sampleRate ??= attribute.Value;
-                break;
-            case 5 when attribute.Value > 0:
-                bitDepth ??= attribute.Value;
-                break;
-        }
         return ValueTask.CompletedTask;
     }
 
@@ -286,17 +249,8 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
             throw Invalid("a file contained fewer attributes than declared");
 
         InsertCurrentFile(cancellationToken);
-        for (int ordinal = 0; ordinal < currentAttributes!.Count; ordinal++)
-        {
-            InsertAttribute(
-                currentFileId.Value,
-                ordinal,
-                currentAttributes[ordinal],
-                cancellationToken);
-        }
         currentFileId = null;
         currentFile = null;
-        currentAttributes = null;
         return ValueTask.CompletedTask;
     }
 
@@ -312,8 +266,8 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
             await ExecuteAsync(
                 Connection,
                 """
-                CREATE UNIQUE INDEX idx_files_identity_filename
-                    ON files(identity_filename COLLATE BINARY);
+                CREATE UNIQUE INDEX idx_files_directory_identity_name
+                    ON files(directory_id, identity_name COLLATE BINARY);
                 CREATE INDEX idx_files_directory_name
                     ON files(directory_id, name, file_id);
                 """,
@@ -324,9 +278,10 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
             throw Invalid("the response contains a duplicate path identity", ex);
         }
 
+        string sumBytes = PeerBrowseArtifactStore.SumFunction(totalFileBytes);
         await ExecuteAsync(
             Connection,
-            """
+            $"""
             UPDATE directories AS target
             SET direct_directory_count = (
                     SELECT COUNT(*) FROM directories child
@@ -346,29 +301,37 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
                 FROM ancestry
                 JOIN directories parent ON parent.directory_id = ancestry.ancestor_id
                 WHERE parent.parent_id IS NOT NULL
+            ),
+            file_totals AS MATERIALIZED (
+                SELECT ancestry.ancestor_id,
+                       COUNT(*) AS all_count,
+                       COALESCE({sumBytes}(subtree_file.size_bytes), 0) AS all_bytes,
+                       COUNT(CASE WHEN subtree_file.visibility = 0 THEN 1 END) AS public_count,
+                       COALESCE({sumBytes}(CASE WHEN subtree_file.visibility = 0
+                           THEN subtree_file.size_bytes ELSE 0 END), 0) AS public_bytes
+                FROM ancestry
+                JOIN files subtree_file ON subtree_file.directory_id = ancestry.descendant_id
+                GROUP BY ancestry.ancestor_id
+            ),
+            locked_directory_totals AS MATERIALIZED (
+                SELECT ancestry.ancestor_id, COUNT(*) AS locked_count
+                FROM ancestry
+                JOIN directories descendant ON descendant.directory_id = ancestry.descendant_id
+                WHERE ancestry.descendant_id != ancestry.ancestor_id
+                  AND descendant.visibility = 1
+                GROUP BY ancestry.ancestor_id
             )
             UPDATE directories AS target
-            SET recursive_file_count = (
-                    SELECT COUNT(*)
-                    FROM ancestry
-                    JOIN directories descendant ON descendant.directory_id = ancestry.descendant_id
-                    JOIN files subtree_file ON subtree_file.directory_id = descendant.directory_id
-                    WHERE ancestry.ancestor_id = target.directory_id
-                      AND subtree_file.visibility = 0),
-                recursive_file_bytes = COALESCE((
-                    SELECT saturating_sum(subtree_file.size_bytes)
-                    FROM ancestry
-                    JOIN directories descendant ON descendant.directory_id = ancestry.descendant_id
-                    JOIN files subtree_file ON subtree_file.directory_id = descendant.directory_id
-                    WHERE ancestry.ancestor_id = target.directory_id
-                      AND subtree_file.visibility = 0), 0),
-                locked_descendant_count = (
-                    SELECT COUNT(*)
-                    FROM ancestry
-                    JOIN directories descendant ON descendant.directory_id = ancestry.descendant_id
-                    WHERE ancestry.ancestor_id = target.directory_id
-                      AND ancestry.descendant_id != target.directory_id
-                      AND descendant.visibility = 1);
+            SET recursive_file_count = COALESCE((SELECT public_count FROM file_totals
+                    WHERE ancestor_id = target.directory_id), 0),
+                recursive_file_bytes = COALESCE((SELECT public_bytes FROM file_totals
+                    WHERE ancestor_id = target.directory_id), 0),
+                total_recursive_file_count = COALESCE((SELECT all_count FROM file_totals
+                    WHERE ancestor_id = target.directory_id), 0),
+                total_recursive_file_bytes = COALESCE((SELECT all_bytes FROM file_totals
+                    WHERE ancestor_id = target.directory_id), 0),
+                locked_descendant_count = COALESCE((SELECT locked_count FROM locked_directory_totals
+                    WHERE ancestor_id = target.directory_id), 0);
 
             WITH RECURSIVE ancestry(descendant_id, ancestor_id) AS (
                 SELECT directory_id, directory_id FROM directories
@@ -398,14 +361,6 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
             END;
 
 
-            INSERT INTO browse_search(display_path, entry_kind, entry_id)
-            SELECT display_path, 0, directory_id
-            FROM directories;
-
-            INSERT INTO browse_search(display_path, entry_kind, entry_id)
-            SELECT d.display_path || '\\' || f.name, 1, f.file_id
-            FROM files f
-            JOIN directories d ON d.directory_id = f.directory_id;
             """,
             cancellationToken).ConfigureAwait(false);
 
@@ -418,9 +373,10 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
                     schema_version, browse_id, local_account, username,
                     completed_at_utc, wire_directory_count, file_count,
                     total_file_bytes, completion_marker)
-                VALUES(2, $id, $account, $username, $completed,
+                VALUES($format, $id, $account, $username, $completed,
                        $directories, $files, $bytes, 0);
                 """;
+            PeerBrowseArtifactStore.Add(metadata, "$format", PeerBrowseArtifactStore.ArtifactFormatVersion);
             PeerBrowseArtifactStore.Add(metadata, "$id", resource.BrowseId.ToString("D"));
             PeerBrowseArtifactStore.Add(metadata, "$account", resource.LocalAccount);
             PeerBrowseArtifactStore.Add(metadata, "$username", resource.Username);
@@ -502,6 +458,7 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
                         SET wire_path = $wire_path,
                             name = $name,
                             display_path = $display_path,
+                            search_path = $search_path,
                             visibility = $visibility,
                             is_synthetic = $synthetic
                         WHERE directory_id = $id;
@@ -511,6 +468,7 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
                             ("$wire_path", wirePath),
                             ("$name", Core.Models.PeerIdentityValidator.ToDisplayText(name)),
                             ("$display_path", PeerBrowseArtifactStore.DisplayPath(identityPath)),
+                            ("$search_path", PeerBrowseArtifactStore.FoldSearchPath(PeerBrowseArtifactStore.DisplayPath(identityPath))),
                             ("$visibility", nextVisibility),
                             ("$synthetic", isSynthetic ? 1 : 0),
                         ],
@@ -524,9 +482,9 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
         await ExecuteWriteAsync(
             """
             INSERT INTO directories(
-                directory_id, parent_id, identity_path, wire_path, name, display_path,
+                directory_id, parent_id, identity_path, wire_path, name, display_path, search_path,
                 visibility, is_synthetic)
-            VALUES($directory_id, $parent_id, $identity_path, $wire_path, $name, $display_path,
+            VALUES($directory_id, $parent_id, $identity_path, $wire_path, $name, $display_path, $search_path,
                    $visibility, $synthetic);
             """,
             [
@@ -536,6 +494,7 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
                 ("$wire_path", wirePath),
                 ("$name", Core.Models.PeerIdentityValidator.ToDisplayText(name)),
                 ("$display_path", PeerBrowseArtifactStore.DisplayPath(identityPath)),
+                ("$search_path", PeerBrowseArtifactStore.FoldSearchPath(PeerBrowseArtifactStore.DisplayPath(identityPath))),
                 ("$visibility", (int)visibility),
                 ("$synthetic", isSynthetic ? 1 : 0),
             ],
@@ -546,88 +505,30 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
     private void InsertCurrentFile(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        SqliteCommand command = insertFileCommand ??= CreateInsertFileCommand();
-        PeerBrowseWireFile file = currentFile!;
-        Set(command, "$file_id", currentFileId!.Value);
-        Set(command, "$directory_id", currentDirectoryId!.Value);
-        Set(command, "$visibility", (int)currentDirectoryVisibility);
-        Set(command, "$name", Core.Models.PeerIdentityValidator.ToDisplayText(currentFilePath.LeafName));
-        Set(command, "$identity_filename", currentFilePath.IdentityFilename);
-        Set(command, "$wire_filename", currentFilePath.WireFilename);
-        Set(command, "$size", file.Size);
-        Set(command, "$extension", currentFileExtension);
-        Set(command, "$code", file.Code);
-        Set(command, "$bit_rate", bitRate);
-        Set(command, "$bit_depth", bitDepth);
-        Set(command, "$sample_rate", sampleRate);
-        Set(command, "$length", length);
-        ExecutePrepared(command);
-    }
-
-    private void InsertAttribute(
-        long fileId,
-        int ordinal,
-        PeerBrowseWireAttribute attribute,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        SqliteCommand command = insertAttributeCommand ??= CreateInsertAttributeCommand();
-        Set(command, "$file_id", fileId);
-        Set(command, "$ordinal", ordinal);
-        Set(command, "$type", attribute.Type);
-        Set(command, "$value", attribute.Value);
-        ExecutePrepared(command);
-    }
-
-    private SqliteCommand CreateInsertFileCommand()
-    {
-        SqliteTransaction activeTransaction = EnsureTransaction();
-        SqliteCommand command = Connection.CreateCommand();
-        command.Transaction = activeTransaction;
-        command.CommandText =
+        var writer = insertFileStatement ??= new SqliteWriteStatement(Connection, EnsureTransaction(),
             """
             INSERT INTO files(
-                file_id, directory_id, visibility, name, identity_filename, wire_filename,
-                size_bytes, extension, protocol_code, bit_rate, bit_depth, sample_rate,
-                length_seconds)
-            VALUES($file_id, $directory_id, $visibility, $name, $identity_filename,
-                   $wire_filename, $size, $extension, $code, $bit_rate, $bit_depth,
-                   $sample_rate, $length);
-            """;
-        AddParameter(command, "$file_id", SqliteType.Integer);
-        AddParameter(command, "$directory_id", SqliteType.Integer);
-        AddParameter(command, "$visibility", SqliteType.Integer);
-        AddParameter(command, "$name", SqliteType.Text);
-        AddParameter(command, "$identity_filename", SqliteType.Text);
-        AddParameter(command, "$wire_filename", SqliteType.Text);
-        AddParameter(command, "$size", SqliteType.Integer);
-        AddParameter(command, "$extension", SqliteType.Text);
-        AddParameter(command, "$code", SqliteType.Integer);
-        AddParameter(command, "$bit_rate", SqliteType.Integer);
-        AddParameter(command, "$bit_depth", SqliteType.Integer);
-        AddParameter(command, "$sample_rate", SqliteType.Integer);
-        AddParameter(command, "$length", SqliteType.Integer);
-        command.Prepare();
-        return command;
-    }
-
-    private SqliteCommand CreateInsertAttributeCommand()
-    {
-        SqliteTransaction activeTransaction = EnsureTransaction();
-        SqliteCommand command = Connection.CreateCommand();
-        command.Transaction = activeTransaction;
-        command.CommandText =
-            """
-            INSERT INTO file_attributes(
-                file_id, attribute_ordinal, attribute_type, attribute_value)
-            VALUES($file_id, $ordinal, $type, $value);
-            """;
-        AddParameter(command, "$file_id", SqliteType.Integer);
-        AddParameter(command, "$ordinal", SqliteType.Integer);
-        AddParameter(command, "$type", SqliteType.Integer);
-        AddParameter(command, "$value", SqliteType.Integer);
-        command.Prepare();
-        return command;
+                file_id, directory_id, visibility, name, search_name, identity_name, wire_filename,
+                size_bytes, extension, protocol_code, attributes)
+            VALUES($file_id, $directory_id, $visibility, $name, $search_name, $identity_name,
+                   $wire_filename, $size, $extension, $code, $attributes);
+            """);
+        PeerBrowseWireFile file = currentFile!;
+        writer.Bind(0, currentFileId!.Value);
+        writer.Bind(1, currentDirectoryId!.Value);
+        writer.Bind(2, (int)currentDirectoryVisibility);
+        string displayName = Core.Models.PeerIdentityValidator.ToDisplayText(currentFilePath.LeafName);
+        writer.Bind(3, displayName);
+        writer.Bind(4, PeerBrowseArtifactStore.FoldSearchPath(displayName));
+        // The directory owns the parent identity. Index the exact raw leaf,
+        // not another full-path copy; wire spelling remains independently exact.
+        writer.Bind(5, currentFilePath.LeafName);
+        writer.Bind(6, currentFilePath.WireFilename);
+        writer.Bind(7, file.Size);
+        writer.Bind(8, currentFileExtension);
+        writer.Bind(9, file.Code);
+        writer.Bind(10, currentAttributes.WrittenCount == 0 ? null : currentAttributes.WrittenSpan.ToArray());
+        ExecutePrepared(writer, cancellationToken);
     }
 
     private SqliteTransaction EnsureTransaction()
@@ -636,23 +537,17 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
         return transaction;
     }
 
-    private static void ExecutePrepared(SqliteCommand command)
+    private static void ExecutePrepared(SqliteWriteStatement statement, CancellationToken cancellationToken)
     {
         try
         {
-            command.ExecuteNonQuery();
+            statement.Execute(cancellationToken);
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
         {
             throw Invalid("the response contains a duplicate path identity", ex);
         }
     }
-
-    private static void AddParameter(SqliteCommand command, string name, SqliteType type)
-        => command.Parameters.Add(name, type);
-
-    private static void Set(SqliteCommand command, string name, object? value)
-        => command.Parameters[name].Value = value ?? DBNull.Value;
 
     private async ValueTask ExecuteWriteAsync(
         string sql,
@@ -681,24 +576,16 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
     {
         if (transaction is null)
             return;
-        await DisposePreparedCommandsAsync().ConfigureAwait(false);
+        DisposePreparedStatements();
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         await transaction.DisposeAsync().ConfigureAwait(false);
         transaction = null;
     }
 
-    private async ValueTask DisposePreparedCommandsAsync()
+    private void DisposePreparedStatements()
     {
-        if (insertFileCommand is not null)
-        {
-            await insertFileCommand.DisposeAsync().ConfigureAwait(false);
-            insertFileCommand = null;
-        }
-        if (insertAttributeCommand is not null)
-        {
-            await insertAttributeCommand.DisposeAsync().ConfigureAwait(false);
-            insertAttributeCommand = null;
-        }
+        insertFileStatement?.Dispose();
+        insertFileStatement = null;
     }
 
     private SqliteConnection Connection
@@ -716,7 +603,7 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
         if (disposed)
             return;
         disposed = true;
-        await DisposePreparedCommandsAsync().ConfigureAwait(false);
+        DisposePreparedStatements();
         if (transaction is not null)
         {
             await transaction.RollbackAsync().ConfigureAwait(false);
@@ -746,5 +633,44 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
         await using var command = connection.CreateCommand();
         command.CommandText = sql;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+}
+
+// Filtering uses paths, sizes and visibility, not attribute-derived metadata.
+// Store ordered little-endian int pairs with the file instead
+// of one indexed child row per attribute. Unknown/duplicate codes and signed
+// values survive exactly; the artifact format version governs both sides.
+internal static class PeerBrowseAttributes
+{
+    private const int PairBytes = 2 * sizeof(int);
+
+    public static void Append(ArrayBufferWriter<byte> buffer, PeerBrowseWireAttribute attribute)
+    {
+        Span<byte> pair = buffer.GetSpan(PairBytes);
+        BinaryPrimitives.WriteInt32LittleEndian(pair, attribute.Type);
+        BinaryPrimitives.WriteInt32LittleEndian(pair[sizeof(int)..], attribute.Value);
+        buffer.Advance(PairBytes);
+    }
+
+    public static PeerBrowseFileMetadata ReadMetadata(SqliteDataReader reader, int ordinal)
+        => Read<object>(reader, ordinal, create: null).Metadata;
+
+    public static (PeerBrowseFileMetadata Metadata, List<T>? Attributes) Read<T>(
+        SqliteDataReader reader, int ordinal, Func<int, int, T>? create)
+    {
+        if (reader.IsDBNull(ordinal)) return default;
+        byte[] bytes = reader.GetFieldValue<byte[]>(ordinal);
+        if (bytes.Length % PairBytes != 0)
+            throw new InvalidDataException("The peer browse artifact contains malformed file attributes.");
+        PeerBrowseFileMetadata metadata = default;
+        List<T>? attributes = create is not null && bytes.Length > 0 ? new(bytes.Length / PairBytes) : null;
+        for (int offset = 0; offset < bytes.Length; offset += PairBytes)
+        {
+            int type = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset));
+            int value = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset + sizeof(int)));
+            metadata = metadata.WithAttribute(type, value);
+            if (create is not null) attributes!.Add(create(type, value));
+        }
+        return (metadata, attributes);
     }
 }

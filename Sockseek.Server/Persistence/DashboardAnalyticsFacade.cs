@@ -38,44 +38,44 @@ public sealed class DashboardAnalyticsFacade
         CancellationToken cancellationToken = default)
     {
         string range = NormalizeRange(requestedRange);
-        DateTimeOffset end = Floor(clock.GetUtcNow(), TimeSpan.FromMinutes(5));
+        // Accounting writes into five-minute buckets. Include the current
+        // partial bucket so an open dashboard can show newly completed work.
+        DateTimeOffset end = Ceiling(clock.GetUtcNow(), TimeSpan.FromMinutes(5));
         try
         {
             ITransferAnalyticsReader? reader = persistence.TransferAnalytics;
-            PersistedTransferAnalyticsCoverage? retainedCoverage = null;
-            if (reader is not null
-                && persistence.HealthSnapshot?.State != PersistenceHealthState.Unhealthy)
+            if (reader is null || persistence.HealthSnapshot?.State == PersistenceHealthState.Unhealthy)
             {
-                retainedCoverage = await reader.GetCoverageAsync(cancellationToken).ConfigureAwait(false);
+                var unavailable = DefineRange(range, end, completeFrom: null);
+                return Empty(unavailable, Coverage(unavailable.StartUtc, completeFrom: null));
             }
 
-            RangeDefinition definition = DefineRange(range, end, retainedCoverage?.CompleteFromUtc);
+            var snapshot = await reader.GetSnapshotAsync(retainedCoverage =>
+            {
+                var definition = DefineRange(range, end, retainedCoverage.CompleteFromUtc);
+                var queries = new List<TransferAnalyticsQuery>
+                {
+                    new(definition.StartUtc, definition.EndUtc, definition.BucketWidth, TopCount),
+                };
+                if (definition.ComparisonStartUtc is { } start && definition.ComparisonEndUtc is { } finish)
+                    queries.Add(new(start, finish, definition.BucketWidth, TopCount, IncludeRankings: false));
+                return queries;
+            }, cancellationToken).ConfigureAwait(false);
+            var definition = DefineRange(range, end, snapshot.Coverage.CompleteFromUtc);
             DashboardAnalyticsCoverageDto coverage = Coverage(
                 definition.StartUtc,
-                retainedCoverage?.CompleteFromUtc);
-            if (reader is null || coverage.State == DashboardAnalyticsCoverageState.Unavailable)
+                snapshot.Coverage.CompleteFromUtc);
+            if (coverage.State == DashboardAnalyticsCoverageState.Unavailable)
                 return Empty(definition, coverage);
 
-            PersistedTransferAnalytics selected = await reader.GetAsync(
-                new TransferAnalyticsQuery(
-                    definition.StartUtc,
-                    definition.EndUtc,
-                    definition.BucketWidth,
-                    TopCount),
-                cancellationToken).ConfigureAwait(false);
+            PersistedTransferAnalytics selected = snapshot.Ranges[0];
 
             DashboardAnalyticsComparisonDto? comparison = null;
             if (definition.ComparisonStartUtc is { } comparisonStart
                 && definition.ComparisonEndUtc is { } comparisonEnd)
             {
-                var comparisonCoverage = Coverage(comparisonStart, retainedCoverage!.CompleteFromUtc);
-                PersistedTransferAnalytics comparisonData = await reader.GetAsync(
-                    new TransferAnalyticsQuery(
-                        comparisonStart,
-                        comparisonEnd,
-                        definition.BucketWidth,
-                        TopCount),
-                    cancellationToken).ConfigureAwait(false);
+                var comparisonCoverage = Coverage(comparisonStart, snapshot.Coverage.CompleteFromUtc);
+                PersistedTransferAnalytics comparisonData = snapshot.Ranges[1];
                 comparison = new(
                     comparisonStart,
                     comparisonEnd,
@@ -267,12 +267,6 @@ public sealed class DashboardAnalyticsFacade
             "all" => "all",
             _ => throw new ArgumentException("Range must be one of 24h, 7d, 30d, 90d, 1y, or all.", nameof(value)),
         };
-
-    private static DateTimeOffset Floor(DateTimeOffset value, TimeSpan width)
-    {
-        long ticks = value.UtcTicks;
-        return new DateTimeOffset(ticks - ticks % width.Ticks, TimeSpan.Zero);
-    }
 
     private static DateTimeOffset Ceiling(DateTimeOffset value, TimeSpan width)
     {
