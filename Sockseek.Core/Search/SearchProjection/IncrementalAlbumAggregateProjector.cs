@@ -225,7 +225,7 @@ public sealed class IncrementalAlbumAggregateProjector
 
     public List<AlbumJob> Snapshot()
         => buckets
-            .Where(x => x.UserCount >= search.MinSharesAggregate)
+            .Where(x => x.UserCount >= search.EffectiveMinSharesAggregate)
             .OrderByDescending(x => x.UserCount)
             .ThenBy(x => x.Index)
             .Select(x => SearchResultProjector.CreateAggregateAlbumJob(query, x.Versions.ToList()))
@@ -233,14 +233,14 @@ public sealed class IncrementalAlbumAggregateProjector
 
     public List<SearchViewProjectedAggregateAlbumGroup> SnapshotForSearchView()
         => buckets
-            .Where(bucket => bucket.UserCount >= search.MinSharesAggregate)
+            .Where(bucket => bucket.UserCount >= search.EffectiveMinSharesAggregate)
             .OrderByDescending(bucket => bucket.UserCount)
             .ThenBy(bucket => bucket.Index)
             .Select(ProjectGroup)
             .ToList();
 
     internal SearchViewProjectedAggregateAlbumGroup? SnapshotGroupForSearchView(int index)
-        => index < buckets.Count && buckets[index].UserCount >= search.MinSharesAggregate
+        => index < buckets.Count && buckets[index].UserCount >= search.EffectiveMinSharesAggregate
             ? ProjectGroup(buckets[index])
             : null;
 

@@ -24,7 +24,7 @@ public sealed class SubmissionOptionsStoreTests
         store.SetJobOptions(job.Id, new SubmissionOptionsDto(
             ProfileContext: new Dictionary<string, bool> { ["interactive"] = false },
             DownloadSettings: new DownloadSettingsPatchDto(
-                Transfer: new TransferSettingsPatchDto(MaxStaleTime: 17))));
+                Search: new SearchSettingsPatchDto(MaxStaleTime: 17))));
 
         SubmissionOptionsDto? effective = store.GetOptions(job);
 
@@ -33,7 +33,7 @@ public sealed class SubmissionOptionsStoreTests
         Assert.AreEqual("workflow-output", effective.OutputParentDir);
         Assert.AreEqual(false, effective.ProfileContext?["interactive"]);
         Assert.AreEqual(true, effective.DownloadSettings?.Search?.NoBrowseFolder);
-        Assert.AreEqual(17, effective.DownloadSettings?.Transfer?.MaxStaleTime);
+        Assert.AreEqual(17, effective.DownloadSettings?.Search?.MaxStaleTime);
     }
 
     [TestMethod]
@@ -74,24 +74,24 @@ public sealed class SubmissionOptionsStoreTests
         resolver.SetWorkflowOptions(workflowId, new SubmissionOptionsDto(
             OutputParentDir: "reviewed-output",
             DownloadSettings: new DownloadSettingsPatchDto(
-                Transfer: new TransferSettingsPatchDto(MaxStaleTime: 17))));
+                Search: new SearchSettingsPatchDto(MaxStaleTime: 17))));
         var scope = resolver.CreateScope(workflowId);
         var inherited = new DownloadSettings();
 
         DownloadSettings first = scope.Resolve(inherited, job);
         first.Output.ParentDir = "edited-copy";
-        first.Transfer.MaxStaleTime = 99;
+        first.Search.MaxStaleTime = 99;
         resolver.SetWorkflowOptions(workflowId, new SubmissionOptionsDto(
             OutputParentDir: "later-output",
             DownloadSettings: new DownloadSettingsPatchDto(
-                Transfer: new TransferSettingsPatchDto(MaxStaleTime: 23))));
+                Search: new SearchSettingsPatchDto(MaxStaleTime: 23))));
 
         DownloadSettings reviewed = scope.Resolve(inherited, job);
         DownloadSettings later = resolver.Resolve(inherited, job);
         Assert.AreEqual("reviewed-output", reviewed.Output.ParentDir);
-        Assert.AreEqual(17, reviewed.Transfer.MaxStaleTime);
+        Assert.AreEqual(17, reviewed.Search.MaxStaleTime);
         Assert.AreEqual("later-output", later.Output.ParentDir);
-        Assert.AreEqual(23, later.Transfer.MaxStaleTime);
+        Assert.AreEqual(23, later.Search.MaxStaleTime);
     }
 
     [TestMethod]
@@ -105,24 +105,24 @@ public sealed class SubmissionOptionsStoreTests
         var isolated = new SearchJob("isolated") { WorkflowId = workflowId };
         var options = new SubmissionOptionsDto(OutputParentDir: "workflow-output",
             DownloadSettings: new DownloadSettingsPatchDto(
-                Transfer: new TransferSettingsPatchDto(MaxStaleTime: 17)));
+                Search: new SearchSettingsPatchDto(MaxStaleTime: 17)));
         resolver.SetWorkflowOptions(workflowId, options);
         resolver.SetJobOptions(patched.Id, new SubmissionOptionsDto(OutputParentDir: "item-output"));
         resolver.SetIsolatedJobOptions(isolated.Id, new SubmissionOptionsDto(OutputParentDir: "isolated-output"));
         resolver.SetJobOutputParentDir(patched.Id, "source-output");
         var inherited = new DownloadSettings();
 
-        Assert.AreEqual(17, resolver.Resolve(inherited, ordinary).Transfer.MaxStaleTime);
+        Assert.AreEqual(17, resolver.Resolve(inherited, ordinary).Search.MaxStaleTime);
         DownloadSettings item = resolver.Resolve(inherited, patched);
         Assert.AreEqual("source-output", item.Output.ParentDir);
-        Assert.AreEqual(17, item.Transfer.MaxStaleTime);
+        Assert.AreEqual(17, item.Search.MaxStaleTime);
         DownloadSettings separate = resolver.Resolve(inherited, isolated);
         Assert.AreEqual("isolated-output", separate.Output.ParentDir);
-        Assert.AreEqual(new DownloadSettings().Transfer.MaxStaleTime, separate.Transfer.MaxStaleTime);
+        Assert.AreEqual(new DownloadSettings().Search.MaxStaleTime, separate.Search.MaxStaleTime);
         Assert.AreEqual("workflow-output", resolver.Resolve(inherited, ordinary).Output.ParentDir);
         var detailed = inner.ResolveDetailed(inherited, ordinary,
             request: resolver.Options.GetRequestLayers(ordinary));
         Assert.AreEqual("request", detailed.Provenance["Output.ParentDir"]);
-        Assert.AreEqual("request", detailed.Provenance["Transfer.MaxStaleTime"]);
+        Assert.AreEqual("request", detailed.Provenance["Search.MaxStaleTime"]);
     }
 }

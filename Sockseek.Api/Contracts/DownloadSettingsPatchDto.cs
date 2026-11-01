@@ -25,7 +25,8 @@ public sealed record DownloadSettingsPatchDto(
     YtDlpSettingsPatchDto? YtDlp = null,
     CsvSettingsPatchDto? Csv = null,
     BandcampSettingsPatchDto? Bandcamp = null,
-    ServerPrintOption? PrintOption = null);
+    ServerPrintOption? PrintOption = null,
+    SoundCloudSettingsPatchDto? SoundCloud = null);
 
 public sealed record OutputSettingsPatchDto(
     string? ParentDir = null,
@@ -33,17 +34,19 @@ public sealed record OutputSettingsPatchDto(
     string? InvalidReplaceStr = null,
     bool? WritePlaylist = null,
     bool? WriteIndex = null,
-    bool? HasConfiguredIndex = null,
     string? M3uFilePath = null,
     string? IndexFilePath = null,
     IncompleteAlbumActionSettingsPatchDto? IncompleteAlbumAction = null,
     CollectionPatchDto<string>? OnComplete = null,
     bool? AlbumArtOnly = null,
-    ServerAlbumArtOption? AlbumArtOption = null);
+    ServerAlbumArtOption? AlbumArtOption = null,
+    bool? ClearWriteIndex = null);
 
 public sealed record IncompleteAlbumActionSettingsPatchDto(
     ServerIncompleteAlbumActionKind? Kind = null,
-    string? Path = null);
+    string? Path = null,
+    bool? ClearPath = null,
+    bool? ClearKind = null);
 
 public sealed record SearchSettingsPatchDto(
     FileConditionsPatchDto? NecessaryCond = null,
@@ -65,7 +68,11 @@ public sealed record SearchSettingsPatchDto(
     bool? ArtistMaybeWrong = null,
     bool? IsAggregate = null,
     int? MinSharesAggregate = null,
-    int? AggregateLengthTol = null);
+    int? AggregateLengthTol = null,
+    int? FallbackLevel = null,
+    int? MaxFallbackAttempts = null,
+    int? MaxStaleTime = null,
+    bool? ClearMinSharesAggregate = null);
 
 public sealed record FileConditionsPatchDto(
     int? LengthTolerance = null,
@@ -89,7 +96,8 @@ public sealed record FileConditionsPatchDto(
     bool? ClearMinSampleRate = null,
     bool? ClearMaxSampleRate = null,
     bool? ClearMinBitDepth = null,
-    bool? ClearMaxBitDepth = null);
+    bool? ClearMaxBitDepth = null,
+    bool? ClearLengthTolerance = null);
 
 public sealed record FolderConditionsPatchDto(
     int? MinTrackCount = null,
@@ -127,14 +135,14 @@ public sealed record ExtractionSettingsPatchDto(
     ServerExtractionMode? RequestedMode = null,
     bool? UpgradeToAlbum = null,
     bool? SetAlbumMinTrackCount = null,
-    bool? SetAlbumMaxTrackCount = null);
+    bool? SetAlbumMaxTrackCount = null,
+    bool? ClearRequestedMode = null);
 
 public sealed record TransferSettingsPatchDto(
     int? MaxDownloadRetries = null,
     int? UnknownErrorRetries = null,
     bool? NoIncompleteExt = null,
-    int? AlbumTrackCountMaxRetries = null,
-    int? MaxStaleTime = null);
+    int? AlbumTrackCountMaxRetries = null);
 
 public sealed record SpotifySettingsPatchDto(
     string? ClientId = null,
@@ -164,3 +172,5 @@ public sealed record CsvSettingsPatchDto(
 
 public sealed record BandcampSettingsPatchDto(
     string? HtmlFromFile = null);
+
+public sealed record SoundCloudSettingsPatchDto(string? AuthToken = null);

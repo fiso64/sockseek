@@ -1217,9 +1217,7 @@ public class CliBackendParityTests
 
     private static ProfileCatalog SongLayoutProfileCatalog()
     {
-        var profile = new SettingsProfile { Name = "song-layout" };
-        profile.Download.Add(settings => settings.Output.NameFormat = "from-profile/{filename}",
-            ["Output.NameFormat"]);
+        var profile = new SettingsProfile { Name = "song-layout", Download = new SettingsPatch([new("Output.NameFormat", "from-profile/{filename}")]) };
         return new ProfileCatalog { NamedProfiles = [profile] };
     }
 
@@ -1378,9 +1376,7 @@ public class CliBackendParityTests
 
     private static ProfileCatalog AutomaticAlbumProfileCatalog()
     {
-        var profile = new SettingsProfile { Name = "album-layout" };
-        profile.Download.Add(settings => settings.Output.NameFormat = "{foldername}/from-profile/{filename}",
-            ["Output.NameFormat"]);
+        var profile = new SettingsProfile { Name = "album-layout", Download = new SettingsPatch([new("Output.NameFormat", "{foldername}/from-profile/{filename}")]) };
         return new ProfileCatalog { NamedProfiles = [profile] };
     }
 

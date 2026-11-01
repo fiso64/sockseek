@@ -120,6 +120,7 @@ public sealed class EngineSupervisor : IDisposable
         DownloadSettingsPatchDtoMapper.ApplyTo(
             defaultDownloadSettings,
             this.options.OperatorDownloadSettings);
+        defaultDownloadSettings.DefaultMinSharesAggregate = engineSettings.DefaultMinSharesAggregate;
         var pathContext = new PathVariableContext(ConfigDir: this.options.ConfigDir);
         SharingSettingsValidator.NormalizeAndValidate(engineSettings, pathContext);
         ChatSettingsValidator.NormalizeAndValidate(engineSettings);
@@ -143,34 +144,18 @@ public sealed class EngineSupervisor : IDisposable
         ProfileCatalog profiles,
         PathVariableContext pathContext)
     {
-        var launchPatch = new DownloadSettingsPatch();
-        if (options.LaunchDownloadSettings != null)
-        {
-            launchPatch.Add(
-                settings => DownloadSettingsPatchDtoMapper.ApplyTo(
-                    settings,
-                    options.LaunchDownloadSettings),
-                DownloadSettingsPatchDtoMapper.ExplicitFields(
-                    options.LaunchDownloadSettings));
-        }
-        var operatorPatch = new DownloadSettingsPatch();
-        if (options.OperatorDownloadSettings != null)
-        {
-            operatorPatch.Add(
-                settings => DownloadSettingsPatchDtoMapper.ApplyTo(
-                    settings,
-                    options.OperatorDownloadSettings),
-                DownloadSettingsPatchDtoMapper.ExplicitFields(
-                    options.OperatorDownloadSettings));
-        }
+        SettingsPatch launchPatch = DownloadSettingsPatchDtoMapper.ToCore(options.LaunchDownloadSettings);
+        SettingsPatch operatorPatch = DownloadSettingsPatchDtoMapper.ToCore(options.OperatorDownloadSettings);
         var profilesResolver = new ProfileJobSettingsResolver(
             options.DefaultDownload,
             profiles,
             profiles.ResolveNamedProfiles(options.LaunchProfileNames),
             new SettingsProfile { Name = "<daemon-launch>", Download = launchPatch },
-            normalize: settings => SettingsNormalizer.NormalizeDownloadPaths(
-                settings,
-                pathContext),
+            normalize: settings =>
+            {
+                settings.DefaultMinSharesAggregate = options.Engine.DefaultMinSharesAggregate;
+                SettingsNormalizer.NormalizeDownloadPaths(settings, pathContext);
+            },
             operatorDefault: operatorPatch);
         return new SubmissionOptionsJobSettingsResolver(profilesResolver);
     }
@@ -752,10 +737,14 @@ public sealed class EngineSupervisor : IDisposable
         CancellationToken ct)
     {
         if (request.ArtifactId == null)
+        {
+            var resolved = ResolveExtractInput(new ExtractJobDraftDto(request.Input, request.InputType), request.Options);
+            request = request with { Input = resolved.Input, InputType = resolved.InputType };
             return await SubmitJobAsync(
                 JobRequestMapper.CreateExtractJob(request),
                 request.Options,
                 ct).ConfigureAwait(false);
+        }
         if (inputArtifacts == null)
             throw new InputArtifactUnavailableException(
                 "Input artifacts are unavailable; ordinary inputs remain available.");
@@ -1027,6 +1016,21 @@ public sealed class EngineSupervisor : IDisposable
         return summary;
     }
 
+    private ExtractJobDraftDto ResolveExtractInput(ExtractJobDraftDto draft, SubmissionOptionsDto? options)
+    {
+        if (!string.IsNullOrWhiteSpace(draft.Input)) return draft;
+        DownloadSettings settings = jobSettingsResolver.ResolveDetailed(
+            JobRequestMapper.CreateSettingsContext(draft, allowMissingInput: true),
+            SubmissionOptionsStore.Merge(options, new SubmissionOptionsDto(DownloadSettings: draft.DownloadSettings))).Settings;
+        string? input = settings.Extraction.Input;
+        if (string.IsNullOrWhiteSpace(input)) throw new ArgumentException("input is required for extract jobs");
+        return draft with
+        {
+            Input = input,
+            InputType = draft.InputType ?? settings.Extraction.InputType.ToString(),
+        };
+    }
+
     internal async IAsyncEnumerable<PlannedJobNode> PlanDraftAsync(
         JobDraftDto draft,
         SubmissionOptionsDto? submissionOptions,
@@ -1034,6 +1038,8 @@ public sealed class EngineSupervisor : IDisposable
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(draft);
+        if (draft is ExtractJobDraftDto { ArtifactId: null } extract && string.IsNullOrWhiteSpace(extract.Input))
+            draft = ResolveExtractInput(extract, submissionOptions);
         Job root = JobRequestMapper.CreateJob(draft);
         if (submissionOptions?.WorkflowId is Guid workflowId)
             root.WorkflowId = workflowId;

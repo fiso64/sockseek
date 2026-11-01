@@ -12,6 +12,7 @@ internal static class EffectiveSettingsMapper
         "Preprocess.Regex",
         "Extraction.Input",
         "Spotify.",
+        "SoundCloud.",
         "YouTube.ApiKey",
         "YtDlp.YtdlpArgument",
         "Bandcamp.",
@@ -45,7 +46,8 @@ internal static class EffectiveSettingsMapper
                 !string.IsNullOrEmpty(settings.Spotify.Refresh),
                 !string.IsNullOrEmpty(settings.YouTube.ApiKey),
                 !string.IsNullOrEmpty(settings.YtDlp.YtdlpArgument),
-                !string.IsNullOrEmpty(settings.Bandcamp.HtmlFromFile));
+                !string.IsNullOrEmpty(settings.Bandcamp.HtmlFromFile),
+                !string.IsNullOrEmpty(settings.SoundCloud.AuthToken));
 
     private static DownloadSettingsPatchDto SafeValues(DownloadSettings settings)
         => new(
@@ -54,8 +56,7 @@ internal static class EffectiveSettingsMapper
                 settings.Output.NameFormat,
                 settings.Output.InvalidReplaceStr,
                 settings.Output.WritePlaylist,
-                settings.Output.WriteIndex,
-                settings.Output.HasConfiguredIndex,
+                settings.Output.WriteIndex ?? true,
                 settings.Output.M3uFilePath,
                 settings.Output.IndexFilePath,
                 new IncompleteAlbumActionSettingsPatchDto(
@@ -64,7 +65,7 @@ internal static class EffectiveSettingsMapper
                 OnComplete: null,
                 settings.Output.AlbumArtOnly,
                 settings.Output.AlbumArtOption.ToServer()),
-            Search: ToSearchSettings(settings.Search),
+            Search: ToSearchSettings(settings.ResolveSearchSettings()),
             Skip: new SkipSettingsPatchDto(
                 settings.Skip.SkipExisting,
                 settings.Skip.SkipNotFound,
@@ -94,8 +95,7 @@ internal static class EffectiveSettingsMapper
                 settings.Transfer.MaxDownloadRetries,
                 settings.Transfer.UnknownErrorRetries,
                 settings.Transfer.NoIncompleteExt,
-                settings.Transfer.AlbumTrackCountMaxRetries,
-                settings.Transfer.MaxStaleTime),
+                settings.Transfer.AlbumTrackCountMaxRetries),
             Spotify: null,
             YouTube: new YouTubeSettingsPatchDto(
                 ApiKey: null,
@@ -137,8 +137,11 @@ internal static class EffectiveSettingsMapper
             settings.StrictAlbumQuality,
             settings.ArtistMaybeWrong,
             settings.IsAggregate,
-            settings.MinSharesAggregate,
-            settings.AggregateLengthTol);
+            settings.EffectiveMinSharesAggregate,
+            settings.AggregateLengthTol,
+            settings.FallbackLevel,
+            settings.MaxFallbackAttempts,
+            settings.MaxStaleTime);
 
     private static FileConditionsPatchDto FileConditions(FileConditions conditions)
         => new(

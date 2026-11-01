@@ -53,7 +53,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
 
     public async Task<JobSummaryDto> SubmitExtractJobAsync(SubmitExtractJobRequestDto request, CancellationToken ct = default)
     {
-        SubmitExtractJobRequestDto prepared = await UploadLocalInputIfNeededAsync(request, ct)
+        SubmitExtractJobRequestDto prepared = await PrepareExtractRequestAsync(api, request, ct)
             .ConfigureAwait(false);
         return await SubmitAndSubscribeAsync(
             prepared.Options,
@@ -65,7 +65,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         SubmitExtractJobRequestDto request,
         CancellationToken ct = default)
     {
-        SubmitExtractJobRequestDto prepared = await UploadLocalInputIfNeededAsync(request, ct)
+        SubmitExtractJobRequestDto prepared = await PrepareExtractRequestAsync(api, request, ct)
             .ConfigureAwait(false);
         return await api.CreateJobPreviewAsync(
             new CreateJobPreviewRequestDto(
@@ -140,11 +140,11 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         while (cursor != null);
     }
 
-    private async Task<SubmitExtractJobRequestDto> UploadLocalInputIfNeededAsync(
-        SubmitExtractJobRequestDto request,
+    internal static async Task<SubmitExtractJobRequestDto> PrepareExtractRequestAsync(
+        SockseekApiClient api, SubmitExtractJobRequestDto request,
         CancellationToken ct)
     {
-        if (request.ArtifactId != null || !ShouldUploadLocalInput(request))
+        if (request.Input == null || request.ArtifactId != null || !ShouldUploadLocalInput(request))
             return request;
 
         await using var input = new FileStream(

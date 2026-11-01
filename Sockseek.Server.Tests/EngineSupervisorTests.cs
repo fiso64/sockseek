@@ -349,8 +349,7 @@ public class EngineSupervisorTests
                 new SubmitAlbumSearchJobRequestDto(
                     new AlbumQueryDto("Artist", "Album", "", "", false),
                     Options: new SubmissionOptionsDto(
-                        DownloadSettings: new DownloadSettingsPatchDto(
-                            Search: new SearchSettingsPatchDto(NoBrowseFolder: true)))),
+                        DownloadSettings: new DownloadSettingsPatchDto(Search: new SearchSettingsPatchDto(NoBrowseFolder: true)))),
                 CancellationToken.None);
 
             await WaitForJobStateAsync(supervisor, searchSummary.JobId, ExpectedJobStatus.Succeeded);
@@ -413,13 +412,11 @@ public class EngineSupervisorTests
                         new TrackSearchJobDraftDto(
                             new SongQueryDto("Artist", "Track One", "", "", -1, false),
                             DownloadSettings: new DownloadSettingsPatchDto(
-                                Search: new SearchSettingsPatchDto(NoBrowseFolder: true),
-                                Transfer: new TransferSettingsPatchDto(MaxStaleTime: 111))),
+                                Search: new SearchSettingsPatchDto(NoBrowseFolder: true, MaxStaleTime: 111))),
                         new TrackSearchJobDraftDto(
                             new SongQueryDto("Artist", "Track Two", "", "", -1, false),
                             DownloadSettings: new DownloadSettingsPatchDto(
-                                Search: new SearchSettingsPatchDto(NoBrowseFolder: false),
-                                Transfer: new TransferSettingsPatchDto(MaxStaleTime: 222))),
+                                Search: new SearchSettingsPatchDto(NoBrowseFolder: false, MaxStaleTime: 222))),
                     ]),
                 CancellationToken.None);
 
@@ -438,9 +435,9 @@ public class EngineSupervisorTests
             var first = SearchChildByQuery(supervisor, children, "Track One");
             var second = SearchChildByQuery(supervisor, children, "Track Two");
 
-            Assert.AreEqual(111, first.Config.Transfer.MaxStaleTime);
+            Assert.AreEqual(111, first.Config.Search.MaxStaleTime);
             Assert.IsTrue(first.Config.Search.NoBrowseFolder);
-            Assert.AreEqual(222, second.Config.Transfer.MaxStaleTime);
+            Assert.AreEqual(222, second.Config.Search.MaxStaleTime);
             Assert.IsFalse(second.Config.Search.NoBrowseFolder);
 
             cts.Cancel();
@@ -760,7 +757,7 @@ public class EngineSupervisorTests
         Task runTask = Task.CompletedTask;
         try
         {
-            var profile = CreateProfile("my-interactive", settings => settings.Transfer.MaxStaleTime = 9999999)
+            var profile = CreateProfile("my-interactive", settings => settings.Search.MaxStaleTime = 9999999)
                 with
             { Condition = "interactive && album" };
             var supervisor = CreateSupervisor(musicRoot, outputDir, profiles: new ProfileCatalog
@@ -783,7 +780,7 @@ public class EngineSupervisorTests
 
             var job = supervisor.GetRuntimeJob<SearchJob>(summary.JobId);
             Assert.IsNotNull(job);
-            Assert.AreEqual(9999999, job.Config?.Transfer.MaxStaleTime);
+            Assert.AreEqual(9999999, job.Config?.Search.MaxStaleTime);
             CollectionAssert.Contains(job.Config?.AppliedAutoProfiles?.ToList(), "my-interactive");
 
             cts.Cancel();
@@ -812,7 +809,7 @@ public class EngineSupervisorTests
         {
             SettingsProfile profile = CreateProfile(
                 "aggregate-request",
-                settings => settings.Transfer.MaxStaleTime = 7654) with
+                settings => settings.Search.MaxStaleTime = 7654) with
             { Condition = "aggregate" };
             var supervisor = CreateSupervisor(root, outputDir, profiles: new ProfileCatalog
             {
@@ -833,7 +830,7 @@ public class EngineSupervisorTests
             SearchJob? job = supervisor.GetRuntimeJob<SearchJob>(summary.JobId);
             Assert.IsNotNull(job?.Config);
             CollectionAssert.Contains(job.Config.AppliedAutoProfiles.ToList(), "aggregate-request");
-            Assert.AreEqual(7654, job.Config.Transfer.MaxStaleTime);
+            Assert.AreEqual(7654, job.Config.Search.MaxStaleTime);
 
             cts.Cancel();
             await runTask;
@@ -918,14 +915,14 @@ public class EngineSupervisorTests
             var profile = CreateProfile("album-profile", settings =>
                 {
                     settings.Output.ParentDir = "~/Music/Inbox";
-                    settings.Transfer.MaxStaleTime = 999999;
+                    settings.Search.MaxStaleTime = 999999;
                 })
                 with
             { Condition = "album" };
             var supervisor = CreateSupervisor(
                 musicRoot,
                 outputDir,
-                configureDownload: settings => settings.Transfer.MaxStaleTime = 111,
+                configureDownload: settings => settings.Search.MaxStaleTime = 111,
                 profiles: new ProfileCatalog
                 {
                     AutoProfiles = [profile],
@@ -933,7 +930,7 @@ public class EngineSupervisorTests
                 },
                 launchDownloadSettings: new DownloadSettingsPatchDto(
                     Output: new OutputSettingsPatchDto(ParentDir: launchOutputDir),
-                    Transfer: new TransferSettingsPatchDto(MaxStaleTime: 222)));
+                    Search: new SearchSettingsPatchDto(MaxStaleTime: 222)));
             runTask = supervisor.RunAsync(cts.Token);
 
             var summary = await supervisor.SubmitAlbumSearchJobAsync(
@@ -946,7 +943,7 @@ public class EngineSupervisorTests
             var job = supervisor.GetRuntimeJob<SearchJob>(summary.JobId);
             Assert.IsNotNull(job);
             Assert.AreEqual(Path.GetFullPath(launchOutputDir), job.Config?.Output.ParentDir);
-            Assert.AreEqual(222, job.Config?.Transfer.MaxStaleTime);
+            Assert.AreEqual(222, job.Config?.Search.MaxStaleTime);
 
             cts.Cancel();
             await runTask;
@@ -975,7 +972,7 @@ public class EngineSupervisorTests
         Task runTask = Task.CompletedTask;
         try
         {
-            var named = CreateProfile("long-search", settings => settings.Transfer.MaxStaleTime = 123456);
+            var named = CreateProfile("long-search", settings => settings.Search.MaxStaleTime = 123456);
             var supervisor = CreateSupervisor(musicRoot, outputDir, profiles: new ProfileCatalog
             {
                 NamedProfiles = [named],
@@ -996,7 +993,7 @@ public class EngineSupervisorTests
 
             var job = supervisor.GetRuntimeJob<SearchJob>(summary.JobId);
             Assert.IsNotNull(job);
-            Assert.AreEqual(123456, job.Config?.Transfer.MaxStaleTime);
+            Assert.AreEqual(123456, job.Config?.Search.MaxStaleTime);
 
             cts.Cancel();
             await runTask;
@@ -1025,7 +1022,7 @@ public class EngineSupervisorTests
         Task runTask = Task.CompletedTask;
         try
         {
-            var named = CreateProfile("short-search", settings => settings.Transfer.MaxStaleTime = 111);
+            var named = CreateProfile("short-search", settings => settings.Search.MaxStaleTime = 111);
             var supervisor = CreateSupervisor(musicRoot, outputDir, profiles: new ProfileCatalog
             {
                 NamedProfiles = [named],
@@ -1034,7 +1031,7 @@ public class EngineSupervisorTests
 
             var baseline = new DownloadSettings();
             var cliSettings = SettingsCloner.Clone(baseline);
-            cliSettings.Transfer.MaxStaleTime = 222;
+            cliSettings.Search.MaxStaleTime = 222;
             cliSettings.Search.NecessaryCond.Formats = ["flac"];
 
             var summary = await supervisor.SubmitTrackSearchJobAsync(
@@ -1042,14 +1039,14 @@ public class EngineSupervisorTests
                     new SongQueryDto("Artist", "Track One", "", "", -1, false),
                     Options: new SubmissionOptionsDto(
                         ProfileNames: ["short-search"],
-                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromDifference(baseline, cliSettings))),
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(SettingsPatch.Difference(baseline, cliSettings)))),
                 CancellationToken.None);
 
             await WaitForJobStateAsync(supervisor, summary.JobId, ExpectedJobStatus.Succeeded);
 
             var job = supervisor.GetRuntimeJob<SearchJob>(summary.JobId);
             Assert.IsNotNull(job);
-            Assert.AreEqual(222, job.Config?.Transfer.MaxStaleTime);
+            Assert.AreEqual(222, job.Config?.Search.MaxStaleTime);
             CollectionAssert.AreEqual(new[] { "flac" }, job.Config?.Search.NecessaryCond.Formats);
 
             cts.Cancel();
@@ -1091,8 +1088,7 @@ public class EngineSupervisorTests
                     new SongQueryDto("Artist", "Track One", "", "", -1, false),
                     Options: new SubmissionOptionsDto(
                         ProfileNames: ["no-skip"],
-                        DownloadSettings: new DownloadSettingsPatchDto(
-                            Skip: new SkipSettingsPatchDto(SkipExisting: true)))),
+                        DownloadSettings: new DownloadSettingsPatchDto(Skip: new SkipSettingsPatchDto(SkipExisting: true)))),
                 CancellationToken.None);
 
             await WaitForJobStateAsync(supervisor, summary.JobId, ExpectedJobStatus.Succeeded);
@@ -1140,9 +1136,7 @@ public class EngineSupervisorTests
                     new SongQueryDto("Artist", "Track One", "", "", -1, false),
                     Options: new SubmissionOptionsDto(
                         ProfileNames: ["base-command"],
-                        DownloadSettings: new DownloadSettingsPatchDto(
-                            Output: new OutputSettingsPatchDto(
-                                OnComplete: new CollectionPatchDto<string>(Append: ["-- second"]))))),
+                        DownloadSettings: new DownloadSettingsPatchDto(Output: new OutputSettingsPatchDto(OnComplete: new CollectionPatchDto<string>(Append: ["-- second"]))))),
                 CancellationToken.None);
 
             await WaitForJobStateAsync(supervisor, summary.JobId, ExpectedJobStatus.Succeeded);
@@ -1181,7 +1175,7 @@ public class EngineSupervisorTests
             SettingsProfile profile = CreateProfile("review", settings =>
             {
                 settings.Skip.SkipExisting = false;
-                settings.Transfer.MaxStaleTime = 4321;
+                settings.Search.MaxStaleTime = 4321;
             });
             EngineSupervisor supervisor = CreateSupervisor(
                 root,
@@ -1205,7 +1199,7 @@ public class EngineSupervisorTests
                     options));
 
             Assert.AreEqual(generic ? ServerSearchSettingsBaselineKind.Generic : ServerSearchSettingsBaselineKind.Music, preview.Baseline);
-            Assert.AreEqual(4321, preview.Settings.Values.Transfer?.MaxStaleTime);
+            Assert.AreEqual(4321, preview.Settings.Values.Search?.MaxStaleTime);
             Assert.AreEqual(true, preview.Settings.Values.Skip?.SkipExisting);
             Assert.AreEqual("request", preview.Provenance["Skip.SkipExisting"]);
             CollectionAssert.AreEqual(new[] { "review" }, preview.NamedProfiles.ToArray());
@@ -1229,7 +1223,7 @@ public class EngineSupervisorTests
 
             SearchJob? accepted = supervisor.GetRuntimeJob<SearchJob>(summary.JobId);
             Assert.IsNotNull(accepted?.Config);
-            Assert.AreEqual(preview.Settings.Values.Transfer?.MaxStaleTime, accepted.Config.Transfer.MaxStaleTime);
+            Assert.AreEqual(preview.Settings.Values.Search?.MaxStaleTime, accepted.Config.Search.MaxStaleTime);
             Assert.AreEqual(preview.Settings.Values.Skip?.SkipExisting, accepted.Config.Skip.SkipExisting);
             CollectionAssert.AreEqual(preview.Settings.Values.Search?.NecessaryCond?.Formats?.Replace?.ToArray(), accepted.Config.Search.NecessaryCond.Formats);
         }
@@ -1444,26 +1438,26 @@ public class EngineSupervisorTests
             var query = new SongQueryDto("Artist", "Track", "", "", -1, false);
             SubmissionOptionsDto Options(int? stale = null) => new(WorkflowId: workflowId,
                 DownloadSettings: stale is null ? null
-                    : new DownloadSettingsPatchDto(Transfer: new TransferSettingsPatchDto(MaxStaleTime: stale)));
+                    : new DownloadSettingsPatchDto(Search: new SearchSettingsPatchDto(MaxStaleTime: stale)));
             await supervisor.SubmitSongJobAsync(new(query, Options(111)), CancellationToken.None);
             await using (var planning = supervisor.PlanDraftAsync(
                 new JobListJobDraftDto("review",
                 [new SongJobDraftDto(query, DownloadSettings: new DownloadSettingsPatchDto(
-                    Transfer: new TransferSettingsPatchDto(MaxStaleTime: 333)))]),
+                    Search: new SearchSettingsPatchDto(MaxStaleTime: 333)))]),
                 Options(222), null, CancellationToken.None).GetAsyncEnumerator())
             {
                 Assert.IsTrue(await planning.MoveNextAsync());
-                Assert.AreEqual(222, planning.Current.ReadSettings()!.Transfer.MaxStaleTime);
+                Assert.AreEqual(222, planning.Current.ReadSettings()!.Search.MaxStaleTime);
                 var during = await supervisor.SubmitSongJobAsync(new(query, Options()), CancellationToken.None);
-                Assert.AreEqual(111, supervisor.GetRuntimeJob<SongJob>(during.JobId)!.Config.Transfer.MaxStaleTime);
+                Assert.AreEqual(111, supervisor.GetRuntimeJob<SongJob>(during.JobId)!.Config.Search.MaxStaleTime);
                 Assert.IsTrue(await planning.MoveNextAsync());
-                Assert.AreEqual(333, planning.Current.ReadSettings()!.Transfer.MaxStaleTime);
+                Assert.AreEqual(333, planning.Current.ReadSettings()!.Search.MaxStaleTime);
             }
             var after = await supervisor.SubmitSongJobAsync(new(query, Options()), CancellationToken.None);
-            Assert.AreEqual(111, supervisor.GetRuntimeJob<SongJob>(after.JobId)!.Config.Transfer.MaxStaleTime);
+            Assert.AreEqual(111, supervisor.GetRuntimeJob<SongJob>(after.JobId)!.Config.Search.MaxStaleTime);
             await foreach (var node in supervisor.PlanDraftAsync(
                 new SongJobDraftDto(query), Options(), null, CancellationToken.None))
-                Assert.AreEqual(111, node.ReadSettings()!.Transfer.MaxStaleTime,
+                Assert.AreEqual(111, node.ReadSettings()!.Search.MaxStaleTime,
                     "Review still inherits the workflow's accepted options when it supplies no override.");
         }
         finally { Directory.Delete(directory, recursive: true); }
@@ -1570,9 +1564,7 @@ public class EngineSupervisorTests
         Directory.CreateDirectory(Path.GetDirectoryName(source)!);
         Directory.CreateDirectory(output);
         await File.WriteAllTextAsync(source, "data");
-        var remotePatch = new DownloadSettingsPatch();
-        remotePatch.Add(settings =>
-            settings.Output.NameFormat = "{peer-username}/{filename}");
+        var remotePatch = new SettingsPatch([new("Output.NameFormat", "{peer-username}/{filename}")]);
         var profiles = new ProfileCatalog
         {
             AutoProfiles =
@@ -1886,8 +1878,10 @@ public class EngineSupervisorTests
 
     private static SettingsProfile CreateProfile(string name, Action<DownloadSettings> applyDownload)
     {
-        var patch = new DownloadSettingsPatch();
-        patch.Add(applyDownload);
+        var before = new DownloadSettings();
+        var after = new DownloadSettings();
+        applyDownload(after);
+        var patch = SettingsPatch.Difference(before, after) ?? SettingsPatch.Empty;
         return new SettingsProfile
         {
             Name = name,

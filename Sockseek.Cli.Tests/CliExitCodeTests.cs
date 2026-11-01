@@ -3,6 +3,7 @@ using Sockseek.Cli;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
+using Sockseek.Core.Settings;
 using System.Text.Json;
 
 namespace Tests.Cli;

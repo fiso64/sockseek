@@ -11,7 +11,7 @@
   let dragging = $state(false);
   const placeholders = {
     spotify: 'Paste a Spotify URL…', youtube: 'Paste a YouTube URL…',
-    bandcamp: 'Paste a Bandcamp URL…', musicbrainz: 'Paste a MusicBrainz URL…', soulseek: 'Paste a slsk:// link…',
+    soundcloud: 'Paste a SoundCloud URL…', bandcamp: 'Paste a Bandcamp URL…', musicbrainz: 'Paste a MusicBrainz URL…', soulseek: 'Paste a slsk:// link…',
   };
   function setField(field: 'artist' | 'title' | 'album' | 'source', event: Event): void {
     onchange({ ...draft, [field]: (event.currentTarget as HTMLInputElement).value });

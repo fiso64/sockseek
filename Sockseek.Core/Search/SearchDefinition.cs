@@ -153,8 +153,8 @@ public sealed record SearchProjectionSettingsDefinition(
             FolderConditionsDefinition.From(settings.PreferredFolderCond),
             settings.StrictAlbumQuality,
             settings.DownrankOn,
-            settings.IgnoreOn,
-            settings.MinSharesAggregate,
+            settings.EffectiveIgnoreOn,
+            settings.EffectiveMinSharesAggregate,
             settings.AggregateLengthTol);
 
     public SearchSettings ToSettings()

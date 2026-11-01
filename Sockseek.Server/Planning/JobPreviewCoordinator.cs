@@ -830,7 +830,8 @@ public sealed class JobPreviewCoordinator(
             or { ClientSecret: not null }
             or { Token: not null }
             or { Refresh: not null }
-            || patch?.YouTube?.ApiKey != null;
+            || patch?.YouTube?.ApiKey != null
+            || patch?.SoundCloud?.AuthToken != null;
 
     private static JobDraftDto WithoutCredentials(JobDraftDto draft)
         => draft switch
@@ -891,6 +892,7 @@ public sealed class JobPreviewCoordinator(
             : patch with
             {
                 Spotify = null,
+                SoundCloud = null,
                 YouTube = patch.YouTube == null
                     ? null
                     : patch.YouTube with { ApiKey = null },

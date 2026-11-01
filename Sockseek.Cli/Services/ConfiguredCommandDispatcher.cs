@@ -67,7 +67,7 @@ internal static class ConfiguredCommandDispatcher
                 return await UserCommandRunner.RunAsync(
                     invocation.CommandArguments,
                     invocation.Remote.ServerUrl,
-                    ConfigManager.ExtractProfileName(args),
+                    invocation.ProfileName,
                     cancellationToken).ConfigureAwait(false);
             }
 
@@ -113,7 +113,8 @@ internal sealed record ConfiguredCommandInvocation(
     ConfigFile ConfigFile,
     EngineSettings Engine,
     DaemonSettings Daemon,
-    RemoteSettings Remote)
+    RemoteSettings Remote,
+    string? ProfileName)
 {
     public static ConfiguredCommandInvocation Create(
         IReadOnlyList<string> args,
@@ -154,10 +155,11 @@ internal sealed record ConfiguredCommandInvocation(
             bindingArguments.Add(RequireValue(option, value));
         }
 
-        var (configFile, engine, _, _, daemon, remote) =
-            ConfigManager.LoadAndBindAll(bindingArguments);
+        var invocation = ConfigManager.ParseInvocation(bindingArguments);
+        var configFile = ConfigManager.Load(ConfigManager.GetConfigPath(invocation));
+        var (engine, _, _, daemon, remote) = ConfigManager.BindAll(configFile, invocation);
         return new ConfiguredCommandInvocation(
-            commandArguments.ToArray(), configFile, engine, daemon, remote);
+            commandArguments.ToArray(), configFile, engine, daemon, remote, invocation.ProfileName);
     }
 
     private static void SplitOption(

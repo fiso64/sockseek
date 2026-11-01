@@ -6,7 +6,7 @@ namespace Sockseek.Cli;
 
 internal sealed class CliOutputController : IDisposable
 {
-    private readonly bool _forceHumanLogsToError;
+    private bool _forceHumanLogsToError;
     private readonly Action<CliOutputEvent>? _eventSink;
     private readonly object _liveGate = new();
     private TerminalLiveRenderer? _live;
@@ -40,7 +40,7 @@ internal sealed class CliOutputController : IDisposable
     public static CliOutputController Install(IReadOnlyList<string> args)
     {
         return new CliOutputController(
-            forceHumanLogsToError: ArgsRequestProgressJson(args));
+            forceHumanLogsToError: ArgsRequestProgressJson(args) || ArgsRequestFlag(args, "--detach"));
     }
 
     public static CliOutputController CreateDetached(
@@ -59,19 +59,24 @@ internal sealed class CliOutputController : IDisposable
     }
 
     public static bool ArgsRequestProgressJson(IReadOnlyList<string> args)
+        => ArgsRequestFlag(args, "--progress-json");
+
+    private static bool ArgsRequestFlag(IReadOnlyList<string> args, string flag)
     {
         for (var i = 0; i < args.Count; i++)
         {
             var arg = args[i];
-            if (arg.Equals("--progress-json", StringComparison.OrdinalIgnoreCase))
+            if (arg.Equals(flag, StringComparison.OrdinalIgnoreCase))
                 return i + 1 >= args.Count || !args[i + 1].Equals("false", StringComparison.OrdinalIgnoreCase);
 
-            if (arg.StartsWith("--progress-json=", StringComparison.OrdinalIgnoreCase))
-                return !arg["--progress-json=".Length..].Equals("false", StringComparison.OrdinalIgnoreCase);
+            if (arg.StartsWith(flag + "=", StringComparison.OrdinalIgnoreCase))
+                return !arg[(flag.Length + 1)..].Equals("false", StringComparison.OrdinalIgnoreCase);
         }
 
         return false;
     }
+
+    public void RouteLogsToError(bool enabled) => _forceHumanLogsToError = enabled;
 
     public static bool WouldUseLiveRendering(CliSettings cliSettings)
         => !cliSettings.NoProgress

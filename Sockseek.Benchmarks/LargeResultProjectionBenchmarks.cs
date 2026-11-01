@@ -16,17 +16,19 @@ public class LargeResultProjectionBenchmarks
     private List<(SearchResponse Response, SlFile File)> albumResults = null!;
     private List<AlbumFolder> albumFolders = null!;
     private SearchSettings search = null!;
+    private SearchSettings artworkSearch = null!;
     private SongQuery trackQuery = null!;
     private AlbumQuery albumQuery = null!;
     private ConcurrentDictionary<string, int> userSuccessCounts = null!;
 
-    [Params(20_000)]
+    [Params(10_000, 100_000)]
     public int ResultCount { get; set; }
 
     [GlobalSetup]
     public void Setup()
     {
         search = BenchmarkDataFactory.CreateSearchSettings();
+        artworkSearch = new DownloadSettings { Search = search, Output = new() { AlbumArtOnly = true } }.ResolveSearchSettings();
         trackQuery = BenchmarkDataFactory.TrackQuery;
         albumQuery = BenchmarkDataFactory.AlbumQuery;
         userSuccessCounts = BenchmarkDataFactory.CreateUserSuccessCounts(ResultCount);
@@ -61,6 +63,20 @@ public class LargeResultProjectionBenchmarks
     [Benchmark]
     public int AlbumGroup()
         => SearchResultProjector.AlbumFolders(albumResults, albumQuery, search).Count;
+
+    [Benchmark]
+    public int ArtworkAlbumGroup()
+        => SearchResultProjector.AlbumFolders(albumResults, albumQuery, artworkSearch).Count;
+
+    [Benchmark]
+    public int ArtworkSongSort()
+        => SearchResultProjector.SortedTrackCandidates(
+                trackResults,
+                trackQuery,
+                artworkSearch,
+                userSuccessCounts,
+                useInfer: false)
+            .Count;
 
     [Benchmark]
     public int AggregateGroup()

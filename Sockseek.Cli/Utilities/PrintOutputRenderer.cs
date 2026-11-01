@@ -344,6 +344,7 @@ internal static class ResultPrintFormatter
             var album = new AlbumJob(searchJob.DefaultFolderProjection.Query)
             {
                 Results = folders.Items.ToList(),
+                Config = searchJob.Config,
             };
             PrintAlbumResults(album, printOption, search);
             return;
@@ -365,6 +366,7 @@ internal static class ResultPrintFormatter
         var song = new SongJob(projection.Query)
         {
             Candidates = candidates.ToList(),
+            Config = searchJob.Config,
         };
         PrintSongResults(song, printOption);
     }

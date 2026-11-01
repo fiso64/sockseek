@@ -8,8 +8,6 @@ namespace Sockseek.Core.Settings;
 /// </summary>
 public sealed class PeerRestrictionSettings
 {
-    internal PeerRestrictionSettings ShallowClone() => (PeerRestrictionSettings)MemberwiseClone();
-
     public UploadAccessSettings UploadAccess { get; set; } = new();
 
     public PrivateMessageAccessSettings PrivateMessages { get; set; } = new();
@@ -17,17 +15,24 @@ public sealed class PeerRestrictionSettings
 
 public sealed class UploadAccessSettings
 {
-    internal UploadAccessSettings ShallowClone() => (UploadAccessSettings)MemberwiseClone();
-
     public List<string> BlockedUsernames { get; set; } = [];
 
     public List<string> BlockedIpAddresses { get; set; } = [];
+    [SettingOption("--upload-blocked-user", DefaultProfileOnly = true)]
+    private static void ConfigureUser(SettingWriter changes, string value)
+        => changes.ListItem(nameof(BlockedUsernames), value, item => item);
+
+    [SettingOption("--upload-blocked-ip", DefaultProfileOnly = true)]
+    private static void ConfigureIp(SettingWriter changes, string value)
+        => changes.ListItem(nameof(BlockedIpAddresses), value, item => item);
+
 }
 
 public sealed class PrivateMessageAccessSettings
 {
-    internal PrivateMessageAccessSettings ShallowClone()
-        => (PrivateMessageAccessSettings)MemberwiseClone();
-
     public List<string> BlockedUsernames { get; set; } = [];
+    [SettingOption("--private-message-blocked-user", DefaultProfileOnly = true)]
+    private static void ConfigureUser(SettingWriter changes, string value)
+        => changes.ListItem(nameof(BlockedUsernames), value, item => item);
+
 }

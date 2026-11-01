@@ -82,7 +82,7 @@ internal sealed class DirectoryTransferRunner
                     child,
                     config.Transfer,
                     config.Output.ParentDir,
-                    config.Transfer.MaxStaleTime,
+                    config.Search.MaxStaleTime,
                     ct: child.Cts.Token,
                     parentJob: directory,
                     allowOverwrite: !config.Skip.SkipExisting);

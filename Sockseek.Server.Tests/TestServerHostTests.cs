@@ -34,4 +34,25 @@ public class TestServerHostTests
             Console.SetError(originalError);
         }
     }
+
+    [TestMethod]
+    public async Task Build_UsesAppDirectoryAsContentRootRegardlessOfCwd()
+    {
+        var originalCwd = Directory.GetCurrentDirectory();
+        var tempCwd = Directory.CreateTempSubdirectory("sockseek-cwd-");
+        try
+        {
+            Directory.SetCurrentDirectory(tempCwd.FullName);
+            await using var app = TestServerHost.Build([]);
+
+            Assert.AreEqual(
+                Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory),
+                Path.TrimEndingDirectorySeparator(app.Environment.ContentRootPath));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalCwd);
+            tempCwd.Delete(true);
+        }
+    }
 }

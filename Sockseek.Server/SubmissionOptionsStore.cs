@@ -299,18 +299,10 @@ public sealed class SubmissionOptionsJobSettingsResolver(
         SubmissionOptionsDto? options,
         string? outputParentDir = null)
     {
-        var requestPatch = new DownloadSettingsPatch();
-        var explicitFields = new HashSet<string>(
-            DownloadSettingsPatchDtoMapper.ExplicitFields(options?.DownloadSettings),
-            StringComparer.Ordinal);
-        if (!string.IsNullOrWhiteSpace(options?.OutputParentDir)
-            || outputParentDir != null)
-        {
-            explicitFields.Add("Output.ParentDir");
-        }
-        requestPatch.Add(
-            settings => ApplyTo(settings, options, outputParentDir),
-            explicitFields);
+        var operations = new List<SettingChange>(DownloadSettingsPatchDtoMapper.ToCore(options?.DownloadSettings).Operations);
+        string? parent = outputParentDir ?? options?.OutputParentDir;
+        if (!string.IsNullOrWhiteSpace(parent)) operations.Add(new("Output.ParentDir", parent));
+        var requestPatch = new SettingsPatch(operations);
         return new JobSettingsRequestLayers(
             options?.ProfileNames,
             ToProfileContext(options?.ProfileContext),

@@ -22,7 +22,7 @@ public sealed class JobPlannerTests
             new PeerFileIdentity("ExactPeer", @"Share\notes.txt"), 4, ".txt"));
         var root = new JobList("mixed", [song, remote]);
         var resolved = new DownloadSettings();
-        resolved.Transfer.MaxStaleTime = 3333;
+        resolved.Search.MaxStaleTime = 3333;
         resolved.Output.NameFormat = "{artist}/{filename}";
         resolved.Output.WriteIndex = false;
         resolved.Skip.SkipExisting = false;
@@ -32,10 +32,10 @@ public sealed class JobPlannerTests
         List<PlannedJobNode>? nodes = review ? await CollectAsync(planner.PlanResolvedAsync(root, resolved)) : null;
         if (!review) await planner.PrepareResolvedAsync(root, resolved);
 
-        Assert.AreEqual(3333, root.PlannedSettings!.ReadSettings().Transfer.MaxStaleTime,
+        Assert.AreEqual(3333, root.PlannedSettings!.ReadSettings().Search.MaxStaleTime,
             "Validation's resolved root must not be composed again during preparation.");
-        Assert.AreEqual(2222, song.PlannedSettings!.ReadSettings().Transfer.MaxStaleTime);
-        Assert.AreEqual(2222, remote.PlannedSettings!.ReadSettings().Transfer.MaxStaleTime);
+        Assert.AreEqual(2222, song.PlannedSettings!.ReadSettings().Search.MaxStaleTime);
+        Assert.AreEqual(2222, remote.PlannedSettings!.ReadSettings().Search.MaxStaleTime);
         Assert.AreEqual("{artist}/{filename}", song.Config.Output.NameFormat);
         Assert.AreEqual("", remote.Config.Output.NameFormat);
         CollectionAssert.AreEqual(new[] { "flac" }, song.Config.Search.NecessaryCond.Formats);
@@ -49,7 +49,7 @@ public sealed class JobPlannerTests
         foreach (JobList prepared in new[] { root, (JobList)retained.MaterializeJob() })
         {
             JobPreparer.PrepareSubtree(prepared, new DownloadSettings(), resolver);
-            Assert.AreEqual(3333, prepared.Config.Transfer.MaxStaleTime);
+            Assert.AreEqual(3333, prepared.Config.Search.MaxStaleTime);
             Assert.AreEqual("{artist}/{filename}", prepared[0].PlannedSettings!.ReadSettings().Output.NameFormat);
             Assert.AreEqual("", prepared[1].PlannedSettings!.ReadSettings().Output.NameFormat);
         }
@@ -66,7 +66,7 @@ public sealed class JobPlannerTests
         Job root = extract ? new ExtractJob("Artist - Track", InputType.String)
             { RequestedModeOverride = ExtractionMode.Song } : new JobList("parent", [child]);
         var settings = new DownloadSettings();
-        settings.Transfer.MaxStaleTime = 1234;
+        settings.Search.MaxStaleTime = 1234;
         string[] originalFormats = [.. settings.Search.NecessaryCond.Formats];
         var planner = new JobPlanner(DefaultJobSettingsResolver.Instance);
         await using var nodes = (resolved ? planner.PlanResolvedAsync(root, settings)
@@ -74,19 +74,19 @@ public sealed class JobPlannerTests
         Assert.IsTrue(await nodes.MoveNextAsync());
         PlannedJobNode parent = nodes.Current;
         if (root is ExtractJob source) child = (SongJob)source.Result!;
-        settings.Transfer.MaxStaleTime = 9000;
-        root.Config.Transfer.MaxStaleTime = 8000;
+        settings.Search.MaxStaleTime = 9000;
+        root.Config.Search.MaxStaleTime = 8000;
         root.Config.Search.NecessaryCond.Formats = ["mp3"];
 
         Assert.IsTrue(await nodes.MoveNextAsync());
         PlannedJobNode leaf = nodes.Current;
-        Assert.AreEqual(1234, parent.ReadSettings()!.Transfer.MaxStaleTime);
-        Assert.AreEqual(1234, leaf.ReadSettings()!.Transfer.MaxStaleTime);
-        Assert.AreEqual(1234, child.Config.Transfer.MaxStaleTime);
+        Assert.AreEqual(1234, parent.ReadSettings()!.Search.MaxStaleTime);
+        Assert.AreEqual(1234, leaf.ReadSettings()!.Search.MaxStaleTime);
+        Assert.AreEqual(1234, child.Config.Search.MaxStaleTime);
         CollectionAssert.AreEqual(originalFormats, leaf.ReadSettings()!.Search.NecessaryCond.Formats);
-        child.Config.Transfer.MaxStaleTime = 7000;
-        Assert.AreEqual(1234, leaf.ReadSettings()!.Transfer.MaxStaleTime);
-        Assert.AreEqual(8000, root.Config.Transfer.MaxStaleTime);
+        child.Config.Search.MaxStaleTime = 7000;
+        Assert.AreEqual(1234, leaf.ReadSettings()!.Search.MaxStaleTime);
+        Assert.AreEqual(8000, root.Config.Search.MaxStaleTime);
         Assert.IsFalse(await nodes.MoveNextAsync());
     }
 
@@ -178,7 +178,7 @@ public sealed class JobPlannerTests
             JobSettingsInheritance inheritance = JobSettingsInheritance.None)
         {
             var settings = SettingsCloner.Clone(inherited);
-            settings.Transfer.MaxStaleTime = 2222;
+            settings.Search.MaxStaleTime = 2222;
             return settings;
         }
     }
@@ -342,8 +342,7 @@ public sealed class JobPlannerTests
         await File.WriteAllTextAsync(csv, "artist,title\nTest Artist,Test Track\n");
         try
         {
-            var patch = new DownloadSettingsPatch();
-            patch.Add(settings => settings.Transfer.MaxStaleTime = 4242);
+            var patch = new SettingsPatch([new("Search.MaxStaleTime", 4242)]);
             var profile = new SettingsProfile
             {
                 Name = "csv-song",
@@ -363,7 +362,7 @@ public sealed class JobPlannerTests
 
             PlannedJobNode song = nodes.Single(node => node.Kind == JobSnapshotKind.Song);
             Assert.AreEqual(InputType.CSV, song.SourceInputType);
-            Assert.AreEqual(4242, song.ReadSettings()?.Transfer.MaxStaleTime);
+            Assert.AreEqual(4242, song.ReadSettings()?.Search.MaxStaleTime);
             CollectionAssert.Contains(
                 song.AppliedAutoProfiles.ToList(),
                 "csv-song");
@@ -409,7 +408,7 @@ public sealed class JobPlannerTests
             ExtractorFolderCond = new FolderConditionPatch { RequiredTrackTitles = ["Track"] },
         };
         var inherited = new DownloadSettings();
-        inherited.Transfer.MaxStaleTime = 1234;
+        inherited.Search.MaxStaleTime = 1234;
         var planner = new JobPlanner(DefaultJobSettingsResolver.Instance);
         var nodes = await CollectAsync(planner.PlanAsync(song, inherited));
 
@@ -417,12 +416,12 @@ public sealed class JobPlannerTests
         song.ExtractorCond.Formats![0] = "mp3";
         song.ExtractorFolderCond.RequiredTrackTitles![0] = "Changed";
         var laterSettings = song.PlannedSettings!.ReadSettings();
-        laterSettings.Transfer.MaxStaleTime = 9876;
-        Assert.AreEqual(1234, song.PlannedSettings.ReadSettings().Transfer.MaxStaleTime,
+        laterSettings.Search.MaxStaleTime = 9876;
+        Assert.AreEqual(1234, song.PlannedSettings.ReadSettings().Search.MaxStaleTime,
             "Editing an execution copy must not change its frozen binding.");
         song.PlannedSettings = JobSettingsSnapshot.Capture(laterSettings);
-        inherited.Transfer.MaxStaleTime = 9876;
-        nodes[0].ReadSettings()!.Transfer.MaxStaleTime = 9876;
+        inherited.Search.MaxStaleTime = 9876;
+        nodes[0].ReadSettings()!.Search.MaxStaleTime = 9876;
         SubmissionSpecification exported = CaptureSpecification(nodes);
         exported.Command.ExtractorConditions!.Formats![0] = "ogg";
         exported.Command.ExtractorFolderConditions!.RequiredTrackTitles![0] = "Export edit";
@@ -433,7 +432,7 @@ public sealed class JobPlannerTests
         Assert.AreEqual("Original name", restored.ItemName);
         CollectionAssert.AreEqual(new[] { "flac" }, restored.ExtractorCond!.Formats);
         CollectionAssert.AreEqual(new[] { "Track" }, restored.ExtractorFolderCond!.RequiredTrackTitles);
-        Assert.AreEqual(1234, retained.MaterializeSettings().Transfer.MaxStaleTime);
+        Assert.AreEqual(1234, retained.MaterializeSettings().Search.MaxStaleTime);
     }
 
     [TestMethod]

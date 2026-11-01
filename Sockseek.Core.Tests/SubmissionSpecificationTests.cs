@@ -10,7 +10,7 @@ public sealed class SubmissionSpecificationTests
     public void ReusedSettingsValidationStillChecksEachCommandAndSettingsValue()
     {
         var settings = new DownloadSettings();
-        settings.Transfer.MaxStaleTime = 123;
+        settings.Search.MaxStaleTime = 123;
         var specification = SubmissionSpecification.CreateShallow(
             new SongJob(new SongQuery { Artist = "Artist", Title = "Track" }), settings);
         var parsed = new Dictionary<string, DownloadSettings>(StringComparer.Ordinal);
@@ -19,12 +19,12 @@ public sealed class SubmissionSpecificationTests
             specification with { Command = specification.Command with { SongQuery = null } }, parsed));
         Assert.ThrowsExactly<System.Text.Json.JsonException>(() => SubmissionSpecificationCodec.Serialize(
             specification with { EffectiveSettingsJson = "{\"unknownSetting\":true}" }, parsed));
-        settings.Transfer.MaxStaleTime = 456;
+        settings.Search.MaxStaleTime = 456;
         var other = SubmissionSpecification.CreateShallow(
             new SongJob(new SongQuery { Title = "Other" }), settings);
         Assert.AreEqual(456, SubmissionSpecificationCodec.Deserialize(
-            SubmissionSpecificationCodec.Serialize(other, parsed)).MaterializeSettings().Transfer.MaxStaleTime);
-        Assert.AreEqual(123, SubmissionSpecificationCodec.Deserialize(valid).MaterializeSettings().Transfer.MaxStaleTime);
+            SubmissionSpecificationCodec.Serialize(other, parsed)).MaterializeSettings().Search.MaxStaleTime);
+        Assert.AreEqual(123, SubmissionSpecificationCodec.Deserialize(valid).MaterializeSettings().Search.MaxStaleTime);
         Assert.AreEqual(valid, SubmissionSpecificationCodec.Serialize(specification, parsed));
     }
 
@@ -447,13 +447,14 @@ public sealed class SubmissionSpecificationTests
         var credentials = System.Text.Json.JsonSerializer.Deserialize<DownloadSettings>("""
             {"spotify":{"clientId":"do-not-retain-client-id","clientSecret":"do-not-retain-spotify",
                 "token":"do-not-retain-token","refresh":"do-not-retain-refresh"},
-             "youTube":{"apiKey":"do-not-retain-youtube"}}
+             "youTube":{"apiKey":"do-not-retain-youtube"}, "soundCloud":{"authToken":"do-not-retain-soundcloud"}}
             """, RetainedSettingsCodec.CreateOptions())!;
         settings.Spotify.ClientId = credentials.Spotify.ClientId;
         settings.Spotify.ClientSecret = credentials.Spotify.ClientSecret;
         settings.Spotify.Token = credentials.Spotify.Token;
         settings.Spotify.Refresh = credentials.Spotify.Refresh;
         settings.YouTube.ApiKey = credentials.YouTube.ApiKey;
+        settings.SoundCloud.AuthToken = credentials.SoundCloud.AuthToken;
         settings.Preprocess.Regex = [(new() { Title = "a.*", Artist = "雪" }, new() { Title = "b$1" })];
 
         SubmissionSpecification original = SubmissionSpecification.Create(
@@ -472,7 +473,7 @@ public sealed class SubmissionSpecificationTests
 
         Assert.IsFalse(json.Contains("do-not-retain-", StringComparison.Ordinal));
         CollectionAssert.AreEquivalent(new[] { "spotify.client-id", "spotify.client-secret",
-            "spotify.token", "spotify.refresh", "youtube.api-key" }, restored.CredentialBindings.ToArray());
+            "spotify.token", "spotify.refresh", "youtube.api-key", "soundcloud.auth-token" }, restored.CredentialBindings.ToArray());
         Assert.AreEqual("do-not-retain-client-id", settings.Spotify.ClientId);
         Assert.AreEqual("do-not-retain-spotify", settings.Spotify.ClientSecret);
         Assert.AreEqual("do-not-retain-token", settings.Spotify.Token);
@@ -484,12 +485,14 @@ public sealed class SubmissionSpecificationTests
         current.Spotify.Token = "current-token";
         current.Spotify.Refresh = "current-refresh";
         current.YouTube.ApiKey = "current-key";
+        current.SoundCloud.AuthToken = "current-soundcloud";
         DownloadSettings rebound = restored.MaterializeSettings(current);
         Assert.AreEqual(current.Spotify.ClientId, rebound.Spotify.ClientId);
         Assert.AreEqual(current.Spotify.ClientSecret, rebound.Spotify.ClientSecret);
         Assert.AreEqual(current.Spotify.Token, rebound.Spotify.Token);
         Assert.AreEqual(current.Spotify.Refresh, rebound.Spotify.Refresh);
         Assert.AreEqual(current.YouTube.ApiKey, rebound.YouTube.ApiKey);
+        Assert.AreEqual(current.SoundCloud.AuthToken, rebound.SoundCloud.AuthToken);
         Assert.AreEqual("sha256:abc", restored.SourceRevision?.Digest);
         Assert.AreEqual(2, restoredRoot.Jobs.Count);
         var restoredRemote = (RemoteFileJob)restoredRoot.Jobs[1];

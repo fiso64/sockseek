@@ -228,7 +228,7 @@ public sealed class ExactFileTransferRunnerTests
             var client = new MockSoulseekClient([Response(target.Username, target.Filename)]);
             var (runner, _, _) = CreateRunner(client, files);
             var settings = new TransferSettings { NoIncompleteExt = true };
-            copying = runner.DownloadFile(target, copy, new RemoteFileJob(target), settings, root, settings.MaxStaleTime);
+            copying = runner.DownloadFile(target, copy, new RemoteFileJob(target), settings, root, 30_000);
             Assert.IsFalse(copying.IsCompleted);
             Assert.IsFalse(failed.IsCompleted);
             // Neither queued update may occupy the spare I/O worker while
@@ -333,10 +333,10 @@ public sealed class ExactFileTransferRunnerTests
             var settings = new TransferSettings { NoIncompleteExt = noIncompleteExtension };
             var songOutcome = await runner.DownloadFile(
                 target, Path.Combine(root, "song.bin"), song, settings, root,
-                settings.MaxStaleTime, publishToDuplicateCache: false);
+                30_000, publishToDuplicateCache: false);
             var remoteOutcome = await runner.DownloadFile(
                 target, Path.Combine(root, "remote.bin"), remote, settings, root,
-                settings.MaxStaleTime, publishToDuplicateCache: false);
+                30_000, publishToDuplicateCache: false);
 
             Assert.AreEqual(ExactFileTransferStatus.Completed, songOutcome.Status);
             Assert.AreEqual(ExactFileTransferStatus.Completed, remoteOutcome.Status);
@@ -378,7 +378,7 @@ public sealed class ExactFileTransferRunnerTests
         {
             await Assert.ThrowsExactlyAsync<SoulseekClientException>(() => runner.DownloadFile(
                 target, Path.Combine(root, "file.bin"), owner, settings, root,
-                settings.MaxStaleTime, publishToDuplicateCache: false));
+                30_000, publishToDuplicateCache: false));
 
             Assert.AreEqual(3, client.DownloadCallCount);
             Assert.AreEqual(0, active.ActiveDownloads.Count());
@@ -403,7 +403,7 @@ public sealed class ExactFileTransferRunnerTests
         {
             await Assert.ThrowsExactlyAsync<UserNotFoundException>(() => runner.DownloadFile(
                 target, Path.Combine(root, "file.bin"), owner, settings, root,
-                settings.MaxStaleTime, publishToDuplicateCache: false));
+                30_000, publishToDuplicateCache: false));
 
             Assert.AreEqual(1, client.DownloadCallCount);
             Assert.AreEqual(0, active.ActiveDownloads.Count());
@@ -438,7 +438,7 @@ public sealed class ExactFileTransferRunnerTests
             await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => runner.DownloadFile(
                 target, Path.Combine(root, "file.bin"), owner,
                 new TransferSettings { NoIncompleteExt = true }, root,
-                new TransferSettings().MaxStaleTime, publishToDuplicateCache: false));
+                30_000, publishToDuplicateCache: false));
 
             Assert.IsNotNull(failed);
             Assert.AreEqual(TransferFailureReason.PeerFailure, failed.Reason);
@@ -485,7 +485,7 @@ public sealed class ExactFileTransferRunnerTests
             await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => runner.DownloadFile(
                 target, Path.Combine(root, "file.bin"), owner,
                 new TransferSettings { NoIncompleteExt = true }, root,
-                new TransferSettings().MaxStaleTime, cancellation.Token,
+                30_000, cancellation.Token,
                 publishToDuplicateCache: false));
 
             Assert.IsNotNull(cancelled);
@@ -532,7 +532,7 @@ public sealed class ExactFileTransferRunnerTests
             await Assert.ThrowsExactlyAsync<IOException>(() => runner.DownloadFile(
                 target, Path.Combine(root, "file.bin"), owner,
                 settings, root,
-                new TransferSettings().MaxStaleTime, publishToDuplicateCache: false));
+                30_000, publishToDuplicateCache: false));
 
             Assert.IsNotNull(failed);
             Assert.AreEqual(target.Size, owner.BytesTransferred);
@@ -566,7 +566,7 @@ public sealed class ExactFileTransferRunnerTests
             System.IO.File.WriteAllBytes(original, new byte[checked((int)target.Size!.Value)]);
             await files.WithCacheAsync(cache => { cache.Publish(original, target); return true; });
             var outcome = await runner.DownloadFile(target, copy, song, settings, root,
-                settings.MaxStaleTime, publishToDuplicateCache: publishCopy);
+                30_000, publishToDuplicateCache: publishCopy);
             Assert.AreEqual(ExactFileTransferStatus.Completed, outcome.Status);
             Assert.AreEqual(0, client.DownloadCallCount);
             Assert.AreEqual(target.Size, new FileInfo(copy).Length);
@@ -638,7 +638,7 @@ public sealed class ExactFileTransferRunnerTests
                 new RemoteFileJob(firstTarget),
                 settings,
                 root,
-                settings.MaxStaleTime,
+                30_000,
                 allowOverwrite: true,
                 protectPublishedOutput: true);
             await firstEntered.Task;
@@ -648,7 +648,7 @@ public sealed class ExactFileTransferRunnerTests
                 new RemoteFileJob(secondTarget),
                 settings,
                 root,
-                settings.MaxStaleTime,
+                30_000,
                 allowOverwrite: true,
                 protectPublishedOutput: true);
 
@@ -679,9 +679,9 @@ public sealed class ExactFileTransferRunnerTests
         try
         {
             Assert.AreEqual(ExactFileTransferStatus.Completed, (await runner.DownloadFile(target, path,
-                new RemoteFileJob(target), settings, root, settings.MaxStaleTime)).Status);
+                new RemoteFileJob(target), settings, root, 30_000)).Status);
             Assert.AreEqual(ExactFileTransferStatus.AlreadyExists, (await runner.DownloadFile(target, path,
-                new RemoteFileJob(target), settings, root, settings.MaxStaleTime, allowOverwrite: false)).Status);
+                new RemoteFileJob(target), settings, root, 30_000, allowOverwrite: false)).Status);
             Assert.AreEqual(1, client.DownloadCallCount);
             Assert.AreEqual(target.Size, new FileInfo(path).Length);
         }

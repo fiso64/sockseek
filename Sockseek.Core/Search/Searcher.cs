@@ -199,6 +199,7 @@ public partial class Searcher : IDisposable
         CancellationToken ct, Action? onSearch = null,
         Action<FileCandidate>? onFastSearchCandidate = null)
     {
+        search = song.Config?.ResolveSearchSettings(search) ?? search;
         var session = new SearchSession(song.Id, timeProvider, song.Query.ToString(noInfo: true));
         bool readOnly = song.Config?.PrintResults == true;
         StartObservation(song, session, search);
@@ -270,6 +271,7 @@ public partial class Searcher : IDisposable
     // a mixed-quality folder into an apparently complete matching folder.
     public async Task<JobOutcome?> SearchAlbum(AlbumJob job, SearchSettings search, ResponseData responseData, CancellationToken ct)
     {
+        search = job.Config?.ResolveSearchSettings(search) ?? search;
         var searchJob = new SearchJob(job.Query);
         var outcome = await Search(searchJob, search, responseData, ct, phaseOwner: job);
         if (outcome.TerminalOutcome is JobTerminalOutcome.Failed or JobTerminalOutcome.Cancelled)
@@ -286,6 +288,7 @@ public partial class Searcher : IDisposable
     // Populates job.Songs: one SongJob per distinct inferred track version found.
     public async Task<JobOutcome?> SearchAggregate(AggregateJob job, SearchSettings search, ResponseData responseData, CancellationToken ct)
     {
+        search = job.Config?.ResolveSearchSettings(search) ?? search;
         var session = new SearchSession(job.Id, timeProvider, job.Query.ToString(noInfo: true));
         bool readOnly = job.Config?.PrintResults == true;
         StartObservation(job, session, search);
@@ -326,6 +329,7 @@ public partial class Searcher : IDisposable
     // Returns new AlbumJobs (one per distinct album version found on the network).
     public async Task<(List<AlbumJob> Albums, JobOutcome? Outcome)> SearchAggregateAlbum(AlbumAggregateJob job, SearchSettings search, ResponseData responseData, CancellationToken ct)
     {
+        search = job.Config?.ResolveSearchSettings(search) ?? search;
         var searchJob = new SearchJob(job.Query);
         var outcome = await Search(searchJob, search, responseData, ct, phaseOwner: job);
         if (outcome.TerminalOutcome is JobTerminalOutcome.Failed or JobTerminalOutcome.Cancelled)
@@ -654,7 +658,7 @@ public partial class Searcher : IDisposable
         SearchSettings search,
         int minShares = -1)
     {
-        if (minShares == -1) minShares = search.MinSharesAggregate;
+        if (minShares == -1) minShares = search.EffectiveMinSharesAggregate;
 
         SongQuery infer((SearchResponse r, Soulseek.File f) x)
         {
@@ -715,87 +719,21 @@ public partial class Searcher : IDisposable
         Action<SearchResponse> responseHandler, SearchSettings search,
         CancellationToken? ct = null, Action? onSearch = null, Job? ownerJob = null)
     {
-        bool artist = query.Artist.Length > 0;
-        bool title = query.Title.Length > 0;
-        bool album = query.Album.Length > 0;
-
-        string searchStr = GetSearchString(query, isAlbum: false);
-        var searchTasks = new List<Task>();
-        bool noRemoveSpecialChars = search.NoRemoveSpecialChars;
-
-        var defaultOpts = getSearchOptions(search.SearchTimeout, search.NecessaryCond, search.PreferredCond);
-        searchTasks.Add(DoSearch(searchStr, defaultOpts, responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
-
-        if (searchStr.RemoveDiacriticsIfExist(out string noDiacr) && !query.ArtistMaybeWrong)
-            searchTasks.Add(DoSearch(noDiacr, defaultOpts, responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
-
-        await Task.WhenAll(searchTasks);
-
-        if (session.ResultCount == 0 && query.ArtistMaybeWrong && title)
+        var batches = SearchAttemptPlanner.Create(query, search);
+        for (int i = 0; i < batches.Count; i++)
         {
-            var inferred = InferSongQuery(query.Title, new SongQuery());
-            var cond = new FileConditions(search.NecessaryCond) { StrictTitle = inferred.Title == query.Title, StrictArtist = false };
-            var opts = getSearchOptions(Math.Min(search.SearchTimeout, 5000), cond, search.PreferredCond);
-            searchTasks.Add(DoSearch($"{inferred.Artist} {inferred.Title}", opts, responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
+            // Track execution counts admitted matches; raw album/user discovery
+            // keeps its existing collection semantics while applying fallbacks.
+            if (i > 0 && session.ResultCount != 0) break;
+            await Task.WhenAll(batches[i].Select(attempt => DoSearch(
+                attempt.Query,
+                getSearchOptions(attempt.Timeout, attempt.Conditions, search.PreferredCond),
+                responseHandler, ct, onSearch, ownerJob)));
         }
-
-        if (search.DesperateSearch)
-        {
-            await Task.WhenAll(searchTasks);
-
-            if (session.ResultCount == 0 && !query.ArtistMaybeWrong)
-            {
-                if (artist && album && title)
-                {
-                    var cond = new FileConditions(search.NecessaryCond) { StrictTitle = true, StrictAlbum = true };
-                    searchTasks.Add(DoSearch($"{query.Artist} {query.Album}",
-                        getSearchOptions(Math.Min(search.SearchTimeout, 5000), cond, search.PreferredCond),
-                        responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
-                }
-                if (artist && title && query.Length != -1 && search.NecessaryCond.LengthTolerance != -1)
-                {
-                    var cond = new FileConditions(search.NecessaryCond) { LengthTolerance = -1, StrictTitle = true, StrictArtist = true };
-                    searchTasks.Add(DoSearch($"{query.Artist} {query.Title}",
-                        getSearchOptions(Math.Min(search.SearchTimeout, 5000), cond, search.PreferredCond),
-                        responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
-                }
-            }
-
-            await Task.WhenAll(searchTasks);
-
-            if (session.ResultCount == 0)
-            {
-                var q2 = query.ArtistMaybeWrong ? InferSongQuery(query.Title, new SongQuery()) : query;
-
-                if (query.Album.Length > 3 && album)
-                {
-                    var cond = new FileConditions(search.NecessaryCond)
-                    { StrictAlbum = true, StrictTitle = !query.ArtistMaybeWrong, StrictArtist = !query.ArtistMaybeWrong, LengthTolerance = -1 };
-                    searchTasks.Add(DoSearch(query.Album, getSearchOptions(Math.Min(search.SearchTimeout, 5000), cond, search.PreferredCond),
-                        responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
-                }
-                if (q2.Title.Length > 3 && artist)
-                {
-                    var cond = new FileConditions(search.NecessaryCond)
-                    { StrictTitle = !query.ArtistMaybeWrong, StrictArtist = !query.ArtistMaybeWrong, LengthTolerance = -1 };
-                    searchTasks.Add(DoSearch(q2.Title, getSearchOptions(Math.Min(search.SearchTimeout, 5000), cond, search.PreferredCond),
-                        responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
-                }
-                if (q2.Artist.Length > 3 && title)
-                {
-                    var cond = new FileConditions(search.NecessaryCond)
-                    { StrictTitle = !query.ArtistMaybeWrong, StrictArtist = !query.ArtistMaybeWrong, LengthTolerance = -1 };
-                    searchTasks.Add(DoSearch(q2.Artist, getSearchOptions(Math.Min(search.SearchTimeout, 5000), cond, search.PreferredCond),
-                        responseHandler, noRemoveSpecialChars, ct, onSearch, ownerJob));
-                }
-            }
-        }
-
-        await Task.WhenAll(searchTasks);
     }
 
-    private async Task DoSearch(string search, SearchOptions opts, Action<SearchResponse> rHandler,
-        bool noRemoveSpecialChars, CancellationToken? ct = null, Action? onSearch = null, Job? ownerJob = null)
+    private async Task DoSearch(SearchQuery query, SearchOptions opts, Action<SearchResponse> rHandler,
+        CancellationToken? ct = null, Action? onSearch = null, Job? ownerJob = null)
     {
         await rateSemaphore.WaitAsync(
             () =>
@@ -810,34 +748,12 @@ public partial class Searcher : IDisposable
                 searchEvents.RaiseSearchResumed();
             },
             ct ?? CancellationToken.None);
-        search = CleanSearchString(search, !noRemoveSpecialChars);
-        var q = SearchQuery.FromText(search);
         ownerJob?.UpdateActivity(JobActivityPhase.Searching);
         onSearch?.Invoke();
-        await SoulseekSearchRunner.RunAsync(client, q, opts, rHandler, ct ?? CancellationToken.None, logger);
+        await SoulseekSearchRunner.RunAsync(client, query, opts, rHandler, ct ?? CancellationToken.None, logger);
     }
 
-    private static string GetSearchString(SongQuery query, bool isAlbum)
-    {
-        if (isAlbum)
-        {
-            if (query.Album.Length > 0)
-                return (query.Artist + " " + query.Album).Trim();
-            if (query.Title.Length > 0)
-                return (query.Artist + " " + query.Title).Trim();
-            return query.Artist.Trim();
-        }
-        else
-        {
-            if (query.Title.Length > 0)
-                return (query.Artist + " " + query.Title).Trim();
-            else if (query.Album.Length > 0)
-                return (query.Artist + " " + query.Album).Trim();
-            return query.Artist.Trim();
-        }
-    }
-
-    private static string CleanSearchString(string str, bool removeSpecialChars)
+    internal static string CleanSearchString(string str, bool removeSpecialChars)
     {
         str = str.ToLower();
         string old;

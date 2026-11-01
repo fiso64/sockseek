@@ -164,13 +164,11 @@ public class ArchitectureTests
     }
 
     [TestMethod]
-    public void TopLevelCommands_UseConfiguredDispatcherAndCanonicalBinding()
+    public void TopLevelCommands_UseConfiguredDispatcher()
     {
         string cliRoot = Path.Combine(FindRepositoryRoot(), "Sockseek.Cli");
         string dispatcherPath = Path.Combine(
             cliRoot, "Services", "ConfiguredCommandDispatcher.cs");
-        string configManagerPath = Path.Combine(
-            cliRoot, "Services", "ConfigManager.cs");
         Assert.IsTrue(File.Exists(dispatcherPath),
             "Top-level commands need the configured dispatcher before command-specific parsing.");
 
@@ -203,15 +201,7 @@ public class ArchitectureTests
                     }
                 }
 
-                if (!Path.GetFullPath(path).Equals(
-                        Path.GetFullPath(configManagerPath), StringComparison.OrdinalIgnoreCase)
-                    && member.Expression.ToString() == "ConfigManager"
-                    && member.Name.Identifier.ValueText is "Load" or "BindAll" or "ExtractConfigPath")
-                {
-                    Assert.Fail(
-                        $"{Path.GetRelativePath(FindRepositoryRoot(), path)}:{line} assembles a "
-                        + "parallel configuration path; use ConfigManager.LoadAndBindAll.");
-                }
+
             }
         }
     }

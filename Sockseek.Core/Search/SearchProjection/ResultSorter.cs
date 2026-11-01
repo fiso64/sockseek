@@ -203,11 +203,11 @@ public static partial class ResultSorter
     internal sealed class SortKeyContext
     {
         private readonly Lazy<Dictionary<(string Username, string Filename), InferredResultGroup>>? infQueriesAndCounts;
-        private readonly string strictTitle;
-        private readonly string strictArtist;
+        private readonly string[] strictTitle;
+        private readonly string[] strictArtist;
         private readonly string strictAlbum;
-        private readonly string fuzzyTitle;
-        private readonly string fuzzyArtist;
+        private readonly string[] fuzzyTitle;
+        private readonly string[] fuzzyArtist;
         private readonly string fuzzyAlbum;
         private readonly FileConditions necessaryCond;
         private readonly FileConditions preferredCond;
@@ -232,11 +232,11 @@ public static partial class ResultSorter
             AlbumMode = albumMode;
             this.ignoreStringSortConditions = ignoreStringSortConditions;
             this.necessaryConditionEvaluator = necessaryConditionEvaluator;
-            strictTitle = FileConditions.StrictStringPreprocess(query.Title, removeSlash: true);
-            strictArtist = FileConditions.StrictStringPreprocess(query.Artist, removeSlash: true);
+            strictTitle = QueryMatching.Titles(query.Title).Select(value => FileConditions.StrictStringPreprocess(value, removeSlash: true)).ToArray();
+            strictArtist = QueryMatching.Artists(query.Artist).Select(value => FileConditions.StrictStringPreprocess(value, removeSlash: true)).ToArray();
             strictAlbum = FileConditions.StrictStringPreprocess(query.Album, removeSlash: true);
-            fuzzyTitle = FileConditions.FuzzyPhrasePreprocess(query.Title);
-            fuzzyArtist = FileConditions.FuzzyPhrasePreprocess(query.Artist);
+            fuzzyTitle = QueryMatching.Titles(query.Title).Select(value => FileConditions.FuzzyPhrasePreprocess(value)).ToArray();
+            fuzzyArtist = QueryMatching.Artists(query.Artist).Select(value => FileConditions.FuzzyPhrasePreprocess(value)).ToArray();
             fuzzyAlbum = FileConditions.FuzzyPhrasePreprocess(query.Album);
             necessaryCond = ignoreStringSortConditions ? WithoutStringConditions(search.NecessaryCond) : search.NecessaryCond;
             // Ranking may ignore strings; public facts must retain every configured
@@ -323,18 +323,18 @@ public static partial class ResultSorter
             bool? albumStringMatch = null;
             bool? artistStringMatch = null;
             bool matchesAlbum() => albumStringMatch ??= StrictStringPrepared(getStrictDirectoryName(), strictAlbum);
-            bool matchesArtist() => artistStringMatch ??= StrictStringPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false);
+            bool matchesArtist() => artistStringMatch ??= FileConditions.StringMatchesAnyPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false);
 
             bool strictTitleMatch = !preferredCond.StrictTitle || strictTitle.Length == 0
-                || StrictStringPrepared(getStrictFilenameNoExt(), strictTitle);
+                || FileConditions.StringMatchesAnyPrepared(getStrictFilenameNoExt(), strictTitle);
             bool fuzzyTitleMatch = ignoreStringSortConditions || !preferredCond.StrictTitle || fuzzyTitle.Length == 0 || strictTitleMatch
-                || FuzzyPhrasePrepared(getFuzzyFilenameNoExt(), fuzzyTitle);
+                || FileConditions.StringMatchesAnyPrepared(getFuzzyFilenameNoExt(), fuzzyTitle, boundarySkipWs: false);
             bool strictAlbumMatch = !preferredCond.StrictAlbum || strictAlbum.Length == 0 || matchesAlbum();
             bool fuzzyAlbumMatch = ignoreStringSortConditions || !preferredCond.StrictAlbum || fuzzyAlbum.Length == 0 || strictAlbumMatch
                 || FuzzyPhrasePrepared(getFuzzyDirectoryName(), fuzzyAlbum);
             bool strictArtistMatch = !preferredCond.StrictArtist || strictArtist.Length == 0 || matchesArtist();
             bool fuzzyArtistMatch = ignoreStringSortConditions || !preferredCond.StrictArtist || fuzzyArtist.Length == 0 || strictArtistMatch
-                || FuzzyPhrasePrepared(getFuzzyFullFilename(), fuzzyArtist, boundarySkipWs: false);
+                || FileConditions.StringMatchesAnyPrepared(getFuzzyFullFilename(), fuzzyArtist, boundarySkipWs: false);
 
             bool lengthToleranceMatch = preferredCond.LengthToleranceSatisfies(input.Length, Query.Length);
             bool formatMatch = preferredCond.FormatSatisfies(filename);
@@ -378,7 +378,7 @@ public static partial class ResultSorter
                 (userSuccessCount ?? UserSuccessCounts.GetValueOrDefault(input.Username, 0)) > Search.DownrankOn,
                 necessaryConditionsMet,
                 preferredUserConditionsMet,
-                (input.Length != null && input.Length > 0) || Search.PreferredCond.AcceptNoLength,
+                Search.AudioConditionsIgnored || (input.Length != null && input.Length > 0) || Search.PreferredCond.AcceptNoLength,
                 !UseBracketCheck || CheapBracketCheck(queryTitleAllowsBrackets, filename),
                 ignoreStringSortConditions || strictTitleMatch,
                 fuzzyTitleMatch,
@@ -394,12 +394,12 @@ public static partial class ResultSorter
                 rankingPreferencesMet,
                 input.HasFreeUploadSlot ?? false,
                 (input.UploadSpeed ?? -1) / 1024 / 650,
-                ignoreStringSortConditions || AlbumMode || strictTitle.Length == 0 || StrictStringPrepared(getStrictFullFilename(), strictTitle),
+                ignoreStringSortConditions || AlbumMode || strictTitle.Length == 0 || FileConditions.StringMatchesAnyPrepared(getStrictFullFilename(), strictTitle),
                 ignoreStringSortConditions || !AlbumMode || strictAlbum.Length == 0 || matchesAlbum(),
                 ignoreStringSortConditions || strictArtist.Length == 0 || matchesArtist(),
                 UseInfer ? getInferred().Count : 0,
                 (input.UploadSpeed ?? -1) / 1024 / 350,
-                (input.BitRate ?? 0) / 80,
+                Search.AudioConditionsIgnored ? 0 : (input.BitRate ?? 0) / 80,
                 StableTieBreaker(input.Username, filename),
                 new SearchConditionFacts(necessaryConditionsMet, preferredConditionsMet,
                     satisfiedPreferredConditions, configuredPreferredConditions));

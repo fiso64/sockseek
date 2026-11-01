@@ -46,6 +46,7 @@ public enum ServerInputType
     List = 5,
     Soulseek = 6,
     MusicBrainz = 7,
+    SoundCloud = 8,
     None = -1,
 }
 

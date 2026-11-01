@@ -42,12 +42,12 @@
   let settingsLoading = $state(false);
   let settingsError = $state<Error | null>(null);
   let settingsRetry = $state(0);
-  let downloadCapabilities = $derived({ albumFolderEnrichment: draft.choice !== 'song' && draft.choice !== 'soulseek', playlistOutput: ['spotify', 'youtube', 'bandcamp', 'musicbrainz', 'csv', 'list'].includes(draft.choice), nameFormat: true });
+  let downloadCapabilities = $derived({ albumFolderEnrichment: draft.choice !== 'song' && draft.choice !== 'soulseek', playlistOutput: ['spotify', 'youtube', 'soundcloud', 'bandcamp', 'musicbrainz', 'csv', 'list'].includes(draft.choice), nameFormat: true });
   let downloadPatch = $derived(downloadValues && downloadBaseline ? buildDownloadOptionsPatch(downloadValues, downloadBaseline, downloadCapabilities) : {});
   let downloadCustomized = $derived(Object.keys(downloadPatch).length > 0);
   let csvMapping = $state<Schema<'CsvSettingsPatchDto'>>({});
   let importOptions = $state<ImportOptions>(createImportOptions());
-  let hasImportOptions = $derived(['spotify', 'youtube', 'bandcamp', 'musicbrainz', 'csv', 'list'].includes(draft.choice));
+  let hasImportOptions = $derived(['spotify', 'youtube', 'soundcloud', 'bandcamp', 'musicbrainz', 'csv', 'list'].includes(draft.choice));
   let fileName = $state('');
   let uploading = $state(false);
   let error = $state<Error | null>(null);

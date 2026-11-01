@@ -11,7 +11,7 @@ it('uses daemon values rather than prototype defaults and reports an incomplete 
     values: { skip: { skipExisting: false }, search: { noBrowseFolder: true }, output: { parentDir: '/downloads', nameFormat: '', writePlaylist: true } },
     onCompleteCommandCount: 0, regexRuleCount: 0, spotifyClientIdConfigured: false, spotifyClientSecretConfigured: false,
     spotifyTokenConfigured: false, spotifyRefreshConfigured: false, youTubeApiKeyConfigured: false,
-    ytDlpArgumentConfigured: false, bandcampHtmlFileConfigured: false,
+    ytDlpArgumentConfigured: false, bandcampHtmlFileConfigured: false, soundCloudTokenConfigured: false,
   };
   expect(downloadOptionsFromResolved(resolved)).toEqual({ skipExisting: false, loadFullAlbumFolder: false, outputParentDir: '/downloads', nameFormat: '', writePlaylist: true });
   expect(() => downloadOptionsFromResolved({ ...resolved, values: {} })).toThrow('incomplete effective download settings');
@@ -39,7 +39,7 @@ it('keeps mixed selection defaults unset until explicitly changed', () => {
     onCompleteCommandCount: 0, regexRuleCount: 0, spotifyClientIdConfigured: false,
     spotifyClientSecretConfigured: false, spotifyTokenConfigured: false,
     spotifyRefreshConfigured: false, youTubeApiKeyConfigured: false,
-    ytDlpArgumentConfigured: false, bandcampHtmlFileConfigured: false,
+    ytDlpArgumentConfigured: false, bandcampHtmlFileConfigured: false, soundCloudTokenConfigured: false,
   });
   const defaults = searchDownloadOptionDefaults({ revision: 3, variants: [
     { jobKind: 'remote-directory', settings: settings(true) },
@@ -61,7 +61,7 @@ it('applies the album folder option to directories even beside exact files', () 
     onCompleteCommandCount: 0, regexRuleCount: 0, spotifyClientIdConfigured: false,
     spotifyClientSecretConfigured: false, spotifyTokenConfigured: false,
     spotifyRefreshConfigured: false, youTubeApiKeyConfigured: false,
-    ytDlpArgumentConfigured: false, bandcampHtmlFileConfigured: false,
+    ytDlpArgumentConfigured: false, bandcampHtmlFileConfigured: false, soundCloudTokenConfigured: false,
   };
   const response: Schema<'ResolveSearchViewSelectionSettingsResponseDto'> = {
     revision: 3, variants: [{ jobKind: 'remote-directory', settings }],
@@ -90,7 +90,7 @@ it('does not submit blank display values for untouched mixed text defaults', () 
     onCompleteCommandCount: 0, regexRuleCount: 0, spotifyClientIdConfigured: false,
     spotifyClientSecretConfigured: false, spotifyTokenConfigured: false,
     spotifyRefreshConfigured: false, youTubeApiKeyConfigured: false,
-    ytDlpArgumentConfigured: false, bandcampHtmlFileConfigured: false,
+    ytDlpArgumentConfigured: false, bandcampHtmlFileConfigured: false, soundCloudTokenConfigured: false,
   });
   const defaults = searchDownloadOptionDefaults({ revision: 3, variants: [
     { jobKind: 'remote-directory', settings: settings('/one') },

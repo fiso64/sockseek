@@ -52,7 +52,7 @@ internal sealed record SearchViewSource(
             fallback ??= (job as SearchJob)?.Definition;
         // Prepared settings are no longer mutated by execution. Each View
         // clones them before refinement; retirement need not copy/parse plans.
-        return new(session, fallback, job.Config.Search, userSuccessCountSnapshot,
+        return new(session, fallback, job.Config.ResolveSearchSettings(), userSuccessCountSnapshot,
             job.SubmissionSpecificationJson);
     }
 }

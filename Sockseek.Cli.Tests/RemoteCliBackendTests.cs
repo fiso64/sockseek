@@ -456,7 +456,7 @@ public class RemoteCliBackendTests
                     "String",
                     Options: new SubmissionOptionsDto(
                         WorkflowId: workflowId,
-                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch(["-a", "--no-browse-folder"]))));
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch(["-a", "--no-browse-folder"])))));
 
             await WaitForWorkflowStateAsync(backend, summary.WorkflowId, ServerWorkflowState.Completed);
 
@@ -602,7 +602,7 @@ public class RemoteCliBackendTests
                         WorkflowId: workflowId,
                         OutputParentDir: outputDir,
                         ProfileContext: new Dictionary<string, bool> { ["interactive"] = true },
-                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch([inputPath, "--input-type", "list", "--no-browse-folder"]))),
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch([inputPath, "--input-type", "list", "--no-browse-folder"])))),
                 CancellationToken.None);
 
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -701,7 +701,7 @@ public class RemoteCliBackendTests
                     "List",
                     Options: new SubmissionOptionsDto(
                         OutputParentDir: outputDir,
-                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch([inputPath, "--input-type", "list", "--no-browse-folder"]))),
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch([inputPath, "--input-type", "list", "--no-browse-folder"])))),
                 CancellationToken.None);
 
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -797,7 +797,7 @@ public class RemoteCliBackendTests
                     Options: new SubmissionOptionsDto(
                         OutputParentDir: outputDir,
                         ProfileContext: new Dictionary<string, bool> { ["interactive"] = true },
-                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch(["ELO", "--album", "--aggregate", "--min-shares-aggregate", "1", "--no-browse-folder"]))),
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch(["ELO", "--album", "--aggregate", "--min-shares-aggregate", "1", "--no-browse-folder"])))),
                 CancellationToken.None);
 
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -1109,7 +1109,7 @@ public class RemoteCliBackendTests
                     "String",
                     Options: new SubmissionOptionsDto(
                         OutputParentDir: outputDir,
-                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch(args.ToArray()))));
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch(args.ToArray())))));
 
             await WaitForWorkflowStateAsync(backend, summary.WorkflowId, ServerWorkflowState.Completed);
 
@@ -1227,7 +1227,7 @@ public class RemoteCliBackendTests
                     Options: new SubmissionOptionsDto(
                         WorkflowId: summaryWorkflowId,
                         OutputParentDir: outputDir,
-                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch([inputPath, "--input-type", "list", "--print", "jobs"]))));
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch([inputPath, "--input-type", "list", "--print", "jobs"])))));
 
             await WaitForWorkflowStateAsync(backend, summary.WorkflowId, ServerWorkflowState.Completed);
             Guid[] expectedJobIds = await terminalJobs.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1295,8 +1295,8 @@ public class RemoteCliBackendTests
                     inputPath,
                     InputType.CSV.ToString(),
                     Options: new SubmissionOptionsDto(
-                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch(
-                            [inputPath, "--input-type", "csv", "--print", "jobs-full"]))),
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch(
+                            [inputPath, "--input-type", "csv", "--print", "jobs-full"])))),
                 PrintOption.Jobs | PrintOption.Full,
                 CancellationToken.None,
                 output);

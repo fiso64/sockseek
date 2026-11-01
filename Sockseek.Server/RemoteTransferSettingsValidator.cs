@@ -61,7 +61,6 @@ public static class RemoteTransferSettingsValidator
         {
             if (output.WritePlaylist != null) invalid.Add("Output.WritePlaylist");
             if (output.WriteIndex != null) invalid.Add("Output.WriteIndex");
-            if (output.HasConfiguredIndex != null) invalid.Add("Output.HasConfiguredIndex");
             if (output.M3uFilePath != null) invalid.Add("Output.M3uFilePath");
             if (output.IndexFilePath != null) invalid.Add("Output.IndexFilePath");
             if (output.IncompleteAlbumAction != null) invalid.Add("Output.IncompleteAlbumAction");

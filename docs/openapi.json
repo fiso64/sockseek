@@ -12510,6 +12510,16 @@
                 "$ref": "#/components/schemas/ServerPrintOption"
               }
             ]
+          },
+          "soundCloud": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SoundCloudSettingsPatchDto"
+              }
+            ]
           }
         }
       },
@@ -12567,6 +12577,10 @@
           },
           "bandcampHtmlFileConfigured": {
             "type": "boolean"
+          },
+          "soundCloudTokenConfigured": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -12642,6 +12656,12 @@
             ]
           },
           "setAlbumMaxTrackCount": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "clearRequestedMode": {
             "type": [
               "null",
               "boolean"
@@ -12877,6 +12897,12 @@
               "null",
               "boolean"
             ]
+          },
+          "clearLengthTolerance": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -13053,6 +13079,18 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "clearPath": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "clearKind": {
+            "type": [
+              "null",
+              "boolean"
             ]
           }
         }
@@ -14296,9 +14334,6 @@
         }
       },
       "JobDraftDtoExtractJobDraftDto": {
-        "required": [
-          "input"
-        ],
         "properties": {
           "kind": {
             "enum": [
@@ -14307,7 +14342,10 @@
             "type": "string"
           },
           "input": {
-            "type": "string"
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "inputType": {
             "type": [
@@ -19190,12 +19228,6 @@
               "boolean"
             ]
           },
-          "hasConfiguredIndex": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
           "m3uFilePath": {
             "type": [
               "null",
@@ -19242,6 +19274,12 @@
               {
                 "$ref": "#/components/schemas/ServerAlbumArtOption"
               }
+            ]
+          },
+          "clearWriteIndex": {
+            "type": [
+              "null",
+              "boolean"
             ]
           }
         }
@@ -20665,6 +20703,39 @@
               "string"
             ],
             "format": "int32"
+          },
+          "fallbackLevel": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxFallbackAttempts": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxStaleTime": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "clearMinSharesAggregate": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -22316,6 +22387,17 @@
           },
           "isReady": {
             "type": "boolean"
+          }
+        }
+      },
+      "SoundCloudSettingsPatchDto": {
+        "type": "object",
+        "properties": {
+          "authToken": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -28996,13 +29078,13 @@
         }
       },
       "SubmitExtractJobRequestDto": {
-        "required": [
-          "input"
-        ],
         "type": "object",
         "properties": {
           "input": {
-            "type": "string"
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "inputType": {
             "type": [
@@ -30154,15 +30236,6 @@
             ]
           },
           "albumTrackCountMaxRetries": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "maxStaleTime": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "null",

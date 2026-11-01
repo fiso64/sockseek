@@ -438,15 +438,15 @@ public sealed class SharingSettingsTests
 
         DownloadSettings clone = SettingsCloner.Clone(original);
         Assert.AreNotSame(
-            original.Preprocess.Regex![0].Item1,
-            clone.Preprocess.Regex![0].Item1);
+            original.Preprocess.Regex![0].Match,
+            clone.Preprocess.Regex![0].Match);
         clone.Output.OnComplete!.Add("second");
         clone.Output.IncompleteAlbumAction.Path = "changed";
         clone.Search.NecessaryCond.Formats[0] = "mp3";
         clone.Search.NecessaryFolderCond.RequiredTrackTitles[0] = "outro";
         clone.Preprocess.Regex[0] = (
             new RegexFields { Title = "changed" },
-            clone.Preprocess.Regex[0].Item2);
+            clone.Preprocess.Regex[0].Replace);
         clone.AppliedAutoProfiles.Add("portable");
 
         CollectionAssert.AreEqual(new[] { "first" }, original.Output.OnComplete);
@@ -454,7 +454,7 @@ public sealed class SharingSettingsTests
         CollectionAssert.AreEqual(new[] { "flac" }, original.Search.NecessaryCond.Formats);
         CollectionAssert.AreEqual(
             new[] { "intro" }, original.Search.NecessaryFolderCond.RequiredTrackTitles);
-        Assert.AreEqual("before", original.Preprocess.Regex[0].Item1.Title);
+        Assert.AreEqual("before", original.Preprocess.Regex[0].Match.Title);
         CollectionAssert.AreEquivalent(new[] { "lossless" }, original.AppliedAutoProfiles.ToArray());
     }
 }

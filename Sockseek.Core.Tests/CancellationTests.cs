@@ -81,7 +81,6 @@ namespace Tests.Cancellation
             };
             var downloads = new DownloadSettings();
             downloads.Output.ParentDir = outputDir;
-            downloads.Output.HasConfiguredIndex = true;
             downloads.Output.WriteIndex = false;
             downloads.Skip.SkipExisting = false;
             var client = CreateBlockedSearchClient(out var searchGate);
@@ -278,7 +277,6 @@ namespace Tests.Cancellation
                 };
                 var dl = new DownloadSettings();
                 dl.Output.ParentDir = outputDir;
-                dl.Output.HasConfiguredIndex = true;
                 dl.Output.WriteIndex = true;
                 dl.Output.IndexFilePath = Path.Combine(outputDir, "index.csv");
                 dl.Output.WritePlaylist = true;
@@ -903,7 +901,6 @@ namespace Tests.Cancellation
             var settings = new DownloadSettings();
             settings.Output.ParentDir = outputDir;
             settings.Output.WriteIndex = false;
-            settings.Output.HasConfiguredIndex = true;
             settings.Skip.SkipExisting = false;
             settings.Search.MinSharesAggregate = 1;
             settings.Search.NoBrowseFolder = true;
@@ -1046,7 +1043,6 @@ namespace Tests.Cancellation
             var settings = new DownloadSettings();
             settings.Output.ParentDir = outputDir;
             settings.Output.WriteIndex = false;
-            settings.Output.HasConfiguredIndex = true;
             settings.Search.MinSharesAggregate = 1;
             settings.Search.NoBrowseFolder = true;
             Job job = (albumMode, aggregateMode) switch
@@ -1149,7 +1145,6 @@ namespace Tests.Cancellation
             var settings = new DownloadSettings();
             settings.Output.ParentDir = outputDir;
             settings.Output.WriteIndex = false;
-            settings.Output.HasConfiguredIndex = true;
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "First" })
             {
                 DownloadBehaviorPolicy = new DownloadBehaviorPolicy { Song = DownloadBehavior.Manual },
@@ -1239,7 +1234,6 @@ namespace Tests.Cancellation
             };
             var settings = new DownloadSettings();
             settings.Output.ParentDir = outputDir;
-            settings.Output.HasConfiguredIndex = true;
             settings.Output.WriteIndex = false;
             var picker = new SongJob(new SongQuery { Artist = "Artist", Title = "First" })
             {
@@ -1337,7 +1331,6 @@ namespace Tests.Cancellation
             var settings = new DownloadSettings();
             settings.Output.ParentDir = outputDir;
             settings.Output.WriteIndex = false;
-            settings.Output.HasConfiguredIndex = true;
             settings.Search.NoBrowseFolder = true;
             Job job = albumMode
                 ? new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
@@ -1571,7 +1564,6 @@ namespace Tests.Cancellation
                 var downloadSettings = new DownloadSettings();
                 downloadSettings.Output.ParentDir = outputDir;
                 downloadSettings.Output.WriteIndex = false;
-                downloadSettings.Output.HasConfiguredIndex = true;
                 downloadSettings.Search.MinSharesAggregate = 1;
                 downloadSettings.Search.NoBrowseFolder = true;
                 downloadSettings.Skip.SkipExisting = false;

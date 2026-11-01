@@ -95,16 +95,25 @@ public static partial class Help
                                     could just be an uploader. Note that when downloading a
                                     YouTube playlist via URL, this option is set automatically
                                     on a per-track basis, so it is best kept off in that case.
-    -d, --desperate                 Tries harder to find the desired track by searching for the
-                                    artist/album/title only, then filtering. (slower search)
+    --fallback-level <0-3>          Try simpler searches when no results are found.
+                                    0: normal searches only
+                                    1: retry with the first artist, without feat./ft. credits
+                                    2: also try each remaining artist (default)
+                                    3: also try broader searches for artist/album/title only and
+                                    relax length requirements.
+    --max-fallback-attempts <num>   Maximum fallback searches when no results are found (def: 8)
+    -d, --desperate                 Equivalent to --fallback-level 3
     --no-remove-special-chars       Keep special characters in Soulseek search terms
     --max-retries <num>             Max download retries per item (default: 10)
     --unknown-error-retries <num>   Extra retries for unknown/transient errors (default: 2)
     --fails-to-downrank <num>       Number of fails to downrank a user's shares (default: 1)
     --fails-to-ignore <num>         Number of fails to ban/ignore a user's shares (default: 2)
 
-    --yt-dlp                        Use yt-dlp to download tracks that weren't found on
+    --yt-dlp                        Use yt-dlp to download songs that weren't found on
                                     Soulseek. yt-dlp must be available from the command line.
+                                    Works on any input containing songs; albums not supported.
+                                    Runs a YouTube search and downloads the first result. For
+                                    YouTube inputs, downloads directly by ID instead.
     --yt-dlp-argument <str>         The command line arguments when running yt-dlp. Default:
                                     ""{id}"" -f bestaudio/best -ci -o ""{savepath-noext}.%(ext)s"" -x
                                     Available vars are: {id}, {savedir}, {savepath},
@@ -138,6 +147,10 @@ public static partial class Help
 
     --from-html <path>              Read Bandcamp page HTML from a local file
 
+  SoundCloud Options
+
+    --soundcloud-token <token>      SoundCloud OAuth token
+
   CSV File Options
 
     --artist-col <name>             Artist column name
@@ -166,7 +179,8 @@ public static partial class Help
     --min-bitdepth <depth>          Minimum bit depth
     --max-bitdepth <depth>          Maximum bit depth
     --strict-title                  Require track title in filename
-    --strict-artist                 Require artist in path
+    --strict-artist                 Require artist in path. When the input artist contains
+                                    multiple artists split by ;, requires one only.
     --strict-album                  Require album in folder path
     --banned-users <list>           Comma-separated list of users to ignore
     --allowed-users <list>          Comma-separated list of users to allow
@@ -202,9 +216,10 @@ public static partial class Help
                                     - for inequalities, e.g '5+' for five or more tracks.
                                     Spotify/Bandcamp inputs automatically set album-track-count
                                     to n+.
-    --strict-album-quality          Require every audio file in an album folder to satisfy required
-                                    quality conditions such as --format, bitrate, sample rate, and
-                                    bit depth. By default mixed-quality folders are ranked by coverage.
+    --strict-album-quality          Require every audio file in an album folder to satisfy
+                                    required quality conditions such as --format, bitrate, sample
+                                    rate, and bit depth. By default mixed-quality folders are
+                                    ranked by coverage.
     --min-album-track-count <num>   Minimum number of tracks in an album folder
     --max-album-track-count <num>   Maximum number of tracks in an album folder
     --extract-max-track-count       Set maximum album track count from extracted sources
@@ -221,9 +236,9 @@ public static partial class Help
                                     the folder
     --incomplete-album-action <a>   What to do with completed album files when the album
                                     does not complete. Values: 'move' to move to {configured
-                                    output dir}/failed, 'move:<path>' to move to a custom path,
-                                    'delete' to delete them, or 'keep' to leave them where
-                                    they are.
+                                    output dir}/failed (default), 'move:<path>' to move to a
+                                    custom path, 'delete' to delete them, or 'keep' to leave
+                                    them where they are.
 
   Aggregate Download Options
 
@@ -345,7 +360,7 @@ public static partial class Help
     --mock-files-slow               Simulate slow mock-file downloads and folder browses
     --mock-files-fail-downloads <n> Simulate n failed mock-file downloads
 
-Notes
+CLI Notes
   - Flags can be explicitly disabled by setting them to false, e.g. --interactive false.
   - Single-character flags can be combined, e.g. -at for -a -t.
   - Acronyms of two- and --three-word-flags like --twf are also accepted. E.g. --Mbr for
@@ -354,29 +369,52 @@ Notes
     const string inputHelp = @"
 Input types
   The input type is usually determined automatically. You can also manually set it with
-  --input-type. The following input types are accepted:
+  --input-type.
+  The following input types are supported:
 
   CSV file
-    Path to a local CSV file. Use a CSV file containing track information to download a list of
-    songs or albums. Only the title or album column is required, but extra info may improve search
-    result ranking. If the columns have common names ('Artist', 'Title', 'Album', 'Length', etc)
-    then it's not required to manually specify them, otherwise you must provide at least --title-col
-    or --album-col. CSV rows determine their own shape: rows with a track title are song downloads,
-    and rows without a title are album downloads.
+    A path to a local CSV file listing songs or albums.
+    In the CSV file, rows with a track title are song downloads, and rows without a title are
+    treated as album downloads. Only a title or album column is required in the CSV file (extra info
+    may improve search results). If the columns have common names (like 'Artist', 'Title', 'Album',
+    'Length', etc) then it's not required to manually specify them, otherwise you must provide at
+    least --title-col or --album-col.
+    See CSV options for all options.
 
   YouTube
-    A YouTube playlist URL. Download songs from a YouTube playlist. Note: The default method to
-    retrieve playlists might not reliably return all videos. To get all videos, you can use the
-    official API by providing a key with --youtube-key. A key can be obtained at
-    https://console.cloud.google.com. Create a new project, click 'Enable API' and search for
-    'YouTube Data', then follow the prompts.
+
+Index
+  - Input types
+  - Download modes
+  - Daemon / remote mode
+  - Configuration
+  - File conditions
+  - Name format
+  - Variables
+  - On-Complete Actions
+  - Shortcuts & interactive mode
+  - Examples
+  - Notes
+  - Tips
+  - Options reference
+  - Docker
+  The default method to retrieve playlists might not reliably return all videos. If you're having
+  issues, you can use the official API by providing a key with --youtube-key. A key can be obtained
+  at https://console.cloud.google.com (create a new project, click 'Enable API' and search for
+  'YouTube Data', then follow the prompts).
+  See YouTube options for all options.
 
   Spotify
-    Any playlist or album URL, or spotify-likes for your liked songs, or spotify-albums for liked
-    albums. Spotify API access now requires your own Spotify developer application for all Spotify
-    inputs, including public playlists. Spotify also requires the owner of that application to have
-    an active Spotify Premium subscription. If you do not have Premium, export the Spotify playlist
-    with a Spotify-to-CSV converter and pass the CSV file to Sockseek instead.
+    Spotify inputs support:
+    - Public and private playlist URLs
+    - Album URLs
+    - Liked songs, with sockseek spotify-likes
+    - Liked albums, with sockseek spotify-albums
+    Spotify API access now requires your own Spotify developer application for all Spotify inputs,
+    including public playlists. Spotify also requires the owner of that application to have an
+    active Spotify Premium subscription. If you do not have Premium, you can export the Spotify
+    playlist with a Spotify-to-CSV converter and pass the CSV file to Sockseek instead.
+    See Spotify options for all options.
 
     Using Credentials
       Create a Spotify application at https://developer.spotify.com/dashboard/applications with a
@@ -388,15 +426,16 @@ Input types
       sockseek ""https://open.spotify.com/playlist/id"" --spotify-id 123456 --spotify-secret 123456
 
       For private playlists, liked songs, liked albums, or --remove-from-source, start Sockseek with
-      the obtained credentials and an authorized action to trigger the Spotify app login flow:
+      the obtained credentials and an action that requires auth to trigger the Spotify app login
+      flow:
 
       sockseek spotify-likes --spotify-id 123456 --spotify-secret 123456 -n 1 --print jobs
 
       Sockseek will try to open a browser automatically but will fall back to logging the login flow
-      URL to output. After login flow is complete Sockseek will output a token and refresh token and
+      URL to output. After login flow is complete it will output a token and refresh token and
       finish running the current command.
       To skip requiring login flow every time Sockseek is used the token and refresh token can be
-      provided to Sockseek (hint: store this info in the config file to make commands less verbose):
+      provided (hint: store this info in the config file to make commands less verbose):
 
       sockseek spotify-likes --spotify-id 123456 --spotify-secret 123456 --spotify-refresh 123456 --spotify-token 123456 -n 1 --pt
 
@@ -404,18 +443,35 @@ Input types
       access every time it is run (and can be used without including spotify-token)
 
   Bandcamp
-    A Bandcamp track, album, or artist URL. Download a single track, an album, or an artist's entire
-    discography. Also accepts wishlist URLs. Extraction might fail due to Cloudflare; download the
-    HTML to a local file and point Sockseek to it using --from-html in case of issues.
+    Bandcamp inputs support:
+    - Track URLs
+    - Album URLs
+    - Artist URLs, to download all albums by the artist.
+    - Wishlist URLs, to download all albums on the wishlist.
+    Extraction might fail due to Cloudflare; download the HTML to a local file and point Sockseek to
+    it using --from-html in case of issues.
 
   MusicBrainz
-    A MusicBrainz.org URL for a release, release group, or collection.
-    - A /release/... URL is treated as a single album download with a strict track count.
-    - A /release-group/... URL is also treated as a single album download. It tries to pick the most
-      common version of the album. Sets the minimum album track count to the chosen release track
-      count, and no maximum track count unless --extract-max-track-count is set.
-    - A /collection/... URL is treated as a list of albums, downloading each release contained
-      within the collection.
+    MusicBrainz inputs support:
+    - /release/... URLs
+    - /release-group/... URLs, where it picks the most common version of the album.
+    - /collection/... URLs, to download a list of albums.
+
+  SoundCloud
+    SoundCloud inputs support:
+    - Track URLs
+    - Public and private playlist URLs
+    Requires a SoundCloud OAuth token, passed with --soundcloud-token, also for public items.
+    When a track has no publisher artist, the artist is taken from titles like ""Artist - Title"",
+    falling back to the uploader's name.
+
+    Getting the OAuth token
+      1. Log in to https://soundcloud.com in your browser.
+      2. Open the developer tools (F12) and go to the Storage tab (Application in Chrome).
+      3. Under Cookies > https://soundcloud.com, copy the value of oauth_token.
+      Pass it with --soundcloud-token, or put it in your config file:
+
+      soundcloud-token = <your-token>
 
   Soulseek Link
     A direct path starting with slsk://. By default, a path ending in / is an ordinary folder
@@ -424,32 +480,45 @@ Input types
     remote path as the selected album directory, whether or not it has a trailing slash.
 
   Search string
-    Name of the track, album, or artist to search for. The input can either be an arbitrary search
-    string (like what you would type in the Soulseek search bar), or a comma-separated list of
-    properties of the form title=Song Name, artist=Artist Name, length=215.
-    The following properties are accepted: title, artist, album, length (in seconds),
-    artist-maybe-wrong, album-track-count.
-    String input accepts a shorthand for track and album downloads: The input ARTIST - TITLE is
-    parsed as artist=ARTIST, album=TITLE by default, and as artist=ARTIST, title=TITLE when run with
-    --song. Keyed string input is more explicit: artist=ARTIST, title=TITLE is treated as a song
-    download by default. Use --album if you want title= to act as an album search hint, i.e. you
-    want to search for an album by the name of one of its tracks.
+    A string input is a name of the track, album, or artist to search for. They come in these forms:
+    1. Arbitrary search queries (like what you would type in the Soulseek search bar), e.g. sockseek
+    ""blah blah"".
+    This is equivalent to sockseek ""album=blah blah"" by default, and to sockseek ""title=blah
+    blah"" when using -s/--song mode.
+    2. An artist-album or artist-song combination, separated by a hyphen with spaces -:
+    - sockseek ""Artist - Album"" downloads an album
+    - sockseek ""Artist - Song"" -s downloads a song
+    It's always better to split the artist from song/album like this when you want to provide an
+    artist due to ranking and filtering.
+    This is equivalent to sockseek ""artist=Artist, album=Album"" in the first case, and to sockseek
+    ""artist=Artist, title=Song"" in the second case.
+    3. A comma-separated list of properties, like title=Song Name, artist=Artist Name, length=215.
+    With an album field (and no title) it's treated as an album download. With a title field it's
+    treated as a song download (even if it includes an album field).
+    Accepted fields are:
+    - Song title title
+    - Artist name artist
+    - Album name album
+    - Song length (in seconds)
+    Notes:
+    - You can combine the second and third form, e.g. Artist - Song, length=123 is the same as
+      artist=Artist, title=Song, length=123 in --song mode.
+    - You can use ""artist=Artist, title=Song"" --album if you want title= to act as an album search
+      hint, i.e. you want to search for an album by the name of one of its tracks.
 
   List file
-    List input must be manually activated with --input-type=list. The input must be a path to a text
-    file containing lines of the following form:
+    A path to a local text file listing items of any supported input type. List inputs must be
+    manually activated with --input-type=list.
+    Each line in the list file must be of this form:
 
-    # Any input type                conditions (optional)           pref. conditions (optional)
-    ""Artist - Album""                ""format=mp3; br>128""            ""br >= 320""
+    Any input type                conditions (optional)           pref. conditions (optional)
 
-    # String album input:
-    ""Artist - Album""                strict-album=true;album-track-count=13
+    Here is an example list file:
 
-    # String song input:
+    ""Artist - Album""                ""strict-album=true; album-track-count>=13""   ""br >= 320""
+
+    # Treat string input as song download with the s: prefix
     s:""Artist - Song""               strict-title=true
-
-    # Album search using a song-title hint:
-    a:""artist=Artist, title=Song""
 
     # Any other input type is also accepted:
     path/to/tracks.csv
@@ -457,49 +526,66 @@ Input types
 
     The conditions are added on top of the configured conditions and can be omitted. For string
     lines, unprefixed entries use the configured download mode: album by default, or song mode when
-    --song / song = true is set.";
+    --song / song = true is set. Lines starting with # are treated as comments and ignored.";
 
     const string downloadModesHelp = @"
 Download modes
-  Structured sources such as CSV rows, Spotify, YouTube, Bandcamp, MusicBrainz, and Soulseek links
-  usually decide for themselves whether they contain songs or albums. String inputs are treated as
-  albums by default.
-  Use --upgrade-to-album when a structured source gives you song entries but you want album jobs
-  instead, such as downloading the albums represented by a Spotify song playlist or a CSV of tracks.
+  Sources usually decide for themselves whether they contain songs or albums. String inputs are
+  treated as albums by default. There are four main download modes:
 
   Song
-    Downloads a single file for string input and string lines inside list files. Song mode is the
-    default for playlists from streaming platforms and CSV song lists. Use -s/--song for string/list
-    input that should be treated as a song search. To restore the pre-3.0 default behavior globally,
-    add song = true to your config file.
+    Song mode is the default for playlists from streaming platforms and CSV song lists, and
+    downloads one file per item. Use -s/--song for string/list input that should be treated as a
+    song search.
+    Example:
+
+    sockseek ""Artist - Song Name"" -s
 
   Album
-    Sockseek will search for the album and download an entire folder including non-audio files.
-    Album mode is the default for string input and string lines inside list files. It is also used
-    by album-shaped sources such as Spotify/Bandcamp album links and CSV rows without a track title.
-    Use -t to pick interactively. See Shortcuts & interactive mode.
+    In Album mode, Sockseek downloads whole folders. It is the default for string inputs and album
+    sources such as Spotify/Bandcamp album links and CSV album rows. Use -t to pick interactively.
+    Example:
+
+    sockseek ""Artist - Album Name"" -t
+
+    See Album options for album-specific options.
 
   Album Aggregate
-    Activated when -g/--aggregate is enabled for album-shaped input. Sockseek will group shares and
-    download one of each distinct album, starting with the one shared by the most users. Note that
-    --min-shares-aggregate is 2 by default, meaning that albums shared by only one user will be
-    ignored. Album-aggregate mode can be used to determine the most common version of a particular
-    album, or download the most popular (or all) albums by an artist. It's recommended to pair it
-    with --interactive. See Example for more details.
+    Album aggregate mode is activated when -g/--aggregate is enabled for album inputs. In this mode,
+    Sockseek will attempt to group folders returned by Soulseek and download one of each distinct
+    album, starting with the one shared by the most peers.
+    Note that --min-shares-aggregate is set to 2 by default, meaning that albums shared by only one
+    user will be ignored. Album-aggregate mode can be used to determine the most common version of a
+    particular album, or download the most popular (or all) albums by an artist. It's recommended to
+    pair it with -t/--interactive.
+    Example:
+
+    sockseek ""artist=Artist Name"" -gt
+
+    See Aggregate options for aggregate options.
 
   Song Aggregate
-    With --aggregate --song (or -gs for short), Sockseek performs an ordinary search for the input,
-    then attempts to group the results into distinct songs. Note that --min-shares-aggregate is 2 by
-    default, meaning that songs shared by only one user will be ignored.";
+    Song aggregate mode is enabled with --aggregate --song (or -gs for short). Sockseek will attempt
+    to group files returned by Soulseek and download one of each distinct song, starting with the
+    one shared by the most peers.
+    As in album aggregate mode, --min-shares-aggregate is set to 2 by default, meaning that songs
+    shared by only one user will be ignored. This mode is useful for downloading all songs by an
+    artist available on Soulseek.
+    Example:
+
+    sockseek ""artist=Artist Name"" -gs
+
+    See Aggregate options for aggregate options.";
 
     const string fileConditionsHelp = @"
 File conditions
   pref-* options change how results are ranked; they never filter anything out. --pref-format flac
   means Sockseek will prefer flac when available, but will still download mp3 if no flac is found.
-  To reject non-flac files entirely, use --format flac instead. Format lists are unordered:
-  pref-format = flac,mp3 does not prioritize flac over mp3; both are treated as equally preferred.
-  The default required conditions accept common audio formats and enforce the source length when
-  both source and file length are known:
+  By contrast, conditions without the pref prefix are mandatory. For example, --format flac will
+  reject non-flac files entirely.
+  Note: Format conditions are UNORDERED! --pref-format mp3,flac is the same as flac,mp3.
+  The default required conditions accept common formats and enforce the source length (when both
+  source and file length are known):
 
   format = mp3,flac,ogg,m4a,opus,wav,aac,alac
   length-tol = 3
@@ -511,39 +597,35 @@ File conditions
   pref-min-bitrate = 200
   pref-max-bitrate = 2500
   pref-max-samplerate = 48000
+
+  # Prefer files whose paths contain the supplied title and album.
+  # Changing these is not recommended.
   pref-strict-title = true
   pref-strict-album = true
 
-  In other words, by default, Sockseek will
-  - accept common audio files with no length metadata, or whose length differs from the supplied
-    length by no more than 3 seconds
-  - prefer mp3 files with bitrate between 200 and 2500 kbps.
-  Moreover, it will prefer files whose paths contain the supplied title and album. Changing the last
-  two preferred conditions is not recommended.
-  In album mode, required album-track conditions (format, bitrate, sample rate, bit depth) rank or
-  reject whole folders instead of removing individual tracks. A folder with 9 FLAC files and 1 MP3
-  is preferred over a mostly-MP3 folder, and the selected folder is still downloaded as a whole. Use
-  --strict-album-quality to require every audio file in the folder to satisfy those track
-  conditions. Here --format means the acceptable format of primary audio tracks; it does not select
-  ancillary files such as PDFs or logs. In default mixed-quality mode, coverage is based on the
-  folder contents Sockseek has seen so far; if a later folder browse reveals hidden files, the
-  coverage can change, but the folder is still treated as a whole. In strict mode, Sockseek
-  retrieves the full folder when needed and rejects the candidate before download if hidden files
-  break the required quality conditions.
-  Run a song search with --print results-full to reveal the sorting logic.
-  Conditions can also be supplied as a semicolon-delimited string with --cond and --pref, e.g --cond
-  ""br>=320; format=mp3,ogg; sr<96000"". Folder conditions can be included too, such as
-  album-track-count>=8 or required-track-title=Intro.
+  For album downloads, conditions like format, bitrate and sample rate operate based on coverage: A
+  folder with 9 FLAC files and 1 MP3 is preferred over a mostly-MP3 folder, and the selected folder
+  is still downloaded as a whole. Use --strict-album-quality to require every audio file in the
+  folder to satisfy the conditions.
+  See the options reference for all filtering and ranking options.
+  Conditions can also be supplied as a semicolon-delimited string with --cond and --pref, e.g.:
+
+  --cond ""br>=320; format=mp3,ogg; sr<96000; album-track-count>=8""
+
+  For debugging, you can run a song search with --print results-full to reveal the sorting logic.
 
   Note on availability of metadata
-    Some info may be unavailable depending on the client used by the peer. If (e.g) --min-bitrate is
-    set, then Sockseek will still accept any file with unknown bitrate. To reject all files where
-    one or more of the checked properties is null (unknown), enable --strict-conditions.
+    Some info may be unavailable depending on the client used by the peer (like the bitrate). This
+    is why if you set a --min-bitrate, Sockseek will still accept any file with unknown bitrate as a
+    precaution.
+    To reject all files where one or more of the checked properties is null (unknown), use
+    --strict-conditions.
     This flag should be used with care: It's easy to accidentally exclude all files from users with
     certain clients. For example, because the standard Soulseek client does not broadcast the
-    bitrate, enabling --strict-conditions and setting a --min-bitrate will make Sockseek ignore all
-    files shared by users with the standard client. Even without a required min-bitrate, all those
-    shares will be ranked at the bottom due to the default pref- bitrate checks.";
+    bitrate, enabling --strict-conditions and setting a --min-bitrate will effectively exclude all
+    files shared by users with the standard client(!). Even if you don't add a required min-bitrate,
+    this option will still result in all those shares getting ranked at the bottom due to the
+    default pref- bitrate checks above.";
 
     const string nameFormatHelp = @"
 Name format
@@ -552,15 +634,18 @@ Name format
   tag2. This can be chained arbitrarily many times. String literals enclosed in parentheses are
   ignored in the null check. See Variables for the complete reference, also available with sockseek
   --help variables.
-
-  Examples
-    - {artist} - {title} Always name it 'Artist - Title'. Because some files on Soulseek are
-      untagged, the following is generally preferred:
-    - {artist( - )title|filename} If artist and title are not null, name it 'Artist - Title',
-      otherwise use the original filename.
-    - {albumartist(/)album(/)track(. )title|(missing-tags/)slsk-foldername(/)slsk-filename} Sort
-      files into artist/album folders if all tags are present, otherwise put them in the
-      'missing-tags' folder.";
+  Sockseek can format the downloaded filenames using --name-format <yourformat>. Variables enclosed
+  in {} will be replaced by the corresponding file tag value. Name format supports subdirectories as
+  well as conditional expressions like {tag1|tag2} - If tag1 is null, use tag2 (can be chained).
+  Examples:
+  - {artist} - {title} Always name it 'Artist - Title'. Because some files on Soulseek are untagged,
+    the following is generally preferred:
+  - {artist( - )title|filename} Everything inside round parentheses () inside braces {} is treated
+    as a raw string and ignored in the null check. Here, if artist and title are both not null, name
+    it 'Artist - Title', otherwise use the original filename.
+  - {albumartist(/)album(/)track(. )title|(missing-tags/)slsk-foldername(/)slsk-filename} Sort files
+    into artist/album folders if all tags are present, otherwise put them in the 'missing-tags'
+    folder.";
 
     const string variablesHelp = @"
 Variables
@@ -615,8 +700,8 @@ Configuration
 
   Config Location
     Sockseek will look for a file named sockseek.conf in the following locations:
-    - ~/.config/sockseek/sockseek.conf
-    - %APPDATA%\sockseek\sockseek.conf (Windows)
+    - ~/.config/sockseek/sockseek.conf (Any platform)
+    - %APPDATA%\sockseek\sockseek.conf (Windows only)
     - $XDG_CONFIG_HOME/sockseek/sockseek.conf
     - {sockseek executable dir}/sockseek.conf
     Use --config <path> to choose a config file, --config none or --no-config to skip config
@@ -635,13 +720,17 @@ Configuration
     directory and {configdir} for the directory containing the active config file.
 
   Configuration profiles
-    Profiles are supported:
+    Sockseek supports configuration profiles:
 
     [lossless]
     pref-format = flac,wav
 
-    To activate the above profile, run --profile lossless. To list all available profiles, run
-    --profile help. Profiles can be activated automatically based on a few simple conditions:
+    To activate the above profile, use --profile lossless. This will apply all of its options. Your
+    manual CLI options still take precedence.
+    To list all configured profiles, run --profile help.
+
+  Auto-profiles
+    Profiles can be activated automatically based on a few simple conditions. For example:
 
     # never automatically cancel album downloads in interactive mode
     [no-stale]
@@ -671,24 +760,26 @@ Configuration
 
     const string onCompleteHelp = @"
 On-Complete Actions
-  The --on-complete parameter allows executing commands after a track or album is downloaded.
-  Multiple actions can be chained using the + prefix (note the space after +).
+  The --on-complete option allows executing commands after a track or album is downloaded. Multiple
+  actions can be chained using the + prefix (note the space after +).
   Syntax: --on-complete [options] -- command
   Hint: You can use --mock-files-dir to test your commands (see Testing Options).
   Every on-complete command must include the -- delimiter. Sockseek options go before it; everything
-  after it is the command passed to the operating system.
+  after it is the command passed to the OS.
   When passing an on-complete action on the command line, quote the whole value so the delimiter is
-  part of the --on-complete argument: --on-complete ""when=success scope=album -- notify-send
-  \""Downloaded\"" \""{path}\"""".
+  part of the --on-complete argument:
+
+  --on-complete ""when=success scope=album -- notify-send \""Downloaded\"" \""{path}\""""
 
   Options
+    - when= omitted - Same as when=completed
+    - when=completed - Execute on success or fail, if the item wasn't skipped
     - when=success - Execute only for successful downloads
     - when=failure - Execute for failed or partially successful downloads
     - when=skipped - Execute for skipped jobs
     - when=already-exists - Execute only for already-existing skipped jobs
     - when=not-found-last-time - Execute only for not-found-last-time skipped jobs
     - when=cancelled - Execute only for cancelled jobs
-    - when=completed - Execute for all non-skipped terminal outcomes
     - when=any - Execute for every terminal outcome
     - scope=track - Execute only for track-level completions
     - scope=album - Execute only for album-level completions
@@ -726,12 +817,10 @@ On-Complete Actions
     first-stdout        First command's stdout
     first-stderr        First command's stderr
 
-    Sockseek captures bounded stdout/stderr for ordinary on-complete commands, so chained commands
-    can use output variables from the previous ones. Commands launched with shell use shell execute
-    and cannot expose stdout/stderr.
-    For album-only (scope=album) actions, tag variables such as {title}, {artist}, and {album} are
-    read from the first audio file in the album. Job/source/path variables such as {sartist},
-    {salbum}, and {path} describe the album-level completion itself.
+    Sockseek captures stdout/stderr for ordinary on-complete commands, so chained commands can use
+    output variables from the previous ones. Commands launched with shell cannot use stdout/stderr.
+    For album-only (scope=album) actions, tag-based variables such as {title}, {artist}, and {album}
+    are read from the first audio file in the album.
 
   Examples
     Send a Linux desktop notification for album downloads:
@@ -761,15 +850,16 @@ On-Complete Actions
 Shortcuts & interactive mode
 
   CLI Shortcuts
+    You can use these at any time while things are searching or downloading:
 
-    c               cancel a job by id or all jobs
+    c               cancel specific job by id or all jobs
     t               try next candidate for a job id
     i               get detailed info about job by id
 
   CLI Interactive Prompt Shortcuts
-    Interactive mode for albums can be enabled with -t/--interactive. It enables you to choose the
-    desired folder or download specific files from it, rather than automatically downloading the
-    best match.
+    Interactive mode for albums can be enabled with -t/--interactive. It allows you to pick the
+    desired folder or download only specific files from it, rather than automatically downloading
+    the best match.
     Key bindings:
 
     Up/p            previous folder
@@ -785,20 +875,43 @@ Shortcuts & interactive mode
     d:start-end     download a range of files
     f               filter folders containing files matching query
     cd ..           load parent folder
-    cd subdir       go to subfolder
-
-    S only suppresses future prompts for new albums. If an album you already accepted fails and
-    Sockseek can retry with another candidate, that retry prompt is still shown.";
+    cd subdir       go to subfolder";
 
     const string notesAndTipsHelp = @"
-Notes
-  - Soulseek's rate limits: The server bans users for 30 minutes if too many searches are performed
-    within a short timespan. Sockseek has a search limiter which can be adjusted with
-    --searches-per-time and --searches-renew-time (when the limit is reached, the status of the
-    downloads will be 'Waiting'). By default it is configured to allow up to 34 searches every 220
-    seconds.
-
 Tips
+
+  Rate limits
+    The Soulseek server bans users for 30 minutes if too many searches are performed within a short
+    timespan. Sockseek has a search limiter which can be adjusted with --searches-per-time and
+    --searches-renew-time (when the limit is reached, the status of the downloads will be
+    'Waiting'). By default it is configured to allow up to 34 searches every 220 seconds.
+
+  Why are some of my downloads wrong or missing?
+    The default settings favor recall over precision: when the correct file is available in results,
+    it will almost always be ranked first. The tradeoff is that if it's absent and something else
+    loosely passes the filters, that something else gets downloaded. The options below let you
+    control where you fall on that spectrum.
+    It downloaded a wrong song or album. To tighten matching for song downloads, add one or more
+    strict filters:
+
+    sockseek ""https://spotify.com/playlist/blah"" --strict-title --strict-artist
+
+    These require that the file path contains the song title and artist name (case-insensitive).
+    For album downloads, the cleanest filter is usually the expected track count:
+
+    sockseek ""Artist - Album"" --album-track-count 10
+
+    Use inequalities like 10+ or 12- when expanded or incomplete editions are acceptable. You can
+    also add --strict-album to require the album name in the folder path.
+    It didn't find a song or album. This usually means one of two things:
+    1. Your searches are non-standard, like an uncommon artist spelling. You can try cleaning them
+      up with options like --regex and --remove-ft. See also the next section.
+    2. Whatever you're looking for is just not available on Soulseek.
+    For songs, there is also the possibility of a length mismatch: When using Spotify or YouTube as
+    input, the reported length can differ from the actual file on Soulseek (like from a CD rip) by
+    more than the default 3-second tolerance. Try --length-tol 10, or --length-tol -1 to disable
+    length filtering entirely.
+    Use --print results-full to inspect what Soulseek returned without downloading anything.
 
   Searching
     - It's always best to provide the least input necessary to uniquely identify an album or song.
@@ -824,13 +937,13 @@ Tips
       up on a file once it's chosen.
 
   Testing Options
-    You can test almost any aspect of the search and downloading logic by using --mock-files-dir and
+    You can test almost any aspect of the search and downloading logic with --mock-files-dir and
     pointing it to a local directory containing audio files. This directory will then be used
-    instead of searching Soulseek. Example:
+    instead of searching and downloading from Soulseek. Example:
 
     sockseek ""Artist - Album"" -t --mock-files-dir /path/to/dir
 
-    If you plan to use a large music library, you may want to add --mock-files-no-read-tags to
+    If you plan to use a large music library, you might want to add --mock-files-no-read-tags to
     improve the initial loading performance. But note that reading tags is required when filtering
     by metadata such as length or bitrate.";
 

@@ -150,7 +150,7 @@ internal sealed class AlbumDownloadExecutor
         List<SongJob>? chosenFiles)
     {
         var config = job.Config;
-        if (!config.Output.AlbumArtOnly && (!audioResult.Succeeded || config.Output.AlbumArtOption == AlbumArtOption.Default))
+        if (!config.Output.AlbumArtOnly && (!audioResult.Succeeded || config.Output.EffectiveAlbumArtOption == AlbumArtOption.Default))
             return new(chosenFiles, null);
 
         Info(job, "downloading additional images");

@@ -31,13 +31,13 @@ public sealed class JobSettingsComposerTests
                 AlbumQuery = projection == SearchDefaultProjectionKind.Album
                     ? new("Artist", "Album", "", "", false) : null,
             };
-            var profile = Profile("matching", value => value.Transfer.MaxStaleTime = 4321,
+            var profile = Profile("matching", value => value.Search.MaxStaleTime = 4321,
                 $"input-type == \"csv\" && download-mode == \"{mode}\"");
             var composer = new JobSettingsComposer(null, new ProfileCatalog { AutoProfiles = [profile] });
             JobSettingsCompositionResult result = composer.ComposeDetailed(
                 new DownloadSettings(), JobSettingsContext.FromCommand(command, Guid.Empty));
 
-            Assert.AreEqual(4321, result.Settings.Transfer.MaxStaleTime, mode);
+            Assert.AreEqual(4321, result.Settings.Search.MaxStaleTime, mode);
             CollectionAssert.AreEqual(new[] { "matching" }, result.Settings.AppliedAutoProfiles.ToArray(), mode);
             Assert.AreEqual(kind is JobSnapshotKind.RemoteFile or JobSnapshotKind.RemoteDirectory
                 ? SearchSettingsBaselineKind.Generic : SearchSettingsBaselineKind.Music, result.Baseline, mode);
@@ -54,11 +54,11 @@ public sealed class JobSettingsComposerTests
         JobSettingsContext captured = extract;
         extract.InputType = InputType.List;
         extract.RequestedModeOverride = ExtractionMode.Album;
-        var profile = Profile("original", value => value.Transfer.MaxStaleTime = 4321,
+        var profile = Profile("original", value => value.Search.MaxStaleTime = 4321,
             "input-type == \"string\" && download-mode == \"song\"");
         var composer = new JobSettingsComposer(null, new ProfileCatalog { AutoProfiles = [profile] });
 
-        Assert.AreEqual(4321, composer.Compose(new DownloadSettings(), captured).Transfer.MaxStaleTime);
+        Assert.AreEqual(4321, composer.Compose(new DownloadSettings(), captured).Search.MaxStaleTime);
         Assert.IsFalse(composer.Compose(new DownloadSettings(), extract).AppliedAutoProfiles.Contains("original"));
     }
 
@@ -69,7 +69,7 @@ public sealed class JobSettingsComposerTests
         {
             DefaultAggregateAlbumProjection = new(new AlbumQuery { Artist = "Artist", Album = "Album" }),
         };
-        var profile = Profile("album", value => value.Transfer.MaxStaleTime = 4321,
+        var profile = Profile("album", value => value.Search.MaxStaleTime = 4321,
             "download-mode == \"album\"");
         var composer = new JobSettingsComposer(null, new ProfileCatalog { AutoProfiles = [profile] });
         JobSettingsCompositionResult result = composer.ComposeDetailed(new DownloadSettings(), search);
@@ -145,18 +145,12 @@ public sealed class JobSettingsComposerTests
     {
         foreach (bool matches in new[] { false, true })
         {
-            var defaultProfile = Profile("default", settings => settings.Transfer.MaxStaleTime = 1);
-            var autoProfile = Profile("aggregate-auto", settings => settings.Transfer.MaxStaleTime = 2,
+            var defaultProfile = Profile("default", settings => settings.Search.MaxStaleTime = 1);
+            var autoProfile = Profile("aggregate-auto", settings => settings.Search.MaxStaleTime = 2,
                 condition: "aggregate");
-            var namedProfile = Profile("named", settings => settings.Transfer.MaxStaleTime = 3);
-            var launch = new DownloadSettingsPatch();
-            launch.Add(settings => settings.Transfer.MaxStaleTime = 4);
-            var request = new DownloadSettingsPatch();
-            request.Add(settings =>
-            {
-                settings.Search.IsAggregate = matches;
-                settings.Transfer.MaxStaleTime = 5;
-            });
+            var namedProfile = Profile("named", settings => settings.Search.MaxStaleTime = 3);
+            var launch = new SettingsPatch([new("Search.MaxStaleTime", 4)]);
+            var request = new SettingsPatch([new("Search.IsAggregate", matches), new("Search.MaxStaleTime", 5)]);
             var catalog = new ProfileCatalog
             {
                 DefaultProfile = defaultProfile,
@@ -173,28 +167,22 @@ public sealed class JobSettingsComposerTests
             var layers = new JobSettingsRequestLayers(Download: request);
             DownloadSettings settings = composer.Compose(new DownloadSettings(), job, request: layers);
             JobSettingsCompositionResult detailed = composer.ComposeDetailed(new DownloadSettings(), job, request: layers);
-            Assert.AreEqual("request", detailed.Provenance["Transfer.MaxStaleTime"]);
+            Assert.AreEqual("request", detailed.Provenance["Search.MaxStaleTime"]);
             Assert.AreEqual(SubmissionSpecification.CreateShallow(job, settings).EffectiveSettingsJson,
                 SubmissionSpecification.CreateShallow(job, detailed.Settings).EffectiveSettingsJson,
                 "Ordinary and detailed composition must resolve the same complete settings, even when no auto-profile matches.");
 
             CollectionAssert.AreEqual(matches ? new[] { "aggregate-auto" } : [], settings.AppliedAutoProfiles.ToArray());
             Assert.AreEqual(matches, settings.Search.IsAggregate);
-            Assert.AreEqual(5, settings.Transfer.MaxStaleTime);
+            Assert.AreEqual(5, settings.Search.MaxStaleTime);
         }
     }
 
     [TestMethod]
     public void Composition_ProvenanceHonorsExplicitEqualValueOverrides()
     {
-        var profilePatch = new DownloadSettingsPatch();
-        profilePatch.Add(
-            settings => settings.Skip.SkipExisting = true,
-            ["Skip.SkipExisting"]);
-        var requestPatch = new DownloadSettingsPatch();
-        requestPatch.Add(
-            settings => settings.Skip.SkipExisting = true,
-            ["Skip.SkipExisting"]);
+        var profilePatch = new SettingsPatch([new("Skip.SkipExisting", true)]);
+        var requestPatch = new SettingsPatch([new("Skip.SkipExisting", true)]);
         var composer = new JobSettingsComposer(null, new ProfileCatalog
         {
             NamedProfiles =
@@ -311,8 +299,10 @@ public sealed class JobSettingsComposerTests
         Action<DownloadSettings> apply,
         string? condition = null)
     {
-        var patch = new DownloadSettingsPatch();
-        patch.Add(apply);
+        var before = new DownloadSettings();
+        var after = SettingsCloner.Clone(before);
+        apply(after);
+        var patch = SettingsPatch.Difference(before, after) ?? SettingsPatch.Empty;
         return new SettingsProfile { Name = name, Condition = condition, Download = patch };
     }
 

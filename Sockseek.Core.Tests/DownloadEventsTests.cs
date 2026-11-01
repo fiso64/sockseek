@@ -557,7 +557,6 @@ namespace Tests.Eventing
                 var downloadSettings = new DownloadSettings();
                 downloadSettings.Output.ParentDir = outputDir;
                 downloadSettings.Output.WriteIndex = false;
-                downloadSettings.Output.HasConfiguredIndex = true;
                 downloadSettings.Skip.SkipExisting = false;
 
                 var list = new JobList("test list", new Job[]
@@ -667,7 +666,6 @@ namespace Tests.Eventing
                 var downloadSettings = new DownloadSettings();
                 downloadSettings.Output.ParentDir = outputDir;
                 downloadSettings.Output.WriteIndex = false;
-                downloadSettings.Output.HasConfiguredIndex = true;
                 downloadSettings.Skip.SkipExisting = false;
 
                 var album1 = Album("Album One", response1, album1File1, album1File2);
@@ -767,7 +765,6 @@ namespace Tests.Eventing
                 var downloadSettings = new DownloadSettings();
                 downloadSettings.Output.ParentDir = outputDir;
                 downloadSettings.Output.WriteIndex = false;
-                downloadSettings.Output.HasConfiguredIndex = true;
                 downloadSettings.Search.MinSharesAggregate = 1;
                 downloadSettings.Skip.SkipExisting = false;
 
@@ -874,7 +871,6 @@ namespace Tests.Eventing
                 var downloadSettings = new DownloadSettings();
                 downloadSettings.Output.ParentDir = outputDir;
                 downloadSettings.Output.WriteIndex = false;
-                downloadSettings.Output.HasConfiguredIndex = true;
                 downloadSettings.Search.MinSharesAggregate = 1;
                 downloadSettings.Search.NoBrowseFolder = true;
                 downloadSettings.Skip.SkipExisting = false;
@@ -1454,7 +1450,6 @@ namespace Tests.Eventing
             var settings = new DownloadSettings();
             settings.Output.ParentDir = outputDir;
             settings.Output.WriteIndex = false;
-            settings.Output.HasConfiguredIndex = true;
             settings.Skip.SkipExisting = false;
             return settings;
         }

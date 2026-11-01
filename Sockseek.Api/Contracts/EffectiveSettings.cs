@@ -19,7 +19,8 @@ public sealed record EffectiveDownloadSettingsDto(
     bool SpotifyRefreshConfigured,
     bool YouTubeApiKeyConfigured,
     bool YtDlpArgumentConfigured,
-    bool BandcampHtmlFileConfigured);
+    bool BandcampHtmlFileConfigured,
+    bool SoundCloudTokenConfigured = false);
 
 public sealed record ResolveEffectiveSettingsResponseDto(
     ServerSearchSettingsBaselineKind Baseline,

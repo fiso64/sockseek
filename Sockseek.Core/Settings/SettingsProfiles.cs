@@ -13,8 +13,8 @@ public sealed record SettingsProfile
 {
     public string Name { get; init; } = "";
     public string? Condition { get; init; }
-    public EngineSettingsPatch Engine { get; init; } = new();
-    public DownloadSettingsPatch Download { get; init; } = new();
+    public SettingsPatch Engine { get; init; } = SettingsPatch.Empty;
+    public SettingsPatch Download { get; init; } = SettingsPatch.Empty;
 
     public bool HasEngineSettings => Engine.HasOperations;
     public bool HasDownloadSettings => Download.HasOperations;
@@ -54,41 +54,6 @@ public sealed class ProfileCatalog
         }
 
         return resolved;
-    }
-}
-
-public sealed class EngineSettingsPatch
-{
-    private readonly List<Action<EngineSettings>> _operations = [];
-    public bool HasOperations => _operations.Count > 0;
-
-    public void Add(Action<EngineSettings> operation) => _operations.Add(operation);
-
-    public void ApplyTo(EngineSettings settings)
-    {
-        foreach (var operation in _operations)
-            operation(settings);
-    }
-}
-
-public sealed class DownloadSettingsPatch
-{
-    private readonly List<Action<DownloadSettings>> _operations = [];
-    private readonly HashSet<string> _explicitFields = new(StringComparer.Ordinal);
-    public bool HasOperations => _operations.Count > 0;
-    public IReadOnlySet<string> ExplicitFields => _explicitFields;
-
-    public void Add(Action<DownloadSettings> operation, IEnumerable<string>? explicitFields = null)
-    {
-        _operations.Add(operation);
-        if (explicitFields != null)
-            _explicitFields.UnionWith(explicitFields);
-    }
-
-    public void ApplyTo(DownloadSettings settings)
-    {
-        foreach (var operation in _operations)
-            operation(settings);
     }
 }
 
@@ -142,7 +107,7 @@ public sealed class ProfileJobSettingsResolver : IJobSettingsResolver, IDetailed
         SettingsProfile? cliProfile,
         ProfileContext? context = null,
         Action<DownloadSettings>? normalize = null,
-        DownloadSettingsPatch? operatorDefault = null)
+        SettingsPatch? operatorDefault = null)
     {
         composer = new JobSettingsComposer(
             baseDefaults,
@@ -162,7 +127,7 @@ public sealed class ProfileJobSettingsResolver : IJobSettingsResolver, IDetailed
         SettingsProfile? cliProfile,
         ProfileContext? context = null,
         Action<DownloadSettings>? normalize = null,
-        DownloadSettingsPatch? operatorDefault = null)
+        SettingsPatch? operatorDefault = null)
     {
         var catalog = new ProfileCatalog
         {
@@ -216,14 +181,6 @@ public static class SettingsNormalizer
 {
     public static void Normalize(DownloadSettings dl)
     {
-        dl.Search.IgnoreOn = Math.Min(dl.Search.IgnoreOn, dl.Search.DownrankOn);
-
-        if (dl.YouTube.DeletedOnly)
-            dl.YouTube.GetDeleted = true;
-
-        if (dl.Output.AlbumArtOnly && dl.Output.AlbumArtOption == AlbumArtOption.Default)
-            dl.Output.AlbumArtOption = AlbumArtOption.Largest;
-
         dl.Output.NameFormat = dl.Output.NameFormat.Trim();
     }
 
@@ -437,84 +394,5 @@ public static partial class ProfileConditionEvaluator
 
 public static class SettingsCloner
 {
-    public static EngineSettings Clone(EngineSettings source)
-    {
-        var clone = source.ShallowClone();
-        clone.Sharing = source.Sharing.ShallowClone();
-        clone.Sharing.Roots = [.. source.Sharing.Roots.Select(root => new ShareRootSettings
-        {
-            LocalPath = root.LocalPath,
-            Alias = root.Alias,
-            EffectiveAlias = root.EffectiveAlias,
-        })];
-        clone.Sharing.ExcludedDirectories = [.. source.Sharing.ExcludedDirectories];
-        clone.Sharing.Filters = [.. source.Sharing.Filters];
-        clone.Uploads = source.Uploads.ShallowClone();
-        clone.PeerRestrictions = source.PeerRestrictions.ShallowClone();
-        clone.PeerRestrictions.UploadAccess = source.PeerRestrictions.UploadAccess.ShallowClone();
-        clone.PeerRestrictions.UploadAccess.BlockedUsernames =
-            [.. source.PeerRestrictions.UploadAccess.BlockedUsernames];
-        clone.PeerRestrictions.UploadAccess.BlockedIpAddresses =
-            [.. source.PeerRestrictions.UploadAccess.BlockedIpAddresses];
-        clone.PeerRestrictions.PrivateMessages = source.PeerRestrictions.PrivateMessages.ShallowClone();
-        clone.PeerRestrictions.PrivateMessages.BlockedUsernames =
-            [.. source.PeerRestrictions.PrivateMessages.BlockedUsernames];
-        clone.Chat = source.Chat.ShallowClone();
-        clone.Chat.AutoJoinRooms = [.. source.Chat.AutoJoinRooms];
-        return clone;
-    }
-
-    public static DownloadSettings Clone(DownloadSettings source) => new(source);
-
-    public static OutputSettings Clone(OutputSettings source)
-    {
-        var clone = source.ShallowClone();
-        clone.IncompleteAlbumAction = new IncompleteAlbumActionSettings
-        {
-            Kind = source.IncompleteAlbumAction.Kind,
-            Path = source.IncompleteAlbumAction.Path,
-        };
-        clone.OnComplete = source.OnComplete?.ToList();
-        return clone;
-    }
-
-    public static SearchSettings Clone(SearchSettings source)
-    {
-        var clone = source.ShallowClone();
-        clone.NecessaryCond = new FileConditions(source.NecessaryCond);
-        clone.PreferredCond = new FileConditions(source.PreferredCond);
-        clone.NecessaryFolderCond = new FolderConditions(source.NecessaryFolderCond);
-        clone.PreferredFolderCond = new FolderConditions(source.PreferredFolderCond);
-        return clone;
-    }
-
-    public static SkipSettings Clone(SkipSettings source) => source.ShallowClone();
-
-    public static PreprocessSettings Clone(PreprocessSettings source)
-    {
-        var clone = source.ShallowClone();
-        clone.Regex = source.Regex?.Select(x => (Clone(x.Item1), Clone(x.Item2))).ToList();
-        return clone;
-    }
-
-    private static RegexFields Clone(RegexFields source) => new()
-    {
-        Title = source.Title,
-        Artist = source.Artist,
-        Album = source.Album,
-    };
-
-    public static ExtractionSettings Clone(ExtractionSettings source) => source.ShallowClone();
-
-    public static TransferSettings Clone(TransferSettings source) => source.ShallowClone();
-
-    public static SpotifySettings Clone(SpotifySettings source) => source.ShallowClone();
-
-    public static YouTubeSettings Clone(YouTubeSettings source) => source.ShallowClone();
-
-    public static YtDlpSettings Clone(YtDlpSettings source) => source.ShallowClone();
-
-    public static CsvSettings Clone(CsvSettings source) => source.ShallowClone();
-
-    public static BandcampSettings Clone(BandcampSettings source) => source.ShallowClone();
+    public static T Clone<T>(T source) where T : class => SettingsSchema.Copy(source);
 }

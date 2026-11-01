@@ -121,6 +121,7 @@ namespace Sockseek.Core;
         List,
         Soulseek,
         MusicBrainz,
+        SoundCloud,
         None = -1,
     }
 

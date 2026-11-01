@@ -1,4 +1,5 @@
 using Sockseek.Core.Settings;
+using Sockseek.Core.Services;
 
 using SearchResponse = Soulseek.SearchResponse;
 
@@ -294,7 +295,9 @@ namespace Sockseek.Core.Models;
                 return true;
 
             fname = noPath ? Utils.GetFileNameWithoutExtSlsk(fname) : fname;
-            return StrictString(fname, tname, diacrRemove: true, ignoreCase: true);
+            return Utils.HasFeatureCredit(tname)
+                ? StrictStringAny(fname, QueryMatching.Titles(tname))
+                : StrictString(fname, tname, diacrRemove: true, ignoreCase: true);
         }
 
         public bool StrictArtistSatisfies(string fname, string aname)
@@ -302,7 +305,12 @@ namespace Sockseek.Core.Models;
             if (!StrictArtist || aname.Length == 0)
                 return true;
 
-            return StrictString(fname, aname, diacrRemove: true, ignoreCase: true, boundarySkipWs: false);
+            // Keep the common single-artist path allocation-free apart from existing preprocessing.
+            if (aname.Contains(';'))
+                return StrictStringAny(fname, aname, ';', optionalCredits: true, boundarySkipWs: false);
+            return Utils.HasFeatureCredit(aname)
+                ? StrictStringAny(fname, QueryMatching.Titles(aname), boundarySkipWs: false)
+                : StrictString(fname, aname, diacrRemove: true, ignoreCase: true, boundarySkipWs: false);
         }
 
         public bool StrictAlbumSatisfies(string fname, string alname)
@@ -315,27 +323,32 @@ namespace Sockseek.Core.Models;
 
         // Equivalent to: replace '_' and Windows-invalid chars (optionally also '/' and '\') with spaces,
         // optionally remove diacritics, trim, and collapse consecutive literal spaces.
-        // Kept as one pass because result sorting calls this for every candidate path.
+        // Shared by condition filtering and result ranking.
         public static string StrictStringPreprocess(string str, bool diacrRemove = true, bool removeSlash = false)
         {
-            if (str.Length == 0)
-                return str;
+            // Most candidate paths and query terms already need no changes.
+            // Reuse those strings rather than allocating a buffer and a copy.
+            for (int i = 0; i < str.Length; i++)
+                if (NormalizeStrictChar(str[i], diacrRemove, removeSlash) != str[i]
+                    || (i == 0 || i == str.Length - 1) && char.IsWhiteSpace(str[i])
+                    || i > 0 && str[i] == ' ' && str[i - 1] == ' ')
+                    return StrictStringPreprocess(str.AsSpan(), diacrRemove, removeSlash);
+            return str;
+        }
 
-            // Most paths are already normalized. Use the same bounded stack
-            // buffer as fuzzy matching and retain unchanged input, rather than
-            // allocating a buffer and another string for every condition check.
-            Span<char> buffer = str.Length <= 512
-                ? stackalloc char[str.Length]
-                : new char[str.Length];
+        private static string StrictStringPreprocess(ReadOnlySpan<char> str, bool diacrRemove = true, bool removeSlash = false)
+        {
+            if (str.Length == 0)
+                return string.Empty;
+
+            Span<char> buffer = str.Length <= 512 ? stackalloc char[str.Length] : new char[str.Length];
             int length = 0;
             bool previousWasSpace = false;
             bool hasOutput = false;
-            bool unchanged = true;
 
             for (int i = 0; i < str.Length; i++)
             {
                 char c = NormalizeStrictChar(str[i], diacrRemove, removeSlash);
-                unchanged &= c == str[i];
 
                 if (!hasOutput && char.IsWhiteSpace(c))
                     continue;
@@ -359,8 +372,7 @@ namespace Sockseek.Core.Models;
             while (length > 0 && char.IsWhiteSpace(buffer[length - 1]))
                 length--;
 
-            return length == str.Length && unchanged ? str
-                : length == 0 ? string.Empty : new string(buffer[..length]);
+            return length == 0 ? string.Empty : new string(buffer[..length]);
         }
 
         public static string FuzzyPhrasePreprocess(string str, bool diacrRemove = true)
@@ -428,10 +440,53 @@ namespace Sockseek.Core.Models;
             fname = StrictStringPreprocess(fname, diacrRemove);
             tname = StrictStringPreprocess(tname, diacrRemove, removeSlash: true);
 
-            if (boundarySkipWs)
-                return fname.ContainsWithBoundaryIgnoreWs(tname, ignoreCase, acceptLeftDigit: true);
-            else
-                return fname.ContainsWithBoundary(tname, ignoreCase);
+            return StrictStringPrepared(fname, tname, ignoreCase, boundarySkipWs);
+        }
+
+        internal static bool StrictStringPrepared(string fname, string tname, bool ignoreCase = true, bool boundarySkipWs = true)
+            => tname.Length == 0 || (boundarySkipWs
+                ? fname.ContainsWithBoundaryIgnoreWs(tname, ignoreCase, acceptLeftDigit: true)
+                : fname.ContainsWithBoundary(tname, ignoreCase));
+
+        // The candidate is prepared once, regardless of the number of alternatives.
+        internal static bool StrictStringAny(string fname, string[] alternatives, bool boundarySkipWs = true)
+        {
+            fname = StrictStringPreprocess(fname);
+            foreach (string alternative in alternatives)
+                if (StrictStringPrepared(fname, StrictStringPreprocess(alternative, removeSlash: true), boundarySkipWs: boundarySkipWs))
+                    return true;
+            return false;
+        }
+
+        internal static bool StrictStringAny(string fname, string alternatives, char separator,
+            bool optionalCredits = false, bool boundarySkipWs = true)
+        {
+            fname = StrictStringPreprocess(fname);
+            var source = alternatives.AsSpan();
+            foreach (var range in source.Split(separator))
+            {
+                var alternative = source[range].Trim();
+                if (alternative.IsEmpty)
+                    continue;
+                if (StrictStringPrepared(fname, StrictStringPreprocess(alternative, removeSlash: true), boundarySkipWs: boundarySkipWs))
+                    return true;
+                if (optionalCredits && Utils.HasFeatureCredit(alternative))
+                {
+                    string withoutCredits = alternative.ToString().RemoveFt();
+                    if (withoutCredits.Length > 0 && StrictStringPrepared(fname,
+                            StrictStringPreprocess(withoutCredits, removeSlash: true), boundarySkipWs: boundarySkipWs))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        internal static bool StringMatchesAnyPrepared(string fname, string[] alternatives, bool boundarySkipWs = true)
+        {
+            foreach (string alternative in alternatives)
+                if (StrictStringPrepared(fname, alternative, boundarySkipWs: boundarySkipWs))
+                    return true;
+            return false;
         }
 
         public static bool FuzzyPhraseString(string fname, string tname, bool diacrRemove = true, bool ignoreCase = true, bool boundarySkipWs = true)
@@ -568,35 +623,6 @@ namespace Sockseek.Core.Models;
             return "Satisfied";
         }
 
-        public string GetNotSatisfiedName(FileCandidate candidate, SongQuery? query)
-        {
-            string title = query?.Title ?? "";
-            string artist = query?.Artist ?? "";
-            string album = query?.Album ?? "";
-            int length = query?.Length ?? -1;
-            if (!BannedUsernameSatisfies(candidate.Username))
-                return "BannedUsers fails";
-            if (!AllowedUsernameSatisfies(candidate.Username))
-                return "AllowedUsers fails";
-            if (!StrictTitleSatisfies(candidate.Filename, title))
-                return "StrictTitle fails";
-            if (!StrictArtistSatisfies(candidate.Filename, artist))
-                return "StrictArtist fails";
-            if (!LengthToleranceSatisfies(candidate.Length, length))
-                return "LengthTolerance fails";
-            if (!FormatSatisfies(candidate.Filename))
-                return "Format fails";
-            if (!StrictAlbumSatisfies(candidate.Filename, album))
-                return "StrictAlbum fails";
-            if (!BitrateSatisfies(candidate.BitRate))
-                return "Bitrate fails";
-            if (!SampleRateSatisfies(candidate.SampleRate))
-                return "SampleRate fails";
-            if (!BitDepthSatisfies(candidate.BitDepth))
-                return "BitDepth fails";
-            return "Satisfied";
-        }
-
         public override int GetHashCode()
         {
             throw new NotImplementedException();
@@ -605,15 +631,6 @@ namespace Sockseek.Core.Models;
 
     public class FileConditionPatch
     {
-        public FileConditionPatch Clone()
-        {
-            var copy = (FileConditionPatch)MemberwiseClone();
-            copy.Formats = Formats?.ToArray();
-            copy.BannedUsers = BannedUsers?.ToArray();
-            copy.AllowedUsers = AllowedUsers?.ToArray();
-            return copy;
-        }
-
         public int? LengthTolerance;
         public int? MinBitrate;
         public int? MaxBitrate;
@@ -676,6 +693,15 @@ namespace Sockseek.Core.Models;
 
             primary.FillMissingFrom(fallback);
             return primary.IsEmpty() ? null : primary;
+        }
+
+        public FileConditionPatch Clone()
+        {
+            var copy = (FileConditionPatch)MemberwiseClone();
+            copy.Formats = Formats?.ToArray();
+            copy.BannedUsers = BannedUsers?.ToArray();
+            copy.AllowedUsers = AllowedUsers?.ToArray();
+            return copy;
         }
 
         public override bool Equals(object? obj)

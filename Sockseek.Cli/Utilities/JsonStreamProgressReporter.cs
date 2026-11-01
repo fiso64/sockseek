@@ -381,6 +381,9 @@ public class JsonStreamProgressReporter
         });
     }
 
+    internal void ReportWorkflowSubmitted(Guid workflowId)
+        => WriteEvent("workflow_submitted", new { workflowId });
+
     private void WriteEvent(string type, object data)
     {
         var envelope = new

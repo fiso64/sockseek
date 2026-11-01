@@ -35,7 +35,7 @@ public sealed class JobSettingsSnapshot
     internal RetainedJobSettings Retain(RetainedSettingsWriter? writer = null) => Volatile.Read(ref retained)
         ?? LazyInitializer.EnsureInitialized(ref retained, ref retainLock,
             () => SubmissionSpecification.RetainSettings(settings, writer));
-    internal SearchDefinition? Describe(Job job) => SubmissionSpecification.CaptureSearch(job, settings.Search);
-    internal SearchDefinition Describe(SongQueryDefinition query) => SearchDefinition.Create(query, settings.Search);
-    internal SearchDefinition Describe(AlbumQueryDefinition query) => SearchDefinition.Create(query, settings.Search);
+    internal SearchDefinition? Describe(Job job) => SubmissionSpecification.CaptureSearch(job, settings.ResolveSearchSettings());
+    internal SearchDefinition Describe(SongQueryDefinition query) => SearchDefinition.Create(query, settings.ResolveSearchSettings());
+    internal SearchDefinition Describe(AlbumQueryDefinition query) => SearchDefinition.Create(query, settings.ResolveSearchSettings());
 }

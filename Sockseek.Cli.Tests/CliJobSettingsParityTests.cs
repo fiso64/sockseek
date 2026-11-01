@@ -40,8 +40,7 @@ public sealed class CliJobSettingsParityTests
     [TestMethod]
     public void LocalSubmissionOptions_UseRequestPatchForAutoProfileMatching()
     {
-        var autoPatch = new DownloadSettingsPatch();
-        autoPatch.Add(settings => settings.Transfer.MaxStaleTime = 7654);
+        var autoPatch = new SettingsPatch([new("Search.MaxStaleTime", 7654)]);
         var autoProfile = new SettingsProfile
         {
             Name = "aggregate-request",
@@ -67,7 +66,7 @@ public sealed class CliJobSettingsParityTests
         DownloadSettings settings = resolver.Resolve(new DownloadSettings(), job);
 
         CollectionAssert.Contains(settings.AppliedAutoProfiles.ToList(), "aggregate-request");
-        Assert.AreEqual(7654, settings.Transfer.MaxStaleTime);
+        Assert.AreEqual(7654, settings.Search.MaxStaleTime);
         Assert.IsTrue(settings.Search.IsAggregate);
     }
 }

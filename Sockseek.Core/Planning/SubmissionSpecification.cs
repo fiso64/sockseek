@@ -32,7 +32,7 @@ public sealed record SubmissionSpecification(
     SearchDefinition? Search,
     SubmissionSourceRevision? SourceRevision)
 {
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<RetainedJobSettings>? SharedSettings { get; init; }
@@ -666,6 +666,7 @@ public sealed record SubmissionSpecification(
         if (!string.IsNullOrEmpty(effectiveSettings.Spotify.Token)) bindings.Add("spotify.token");
         if (!string.IsNullOrEmpty(effectiveSettings.Spotify.Refresh)) bindings.Add("spotify.refresh");
         if (!string.IsNullOrEmpty(effectiveSettings.YouTube.ApiKey)) bindings.Add("youtube.api-key");
+        if (!string.IsNullOrEmpty(effectiveSettings.SoundCloud.AuthToken)) bindings.Add("soundcloud.auth-token");
         IReadOnlyList<string> slots = bindings.Count == 0 ? [] : Array.AsReadOnly(bindings.ToArray());
         return writer is null ? new(RetainedSettingsCodec.Serialize(effectiveSettings), slots)
             : writer.Write(effectiveSettings, slots);
@@ -696,6 +697,8 @@ public sealed record SubmissionSpecification(
             settings.Spotify.Refresh = credentialSource.Spotify.Refresh;
         if (credentialBindings.Contains("youtube.api-key"))
             settings.YouTube.ApiKey = credentialSource.YouTube.ApiKey;
+        if (credentialBindings.Contains("soundcloud.auth-token"))
+            settings.SoundCloud.AuthToken = credentialSource.SoundCloud.AuthToken;
         return settings;
     }
 

@@ -672,7 +672,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             return completed;
         };
         await using var app = ServerHost.Build(
-            ["--contentRoot", temporary],
+            ["--webroot", webRoot],
             new ServerOptions
             {
                 Engine = new EngineSettings

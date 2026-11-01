@@ -87,7 +87,7 @@ namespace Tests.ConfigTests
             var (file, root, cli, args) = Bind(content, "--input-type", "youtube");
             var result = Resolve(file, root, cli, args, new AlbumJob(new AlbumQuery()));
 
-            Assert.AreEqual(10, result.Transfer.MaxStaleTime);
+            Assert.AreEqual(10, result.Search.MaxStaleTime);
             Assert.IsFalse(result.Search.FastSearch);
             Assert.IsNotNull(result.Search.NecessaryCond.Formats);
             Assert.AreEqual("flac", result.Search.NecessaryCond.Formats[0]);
@@ -109,7 +109,7 @@ namespace Tests.ConfigTests
             var cli = new CliSettings { InteractiveMode = true };
             var result = Resolve(file, root, cli, args, new AlbumJob(new AlbumQuery()));
 
-            Assert.AreEqual(999999, result.Transfer.MaxStaleTime);
+            Assert.AreEqual(999999, result.Search.MaxStaleTime);
             Assert.IsFalse(result.YtDlp.UseYtdlp);
         }
 
@@ -125,7 +125,7 @@ namespace Tests.ConfigTests
             var (file, root, cli, args) = Bind(content, "--interactive", "--album");
             var result = Resolve(file, root, cli, args, new AlbumJob(new AlbumQuery()));
 
-            Assert.AreEqual(9999999, result.Transfer.MaxStaleTime);
+            Assert.AreEqual(9999999, result.Search.MaxStaleTime);
             Assert.IsTrue(cli.NoProgress);
         }
 
@@ -145,7 +145,7 @@ namespace Tests.ConfigTests
             var result = Resolve(file, root, cli, args, new AlbumJob(new AlbumQuery()));
 
             Assert.IsTrue(cli.InteractiveMode);
-            Assert.AreEqual(9999999, result.Transfer.MaxStaleTime);
+            Assert.AreEqual(9999999, result.Search.MaxStaleTime);
             Assert.IsTrue(cli.NoProgress);
         }
 
@@ -164,7 +164,7 @@ namespace Tests.ConfigTests
             var cli = new CliSettings { InteractiveMode = true };
             var result = Resolve(file, root, cli, args, new SongJob(new SongQuery { Title = "test" }));
 
-            Assert.AreNotEqual(999999, result.Transfer.MaxStaleTime);
+            Assert.AreNotEqual(999999, result.Search.MaxStaleTime);
             Assert.IsTrue(result.YtDlp.UseYtdlp);
         }
 
@@ -232,7 +232,7 @@ namespace Tests.ConfigTests
 
             JobPreparer.PrepareSubtree(job, root, resolver);
 
-            Assert.AreEqual(4242, job.Config.Transfer.MaxStaleTime);
+            Assert.AreEqual(4242, job.Config.Search.MaxStaleTime);
             CollectionAssert.Contains(job.Config.AppliedAutoProfiles.ToList(), "album-auto");
         }
 
@@ -345,7 +345,7 @@ namespace Tests.ConfigTests
 
             var result = Resolve(file, root, new CliSettings { InteractiveMode = false }, args);
 
-            Assert.AreEqual(1, result.Transfer.MaxStaleTime);
+            Assert.AreEqual(1, result.Search.MaxStaleTime);
             Assert.AreEqual(0, result.AppliedAutoProfiles.Count);
         }
 
@@ -359,7 +359,7 @@ namespace Tests.ConfigTests
 
             var result = Resolve(file, root, new CliSettings { InteractiveMode = true }, args);
 
-            Assert.AreEqual(2, result.Transfer.MaxStaleTime);
+            Assert.AreEqual(2, result.Search.MaxStaleTime);
         }
 
         [TestMethod]
@@ -373,7 +373,7 @@ namespace Tests.ConfigTests
 
             var result = Resolve(file, root, new CliSettings { InteractiveMode = true }, args);
 
-            Assert.AreEqual(3, result.Transfer.MaxStaleTime);
+            Assert.AreEqual(3, result.Search.MaxStaleTime);
         }
 
         [TestMethod]
@@ -387,7 +387,7 @@ namespace Tests.ConfigTests
 
             var result = Resolve(file, root, new CliSettings { InteractiveMode = true }, args);
 
-            Assert.AreEqual(4, result.Transfer.MaxStaleTime);
+            Assert.AreEqual(4, result.Search.MaxStaleTime);
         }
 
         [TestMethod]
@@ -399,7 +399,7 @@ namespace Tests.ConfigTests
 
             var result = Resolve(file, root, new CliSettings { InteractiveMode = true }, args);
 
-            Assert.AreEqual(4, result.Transfer.MaxStaleTime);
+            Assert.AreEqual(4, result.Search.MaxStaleTime);
         }
 
         [TestMethod]
@@ -412,7 +412,7 @@ namespace Tests.ConfigTests
 
             var result = Resolve(file, root, new CliSettings { InteractiveMode = true }, args, new AlbumJob(new AlbumQuery()));
 
-            Assert.AreEqual(20, result.Transfer.MaxStaleTime);
+            Assert.AreEqual(20, result.Search.MaxStaleTime);
             CollectionAssert.AreEqual(new[] { "first", "second" }, result.AppliedAutoProfiles.ToList());
         }
 
@@ -426,7 +426,7 @@ namespace Tests.ConfigTests
 
             var result = Resolve(file, root, new CliSettings { InteractiveMode = true }, args, new AlbumJob(new AlbumQuery()));
 
-            Assert.AreEqual(10, result.Transfer.MaxStaleTime);
+            Assert.AreEqual(10, result.Search.MaxStaleTime);
             Assert.IsTrue(result.Search.FastSearch);
         }
 
@@ -476,9 +476,9 @@ namespace Tests.ConfigTests
             var album = resolver.Resolve(root, new AlbumJob(new AlbumQuery()));
             var song = resolver.Resolve(root, new SongJob(new SongQuery { Title = "test" }));
 
-            Assert.AreEqual(10, album.Transfer.MaxStaleTime);
+            Assert.AreEqual(10, album.Search.MaxStaleTime);
             CollectionAssert.Contains(album.AppliedAutoProfiles.ToList(), "album-auto");
-            Assert.AreEqual(5, song.Transfer.MaxStaleTime);
+            Assert.AreEqual(5, song.Search.MaxStaleTime);
             Assert.AreEqual(0, song.AppliedAutoProfiles.Count);
         }
 
@@ -516,9 +516,9 @@ namespace Tests.ConfigTests
             var album = resolver.Resolve(root, new AlbumJob(new AlbumQuery()));
             var song = resolver.Resolve(root, new SongJob(new SongQuery { Title = "test" }));
 
-            Assert.AreEqual(10, album.Transfer.MaxStaleTime);
+            Assert.AreEqual(10, album.Search.MaxStaleTime);
             Assert.IsTrue(album.Search.FastSearch);
-            Assert.AreEqual(10, song.Transfer.MaxStaleTime);
+            Assert.AreEqual(10, song.Search.MaxStaleTime);
             Assert.IsFalse(song.Search.FastSearch);
             CollectionAssert.AreEqual(new[] { "profile-a" }, song.AppliedAutoProfiles.ToList());
         }
@@ -558,7 +558,7 @@ namespace Tests.ConfigTests
             var result = Resolve(file, root, new CliSettings { InteractiveMode = true }, args);
 
             Assert.IsFalse(file.HasAutoProfiles);
-            Assert.AreEqual(99, result.Transfer.MaxStaleTime);
+            Assert.AreEqual(99, result.Search.MaxStaleTime);
             Assert.AreEqual(0, result.AppliedAutoProfiles.Count);
         }
 
@@ -572,7 +572,7 @@ namespace Tests.ConfigTests
             var result = Resolve(file, root, new CliSettings { InteractiveMode = true }, args);
 
             Assert.IsFalse(file.HasAutoProfiles);
-            Assert.AreEqual(1, result.Transfer.MaxStaleTime);
+            Assert.AreEqual(1, result.Search.MaxStaleTime);
         }
 
         [TestMethod]
@@ -586,7 +586,7 @@ namespace Tests.ConfigTests
 
             var result = Resolve(file, root, new CliSettings { InteractiveMode = true }, args);
 
-            Assert.AreEqual(2, result.Transfer.MaxStaleTime);
+            Assert.AreEqual(2, result.Search.MaxStaleTime);
         }
 
         [TestMethod]
@@ -599,7 +599,7 @@ namespace Tests.ConfigTests
 
             var result = Resolve(file, root, new CliSettings(), args);
 
-            Assert.AreEqual(10, result.Transfer.MaxStaleTime);
+            Assert.AreEqual(10, result.Search.MaxStaleTime);
             Assert.IsTrue(result.Search.FastSearch);
         }
     }

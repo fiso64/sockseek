@@ -25,7 +25,7 @@ internal sealed class RemoteFileDownloadExecutor
             job,
             config.Transfer,
             config.Output.ParentDir,
-            config.Transfer.MaxStaleTime,
+            config.Search.MaxStaleTime,
             ct: job.Cts!.Token,
             parentJob: parentJob,
             allowOverwrite: !config.Skip.SkipExisting);

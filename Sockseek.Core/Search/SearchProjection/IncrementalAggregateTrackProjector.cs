@@ -284,7 +284,7 @@ public sealed class IncrementalAggregateTrackProjector
             => filterText is not null && value.Contains(filterText, StringComparison.OrdinalIgnoreCase);
 
         private bool MeetsVisibility()
-            => matchesText && ShareCount >= search.MinSharesAggregate
+            => matchesText && ShareCount >= search.EffectiveMinSharesAggregate
                 && (search.Relax || MatchesStrictQuery());
 
         private readonly record struct PendingCandidate(SearchProjectionInput Input, int UserSuccessCount);
@@ -299,11 +299,7 @@ public sealed class IncrementalAggregateTrackProjector
 
         // Group identity strings do not change as options arrive. Evaluate this
         // only when strict visibility is needed; Relax remains a caller policy.
-        public bool MatchesStrictQuery() => strictMatch ??=
-            FileConditions.StrictString(Query.Title, sourceQuery.Title, ignoreCase: true)
-            && (FileConditions.StrictString(Query.Artist, sourceQuery.Artist, ignoreCase: true, boundarySkipWs: false)
-                || FileConditions.StrictString(Query.Title, sourceQuery.Artist, ignoreCase: true, boundarySkipWs: false)
-                    && Query.Title.ContainsInBrackets(sourceQuery.Artist, ignoreCase: true));
+        public bool MatchesStrictQuery() => strictMatch ??= QueryMatching.AggregateIdentityMatches(Query, sourceQuery);
 
         public List<FileCandidate> SortedCandidates()
             => sorter!.SnapshotProjectedFiles()

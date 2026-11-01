@@ -37,7 +37,7 @@ public class SearchJob : Job
     public override SongQuery QueryTrack => NetworkQuery;
     protected override bool DefaultCanBeSkipped => false;
 
-    public SongQuery NetworkQuery => new() { Title = QueryText };
+    public SongQuery NetworkQuery { get; }
 
     public SearchJob(string queryText, TimeProvider? timeProvider = null)
     {
@@ -45,6 +45,7 @@ public class SearchJob : Job
             throw new ArgumentException("queryText is required for search jobs");
 
         QueryText = queryText;
+        NetworkQuery = new SongQuery { Title = queryText };
         Session = new SearchSession(Id, timeProvider, QueryText);
         SearchObservationSession = Session;
     }
@@ -52,6 +53,7 @@ public class SearchJob : Job
     public SearchJob(SongQuery query, bool includeFullResults = false, TimeProvider? timeProvider = null)
     {
         QueryText = query.ToString(noInfo: true);
+        NetworkQuery = query;
         DefaultFileProjection = new FileSearchProjection(query, includeFullResults);
         DefaultAggregateTrackProjection = new AggregateTrackProjection(query);
         Session = new SearchSession(Id, timeProvider, QueryText);
@@ -60,7 +62,8 @@ public class SearchJob : Job
 
     public SearchJob(AlbumQuery query, TimeProvider? timeProvider = null)
     {
-        QueryText = SearchResultProjector.AlbumNetworkQuery(query).ToString(noInfo: true);
+        NetworkQuery = SearchResultProjector.AlbumNetworkQuery(query);
+        QueryText = NetworkQuery.ToString(noInfo: true);
         DefaultFolderProjection = new FolderSearchProjection(query);
         DefaultAggregateAlbumProjection = new AggregateAlbumProjection(query);
         Session = new SearchSession(Id, timeProvider, QueryText);
@@ -104,7 +107,7 @@ public class SearchJob : Job
             () => new IncrementalNeutralFileProjectionState(
                 new IncrementalResultSorter(
                     projection.Query,
-                    search,
+                    ProjectionSettings(search),
                     userSuccessCounts,
                     useInfer: false,
                     requireFileSatisfies: !projection.IncludeFullResults)));
@@ -131,7 +134,7 @@ public class SearchJob : Job
             () => new IncrementalNeutralProjectionState<IncrementalAlbumFolderProjector, AlbumFolder>(
                 new IncrementalAlbumFolderProjector(
                     projection.Query,
-                    search,
+                    ProjectionSettings(search),
                     ignoreStringSortConditions: projection.IgnoreStringSortConditions,
                     sortMode: projection.SortMode),
                 (projector, results) => projector.AddRange(results),
@@ -169,7 +172,7 @@ public class SearchJob : Job
         var state = GetOrCreateIncrementalProjectionState(
             ProjectionKey("aggregate-tracks", projection, search, userSuccessCounts, includeLocked),
             () => new IncrementalNeutralProjectionState<IncrementalAggregateTrackProjector, SongJob>(
-                new IncrementalAggregateTrackProjector(projection.Query, search, userSuccessCounts),
+                new IncrementalAggregateTrackProjector(projection.Query, ProjectionSettings(search), userSuccessCounts),
                 (projector, results) => projector.AddRange(results),
                 projector => projector.Snapshot(),
                 includeLocked));
@@ -193,7 +196,7 @@ public class SearchJob : Job
     {
         var state = GetOrCreateIncrementalProjectionState(
             ProjectionKey("aggregate-albums", projection, search, includeLocked: includeLocked),
-            () => new IncrementalAlbumAggregateProjectionState(projection.Query, search, includeLocked));
+            () => new IncrementalAlbumAggregateProjectionState(projection.Query, ProjectionSettings(search), includeLocked));
 
         var result = state.Snapshot(this);
         ApplyRetrievedDirectories(result.Items.SelectMany(album => album.Results));
@@ -213,6 +216,9 @@ public class SearchJob : Job
                 && retrievedDirectories.TryGetValue(folder.DirectoryIdentity, out var snapshot))
                 Searcher.ApplyDirectorySnapshot(folder, snapshot);
     }
+
+    private SearchSettings ProjectionSettings(SearchSettings search)
+        => Config?.ResolveSearchSettings(search) ?? search;
 
     private TState GetOrCreateIncrementalProjectionState<TState>(
         ProjectionCacheKey key,
@@ -240,13 +246,14 @@ public class SearchJob : Job
             .Select(result => result.ProjectionInput)
             .ToList();
 
-    private static ProjectionCacheKey ProjectionKey(
+    private ProjectionCacheKey ProjectionKey(
         string name,
         object projection,
         SearchSettings search,
         object? supplemental = null,
         bool includeLocked = false)
-        => new(name, ProjectionIdentity(projection), search, supplemental, includeLocked);
+        => new(name, ProjectionIdentity(projection), search, supplemental, includeLocked,
+            Config?.Output.AlbumArtOnly == true, Config?.DefaultMinSharesAggregate ?? SearchSettings.DefaultMinShares);
 
     private static object ProjectionIdentity(object projection)
         => projection switch
@@ -285,7 +292,9 @@ public class SearchJob : Job
         object Projection,
         SearchSettings Search,
         object? Supplemental,
-        bool IncludeLocked);
+        bool IncludeLocked,
+        bool ArtworkOnly,
+        int DefaultMinShares);
     private sealed record FileProjectionKey(SongQueryKey Query, bool IncludeFullResults);
     private sealed record FolderProjectionKey(
         AlbumQueryKey Query,

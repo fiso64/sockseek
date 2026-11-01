@@ -1,3 +1,5 @@
+using Sockseek.Core.Settings;
+
 namespace Sockseek.Cli;
 
 /// CLI-only settings — control presentation and UI behavior.
@@ -9,15 +11,18 @@ namespace Sockseek.Cli;
 public class CliSettings
 {
     /// When true, the CLI uses interactive search/select orchestration for album jobs.
+    [SettingOption("-t", "--interactive")]
     public bool InteractiveMode { get; set; }
 
     /// When true, the CLI skips progress event subscribers.
+    [SettingOption("--np", "--no-progress", ValueKind = OptionValueKind.None)]
+    [SettingOption("--progress", Negate = true, ValueKind = OptionValueKind.None)]
     public bool NoProgress { get; set; }
 
     /// When true, the CLI uses JsonStreamProgressReporter instead of the default CLI reporter.
+    [SettingOption("--progress-json")]
     public bool ProgressJson { get; set; }
-
-    /// When true, the remote CLI subscribes to the daemon-wide live stream.
+    [SettingOption("--monitor")]
     public bool Monitor { get; set; }
 
 }

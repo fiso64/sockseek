@@ -80,6 +80,8 @@ internal static partial class Program
         CliSettings cliSettings;
         DaemonSettings daemonSettings;
         RemoteSettings remoteSettings;
+        ParsedInvocation invocation;
+        string configPath;
 
         // TODO [ARCHITECTURE]: Replace scattered CLI/server validation exception handling
         // with typed diagnostics carrying severity, exit-code class, output stream, and
@@ -87,10 +89,11 @@ internal static partial class Program
         // validation currently encode that policy in several catch/log branches.
         try
         {
-            (configFile, engineSettings, rootSettings, cliSettings, daemonSettings, remoteSettings) =
-                ConfigManager.LoadAndBindAll(bindArgs);
+            invocation = ConfigManager.ParseInvocation(bindArgs);
+            configPath = ConfigManager.GetConfigPath(invocation);
+            configFile = ConfigManager.Load(configPath);
+            (engineSettings, rootSettings, cliSettings, daemonSettings, remoteSettings) = ConfigManager.BindAll(configFile, invocation);
             ConfigManager.ApplyAutoProfileCliSettings(configFile, rootSettings, cliSettings);
-            ApplyMockFilesDefaults(engineSettings, rootSettings);
         }
         catch (Exception ex) when (ex is ArgumentException || ex.Message.StartsWith("Input error:"))
         {
@@ -98,7 +101,7 @@ internal static partial class Program
             return CliExitCode.UsageError;
         }
 
-        string? profileArg = ConfigManager.ExtractProfileName(bindArgs);
+        string? profileArg = invocation.ProfileName;
         if (profileArg != null)
         {
             var requestedProfiles = profileArg.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
@@ -143,6 +146,7 @@ internal static partial class Program
             }
         }
 
+        output.RouteLogsToError(cliSettings.ProgressJson || remoteSettings.Detach);
         using ILoggerFactory loggerFactory = output.CreateLoggerFactory(
             rootSettings.NonVerbosePrint ? LogLevel.Error : engineSettings.LogLevel,
             engineSettings.LogFilePath,
@@ -154,7 +158,7 @@ internal static partial class Program
         {
             try
             {
-                await RunDaemonAsync(bindArgs, configFile, engineSettings, rootSettings, daemonSettings);
+                await RunDaemonAsync(bindArgs, invocation, configFile, engineSettings, rootSettings, daemonSettings);
             }
             catch (ArgumentException ex)
             {
@@ -175,6 +179,11 @@ internal static partial class Program
             return CliExitCode.Success;
         }
 
+        if (remoteSettings.Detach && (!remoteSettings.IsEnabled || cliSettings.InteractiveMode))
+        {
+            Write(output, LogLevel.Error, "Input error: --detach requires --remote and cannot be used with interactive mode.");
+            return CliExitCode.UsageError;
+        }
         LogCliSessionStart(logger, remoteSettings);
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -218,7 +227,7 @@ internal static partial class Program
             try
             {
                 return await RunRemoteAsync(
-                    bindArgs,
+                    invocation,
                     engineSettings,
                     rootSettings,
                     cliSettings,
@@ -269,12 +278,7 @@ internal static partial class Program
         IJobSettingsResolver jobSettingsResolver;
         try
         {
-            jobSettingsResolver = ConfigManager.CreateJobSettingsResolver(
-                configFile,
-                bindArgs,
-                cliSettings);
-            if (!string.IsNullOrEmpty(engineSettings.MockFilesDir))
-                jobSettingsResolver = new MockFilesJobSettingsResolver(jobSettingsResolver);
+            jobSettingsResolver = ConfigManager.CreateJobSettingsResolver(configFile, invocation, cliSettings, engine: engineSettings);
         }
         catch (Exception ex) when (ex is ArgumentException || ex.Message.StartsWith("Input error:"))
         {
@@ -306,7 +310,7 @@ internal static partial class Program
             engine,
             rootSettings,
             localSubmissionOptionsResolver,
-            ConfigManager.CreateCliDownloadSettingsPatch(bindArgs));
+            DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings));
 
         CliProgressReporter? cliReporter = null;
         if (cliSettings.ProgressJson)
@@ -425,48 +429,9 @@ internal static partial class Program
     internal static bool ArgsRequestProgressJson(IReadOnlyList<string> args)
         => CliOutputController.ArgsRequestProgressJson(args);
 
-    private static void ApplyMockFilesDefaults(EngineSettings engineSettings, DownloadSettings downloadSettings)
-    {
-        if (!string.IsNullOrEmpty(engineSettings.MockFilesDir))
-            downloadSettings.Search.MinSharesAggregate = 1;
-    }
-
-    private sealed class MockFilesJobSettingsResolver(IJobSettingsResolver inner)
-        : IJobSettingsResolver, IJobSettingsRequestResolver
-    {
-        public DownloadSettings Resolve(
-            DownloadSettings inherited,
-            JobSettingsContext job,
-            JobSettingsInheritance inheritance = JobSettingsInheritance.None)
-        {
-            var settings = inner.Resolve(inherited, job, inheritance);
-            settings.Search.MinSharesAggregate = 1;
-            return settings;
-        }
-
-        public DownloadSettings Resolve(
-            DownloadSettings inherited,
-            JobSettingsContext job,
-            JobSettingsInheritance inheritance,
-            JobSettingsRequestLayers? request)
-        {
-            DownloadSettings settings;
-            if (inner is IJobSettingsRequestResolver requestResolver)
-            {
-                settings = requestResolver.Resolve(inherited, job, inheritance, request);
-            }
-            else
-            {
-                settings = inner.Resolve(inherited, job, inheritance);
-                request?.Download?.ApplyTo(settings);
-            }
-            settings.Search.MinSharesAggregate = 1;
-            return settings;
-        }
-    }
 
     private static async Task<CliExitCode> RunRemoteAsync(
-        string[] args,
+        ParsedInvocation invocation,
         EngineSettings engineSettings,
         DownloadSettings rootSettings,
         CliSettings cliSettings,
@@ -475,10 +440,25 @@ internal static partial class Program
         ILogger logger,
         CancellationTokenSource cts)
     {
-        if (string.IsNullOrWhiteSpace(rootSettings.Extraction.Input))
+        var submissionOptions = BuildRemoteSubmissionOptions(invocation, cliSettings);
+        var extractRequest = BuildRemoteExtractRequest(rootSettings, submissionOptions);
+        if (string.IsNullOrWhiteSpace(extractRequest.Input) && submissionOptions.ProfileNames is not { Count: > 0 })
         {
             Write(output, LogLevel.Error, "Remote mode requires an input.");
             return CliExitCode.UsageError;
+        }
+
+        if (remoteSettings.Detach)
+        {
+            using var http = SockseekApiClient.CreateHttpClient(remoteSettings.ServerUrl!);
+            var api = new SockseekApiClient(http);
+            extractRequest = await RemoteCliBackend.PrepareExtractRequestAsync(api, extractRequest, cts.Token);
+            var detached = await api.SubmitExtractJobAsync(extractRequest, cts.Token);
+            if (cliSettings.ProgressJson)
+                new JsonStreamProgressReporter(Console.Out).ReportWorkflowSubmitted(detached.WorkflowId);
+            else
+                Console.WriteLine(detached.WorkflowId);
+            return LogCliSessionExit(logger, CliExitCode.Success, remoteSettings);
         }
 
         await using var backend = new RemoteCliBackend(remoteSettings.ServerUrl!);
@@ -514,10 +494,7 @@ internal static partial class Program
             {
                 CliExitCode previewExit = await PrintRemoteJobPreviewAsync(
                     backend,
-                    new SubmitExtractJobRequestDto(
-                        rootSettings.Extraction.Input,
-                        rootSettings.Extraction.InputType.ToString(),
-                        Options: BuildRemoteSubmissionOptions(args, cliSettings)),
+                    extractRequest,
                     rootSettings.PrintOption,
                     cts.Token).ConfigureAwait(false);
                 return LogCliSessionExit(logger, previewExit, remoteSettings);
@@ -527,11 +504,8 @@ internal static partial class Program
             await backend.SubscribeWorkflowAsync(workflowId, cts.Token);
             using var terminalUpdateObserver = new WorkflowTerminalUpdateObserver(backend, workflowId);
 
-            var options = BuildRemoteSubmissionOptions(args, cliSettings) with { WorkflowId = workflowId };
-            var request = new SubmitExtractJobRequestDto(
-                rootSettings.Extraction.Input,
-                rootSettings.Extraction.InputType.ToString(),
-                Options: options);
+            var options = submissionOptions with { WorkflowId = workflowId };
+            var request = extractRequest with { Options = options };
 
             InteractiveCliCoordinator? interactiveCoordinator = null;
             JobSummaryDto submission;
@@ -1671,15 +1645,29 @@ internal static partial class Program
     internal static SubmissionOptionsDto BuildRemoteSubmissionOptions(
         string[] args,
         CliSettings cliSettings)
+        => BuildRemoteSubmissionOptions(ConfigManager.ParseInvocation(args), cliSettings);
+
+    private static SubmissionOptionsDto BuildRemoteSubmissionOptions(ParsedInvocation invocation, CliSettings cliSettings)
         => new(
-            ProfileNames: SplitProfileNames(ConfigManager.ExtractProfileName(args)),
+            ProfileNames: SplitProfileNames(invocation.ProfileName),
             ProfileContext: new Dictionary<string, bool>
             {
                 ["interactive"] = cliSettings.InteractiveMode,
                 ["progress-json"] = cliSettings.ProgressJson,
                 ["no-progress"] = cliSettings.NoProgress,
             },
-            DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch(args));
+            DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings));
+
+    private static SubmitExtractJobRequestDto BuildRemoteExtractRequest(DownloadSettings rootSettings, SubmissionOptionsDto options)
+    {
+        if (options.ProfileNames is not { Count: > 0 })
+            return new(rootSettings.Extraction.Input, rootSettings.Extraction.InputType.ToString(), Options: options);
+
+        // Named remote profiles are resolved by the daemon. Forward only CLI input overrides.
+        var input = options.DownloadSettings?.Extraction?.Input;
+        var inputType = options.DownloadSettings?.Extraction?.InputType?.ToString();
+        return new(input, inputType, Options: options);
+    }
 
     private static string[]? SplitProfileNames(string? names)
         => string.IsNullOrWhiteSpace(names)
@@ -1705,6 +1693,7 @@ internal static partial class Program
 
     private static async Task RunDaemonAsync(
         string[] args,
+        ParsedInvocation invocation,
         ConfigFile configFile,
         EngineSettings engineSettings,
         DownloadSettings rootSettings,
@@ -1715,8 +1704,8 @@ internal static partial class Program
         var options = new ServerOptions
         {
             Engine = CreateDaemonEngineSettings(engineSettings),
-            LaunchDownloadSettings = ConfigManager.CreateCliDownloadSettingsPatch(args),
-            LaunchProfileNames = ConfigManager.ExtractProfileName(args)?
+            LaunchDownloadSettings = DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings),
+            LaunchProfileNames = invocation.ProfileName?
                 .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
                 ?? [],
             Profiles = ConfigManager.CreateProfileCatalog(configFile),
@@ -1738,7 +1727,7 @@ internal static partial class Program
 
         // A published CLI carries the WebUI beside the executable. Resolve
         // static assets there even when launched from a different directory.
-        var app = ServerHost.Build([..args, "--contentRoot", AppContext.BaseDirectory], options, url);
+        var app = ServerHost.Build(args, options, url);
         var logger = app.Services.GetRequiredService<ILoggerFactory>()
             .CreateLogger("Sockseek.Cli.Daemon");
         CliLogMessages.DaemonStarting(logger, url);

@@ -8972,6 +8972,7 @@ export interface components {
             csv?: null | components["schemas"]["CsvSettingsPatchDto"];
             bandcamp?: null | components["schemas"]["BandcampSettingsPatchDto"];
             printOption?: null | components["schemas"]["ServerPrintOption"];
+            soundCloud?: null | components["schemas"]["SoundCloudSettingsPatchDto"];
         };
         EffectiveDownloadSettingsDto: {
             values: components["schemas"]["DownloadSettingsPatchDto"];
@@ -8986,6 +8987,8 @@ export interface components {
             youTubeApiKeyConfigured: boolean;
             ytDlpArgumentConfigured: boolean;
             bandcampHtmlFileConfigured: boolean;
+            /** @default false */
+            soundCloudTokenConfigured: boolean;
         };
         ExtractionSettingsPatchDto: {
             input?: null | string;
@@ -9000,6 +9003,7 @@ export interface components {
             upgradeToAlbum?: null | boolean;
             setAlbumMinTrackCount?: null | boolean;
             setAlbumMaxTrackCount?: null | boolean;
+            clearRequestedMode?: null | boolean;
         };
         ExtractionStartedActivityDto: {
             /** Format: int32 */
@@ -9046,6 +9050,7 @@ export interface components {
             clearMaxSampleRate?: null | boolean;
             clearMinBitDepth?: null | boolean;
             clearMaxBitDepth?: null | boolean;
+            clearLengthTolerance?: null | boolean;
         };
         FileDownloadStateDto: {
             downloadPath?: null | string;
@@ -9083,6 +9088,8 @@ export interface components {
         IncompleteAlbumActionSettingsPatchDto: {
             kind?: null | components["schemas"]["ServerIncompleteAlbumActionKind"];
             path?: null | string;
+            clearPath?: null | boolean;
+            clearKind?: null | boolean;
         };
         InputArtifactDto: {
             artifactId: string;
@@ -9345,7 +9352,7 @@ export interface components {
         JobDraftDtoExtractJobDraftDto: {
             /** @enum {string} */
             kind?: "extract";
-            input: string;
+            input?: null | string;
             inputType?: null | string;
             downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
             resultDownloadBehavior?: null | components["schemas"]["DownloadBehaviorPolicyDto"];
@@ -10470,13 +10477,13 @@ export interface components {
             invalidReplaceStr?: null | string;
             writePlaylist?: null | boolean;
             writeIndex?: null | boolean;
-            hasConfiguredIndex?: null | boolean;
             m3uFilePath?: null | string;
             indexFilePath?: null | string;
             incompleteAlbumAction?: null | components["schemas"]["IncompleteAlbumActionSettingsPatchDto"];
             onComplete?: null | components["schemas"]["CollectionPatchDtoOfstring"];
             albumArtOnly?: null | boolean;
             albumArtOption?: null | components["schemas"]["ServerAlbumArtOption"];
+            clearWriteIndex?: null | boolean;
         };
         PageDtoOfBrowseDirectoryEntryDto: {
             items: components["schemas"]["BrowseDirectoryEntryDto"][];
@@ -10839,6 +10846,13 @@ export interface components {
             minSharesAggregate?: null | number | string;
             /** Format: int32 */
             aggregateLengthTol?: null | number | string;
+            /** Format: int32 */
+            fallbackLevel?: null | number | string;
+            /** Format: int32 */
+            maxFallbackAttempts?: null | number | string;
+            /** Format: int32 */
+            maxStaleTime?: null | number | string;
+            clearMinSharesAggregate?: null | boolean;
         };
         SearchStateDto: {
             /** Format: uuid */
@@ -11233,6 +11247,9 @@ export interface components {
             state: string;
             flags: string[];
             isReady: boolean;
+        };
+        SoundCloudSettingsPatchDto: {
+            authToken?: null | string;
         };
         SourceMutationDto: {
             kind: string;
@@ -12808,7 +12825,7 @@ export interface components {
             aggregatePresentation: boolean;
         };
         SubmitExtractJobRequestDto: {
-            input: string;
+            input?: null | string;
             inputType?: null | string;
             options?: null | components["schemas"]["SubmissionOptionsDto"];
             resultDownloadBehavior?: null | components["schemas"]["DownloadBehaviorPolicyDto"];
@@ -13069,8 +13086,6 @@ export interface components {
             noIncompleteExt?: null | boolean;
             /** Format: int32 */
             albumTrackCountMaxRetries?: null | number | string;
-            /** Format: int32 */
-            maxStaleTime?: null | number | string;
         };
         TransferStateDto: {
             /** Format: uuid */

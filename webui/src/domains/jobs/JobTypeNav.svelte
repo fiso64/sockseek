@@ -10,6 +10,7 @@
     { title: 'From source', choices: [
       { value: 'spotify', label: 'Spotify', detail: 'Playlist, album, or saved library', icon: 'spotify' },
       { value: 'youtube', label: 'YouTube', detail: 'Playlist URL', icon: 'youtube' },
+      { value: 'soundcloud', label: 'SoundCloud', detail: 'Track or playlist URL', icon: 'link' },
       { value: 'bandcamp', label: 'Bandcamp', detail: 'Track, album, wishlist, or artist URL', icon: 'bandcamp' },
       { value: 'musicbrainz', label: 'MusicBrainz', detail: 'Release, release group, or collection URL', icon: 'musicbrainz' },
       { value: 'soulseek', label: 'Soulseek', detail: 'File or directory slsk:// link', icon: 'soulseek' },

@@ -1,3 +1,4 @@
+using Sockseek.Server;
 using System.Globalization;
 using System.Text.Json;
 using Sockseek.Api;
@@ -400,7 +401,7 @@ internal static class UserCommandRunner
                 ["progress-json"] = false,
                 ["no-progress"] = false,
             },
-            DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch(transferArgs));
+            DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch(transferArgs)));
     }
 
     private static IReadOnlyList<string> ExtractTransferArguments(

@@ -12,6 +12,8 @@ describe('New Job submission', () => {
   it('uses daemon Spotify collection inputs', () => {
     const draft = { ...createNewJobDraft(), choice: 'spotify' as const, spotifyInput: 'albums' as const };
     expect(buildJobPreviewRequest(draft).job).toEqual({ kind: 'extract', input: 'spotify-albums', inputType: 'spotify' });
+    expect(buildJobPreviewRequest({ ...createNewJobDraft(), choice: 'soundcloud', source: 'https://soundcloud.com/artist/sets/list' }).job)
+      .toEqual({ kind: 'extract', input: 'https://soundcloud.com/artist/sets/list', inputType: 'soundcloud' });
   });
 
   it('requires a real uploaded artifact instead of treating the browser filename as a server path', () => {

@@ -226,7 +226,7 @@ public class StaleDownloadTests
             song,
             settings.Transfer,
             settings.Output.ParentDir,
-            settings.Transfer.MaxStaleTime,
+            settings.Search.MaxStaleTime,
             downloadCts.Token));
         try
         {
@@ -650,7 +650,7 @@ public class StaleDownloadTests
     {
         var settings = new DownloadSettings();
         settings.Output.ParentDir = outputDir;
-        settings.Transfer.MaxStaleTime = (int)MaxStaleTime.TotalMilliseconds;
+        settings.Search.MaxStaleTime = (int)MaxStaleTime.TotalMilliseconds;
         settings.Search.NoBrowseFolder = true;
         settings.Transfer.UnknownErrorRetries = 1;
         settings.Transfer.MaxDownloadRetries = 1;

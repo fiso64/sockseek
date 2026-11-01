@@ -36,7 +36,7 @@ internal sealed class SkipEvaluationCoordinator
 
     public bool TrySetJobAlreadyExists(Job job, JobContext ctx)
     {
-        var skipCtx = TrackSkipperContext.From(ctx, job.Config.Skip, job.Config.Search);
+        var skipCtx = TrackSkipperContext.From(ctx, job.Config.Skip, job.Config.ResolveSearchSettings());
         string? path = null;
 
         if (job is SongJob song)
@@ -64,7 +64,7 @@ internal sealed class SkipEvaluationCoordinator
 
     public JobOutcome? TryGetJobAlreadyExistsOutcome(Job job, JobContext ctx)
     {
-        var skipCtx = TrackSkipperContext.From(ctx, job.Config.Skip, job.Config.Search);
+        var skipCtx = TrackSkipperContext.From(ctx, job.Config.Skip, job.Config.ResolveSearchSettings());
         string? path;
 
         if (job is SongJob song)

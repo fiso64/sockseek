@@ -377,7 +377,6 @@ public static class JobPreparer
     private static bool HasDefaultIndex(JobList owner)
         => owner.EnablesIndexByDefault || owner.Jobs.Any(job => job.EnablesIndexByDefault);
 
-    private static bool WillWriteIndex(DownloadSettings settings, bool indexByDefault)
-        => !settings.DoNotDownload && settings.Output.WriteIndex
-            && (settings.Output.HasConfiguredIndex || indexByDefault);
+    internal static bool WillWriteIndex(DownloadSettings settings, bool indexByDefault)
+        => !settings.DoNotDownload && (settings.Output.WriteIndex ?? (settings.Output.IndexFilePath != null || indexByDefault));
 }

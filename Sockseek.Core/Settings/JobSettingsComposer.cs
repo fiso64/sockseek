@@ -4,7 +4,6 @@ using Sockseek.Core.Services;
 using Sockseek.Core.Snapshots;
 using System.Collections;
 using System.Globalization;
-using System.Reflection;
 using System.Text.Json;
 
 namespace Sockseek.Core.Settings;
@@ -29,7 +28,7 @@ public enum JobSettingsInheritance
 public sealed record JobSettingsRequestLayers(
     IReadOnlyList<string>? ProfileNames = null,
     ProfileContext? ProfileContext = null,
-    DownloadSettingsPatch? Download = null);
+    SettingsPatch? Download = null);
 
 public sealed record JobSettingsCompositionResult(
     DownloadSettings Settings,
@@ -88,10 +87,10 @@ public static class SearchSettingsBaselines
 public sealed class JobSettingsComposer
 {
     private readonly DownloadSettings? operatorDefaults;
-    private readonly DownloadSettingsPatch? operatorDefault;
+    private readonly SettingsPatch? operatorDefault;
     private readonly ProfileCatalog catalog;
     private readonly IReadOnlyList<SettingsProfile> launchNamedProfiles;
-    private readonly DownloadSettingsPatch? launchDownload;
+    private readonly SettingsPatch? launchDownload;
     private readonly ProfileContext launchContext;
     private readonly Action<DownloadSettings>? finalize;
 
@@ -99,10 +98,10 @@ public sealed class JobSettingsComposer
         DownloadSettings? operatorDefaults,
         ProfileCatalog catalog,
         IReadOnlyList<SettingsProfile>? launchNamedProfiles = null,
-        DownloadSettingsPatch? launchDownload = null,
+        SettingsPatch? launchDownload = null,
         ProfileContext? launchContext = null,
         Action<DownloadSettings>? finalize = null,
-        DownloadSettingsPatch? operatorDefault = null)
+        SettingsPatch? operatorDefault = null)
     {
         this.operatorDefaults = operatorDefaults == null
             ? null
@@ -186,7 +185,7 @@ public sealed class JobSettingsComposer
         JobSettingsInheritance inheritance,
         IReadOnlyList<SettingsProfile> autoProfiles,
         IReadOnlyList<SettingsProfile> namedProfiles,
-        DownloadSettingsPatch? request,
+        SettingsPatch? request,
         Dictionary<string, string>? provenance)
     {
         var settings = CreateBuiltInBase(baseline);
@@ -250,7 +249,7 @@ public sealed class JobSettingsComposer
 
     private static void ApplyTracked(
         DownloadSettings settings,
-        DownloadSettingsPatch? patch,
+        SettingsPatch? patch,
         string source,
         Dictionary<string, string>? provenance)
     {
@@ -278,7 +277,7 @@ public sealed class JobSettingsComposer
         {
             if (!before.TryGetValue(field, out string? previous)
                 || !string.Equals(previous, value, StringComparison.Ordinal)
-                || explicitFields.Contains(field))
+                || explicitFields.Any(path => field == path || field.StartsWith(path + ".", StringComparison.Ordinal)))
             {
                 provenance[field] = source;
             }
@@ -317,68 +316,9 @@ public sealed class JobSettingsComposer
 
 internal static class SettingsFieldSnapshot
 {
-    private static readonly string[] RootSections =
-    [
-        nameof(DownloadSettings.Output),
-        nameof(DownloadSettings.Search),
-        nameof(DownloadSettings.Skip),
-        nameof(DownloadSettings.Preprocess),
-        nameof(DownloadSettings.Extraction),
-        nameof(DownloadSettings.Transfer),
-        nameof(DownloadSettings.Spotify),
-        nameof(DownloadSettings.YouTube),
-        nameof(DownloadSettings.YtDlp),
-        nameof(DownloadSettings.Csv),
-        nameof(DownloadSettings.Bandcamp),
-        nameof(DownloadSettings.PrintOption),
-    ];
-
     public static Dictionary<string, string?> Capture(DownloadSettings settings)
-    {
-        var values = new Dictionary<string, string?>(StringComparer.Ordinal);
-        Type type = typeof(DownloadSettings);
-        foreach (string section in RootSections)
-        {
-            PropertyInfo property = type.GetProperty(section)!;
-            Walk(property.GetValue(settings), section, values);
-        }
-        return values;
-    }
-
-    private static void Walk(object? value, string path, Dictionary<string, string?> values)
-    {
-        if (value == null || IsScalar(value.GetType()) || value is IEnumerable)
-        {
-            values[path] = StableValue(value);
-            return;
-        }
-
-        Type type = value.GetType();
-        var members = type.GetProperties(BindingFlags.Instance | BindingFlags.Public)
-            .Where(property => property.CanRead && property.CanWrite && property.GetIndexParameters().Length == 0)
-            .Cast<MemberInfo>()
-            .Concat(type.GetFields(BindingFlags.Instance | BindingFlags.Public))
-            .OrderBy(member => member.Name, StringComparer.Ordinal);
-        foreach (MemberInfo member in members)
-        {
-            object? child = member switch
-            {
-                PropertyInfo property => property.GetValue(value),
-                FieldInfo field => field.GetValue(value),
-                _ => null,
-            };
-            Walk(child, $"{path}.{member.Name}", values);
-        }
-    }
-
-    private static bool IsScalar(Type type)
-        => type.IsPrimitive
-            || type.IsEnum
-            || type == typeof(string)
-            || type == typeof(decimal)
-            || type == typeof(Guid)
-            || type == typeof(DateTimeOffset)
-            || Nullable.GetUnderlyingType(type) is { } underlying && IsScalar(underlying);
+        => SettingsSchema.For(typeof(DownloadSettings)).Leaves.ToDictionary(
+            member => member.Path, member => StableValue(member.Get(settings)), StringComparer.Ordinal);
 
     private static string? StableValue(object? value)
     {

@@ -99,7 +99,6 @@ namespace Tests.EndToEnd
                 dl.Extraction.RequestedMode = ExtractionMode.Song;
                 dl.Output.ParentDir = outputDir;
                 dl.Output.WriteIndex = true;
-                dl.Output.HasConfiguredIndex = true;
                 dl.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
                 dl.Search.IsAggregate = true;
                 dl.Search.MinSharesAggregate = 1;
@@ -177,7 +176,6 @@ namespace Tests.EndToEnd
                 dl.Extraction.IsAlbum = true;
                 dl.Output.ParentDir = outputDir;
                 dl.Output.WriteIndex = true;
-                dl.Output.HasConfiguredIndex = true;
                 dl.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
                 dl.Search.IsAggregate = true;
                 dl.Search.MinSharesAggregate = 1;
@@ -233,7 +231,6 @@ namespace Tests.EndToEnd
                 dl.Extraction.IsAlbum = true;
                 dl.Output.ParentDir = outputDir;
                 dl.Output.WriteIndex = true;
-                dl.Output.HasConfiguredIndex = true;
                 dl.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
                 dl.Search.IsAggregate = true;
                 dl.Search.MinSharesAggregate = 1;
@@ -287,7 +284,6 @@ namespace Tests.EndToEnd
                 dl.Extraction.IsAlbum = true;
                 dl.Output.ParentDir = outputDir;
                 dl.Output.WriteIndex = true;
-                dl.Output.HasConfiguredIndex = true;
                 dl.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
                 dl.Search.IsAggregate = true;
                 dl.Search.MinSharesAggregate = 1;
@@ -333,7 +329,6 @@ namespace Tests.EndToEnd
                 var missingAlbumSettings = new DownloadSettings();
                 missingAlbumSettings.Output.ParentDir = outputDir;
                 missingAlbumSettings.Output.WriteIndex = true;
-                missingAlbumSettings.Output.HasConfiguredIndex = true;
                 missingAlbumSettings.Output.IndexFilePath = indexPath;
 
                 var missingAlbum = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
@@ -349,7 +344,6 @@ namespace Tests.EndToEnd
                 aggregateSettings.Extraction.IsAlbum = true;
                 aggregateSettings.Output.ParentDir = outputDir;
                 aggregateSettings.Output.WriteIndex = true;
-                aggregateSettings.Output.HasConfiguredIndex = true;
                 aggregateSettings.Output.IndexFilePath = indexPath;
                 aggregateSettings.Search.IsAggregate = true;
                 aggregateSettings.Search.MinSharesAggregate = 1;
@@ -396,7 +390,6 @@ namespace Tests.EndToEnd
                 dl1.Extraction.RequestedMode = ExtractionMode.Song;
                 dl1.Output.ParentDir = outputDir;
                 dl1.Output.WriteIndex = true;
-                dl1.Output.HasConfiguredIndex = true;
                 dl1.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
                 dl1.Search.IsAggregate = false;
                 dl1.Skip.SkipExisting = true;
@@ -416,7 +409,6 @@ namespace Tests.EndToEnd
                 dl2.Extraction.RequestedMode = ExtractionMode.Song;
                 dl2.Output.ParentDir = outputDir;
                 dl2.Output.WriteIndex = true;
-                dl2.Output.HasConfiguredIndex = true;
                 dl2.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
                 
                 dl2.Search.IsAggregate = false;
