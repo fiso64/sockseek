@@ -5,10 +5,11 @@ namespace Sockseek.Api;
 /// <summary>The live replication protocol implemented by this API.</summary>
 public static class LiveProtocol
 {
-    public const int Version = 16;
+    public const int Version = 17;
     public const string HubPath = "api/events";
     public const string StateUpdateBatchMethod = "stateUpdateBatch";
     public const string SubscribeAllMethod = nameof(LiveClientInvocation.SubscribeAll);
+    public const string ObserveJobListMethod = nameof(LiveClientInvocation.ObserveJobList);
     public const string ObserveJobsMethod = nameof(LiveClientInvocation.ObserveJobs);
     public const string UnsubscribeAllMethod = nameof(LiveClientInvocation.UnsubscribeAll);
     public const string SubscribeWorkflowMethod = nameof(LiveClientInvocation.SubscribeWorkflow);
@@ -34,6 +35,23 @@ public sealed record JobObservationUpdateDto(
     StateDeltaDto State,
     int? ChildCount = null,
     int? RetrievalChildCount = null);
+
+/// <summary>
+/// Displayed prefix of one job query. Increasing Limit expands the fetched extent;
+/// each observation begins with authoritative membership and rows, including on reconnect.
+/// </summary>
+public sealed record JobListScopeDto(JobQuery Query, int Limit = ServerProtocol.DefaultNestedPageSize);
+
+/// <summary>
+/// Initial WindowJobIds replaces the scope, regardless of revisions in an old scope.
+/// Later frames patch rows or remove actual scope exits; runtime retirement is invisible.
+/// NextCursor follows the current window boundary. Membership changes can move that boundary.
+/// </summary>
+public sealed record JobListUpdateDto(
+    IReadOnlyList<JobDeltaDto> Jobs,
+    IReadOnlyList<Guid> RemovedJobIds,
+    string? NextCursor,
+    IReadOnlyList<Guid>? WindowJobIds = null);
 
 /// <summary>The version tied to the generated live contract graph.</summary>
 public enum LiveProtocolContractVersion
@@ -61,6 +79,7 @@ public enum LiveClientInvocation
     ObserveSearchView,
     ObserveTransferTimeline,
     ObserveJobs,
+    ObserveJobList,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<LiveServerMessage>))]
@@ -449,7 +468,8 @@ public sealed record TransferStatusFieldsDto(
     TransferCancellationSource CancellationSource = TransferCancellationSource.None,
     IReadOnlyList<ResourceActionDto>? AvailableActions = null,
     DateTimeOffset? CompletedAtUtc = null,
-    string? FailureMessage = null)
+    string? FailureMessage = null,
+    DateTimeOffset? ArchivedAtUtc = null)
 {
     public IReadOnlyList<ResourceActionDto> AvailableActions { get; init; } =
         AvailableActions ?? [];
@@ -466,7 +486,7 @@ public sealed record TransferProgressFieldsDto(
     long? BytesPerSecond = null,
     DateTimeOffset? LastProgressAtUtc = null);
 
-/// <summary>A complete active transfer row, always keyed by TransferId.</summary>
+/// <summary>A complete transfer row across current state and retained history, keyed by TransferId.</summary>
 public sealed record TransferStateDto(
     Guid TransferId,
     long Revision,
@@ -474,7 +494,8 @@ public sealed record TransferStateDto(
     TransferStatusFieldsDto Status,
     TransferProgressFieldsDto Progress,
     TransferSchedulingFieldsDto? Scheduling = null,
-    FileMetadataDto? File = null);
+    FileMetadataDto? File = null,
+    DateTimeOffset CreatedAtUtc = default);
 
 /// <summary>
 /// A new transfer uses Added. Existing transfers replace only the supplied state and

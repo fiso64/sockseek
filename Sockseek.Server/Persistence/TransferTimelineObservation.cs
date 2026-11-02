@@ -2,10 +2,11 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using Sockseek.Api;
+using Sockseek.Persistence.Read;
 
 namespace Sockseek.Server.Persistence;
 
-public sealed partial class HistoricalQueryFacade
+public sealed partial class TransferReadService
 {
     private static readonly ActivitySource TransferReads = new("Sockseek.Server.Transfers");
 
@@ -46,9 +47,8 @@ public sealed partial class HistoricalQueryFacade
             AllowSynchronousContinuations = false,
         });
         var gate = new Lock();
-        Dictionary<Guid, TransferHistoryDto> selected = [];
+        Dictionary<Guid, TransferStateDto> selected = [];
         Dictionary<Guid, TransferReadSnapshot?> liveChanges = [];
-        Dictionary<Guid, TransferStateDto> liveRowsById = [];
         SortedDictionary<(long CreatedAt, Guid Id), TransferReadSnapshot> pendingRows = [];
         Dictionary<Guid, TransferReadSnapshot> pendingAdditional = [];
         HashSet<Guid> changedAdditional = [];
@@ -78,7 +78,7 @@ public sealed partial class HistoricalQueryFacade
             && (initializing || requestedGroups.Contains(new(scope.Direction, row.Username, groupRef)));
         bool HasFinalRow(TransferReadSnapshot row) => row.IsTerminal
             && selected.TryGetValue(row.TransferId, out var seen)
-            && seen.Revision >= row.Revision && seen.TerminalOutcome != "None"
+            && seen.Revision >= row.Revision && seen.Status.IsTerminal
             && row.RequestedAtUtc is { } requested
             && seen.CreatedAtUtc.ToUnixTimeMilliseconds() == requested.ToUnixTimeMilliseconds();
         void SourceChanged(TransferReadChange change)
@@ -114,15 +114,19 @@ public sealed partial class HistoricalQueryFacade
                 bool orderChanged = change.Previous is { } old
                     && old.RequestedAtUtc?.ToUnixTimeMilliseconds() != row.RequestedAtUtc?.ToUnixTimeMilliseconds();
                 // Eviction cannot change a final row this reader already owns.
-                // Drop its live overlay without rereading the moving page. A
-                // final revision not yet seen still needs the normal handoff.
+                // No storage-tier removal is sent to the reader. A final
+                // revision not yet seen still needs the normal handoff.
                 bool finalAlreadySeen = removed && HasFinalRow(row);
                 if (!finalAlreadySeen && CouldEnter(row)
-                    && (change.Structural || terminal || orderChanged || removed && selected.ContainsKey(row.TransferId)))
+                    && (change.Structural || terminal || orderChanged
+                        || matches && !selected.ContainsKey(row.TransferId)
+                        || removed && selected.ContainsKey(row.TransferId)))
                 {
                     dirty = true;
                     // Lost/moved members may need an older retained successor.
                     // Arrivals and completed facts can update this window directly.
+                    // Keep the newest fact for a pending arrival too: progress may
+                    // precede its first publication and have no later notification.
                     // A corrected request timestamp may differ from the immutable
                     // SQL creation key; let the canonical read choose its order.
                     reload |= orderChanged || removed && !terminal || !removed && !matches;
@@ -183,7 +187,7 @@ public sealed partial class HistoricalQueryFacade
                 bool publishPosition;
                 long revision;
                 TransferReadSnapshot[] rowUpdates;
-                Dictionary<Guid, TransferHistoryDto> previous;
+                Dictionary<Guid, TransferStateDto> previous;
                 HashSet<Guid> additionalRefresh;
                 Dictionary<Guid, TransferReadSnapshot?> progress;
                 lock (gate)
@@ -213,24 +217,35 @@ public sealed partial class HistoricalQueryFacade
                 {
                     // Progress uses already-mapped facts, not history queries or
                     // a rebuilt page. Retain only the requested extent's changes.
-                    var progressUpdates = LiveUpdates(progress.Values.OfType<TransferReadSnapshot>(),
-                        progress.Where(pair => pair.Value is null).Select(pair => pair.Key).ToArray());
+                    var progressUpdates = new List<TransferDeltaDto>();
+                    lock (gate)
+                    {
+                        foreach (var fact in progress.Values.OfType<TransferReadSnapshot>())
+                        {
+                            if (!selected.TryGetValue(fact.TransferId, out var prior) || prior.Revision >= fact.Revision)
+                                continue;
+                            var current = TransferReadModel.Merge(prior, fact.ToDto());
+                            progressUpdates.Add(TransferReadModel.Difference(prior, current));
+                            selected[fact.TransferId] = current;
+                            revisions[fact.TransferId] = current.Revision;
+                        }
+                    }
                     var summaries = refreshGroups
                         ? await ReadRequestedTransferGroupSummariesAsync(requestedGroups, cancellationToken).ConfigureAwait(false)
                         : null;
                     if (refreshGroups || publishPosition && revision > publishedRevision
-                        || progressUpdates.Rows.Count > 0 || progressUpdates.Removed.Count > 0)
+                        || progressUpdates.Count > 0)
                     {
                         publishedRevision = Math.Max(publishedRevision, revision);
                         yield return new([], [], RetainedTransferCoverage(),
                             NextCursor: previousCursor, BoundaryTransferId: previousBoundary,
                             ReadPosition: new(initialPosition.Epoch, publishedRevision),
-                            LiveTransfers: progressUpdates.Rows, RemovedLiveTransferIds: progressUpdates.Removed,
+                            Changes: progressUpdates,
                             GroupSummaries: summaries);
                     }
                     continue;
                 }
-                Dictionary<Guid, TransferHistoryDto> found;
+                Dictionary<Guid, TransferStateDto> found;
                 TransferRetainedCoverageDto coverage;
                 StateStreamPositionDto position;
                 if (readHistory)
@@ -244,23 +259,20 @@ public sealed partial class HistoricalQueryFacade
                     // With unavailable history, preserve this reader's final facts
                     // after runtime eviction, bounded by its requested extent.
                     if (coverage.State != TransferRetainedCoverageState.Available)
-                        foreach (var row in previous.Values.Where(row => row.TerminalOutcome != "None"))
+                        foreach (var row in previous.Values.Where(row => row.Status.IsTerminal))
                             found.TryAdd(row.TransferId, row);
                 }
                 else
                 {
                     // A structural arrival does not invalidate unchanged retained
-                    // rows. Reuse them, including progress already sent as overlays.
+                    // rows. Reuse the same records already updated by progress.
                     found = previous.ToDictionary();
                     coverage = RetainedTransferCoverage();
                     position = new(initialPosition.Epoch, revision);
-                    foreach (var current in liveRowsById.Values)
-                        if (found.TryGetValue(current.TransferId, out var seen) && current.Revision > seen.Revision)
-                            found[current.TransferId] = TransferReadModel.Merge(seen, TransferReadModel.FromLive(current));
                 }
-                foreach (var changedRow in rowUpdates)
+                foreach (var changedRow in rowUpdates.Concat(progress.Values.OfType<TransferReadSnapshot>()))
                 {
-                    var row = TransferReadModel.FromLive(changedRow.ToDto());
+                    var row = changedRow.ToDto();
                     if (found.TryGetValue(row.TransferId, out var current))
                         found[row.TransferId] = TransferReadModel.Merge(current, row);
                     else if (!readHistory || coverage.State != TransferRetainedCoverageState.Available)
@@ -295,18 +307,14 @@ public sealed partial class HistoricalQueryFacade
                     initializing = false;
                     observedCoverage = coverage;
                 }
-                var liveRows = live.GetTransferFactsSnapshot(members);
-                var liveIds = liveRows.Select(row => row.TransferId).ToHashSet();
-                var liveUpdates = LiveUpdates(liveRows, liveRowsById.Keys.Except(liveIds).ToArray());
                 var groupSummaries = refreshGroups
                     ? await ReadRequestedTransferGroupSummariesAsync(requestedGroups, cancellationToken).ConfigureAwait(false)
                     : null;
                 if (membershipChanged || updates.Length > 0 || removed.Length > 0 || refreshGroups
-                    || liveUpdates.Rows.Count > 0 || liveUpdates.Removed.Count > 0
                     || previousCoverage != coverage || position.Sequence > publishedRevision)
                     yield return new(updates, removed, coverage,
                         first ? ids : null, window.NextCursor, window.Items.LastOrDefault()?.TransferId, position,
-                        liveUpdates.Rows, liveUpdates.Removed, groupSummaries);
+                        GroupSummaries: groupSummaries);
                 publishedRevision = Math.Max(publishedRevision, position.Sequence);
                 revisions = windowRows.ToDictionary(row => row.TransferId, row => row.Revision);
                 previousIds = ids;
@@ -323,31 +331,6 @@ public sealed partial class HistoricalQueryFacade
             changed.Writer.TryComplete();
         }
 
-        (IReadOnlyList<TransferDeltaDto> Rows, IReadOnlyList<Guid> Removed) LiveUpdates(
-            IEnumerable<TransferReadSnapshot> rows, IEnumerable<Guid> removals)
-        {
-            var changedRows = new List<TransferDeltaDto>();
-            var removedRows = new List<Guid>();
-            foreach (Guid id in removals)
-                if (liveRowsById.Remove(id)) removedRows.Add(id);
-            foreach (var row in rows)
-            {
-                // This reader already owns the complete final row. Sending its
-                // volatile body again duplicates terminal metadata and can queue
-                // stale pages behind downloads; durability is not a UI handoff.
-                if (HasFinalRow(row))
-                {
-                    if (liveRowsById.Remove(row.TransferId)) removedRows.Add(row.TransferId);
-                    continue;
-                }
-                liveRowsById.TryGetValue(row.TransferId, out var observed);
-                if (observed?.Revision >= row.Revision) continue;
-                var current = row.ToDto();
-                liveRowsById[row.TransferId] = current;
-                changedRows.Add(TransferReadModel.Difference(observed, current));
-            }
-            return (changedRows, removedRows);
-        }
     }
 
     private static bool SameGroupContribution(TransferReadSnapshot? before, TransferReadSnapshot? after)
@@ -363,9 +346,9 @@ public sealed partial class HistoricalQueryFacade
             && before.BytesPerSecond == after.BytesPerSecond;
     }
 
-    private async Task<(TransferTimelinePageDto Page, IReadOnlyList<TransferHistoryDto> Additional)> ReadObservedTransferPageAsync(
+    private async Task<(TransferTimelinePageDto Page, IReadOnlyList<TransferStateDto> Additional)> ReadObservedTransferPageAsync(
         TransferTimelineScopeDto scope, IReadOnlySet<Guid> additionalIds,
-        IReadOnlyDictionary<Guid, TransferHistoryDto> previous, IReadOnlySet<Guid> refresh,
+        IReadOnlyDictionary<Guid, TransferStateDto> previous, IReadOnlySet<Guid> refresh,
         CancellationToken cancellationToken)
     {
         using var activity = TransferReads.StartActivity("timeline.page");
@@ -375,9 +358,9 @@ public sealed partial class HistoricalQueryFacade
             var position = live.GetTransferReadPosition();
             activity?.SetTag("read.epoch", position.Epoch);
             activity?.SetTag("read.sequence", position.Sequence);
-            var page = await GetTransfersAsync(null, scope.Limit, null, null, scope.Direction.ToString(),
-                null, null, null, scope.Username, null, null, cancellationToken: cancellationToken,
-                groupRef: scope.GroupRef).ConfigureAwait(false);
+            var query = new TransferQuery(Limit: scope.Limit, Direction: scope.Direction.ToString(),
+                Username: scope.Username, GroupRef: scope.GroupRef);
+            var page = await GetTransfersAsync(query, cancellationToken).ConfigureAwait(false);
             page = page with { ReadPosition = position };
             var missing = additionalIds.Except(page.Items.Select(row => row.TransferId)).ToHashSet();
             if (missing.Count == 0) return (page, []);
@@ -386,9 +369,8 @@ public sealed partial class HistoricalQueryFacade
             var readIds = missing.Where(id => refresh.Contains(id) || !previous.ContainsKey(id)).ToHashSet();
             var cached = missing.Except(readIds).Select(id => previous[id]).ToArray();
             if (readIds.Count == 0) return (page, cached);
-            var additional = await GetTransfersAsync(null, readIds.Count, null, null, scope.Direction.ToString(),
-                null, null, null, scope.Username, null, null, cancellationToken: cancellationToken,
-                groupRef: scope.GroupRef, transferIds: readIds).ConfigureAwait(false);
+            var additional = await GetTransfersAsync(query with { Limit = readIds.Count, TransferIds = readIds },
+                cancellationToken).ConfigureAwait(false);
             return (additional.RetainedCoverage.State == TransferRetainedCoverageState.Available
                 ? page : page with { RetainedCoverage = additional.RetainedCoverage }, cached.Concat(additional.Items).ToArray());
         }

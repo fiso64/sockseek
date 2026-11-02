@@ -100,6 +100,23 @@ public sealed class SockseekLiveClient : IAsyncDisposable
             yield return summary;
     }
 
+    public async IAsyncEnumerable<JobListUpdateDto> ObserveJobListAsync(
+        JobListScopeDto scope,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        await lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            ThrowIfDisposed();
+            await EnsureConnectedAsync(ct).ConfigureAwait(false);
+        }
+        finally { lifecycleGate.Release(); }
+        await foreach (var update in connection.StreamAsync<JobListUpdateDto>(
+            LiveProtocol.ObserveJobListMethod, scope, ct).ConfigureAwait(false))
+            yield return update;
+    }
+
     public async IAsyncEnumerable<JobObservationUpdateDto> ObserveJobsAsync(
         Guid jobId,
         IReadOnlyList<Guid> jobIds,
@@ -302,27 +319,6 @@ public sealed class SockseekLiveClient : IAsyncDisposable
         {
             lifecycleGate.Release();
         }
-    }
-
-    public async Task<CursorPage<WorkflowSummaryDto>> LoadWorkflowHistoryPageAsync(
-        string? cursor = null,
-        int limit = 100,
-        CancellationToken ct = default)
-    {
-        var page = await api.GetWorkflowsPageAsync(cursor, limit, ct);
-        Store.MergeWorkflowHistory(page.Items);
-        return page;
-    }
-
-    public async Task<CursorPage<JobSummaryDto>> LoadJobHistoryPageAsync(
-        JobQuery query,
-        string? cursor = null,
-        int limit = 100,
-        CancellationToken ct = default)
-    {
-        var page = await api.GetJobsPageAsync(query, cursor, limit, ct);
-        Store.MergeJobHistory(page.Items);
-        return page;
     }
 
     public SharingStateDto? GetSharing()

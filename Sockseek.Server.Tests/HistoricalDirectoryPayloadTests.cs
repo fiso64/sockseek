@@ -1,5 +1,6 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
+using Sockseek.Core;
 using Sockseek.Persistence.Read;
 using Sockseek.Server.Persistence;
 using Sockseek.Core.Jobs;
@@ -7,7 +8,6 @@ using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Snapshots;
 using Sockseek.Server;
-using System.Text.Json;
 
 namespace Sockseek.Server.Tests;
 
@@ -17,22 +17,27 @@ public sealed class HistoricalDirectoryPayloadTests
     [TestMethod]
     public void SupplementalFileTargetsResolveFromRetainedSongAndExactFileShapes()
     {
-        foreach ((string kind, string json) in new[]
+        var target = new PeerFileTarget(new PeerFileIdentity("Art Peer", @"Other\Cover.jpg"), 128, ".jpg");
+        var candidate = new FileCandidateSnapshot(target.Username, target.Filename,
+            new(target.Username, null, null), 128, null, null, null, null, ".jpg", null);
+        var song = new SongJobSnapshotPayload(new(null, null, null, null, null, false),
+            null, null, null, SongDownloadSource.None, new(null, 0, null), null);
+        foreach ((string kind, JobSnapshotPayload payload) in new (string, JobSnapshotPayload)[]
         {
-            ("Song", """{"ResolvedTarget":{"Username":"Art Peer","Filename":"Other\\Cover.jpg","Size":128,"Extension":".jpg"}}"""),
-            ("Song", """{"ExactTarget":{"Identity":{"Username":"Art Peer","Filename":"Other\\Cover.jpg"},"Size":128,"Extension":".jpg"}}"""),
-            ("Song", """{"LastAttemptedCandidate":{"Username":"Art Peer","Filename":"Other\\Cover.jpg","Size":128,"Extension":".jpg"}}"""),
-            ("RemoteFile", """{"Target":{"Identity":{"Username":"Art Peer","Filename":"Other\\Cover.jpg"},"Size":128,"Extension":".jpg"}}"""),
+            ("Song", song with { ResolvedTarget = candidate }),
+            ("Song", song with { ExactTarget = target }),
+            ("Song", song with { LastAttemptedCandidate = candidate }),
+            ("RemoteFile", new RemoteFileJobSnapshotPayload(target, new(["Cover.jpg"]), new(null, 0, null))),
         })
         {
-            var target = HistoricalJobDtoMapper.ToSelectedFileTarget(Job(json) with { Kind = kind });
-            Assert.IsNotNull(target, kind);
-            Assert.AreEqual("Art Peer", target.Username);
-            Assert.AreEqual(@"Other\Cover.jpg", target.Filename);
-            Assert.AreEqual(128L, target.Size);
-            Assert.AreEqual(".jpg", target.Extension);
+            var selected = HistoricalJobDtoMapper.ToSelectedFileTarget(Job(payload) with { Kind = kind });
+            Assert.IsNotNull(selected, kind);
+            Assert.AreEqual("Art Peer", selected.Username);
+            Assert.AreEqual(@"Other\Cover.jpg", selected.Filename);
+            Assert.AreEqual(128L, selected.Size);
+            Assert.AreEqual(".jpg", selected.Extension);
         }
-        Assert.IsNull(HistoricalJobDtoMapper.ToSelectedFileTarget(Job("{}") with { Kind = "Song" }));
+        Assert.IsNull(HistoricalJobDtoMapper.ToSelectedFileTarget(Job(song) with { Kind = "Song" }));
     }
 
     [TestMethod]
@@ -48,7 +53,7 @@ public sealed class HistoricalDirectoryPayloadTests
         existing.SetAlreadyExists();
         JobSnapshot snapshot = CoreSnapshotFactory.CreateJob(owner, 1);
         var live = (RemoteDirectoryJobPayloadDto)ServerSnapshotMapper.ToJobPayload(snapshot, _ => null);
-        var retainedJob = Job(JsonSerializer.Serialize(snapshot.Payload, snapshot.Payload.GetType()));
+        var retainedJob = Job(snapshot.Payload);
         var retained = (RemoteDirectoryJobPayloadDto)HistoricalJobDtoMapper.ToPayload(retainedJob);
         foreach (var directory in new[] { live.Directory, retained.Directory })
         {
@@ -59,75 +64,62 @@ public sealed class HistoricalDirectoryPayloadTests
         }
         Assert.AreEqual(43.75, ServerSnapshotMapper.ToJobSummaryStats(snapshot)?.ProgressPercent);
         Assert.AreEqual(43.75, HistoricalJobDtoMapper.ToSummary(retainedJob).Stats?.ProgressPercent);
-        var legacy = Read("""
-            {"Directory":{"FileCount":2,"SuccessfulFileCount":1,
-              "BytesTransferred":48,"TotalKnownBytes":256}}
-            """);
-        Assert.AreEqual(18.75, legacy.Directory.ProgressPercent,
-            "Legacy partial snapshots lack fulfillment facts; keep the byte fallback without child fan-out.");
-        var unknown = Read("""
-            {"Directory":{"FileCount":2,"SuccessfulFileCount":1,"Progress":0,
-              "BytesTransferred":48,"TotalKnownBytes":0,"UnknownFileSizeCount":2}}
-            """);
+        var unknown = Read(DirectoryPayload(new("transferring", 1, null, 2, 1, 1, 0, 48, 0, 2, 0)));
         Assert.IsNull(unknown.Directory.ProgressPercent);
     }
 
     [TestMethod]
-    public void RetainedResolvedDirectoryPreservesDisplayRootAndKnownPeerWithoutInventingLegacyIdentity()
+    public void RetainedResolvedDirectoryPreservesDisplayRootAndKnownOrigin()
     {
-        var known = Read("""{"SourceKind":"Resolved","DisplayRoot":"Mix CASE","SourceUsername":"Exact Peer"}""");
-        Assert.AreEqual("Exact Peer", known.SourceUsername);
-        var payload = Read("""{"SourceKind":"Resolved","DisplayRoot":"Mix CASE"}""");
+        var source = DirectoryPayload() with { DisplayRoot = "Mix CASE", SourceUsername = "Exact Peer" };
+        Assert.AreEqual("Exact Peer", Read(source).SourceUsername);
+        var payload = Read(source with { SourceUsername = null });
         Assert.AreEqual("Mix CASE", payload.DisplayRoot);
         Assert.IsNull(payload.SourceUsername);
         Assert.IsNull(payload.SourceFolderPath);
 
-        var observed = Read("""
-            {"SourceKind":"Resolved","ResolvedPlanSource":{"DisplayRoot":"Head Hunters",
-              "SourceDirectory":{"Username":"Exact Peer","FolderPath":"Artwork\\Head Hunters"}}}
-            """);
+        var observed = Read(source with { DisplayRoot = "Head Hunters", SourceFolderPath = @"Artwork\Head Hunters" });
         Assert.AreEqual("Exact Peer", observed.SourceUsername);
         Assert.AreEqual(@"Artwork\Head Hunters", observed.SourceFolderPath);
         Assert.AreEqual("Head Hunters", observed.DisplayRoot);
-
-        Assert.IsNull(Read("""{"SourceKind":"Resolved"}""").DisplayRoot);
-        Assert.AreEqual(@"Music\Album", Read("""
-            {"SourceKind":"PeerDirectory","DirectorySource":{"Username":"Peer","FolderPath":"Music\\Album"}}
-            """).DisplayRoot);
+        Assert.IsNull(Read(DirectoryPayload()).DisplayRoot);
+        Assert.AreEqual(@"Music\Album", Read(source with
+        {
+            SourceKind = RemoteDirectorySourceSnapshotKind.PeerDirectory, SourceUsername = "Peer",
+            SourceFolderPath = @"Music\Album", DisplayRoot = @"Music\Album",
+        }).DisplayRoot);
     }
 
     [TestMethod]
     public void RetainedExistingDirectoryFile_HasCompletePayloadAndSummaryProgress()
     {
-        const string payload = """
-            {"SourceKind":"Resolved","Directory":{"FileCount":1,"TerminalFileCount":1,
-              "SuccessfulFileCount":1,"FailedFileCount":0,"BytesTransferred":0,"TotalKnownBytes":128}}
-            """;
-        var job = Job(payload);
+        var job = Job(DirectoryPayload(new("completed", 1, null, 1, 1, 1, 0, 0, 128, 0)));
         var detail = (RemoteDirectoryJobPayloadDto)HistoricalJobDtoMapper.ToPayload(job);
         Assert.AreEqual(100, detail.Directory.ProgressPercent);
         Assert.AreEqual(100, HistoricalJobDtoMapper.ToSummary(job).Stats?.ProgressPercent);
     }
 
     [TestMethod]
-    public void RetainedDirectorySizeCoverage_DoesNotTurnLegacyUnknownIntoZero()
+    public void RetainedDirectorySizeCoverage_DistinguishesUnknownFromEmptyFiles()
     {
-        var legacy = Read("""{"Directory":{"AttemptNumber":1,"FileCount":1,"TotalKnownBytes":0}}""");
-        Assert.IsNull(legacy.Directory.UnknownFileSizeCount);
-        var unknown = Read("""{"Directory":{"AttemptNumber":1,"FileCount":1,"TotalKnownBytes":0,"UnknownFileSizeCount":1}}""");
-        Assert.AreEqual(1, unknown.Directory.UnknownFileSizeCount);
-        var empty = Read("""{"Directory":{"AttemptNumber":1,"FileCount":1,"TotalKnownBytes":0,"UnknownFileSizeCount":0}}""");
-        Assert.AreEqual(0, empty.Directory.UnknownFileSizeCount);
+        var directory = new DirectoryDownloadStateSnapshot("transferring", 1, null, 1, 0, 0, 0, 0, 0, 1);
+        Assert.AreEqual(1, Read(DirectoryPayload(directory)).Directory.UnknownFileSizeCount);
+        Assert.AreEqual(0, Read(DirectoryPayload(directory with { UnknownFileSizeCount = 0 })).Directory.UnknownFileSizeCount);
     }
 
-    private static RemoteDirectoryJobPayloadDto Read(string payload)
+    private static RemoteDirectoryExecutionPayload DirectoryPayload(DirectoryDownloadStateSnapshot? directory = null)
+        => new(RemoteDirectorySourceSnapshotKind.Resolved, null, null, null, null,
+            directory ?? new("unresolved", null, null, 0, 0, 0, 0, 0, 0, 0));
+
+    private static RemoteDirectoryJobPayloadDto Read(RemoteDirectoryExecutionPayload payload)
         => (RemoteDirectoryJobPayloadDto)HistoricalJobDtoMapper.ToPayload(Job(payload));
 
-    private static PersistedJob Job(string payload)
+    private static PersistedJob Job(JobSnapshotPayload payload)
     {
         var now = DateTimeOffset.UtcNow;
         return new PersistedJob(Guid.NewGuid(), 1, Guid.NewGuid(), null, null, null,
             "RemoteDirectory", "Terminal", "None", null, "Succeeded", "None", "None", "None",
-            null, null, null, "Directory", now, now, now, 1, 1, payload);
+            null, null, null, "Directory", now, now, now, 1, RetainedJobPayloadCodec.SchemaVersion,
+            RetainedJobPayloadCodec.Capture(payload).Value);
     }
 }

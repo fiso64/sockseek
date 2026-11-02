@@ -77,8 +77,8 @@ async function sortWithoutCreatingView(page: Page, value: string, order: Schema<
     expect(response.ok(), await response.text()).toBe(true);
     const transfers = (await response.json() as Schema<'TransferTimelinePageDto'>).items;
     expect(transfers).toHaveLength(1);
-    expect(transfers[0]!.remotePath).toBe('Artist - Bare.flac');
-    const output = transfers[0]!.localPath!;
+    expect(transfers[0]!.identity.remotePath).toBe('Artist - Bare.flac');
+    const output = transfers[0]!.status.localPath!;
     expect(basename(dirname(output))).toBe('downloads');
     expect((await stat(output)).size).toBe(128);
     await daemon.command('report-peer-browses');
@@ -134,7 +134,7 @@ test('pauses hidden search reads and catches up with the selection intact on ret
   expect(requests).toEqual([]);
   await page.getByRole('button', { name: 'Jobs', exact: true }).click();
   await expect(page.locator('.folder-file-row')).toHaveCount(2);
-  await expect(page.locator('.folder-file-row').filter({ hasText: 'Fixture song.txt' }).getByRole('checkbox')).toBeChecked();
+  await expect(page.getByText('Selection from earlier results', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeVisible();
   await daemon.command('finish-search');
 });
@@ -221,11 +221,11 @@ test.describe('generic grouping', () => {
     const response = await page.request.get('/api/transfers?direction=download&archived=false&limit=500');
     expect(response.ok()).toBe(true);
     const transfers = (await response.json() as Schema<'TransferTimelinePageDto'>).items;
-    expect(transfers.map(item => `${item.remotePath}:${item.terminalOutcome}`).sort())
+    expect(transfers.map(item => `${item.identity.remotePath}:${item.status.terminalOutcome}`).sort())
       .toEqual(['A\\B\\Track one.txt:Succeeded', 'A\\C\\Track two.txt:Succeeded']);
     for (const transfer of transfers) {
-      expect(transfer.localPath).toBeTruthy();
-      expect((await stat(transfer.localPath!)).size).toBe(128);
+      expect(transfer.status.localPath).toBeTruthy();
+      expect((await stat(transfer.status.localPath!)).size).toBe(128);
     }
   });
 });
@@ -262,20 +262,20 @@ test('keeps case-distinct peers and locked search files visible without download
   const receipt = await commit.json() as Schema<'CommitSearchViewSelectionResponseDto'>;
   expect(Number(receipt.submittedCount)).toBe(2);
   await page.goto('/downloads');
-  let files: Schema<'TransferHistoryDto'>[] = [];
+  let files: Schema<'TransferStateDto'>[] = [];
   await expect.poll(async () => {
     const response = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
     expect(response.ok(), await response.text()).toBe(true);
     const timeline = await response.json() as Schema<'TransferTimelinePageDto'>;
-    files = timeline.items.filter(item => item.remotePath?.endsWith('-Public.flac'));
-    return files.map(item => `${item.username}:${item.terminalOutcome}:${item.remotePath}`).sort();
+    files = timeline.items.filter(item => item.identity.remotePath?.endsWith('-Public.flac'));
+    return files.map(item => `${item.identity.username}:${item.status.terminalOutcome}:${item.identity.remotePath}`).sort();
   }).toEqual([
     'CasePeer:Succeeded:Fixture\\Album\\CasePeer-Public.flac',
     'casepeer:Succeeded:Fixture\\Album\\casepeer-Public.flac',
   ]);
-  expect(files.map(item => item.username).sort()).toEqual(['CasePeer', 'casepeer']);
-  expect(files.every(item => item.remotePath?.endsWith('-Public.flac'))).toBe(true);
-  expect(new Set(files.map(item => item.localPath)).size).toBe(2);
+  expect(files.map(item => item.identity.username).sort()).toEqual(['CasePeer', 'casepeer']);
+  expect(files.every(item => item.identity.remotePath?.endsWith('-Public.flac'))).toBe(true);
+  expect(new Set(files.map(item => item.status.localPath)).size).toBe(2);
   await expect(page.locator('.page')).not.toContainText('Locked.flac');
   await expect(page.locator('.page')).not.toContainText('Only-locked.flac');
 });
@@ -408,6 +408,9 @@ test('applies projection-only sort and live track conditions through an all-exce
   await expect(page.locator('.file-item-card.locked')).toContainText('03 - Locked - Track.flac');
   await expect(page.locator('.file-item-card.preferred')).toHaveCount(1);
   await expect(page.locator('.search-results-summary')).not.toContainText('Complete');
+  await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+  await page.getByRole('button', { name: 'Select all', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
   await daemon.command('finish-search');
   await expect(page.locator('.search-results-summary')).toContainText('Complete');
@@ -424,17 +427,17 @@ test('applies projection-only sort and live track conditions through an all-exce
   expect(Number(receipt.rejectedCount)).toBe(1);
   expect(receipt.rejectionReasons).toEqual([{ reason: 'locked', count: 1 }]);
   await page.goto('/downloads');
-  let files: Schema<'TransferHistoryDto'>[] = [];
+  let files: Schema<'TransferStateDto'>[] = [];
   await expect.poll(async () => {
     const response = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
     expect(response.ok(), await response.text()).toBe(true);
     files = (await response.json() as Schema<'TransferTimelinePageDto'>).items;
-    return files.map(file => `${file.username}:${file.terminalOutcome}:${file.remotePath}`).sort();
+    return files.map(file => `${file.identity.username}:${file.status.terminalOutcome}:${file.identity.remotePath}`).sort();
   }).toEqual([
     'fixture-peer:Succeeded:Music\\Artist\\Album\\01 - Track.flac',
     'second-peer:Succeeded:Music\\Artist\\Album\\02 - Track.flac',
   ]);
-  for (const file of files) expect((await stat(file.localPath!)).size).toBe(128);
+  for (const file of files) expect((await stat(file.status.localPath!)).size).toBe(128);
 });
 
 test.describe('live album conditions', () => {
@@ -487,6 +490,9 @@ test.describe('live album conditions', () => {
     await expect(page.locator('.folder-item-card').filter({ hasText: '03 - Locked' })).toHaveCount(1);
     await expect(page.locator('.result-tier.preferred-tier .folder-item-card')).toHaveCount(1);
     await expect(page.locator('.result-tier:not(.preferred-tier) .folder-item-card')).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+    await page.getByRole('button', { name: 'Select all', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Download 4', exact: true })).toBeEnabled();
     const selected = await (await lateSelection).json() as Schema<'CountSearchViewSelectionResponseDto'>;
     expect(selected).toMatchObject({ publicFileCount: 4, lockedFileCount: 2 });
@@ -539,13 +545,13 @@ test.describe('live album conditions', () => {
     const transfersResponse = await page.request.get('/api/transfers?direction=download&archived=false');
     expect(transfersResponse.ok(), await transfersResponse.text()).toBe(true);
     const files = (await transfersResponse.json() as Schema<'TransferTimelinePageDto'>).items;
-    expect(files.map(file => `${file.username}:${file.terminalOutcome}:${file.remotePath}`).sort()).toEqual([
+    expect(files.map(file => `${file.identity.username}:${file.status.terminalOutcome}:${file.identity.remotePath}`).sort()).toEqual([
       'fixture-peer:Succeeded:Music\\Artist\\Album\\01 - Track.flac',
       'fixture-peer:Succeeded:Music\\Artist\\Album\\01 - Track.mp3',
       'second-peer:Succeeded:Music\\Artist\\Album\\02 - Track.flac',
       'second-peer:Succeeded:Music\\Artist\\Album\\02 - Track.mp3',
     ]);
-    for (const file of files) expect((await stat(file.localPath!)).size).toBe(128);
+    for (const file of files) expect((await stat(file.status.localPath!)).size).toBe(128);
   });
 });
 
@@ -579,11 +585,11 @@ test('preserves download defaults and corrects unsupported naming without losing
   const originalResponse = await page.request.get('/api/transfers?direction=download&limit=500');
   expect(originalResponse.ok(), await originalResponse.text()).toBe(true);
   const originals = (await originalResponse.json() as Schema<'TransferTimelinePageDto'>).items;
-  expect(originals.map(file => file.remotePath).sort()).toEqual(['Fixture\\Selected.txt', 'Fixture\\Unselected.txt']);
+  expect(originals.map(file => file.identity.remotePath).sort()).toEqual(['Fixture\\Selected.txt', 'Fixture\\Unselected.txt']);
   for (const file of originals) {
-    expect(file.terminalOutcome).toBe('Succeeded');
-    expect(file.localPath!.endsWith(join('Fixture', basename(file.remotePath!.replaceAll('\\', '/'))))).toBe(true);
-    expect((await stat(file.localPath!)).size).toBe(128);
+    expect(file.status.terminalOutcome).toBe('Succeeded');
+    expect(file.status.localPath!.endsWith(join('Fixture', basename(file.identity.remotePath!.replaceAll('\\', '/'))))).toBe(true);
+    expect((await stat(file.status.localPath!)).size).toBe(128);
   }
 
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Jobs', exact: true }).click();
@@ -639,7 +645,7 @@ test('preserves download defaults and corrects unsupported naming without losing
   const manifestResponse = await page.request.get(`/api/jobs/${directory!.jobId}/directory-files?attemptNumber=1&limit=500`);
   expect(manifestResponse.ok(), await manifestResponse.text()).toBe(true);
   const renamed = (await manifestResponse.json() as Schema<'DirectoryManifestPageDto'>).items;
-  expect(renamed.map(file => file.target?.filename).sort()).toEqual(originals.map(file => file.remotePath).sort());
+  expect(renamed.map(file => file.target?.filename).sort()).toEqual(originals.map(file => file.identity.remotePath).sort());
   expect(renamed.map(file => file.file?.downloadPath).sort()).toEqual([
     join(destination, 'fixture-peer', 'Fixture', 'named.txt'),
     join(destination, 'fixture-peer', 'Fixture', 'named (2).txt'),
@@ -805,12 +811,12 @@ test(`downloads a chosen ${scenario.mode} source and isolates a failed sibling`,
   expect(Number(receipt.submittedCount)).toBe(2);
   expect(Number(receipt.rejectedCount)).toBe(0);
   await page.goto('/downloads');
-  let transfers: Schema<'TransferHistoryDto'>[] = [];
+  let transfers: Schema<'TransferStateDto'>[] = [];
   async function readOutcomes(): Promise<string[]> {
     const response = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
     expect(response.ok(), await response.text()).toBe(true);
     transfers = (await response.json() as Schema<'TransferTimelinePageDto'>).items;
-    return transfers.map(item => `${item.username}:${item.terminalOutcome}:${item.remotePath}`).sort();
+    return transfers.map(item => `${item.identity.username}:${item.status.terminalOutcome}:${item.identity.remotePath}`).sort();
   }
   const failedAlpha = `fixture-peer:Failed:${scenario.alphaPath}`;
   const successfulBeta = `second-peer:Succeeded:${scenario.betaPath}`;
@@ -819,8 +825,8 @@ test(`downloads a chosen ${scenario.mode} source and isolates a failed sibling`,
   await expect(cards).toHaveCount(2);
   await expect(cards.filter({ hasText: scenario.alpha })).toContainText('Failed');
   await expect(cards.filter({ hasText: scenario.beta })).toContainText('Complete');
-  expect((await stat(transfers.find(item => item.terminalOutcome === 'Succeeded')!.localPath!)).size).toBe(8_000_000);
-  const failedPath = transfers.find(item => item.terminalOutcome === 'Failed')!.localPath!;
+  expect((await stat(transfers.find(item => item.status.terminalOutcome === 'Succeeded')!.status.localPath!)).size).toBe(8_000_000);
+  const failedPath = transfers.find(item => item.status.terminalOutcome === 'Failed')!.status.localPath!;
   await expect(stat(failedPath)).rejects.toMatchObject({ code: 'ENOENT' });
   await page.reload();
   await expect(cards.filter({ hasText: scenario.alpha })).toContainText('Failed');
@@ -881,13 +887,13 @@ test('keeps an aggregate track choice and all-except plan through live group reo
   await expect(alpha.locator('.aggregate-result-source')).toContainText('second-peer');
   await expect(groups.filter({ hasText: 'Fixture Gamma' }).locator('.aggregate-result-source')).toContainText('late-peer');
   await expect(beta.getByRole('button', { name: 'Select Fixture Beta', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Download 3', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
   await daemon.command('finish-search');
   await expect(page.locator('.search-results-summary .search-status-badge')).toHaveText('Complete');
   const committed = page.waitForResponse(response => response.ok()
     && response.request().method() === 'POST'
     && /\/api\/search-views\/[^/]+\/commit$/.test(new URL(response.url()).pathname));
-  await page.getByRole('button', { name: 'Download 3', exact: true }).click();
+  await page.getByRole('button', { name: 'Download 2', exact: true }).click();
   const response = await committed;
   const request = response.request().postDataJSON() as Schema<'CommitSearchViewSelectionRequestDto'>;
   expect(request.selection.mode).toBe('AllExcept');
@@ -896,29 +902,28 @@ test('keeps an aggregate track choice and all-except plan through live group reo
   expect(request.chosenOptions).toEqual({ [optionsPage.groupRef]: chosen.ref });
   expect(request.options?.outputParentDir).toBe(outputDirectory);
   const receipt = await response.json() as Schema<'CommitSearchViewSelectionResponseDto'>;
-  expect(Number(receipt.submittedCount)).toBe(3);
+  expect(Number(receipt.submittedCount)).toBe(2);
   expect(Number(receipt.rejectedCount)).toBe(0);
   await page.goto('/downloads');
-  let transfers: Schema<'TransferHistoryDto'>[] = [];
+  let transfers: Schema<'TransferStateDto'>[] = [];
   await expect.poll(async () => {
     const result = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
     expect(result.ok(), await result.text()).toBe(true);
     transfers = (await result.json() as Schema<'TransferTimelinePageDto'>).items;
-    return transfers.map(item => `${item.username}:${item.terminalOutcome}:${item.remotePath}`).sort();
+    return transfers.map(item => `${item.identity.username}:${item.status.terminalOutcome}:${item.identity.remotePath}`).sort();
   }).toEqual([
-    'late-peer:Succeeded:Fixture\\Fixture Delta.mp3',
-    'late-peer:Succeeded:Fixture\\Fixture Gamma.mp3',
+    'fixture-peer:Succeeded:Fixture\\Fixture Gamma.mp3',
     'second-peer:Succeeded:Fixture\\Fixture Alpha.mp3',
   ]);
   for (const transfer of transfers) {
-    expect(transfer.localPath!.startsWith(outputDirectory + sep)).toBe(true);
-    expect((await stat(transfer.localPath!)).size).toBe(8_000_000);
+    expect(transfer.status.localPath!.startsWith(outputDirectory + sep)).toBe(true);
+    expect((await stat(transfer.status.localPath!)).size).toBe(8_000_000);
   }
   const jobsResponse = await page.request.get(
     `/api/jobs?submissionId=${receipt.submissionId}&includeAll=true&archived=false&limit=100`);
   expect(jobsResponse.ok(), await jobsResponse.text()).toBe(true);
   const songs = (await jobsResponse.json() as Schema<'JobSummaryDto'>[]).filter(job => job.kind === 'song');
-  expect(songs).toHaveLength(3);
+  expect(songs).toHaveLength(2);
   for (const song of songs) {
     const detailResponse = await page.request.get(`/api/jobs/${song.jobId}`);
     expect(detailResponse.ok(), await detailResponse.text()).toBe(true);
@@ -974,17 +979,17 @@ test('keeps a chosen aggregate album source, output option and exact file plan t
   await expect(page.locator('.folder-item-card')).not.toContainText('Cover.jpg');
   await expect(page.getByRole('button', { name: 'Actions for second-peer', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Actions for fixture-peer', exact: true })).toHaveCount(0);
-  let transfer: Schema<'TransferHistoryDto'> | undefined;
+  let transfer: Schema<'TransferStateDto'> | undefined;
   await expect.poll(async () => {
     const response = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
     expect(response.ok(), await response.text()).toBe(true);
     const timeline = await response.json() as Schema<'TransferTimelinePageDto'>;
-    transfer = timeline.items.find(item => item.remotePath?.endsWith('Alpha.flac'));
-    return transfer?.terminalOutcome;
+    transfer = timeline.items.find(item => item.identity.remotePath?.endsWith('Alpha.flac'));
+    return transfer?.status.terminalOutcome;
   }).toBe('Succeeded');
-  expect(transfer?.username).toBe('second-peer');
-  expect(transfer?.localPath?.startsWith(outputDirectory + sep)).toBe(true);
-  expect((await stat(transfer!.localPath!)).size).toBe(8_000_000);
+  expect(transfer?.identity.username).toBe('second-peer');
+  expect(transfer?.status.localPath?.startsWith(outputDirectory + sep)).toBe(true);
+  expect((await stat(transfer!.status.localPath!)).size).toBe(8_000_000);
 });
 
 test('opens a retained aggregate album from a fresh browser without a result-mode URL', async ({ page, daemon, browser }) => {
@@ -1130,10 +1135,11 @@ test('downloads only checked public files from a mixed chosen aggregate album fo
   const timeline = await transfers.json() as Schema<'TransferTimelinePageDto'>;
   expect(timeline.items).toHaveLength(1);
   expect(timeline.items[0]).toMatchObject({
-    username: 'second-peer', remotePath: 'Second\\Fixture Album\\01 - Intro.flac',
-    terminalOutcome: 'Succeeded', totalBytes: 128, transferredBytes: 128,
+    identity: { username: 'second-peer', remotePath: 'Second\\Fixture Album\\01 - Intro.flac' },
+    status: { terminalOutcome: 'Succeeded' },
+    progress: { totalBytes: 128, bytesTransferred: 128 },
   });
-  expect((await stat(timeline.items[0]!.localPath!)).size).toBe(128);
+  expect((await stat(timeline.items[0]!.status.localPath!)).size).toBe(128);
   expect(searchSubmissions).toHaveLength(1);
 });
 
@@ -1409,10 +1415,10 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   expect(timelineResponse.ok(), await timelineResponse.text()).toBe(true);
   const timeline = await timelineResponse.json() as Schema<'TransferTimelinePageDto'>;
   expect(timeline.items).toHaveLength(1);
-  const completed = timeline.items.find(item => item.remotePath?.endsWith('Fixture song.txt'));
-  expect(completed?.terminalOutcome).toBe('Succeeded');
-  expect(completed?.localPath).toBeTruthy();
-  const bytes = await readFile(completed!.localPath!);
+  const completed = timeline.items.find(item => item.identity.remotePath?.endsWith('Fixture song.txt'));
+  expect(completed?.status.terminalOutcome).toBe('Succeeded');
+  expect(completed?.status.localPath).toBeTruthy();
+  const bytes = await readFile(completed!.status.localPath!);
   expect(bytes).toHaveLength(128);
   expect(bytes.every((byte) => byte === 0)).toBe(true);
   await expect(page.locator('.page')).toContainText('Complete');
@@ -1428,6 +1434,11 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   let cached = await (await reopened).json() as Schema<'SearchViewSummaryDto'>;
   await expect(page.locator('.folder-file-row').filter({ hasText: 'Fixture song.txt' })).toBeVisible();
   await expect(page.locator('.search-results-summary')).toContainText('Complete');
+  const filteredAgain = page.waitForResponse(response => response.ok() && response.request().method() === 'POST'
+    && new URL(response.url()).pathname === `/api/jobs/${sourceId}/search-views`
+    && response.request().postDataJSON().filterText === 'song');
+  await page.getByRole('textbox', { name: 'Filter search results', exact: true }).fill('song');
+  await filteredAgain;
   await file.getByRole('checkbox').check();
   await daemon.command('expire-search-views');
   await page.getByLabel('Sort', { exact: true }).selectOption('speed');
@@ -1444,11 +1455,13 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   await page.setViewportSize({ width: 1280, height: 720 });
   await expect(file).toBeVisible();
   await expect(file.getByRole('checkbox')).not.toBeChecked();
+  await expect(page.getByRole('textbox', { name: 'Filter search results', exact: true })).toHaveValue('song');
+  await expect(page.getByLabel('Sort', { exact: true })).toHaveValue('speed');
   await expect(page).toHaveURL(new RegExp(`/jobs/${sourceId}(?:[?]|$)`));
   await expect(page.locator('.search-results-summary')).toContainText('Complete');
   const cachedSummary = await (await page.request.get(`/api/search-views/${cached.viewId}`)).json() as Schema<'SearchViewSummaryDto'>;
   await daemon.command(`prune-search-results:${sourceId}`);
-  // A complete disk snapshot stays usable when only its raw source is pruned.
+  // An active read snapshot stays usable when only its raw source is pruned.
   const retainedStarted = performance.now();
   const retainedResponse = await page.request.get(
     `/api/search-views/${cached.viewId}/directories?revision=${cachedSummary.revision}&limit=100`);
@@ -1573,10 +1586,12 @@ test('retrieves complete folder contents with retry while preserving selection',
   await expect(page.getByLabel('Full folder loaded', { exact: true })).toBeVisible();
   await expect(page.locator('.folder-file-row')).toHaveCount(5);
   await expect(page.locator('.folder-file-count strong')).toHaveText('5');
-  await expect(selected).toBeChecked();
+  await expect(page.getByText('Selection from earlier results', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeVisible();
   await expect(page.locator('.folder-file-row').filter({ hasText: 'DeepTwo.txt' })).toBeVisible();
   await expect(page.locator('.folder-subfolder-row')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+  await selected.check();
   const nested = page.getByRole('checkbox', { name: 'Select all matching files in Nested', exact: true });
   await nested.check();
   await expect(page.getByRole('button', { name: 'Download 4', exact: true })).toBeVisible();
@@ -1600,7 +1615,7 @@ test('retrieves complete folder contents with retry while preserving selection',
   await expect(page).toHaveURL(/\/users\/fixture-peer\/shares$/);
 });
 
-test('downloads a File Search subfolder with a live path rule and a file exclusion', async ({ page, daemon }) => {
+test('downloads a File Search subfolder with a snapshot-bound path rule and a file exclusion', async ({ page, daemon }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await daemon.command('directory-selection-search');
   await daemon.command('staged-search');
@@ -1676,15 +1691,13 @@ test('downloads a File Search subfolder with a live path rule and a file exclusi
   await expect(page.getByLabel('Full folder loaded', { exact: true })).toBeVisible();
   expect(retrievalRequests).toBe(1);
 
-  // New members inherit the selected path, not the excluded root or file.
+  // Arrivals update the listing but cannot expand the selected path's snapshot.
   // The callback is still live: no completion-dependent projection is allowed.
   await daemon.command('next-search-batch');
   await expect(page.locator('.folder-file-row')).toHaveCount(7);
   await expect(page.locator('.search-results-summary')).not.toContainText('Complete');
-  await expect(page.locator('.folder-file-row').filter({ hasText: 'LateNested.txt' }).getByRole('checkbox')).toBeChecked();
-  await expect(page.locator('.folder-file-row').filter({ hasText: 'LateRoot.txt' }).getByRole('checkbox')).not.toBeChecked();
-  await expect(excluded).not.toBeChecked();
-  await expect(page.getByRole('button', { name: 'Download 3', exact: true })).toBeEnabled();
+  await expect(page.getByText('Selection from earlier results', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
   const liveSummaryResponse = await page.request.get(`/api/search-views/${restoredView.viewId}`);
   expect(liveSummaryResponse.ok()).toBe(true);
   const liveSummary = await liveSummaryResponse.json() as Schema<'SearchViewSummaryDto'>;
@@ -1724,24 +1737,24 @@ test('downloads a File Search subfolder with a live path rule and a file exclusi
   expect(completedDirectory.retrievedBytes).toBe(liveDirectory.retrievedBytes);
   expect(completedDirectory.initialFiles?.items.map(item => item.ref).sort())
     .toEqual(liveDirectory.initialFiles?.items.map(item => item.ref).sort());
-  await expect(page.getByRole('button', { name: 'Download 3', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
   expect(retrievalRequests).toBe(1);
   expect(searchRequests).toBe(1);
   expect(countRevisions, 'Unpublished projections cannot provide a useful selection count.').not.toContain(0);
   const committed = page.waitForRequest(request => request.method() === 'POST'
     && /\/api\/search-views\/[^/]+\/commit$/.test(new URL(request.url()).pathname));
-  await page.getByRole('button', { name: 'Download 3', exact: true }).click();
+  await page.getByRole('button', { name: 'Download 2', exact: true }).click();
   const body = (await committed).postDataJSON();
   expect(new URL((await committed).url()).pathname).toBe(`/api/search-views/${restoredView.viewId}/commit`);
   expect(body.selection.mode).toBe('Only');
   expect(body.directoryPathRules).toEqual(expect.arrayContaining([
     expect.objectContaining({ relativePath: 'Nested', selected: true }),
   ]));
-  await expect(page.locator('.mutation-status')).toContainText('3 downloads requested');
+  await expect(page.locator('.mutation-status')).toContainText('2 downloads requested');
   await page.goto('/downloads');
   await expect(page.locator('.page')).toContainText('Nested.txt');
   await expect(page.locator('.page')).toContainText('DeepOne.txt');
-  await expect(page.locator('.page')).toContainText('LateNested.txt');
+  await expect(page.locator('.page')).not.toContainText('LateNested.txt');
   await expect(page.locator('.page')).not.toContainText('DeepTwo.txt');
   await expect(page.locator('.page')).not.toContainText('LateRoot.txt');
   await expect(page.locator('.page')).not.toContainText('Selected.txt');
@@ -1750,12 +1763,11 @@ test('downloads a File Search subfolder with a live path rule and a file exclusi
   const transfersResponse = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
   expect(transfersResponse.ok(), await transfersResponse.text()).toBe(true);
   const transfers = (await transfersResponse.json() as Schema<'TransferTimelinePageDto'>).items;
-  expect(transfers.map(item => `${item.username}:${item.terminalOutcome}:${item.remotePath}`).sort()).toEqual([
+  expect(transfers.map(item => `${item.identity.username}:${item.status.terminalOutcome}:${item.identity.remotePath}`).sort()).toEqual([
     'fixture-peer:Succeeded:Fixture\\Nested\\Deep\\DeepOne.txt',
-    'fixture-peer:Succeeded:Fixture\\Nested\\LateNested.txt',
     'fixture-peer:Succeeded:Fixture\\Nested\\Nested.txt',
   ].sort());
-  for (const transfer of transfers) expect((await stat(transfer.localPath!)).size).toBe(128);
+  for (const transfer of transfers) expect((await stat(transfer.status.localPath!)).size).toBe(128);
 });
 
 test('selects unseen descendants of a paged File Search subfolder', async ({ page, daemon }) => {

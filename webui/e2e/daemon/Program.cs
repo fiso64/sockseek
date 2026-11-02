@@ -733,7 +733,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                 if (timedPersistence.HealthSnapshot is { } commit)
                     Console.WriteLine($"E2E_METRIC persistence-commit elapsed-ms={startupTimer.ElapsedMilliseconds} "
                         + $"duration-ms={commit.LastCommitDurationMilliseconds:F1} mutations={commit.LastBatchMutationCount} "
-                        + $"commits-total={commit.SuccessfulCommitCount} dropped-ordinary={commit.DroppedOrdinaryCount} "
+                        + $"commits-total={commit.SuccessfulCommitCount} "
                         + $"dropped-progress={commit.DroppedProgressCount} failed={commit.PermanentlyFailedMutationCount} "
                         + readMetrics!.TakeDatabaseInterval());
             };
@@ -778,7 +778,8 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     var persistence = app.Services.GetRequiredService<Sockseek.Server.Persistence.PersistenceCoordinator>();
                     await persistence.WaitForJobHandoffAsync(jobId, CancellationToken.None)
                         .WaitAsync(TimeSpan.FromSeconds(5));
-                    if (app.Services.GetRequiredService<EngineSupervisor>().GetSearchRawResults(jobId, 0, 1) != null)
+                    if (app.Services.GetRequiredService<EngineSupervisor>().StateStore.GetJobSummary(jobId) != null
+                        || persistence.GetRetiringSearchSource(jobId) != null)
                         throw new InvalidOperationException("Prune only a retired search in this fixture.");
                     await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
                     {
@@ -798,18 +799,10 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                 }
                 case "expire-search-views":
                 {
-                    // Exercise the real pruning owner without a wall-clock wait.
-                    await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-                    {
-                        DataSource = SockseekDataPaths.ResolveDatabasePath(Path.Combine(temporary, "data")),
-                        ForeignKeys = true,
-                    }.ToString());
-                    await connection.OpenAsync();
-                    await using var expire = connection.CreateCommand();
-                    expire.CommandText = "UPDATE search_views SET expires_at_utc = 0;";
-                    await expire.ExecuteNonQueryAsync();
-                    await app.Services.GetRequiredService<Sockseek.Server.Persistence.PersistenceCoordinator>()
-                        .SearchViews!.PruneExpiredAsync();
+                    // Simulate loss of temporary read state on restart. Accepted
+                    // receipts and raw observations remain in durable storage.
+                    app.Services.GetRequiredService<Sockseek.Server.Planning.SearchViewCoordinator>()
+                        .Cache.Clear();
                     break;
                 }
                 case "retained-imports":
@@ -911,7 +904,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                 }
                 case "request-upload":
                 case "request-queued-upload":
-                    var sharing = app.Services.GetRequiredService<EngineSupervisor>().Sharing
+                    var sharing = app.Services.GetRequiredService<DaemonRuntime>().Sharing
                         ?? throw new InvalidOperationException("Sharing is not ready.");
                     var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     void OnSharingReady(Sockseek.Api.SharingStateDto state, Sockseek.Api.UploadRuntimeStateDto _)
@@ -1044,27 +1037,19 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     downloadStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     break;
                 case "wait-download-started": await downloadStarted.Task.WaitAsync(TimeSpan.FromSeconds(30)); break;
-                case "report-search-projections":
+                case string report when report.StartsWith("report-search-projection:", StringComparison.Ordinal):
                 {
-                    // Observe persisted progress without the summary API itself
-                    // requesting another projection batch.
-                    await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+                    // Read the temporary snapshot directly: the coordinator's
+                    // summary API would request more projection work.
+                    Guid viewId = Guid.Parse(report["report-search-projection:".Length..]);
+                    var store = app.Services.GetRequiredService<Sockseek.Server.Planning.SearchViewCoordinator>().Cache;
+                    var view = store.Get(viewId)
+                        ?? throw new InvalidOperationException("Search View is unavailable.");
+                    Console.WriteLine("E2E_PROJECTION_STATE " + JsonSerializer.Serialize(new
                     {
-                        DataSource = SockseekDataPaths.ResolveDatabasePath(Path.Combine(temporary, "data")),
-                        Mode = SqliteOpenMode.ReadOnly, Pooling = false,
-                    }.ToString());
-                    await connection.OpenAsync();
-                    await using var projectionQuery = connection.CreateCommand();
-                    projectionQuery.CommandText = "SELECT id, revision, consumed_sequence, public_file_count, is_complete FROM search_views;";
-                    await using var rows = await projectionQuery.ExecuteReaderAsync();
-                    var projections = new List<object>();
-                    while (await rows.ReadAsync()) projections.Add(new
-                    {
-                        viewId = Guid.Parse(rows.GetString(0)), revision = rows.GetInt64(1),
-                        consumedSequence = rows.GetInt64(2), publicFileCount = rows.GetInt64(3),
-                        isComplete = rows.GetInt32(4) != 0,
-                    });
-                    Console.WriteLine("E2E_PROJECTION_STATE " + JsonSerializer.Serialize(projections));
+                        viewId = view.Id, revision = view.Revision,
+                        publicFileCount = view.Counters.PublicFileCount, isComplete = view.IsComplete,
+                    }));
                     break;
                 }
                 case "report-peer-browses":
@@ -1109,9 +1094,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             .HealthSnapshot is { } finalPersistence)
             Console.WriteLine("E2E_PERSISTENCE_SUMMARY " + JsonSerializer.Serialize(new
             {
-                droppedOrdinary = finalPersistence.DroppedOrdinaryCount,
                 droppedProgress = finalPersistence.DroppedProgressCount,
-                droppedSearchResults = finalPersistence.DroppedSearchResultCount,
                 permanentlyFailed = finalPersistence.PermanentlyFailedMutationCount,
             }));
     }

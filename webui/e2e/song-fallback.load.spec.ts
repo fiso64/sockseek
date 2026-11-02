@@ -78,10 +78,10 @@ test('retains 100-candidate Song and aggregate fallback without leaking peer pen
     const activeTransfersResponse = await page.request.get('/api/transfers?direction=download&limit=500');
     expect(activeTransfersResponse.ok(), await activeTransfersResponse.text()).toBe(true);
     const activeTransfers = (await activeTransfersResponse.json() as Schema<'TransferTimelinePageDto'>).items
-      .filter(item => item.workflowId === root.workflowId);
+      .filter(item => item.identity.workflowId === root.workflowId);
     expect(activeTransfers).toHaveLength(100);
-    expect(activeTransfers.filter(item => item.terminalOutcome === 'Failed')).toHaveLength(99);
-    expect(activeTransfers.find(item => item.username === 'Péér 099')).toMatchObject({
+    expect(activeTransfers.filter(item => item.status.terminalOutcome === 'Failed')).toHaveLength(99);
+    expect(activeTransfers.find(item => item.identity.username === 'Péér 099')).toMatchObject({
       transferredBytes: 512, totalBytes: 1_024,
     });
 
@@ -146,13 +146,13 @@ test('retains 100-candidate Song and aggregate fallback without leaking peer pen
     expect(timelineResponse.ok, timelineResponse.body).toBe(true);
     const timeline = JSON.parse(timelineResponse.body) as Schema<'TransferTimelinePageDto'>;
     const timelineMs = timelineResponse.elapsedMs;
-    const transfers = timeline.items.filter(item => item.workflowId === root.workflowId);
+    const transfers = timeline.items.filter(item => item.identity.workflowId === root.workflowId);
     expect(transfers).toHaveLength(100);
     expect(new Set(transfers.map(item => item.transferId)).size).toBe(100);
-    expect(transfers.every(item => item.jobId === songId && item.attemptCount === 1)).toBe(true);
-    expect(transfers.map(item => item.username).sort()).toEqual(expectedPeers);
+    expect(transfers.every(item => item.identity.jobId === songId && item.status.attemptCount === 1)).toBe(true);
+    expect(transfers.map(item => item.identity.username).sort()).toEqual(expectedPeers);
     for (let index = 0; index < 100; index++) {
-      const transfer = transfers.find(item => item.username === expectedPeers[index])!;
+      const transfer = transfers.find(item => item.identity.username === expectedPeers[index])!;
       expect(transfer).toMatchObject({ remotePath: expectedPath(index),
         terminalOutcome: index === 99 ? 'Succeeded' : 'Failed',
         transferredBytes: index === 99 ? 1_024 : 0 });
@@ -160,7 +160,7 @@ test('retains 100-candidate Song and aggregate fallback without leaking peer pen
     const attemptsMs: number[] = [];
     // Exhaustive test-only history reads; the UI requests no per-candidate details.
     for (let index = 0; index < 100; index++) {
-      const transfer = transfers.find(item => item.username === expectedPeers[index])!;
+      const transfer = transfers.find(item => item.identity.username === expectedPeers[index])!;
 
       const attemptsResponse = await measureApi(daemon.url, `/api/transfers/${transfer.transferId}/attempts?afterAttemptNumber=0&limit=500`);
       expect(attemptsResponse.ok, attemptsResponse.body).toBe(true);
@@ -172,8 +172,8 @@ test('retains 100-candidate Song and aggregate fallback without leaking peer pen
         state: index === 99 ? 'Completed' : 'Failed', failureReason: index === 99 ? 'None' : 'PeerFailure' });
       expect(attempts[0]!.completedAtUtc).toBeTruthy();
     }
-    const successful = transfers.find(item => item.terminalOutcome === 'Succeeded')!;
-    expect(await readFile(successful.localPath!)).toEqual(Buffer.alloc(1_024));
+    const successful = transfers.find(item => item.status.terminalOutcome === 'Succeeded')!;
+    expect(await readFile(successful.status.localPath!)).toEqual(Buffer.alloc(1_024));
     const files = await readdir(output, { recursive: true, withFileTypes: true });
     expect(files.filter(entry => entry.isFile())).toHaveLength(1);
     // Only semantic jobs need detail reads; the execution wrapper needs none.

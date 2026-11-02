@@ -3,30 +3,33 @@
   import AppShell from './components/AppShell.svelte';
   import JobsList from './domains/jobs/JobsList.svelte';
   import { canArchiveSubmission, requireArchived } from './domains/jobs/archive';
-  import { completedExtract, resolvePresentedJob } from './domains/jobs/presentation';
-  import { jobDetailVersion } from './domains/jobs/details';
+  import { completedExtract } from './domains/jobs/presentation';
+  import { JobListController } from './domains/jobs/job-list.svelte';
+  import { JobRouteReader } from './domains/jobs/route-reader';
   import NewJobComposer from './domains/jobs/NewJobComposer.svelte';
   import AutomaticJobDetail from './domains/jobs/AutomaticJobDetail.svelte';
   import SearchResults from './domains/search/SearchResults.svelte';
   import TransfersPage from './domains/transfers/TransfersPage.svelte';
   import { TransferTimelineController } from './domains/transfers/controller.svelte';
-  import { readPrecedesSnapshot, refreshVisibleExtent } from './app/paging';
   import Dashboard from './domains/dashboard/Dashboard.svelte';
   import UsersPage, { type UserBrowseView } from './domains/users/UsersPage.svelte';
   import ChatPage from './domains/chat/ChatPage.svelte';
-  import { DaemonLiveClient, type LiveConnectionStatus, type ReplicatedDaemonState } from './api/live';
+  import { DaemonLiveClient, type LiveConnectionStatus } from './api/live';
   import { jobStateSummary } from './api/job-summary';
   import { updatedJob } from './api/state.svelte';
   import { daemonApi } from './api/client';
   import { type JobSummaryDto, type Schema } from './api/types';
-  import { SearchViewController, selectedSearchCount as countSearchSelection, type SearchViewState } from './domains/search/controller';
+  import { SearchViewController, type SearchViewState } from './domains/search/controller';
+  import { selectedSearchCount as countSearchSelection } from './domains/search/selection';
   import { emptySearchDraft, parseSearchResultMode, searchJobPath, type SearchDraft, type SearchResultMode } from './domains/search/model';
   import { canReplaySearch } from './domains/search/replay';
-  import { presentedJobs } from './domains/jobs/presentation';
   import type { PageId, UserLinkActions } from './app/navigation';
 
   const liveClient = new DaemonLiveClient();
   const observeJobs = liveClient.observeJobs.bind(liveClient);
+  const jobList = new JobListController(daemonApi,
+    (scope, next, error) => liveClient.observeJobList(scope, next, error));
+  const jobRoutes = new JobRouteReader(daemonApi, liveClient);
   const transferTimeline = new TransferTimelineController(daemonApi,
     (scope, next, error) => liveClient.observeTransferTimeline(scope, next, error));
   const searchController = new SearchViewController(daemonApi, 1_000,
@@ -40,8 +43,6 @@
   let composingJobCommitPending = $state(false);
   let automaticJobId = $state<string | null>(null);
   let automaticInitialDetail = $state<Schema<'JobDetailDto'> | null>(null);
-  let detailRefreshRevision = $state(0);
-  let pendingJobRead: { jobId: string; revision: number } | null = null;
   let pendingJobId = $state<string | null>(null);
   let jobRouteError = $state<Error | null>(null);
   let openingJobKey = $state<string | null>(null);
@@ -55,22 +56,17 @@
   let rerunningSearch = $state(false);
   let mutationError = $state<Error | null>(null);
   let removingSearch = $state(false);
-  let liveStatus = $state<LiveConnectionStatus>('offline');
+  let liveStatus = $state<LiveConnectionStatus>('connecting');
   let liveError = $state<Error | null>(null);
   const liveState = liveClient.reducer.state;
   let searchState = $state<SearchViewState>(searchController.current());
-  let historyJobs = $state<JobSummaryDto[]>([]);
-  let archivedSubmissionIds = $state(new Set<string>());
   let archivingSubmissionIds = $state(new Set<string>());
-  let archiveRevision = 0;
-  let historyCursor = $state<string | null>(null);
-  let historyRefreshRevision = $state(0);
-  let historyLoading = $state(false);
-  let historyRefreshPending = false;
-  let historyError = $state<Error | null>(null);
-  let historyReadPosition: Schema<'StateStreamPositionDto'> | null | undefined;
-  let historySnapshotPosition: Schema<'StateStreamPositionDto'> | null = null;
 
+  $effect(() => {
+    const active = documentVisible && jobsListVisible();
+    const status = liveStatus;
+    untrack(() => jobList.setActive(active, status));
+  });
 
   let observedSearchJob = $state.raw<Schema<'JobStateDto'> | null>(null);
   let searchJobError = $state<Error | null>(null);
@@ -102,19 +98,6 @@
     ? 'cancel' as const
     : activeSearchJob && canArchiveSubmission(activeSearchJob) ? 'archive' as const : null);
   let canRerunSearch = $derived(canReplaySearch(activeSearchJob));
-  let knownJobs = $derived.by(() => {
-    const jobs = new Map<string, JobSummaryDto>();
-    for (const job of historyJobs) {
-      if (job.jobId) jobs.set(job.jobId, job);
-    }
-    for (const liveJob of liveState.rootJobs.values()) {
-      const retained = jobs.get(liveJob.jobId);
-      jobs.set(liveJob.jobId, { ...retained, ...jobStateSummary(liveJob) });
-    }
-    // Match the default paged jobs query: live child updates and details opened
-    // through a deep link must not become extra top-level history rows.
-    return [...jobs.values()].filter((job) => !job.parentJobId && !archivedSubmissionIds.has(job.submissionId!));
-  });
   let selectedSearchCount = $derived(countSearchSelection(searchState));
 
   function routeLocation(): string {
@@ -146,8 +129,6 @@
         if (searchState.job?.jobId !== pendingJobId || !searchState.draft
           || (requestedMode && requestedMode !== searchState.draft.resultMode))
           void openJobFromPath(pendingJobId, routeLocation());
-      } else {
-        void loadJobs(true);
       }
       return;
     }
@@ -181,57 +162,19 @@
     const visibilityChanged = () => { documentVisible = !document.hidden; };
     visibilityChanged();
     document.addEventListener('visibilitychange', visibilityChanged);
-    const stateSubscription = liveClient.onState((state, history, changes) => {
-      const initialSnapshot = changes.initialSnapshot;
-      const snapshotReconciled = initialSnapshot || (history.jobs && history.removedJobIds === undefined);
-      if (snapshotReconciled) historySnapshotPosition = changes.jobHistoryPosition;
-      const pendingChange = pendingJobRead ? changes.jobs.get(pendingJobRead.jobId) : undefined;
-      if (pendingJobRead && (history.removedJobIds?.includes(pendingJobRead.jobId)
-        || jobDetailVersion(pendingChange?.previous ? jobStateSummary(pendingChange.previous) : undefined)
-          !== jobDetailVersion(pendingChange?.current ? jobStateSummary(pendingChange.current) : undefined)))
-        pendingJobRead.revision++;
-      // A snapshot can miss the whole workflow, leaving no removal ID or live
-      // version change. Both that boundary and exact retirement invalidate detail.
-      if (automaticJobId && (snapshotReconciled || history.removedJobIds?.includes(automaticJobId)))
-        detailRefreshRevision++;
-      if (history.jobs) {
-        // Keep previously displayed roots during the live-to-history handoff.
-        // Do not invent terminal outcomes when terminal + removal coalesce.
-        const retained = new Map(historyJobs.map((job) => [job.jobId, job]));
-        for (const { previous, current } of changes.jobs.values()) {
-          if (previous && !previous.relationships.parentJobId && !current) {
-            retained.set(previous.jobId, { ...retained.get(previous.jobId), ...jobStateSummary(previous) });
-          }
-        }
-        historyJobs = [...retained.values()];
-      }
-      if ((history.jobs || initialSnapshot && !historyLoading && !historyError
-        && readPrecedesSnapshot(historyReadPosition, historySnapshotPosition)) && jobsListVisible()) {
-        void loadJobs(true);
-      }
-
-    });
     const statusSubscription = liveClient.onStatus((status, error) => {
       searchController.setLiveConnected(status === 'connected');
       liveStatus = status;
       transferTimeline.connected = status === 'connected';
       liveError = error;
-      if (status !== 'connected') {
-        // An old daemon epoch cannot constrain successful offline HTTP reads.
-        historySnapshotPosition = null;
-        return;
-      }
-      // Snapshots reconcile successful history. A failed initial read has no
-      // position, so retry it when live startup succeeds.
-      if (historyError && jobsListVisible())
-        void loadJobs(true);
+      if (status !== 'connected') return;
       if (activePage === 'jobs' && pendingJobId && jobRouteError)
         void openJobFromPath(pendingJobId, routeLocation());
       if (activePage === 'jobs' && showingSearch && searchState.phase === 'failed')
         void searchController.refresh(true);
       if (activePage === 'downloads' || activePage === 'uploads') {
         const direction = activePage === 'downloads' ? 'download' : 'upload';
-        if (transferTimeline.history[direction].error)
+        if (transferTimeline.timeline[direction].error)
           void transferTimeline.load(direction, true);
       }
     });
@@ -261,7 +204,7 @@
     void Promise.allSettled(startup);
     return () => {
       transferTimeline.stop();
-      stateSubscription();
+      jobList.stop();
       statusSubscription();
       searchSubscription();
       window.removeEventListener('popstate', popstate);
@@ -293,7 +236,6 @@
         return;
       }
       setPath('/jobs');
-      void loadJobs(true);
       return;
     }
     activePage = page;
@@ -313,7 +255,6 @@
     try {
       const submitted = await daemonApi.submitSearch(next);
       if (submitted.job.jobId) {
-        historyJobs = [submitted.job, ...historyJobs.filter((job) => job.jobId !== submitted.job.jobId)];
         searchModeByJob.set(submitted.job.jobId, submitted.draft.resultMode);
       }
       await searchController.open(submitted);
@@ -341,7 +282,6 @@
       const submitted = await daemonApi.rerunSearch(job, view);
       search = submitted.draft;
       if (submitted.job.jobId) {
-        historyJobs = [submitted.job, ...historyJobs.filter((item) => item.jobId !== submitted.job.jobId)];
         searchModeByJob.set(submitted.job.jobId, submitted.draft.resultMode);
       }
       await searchController.open(submitted);
@@ -355,75 +295,7 @@
     return activePage === 'jobs' && !showingSearch && !automaticJobId && !pendingJobId;
   }
 
-  async function loadJobs(reset = false): Promise<void> {
-    if (historyLoading) {
-      if (reset) historyRefreshPending = true;
-      return;
-    }
-    const readingArchiveRevision = archiveRevision;
-    historyLoading = true;
-    historyError = null;
-    try {
-      const page = reset
-        ? await refreshVisibleExtent(presentedJobs(historyJobs.filter(job => !job.parentJobId),
-          new Map(historyJobs.map(job => [job.jobId!, job]))).length,
-          (cursor) => daemonApi.getJobs(cursor), (job: JobSummaryDto) => job.jobId!)
-        : await daemonApi.getJobs(historyCursor);
-      const merged = new Map<string, JobSummaryDto>();
-      for (const job of reset ? [] : historyJobs) {
-        if (job.jobId) merged.set(job.jobId, job);
-      }
-      for (const job of page.items) {
-        if (job.jobId) merged.set(job.jobId, job);
-      }
-      if (readingArchiveRevision === archiveRevision) {
-        // A current default-history response can authoritatively reveal a
-        // submission restored by another client. A pre-archive response cannot.
-        const visible = new Set(page.items.map((job) => job.submissionId));
-        archivedSubmissionIds = new Set([...archivedSubmissionIds].filter((id) => !visible.has(id)));
-      }
-      historyJobs = [...merged.values()];
-      historyCursor = page.nextCursor ?? null;
-      if (reset) {
-        historyReadPosition = page.readPosition;
-        historyRefreshRevision++;
-      }
-      if (jobsListVisible() && readPrecedesSnapshot(historyReadPosition, historySnapshotPosition))
-        historyRefreshPending = true;
-    } catch (error) {
-      historyError = asError(error);
-    } finally {
-      historyLoading = false;
-      if (historyRefreshPending) {
-        historyRefreshPending = false;
-        void loadJobs(true);
-      }
-    }
-  }
-
   let routeRequest: AbortController | null = null;
-
-  function liveJobVersion(state: ReplicatedDaemonState, jobId: string): string {
-    const job = state.jobs.get(jobId);
-    return jobDetailVersion(job ? jobStateSummary(job) : undefined);
-  }
-
-  async function readRouteJob(jobId: string, signal: AbortSignal): Promise<Schema<'JobDetailDto'>> {
-    const read = { jobId, revision: 0 };
-    pendingJobRead = read;
-    try {
-      for (;;) {
-        const revision = read.revision;
-        const detail = await daemonApi.getJob(jobId, signal);
-        signal.throwIfAborted();
-        if (revision === read.revision || jobDetailVersion(detail.summary) === liveJobVersion(liveState, jobId))
-          return detail;
-        // A relevant change overtook this response. Reconcile against the
-        // latest version; unrelated updates and already-current replies do not
-        // cause another read. No timer or completed-job assumption is needed.
-      }
-    } finally { if (pendingJobRead === read) pendingJobRead = null; }
-  }
 
   async function openJobFromPath(jobId: string, route: string): Promise<void> {
     routeRequest?.abort();
@@ -432,10 +304,9 @@
     const request = new AbortController();
     routeRequest = request;
     try {
-      const root = await readRouteJob(jobId, request.signal);
-      const detail = await resolvePresentedJob(root, (id) => readRouteJob(id, request.signal), request.signal);
+      const detail = await jobRoutes.resolve(jobId, request.signal);
       if (request.signal.aborted || routeLocation() !== route) return;
-      historyJobs = [root.summary, ...historyJobs.filter((job) => job.jobId !== jobId)];
+
       await openJob(detail.summary, detail);
     } catch (error) {
       if (request.signal.aborted || routeLocation() !== route) return;
@@ -456,8 +327,8 @@
       const request = new AbortController();
       routeRequest = request;
       try {
-        const source = detail ?? await readRouteJob(job.jobId, request.signal);
-        const result = await resolvePresentedJob(source, (id) => readRouteJob(id, request.signal), request.signal);
+        const source = detail ?? await jobRoutes.read(job.jobId, request.signal);
+        const result = await jobRoutes.resolveDetail(source, request.signal);
         if (request.signal.aborted || routeLocation() !== origin) return;
         await openJob(result.summary, result);
       } catch (cause) {
@@ -522,9 +393,7 @@
     mutationError = null;
     try {
       requireArchived(await daemonApi.archiveSubmission(job.submissionId!));
-      archiveRevision++;
-      archivedSubmissionIds = new Set([...archivedSubmissionIds, job.submissionId!]);
-      historyJobs = historyJobs.filter((item) => item.submissionId !== job.submissionId);
+      jobList.afterArchive(job.submissionId!);
       return true;
     } catch (error) { mutationError = asError(error); return false; }
     finally { archivingSubmissionIds = new Set([...archivingSubmissionIds].filter((id) => id !== job.submissionId)); }
@@ -602,7 +471,6 @@
     pendingJobId = null;
     jobRouteError = null;
     setPath('/jobs');
-    void loadJobs(true);
   }
 
   function asError(error: unknown): Error {
@@ -645,7 +513,7 @@
       ondownload={(options) => void searchController.commit(options)}
       onresolvesettings={() => searchController.resolveSelectionSettings()}
       onloaddefinition={(viewId) => daemonApi.getSearchViewDefinition(viewId)}
-      onrefine={(request) => searchController.refine(request)}
+      onrefine={(request, resetSelection) => searchController.refine(request, resetSelection)}
       onsort={(order) => searchController.sort(order)}
       onloadmore={() => void searchController.loadMore()}
       onretry={() => { searchJobRetry++; void searchController.refresh(true); }}
@@ -661,27 +529,29 @@
     />
   {:else if activePage === 'jobs'}
     {#if automaticJobId}
-      <AutomaticJobDetail jobId={automaticJobId} initialDetail={automaticInitialDetail} refreshRevision={detailRefreshRevision} {userActions}
+      <AutomaticJobDetail jobId={automaticJobId} initialDetail={automaticInitialDetail} {userActions}
         connected={liveStatus === 'connected' && documentVisible}
         {observeJobs}
         onback={backToJobs} onopenjob={(job, detail) => void openJob(job, detail)} onarchive={(job) => void archiveOpenedSubmission(job)}
         archivingSubmissions={archivingSubmissionIds} archiveError={mutationError} />
     {:else}
     <JobsList
-      refreshRevision={historyRefreshRevision}
+      refreshRevision={jobList.refreshRevision}
+      connected={liveStatus === 'connected' && documentVisible}
+      {observeJobs}
       onnew={() => (composingJob = true)}
-      jobs={knownJobs}
-      loading={historyLoading || liveStatus === 'connecting'}
+      jobs={jobList.items}
+      loading={jobList.loading || liveStatus === 'connecting'}
       daemonOffline={liveStatus === 'offline'}
-      hasMore={Boolean(historyCursor)}
-      error={historyError ?? liveError}
+      hasMore={Boolean(jobList.cursor)}
+      error={jobList.error ?? liveError}
       actionError={mutationError}
-      onretry={() => void loadJobs(true)}
+      onretry={() => jobList.refresh()}
       onopen={(job, detail) => void openJob(job, detail)}
       oncancel={(job) => void cancelJob(job)}
       onarchive={(job) => void archiveSubmission(job)}
       archivingSubmissions={archivingSubmissionIds}
-      onloadmore={() => void loadJobs()}
+      onloadmore={() => jobList.loadMore()}
     />
     {/if}
   {:else if activePage === 'dashboard'}
@@ -689,17 +559,17 @@
   {:else if activePage === 'downloads'}
     <TransfersPage
       direction="download"
-      live={transferTimeline.live.read}
-      history={transferTimeline.history.download.items}
-      globalBoundary={transferTimeline.history.download.boundary}
-      coverage={transferTimeline.history.download.coverage}
-      summaries={transferTimeline.history.download.summaries}
-      summaryCoverage={transferTimeline.history.download.summaryCoverage}
-      summaryError={transferTimeline.history.download.summaryError}
-      nextCursor={transferTimeline.history.download.cursor}
-      loading={transferTimeline.history.download.loading}
+      readTransfer={transferTimeline.rows.download.read}
+      items={transferTimeline.timeline.download.items}
+      globalBoundary={transferTimeline.timeline.download.boundary}
+      coverage={transferTimeline.timeline.download.coverage}
+      summaries={transferTimeline.timeline.download.summaries}
+      summaryCoverage={transferTimeline.timeline.download.summaryCoverage}
+      summaryError={transferTimeline.timeline.download.summaryError}
+      nextCursor={transferTimeline.timeline.download.cursor}
+      loading={transferTimeline.timeline.download.loading}
       daemonOffline={liveStatus === 'offline'}
-      error={transferTimeline.history.download.error}
+      error={transferTimeline.timeline.download.error}
       onfetchedmembers={(rows) => transferTimeline.registerMembers('download', rows)}
       missingMembers={transferTimeline.missingMembers.download}
       onloadmore={() => void transferTimeline.load('download')}
@@ -710,17 +580,17 @@
   {:else if activePage === 'uploads'}
     <TransfersPage
       direction="upload"
-      live={transferTimeline.live.read}
-      history={transferTimeline.history.upload.items}
-      globalBoundary={transferTimeline.history.upload.boundary}
-      coverage={transferTimeline.history.upload.coverage}
-      summaries={transferTimeline.history.upload.summaries}
-      summaryCoverage={transferTimeline.history.upload.summaryCoverage}
-      summaryError={transferTimeline.history.upload.summaryError}
-      nextCursor={transferTimeline.history.upload.cursor}
-      loading={transferTimeline.history.upload.loading}
+      readTransfer={transferTimeline.rows.upload.read}
+      items={transferTimeline.timeline.upload.items}
+      globalBoundary={transferTimeline.timeline.upload.boundary}
+      coverage={transferTimeline.timeline.upload.coverage}
+      summaries={transferTimeline.timeline.upload.summaries}
+      summaryCoverage={transferTimeline.timeline.upload.summaryCoverage}
+      summaryError={transferTimeline.timeline.upload.summaryError}
+      nextCursor={transferTimeline.timeline.upload.cursor}
+      loading={transferTimeline.timeline.upload.loading}
       daemonOffline={liveStatus === 'offline'}
-      error={transferTimeline.history.upload.error}
+      error={transferTimeline.timeline.upload.error}
       onfetchedmembers={(rows) => transferTimeline.registerMembers('upload', rows)}
       missingMembers={transferTimeline.missingMembers.upload}
       onloadmore={() => void transferTimeline.load('upload')}
@@ -748,7 +618,7 @@
   <div class="new-job-modal">
     <button type="button" class="new-job-modal-backdrop" aria-label="Close new job" disabled={composingJobCommitPending} onclick={() => (composingJob = false)}></button>
     <div class="new-job-modal-dialog" role="dialog" aria-modal="true" aria-label="New job">
-      <NewJobComposer onclose={() => { if (!composingJobCommitPending) composingJob = false; }} oncommittingchange={(pending) => (composingJobCommitPending = pending)} onstarted={() => { composingJobCommitPending = false; composingJob = false; void loadJobs(true); }} />
+      <NewJobComposer onclose={() => { if (!composingJobCommitPending) composingJob = false; }} oncommittingchange={(pending) => (composingJobCommitPending = pending)} onstarted={() => { composingJobCommitPending = false; composingJob = false; jobList.refresh(); }} />
     </div>
   </div>
 {/if}

@@ -55,7 +55,8 @@ public sealed record PersistedTransferAttempt(
 public sealed record PersistedTransferDetail(PersistedTransfer Transfer, PersistedTransferAttempt? LatestAttempt);
 // Source facts needed to select a page before hydrating presentation metadata.
 public sealed record LiveTransferCandidate(Guid TransferId, long Revision, long CreatedAtUtc, bool MatchesFilter);
-public sealed record TransferHistoryQuery(
+/// <summary>Filters and moving cursor shared by current/retained transfer reads.</summary>
+public sealed record TransferQuery(
     string? Cursor = null,
     int Limit = 100,
     Guid? JobId = null,
@@ -128,7 +129,7 @@ public sealed record TransferArchiveResult(
 
 public interface ITransferHistoryReader
 {
-    Task<PersistedTransferPage> GetTransfersAsync(TransferHistoryQuery query, CancellationToken cancellationToken = default);
+    Task<PersistedTransferPage> GetTransfersAsync(TransferQuery query, CancellationToken cancellationToken = default);
     Task<PersistedTransferGroupProjection> GetGroupProjectionAsync(
         IReadOnlyCollection<TransferGroupKey> keys,
         IReadOnlyCollection<Guid> overlappingTransferIds,
@@ -148,7 +149,7 @@ public sealed class TransferHistoryReader(
 {
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
 
-    public async Task<PersistedTransferPage> GetTransfersAsync(TransferHistoryQuery query, CancellationToken cancellationToken = default)
+    public async Task<PersistedTransferPage> GetTransfersAsync(TransferQuery query, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
         if (query.Limit < 1) throw new ArgumentOutOfRangeException(nameof(query));
@@ -168,7 +169,11 @@ public sealed class TransferHistoryReader(
         Filter("t.workflow_id = $workflow", "$workflow", query.WorkflowId);
         Filter("t.direction COLLATE NOCASE = $direction", "$direction", query.Direction);
         Filter("t.source COLLATE NOCASE = $source", "$source", query.Source);
-        Filter("t.state COLLATE NOCASE = $state", "$state", query.State);
+        // Keep the exact source label (including local/remote queue flags),
+        // while the Queued filter covers the same family as live counters.
+        if (string.Equals(query.State, "Queued", StringComparison.OrdinalIgnoreCase))
+            Filter("t.state LIKE $state", "$state", "Queued%");
+        else Filter("t.state COLLATE NOCASE = $state", "$state", query.State);
         Filter("t.terminal_outcome COLLATE NOCASE = $outcome", "$outcome", query.TerminalOutcome);
         Filter("t.username = $username", "$username", query.Username);
         Filter("t.group_ref = $group", "$group", query.GroupRef);
@@ -338,8 +343,8 @@ public sealed class TransferHistoryReader(
                         - t.transferred_bytes, 0)) FILTER (WHERE t.terminal_outcome = 'None'
                             AND (t.total_bytes != $unknown OR t.file_size_bytes IS NOT NULL)), 0) AS KnownRemainingActiveBytes,
                 COUNT(*) FILTER (WHERE t.terminal_outcome = 'None' AND t.total_bytes = $unknown AND t.file_size_bytes IS NULL) AS UnknownActiveTotalCount,
-                COUNT(*) FILTER (WHERE t.terminal_outcome = 'None' AND t.state = 'Queued') AS QueuedCount,
-                COUNT(*) FILTER (WHERE t.terminal_outcome = 'None' AND t.state != 'Queued') AS InProgressCount,
+                COUNT(*) FILTER (WHERE t.terminal_outcome = 'None' AND t.state LIKE 'Queued%') AS QueuedCount,
+                COUNT(*) FILTER (WHERE t.terminal_outcome = 'None' AND t.state NOT LIKE 'Queued%') AS InProgressCount,
                 COUNT(*) FILTER (WHERE t.terminal_outcome = 'Succeeded') AS SucceededCount,
                 COUNT(*) FILTER (WHERE t.terminal_outcome = 'Failed') AS FailedCount,
                 COUNT(*) FILTER (WHERE t.terminal_outcome = 'Cancelled') AS CancelledCount,

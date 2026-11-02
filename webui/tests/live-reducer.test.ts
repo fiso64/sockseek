@@ -19,7 +19,7 @@ function job(revision: number, phase: JobStateDto['lifecycle']['activityPhase'] 
       appliedAutoProfiles: [],
       printOption: 0,
       submissionId: null,
-      role: 'legacy',
+      role: 'user-root',
       createdAtUtc: null,
     },
     lifecycle: {
@@ -160,7 +160,7 @@ describe('UserBrowseStateReducer', () => {
 
 describe('DaemonStateReducer', () => {
   function transfer(id: string, direction = 'Download', owner = jobId, workflow = workflowId): NonNullable<StateUpdateBatchDto['state']['transfers'][number]['added']> {
-    return { transferId: id, revision: 1,
+    return { transferId: id, revision: 1, createdAtUtc: new Date(0).toISOString(),
       identity: { direction, source: 'Download', jobId: owner, workflowId: workflow },
       status: { state: 'Queued', isTerminal: false, attemptCount: 1, terminalOutcome: 'None', failureReason: 'None', cancellationSource: 'None' },
       progress: { bytesTransferred: 0, totalBytes: 100, bytesPerSecond: null },

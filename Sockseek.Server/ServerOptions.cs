@@ -32,9 +32,6 @@ public sealed class ServerPersistenceOptions
     public int CommandQueueCapacity { get; set; } = 2_048;
     public int BackgroundCommandQueueCapacity { get; set; } = 2_048;
     public int ProgressEntityCapacity { get; set; } = 512;
-    public int SearchResultCapacityPerSearch { get; set; } = 2_000;
-    public int SearchResultGlobalCapacity { get; set; } = 20_000;
-    public int IncompleteSearchTrackingCapacity { get; set; } = 1_024;
     public int SearchMutationQueueCapacity { get; set; } = 256;
     public int SearchResultFlushCount { get; set; } = PersistenceWriterOptions.DefaultSearchResultFlushCount;
     public TimeSpan SearchResultFlushInterval { get; set; } = TimeSpan.FromMilliseconds(200);

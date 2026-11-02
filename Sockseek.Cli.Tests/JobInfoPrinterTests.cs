@@ -31,22 +31,4 @@ public sealed class JobInfoPrinterTests
         Assert.IsFalse(writer.ToString().Contains("Attributes", StringComparison.Ordinal));
     }
 
-    [TestMethod]
-    public void LegacyContainerOutcomesPrintUnknownInsteadOfZero()
-    {
-        using var writer = new StringWriter();
-        using (Printing.RedirectOutput(writer))
-        {
-            JobInfoPrinter.Print(new JobDetailDto(
-                new JobSummaryDto() with { Kind = ServerJobKind.JobList },
-                new JobListPayloadDto(3, null, null, null, null), 0), []);
-            JobInfoPrinter.Print(new JobDetailDto(
-                new JobSummaryDto() with { Kind = ServerJobKind.Aggregate },
-                new AggregateJobPayloadDto(new SongQueryDto(), 2, null, null, null), 0), []);
-        }
-
-        StringAssert.Contains(writer.ToString(), "3 total  •  unknown active  •  unknown ok  •  unknown failed");
-        StringAssert.Contains(writer.ToString(), "2 total  •  unknown completed  •  unknown ok  •  unknown failed");
-        Assert.IsFalse(writer.ToString().Contains("0 ok", StringComparison.Ordinal));
-    }
 }

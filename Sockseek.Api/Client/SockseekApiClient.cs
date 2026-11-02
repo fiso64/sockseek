@@ -491,6 +491,13 @@ public sealed class SockseekApiClient
         return await GetCursorPageAsync<JobSummaryDto>(url, ct);
     }
 
+    public async Task<JobListUpdateDto> GetJobListSnapshotAsync(JobListScopeDto scope, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync("api/jobs/snapshot", scope, jsonOptions, ct);
+        await EnsureSuccessAsync(response, ct);
+        return await ReadRequiredAsync<JobListUpdateDto>(response, ct);
+    }
+
     public Task<JobDetailDto?> GetJobDetailAsync(Guid jobId, CancellationToken ct = default)
         => GetOptionalAsync<JobDetailDto>($"api/jobs/{jobId}", ct);
 

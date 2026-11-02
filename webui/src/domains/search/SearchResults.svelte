@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { JobStateDto, Schema } from '../../api/types';
+  import { searchViewUnavailable } from './controller';
+  import { selectionUsesEarlierRevision as usesEarlierRevision, type AggregateOption } from './selection';
   import { DaemonApiError } from '../../api/http';
   import { formatCount, formatCountWithNoun, humanizeStateValue } from '../../app/format';
   import FileItemCard from '../../components/items/FileItemCard.svelte';
@@ -22,7 +24,7 @@
   import type { UserLinkActions } from '../../app/navigation';
   import { audioAttributes as audio, type FolderItemFile } from '../presentation/items';
   import { directoryTotals, searchModeFamily, searchModeLabel } from './model';
-  import type { AggregateOption, SearchRow, SearchViewState } from './controller';
+  import type { SearchRow, SearchViewState } from './controller';
 
   type OrdinaryRow = Extract<SearchRow, { kind: 'file' | 'directory' }>;
 
@@ -47,7 +49,7 @@
     ondownload: (options?: Schema<'SubmissionOptionsDto'>) => void;
     onresolvesettings: () => Promise<Schema<'ResolveSearchViewSelectionSettingsResponseDto'>>;
     onloaddefinition: (viewId: string) => Promise<Schema<'SearchViewDefinitionDto'>>;
-    onrefine: (request: Schema<'CreateSearchViewRequestDto'>) => Promise<boolean>;
+    onrefine: (request: Schema<'CreateSearchViewRequestDto'>, resetSelection?: boolean) => Promise<boolean>;
     onsort: (order: Schema<'ServerSearchViewSortOrder'>) => Promise<boolean>;
     onloadmore: () => void;
     onretry: () => void;
@@ -128,15 +130,11 @@
       detail: 'Only results retained before the interruption are available. Search again to get fresh results.' },
   };
   let retentionNotice = $derived(viewState.summary ? retainedResultNotices[viewState.summary.retentionState] ?? null : null);
-  let viewUnavailable = $derived(!daemonOffline && [viewState.error, viewState.refinementError,
-    viewState.selectionCountsError, viewState.choiceValidationError, configurationError]
-    .some(error => error instanceof DaemonApiError && error.status === 404));
+  let viewUnavailable = $derived(!daemonOffline && (searchViewUnavailable(viewState)
+    || (configurationError instanceof DaemonApiError && configurationError.status === 404)));
   let hasBareFileGroups = $derived(genericMode && viewState.rows.some(row =>
     row.kind === 'directory' && row.value.ref.folderPath.length === 0));
-  let selectionUsesEarlierRevision = $derived(genericMode
-    && viewState.selectionRevision !== null
-    && viewState.summary !== null
-    && String(viewState.selectionRevision) !== String(viewState.summary.revision));
+  let selectionUsesEarlierRevision = $derived(usesEarlierRevision(viewState));
   let selectionReadOnly = $derived(selectionUsesEarlierRevision || viewState.selectionNeedsReview);
   // Generic directory jobs group transfers internally. For a fully accepted
   // revision-bound selection, report the public file count the user reviewed.
@@ -185,13 +183,16 @@
     return JSON.stringify([filterText, conditions]);
   }
 
-  async function requestRefinement(): Promise<void> {
-    if (!baseline || !baselineConditions) return;
+  async function requestRefinement(resetSelection = false): Promise<void> {
+    if (!baseline || !baselineConditions) {
+      if (resetSelection) window.location.reload();
+      return;
+    }
     try {
       const fingerprint = currentFingerprint();
       const projection = projectionFingerprint();
       const version = ++refinementRequest;
-      if (projection === appliedProjectionFingerprint) {
+      if (!resetSelection && projection === appliedProjectionFingerprint) {
         localRefinementError = null;
         lastRequestedFingerprint = fingerprint;
         await onsort(currentSortOrder());
@@ -208,7 +209,7 @@
         request.songQuery = { ...request.songQuery, length: searchExpectedLength(conditions.track.expectedLength) ?? null };
       localRefinementError = null;
       lastRequestedFingerprint = fingerprint;
-      if (await onrefine(request) && version === refinementRequest) appliedProjectionFingerprint = projection;
+      if (await onrefine(request, resetSelection) && version === refinementRequest) appliedProjectionFingerprint = projection;
     } catch (error) {
       localRefinementError = error instanceof Error ? error : new Error(String(error));
     }
@@ -263,7 +264,7 @@
 
   $effect(() => {
     const fingerprint = currentFingerprint();
-    if (!baseline || !baselineConditions || lastRequestedFingerprint === fingerprint) return;
+    if (viewUnavailable || !baseline || !baselineConditions || lastRequestedFingerprint === fingerprint) return;
     const timer = setTimeout(requestRefinement, projectionFingerprint() === appliedProjectionFingerprint ? 0 : 300);
     return () => clearTimeout(timer);
   });
@@ -505,7 +506,7 @@
     {@const representative = trackRepresentative(row.ref, row.value.representative)}
     <section class:selected={isselected(row.ref)} class="aggregate-result-group">
       <header class="aggregate-result-header">
-        <button type="button" class="aggregate-header-select-button" aria-label={`${isselected(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.title ?? 'track'}`} aria-pressed={isselected(row.ref)} onclick={() => ontoggle(row.ref, !isselected(row.ref))}></button>
+        <button type="button" class="aggregate-header-select-button" disabled={selectionReadOnly} aria-label={`${isselected(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.title ?? 'track'}`} aria-pressed={isselected(row.ref)} onclick={() => ontoggle(row.ref, !isselected(row.ref))}></button>
         <div class="aggregate-result-identity"><strong>{row.value.query.title ?? 'Untitled track'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
         <div class="aggregate-result-source">{@render aggregatePeerSummary(representative.peer)}</div>
         <div class="aggregate-result-stats"><button type="button" class="aggregate-options-button" onclick={() => onopenoptions(row.ref)}>{formatCount(row.value.selectableOptionCount)} {Number(row.value.selectableOptionCount) === 1 ? 'option' : 'options'}</button></div>
@@ -521,7 +522,7 @@
           {#if viewState.staleChoices.has(row.ref)}<button type="button" onclick={() => onopenoptions(row.ref)}>Choose another</button>{/if}
         </div>
       {/if}
-      <FileItemCard path={representative.remoteFilename} sizeBytes={Number(representative.file.size)} audio={audio(representative.file)} locked={representative.visibility === 'Locked'} selected={isselected(row.ref)} selectable onselect={(checked) => ontoggle(row.ref, checked)} />
+      <FileItemCard path={representative.remoteFilename} sizeBytes={Number(representative.file.size)} audio={audio(representative.file)} locked={representative.visibility === 'Locked'} selected={isselected(row.ref)} selectable={!selectionReadOnly} onselect={(checked) => ontoggle(row.ref, checked)} />
     </section>
   {:else}
     {@const chosenDirectory = choiceIsCurrent(row.ref) && viewState.chosenOptions.get(row.ref)?.kind === 'album' ? viewState.chosenOptions.get(row.ref)?.value as Schema<'SearchViewDirectoryDto'> : row.value.representative}
@@ -532,7 +533,7 @@
     {@const retrieval = viewState.retrievals.get(directory.ref.ref)}
     <section class:selected={albumFull(row.ref)} class:partial={albumPartial(row.ref)} class="aggregate-result-group">
       <header class="aggregate-result-header">
-        <button type="button" class="aggregate-header-select-button" aria-label={`${albumFull(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.album ?? 'album'}`} aria-pressed={albumFull(row.ref)} onclick={() => ontoggle(row.ref, !albumFull(row.ref))}></button>
+        <button type="button" class="aggregate-header-select-button" disabled={selectionReadOnly} aria-label={`${albumFull(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.album ?? 'album'}`} aria-pressed={albumFull(row.ref)} onclick={() => ontoggle(row.ref, !albumFull(row.ref))}></button>
         <div class="aggregate-result-identity"><strong>{row.value.query.album ?? 'Untitled album'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
         <div class="aggregate-result-source">{@render aggregatePeerSummary(directory.peer)}</div>
         <div class="aggregate-result-stats"><button type="button" class="aggregate-options-button" onclick={() => onopenoptions(row.ref)}>{formatCount(row.value.selectableOptionCount)} {Number(row.value.selectableOptionCount) === 1 ? 'option' : 'options'}</button></div>
@@ -560,7 +561,7 @@
         locked={directory.visibility === 'Locked'}
         selected={albumFull(row.ref)}
         partial={albumPartial(row.ref)}
-        selectable
+        selectable={!selectionReadOnly}
         selectedFileIds={new Set(files.filter((file) => isselected(file.id, row.ref)).map((file) => file.id))}
         onselectall={(checked) => ontoggle(row.ref, checked)}
         onselectfile={(file, checked) => ontogglealbumfile(row.ref, file.id, checked)}
@@ -618,11 +619,11 @@
   {#if viewUnavailable}
     <div class="resource-state-notice unavailable" role="alert">
       <span class="resource-state-dot"></span>
-      <span class="resource-state-copy"><strong>Results view unavailable</strong><small>This results view is no longer available.
+      <span class="resource-state-copy"><strong>Results view unavailable</strong><small>This results snapshot expired or the daemon restarted.
         {#if viewState.canRetryPendingCommit}Retry your download request to recover its outcome.
         {:else}Reload results; your current selection will be cleared.{/if}
       </small></span>
-      {#if !viewState.canRetryPendingCommit}<button type="button" onclick={() => window.location.reload()}>Reload results</button>{/if}
+      {#if !viewState.canRetryPendingCommit}<button type="button" disabled={viewState.refining} onclick={() => requestRefinement(true)}>Reload results</button>{/if}
     </div>
   {/if}
 
@@ -647,7 +648,7 @@
       <span class="resource-state-dot"></span>
       <span class="resource-state-copy"><strong>{configurationError ? 'Result configuration unavailable' : 'Search results could not be updated'}</strong><small>{viewState.refinementError ? 'Previous results are still shown. ' : ''}{(configurationError ?? localRefinementError ?? viewState.refinementError)?.message}</small></span>
       {#if configurationError}<button type="button" onclick={() => { configurationJobId = null; }}>Retry</button>
-      {:else}<button type="button" onclick={requestRefinement}>Retry</button>{/if}
+      {:else}<button type="button" onclick={() => requestRefinement()}>Retry</button>{/if}
     </div>
   {/if}
 
@@ -816,7 +817,7 @@
                       locked={row.value.visibility === 'Locked'}
                       selected={isselected(row.ref)}
                       preferred={tier === 'Preferred'}
-                      selectable
+                      selectable={!selectionReadOnly}
                       onselect={(checked) => ontoggle(row.ref, checked)}
                     />
                   {:else}
@@ -883,18 +884,18 @@
           <div class:current={(choiceIsCurrent(panel.groupRef) ? viewState.chosenOptions.get(panel.groupRef)?.ref : panel.representativeRef) === option.ref} class="aggregate-option">
             <div class="aggregate-option-toolbar">
               {@render aggregatePeerSummary(peer)}
-              <button type="button" class="aggregate-use-option" onclick={() => onchooseoption(panel.groupRef, option)}>Use this option</button>
+              <button type="button" class="aggregate-use-option" disabled={selectionReadOnly} onclick={() => onchooseoption(panel.groupRef, option)}>Use this option</button>
             </div>
             <div class="aggregate-option-card-wrap">
               {#if option.kind === 'track'}
-                <button type="button" class="aggregate-option-card-picker" aria-label={`Use ${option.value.remoteFilename}`} onclick={() => onchooseoption(panel.groupRef, option)}></button>
+                <button type="button" class="aggregate-option-card-picker" disabled={selectionReadOnly} aria-label={`Use ${option.value.remoteFilename}`} onclick={() => onchooseoption(panel.groupRef, option)}></button>
                 <FileItemCard path={option.value.remoteFilename} sizeBytes={Number(option.value.file.size)} audio={audio(option.value.file)} locked={option.value.visibility === 'Locked'} />
               {:else}
                 {@const children = viewState.directoryFiles.get(option.ref)}
                 {@const directory = children?.directorySummary ?? option.value}
                 {@const totals = directoryTotals(directory)}
                 {@const retrieval = viewState.retrievals.get(directory.ref.ref)}
-                <button type="button" class="aggregate-option-card-picker" aria-label={`Use ${directory.ref.folderPath || 'Files without a folder'}`} onclick={() => onchooseoption(panel.groupRef, option)}></button>
+                <button type="button" class="aggregate-option-card-picker" disabled={selectionReadOnly} aria-label={`Use ${directory.ref.folderPath || 'Files without a folder'}`} onclick={() => onchooseoption(panel.groupRef, option)}></button>
                 <FolderItemCard
                   contentsState={!directory.ref.folderPath ? undefined : retrieval?.loading ? 'retrieving' : retrieval?.error ? 'failed' : directory.retrievalState === 'Complete' ? 'complete' : 'partial'}
                   onloadfullcontents={() => onretrievedirectory(directory.ref.ref)}

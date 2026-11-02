@@ -56,6 +56,10 @@ export class DaemonApiClient {
     return this.http.get(`/daemon/snapshot?detail=${detail}`, signal);
   }
 
+  getJobListSnapshot(scope: Schema<'JobListScopeDto'>, signal?: AbortSignal): Promise<Schema<'JobListUpdateDto'>> {
+    return this.http.post('/jobs/snapshot', scope, signal);
+  }
+
   getJobs(cursor?: string | null, limit = nestedPageSize, signal?: AbortSignal): Promise<CursorPage<JobSummaryDto>> {
     return this.http.getCursorPage<JobSummaryDto[]>(
       `/jobs${queryString({ archived: false, includeAll: false, newestFirst: true, excludeExtractResults: true, cursor, limit })}`,
@@ -474,35 +478,12 @@ export class DaemonApiClient {
 
   commitSearchView(
     viewId: string,
-    revision: number | string,
-    mode: Schema<'RefSelectionMode'>,
-    refs: string[],
-    idempotencyKey: string,
+    request: Schema<'CommitSearchViewSelectionRequestDto'>,
     signal?: AbortSignal,
-    excludedFileRefs?: string[],
-    includedFileRefs?: string[],
-    chosenOptions?: Record<string, string>,
-    albumFileSelections?: Record<string, Schema<'RefSelectionExpressionDto'>>,
-    options?: Schema<'SubmissionOptionsDto'>,
-    excludedFileIdentities?: Record<string, Schema<'FileCandidateRefDto'>>,
-    useRepresentativeWhenUnchosen?: boolean,
-    directoryPathRules?: Schema<'SearchViewDirectoryPathRuleDto'>[],
   ): Promise<CommitSearchViewSelectionResponseDto> {
-    const request: Schema<'CommitSearchViewSelectionRequestDto'> = {
-      revision,
-      selection: { mode, refs },
-      idempotencyKey,
-      excludedFileRefs,
-      includedFileRefs,
-      chosenOptions,
-      albumFileSelections,
-      options,
-      excludedFileIdentities,
-      useRepresentativeWhenUnchosen,
-      directoryPathRules,
-    };
     return this.http.post(`/search-views/${encodeURIComponent(viewId)}/commit`, request, signal);
   }
+
 }
 
 function searchDraftFromDetail(

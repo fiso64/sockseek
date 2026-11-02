@@ -563,12 +563,12 @@ test('retains named album outputs and pages appended artwork through missing his
   expect(history).toHaveLength(3);
   for (const entry of finalManifest.items) {
     expect(entry.child?.terminalOutcome).toBe('Succeeded');
-    const transfer = history.find(item => item.jobId === entry.childJobId)!;
+    const transfer = history.find(item => item.identity.jobId === entry.childJobId)!;
     expect(transfer).toBeDefined();
-    expect(transfer.localPath).toBe(entry.file?.downloadPath);
-    expect(transfer.localPath).toBe(join(destination, 'Organized', 'Fixture Album',
+    expect(transfer.status.localPath).toBe(entry.file?.downloadPath);
+    expect(transfer.status.localPath).toBe(join(destination, 'Organized', 'Fixture Album',
       basename(entry.target!.filename.replaceAll('\\', '/'))));
-    expect((await stat(transfer.localPath!)).size).toBe(128);
+    expect((await stat(transfer.status.localPath!)).size).toBe(128);
   }
 
   // The page retains its slot/count when supplemental child history is missing.

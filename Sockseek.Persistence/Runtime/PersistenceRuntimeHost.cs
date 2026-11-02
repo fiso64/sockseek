@@ -54,6 +54,7 @@ public sealed class PersistenceRuntimeHost
     private int suppressedFailureLogs;
     private readonly ILogger<PersistenceRuntimeHost> logger;
     private readonly IPersistenceMutationObserver? mutationObserver;
+    private readonly TimeProvider clock;
 
     public PersistenceRuntimeHost(
         SockseekSqliteOptions sqliteOptions,
@@ -61,7 +62,8 @@ public sealed class PersistenceRuntimeHost
         PersistenceRetentionOptions retentionOptions,
         string version,
         ILogger<PersistenceRuntimeHost>? logger = null,
-        IPersistenceMutationObserver? mutationObserver = null)
+        IPersistenceMutationObserver? mutationObserver = null,
+        TimeProvider? timeProvider = null)
     {
         this.sqliteOptions = sqliteOptions;
         this.writerOptions = writerOptions;
@@ -69,6 +71,7 @@ public sealed class PersistenceRuntimeHost
         this.version = version;
         this.logger = logger ?? NullLogger<PersistenceRuntimeHost>.Instance;
         this.mutationObserver = mutationObserver;
+        clock = timeProvider ?? TimeProvider.System;
         writerOptions.Validate();
         retentionOptions.Validate();
         Health.FailureRecorded += LogFailure;
@@ -90,7 +93,6 @@ public sealed class PersistenceRuntimeHost
     public ChatPersistenceStore? Chat { get; private set; }
     public PeerRestrictionOverrideStore? PeerRestrictions { get; private set; }
     public InputArtifactStore? InputArtifacts { get; private set; }
-    public SearchViewStore? SearchViews { get; private set; }
     public long? DatabaseSizeBytes => FileSize(sqliteOptions.DatabasePath);
     public long? WalSizeBytes => FileSize(sqliteOptions.DatabasePath + "-wal");
     public PersistenceQueueSnapshot Queue => SnapshotQueue();
@@ -163,20 +165,6 @@ public sealed class PersistenceRuntimeHost
                     throw;
                 PersistenceLogMessages.InputArtifactStorageUnavailable(logger, exception);
             }
-            var searchViews = new SearchViewStore(
-                sqliteOptions.GetFullDatabasePath(), inbox);
-            try
-            {
-                await searchViews.InitializeAsync(cancellationToken).ConfigureAwait(false);
-                SearchViews = searchViews;
-            }
-            catch (Exception exception)
-            {
-                await searchViews.DisposeAsync().ConfigureAwait(false);
-                if (cancellationToken.IsCancellationRequested)
-                    throw;
-                PersistenceLogMessages.SearchViewStorageUnavailable(logger, exception);
-            }
             IsStarted = true;
 
             return new PersistenceRuntimeStartup(Initialization, reconciliation, maximumDisplayId);
@@ -198,9 +186,6 @@ public sealed class PersistenceRuntimeHost
             if (InputArtifacts is not null)
                 await InputArtifacts.DisposeAsync().ConfigureAwait(false);
             InputArtifacts = null;
-            if (SearchViews is not null)
-                await SearchViews.DisposeAsync().ConfigureAwait(false);
-            SearchViews = null;
             ReleaseOwnership();
             throw PersistenceDatabaseErrors.Classify(ex, sqliteOptions.GetFullDatabasePath());
         }
@@ -237,8 +222,6 @@ public sealed class PersistenceRuntimeHost
             .ConfigureAwait(false);
         if (InputArtifacts is not null)
             await InputArtifacts.PruneExpiredAsync(cancellationToken).ConfigureAwait(false);
-        if (SearchViews is not null)
-            await SearchViews.PruneExpiredAsync(cancellationToken).ConfigureAwait(false);
         return result;
     }
 
@@ -326,9 +309,6 @@ public sealed class PersistenceRuntimeHost
             if (InputArtifacts is not null)
                 await InputArtifacts.DisposeAsync().ConfigureAwait(false);
             InputArtifacts = null;
-            if (SearchViews is not null)
-                await SearchViews.DisposeAsync().ConfigureAwait(false);
-            SearchViews = null;
             ReleaseOwnership();
             IsStarted = false;
         }

@@ -141,9 +141,9 @@ public sealed record SubmissionSpecification(
     internal SubmissionSpecification BindAcceptedJobIds(Job root)
     {
         NormalizedJobCommand command = BindCommandJobIds(Command, root);
-        return ReferenceEquals(command, Command) && SchemaVersion == CurrentSchemaVersion
+        return ReferenceEquals(command, Command)
             ? this
-            : this with { SchemaVersion = CurrentSchemaVersion, Command = command };
+            : this with { Command = command };
     }
 
     private static NormalizedJobCommand BindCommandJobIds(NormalizedJobCommand command, Job job)
@@ -234,11 +234,9 @@ public sealed record SubmissionSpecification(
     private Dictionary<string, DownloadSettings> ReadValidatedSettings(
         Dictionary<string, DownloadSettings>? validatedSettings = null)
     {
-        if (SchemaVersion is not (2 or 3 or CurrentSchemaVersion))
+        if (SchemaVersion != CurrentSchemaVersion)
             throw new NotSupportedException($"Unsupported submission-specification schema version {SchemaVersion}.");
         ArgumentNullException.ThrowIfNull(Command);
-        if (SchemaVersion < 4 && SharedSettings != null)
-            throw new InvalidDataException("This submission schema does not support shared settings.");
         // An operation owns these unmodified prototypes. Repeated JSON is
         // decoded once; materialization clones it before rebinding per-command
         // credentials or exposing mutable settings to a job. Nothing is cached
@@ -263,7 +261,7 @@ public sealed record SubmissionSpecification(
     {
         if (command.PlannedSettingsRef is int reference)
         {
-            if (SchemaVersion < 4 || SharedSettings == null
+            if (SharedSettings == null
                 || reference < 0 || reference >= SharedSettings.Count
                 || command.PlannedEffectiveSettingsJson != null || command.PlannedCredentialBindings != null)
                 throw new InvalidDataException("The command has an invalid or ambiguous planned-settings reference.");
@@ -761,8 +759,7 @@ public static class SubmissionSpecificationCodec
     {
         if (validatedSettings is null) specification.Validate();
         else specification.Validate(validatedSettings);
-        if (specification.SchemaVersion == SubmissionSpecification.CurrentSchemaVersion)
-            specification = CompactSettings(specification);
+        specification = CompactSettings(specification);
         return JsonSerializer.Serialize(specification, Options);
     }
 
@@ -833,12 +830,6 @@ public static class SubmissionSpecificationCodec
 
 internal static class RetainedSettingsCodec
 {
-    // Ordinary capture and reads share reflection metadata. Batch capture uses
-    // the generated writer below, avoiding repeated property dispatch without
-    // imposing its initialization on a single Start. Both follow the same model
-    // attributes: credentials can be read but are never serialized.
-    private static readonly JsonSerializerOptions Options = CreateOptions();
-
     public static JsonSerializerOptions CreateOptions() => new(JsonSerializerDefaults.Web)
     {
         IncludeFields = true,
@@ -848,16 +839,13 @@ internal static class RetainedSettingsCodec
     };
 
     public static string Serialize(DownloadSettings settings)
-        => JsonSerializer.Serialize(settings, Options);
+        => JsonSerializer.Serialize(settings, RetainedSettingsJsonContext.Default.DownloadSettings);
 
-    internal static void Serialize(Utf8JsonWriter writer, DownloadSettings settings, bool generated)
-    {
-        if (generated) JsonSerializer.Serialize(writer, settings, RetainedSettingsJsonContext.Default.DownloadSettings);
-        else JsonSerializer.Serialize(writer, settings, Options);
-    }
+    internal static void Serialize(Utf8JsonWriter writer, DownloadSettings settings)
+        => JsonSerializer.Serialize(writer, settings, RetainedSettingsJsonContext.Default.DownloadSettings);
 
     public static DownloadSettings Deserialize(string json)
-        => JsonSerializer.Deserialize<DownloadSettings>(json, Options)
+        => JsonSerializer.Deserialize(json, RetainedSettingsJsonContext.Default.DownloadSettings)
             ?? throw new InvalidDataException("Retained effective settings are empty.");
 }
 
@@ -871,10 +859,6 @@ internal sealed class RetainedSettingsWriter : IDisposable
     private readonly Dictionary<string, List<RetainedJobSettings>> values = new(StringComparer.Ordinal);
     private char[]? characters;
     private RetainedJobSettings? previous;
-    // Reuse validation metadata for the first thousand values. Longer captures
-    // amortize generated writing's setup over the remaining stream.
-    private int reflectionWrites = 1000;
-
     public RetainedSettingsWriter()
         => writer = new(buffer, new JsonWriterOptions { SkipValidation = true });
 
@@ -882,9 +866,7 @@ internal sealed class RetainedSettingsWriter : IDisposable
     {
         buffer.Clear();
         writer.Reset(buffer);
-        bool generated = reflectionWrites == 0;
-        if (!generated) reflectionWrites--;
-        RetainedSettingsCodec.Serialize(writer, settings, generated);
+        RetainedSettingsCodec.Serialize(writer, settings);
         writer.Flush();
         if (characters is null || characters.Length < buffer.WrittenCount)
         {
@@ -927,8 +909,9 @@ internal sealed class RetainedSettingsWriter : IDisposable
     }
 }
 
-// Generate the settings writer independently of the larger command graph.
-[JsonSourceGenerationOptions(JsonSerializerDefaults.Web, GenerationMode = JsonSourceGenerationMode.Serialization,
+// One model-derived codec for single and batch capture and settings reads.
+// Credentials can be rebound on read but are never serialized.
+[JsonSourceGenerationOptions(JsonSerializerDefaults.Web,
     IncludeFields = true, IgnoreReadOnlyProperties = true, UseStringEnumConverter = true,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(DownloadSettings))]

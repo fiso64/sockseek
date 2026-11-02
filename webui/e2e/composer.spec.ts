@@ -30,10 +30,10 @@ test('uses filtering and output settings for a direct Start download', async ({ 
   expect(transfersResponse.ok(), await transfersResponse.text()).toBe(true);
   const transfers = (await transfersResponse.json() as Schema<'TransferTimelinePageDto'>).items;
   expect(transfers).toHaveLength(1);
-  expect(transfers[0]!.terminalOutcome).toBe('Succeeded');
-  expect(transfers[0]!.remotePath).toBe('Fixture\\Fixture song.flac');
-  expect(transfers[0]!.localPath).toBe(join(destination, 'direct', 'Fixture song.flac'));
-  expect((await stat(transfers[0]!.localPath!)).size).toBe(128);
+  expect(transfers[0]!.status.terminalOutcome).toBe('Succeeded');
+  expect(transfers[0]!.identity.remotePath).toBe('Fixture\\Fixture song.flac');
+  expect(transfers[0]!.status.localPath).toBe(join(destination, 'direct', 'Fixture song.flac'));
+  expect((await stat(transfers[0]!.status.localPath!)).size).toBe(128);
   const files = await readdir(destination, { recursive: true, withFileTypes: true });
   expect(files.filter(file => file.isFile()).map(file => relative(destination, join(file.parentPath, file.name))))
     .toEqual([join('direct', 'Fixture song.flac')]);
@@ -171,10 +171,10 @@ test('downloads with corrected output settings after invalidating and repeating 
   expect(transfersResponse.ok(), await transfersResponse.text()).toBe(true);
   const transfers = (await transfersResponse.json() as Schema<'TransferTimelinePageDto'>).items;
   expect(transfers).toHaveLength(1);
-  expect(transfers[0]!.remotePath).toBe('Fixture\\Fixture song.flac');
-  expect(transfers[0]!.terminalOutcome).toBe('Succeeded');
-  expect(transfers[0]!.localPath).toBe(join(destination, 'changed', 'Fixture song.flac'));
-  expect((await stat(transfers[0]!.localPath!)).size).toBe(128);
+  expect(transfers[0]!.identity.remotePath).toBe('Fixture\\Fixture song.flac');
+  expect(transfers[0]!.status.terminalOutcome).toBe('Succeeded');
+  expect(transfers[0]!.status.localPath).toBe(join(destination, 'changed', 'Fixture song.flac'));
+  expect((await stat(transfers[0]!.status.localPath!)).size).toBe(128);
   const files = await readdir(destination, { recursive: true, withFileTypes: true });
   expect(files.filter(file => file.isFile()).map(file => relative(destination, join(file.parentPath, file.name))))
     .toEqual([join('changed', 'Fixture song.flac')]);

@@ -140,28 +140,7 @@ public class DaemonClientStoreTests
     }
 
     [TestMethod]
-    public void LiveSnapshotReplacementPreservesHydratedHistory()
-    {
-        var store = new DaemonClientStore();
-        var workflowId = Guid.NewGuid();
-        var liveJobId = Guid.NewGuid();
-        var historicalJobId = Guid.NewGuid();
-        var history = Job(historicalJobId, Guid.NewGuid(), 1, ServerJobLifecycleState.Terminal).ToSummary();
-        store.MergeJobHistory([history]);
-
-        store.ApplySnapshot(Snapshot(
-            Guid.NewGuid(),
-            0,
-            workflowId,
-            [Job(liveJobId, workflowId, 1, ServerJobLifecycleState.Running)]));
-        store.ApplySnapshot(Snapshot(Guid.NewGuid(), 0, workflowId, []));
-
-        Assert.AreEqual(history, store.GetJob(historicalJobId));
-        Assert.IsNull(store.GetJob(liveJobId));
-    }
-
-    [TestMethod]
-    public void LiveStateView_IsAtomicAcrossScopesAndExcludesHydratedHistory()
+    public void LiveStateView_IsAtomicAcrossScopes()
     {
         var store = new DaemonClientStore();
         var firstWorkflow = Guid.NewGuid();
@@ -176,13 +155,6 @@ public class DaemonClientStoreTests
             secondWorkflow,
             1,
             ServerJobLifecycleState.Running);
-        var historical = Job(
-            Guid.NewGuid(),
-            Guid.NewGuid(),
-            1,
-            ServerJobLifecycleState.Terminal).ToSummary();
-        store.MergeJobHistory([historical]);
-
         store.ApplySnapshot(Snapshot(
             Guid.NewGuid(),
             0,
@@ -198,7 +170,6 @@ public class DaemonClientStoreTests
         CollectionAssert.AreEquivalent(
             new[] { first.JobId, second.JobId },
             bothScopes.Jobs.Select(job => job.JobId).ToArray());
-        Assert.IsFalse(bothScopes.Jobs.Any(job => job.JobId == historical.JobId));
 
         store.ApplySnapshot(Snapshot(
             Guid.NewGuid(),
@@ -210,7 +181,6 @@ public class DaemonClientStoreTests
         CollectionAssert.AreEqual(
             new[] { second.JobId },
             replacedScope.Jobs.Select(job => job.JobId).ToArray());
-        Assert.AreEqual(historical, store.GetJob(historical.JobId));
     }
 
     [TestMethod]

@@ -27,10 +27,9 @@
   import UsernameLink from '../../components/UsernameLink.svelte';
   import type { UserLinkActions } from '../../app/navigation';
 
-  let { jobId, initialDetail = null, refreshRevision = 0, userActions, connected, observeJobs, onback, onopenjob, onarchive, archivingSubmissions = new Set<string>(), archiveError = null }: {
+  let { jobId, initialDetail = null, userActions, connected, observeJobs, onback, onopenjob, onarchive, archivingSubmissions = new Set<string>(), archiveError = null }: {
     jobId: string;
     initialDetail?: Schema<'JobDetailDto'> | null;
-    refreshRevision?: number;
     userActions: UserLinkActions;
     connected: boolean;
     observeJobs: DaemonLiveClient['observeJobs'];
@@ -63,7 +62,7 @@
   // registered. Observe their arrival, not progress or every undisplayed child.
   let liveChildExtent = $derived(Math.min(observedChildCount ?? 0, nestedPageSize));
   let liveRetrievalExtent = $derived(Math.min(observedRetrievalCount ?? 0, nestedPageSize));
-  let liveDetailVersion = $derived(`${refreshRevision}:${liveChildExtent}:${jobDetailVersion(liveRoot ? jobStateSummary(liveRoot) : undefined)}`);
+  let liveDetailVersion = $derived(`${liveChildExtent}:${jobDetailVersion(liveRoot ? jobStateSummary(liveRoot) : undefined)}`);
   let observedDetailVersion = '';
   let invalidateDetail: () => void = () => {};
   let visibleChildren = $derived(children.map((child) => {

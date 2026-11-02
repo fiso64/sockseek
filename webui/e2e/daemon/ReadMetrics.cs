@@ -30,7 +30,7 @@ sealed class ReadMetrics : IObserver<DiagnosticListener>, IObserver<KeyValuePair
         listeners = DiagnosticListener.AllListeners.Subscribe(this);
         storeActivities = new ActivityListener
         {
-            ShouldListenTo = source => source.Name is "Sockseek.Persistence.SearchViews" or "Sockseek.Server.Transfers"
+            ShouldListenTo = source => source.Name is "Sockseek.Server.SearchViewCache" or "Sockseek.Server.Transfers"
                 or "Sockseek.Server.Submissions" or "Sockseek.Persistence.Write"
                 || profileProjections && source.Name == "Sockseek.Server.SearchViews",
             Sample = (ref ActivityCreationOptions<ActivityContext> options) => current.Value is not null

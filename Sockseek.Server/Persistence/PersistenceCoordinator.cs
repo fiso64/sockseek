@@ -19,20 +19,19 @@ namespace Sockseek.Server.Persistence;
 public sealed class PersistenceCoordinator(
     IOptions<ServerOptions> serverOptions,
     ILogger<PersistenceCoordinator>? logger = null,
-    ILoggerFactory? loggerFactory = null)
+    ILoggerFactory? loggerFactory = null,
+    TimeProvider? timeProvider = null)
 {
     private readonly ServerOptions options = serverOptions.Value;
     private readonly ILogger<PersistenceCoordinator> logger = logger
         ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PersistenceCoordinator>.Instance;
     private readonly ILoggerFactory loggerFactory = loggerFactory
         ?? Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
-    private readonly Dictionary<DownloadEngine, EnginePersistenceAdapter> adapters = [];
     private readonly PersistenceHandoffTracker handoffs = new(
         (loggerFactory ?? Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance)
             .CreateLogger<PersistenceHandoffTracker>());
     private readonly object gate = new();
     private PersistenceRuntimeHost? host;
-    private UploadPersistenceAdapter? uploadAdapter;
     private string? databasePath;
 
     public bool IsEnabled => options.Persistence.Enabled;
@@ -52,15 +51,15 @@ public sealed class PersistenceCoordinator(
     public ChatPersistenceStore? Chat => host?.Chat;
     public PeerRestrictionOverrideStore? PeerRestrictions => host?.PeerRestrictions;
     public InputArtifactStore? InputArtifacts => host?.InputArtifacts;
-    public SearchViewStore? SearchViews => host?.SearchViews;
     internal int SearchResultBatchSize => options.Persistence.SearchResultFlushCount;
     public long? DatabaseSizeBytes => host?.DatabaseSizeBytes;
     public long? WalSizeBytes => host?.WalSizeBytes;
     public DateTimeOffset? LastRetentionAtUtc { get; private set; }
     public RetentionResult? LastRetentionResult { get; private set; }
     public event Action? HistoryHealthChanged;
-    public event Action? TerminalTransferCommitted;
+    public event Action<IReadOnlyList<(Guid TransferId, long Revision)>>? TerminalTransfersCommitted;
     internal event Action? TransfersPruned;
+    internal event Action? JobsPruned;
     internal event Action<Guid> SearchSourceChanged
     {
         add => handoffs.SearchSourceChanged += value;
@@ -103,9 +102,6 @@ public sealed class PersistenceCoordinator(
             CommandQueueCapacity = options.Persistence.CommandQueueCapacity,
             BackgroundCommandQueueCapacity = options.Persistence.BackgroundCommandQueueCapacity,
             ProgressEntityCapacity = options.Persistence.ProgressEntityCapacity,
-            SearchResultCapacityPerSearch = options.Persistence.SearchResultCapacityPerSearch,
-            SearchResultGlobalCapacity = options.Persistence.SearchResultGlobalCapacity,
-            IncompleteSearchTrackingCapacity = options.Persistence.IncompleteSearchTrackingCapacity,
             SearchMutationQueueCapacity = options.Persistence.SearchMutationQueueCapacity,
             SearchResultFlushCount = options.Persistence.SearchResultFlushCount,
             SearchResultFlushInterval = options.Persistence.SearchResultFlushInterval,
@@ -132,11 +128,11 @@ public sealed class PersistenceCoordinator(
             retentionOptions,
             version,
             loggerFactory.CreateLogger<PersistenceRuntimeHost>(),
-            handoffs);
+            handoffs, timeProvider);
         var startup = await host.StartAsync(cancellationToken).ConfigureAwait(false);
         host.Health.CommitCompleted += OnHistoryHealthChanged;
         host.Health.FailureRecorded += OnHistoryHealthChanged;
-        handoffs.TerminalTransferCommitted += OnTerminalTransferCommitted;
+        handoffs.TerminalTransfersCommitted += OnTerminalTransferCommitted;
         JobDisplayIds.ContinueAfter(startup.MaximumRetainedDisplayId);
     }
 
@@ -184,6 +180,7 @@ public sealed class PersistenceCoordinator(
             await NotifyChatRetentionCompletedAsync(
                 chatResult, CancellationToken.None).ConfigureAwait(false);
         }
+        if (result.PrunedJobs > 0) JobsPruned?.Invoke();
         LastRetentionAtUtc = DateTimeOffset.UtcNow;
         LastRetentionResult = result;
         return new PersistenceRetentionResultDto(
@@ -208,67 +205,25 @@ public sealed class PersistenceCoordinator(
         }
     }
 
-    public void AttachEngine(DownloadEngine engine)
+    internal JobPersistence? CreateJobPersistence(DownloadEngine engine)
     {
-        if (!IsStarted || Runtime == null || host?.MutationSink == null)
-            return;
-
-        lock (gate)
+        if (!IsStarted || Runtime == null || host?.MutationSink == null) return null;
+        return new JobPersistence(Runtime.RuntimeId, host.MutationSink, handoffs, (workflowId, ids) =>
         {
-            var adapter = new EnginePersistenceAdapter(
-                Runtime.RuntimeId,
-                host.MutationSink,
-                handoffs,
-                (workflowId, ids) =>
-                {
-                    // One existing workflow snapshot shared by its read inputs,
-                    // not one reputation copy per completed search child.
-                    var counts = new Dictionary<string, int>(engine.GetUserSuccessCounts(workflowId), StringComparer.Ordinal);
-                    var sources = new Dictionary<Guid, SearchViewSource>();
-                    foreach (Guid id in ids)
-                        if (engine.GetJob(id) is { } job && SearchViewSource.Capture(job, counts) is { } source)
-                            sources.Add(id, source);
-                    return sources;
-                });
-            adapter.Attach(engine.Events);
-            adapters.Add(engine, adapter);
-        }
+            // One workflow snapshot shared by its read inputs, not one
+            // reputation copy per completed search child.
+            var counts = new Dictionary<string, int>(engine.GetUserSuccessCounts(workflowId), StringComparer.Ordinal);
+            var sources = new Dictionary<Guid, SearchViewSource>();
+            foreach (Guid id in ids)
+                if (engine.GetJob(id) is { } job && SearchViewSource.Capture(job, counts) is { } source)
+                    sources.Add(id, source);
+            return sources;
+        });
     }
 
-    public void DetachEngine(DownloadEngine engine)
-    {
-        lock (gate)
-        {
-            if (!adapters.Remove(engine, out var adapter))
-                return;
-            adapter.Detach(engine.Events);
-        }
-    }
-
-    public void AttachUploads(UploadCoordinator uploads)
-    {
-        if (!IsStarted || Runtime == null || host?.MutationSink == null)
-            return;
-        lock (gate)
-        {
-            if (uploadAdapter is not null)
-                throw new InvalidOperationException("An upload runtime is already attached.");
-            uploadAdapter = new UploadPersistenceAdapter(
-                Runtime.RuntimeId,
-                host.MutationSink,
-                handoffs);
-            uploadAdapter.Attach(uploads);
-        }
-    }
-
-    public void DetachUploads(UploadCoordinator uploads)
-    {
-        lock (gate)
-        {
-            uploadAdapter?.Detach(uploads);
-            uploadAdapter = null;
-        }
-    }
+    internal TransferPersistence? CreateTransferPersistence()
+        => IsStarted && Runtime is { } runtime && host?.MutationSink is { } sink
+            ? new TransferPersistence(runtime.RuntimeId, sink, handoffs) : null;
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
@@ -285,7 +240,7 @@ public sealed class PersistenceCoordinator(
         finally
         {
             handoffs.ReleaseSearchSources();
-            handoffs.TerminalTransferCommitted -= OnTerminalTransferCommitted;
+            handoffs.TerminalTransfersCommitted -= OnTerminalTransferCommitted;
         }
         if (!stop.Drained)
         {
@@ -302,8 +257,8 @@ public sealed class PersistenceCoordinator(
     private void OnHistoryHealthChanged()
         => HistoryHealthChanged?.Invoke();
 
-    private void OnTerminalTransferCommitted()
-        => TerminalTransferCommitted?.Invoke();
+    private void OnTerminalTransferCommitted(IReadOnlyList<(Guid TransferId, long Revision)> committed)
+        => TerminalTransfersCommitted?.Invoke(committed);
 
     internal Task WaitForJobHandoffAsync(Guid jobId, CancellationToken cancellationToken, bool includeSearchResults = true)
         => handoffs.WaitForJobAsync(jobId, cancellationToken, includeSearchResults);

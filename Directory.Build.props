@@ -22,6 +22,10 @@
     <Compile Include="$(MSBuildThisFileDirectory)tests/TestDatabase.cs" Link="TestSupport/TestDatabase.cs" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'Sockseek.Persistence.Tests' Or '$(MSBuildProjectName)' == 'Sockseek.Server.Tests'">
+    <Compile Include="$(MSBuildThisFileDirectory)tests/TestPersistenceWriter.cs" Link="TestSupport/TestPersistenceWriter.cs" />
+  </ItemGroup>
+
   <!-- Redirect the lock file to the ignored 'obj' folder during manual publishes -->
   <PropertyGroup Condition="'$(RuntimeIdentifier)' != '' Or '$(SelfContained)' == 'true' Or '$(PublishSingleFile)' == 'true'">
     <NuGetLockFilePath>obj/packages.publish.lock.json</NuGetLockFilePath>

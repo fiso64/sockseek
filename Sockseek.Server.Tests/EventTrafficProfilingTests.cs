@@ -155,7 +155,7 @@ public class EventTrafficProfilingTests
             string csvPath = Path.Combine(inputDir, "playlist.csv");
             File.WriteAllLines(csvPath, BuildCsvLines(jobCount));
 
-            var root = await supervisor.SubmitExtractJobAsync(
+            var root = await supervisor.Submissions.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(
                     csvPath,
                     InputType: "CSV"),
@@ -233,7 +233,7 @@ public class EventTrafficProfilingTests
             string csvPath = Path.Combine(inputDir, "playlist.csv");
             BuildMatchingTrackLibrary(musicRoot, csvPath, jobCount);
 
-            var root = await supervisor.SubmitExtractJobAsync(
+            var root = await supervisor.Submissions.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(
                     csvPath,
                     InputType: "CSV"),
@@ -304,7 +304,7 @@ public class EventTrafficProfilingTests
             string csvPath = Path.Combine(inputDir, "playlist.csv");
             File.WriteAllLines(csvPath, BuildCsvLines(jobCount));
 
-            var root = await supervisor.SubmitExtractJobAsync(
+            var root = await supervisor.Submissions.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(
                     csvPath,
                     InputType: "CSV"),

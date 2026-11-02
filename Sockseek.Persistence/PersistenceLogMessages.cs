@@ -26,8 +26,6 @@ internal static partial class PersistenceLogMessages
     [LoggerMessage(4056, LogLevel.Warning, "Input artifact blob storage is unavailable; browser file inputs are disabled")]
     internal static partial void InputArtifactStorageUnavailable(ILogger logger, Exception exception);
 
-    [LoggerMessage(4057, LogLevel.Warning, "Search View storage is unavailable; search execution and raw history remain available")]
-    internal static partial void SearchViewStorageUnavailable(ILogger logger, Exception exception);
 
     [LoggerMessage(4058, LogLevel.Debug, "Persistence checkpoint {CheckpointId} finished: {Outcome}, {CopiedFrames}/{LogFrames} frames, {DurationMilliseconds} ms")]
     internal static partial void CheckpointCompleted(ILogger logger, Guid checkpointId, string outcome,

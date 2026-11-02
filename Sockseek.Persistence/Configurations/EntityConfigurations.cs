@@ -92,14 +92,12 @@ internal sealed class SubmissionConfiguration : IEntityTypeConfiguration<Submiss
         builder.Property(x => x.Id).HasColumnName("id");
         builder.Property(x => x.SubmittedAtUtc).HasColumnName("submitted_at_utc");
         builder.Property(x => x.SpecificationSchemaVersion).HasColumnName("specification_schema_version");
-        builder.Property(x => x.SpecificationJson).HasColumnName("specification_json");
-        // Keep large immutable intent out of the row rewritten by receipt and
-        // archive updates. This is still one entity and one writer transaction.
-        builder.SplitToTable("submission_specifications", table =>
-        {
-            table.Property(x => x.Id).HasColumnName("submission_id");
-            table.Property(x => x.SpecificationJson).HasColumnName("specification_json");
-        });
+        // A submission's identity belongs to this metadata row. Keep its large
+        // immutable payload separate without redirecting self-referencing reruns
+        // to the payload table (as EF entity splitting does).
+        builder.HasOne(x => x.Specification).WithOne()
+            .HasForeignKey<SubmissionSpecificationEntity>(x => x.SubmissionId)
+            .OnDelete(DeleteBehavior.Cascade);
         builder.Property(x => x.RerunOfSubmissionId).HasColumnName("rerun_of_submission_id");
         builder.Property(x => x.PreviewId).HasColumnName("preview_id");
         builder.Property(x => x.ArtifactId).HasColumnName("artifact_id").HasMaxLength(256);
@@ -111,6 +109,17 @@ internal sealed class SubmissionConfiguration : IEntityTypeConfiguration<Submiss
         builder.HasIndex(x => new { x.SubmittedAtUtc, x.Id });
         builder.HasIndex(x => x.RerunOfSubmissionId);
         builder.HasIndex(x => x.ArchivedAtUtc);
+    }
+}
+
+internal sealed class SubmissionSpecificationConfiguration : IEntityTypeConfiguration<SubmissionSpecificationEntity>
+{
+    public void Configure(EntityTypeBuilder<SubmissionSpecificationEntity> builder)
+    {
+        builder.ToTable("submission_specifications");
+        builder.HasKey(x => x.SubmissionId);
+        builder.Property(x => x.SubmissionId).HasColumnName("submission_id");
+        builder.Property(x => x.Json).HasColumnName("specification_json");
     }
 }
 

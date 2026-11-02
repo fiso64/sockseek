@@ -19,7 +19,7 @@ import { DaemonStateReducer, type ReplicatedDaemonState, type DaemonStateChanges
 export { DaemonStateReducer } from './state.svelte';
 export type { ReplicatedDaemonState } from './state.svelte';
 
-const expectedLiveProtocolVersion = 16 satisfies Schema<'LiveProtocolContractVersion'>;
+const expectedLiveProtocolVersion = 17 satisfies Schema<'LiveProtocolContractVersion'>;
 const stateUpdateBatchMessage = 'stateUpdateBatch' satisfies Schema<'LiveServerMessage'>;
 const subscribeAllMethod = 'SubscribeAll' satisfies Schema<'LiveClientInvocation'>;
 const unsubscribeAllMethod = 'UnsubscribeAll' satisfies Schema<'LiveClientInvocation'>;
@@ -118,14 +118,7 @@ function newer(next: WireInteger, current: WireInteger): boolean {
   return wireInteger(next) > wireInteger(current);
 }
 
-interface HistoryInvalidation {
-  transfers: boolean;
-  jobs: boolean;
-  /** Live batches supply exact removals; snapshots reconcile without IDs. */
-  removedJobIds?: readonly string[];
-  removedTransferIds?: readonly string[];
-}
-type StateListener = (state: ReplicatedDaemonState, history: HistoryInvalidation, changes: DaemonStateChanges) => void;
+type StateListener = (state: ReplicatedDaemonState, changes: DaemonStateChanges) => void;
 type StatusListener = (status: LiveConnectionStatus, error: Error | null) => void;
 type ChatListener = (target: ChatTargetSnapshotDto, observedMessages: ChatTargetSnapshotDto['messages'], snapshotRefresh: boolean) => void;
 
@@ -191,6 +184,18 @@ export class DaemonLiveClient {
       scope)
       .subscribe({ next, error: (failure) => error(asError(failure)),
         complete: () => error(new Error('Transfer updates stopped. Retry to reconnect.')) });
+    return () => subscription.dispose();
+  }
+
+  observeJobList(scope: Schema<'JobListScopeDto'>, next: (update: Schema<'JobListUpdateDto'>) => void,
+    error: (error: Error) => void): () => void {
+    const connection = this.connection;
+    if (!connection || connection.state !== HubConnectionState.Connected)
+      throw new Error('The daemon live connection is not ready.');
+    const method = 'ObserveJobList' satisfies Schema<'LiveClientInvocation'>;
+    const subscription = connection.stream<Schema<'JobListUpdateDto'>>(method, scope)
+      .subscribe({ next, error: cause => error(asError(cause)),
+        complete: () => error(new Error('Job list updates stopped. Retry to reconnect.')) });
     return () => subscription.dispose();
   }
 
@@ -470,9 +475,7 @@ export class DaemonLiveClient {
     }
     const status = this.reducer.applyBatch(batch);
     if (status === 'applied') {
-      const jobs = Boolean(batch.state.removedJobIds.length || batch.state.removedWorkflowIds.length);
-      this.emitState({ transfers: jobs || Boolean(batch.state.removedTransferIds.length), jobs,
-        removedJobIds: batch.state.removedJobIds, removedTransferIds: batch.state.removedTransferIds });
+      this.emitState();
     }
     else if (status === 'recovery-required') void this.recover().catch((error) => {
       this.emitStatus('failed', asError(error));
@@ -544,7 +547,6 @@ export class DaemonLiveClient {
     const lifecycleId = this.lifecycleId;
     this.buffering = true;
     const recovery = (async () => {
-      const initialSnapshot = this.reducer.state.epoch === null;
       const snapshot = await this.api.getDaemonSnapshot(undefined, this.detail);
       if (this.stopped || lifecycleId !== this.lifecycleId) return;
       this.reducer.applySnapshot(snapshot);
@@ -558,9 +560,7 @@ export class DaemonLiveClient {
       }
       this.recovering = null;
       this.buffering = false;
-      // Initial route reads already fetch their own retained history. A
-      // recovery after a previous snapshot can reveal missed retirement.
-      this.emitState({ transfers: !initialSnapshot, jobs: !initialSnapshot });
+      this.emitState();
     })().catch(error => {
       if (!this.stopped && lifecycleId === this.lifecycleId) throw error;
     }).finally(() => {
@@ -570,10 +570,10 @@ export class DaemonLiveClient {
     return recovery;
   }
 
-  private emitState(history: HistoryInvalidation): void {
+  private emitState(): void {
     const state = this.reducer.state;
     const changes = this.reducer.takeChanges();
-    for (const listener of this.stateListeners) listener(state, history, changes);
+    for (const listener of this.stateListeners) listener(state, changes);
   }
 
   private emitStatus(status: LiveConnectionStatus, error: Error | null = null): void {

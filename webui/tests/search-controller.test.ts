@@ -46,6 +46,89 @@ function open(controller: SearchViewController, id: string) {
 }
 
 describe('Search View request isolation', () => {
+  it.each(['track', 'generic', 'album', 'song-aggregate', 'album-aggregate'] as const)(
+    'keeps an all-except %s selection exact while new results arrive', async mode => {
+      const commits: Parameters<DaemonApiClient['commitSearchView']>[] = [];
+      const counts: Schema<'CountSearchViewSelectionRequestDto'>[] = [];
+      const view = (revision: number): SearchViewSummaryDto => ({ ...summary('search', revision),
+        kind: mode === 'track' ? 'Files' : mode === 'generic' ? 'GenericDirectories'
+          : mode === 'album' ? 'AlbumDirectories' : mode === 'song-aggregate' ? 'AggregateTracks' : 'AggregateAlbums',
+        counters: { ...summary('search').counters, topLevelItemCount: revision + 1, selectableOptionCount: revision + 1 } });
+      class Api extends DaemonApiClient {
+        override async getSearchViewFiles(_id: string, revision: number | string) {
+          return { revision: view(Number(revision)), items: [], nextCursor: null };
+        }
+        override getSearchViewDirectories = this.getSearchViewFiles;
+        override getSearchViewAggregateTracks = this.getSearchViewFiles;
+        override getSearchViewAggregateAlbums = this.getSearchViewFiles;
+        override async getSearchViewUpdate() { return { summary: view(2), hasNewRevision: true }; }
+        override async countSearchViewSelection(_id: string, request: Schema<'CountSearchViewSelectionRequestDto'>) {
+          counts.push(request);
+          const count = Number(request.revision) + 1 - request.selection.refs.length;
+          return { revision: request.revision, publicFileCount: count, lockedFileCount: 0, selectedItemCount: count };
+        }
+        override async commitSearchView(...args: Parameters<DaemonApiClient['commitSearchView']>): Promise<never> {
+          commits.push(args);
+          throw new Error('Response lost');
+        }
+      }
+      const controller = new SearchViewController(new Api(), 60_000);
+      try {
+        await controller.open({ job: { jobId: 'search' }, view: view(1), draft: { ...emptySearchDraft, resultMode: mode } });
+        controller.selectAll(true);
+        controller.toggle('excluded', false);
+        await controller.refresh();
+        expect(controller.current().summary?.counters.topLevelItemCount).toBe(3);
+        expect(controller.selectedCount()).toBe(1);
+        expect(controller.isSelected('new-arrival')).toBe(false);
+        expect(counts.every(count => Number(count.revision) === 1)).toBe(true);
+        await controller.commit();
+        expect(commits[0]?.[1]).toMatchObject({ revision: 1, selection: { mode: 'AllExcept', refs: ['excluded'] } });
+      } finally { controller.stop(); }
+    });
+
+  it('requires an explicit reload after expiry, preserving filters but clearing the old selection', async () => {
+    const request: Schema<'CreateSearchViewRequestDto'> = { kind: 'Files', includeFullResults: true, filterText: 'flac' };
+    const creates: Schema<'CreateSearchViewRequestDto'>[] = [];
+    let polls = 0;
+    let failPage = true;
+    class Api extends DaemonApiClient {
+      override async getSearchViewFiles(id: string) {
+        if (id === 'replacement' && failPage) throw new Error('Temporary page failure');
+        return page(id);
+      }
+      override async getSearchViewUpdate(): Promise<never> {
+        polls++;
+        throw new DaemonApiError('Snapshot expired', 404);
+      }
+      override async createSearchView(_id: string, input: Schema<'CreateSearchViewRequestDto'>) {
+        creates.push(input);
+        return summary('replacement');
+      }
+      override async countSearchViewSelection(_id: string, input: Schema<'CountSearchViewSelectionRequestDto'>) {
+        return { revision: input.revision, publicFileCount: 1, lockedFileCount: 0, selectedItemCount: 1 };
+      }
+    }
+    const controller = new SearchViewController(new Api(), 60_000);
+    try {
+      await open(controller, 'source');
+      controller.toggle('old-choice', true);
+      await controller.refresh();
+      await controller.refresh();
+      expect(polls).toBe(1);
+      expect(creates).toEqual([]);
+      expect(await controller.refine(request)).toBe(false);
+      expect(await controller.refine(request, true)).toBe(false);
+      expect(controller.current().selectionRefs).toEqual(new Set(['old-choice']));
+      failPage = false;
+      expect(await controller.refine(request, true)).toBe(true);
+      expect(creates).toEqual([request, request]);
+      expect(controller.current().summary?.viewId).toBe('replacement');
+      expect(controller.current().selectionRefs.size).toBe(0);
+      expect(controller.selectedCount()).toBe(0);
+    } finally { controller.stop(); }
+  });
+
   it('counts an AllExcept selection after a filter hides its excluded file', async () => {
     const wider = summary('wider');
     wider.counters.topLevelItemCount = wider.counters.selectableOptionCount = 2;
@@ -780,11 +863,11 @@ describe('Search View request isolation', () => {
       await controller.commit(options);
       options.downloadSettings!.skip!.skipExisting = false;
       await controller.commit({ downloadSettings: { skip: { skipExisting: true } } });
-      expect(requests[0]?.[10]).toEqual({ downloadSettings: { skip: { skipExisting: true } } });
+      expect(requests[0]?.[1].options).toEqual({ downloadSettings: { skip: { skipExisting: true } } });
       expect(requests[1]).toEqual(requests[0]);
       await controller.commit(options);
-      expect(requests[2]?.[10]).toEqual({ downloadSettings: { skip: { skipExisting: false } } });
-      expect(requests[2]?.[4]).not.toBe(requests[1]?.[4]);
+      expect(requests[2]?.[1].options).toEqual({ downloadSettings: { skip: { skipExisting: false } } });
+      expect(requests[2]?.[1].idempotencyKey).not.toBe(requests[1]?.[1].idempotencyKey);
     } finally { controller.stop(); }
   });
 
@@ -927,7 +1010,7 @@ describe('Search View request isolation', () => {
     } finally { controller.stop(); }
   });
 
-  it('keeps selection counts on the displayed revision while a continued folder refresh is pending', async () => {
+  it('keeps selected counts on their original revision while displayed folder contents advance', async () => {
     const folder = directorySummary('folder');
     const child = (ref: string) => ({ ref, relativePath: `${ref}.txt`, file: { ...folder.bestChild, ref } });
     const oldCount = deferred<Schema<'CountSearchViewSelectionResponseDto'>>();
@@ -979,7 +1062,8 @@ describe('Search View request isolation', () => {
         items: [child('continued-2')], nextCursor: null });
       await refresh;
       expect(controller.current().summary?.revision).toBe(2);
-      expect(controller.current().selectionRevision).toBe(2);
+      expect(controller.current().selectionRevision).toBe(1);
+      expect(controller.current().selectionCounts?.publicFileCount).toBe(1);
     } finally { unsubscribe(); controller.stop(); }
   });
 
@@ -1028,6 +1112,8 @@ describe('Search View request isolation', () => {
       await controller.openAggregateOptions('group');
       controller.chooseAggregateOption('group', controller.current().aggregateOptions!.items.find(option => option.ref === chosen)!);
       await controller.loadDirectoryFiles(chosen);
+      // Keep the browser choice, but end the exact selection before following arrivals.
+      controller.selectAll(false);
       const refreshed = new Promise<void>(resolve => {
         const unsubscribe = controller.subscribe(state => {
           if (state.checkedChoiceRevisions.get('group') === 'aggregate:2'
@@ -1119,8 +1205,8 @@ describe('Search View request isolation', () => {
       expect(controller.current().albumFileSelections.get('group')?.mode).toBe('AllExcept');
       await controller.commit();
       await controller.commit();
-      expect(requests[0]?.[8]).toEqual({ group: 'second' });
-      expect(requests[0]?.[9]).toEqual({ group: { mode: 'AllExcept', refs: ['second-intro'] } });
+      expect(requests[0]?.[1].chosenOptions).toEqual({ group: 'second' });
+      expect(requests[0]?.[1].albumFileSelections).toEqual({ group: { mode: 'AllExcept', refs: ['second-intro'] } });
       expect(requests[1]).toEqual(requests[0]);
       controller.toggle('group', true);
       expect(controller.current().albumFileSelections.size).toBe(0);
@@ -1217,20 +1303,20 @@ describe('Search View request isolation', () => {
       expect(controller.selectedCount()).toBe(1);
       await controller.commit();
       await controller.commit();
-      expect(requests[0]?.[8]).toEqual({ group: 'second-option' });
+      expect(requests[0]?.[1].chosenOptions).toEqual({ group: 'second-option' });
       expect(requests[1]).toEqual(requests[0]);
       controller.selectAll(true);
       await controller.commit();
-      expect(requests[2]?.[2]).toBe('AllExcept');
-      expect(requests[2]?.[8]).toEqual({ group: 'second-option' });
+      expect(requests[2]?.[1].selection.mode).toBe('AllExcept');
+      expect(requests[2]?.[1].chosenOptions).toEqual({ group: 'second-option' });
       controller.toggle('group', false);
       controller.toggle('group', true);
       await controller.commit();
-      expect(requests[3]?.[8]).toEqual({ group: 'second-option' });
+      expect(requests[3]?.[1].chosenOptions).toEqual({ group: 'second-option' });
     } finally { controller.stop(); }
   });
 
-  it('rechecks an aggregate choice at a new revision and requires reselection after a miss', async () => {
+  it('rechecks an unselected aggregate choice at a new revision before reusing it', async () => {
     const first = directorySummary('first').bestChild;
     const second = { ...directorySummary('second').bestChild, peer: { username: 'second-peer' } };
     const resolution = deferred<Schema<'ResolveSearchViewChosenOptionsResponseDto'>>();
@@ -1261,7 +1347,7 @@ describe('Search View request isolation', () => {
         return { revision: request.revision, publicFileCount: 1, lockedFileCount: 0, selectedItemCount: 1 };
       }
       override async commitSearchView(...args: Parameters<DaemonApiClient['commitSearchView']>): Promise<Schema<'CommitSearchViewSelectionResponseDto'>> {
-        commits.push(args[8]?.group ?? 'representative');
+        commits.push(args[1].chosenOptions?.group ?? 'representative');
         throw new Error('Response lost');
       }
     }
@@ -1271,6 +1357,7 @@ describe('Search View request isolation', () => {
         draft: { ...emptySearchDraft, resultMode: 'song-aggregate' } });
       await controller.openAggregateOptions('group');
       controller.chooseAggregateOption('group', controller.current().aggregateOptions!.items[1]!);
+      controller.selectAll(false);
       await controller.refresh();
       expect(checked).toEqual([{ revision: 2, chosenOptions: { group: second.ref } }]);
       expect(controller.current().choiceValidationLoading).toBe(true);
@@ -1299,7 +1386,7 @@ describe('Search View request isolation', () => {
     } finally { controller.stop(); }
   });
 
-  it('retries the exact accepted command if its response is lost before a choice becomes unverified', async () => {
+  it('retries the exact accepted command while live presentation validates its choice', async () => {
     const option = directorySummary('chosen').bestChild;
     const requests: Parameters<DaemonApiClient['commitSearchView']>[] = [];
     const unresolved = deferred<Schema<'ResolveSearchViewChosenOptionsResponseDto'>>();
@@ -1336,6 +1423,7 @@ describe('Search View request isolation', () => {
       expect(controller.current().canRetryPendingCommit).toBe(true);
       await controller.refresh();
       expect(controller.current().choiceValidationLoading).toBe(true);
+      expect(controller.current().selectionRevision).toBe(1);
       await controller.commit();
       expect(requests).toHaveLength(2);
       expect(requests[1]).toEqual(requests[0]);
@@ -1381,7 +1469,7 @@ describe('Search View request isolation', () => {
       controller.chooseAggregateOption('group', controller.current().aggregateOptions!.items[0]!);
       await controller.commit();
       await controller.refresh();
-      expect(controller.selectedCount()).toBe(0);
+      expect(controller.selectedCount()).toBe(1);
       expect(controller.current().canRetryPendingCommit).toBe(true);
       await controller.commit();
       expect(requests).toHaveLength(2);
@@ -1558,7 +1646,7 @@ describe('Search View request isolation', () => {
       expect(controller.selectedCount()).toBe(1);
       await controller.commit();
       await controller.commit();
-      expect(requests[0]?.[7]).toEqual(['child']);
+      expect(requests[0]?.[1].includedFileRefs).toEqual(['child']);
       expect(requests[1]).toEqual(requests[0]);
       controller.toggle('folder', true);
       expect(controller.current().includedFiles.size).toBe(0);
@@ -1608,6 +1696,9 @@ describe('Search View request isolation', () => {
       expect(requests[0]?.selection).toEqual({ mode: 'Only', refs: ['directory'] });
       expect(controller.current().selectionCountsLoading).toBe(true);
       await controller.refresh();
+      expect(requests).toHaveLength(1);
+      controller.selectAll(false);
+      controller.toggle('directory', true);
       expect(requests[1]?.revision).toBe(2);
       first.resolve({ revision: 1, publicFileCount: 99, lockedFileCount: 0, selectedItemCount: 1 });
       await Promise.resolve();
@@ -1615,10 +1706,14 @@ describe('Search View request isolation', () => {
       second.resolve({ revision: 2, publicFileCount: 2, lockedFileCount: 1, selectedItemCount: 1 });
       await Promise.resolve();
       expect(controller.current().selectionCounts).toEqual({ revision: 2, publicFileCount: 2, lockedFileCount: 1, selectedItemCount: 1 });
+      controller.toggle('directory', true);
+      expect(requests).toHaveLength(2);
+      expect(controller.current().selectionCounts?.publicFileCount).toBe(2);
+      expect(controller.current().selectionCountsLoading).toBe(false);
     } finally { controller.stop(); }
   });
 
-  it.each(['folder', 'excluded-child', 'all-except', 'off-page'] as const)('validates and counts a generic %s selection without redundant requests', async selection => {
+  it.each(['folder', 'excluded-child', 'all-except', 'off-page'] as const)('pins a generic %s selection without validating or recounting it against arrivals', async selection => {
     const requests: Schema<'CountSearchViewSelectionRequestDto'>[] = [];
     const view = (id: string, revision = 1) => {
       const result = summary(id, revision);
@@ -1650,10 +1745,9 @@ describe('Search View request isolation', () => {
       controller.toggle('folder', selection !== 'all-except');
       if (selection === 'excluded-child') controller.toggle('folder-file', false, 'folder');
       await controller.refresh();
-      expect(controller.current().selectionRevision).toBe(2);
-      expect(controller.current().selectionCounts?.publicFileCount)
-        .toBe(selection === 'all-except' ? 5 : selection === 'excluded-child' ? 10 : 11);
-      expect(requests.filter(request => Number(request.revision) === 2)).toHaveLength(1);
+      expect(controller.current().selectionRevision).toBe(1);
+      expect(controller.current().selectionCounts?.publicFileCount).toBe(selection === 'all-except' ? 5 : 1);
+      expect(requests.filter(request => Number(request.revision) === 2)).toHaveLength(0);
     } finally { controller.stop(); }
   });
 
@@ -1707,9 +1801,9 @@ describe('Search View request isolation', () => {
       await controller.resolveSelectionSettings();
       expect(resolved).toEqual([1]);
       await controller.commit();
-      expect(committed[0]?.[1]).toBe(1);
-      expect(committed[0]?.[3]).toEqual(['child-b']);
-      expect(counted).toEqual([1, 2]);
+      expect(committed[0]?.[1].revision).toBe(1);
+      expect(committed[0]?.[1].selection.refs).toEqual(['child-b']);
+      expect(counted).toEqual([1]);
       controller.selectAll(false);
       controller.toggle('parent-a', true);
       expect(controller.current().selectionRevision).toBe(2);
@@ -1766,7 +1860,7 @@ describe('Search View request isolation', () => {
       expect(controller.selectedCount()).toBe(1);
       await controller.commit();
       await controller.commit();
-      expect(requests[0]?.[6]).toEqual(['file']);
+      expect(requests[0]?.[1].excludedFileRefs).toEqual(['file']);
       expect(requests[1]).toEqual(requests[0]);
       controller.toggle('file', true, 'directory');
       expect(controller.current().excludedFiles.size).toBe(0);
@@ -1958,12 +2052,14 @@ describe('Search View request isolation', () => {
     await controller.commit();
     expect(requests).toHaveLength(2);
     expect(requests[1]).toEqual(requests[0]);
-    expect(requests[1]?.[1]).toBe(1);
+    expect(requests[1]?.[1].revision).toBe(1);
+    controller.selectAll(false);
+    controller.toggle('file-one', true);
     controller.toggle('file-two', true);
     await controller.commit();
-    expect(requests[2]?.[1]).toBe(2);
-    expect(requests[2]?.[3]).toEqual(['file-one', 'file-two']);
-    expect(requests[2]?.[4]).not.toBe(requests[0]?.[4]);
+    expect(requests[2]?.[1].revision).toBe(2);
+    expect(requests[2]?.[1].selection.refs).toEqual(['file-one', 'file-two']);
+    expect(requests[2]?.[1].idempotencyKey).not.toBe(requests[0]?.[1].idempotencyKey);
     controller.stop();
   });
 

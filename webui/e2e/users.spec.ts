@@ -199,9 +199,9 @@ test('filters Unicode share names without changing the selected download identit
   const transfers = (await response.json() as Schema<'TransferTimelinePageDto'>).items;
   expect(transfers).toHaveLength(1);
   expect(transfers[0]).toMatchObject({
-    username: 'unicode-peer', remotePath: 'Library\\Აbc.txt', terminalOutcome: 'Succeeded',
+    identity: { username: 'unicode-peer', remotePath: 'Library\\Აbc.txt' }, status: { terminalOutcome: 'Succeeded' },
   });
-  expect((await stat(transfers[0]!.localPath!)).size).toBe(128);
+  expect((await stat(transfers[0]!.status.localPath!)).size).toBe(128);
 });
 
 test('keeps whole-folder selection exact across paged shares and filtering', async ({ page }) => {

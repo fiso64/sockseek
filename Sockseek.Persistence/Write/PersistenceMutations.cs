@@ -54,7 +54,7 @@ public sealed record JobPersistenceMutation(
     int PayloadSchemaVersion,
     Lazy<string?>? PayloadJson,
     Guid? SubmissionId = null,
-    string SemanticRole = "Legacy",
+    string SemanticRole = "UserRoot",
     DateTimeOffset? RegisteredAtUtc = null,
     string? SubmissionSpecificationJson = null,
     Guid? RerunOfSubmissionId = null,

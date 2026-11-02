@@ -12,15 +12,25 @@ public sealed class ServerEventHub(
     IOperatorMutationAuthorizer operatorAuthorizer,
     EngineStateStore stateStore,
     Planning.SearchViewCoordinator searchViews,
-    Persistence.HistoricalQueryFacade queries,
+    Persistence.JobReadService jobs,
+    Persistence.TransferReadService transfers,
     ServerEventBroadcaster events) : Hub
 {
+    public async IAsyncEnumerable<JobListUpdateDto> ObserveJobList(
+        JobListScopeDto scope,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await RequireOperatorAsync();
+        await foreach (var update in jobs.ObserveJobListAsync(scope, events, cancellationToken))
+            yield return update;
+    }
+
     public async IAsyncEnumerable<JobObservationUpdateDto> ObserveJobs(
         Guid jobId, IReadOnlyList<Guid> jobIds,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await RequireOperatorAsync();
-        await foreach (var update in queries.ObserveJobsAsync(jobId, jobIds, events, cancellationToken))
+        await foreach (var update in jobs.ObserveJobsAsync(jobId, jobIds, events, cancellationToken))
             yield return update;
     }
 
@@ -29,7 +39,7 @@ public sealed class ServerEventHub(
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await RequireOperatorAsync();
-        await foreach (var update in queries.ObserveTransferTimelineAsync(scope, events, cancellationToken))
+        await foreach (var update in transfers.ObserveTransferTimelineAsync(scope, events, cancellationToken))
             yield return update;
     }
 

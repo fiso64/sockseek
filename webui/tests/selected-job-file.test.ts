@@ -55,7 +55,7 @@ it('uses live size evidence for an exact remote file without changing its identi
     kind: 'remote-file', target, file, outputPathComponents: [],
   };
   const live: TransferStateDto = {
-    transferId: 'transfer', revision: 1,
+    transferId: 'transfer', revision: 1, createdAtUtc: new Date(0).toISOString(),
     identity: { jobId: 'child', workflowId: null, direction: 'Download', source: 'RemoteFile',
       username: target.username, remotePath: target.filename, candidateKey: null },
     status: { state: 'InProgress', localPath: null, attemptCount: 1, isTerminal: false },
@@ -70,7 +70,7 @@ it('uses live size evidence for an exact remote file without changing its identi
 
 it('uses available live identity and progress while the child payload is not queryable', () => {
   const live: TransferStateDto = {
-    transferId: 'transfer', revision: 1,
+    transferId: 'transfer', revision: 1, createdAtUtc: new Date(0).toISOString(),
     identity: { jobId: 'child', workflowId: null, direction: 'Download', source: 'RemoteFile',
       username: 'Exact Peer', remotePath: 'Other\\Mix CASE.jpg', candidateKey: null },
     status: { state: 'InProgress', localPath: '/downloads/cover.jpg', attemptCount: 1, isTerminal: false },

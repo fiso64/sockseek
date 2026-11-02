@@ -406,7 +406,7 @@ internal sealed class LocalCliBackend
             retrieveJob.Directory.FolderPath,
             retrieveJob.Directory.Username,
             retrieveJob.NewFilesFoundCount,
-            EngineStateStore.ToServerFolderRetrievalOutcome(retrieveJob.RetrievalOutcome),
+            ServerSnapshotMapper.ToServerFolderRetrievalOutcome(retrieveJob.RetrievalOutcome),
             retrieveJob.RetrievalCancelled);
     }
 

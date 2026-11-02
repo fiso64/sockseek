@@ -2988,30 +2988,129 @@
         }
       }
     },
-    "/api/workflows/{workflowId}/snapshot": {
-      "get": {
+    "/api/persistence/integrity": {
+      "post": {
         "tags": [
-          "Live State"
+          "Persistence"
         ],
-        "summary": "Gets one complete workflow replication snapshot and its workflow-local stream position.",
-        "parameters": [
-          {
-            "name": "workflowId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
+        "summary": "Runs SQLite integrity_check against the live database.",
         "responses": {
           "200": {
             "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StateSnapshotDto"
+                  "$ref": "#/components/schemas/PersistenceIntegrityResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/persistence/backup": {
+      "post": {
+        "tags": [
+          "Persistence"
+        ],
+        "summary": "Creates and independently verifies a WAL-safe online backup.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersistenceBackupRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersistenceBackupResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/persistence/checkpoint": {
+      "post": {
+        "tags": [
+          "Persistence"
+        ],
+        "summary": "Requests a bounded passive WAL checkpoint.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersistenceCheckpointResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/persistence/retention": {
+      "post": {
+        "tags": [
+          "Persistence"
+        ],
+        "summary": "Runs one bounded retention batch.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersistenceRetentionResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
                 }
               }
             }
@@ -3190,136 +3289,6 @@
           },
           "503": {
             "description": "Service Unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/persistence/integrity": {
-      "post": {
-        "tags": [
-          "Persistence"
-        ],
-        "summary": "Runs SQLite integrity_check against the live database.",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PersistenceIntegrityResultDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/persistence/backup": {
-      "post": {
-        "tags": [
-          "Persistence"
-        ],
-        "summary": "Creates and independently verifies a WAL-safe online backup.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PersistenceBackupRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PersistenceBackupResultDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/persistence/checkpoint": {
-      "post": {
-        "tags": [
-          "Persistence"
-        ],
-        "summary": "Requests a bounded passive WAL checkpoint.",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PersistenceCheckpointResultDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/persistence/retention": {
-      "post": {
-        "tags": [
-          "Persistence"
-        ],
-        "summary": "Runs one bounded retention batch.",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PersistenceRetentionResultDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
             "content": {
               "application/json": {
                 "schema": {
@@ -5785,6 +5754,37 @@
         }
       }
     },
+    "/api/workflows/{workflowId}/snapshot": {
+      "get": {
+        "tags": [
+          "Live State"
+        ],
+        "summary": "Gets one complete workflow replication snapshot and its workflow-local stream position.",
+        "parameters": [
+          {
+            "name": "workflowId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StateSnapshotDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/profiles": {
       "get": {
         "tags": [
@@ -6108,7 +6108,6 @@
             "in": "query",
             "schema": {
               "enum": [
-                "legacy",
                 "user-root",
                 "semantic-result",
                 "orchestration",
@@ -6190,6 +6189,36 @@
                   "items": {
                     "$ref": "#/components/schemas/JobSummaryDto"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs/snapshot": {
+      "post": {
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Gets the same displayed job-list snapshot used by live observations.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobListScopeDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobListUpdateDto"
                 }
               }
             }
@@ -6455,850 +6484,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "/api/transfers": {
-      "get": {
-        "tags": [
-          "Transfers"
-        ],
-        "summary": "Pages the combined newest-first live and retained transfer timeline.",
-        "description": "The cursor is a moving keyset over stable creation time and transfer ID. New transfers may appear above an existing traversal; status changes do not reorder rows.",
-        "parameters": [
-          {
-            "name": "jobId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "workflowId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "direction",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "source",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "state",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "terminalOutcome",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "username",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "groupRef",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "fromUtc",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            }
-          },
-          {
-            "name": "toUtc",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            }
-          },
-          {
-            "name": "archived",
-            "in": "query",
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "pattern": "^-?(?:0|[1-9]\\d*)$",
-              "type": [
-                "integer",
-                "string"
-              ],
-              "format": "int32"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TransferTimelinePageDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/dashboard/analytics": {
-      "get": {
-        "tags": [
-          "Dashboard"
-        ],
-        "summary": "Gets bounded transfer analytics for a dashboard range.",
-        "description": "Ranges are 24h, 7d, 30d, 90d, 1y, or all. Coverage explicitly reports retention and persistence degradation; byte activity is cumulative-attempt accounting, not transfer creation size.",
-        "parameters": [
-          {
-            "name": "range",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DashboardAnalyticsDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/sharing": {
-      "get": {
-        "tags": [
-          "Sharing"
-        ],
-        "summary": "Gets bounded sharing and catalog status.",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SharingStateDto"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service Unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/sharing/scans": {
-      "post": {
-        "tags": [
-          "Sharing"
-        ],
-        "summary": "Starts a share scan or returns the currently active scan.",
-        "responses": {
-          "202": {
-            "description": "Accepted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StartShareScanResponseDto"
-                }
-              }
-            }
-          },
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StartShareScanResponseDto"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service Unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/sharing/scans/{scanId}": {
-      "get": {
-        "tags": [
-          "Sharing"
-        ],
-        "summary": "Gets an active or recently completed share scan.",
-        "parameters": [
-          {
-            "name": "scanId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShareScanStateDto"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/sharing/scans/{scanId}/cancel": {
-      "post": {
-        "tags": [
-          "Sharing"
-        ],
-        "summary": "Cancels an active share scan.",
-        "parameters": [
-          {
-            "name": "scanId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShareScanStateDto"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service Unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/transfers/live": {
-      "get": {
-        "tags": [
-          "Transfers"
-        ],
-        "summary": "Pages the bounded live transfer queue.",
-        "parameters": [
-          {
-            "name": "direction",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "state",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "username",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "pattern": "^-?(?:0|[1-9]\\d*)$",
-              "type": [
-                "integer",
-                "string"
-              ],
-              "format": "int32"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LiveTransferPageDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service Unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/transfers/lookup": {
-      "post": {
-        "tags": [
-          "Transfers"
-        ],
-        "summary": "Looks up current unarchived transfer timeline rows by ID.",
-        "description": "Uses the same live, queued and retained projection as the timeline. Returns all found IDs in newest-first order without a continuation. Missing IDs are omitted; retained availability is explicit.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TransferLookupRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TransferTimelinePageDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/transfers/timeline": {
-      "post": {
-        "tags": [
-          "Transfers"
-        ],
-        "summary": "Snapshots a timeline extent, expanded files and requested folder totals.",
-        "description": "Uses the same scoped read as ObserveTransferTimeline. Window membership and boundary describe the moving prefix independently of explicitly requested additional files.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TransferTimelineScopeDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TransferTimelineUpdateDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/transfers/group-summaries": {
-      "post": {
-        "tags": [
-          "Transfers"
-        ],
-        "summary": "Gets moving whole-group totals for the requested transfer groups.",
-        "description": "Uses the retained transfer ledger with a live overlay; group refs are opaque, and an unavailable retained resource does not yield authoritative totals.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TransferGroupSummariesRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TransferGroupSummariesResponseDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/transfers/{transferId}": {
-      "get": {
-        "tags": [
-          "Transfers"
-        ],
-        "summary": "Gets one transfer using a live-first overlay and retained history fallback.",
-        "parameters": [
-          {
-            "name": "transferId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TransferDetailDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/transfers/{transferId}/cancel": {
-      "post": {
-        "tags": [
-          "Transfers"
-        ],
-        "summary": "Cancels a queued or active download or upload transfer.",
-        "parameters": [
-          {
-            "name": "transferId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TransferStateDto"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service Unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/transfers/cancel": {
-      "post": {
-        "tags": [
-          "Transfers"
-        ],
-        "summary": "Cancels a snapshot of transfers by direction, queue state, and optional exact peer/group.",
-        "description": "Targets are resolved once, then cancelled independently. Races and per-transfer failures are reported in a fixed-size receipt.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BulkCancelTransfersRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TransferCommandReceiptDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/transfers/{transferId}/archive": {
-      "post": {
-        "tags": [
-          "Transfers"
-        ],
-        "summary": "Archives or restores one terminal retained transfer.",
-        "description": "Archive is reversible and separate from cancellation; a nonterminal transfer is rejected.",
-        "parameters": [
-          {
-            "name": "transferId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetTransferArchivedRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TransferCommandReceiptDto"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service Unavailable"
-          }
-        }
-      }
-    },
-    "/api/transfers/archive": {
-      "post": {
-        "tags": [
-          "Transfers"
-        ],
-        "summary": "Archives or restores terminal transfer history, optionally scoped to an exact peer/group.",
-        "description": "The command is reversible, excludes active transfers, and returns bounded outcome counts.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ArchiveTransfersRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TransferCommandReceiptDto"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service Unavailable"
-          }
-        }
-      }
-    },
-    "/api/transfers/{transferId}/attempts": {
-      "get": {
-        "tags": [
-          "Transfers"
-        ],
-        "summary": "Lists current and retained attempts for one transfer.",
-        "parameters": [
-          {
-            "name": "transferId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "afterAttemptNumber",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "pattern": "^-?(?:0|[1-9]\\d*)$",
-              "type": [
-                "integer",
-                "string"
-              ],
-              "format": "int32"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "pattern": "^-?(?:0|[1-9]\\d*)$",
-              "type": [
-                "integer",
-                "string"
-              ],
-              "format": "int32"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TransferAttemptHistoryDto"
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found"
           }
         }
       }
@@ -8205,6 +7390,850 @@
           },
           "404": {
             "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/transfers": {
+      "get": {
+        "tags": [
+          "Transfers"
+        ],
+        "summary": "Pages the combined newest-first live and retained transfer timeline.",
+        "description": "The cursor is a moving keyset over stable creation time and transfer ID. New transfers may appear above an existing traversal; status changes do not reorder rows.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "workflowId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "terminalOutcome",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "groupRef",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fromUtc",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "toUtc",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferTimelinePageDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dashboard/analytics": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Gets bounded transfer analytics for a dashboard range.",
+        "description": "Ranges are 24h, 7d, 30d, 90d, 1y, or all. Coverage explicitly reports retention and persistence degradation; byte activity is cumulative-attempt accounting, not transfer creation size.",
+        "parameters": [
+          {
+            "name": "range",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardAnalyticsDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transfers/live": {
+      "get": {
+        "tags": [
+          "Transfers"
+        ],
+        "summary": "Pages the bounded live transfer queue.",
+        "parameters": [
+          {
+            "name": "direction",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveTransferPageDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transfers/lookup": {
+      "post": {
+        "tags": [
+          "Transfers"
+        ],
+        "summary": "Looks up current unarchived transfer timeline rows by ID.",
+        "description": "Uses the same live, queued and retained projection as the timeline. Returns all found IDs in newest-first order without a continuation. Missing IDs are omitted; retained availability is explicit.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferLookupRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferTimelinePageDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transfers/timeline": {
+      "post": {
+        "tags": [
+          "Transfers"
+        ],
+        "summary": "Snapshots a timeline extent, expanded files and requested folder totals.",
+        "description": "Uses the same scoped read as ObserveTransferTimeline. Window membership and boundary describe the moving prefix independently of explicitly requested additional files.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferTimelineScopeDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferTimelineUpdateDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transfers/group-summaries": {
+      "post": {
+        "tags": [
+          "Transfers"
+        ],
+        "summary": "Gets moving whole-group totals for the requested transfer groups.",
+        "description": "Uses the retained transfer ledger with a live overlay; group refs are opaque, and an unavailable retained resource does not yield authoritative totals.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferGroupSummariesRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferGroupSummariesResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transfers/{transferId}": {
+      "get": {
+        "tags": [
+          "Transfers"
+        ],
+        "summary": "Gets one transfer with its latest attempt and optional queue estimate.",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferDetailDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transfers/{transferId}/cancel": {
+      "post": {
+        "tags": [
+          "Transfers"
+        ],
+        "summary": "Cancels a queued or active download or upload transfer.",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferStateDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transfers/cancel": {
+      "post": {
+        "tags": [
+          "Transfers"
+        ],
+        "summary": "Cancels a snapshot of transfers by direction, queue state, and optional exact peer/group.",
+        "description": "Targets are resolved once, then cancelled independently. Races and per-transfer failures are reported in a fixed-size receipt.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkCancelTransfersRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferCommandReceiptDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/transfers/{transferId}/archive": {
+      "post": {
+        "tags": [
+          "Transfers"
+        ],
+        "summary": "Archives or restores one terminal retained transfer.",
+        "description": "Archive is reversible and separate from cancellation; a nonterminal transfer is rejected.",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetTransferArchivedRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferCommandReceiptDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/api/transfers/archive": {
+      "post": {
+        "tags": [
+          "Transfers"
+        ],
+        "summary": "Archives or restores terminal transfer history, optionally scoped to an exact peer/group.",
+        "description": "The command is reversible, excludes active transfers, and returns bounded outcome counts.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveTransfersRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferCommandReceiptDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/api/transfers/{transferId}/attempts": {
+      "get": {
+        "tags": [
+          "Transfers"
+        ],
+        "summary": "Lists current and retained attempts for one transfer.",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "afterAttemptNumber",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TransferAttemptHistoryDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/sharing": {
+      "get": {
+        "tags": [
+          "Sharing"
+        ],
+        "summary": "Gets bounded sharing and catalog status.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharingStateDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sharing/scans": {
+      "post": {
+        "tags": [
+          "Sharing"
+        ],
+        "summary": "Starts a share scan or returns the currently active scan.",
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartShareScanResponseDto"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartShareScanResponseDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sharing/scans/{scanId}": {
+      "get": {
+        "tags": [
+          "Sharing"
+        ],
+        "summary": "Gets an active or recently completed share scan.",
+        "parameters": [
+          {
+            "name": "scanId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareScanStateDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sharing/scans/{scanId}/cancel": {
+      "post": {
+        "tags": [
+          "Sharing"
+        ],
+        "summary": "Cancels an active share scan.",
+        "parameters": [
+          {
+            "name": "scanId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareScanStateDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
           }
         }
       }
@@ -11845,7 +11874,8 @@
           "successfulFileCount",
           "failedFileCount",
           "bytesTransferred",
-          "totalKnownBytes"
+          "totalKnownBytes",
+          "unknownFileSizeCount"
         ],
         "type": "object",
         "properties": {
@@ -11927,7 +11957,6 @@
           "unknownFileSizeCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
-              "null",
               "integer",
               "string"
             ],
@@ -13155,791 +13184,64 @@
             "format": "int64"
           },
           "added": {
-            "required": [
-              "jobId",
-              "revision",
-              "display",
-              "lifecycle",
-              "discovery",
-              "relationships"
-            ],
-            "type": "object",
-            "properties": {
-              "jobId": {
-                "type": "string",
-                "format": "uuid"
+            "oneOf": [
+              {
+                "type": "null"
               },
-              "revision": {
-                "pattern": "^-?(?:0|[1-9]\\d*)$",
-                "type": [
-                  "integer",
-                  "string"
-                ],
-                "format": "int64"
-              },
-              "display": {
-                "required": [
-                  "displayId",
-                  "workflowId",
-                  "kind",
-                  "appliedAutoProfiles",
-                  "printOption",
-                  "role"
-                ],
-                "type": "object",
-                "properties": {
-                  "displayId": {
-                    "pattern": "^-?(?:0|[1-9]\\d*)$",
-                    "type": [
-                      "integer",
-                      "string"
-                    ],
-                    "format": "int32"
-                  },
-                  "workflowId": {
-                    "type": "string",
-                    "format": "uuid"
-                  },
-                  "kind": {
-                    "enum": [
-                      "extract",
-                      "search",
-                      "song",
-                      "album",
-                      "aggregate",
-                      "album-aggregate",
-                      "job-list",
-                      "retrieve-folder",
-                      "remote-file",
-                      "remote-directory",
-                      "generic"
-                    ]
-                  },
-                  "itemName": {
-                    "type": [
-                      "null",
-                      "string"
-                    ]
-                  },
-                  "queryText": {
-                    "type": [
-                      "null",
-                      "string"
-                    ]
-                  },
-                  "appliedAutoProfiles": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "printOption": {
-                    "type": "integer"
-                  },
-                  "submissionId": {
-                    "type": [
-                      "null",
-                      "string"
-                    ],
-                    "format": "uuid"
-                  },
-                  "role": {
-                    "enum": [
-                      "legacy",
-                      "user-root",
-                      "semantic-result",
-                      "orchestration",
-                      "execution-child"
-                    ]
-                  },
-                  "createdAtUtc": {
-                    "type": [
-                      "null",
-                      "string"
-                    ],
-                    "format": "date-time"
-                  },
-                  "searchDefaultProjection": {
-                    "enum": [
-                      "GenericFile",
-                      "Track",
-                      "Album",
-                      null
-                    ]
-                  },
-                  "searchAggregatePresentation": {
-                    "type": [
-                      "null",
-                      "boolean"
-                    ]
-                  },
-                  "sourceDetail": {
-                    "type": [
-                      "null",
-                      "string"
-                    ]
-                  }
-                }
-              },
-              "lifecycle": {
-                "required": [
-                  "lifecycleState",
-                  "activityPhase",
-                  "terminalOutcome",
-                  "skipReason",
-                  "cancellationSource",
-                  "availableActions"
-                ],
-                "type": "object",
-                "properties": {
-                  "lifecycleState": {
-                    "enum": [
-                      "Pending",
-                      "Running",
-                      "AwaitingSelection",
-                      "Terminal"
-                    ]
-                  },
-                  "activityPhase": {
-                    "enum": [
-                      "None",
-                      "WaitingForSearchConcurrency",
-                      "SearchRateLimited",
-                      "Searching",
-                      "ProcessingSearchResults",
-                      "Extracting",
-                      "Downloading",
-                      "RetrievingFolder",
-                      "RunningChildren",
-                      "Organizing",
-                      "RunningOnComplete",
-                      "RunningFallback"
-                    ]
-                  },
-                  "activityUntilUtc": {
-                    "type": [
-                      "null",
-                      "string"
-                    ],
-                    "format": "date-time"
-                  },
-                  "terminalOutcome": {
-                    "enum": [
-                      "None",
-                      "Succeeded",
-                      "Failed",
-                      "Skipped",
-                      "Cancelled",
-                      "PartialSuccess"
-                    ]
-                  },
-                  "skipReason": {
-                    "enum": [
-                      "None",
-                      "AlreadyExists",
-                      "NotFoundLastTime",
-                      "Manual",
-                      "Filtered"
-                    ]
-                  },
-                  "failureReason": {
-                    "enum": [
-                      "None",
-                      "InvalidSearchString",
-                      "OutOfDownloadRetries",
-                      "AllDownloadsFailed",
-                      "Other",
-                      "ExtractionFailed",
-                      "Cancelled",
-                      "ChildJobsFailed",
-                      "NoSearchResults",
-                      "NoMatchingResults",
-                      null
-                    ]
-                  },
-                  "failureMessage": {
-                    "type": [
-                      "null",
-                      "string"
-                    ]
-                  },
-                  "failureDetail": {
-                    "type": [
-                      "null",
-                      "string"
-                    ]
-                  },
-                  "cancellationSource": {
-                    "enum": [
-                      "None",
-                      "UserRequestedJob",
-                      "ParentJob",
-                      "UserRequestedWorkflow",
-                      "UserRequestedAllJobs",
-                      "InternalEngine"
-                    ]
-                  },
-                  "availableActions": {
-                    "type": "array",
-                    "items": {
-                      "required": [
-                        "kind",
-                        "method",
-                        "href"
-                      ],
-                      "type": "object",
-                      "properties": {
-                        "kind": {
-                          "enum": [
-                            "cancel"
-                          ]
-                        },
-                        "method": {
-                          "type": "string"
-                        },
-                        "href": {
-                          "type": "string"
-                        }
-                      }
-                    }
-                  }
-                }
-              },
-              "discovery": {
-                "type": "object",
-                "properties": {
-                  "rawResultCount": {
-                    "pattern": "^-?(?:0|[1-9]\\d*)$",
-                    "type": [
-                      "null",
-                      "integer",
-                      "string"
-                    ],
-                    "format": "int32"
-                  },
-                  "lockedFileCount": {
-                    "pattern": "^-?(?:0|[1-9]\\d*)$",
-                    "type": [
-                      "null",
-                      "integer",
-                      "string"
-                    ],
-                    "format": "int32"
-                  },
-                  "publicFileCount": {
-                    "pattern": "^-?(?:0|[1-9]\\d*)$",
-                    "type": [
-                      "null",
-                      "integer",
-                      "string"
-                    ],
-                    "format": "int32"
-                  },
-                  "observedPeerCount": {
-                    "pattern": "^-?(?:0|[1-9]\\d*)$",
-                    "type": [
-                      "null",
-                      "integer",
-                      "string"
-                    ],
-                    "format": "int32"
-                  }
-                }
-              },
-              "relationships": {
-                "type": "object",
-                "properties": {
-                  "parentJobId": {
-                    "type": [
-                      "null",
-                      "string"
-                    ],
-                    "format": "uuid"
-                  },
-                  "resultJobId": {
-                    "type": [
-                      "null",
-                      "string"
-                    ],
-                    "format": "uuid"
-                  },
-                  "sourceJobId": {
-                    "type": [
-                      "null",
-                      "string"
-                    ],
-                    "format": "uuid"
-                  }
-                }
-              },
-              "stats": {
-                "type": "object",
-                "properties": {
-                  "memberCount": {
-                    "pattern": "^-?(?:0|[1-9]\\d*)$",
-                    "type": [
-                      "null",
-                      "integer",
-                      "string"
-                    ],
-                    "format": "int32"
-                  },
-                  "completedMemberCount": {
-                    "pattern": "^-?(?:0|[1-9]\\d*)$",
-                    "type": [
-                      "null",
-                      "integer",
-                      "string"
-                    ],
-                    "format": "int32"
-                  },
-                  "failedMemberCount": {
-                    "pattern": "^-?(?:0|[1-9]\\d*)$",
-                    "type": [
-                      "null",
-                      "integer",
-                      "string"
-                    ],
-                    "format": "int32"
-                  },
-                  "candidateCount": {
-                    "pattern": "^-?(?:0|[1-9]\\d*)$",
-                    "type": [
-                      "null",
-                      "integer",
-                      "string"
-                    ],
-                    "format": "int32"
-                  },
-                  "folderCount": {
-                    "pattern": "^-?(?:0|[1-9]\\d*)$",
-                    "type": [
-                      "null",
-                      "integer",
-                      "string"
-                    ],
-                    "format": "int32"
-                  },
-                  "fileCount": {
-                    "pattern": "^-?(?:0|[1-9]\\d*)$",
-                    "type": [
-                      "null",
-                      "integer",
-                      "string"
-                    ],
-                    "format": "int32"
-                  },
-                  "knownBytes": {
-                    "pattern": "^-?(?:0|[1-9]\\d*)$",
-                    "type": [
-                      "null",
-                      "integer",
-                      "string"
-                    ],
-                    "format": "int64"
-                  },
-                  "newFilesFoundCount": {
-                    "pattern": "^-?(?:0|[1-9]\\d*)$",
-                    "type": [
-                      "null",
-                      "integer",
-                      "string"
-                    ],
-                    "format": "int32"
-                  },
-                  "progressPercent": {
-                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
-                    "type": [
-                      "null",
-                      "number",
-                      "string"
-                    ],
-                    "format": "double"
-                  }
-                }
+              {
+                "$ref": "#/components/schemas/JobStateDto"
               }
-            }
+            ]
           },
           "display": {
-            "required": [
-              "displayId",
-              "workflowId",
-              "kind",
-              "appliedAutoProfiles",
-              "printOption",
-              "role"
-            ],
-            "type": "object",
-            "properties": {
-              "displayId": {
-                "pattern": "^-?(?:0|[1-9]\\d*)$",
-                "type": [
-                  "integer",
-                  "string"
-                ],
-                "format": "int32"
+            "oneOf": [
+              {
+                "type": "null"
               },
-              "workflowId": {
-                "type": "string",
-                "format": "uuid"
-              },
-              "kind": {
-                "enum": [
-                  "extract",
-                  "search",
-                  "song",
-                  "album",
-                  "aggregate",
-                  "album-aggregate",
-                  "job-list",
-                  "retrieve-folder",
-                  "remote-file",
-                  "remote-directory",
-                  "generic"
-                ]
-              },
-              "itemName": {
-                "type": [
-                  "null",
-                  "string"
-                ]
-              },
-              "queryText": {
-                "type": [
-                  "null",
-                  "string"
-                ]
-              },
-              "appliedAutoProfiles": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "printOption": {
-                "type": "integer"
-              },
-              "submissionId": {
-                "type": [
-                  "null",
-                  "string"
-                ],
-                "format": "uuid"
-              },
-              "role": {
-                "enum": [
-                  "legacy",
-                  "user-root",
-                  "semantic-result",
-                  "orchestration",
-                  "execution-child"
-                ]
-              },
-              "createdAtUtc": {
-                "type": [
-                  "null",
-                  "string"
-                ],
-                "format": "date-time"
-              },
-              "searchDefaultProjection": {
-                "enum": [
-                  "GenericFile",
-                  "Track",
-                  "Album",
-                  null
-                ]
-              },
-              "searchAggregatePresentation": {
-                "type": [
-                  "null",
-                  "boolean"
-                ]
-              },
-              "sourceDetail": {
-                "type": [
-                  "null",
-                  "string"
-                ]
+              {
+                "$ref": "#/components/schemas/JobDisplayFieldsDto"
               }
-            }
+            ]
           },
           "lifecycle": {
-            "required": [
-              "lifecycleState",
-              "activityPhase",
-              "terminalOutcome",
-              "skipReason",
-              "cancellationSource",
-              "availableActions"
-            ],
-            "type": "object",
-            "properties": {
-              "lifecycleState": {
-                "enum": [
-                  "Pending",
-                  "Running",
-                  "AwaitingSelection",
-                  "Terminal"
-                ]
+            "oneOf": [
+              {
+                "type": "null"
               },
-              "activityPhase": {
-                "enum": [
-                  "None",
-                  "WaitingForSearchConcurrency",
-                  "SearchRateLimited",
-                  "Searching",
-                  "ProcessingSearchResults",
-                  "Extracting",
-                  "Downloading",
-                  "RetrievingFolder",
-                  "RunningChildren",
-                  "Organizing",
-                  "RunningOnComplete",
-                  "RunningFallback"
-                ]
-              },
-              "activityUntilUtc": {
-                "type": [
-                  "null",
-                  "string"
-                ],
-                "format": "date-time"
-              },
-              "terminalOutcome": {
-                "enum": [
-                  "None",
-                  "Succeeded",
-                  "Failed",
-                  "Skipped",
-                  "Cancelled",
-                  "PartialSuccess"
-                ]
-              },
-              "skipReason": {
-                "enum": [
-                  "None",
-                  "AlreadyExists",
-                  "NotFoundLastTime",
-                  "Manual",
-                  "Filtered"
-                ]
-              },
-              "failureReason": {
-                "enum": [
-                  "None",
-                  "InvalidSearchString",
-                  "OutOfDownloadRetries",
-                  "AllDownloadsFailed",
-                  "Other",
-                  "ExtractionFailed",
-                  "Cancelled",
-                  "ChildJobsFailed",
-                  "NoSearchResults",
-                  "NoMatchingResults",
-                  null
-                ]
-              },
-              "failureMessage": {
-                "type": [
-                  "null",
-                  "string"
-                ]
-              },
-              "failureDetail": {
-                "type": [
-                  "null",
-                  "string"
-                ]
-              },
-              "cancellationSource": {
-                "enum": [
-                  "None",
-                  "UserRequestedJob",
-                  "ParentJob",
-                  "UserRequestedWorkflow",
-                  "UserRequestedAllJobs",
-                  "InternalEngine"
-                ]
-              },
-              "availableActions": {
-                "type": "array",
-                "items": {
-                  "required": [
-                    "kind",
-                    "method",
-                    "href"
-                  ],
-                  "type": "object",
-                  "properties": {
-                    "kind": {
-                      "enum": [
-                        "cancel"
-                      ]
-                    },
-                    "method": {
-                      "type": "string"
-                    },
-                    "href": {
-                      "type": "string"
-                    }
-                  }
-                }
+              {
+                "$ref": "#/components/schemas/JobLifecycleFieldsDto"
               }
-            }
+            ]
           },
           "discovery": {
-            "type": "object",
-            "properties": {
-              "rawResultCount": {
-                "pattern": "^-?(?:0|[1-9]\\d*)$",
-                "type": [
-                  "null",
-                  "integer",
-                  "string"
-                ],
-                "format": "int32"
+            "oneOf": [
+              {
+                "type": "null"
               },
-              "lockedFileCount": {
-                "pattern": "^-?(?:0|[1-9]\\d*)$",
-                "type": [
-                  "null",
-                  "integer",
-                  "string"
-                ],
-                "format": "int32"
-              },
-              "publicFileCount": {
-                "pattern": "^-?(?:0|[1-9]\\d*)$",
-                "type": [
-                  "null",
-                  "integer",
-                  "string"
-                ],
-                "format": "int32"
-              },
-              "observedPeerCount": {
-                "pattern": "^-?(?:0|[1-9]\\d*)$",
-                "type": [
-                  "null",
-                  "integer",
-                  "string"
-                ],
-                "format": "int32"
+              {
+                "$ref": "#/components/schemas/JobDiscoveryFieldsDto"
               }
-            }
+            ]
           },
           "relationships": {
-            "type": "object",
-            "properties": {
-              "parentJobId": {
-                "type": [
-                  "null",
-                  "string"
-                ],
-                "format": "uuid"
+            "oneOf": [
+              {
+                "type": "null"
               },
-              "resultJobId": {
-                "type": [
-                  "null",
-                  "string"
-                ],
-                "format": "uuid"
-              },
-              "sourceJobId": {
-                "type": [
-                  "null",
-                  "string"
-                ],
-                "format": "uuid"
+              {
+                "$ref": "#/components/schemas/JobRelationshipFieldsDto"
               }
-            }
+            ]
           },
           "stats": {
-            "type": "object",
-            "properties": {
-              "memberCount": {
-                "pattern": "^-?(?:0|[1-9]\\d*)$",
-                "type": [
-                  "null",
-                  "integer",
-                  "string"
-                ],
-                "format": "int32"
+            "oneOf": [
+              {
+                "type": "null"
               },
-              "completedMemberCount": {
-                "pattern": "^-?(?:0|[1-9]\\d*)$",
-                "type": [
-                  "null",
-                  "integer",
-                  "string"
-                ],
-                "format": "int32"
-              },
-              "failedMemberCount": {
-                "pattern": "^-?(?:0|[1-9]\\d*)$",
-                "type": [
-                  "null",
-                  "integer",
-                  "string"
-                ],
-                "format": "int32"
-              },
-              "candidateCount": {
-                "pattern": "^-?(?:0|[1-9]\\d*)$",
-                "type": [
-                  "null",
-                  "integer",
-                  "string"
-                ],
-                "format": "int32"
-              },
-              "folderCount": {
-                "pattern": "^-?(?:0|[1-9]\\d*)$",
-                "type": [
-                  "null",
-                  "integer",
-                  "string"
-                ],
-                "format": "int32"
-              },
-              "fileCount": {
-                "pattern": "^-?(?:0|[1-9]\\d*)$",
-                "type": [
-                  "null",
-                  "integer",
-                  "string"
-                ],
-                "format": "int32"
-              },
-              "knownBytes": {
-                "pattern": "^-?(?:0|[1-9]\\d*)$",
-                "type": [
-                  "null",
-                  "integer",
-                  "string"
-                ],
-                "format": "int64"
-              },
-              "newFilesFoundCount": {
-                "pattern": "^-?(?:0|[1-9]\\d*)$",
-                "type": [
-                  "null",
-                  "integer",
-                  "string"
-                ],
-                "format": "int32"
-              },
-              "progressPercent": {
-                "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
-                "type": [
-                  "null",
-                  "number",
-                  "string"
-                ],
-                "format": "double"
+              {
+                "$ref": "#/components/schemas/JobSummaryStatsDto"
               }
-            }
+            ]
           }
         }
       },
@@ -14695,6 +13997,64 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ResourceActionDto"
+            }
+          }
+        }
+      },
+      "JobListScopeDto": {
+        "required": [
+          "query"
+        ],
+        "type": "object",
+        "properties": {
+          "query": {
+            "$ref": "#/components/schemas/JobQuery"
+          },
+          "limit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 100
+          }
+        }
+      },
+      "JobListUpdateDto": {
+        "required": [
+          "jobs",
+          "removedJobIds"
+        ],
+        "type": "object",
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobDeltaDto"
+            }
+          },
+          "removedJobIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "windowJobIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
             }
           }
         }
@@ -15573,7 +14933,6 @@
                             },
                             "role": {
                               "enum": [
-                                "legacy",
                                 "user-root",
                                 "semantic-result",
                                 "orchestration",
@@ -15956,7 +15315,6 @@
                         },
                         "role": {
                           "enum": [
-                            "legacy",
                             "user-root",
                             "semantic-result",
                             "orchestration",
@@ -16513,6 +15871,13 @@
                                 "string"
                               ]
                             },
+                            "archivedAtUtc": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
                             "availableActions": {
                               "anyOf": [
                                 {
@@ -16693,6 +16058,11 @@
                               }
                             }
                           }
+                        },
+                        "createdAtUtc": {
+                          "type": "string",
+                          "format": "date-time",
+                          "default": "0001-01-01T00:00:00+00:00"
                         }
                       }
                     },
@@ -16771,6 +16141,13 @@
                             "null",
                             "string"
                           ]
+                        },
+                        "archivedAtUtc": {
+                          "type": [
+                            "null",
+                            "string"
+                          ],
+                          "format": "date-time"
                         },
                         "availableActions": {
                           "anyOf": [
@@ -17560,7 +16937,10 @@
       "JobPayloadDtoAggregateJobPayloadDto": {
         "required": [
           "query",
-          "songCount"
+          "songCount",
+          "completedSongCount",
+          "succeededSongCount",
+          "failedSongCount"
         ],
         "properties": {
           "kind": {
@@ -17583,7 +16963,6 @@
           "completedSongCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
-              "null",
               "integer",
               "string"
             ],
@@ -17592,7 +16971,6 @@
           "succeededSongCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
-              "null",
               "integer",
               "string"
             ],
@@ -17601,7 +16979,6 @@
           "failedSongCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
-              "null",
               "integer",
               "string"
             ],
@@ -17612,7 +16989,10 @@
       "JobPayloadDtoAlbumAggregateJobPayloadDto": {
         "required": [
           "query",
-          "resultCount"
+          "resultCount",
+          "completedAlbumCount",
+          "succeededAlbumCount",
+          "failedAlbumCount"
         ],
         "properties": {
           "kind": {
@@ -17635,7 +17015,6 @@
           "completedAlbumCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
-              "null",
               "integer",
               "string"
             ],
@@ -17644,7 +17023,6 @@
           "succeededAlbumCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
-              "null",
               "integer",
               "string"
             ],
@@ -17653,7 +17031,6 @@
           "failedAlbumCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
-              "null",
               "integer",
               "string"
             ],
@@ -17749,7 +17126,11 @@
       },
       "JobPayloadDtoJobListPayloadDto": {
         "required": [
-          "count"
+          "count",
+          "activeJobCount",
+          "completedJobCount",
+          "succeededJobCount",
+          "failedJobCount"
         ],
         "properties": {
           "kind": {
@@ -17769,7 +17150,6 @@
           "activeJobCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
-              "null",
               "integer",
               "string"
             ],
@@ -17778,7 +17158,6 @@
           "completedJobCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
-              "null",
               "integer",
               "string"
             ],
@@ -17787,7 +17166,6 @@
           "succeededJobCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
-              "null",
               "integer",
               "string"
             ],
@@ -17796,7 +17174,6 @@
           "failedJobCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
-              "null",
               "integer",
               "string"
             ],
@@ -18590,6 +17967,100 @@
           }
         }
       },
+      "JobQuery": {
+        "required": [
+          "includeAll"
+        ],
+        "type": "object",
+        "properties": {
+          "lifecycleState": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerJobLifecycleState"
+              }
+            ]
+          },
+          "terminalOutcome": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerJobTerminalOutcome"
+              }
+            ]
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerJobKind"
+              }
+            ]
+          },
+          "workflowId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "includeAll": {
+            "type": "boolean"
+          },
+          "skipReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerJobSkipReason"
+              }
+            ]
+          },
+          "parentJobId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "submissionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "role": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerJobRole"
+              }
+            ]
+          },
+          "archived": {
+            "type": "boolean",
+            "default": false
+          },
+          "newestFirst": {
+            "type": "boolean",
+            "default": false
+          },
+          "excludeExtractResults": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
       "JobRelationshipFieldsDto": {
         "type": "object",
         "properties": {
@@ -18997,12 +18468,13 @@
           "UnsubscribeUserBrowse",
           "ObserveSearchView",
           "ObserveTransferTimeline",
-          "ObserveJobs"
+          "ObserveJobs",
+          "ObserveJobList"
         ]
       },
       "LiveProtocolContractVersion": {
         "enum": [
-          16
+          17
         ],
         "type": "integer"
       },
@@ -19669,13 +19141,9 @@
           "progressEntityCount",
           "progressEntityCapacity",
           "bufferedSearchResultCount",
-          "bufferedSearchResultCapacity",
           "retryMutationCount",
           "busyRetryCount",
-          "droppedOrdinaryCount",
           "droppedProgressCount",
-          "droppedSearchResultCount",
-          "incompleteSearchCount",
           "successfulCommitCount",
           "rowsWritten"
         ],
@@ -19770,14 +19238,6 @@
             ],
             "format": "int32"
           },
-          "bufferedSearchResultCapacity": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
           "retryMutationCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
@@ -19794,31 +19254,7 @@
             ],
             "format": "int64"
           },
-          "droppedOrdinaryCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
           "droppedProgressCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "droppedSearchResultCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "incompleteSearchCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",
@@ -19886,28 +19322,6 @@
             ],
             "format": "int64",
             "default": 0
-          },
-          "incompleteSearchTrackingCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32",
-            "default": 0
-          },
-          "incompleteSearchTrackingCapacity": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32",
-            "default": 0
-          },
-          "incompleteSearchTrackingOverflowed": {
-            "type": "boolean",
-            "default": false
           },
           "commitLatencyHistogram": {
             "type": [
@@ -21792,7 +21206,6 @@
       },
       "ServerJobRole": {
         "enum": [
-          "legacy",
           "user-root",
           "semantic-result",
           "orchestration",
@@ -23488,7 +22901,6 @@
                         },
                         "role": {
                           "enum": [
-                            "legacy",
                             "user-root",
                             "semantic-result",
                             "orchestration",
@@ -23871,7 +23283,6 @@
                     },
                     "role": {
                       "enum": [
-                        "legacy",
                         "user-root",
                         "semantic-result",
                         "orchestration",
@@ -24428,6 +23839,13 @@
                             "string"
                           ]
                         },
+                        "archivedAtUtc": {
+                          "type": [
+                            "null",
+                            "string"
+                          ],
+                          "format": "date-time"
+                        },
                         "availableActions": {
                           "anyOf": [
                             {
@@ -24608,6 +24026,11 @@
                           }
                         }
                       }
+                    },
+                    "createdAtUtc": {
+                      "type": "string",
+                      "format": "date-time",
+                      "default": "0001-01-01T00:00:00+00:00"
                     }
                   }
                 },
@@ -24686,6 +24109,13 @@
                         "null",
                         "string"
                       ]
+                    },
+                    "archivedAtUtc": {
+                      "type": [
+                        "null",
+                        "string"
+                      ],
+                      "format": "date-time"
                     },
                     "availableActions": {
                       "anyOf": [
@@ -26452,7 +25882,6 @@
                             },
                             "role": {
                               "enum": [
-                                "legacy",
                                 "user-root",
                                 "semantic-result",
                                 "orchestration",
@@ -26835,7 +26264,6 @@
                         },
                         "role": {
                           "enum": [
-                            "legacy",
                             "user-root",
                             "semantic-result",
                             "orchestration",
@@ -27392,6 +26820,13 @@
                                 "string"
                               ]
                             },
+                            "archivedAtUtc": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "format": "date-time"
+                            },
                             "availableActions": {
                               "anyOf": [
                                 {
@@ -27572,6 +27007,11 @@
                               }
                             }
                           }
+                        },
+                        "createdAtUtc": {
+                          "type": "string",
+                          "format": "date-time",
+                          "default": "0001-01-01T00:00:00+00:00"
                         }
                       }
                     },
@@ -27650,6 +27090,13 @@
                             "null",
                             "string"
                           ]
+                        },
+                        "archivedAtUtc": {
+                          "type": [
+                            "null",
+                            "string"
+                          ],
+                          "format": "date-time"
                         },
                         "availableActions": {
                           "anyOf": [
@@ -29531,23 +28978,12 @@
       },
       "TransferDetailDto": {
         "required": [
-          "source",
-          "attemptCount"
+          "transfer"
         ],
         "type": "object",
         "properties": {
-          "source": {
-            "$ref": "#/components/schemas/TransferDetailSource"
-          },
-          "live": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/TransferStateDto"
-              }
-            ]
+          "transfer": {
+            "$ref": "#/components/schemas/TransferStateDto"
           },
           "queueEstimate": {
             "oneOf": [
@@ -29558,24 +28994,6 @@
                 "$ref": "#/components/schemas/TransferQueueEstimateDto"
               }
             ]
-          },
-          "history": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/TransferHistoryDto"
-              }
-            ]
-          },
-          "attemptCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
           },
           "latestAttempt": {
             "oneOf": [
@@ -29588,13 +29006,6 @@
             ]
           }
         }
-      },
-      "TransferDetailSource": {
-        "enum": [
-          "Live",
-          "Historical",
-          "Merged"
-        ]
       },
       "TransferFailureReason": {
         "enum": [
@@ -29799,202 +29210,6 @@
               "string"
             ],
             "format": "int64"
-          }
-        }
-      },
-      "TransferHistoryDto": {
-        "required": [
-          "transferId",
-          "direction",
-          "source",
-          "state",
-          "terminalOutcome",
-          "transferredBytes",
-          "attemptCount",
-          "createdAtUtc",
-          "failureReason",
-          "cancellationSource",
-          "revision"
-        ],
-        "type": "object",
-        "properties": {
-          "transferId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "jobId": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "uuid"
-          },
-          "workflowId": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "uuid"
-          },
-          "direction": {
-            "type": "string"
-          },
-          "source": {
-            "type": "string"
-          },
-          "username": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "remotePath": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "localPath": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "state": {
-            "type": "string"
-          },
-          "terminalOutcome": {
-            "type": "string"
-          },
-          "totalBytes": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "transferredBytes": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "attemptCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "createdAtUtc": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "completedAtUtc": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "failureReason": {
-            "type": "string"
-          },
-          "failureMessage": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "cancellationSource": {
-            "$ref": "#/components/schemas/TransferCancellationSource"
-          },
-          "revision": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "requestedAtUtc": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "startedAtUtc": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "lastProgressAtUtc": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "bytesPerSecond": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "file": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/FileMetadataDto"
-              }
-            ]
-          },
-          "archivedAtUtc": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "groupRef": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "groupDisplayPath": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "groupRelativePath": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "availableActions": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/ResourceActionDto"
-            }
           }
         }
       },
@@ -30296,6 +29511,11 @@
                 "$ref": "#/components/schemas/FileMetadataDto"
               }
             ]
+          },
+          "createdAtUtc": {
+            "type": "string",
+            "format": "date-time",
+            "default": "0001-01-01T00:00:00+00:00"
           }
         }
       },
@@ -30349,6 +29569,13 @@
               "string"
             ]
           },
+          "archivedAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
           "availableActions": {
             "anyOf": [
               {
@@ -30384,7 +29611,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/TransferHistoryDto"
+              "$ref": "#/components/schemas/TransferStateDto"
             }
           },
           "nextCursor": {
@@ -30479,7 +29706,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/TransferHistoryDto"
+              "$ref": "#/components/schemas/TransferStateDto"
             }
           },
           "removedTransferIds": {
@@ -30525,23 +29752,13 @@
               }
             ]
           },
-          "liveTransfers": {
+          "changes": {
             "type": [
               "null",
               "array"
             ],
             "items": {
               "$ref": "#/components/schemas/TransferDeltaDto"
-            }
-          },
-          "removedLiveTransferIds": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "type": "string",
-              "format": "uuid"
             }
           },
           "groupSummaries": {
@@ -31404,6 +30621,12 @@
       "name": "Search Results"
     },
     {
+      "name": "Follow-up Jobs"
+    },
+    {
+      "name": "Workflows"
+    },
+    {
       "name": "Transfers"
     },
     {
@@ -31411,12 +30634,6 @@
     },
     {
       "name": "Sharing"
-    },
-    {
-      "name": "Follow-up Jobs"
-    },
-    {
-      "name": "Workflows"
     }
   ]
 }

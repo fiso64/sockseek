@@ -2,6 +2,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Persistence.Write;
 using Sockseek.Server.Persistence;
 using Sockseek.Core.Jobs;
+using Sockseek.Core.Transfers.Uploads;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Server.Planning;
@@ -290,7 +291,8 @@ public sealed class PersistenceHandoffTrackerTests
 
         tracker.PermanentlyFailed([mutation], new IOException("disk unavailable"));
         tracker.Committed([JobMutation(otherWorkflowId, otherJobId, revision: 3)]);
-        await Task.WhenAll(retired.Task, otherRetired.Task).WaitAsync(TimeSpan.FromSeconds(5));
+        await otherRetired.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsFalse(retired.Task.IsCompleted, "Failed persistence must retain the current job projection.");
         Assert.ThrowsExactly<PersistenceHandoffException>(() => tracker.EnsureJobProjectionsAvailable(workflowId));
         Assert.ThrowsExactly<PersistenceHandoffException>(() => tracker.EnsureJobProjectionsAvailable());
         tracker.EnsureJobProjectionsAvailable(otherWorkflowId);
@@ -368,7 +370,7 @@ public sealed class PersistenceHandoffTrackerTests
             revision: 3,
             CancellationToken.None);
         var retiredAtNotification = new List<bool>();
-        tracker.TerminalTransferCommitted += () => retiredAtNotification.Add(handoff.IsCompleted);
+        tracker.TerminalTransfersCommitted += _ => retiredAtNotification.Add(handoff.IsCompleted);
         tracker.Committed([TransferTerminal(transferId, revision: 2)]);
         Assert.IsFalse(handoff.IsCompleted);
 
@@ -394,12 +396,43 @@ public sealed class PersistenceHandoffTrackerTests
     }
 
     [TestMethod]
+    public async Task TerminalStateRetiresOnlyWhenItsCurrentRevisionCommits()
+    {
+        var tracker = new PersistenceHandoffTracker();
+        var state = new EngineStateStore();
+        var transfer = new UploadTransferSnapshot(Guid.NewGuid(), 4, "Peer", "Track.flac", 100,
+            DateTimeOffset.UnixEpoch, UploadTransferState.Completed, UploadFailureReason.None,
+            UploadCancellationSource.None, 100, 0, null, null, DateTimeOffset.UnixEpoch.AddSeconds(1));
+        state.UpdateUploadTransfer(transfer);
+        tracker.TerminalTransfersCommitted += committed => state.RetireCommittedTransfers(committed);
+        tracker.BeginTransferTerminal(transfer.TransferId, 4);
+        tracker.Committed([TransferTerminal(transfer.TransferId, 3)]);
+        Assert.AreEqual(4L, state.GetLiveTransfer(transfer.TransferId)!.Revision,
+            "An older acknowledgement cannot retire newer final facts.");
+
+        tracker.PermanentlyFailed([TransferTerminal(transfer.TransferId, 4)], new IOException("Lost write"));
+        Assert.AreEqual(4L, state.GetLiveTransfer(transfer.TransferId)!.Revision);
+        for (int read = 0; read < 2; read++)
+            await Assert.ThrowsExactlyAsync<PersistenceHandoffException>(() =>
+                tracker.WaitForTransferAsync(transfer.TransferId, 4, CancellationToken.None));
+
+        state.UpdateUploadTransfer(transfer with { Revision = 5 });
+        tracker.BeginTransferTerminal(transfer.TransferId, 5);
+        Task latest = tracker.WaitForTransferAsync(transfer.TransferId, 5, CancellationToken.None);
+        Assert.IsFalse(latest.IsCompleted);
+        tracker.Committed([TransferTerminal(transfer.TransferId, 5).Transfer]);
+        await latest;
+        Assert.IsNull(state.GetLiveTransfer(transfer.TransferId));
+        await tracker.WaitForTransferAsync(transfer.TransferId, 5, CancellationToken.None);
+    }
+
+    [TestMethod]
     public void TerminalTransferNotification_IsPostCommitOnlyAndIsolatesObservers()
     {
         var tracker = new PersistenceHandoffTracker();
         int successfulNotifications = 0;
-        tracker.TerminalTransferCommitted += () => throw new InvalidOperationException("observer failed");
-        tracker.TerminalTransferCommitted += () => successfulNotifications++;
+        tracker.TerminalTransfersCommitted += _ => throw new InvalidOperationException("observer failed");
+        tracker.TerminalTransfersCommitted += _ => successfulNotifications++;
 
         tracker.Committed([JobMutation(Guid.NewGuid(), Guid.NewGuid(), revision: 1)]);
         Assert.AreEqual(0, successfulNotifications);

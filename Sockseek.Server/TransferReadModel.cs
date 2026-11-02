@@ -15,7 +15,7 @@ internal static class TransferReadModel
     {
         // Identity and file facts are cohesive: changes replace the row rather
         // than leaving a subscriber with metadata from the previous candidate.
-        if (previous is null || previous.Identity != current.Identity || !SameFile(previous.File, current.File))
+        if (previous is null || previous.Identity != current.Identity || previous.CreatedAtUtc != current.CreatedAtUtc || !SameFile(previous.File, current.File))
             return new(current.TransferId, current.Revision, Added: current);
         return new(current.TransferId, current.Revision,
             Status: TransferStatusEquals(previous.Status, current.Status) ? null : current.Status,
@@ -83,7 +83,8 @@ internal static class TransferReadModel
                 : transfer.RequestedAtUtc is { } requested
                 ? new TransferSchedulingFieldsDto(requested, transfer.StartedAtUtc)
                 : null,
-            previous?.File ?? ToFileMetadata(transfer.File));
+            previous?.File ?? ToFileMetadata(transfer.File),
+            Milliseconds(transfer.RequestedAtUtc) ?? previous?.CreatedAtUtc ?? DateTimeOffset.UnixEpoch);
     }
 
     public static TransferStateDto FromUpload(
@@ -133,7 +134,8 @@ internal static class TransferReadModel
             previous is not null && (fields & TransferFields.Scheduling) == 0 ? previous.Scheduling : new TransferSchedulingFieldsDto(
                 transfer.RequestedAtUtc,
                 transfer.Attempt?.StartedAtUtc),
-            previous?.File ?? ToFileMetadata(transfer.File));
+            previous?.File ?? ToFileMetadata(transfer.File),
+            Milliseconds(transfer.RequestedAtUtc) ?? previous?.CreatedAtUtc ?? DateTimeOffset.UnixEpoch);
     }
 
     internal static TransferTerminalOutcome Outcome(TransferSnapshotTerminalOutcome outcome)
@@ -156,60 +158,20 @@ internal static class TransferReadModel
             _ => TransferTerminalOutcome.None,
         };
 
-    public static TransferHistoryDto FromRetained(PersistedTransfer transfer)
-        => new(
-            transfer.Id, transfer.JobId, transfer.WorkflowId, transfer.Direction, transfer.Source, transfer.Username,
-            transfer.RemotePath, transfer.LocalPath, transfer.State, transfer.TerminalOutcome, transfer.TotalBytes,
-            transfer.TransferredBytes, transfer.AttemptCount, transfer.CreatedAtUtc, transfer.CompletedAtUtc,
-            PublicFailureReason(transfer), transfer.FailureMessage,
-            PublicCancellationSource(transfer.CancellationSource),
-            transfer.Revision,
-            RequestedAtUtc: transfer.CreatedAtUtc,
-            transfer.StartedAtUtc,
-            transfer.LastProgressAtUtc,
-            transfer.BytesPerSecond,
-            ToFileMetadata(transfer.File),
-            AvailableActions: [],
-            transfer.ArchivedAtUtc,
-            transfer.GroupRef,
-            transfer.GroupDisplayPath,
-            transfer.GroupRelativePath);
-
-    public static TransferHistoryDto FromLive(TransferStateDto transfer)
+    public static TransferStateDto FromRetained(PersistedTransfer transfer)
     {
-        DateTimeOffset created = transfer.Scheduling?.RequestedAtUtc
-            ?? DateTimeOffset.UnixEpoch;
-        created = DateTimeOffset.FromUnixTimeMilliseconds(
-            created.ToUnixTimeMilliseconds());
-        return new TransferHistoryDto(
-            transfer.TransferId,
-            transfer.Identity.JobId,
-            transfer.Identity.WorkflowId,
-            transfer.Identity.Direction,
-            transfer.Identity.Source,
-            transfer.Identity.Username,
-            transfer.Identity.RemotePath,
-            transfer.Status.LocalPath,
-            transfer.Status.State,
-            transfer.Status.TerminalOutcome.ToString(),
-            transfer.Progress.TotalBytes < 0 ? null : transfer.Progress.TotalBytes,
-            transfer.Progress.BytesTransferred,
-            transfer.Status.AttemptCount,
-            created,
-            Milliseconds(transfer.Status.CompletedAtUtc),
-            transfer.Status.FailureReason.ToString(),
-            transfer.Status.FailureMessage,
-            transfer.Status.CancellationSource,
-            transfer.Revision,
-            Milliseconds(transfer.Scheduling?.RequestedAtUtc),
-            Milliseconds(transfer.Scheduling?.StartedAtUtc),
-            Milliseconds(transfer.Progress.LastProgressAtUtc),
-            transfer.Progress.BytesPerSecond,
-            transfer.File,
-            transfer.Status.AvailableActions,
-            GroupRef: transfer.Identity.GroupRef,
-            GroupDisplayPath: transfer.Identity.GroupDisplayPath,
-            GroupRelativePath: transfer.Identity.GroupRelativePath);
+        var outcome = Enum.Parse<TransferTerminalOutcome>(transfer.TerminalOutcome, ignoreCase: true);
+        var failure = Enum.TryParse<TransferFailureReason>(PublicFailureReason(transfer), out var reason)
+            ? reason : TransferFailureReason.Unknown;
+        return new(transfer.Id, transfer.Revision,
+            new(transfer.JobId, transfer.WorkflowId, transfer.Direction, transfer.Source,
+                transfer.Username, transfer.RemotePath, null, transfer.GroupRef,
+                transfer.GroupDisplayPath, GroupRelativePath: transfer.GroupRelativePath),
+            new(transfer.State, transfer.LocalPath, transfer.AttemptCount, outcome != TransferTerminalOutcome.None,
+                outcome, failure, PublicCancellationSource(transfer.CancellationSource), [],
+                transfer.CompletedAtUtc, transfer.FailureMessage, transfer.ArchivedAtUtc),
+            new(transfer.TransferredBytes, transfer.TotalBytes ?? -1, transfer.BytesPerSecond, transfer.LastProgressAtUtc),
+            new(transfer.CreatedAtUtc, transfer.StartedAtUtc), ToFileMetadata(transfer.File), transfer.CreatedAtUtc);
     }
 
     private static TransferCancellationSource PublicCancellationSource(string source)
@@ -224,13 +186,6 @@ internal static class TransferReadModel
 
     private static string PublicFailureReason(PersistedTransfer transfer)
     {
-        // Older download adapters also put the cancellation reason into the
-        // failure column. Preserve existing history without a data rewrite.
-        if (transfer.Direction.Equals("Download", StringComparison.OrdinalIgnoreCase)
-            && transfer.TerminalOutcome.Equals("Cancelled", StringComparison.OrdinalIgnoreCase)
-            && Enum.TryParse<Sockseek.Core.Events.TransferCancellationReason>(transfer.FailureReason, true, out var cancelled)
-            && Enum.IsDefined(cancelled))
-            return TransferFailureReason.None.ToString();
         if (transfer.Direction.Equals("Upload", StringComparison.OrdinalIgnoreCase)
             && Enum.TryParse<UploadFailureReason>(transfer.FailureReason, true, out var upload) && Enum.IsDefined(upload))
             return upload.ToServer().ToString();
@@ -257,24 +212,27 @@ internal static class TransferReadModel
                     attribute.Type,
                     attribute.Value)).ToArray());
 
-    public static TransferHistoryDto Merge(
-        TransferHistoryDto retained,
-        TransferHistoryDto current)
+    public static TransferStateDto Merge(TransferStateDto retained, TransferStateDto current)
         => retained.Revision > current.Revision ? retained : current with
         {
-            // Creation order is immutable once retained. Mutable live state
-            // must never move an existing row to a different keyset page.
             CreatedAtUtc = retained.CreatedAtUtc,
-            RequestedAtUtc = current.RequestedAtUtc ?? retained.RequestedAtUtc,
-            StartedAtUtc = current.StartedAtUtc ?? retained.StartedAtUtc,
-            LastProgressAtUtc = current.LastProgressAtUtc ?? retained.LastProgressAtUtc,
-            CompletedAtUtc = current.CompletedAtUtc ?? retained.CompletedAtUtc,
-            FailureMessage = current.FailureMessage ?? retained.FailureMessage,
+            Scheduling = current.Scheduling is { } scheduling
+                ? scheduling with { StartedAtUtc = scheduling.StartedAtUtc ?? retained.Scheduling?.StartedAtUtc }
+                : retained.Scheduling,
             File = current.File ?? retained.File,
-            ArchivedAtUtc = retained.ArchivedAtUtc,
-            GroupRef = current.GroupRef ?? retained.GroupRef,
-            GroupDisplayPath = current.GroupDisplayPath ?? retained.GroupDisplayPath,
-            GroupRelativePath = current.GroupRelativePath ?? retained.GroupRelativePath,
+            Identity = current.Identity with
+            {
+                GroupRef = current.Identity.GroupRef ?? retained.Identity.GroupRef,
+                GroupDisplayPath = current.Identity.GroupDisplayPath ?? retained.Identity.GroupDisplayPath,
+                GroupRelativePath = current.Identity.GroupRelativePath ?? retained.Identity.GroupRelativePath,
+            },
+            Progress = current.Progress with { LastProgressAtUtc = current.Progress.LastProgressAtUtc ?? retained.Progress.LastProgressAtUtc },
+            Status = current.Status with
+            {
+                CompletedAtUtc = current.Status.CompletedAtUtc ?? retained.Status.CompletedAtUtc,
+                FailureMessage = current.Status.FailureMessage ?? retained.Status.FailureMessage,
+                ArchivedAtUtc = retained.Status.ArchivedAtUtc,
+            },
         };
 
     // The same revision, archive and metadata fallback rules as full rows,
@@ -299,6 +257,7 @@ internal static class TransferReadModel
             && left.CancellationSource == right.CancellationSource
             && left.CompletedAtUtc == right.CompletedAtUtc
             && left.FailureMessage == right.FailureMessage
+            && left.ArchivedAtUtc == right.ArchivedAtUtc
             && left.AvailableActions.SequenceEqual(right.AvailableActions);
 
 }
@@ -351,26 +310,30 @@ public sealed class TransferReadSnapshot
     internal string? RemotePath => download?.RemotePath ?? upload?.RemotePath;
     private string? CandidateKey => download?.CandidateKey;
     internal string? GroupRef => download?.GroupRef ?? upload?.GroupRef;
-    private string? GroupDisplayPath => download?.GroupDisplayPath ?? upload?.GroupDisplayPath;
-    private string? GroupRelativePath => download?.GroupRelativePath;
+    internal string? GroupDisplayPath => download?.GroupDisplayPath ?? upload?.GroupDisplayPath;
+    internal string? GroupRelativePath => download?.GroupRelativePath;
     private int? PeerUploadSpeed => download?.Candidate?.Peer.UploadSpeed;
     private bool? PeerHasFreeUploadSlot => download?.Candidate?.Peer.HasFreeUploadSlot;
     internal TransferFileMetadataSnapshot? File => download?.File ?? upload?.File;
     internal string State => download is not null ? download.State ?? "" : upload!.State.ToString();
-    private string? LocalPath => download?.LocalPath;
-    private int AttemptCount => download?.AttemptCount ?? upload?.Attempt?.Number ?? 0;
+    internal string? LocalPath => download?.LocalPath;
+    internal int AttemptCount => download?.AttemptCount ?? upload?.Attempt?.Number ?? 0;
     internal bool IsTerminal { get; }
     internal TransferTerminalOutcome TerminalOutcome => download is not null
         ? TransferReadModel.Outcome(download.TerminalOutcome) : TransferReadModel.Outcome(upload!.State);
+    internal string StoredFailureReason => download is not null
+        ? download.FailureReason?.ToString() ?? "None" : upload!.FailureReason.ToString();
+    internal string StoredCancellationSource => download is not null
+        ? download.CancellationReason?.ToString() ?? "None" : upload!.CancellationSource.ToString();
     private TransferFailureReason FailureReason => download is not null
         ? download.FailureReason.ToServer() : upload!.FailureReason.ToServer();
     private TransferCancellationSource CancellationSource => download is not null
         ? download.CancellationReason.ToServer() : upload!.CancellationSource.ToServer();
     internal DateTimeOffset? CompletedAtUtc { get; }
-    private string? FailureMessage { get; }
+    internal string? FailureMessage { get; }
     internal DateTimeOffset? RequestedAtUtc => download is not null ? download.RequestedAtUtc : upload!.RequestedAtUtc;
-    private DateTimeOffset? StartedAtUtc => download is not null ? download.StartedAtUtc : upload!.Attempt?.StartedAtUtc;
-    private DateTimeOffset? LastProgressAtUtc => download?.LastProgressAtUtc ?? upload?.LastProgressAtUtc;
+    internal DateTimeOffset? StartedAtUtc => download is not null ? download.StartedAtUtc : upload!.Attempt?.StartedAtUtc;
+    internal DateTimeOffset? LastProgressAtUtc => download?.LastProgressAtUtc ?? upload?.LastProgressAtUtc;
     internal long BytesTransferred => download?.BytesTransferred ?? upload!.BytesTransferred;
     internal long TotalBytes => download?.TotalBytes ?? upload!.SizeBytes;
     internal long? BytesPerSecond { get; }
@@ -398,6 +361,7 @@ public sealed class TransferReadSnapshot
 
     internal bool Replaces(TransferReadSnapshot previous)
         => JobId != previous.JobId || WorkflowId != previous.WorkflowId
+            || RequestedAtUtc?.ToUnixTimeMilliseconds() != previous.RequestedAtUtc?.ToUnixTimeMilliseconds()
             || Direction != previous.Direction || Source != previous.Source
             || Username != previous.Username || RemotePath != previous.RemotePath
             || CandidateKey != previous.CandidateKey || GroupRef != previous.GroupRef
@@ -437,159 +401,3 @@ public sealed class TransferReadSnapshot
         return true;
     }
 }
-
-/// <summary>
-/// The live transfer facts and their read revision have one mutation boundary.
-/// EngineStateStore holds its gate; callers receive read-only dictionaries so a
-/// new write path cannot silently bypass observation/freshness invalidation.
-/// </summary>
-internal sealed class TransferReadState
-{
-    private readonly Dictionary<Guid, TransferReadSnapshot> active = [];
-    private readonly Dictionary<Guid, TransferReadSnapshot> uploads = [];
-    private readonly Dictionary<Guid, HashSet<Guid>> transfersByJob = [];
-    private readonly Dictionary<TransferOwner, Counts> ownerCounts = [];
-    private readonly HashSet<Guid> visibleWorkflows = [];
-    private Counts totals;
-    private LiveTransferSummaryDto? summary;
-    private readonly Guid epoch = Guid.NewGuid();
-    private long revision;
-    public IReadOnlyDictionary<Guid, TransferReadSnapshot> Active => active;
-    public IReadOnlyDictionary<Guid, TransferReadSnapshot> Uploads => uploads;
-    public IReadOnlyList<TransferReadSnapshot> ForJobs(IReadOnlySet<Guid> jobIds)
-        => jobIds.Where(transfersByJob.ContainsKey).SelectMany(id => transfersByJob[id])
-            .Select(id => active[id]).ToArray();
-    public StateStreamPositionDto Position => new(epoch, revision);
-    public LiveTransferSummaryDto Summary => summary ??= new(totals.Active, totals.Downloads,
-        totals.Uploads, totals.Queued, totals.Failed, totals.DownloadRate, totals.UploadRate);
-
-    // The global snapshot contains unowned transfers and live workflows only.
-    // Retiring/reappearing a workflow adjusts its aggregate in O(1), without
-    // visiting its files or changing ownership of the underlying transfer facts.
-    public void SetWorkflowVisible(Guid workflowId, bool visible)
-    {
-        bool changed = visible ? visibleWorkflows.Add(workflowId) : visibleWorkflows.Remove(workflowId);
-        if (changed && ownerCounts.TryGetValue(new(workflowId), out var counts))
-        {
-            totals.Add(counts, visible ? 1 : -1);
-            summary = null;
-        }
-    }
-    // Subscribers buffer facts only. Reads and transport publication run after
-    // the engine gate is released, on the existing broadcaster's coalesced wake.
-    public event Action<TransferReadChange>? Changed;
-
-    public void UpsertActive(TransferReadSnapshot row, bool structural)
-    {
-        active.TryGetValue(row.TransferId, out var previous);
-        active[row.TransferId] = row;
-        IndexJob(previous, row);
-        ReplaceCounts(previous, row);
-        Publish(previous, row, structural);
-    }
-    public void UpsertUpload(TransferReadSnapshot row, bool replicated, bool structural)
-    {
-        uploads.TryGetValue(row.TransferId, out var previous);
-        uploads[row.TransferId] = row;
-        if (replicated)
-        {
-            active.TryGetValue(row.TransferId, out var previousActive);
-            active[row.TransferId] = row;
-            IndexJob(previousActive, row);
-            ReplaceCounts(previousActive, row);
-        }
-        Publish(previous, row, structural);
-    }
-    public bool RemoveUpload(Guid id)
-    {
-        if (!uploads.Remove(id, out var previous)) return false;
-        Publish(previous, null, false);
-        return true;
-    }
-    public bool RemoveActive(Guid id, out TransferReadSnapshot row)
-    {
-        if (!active.Remove(id, out row!)) return false;
-        IndexJob(row, null);
-        ReplaceCounts(row, null);
-        Publish(row, null, false);
-        return true;
-    }
-    public void MarkHistoryChanged() => Publish(null, null, true);
-
-    private void IndexJob(TransferReadSnapshot? previous, TransferReadSnapshot? current)
-    {
-        if (previous?.JobId == current?.JobId) return;
-        if (previous?.JobId is Guid oldJob && transfersByJob.TryGetValue(oldJob, out var oldRows))
-        {
-            oldRows.Remove(previous.TransferId);
-            if (oldRows.Count == 0) transfersByJob.Remove(oldJob);
-        }
-        if (current?.JobId is Guid job)
-        {
-            if (!transfersByJob.TryGetValue(job, out var rows)) transfersByJob[job] = rows = [];
-            rows.Add(current.TransferId);
-        }
-    }
-
-    private void ReplaceCounts(TransferReadSnapshot? previous, TransferReadSnapshot? current)
-    {
-        Counts before = previous is null ? default : Counts.From(previous);
-        Counts after = current is null ? default : Counts.From(current);
-        if (previous?.WorkflowId == current?.WorkflowId && before == after) return;
-        if (previous != null) Add(previous.WorkflowId, before, -1);
-        if (current != null) Add(current.WorkflowId, after, 1);
-    }
-
-    private void Add(Guid? workflowId, Counts contribution, int sign)
-    {
-        var owner = new TransferOwner(workflowId);
-        Counts counts = ownerCounts.GetValueOrDefault(owner);
-        counts.Add(contribution, sign);
-        if (counts.Rows == 0) ownerCounts.Remove(owner);
-        else ownerCounts[owner] = counts;
-        if (owner.WorkflowId is null || visibleWorkflows.Contains(owner.WorkflowId.Value))
-        {
-            totals.Add(contribution, sign);
-            summary = null;
-        }
-    }
-
-    private readonly record struct TransferOwner(Guid? WorkflowId);
-
-    private record struct Counts
-    {
-        public int Rows, Active, Downloads, Uploads, Queued, Failed;
-        public long DownloadRate, UploadRate;
-
-        public static Counts From(TransferReadSnapshot row)
-        {
-            bool active = !row.IsTerminal;
-            bool download = active && row.Direction.Equals("Download", StringComparison.OrdinalIgnoreCase);
-            bool upload = active && row.Direction.Equals("Upload", StringComparison.OrdinalIgnoreCase);
-            return new()
-            {
-                Rows = 1, Active = active ? 1 : 0, Downloads = download ? 1 : 0, Uploads = upload ? 1 : 0,
-                Queued = active && row.State.Equals("Queued", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
-                Failed = row.TerminalOutcome == TransferTerminalOutcome.Failed ? 1 : 0,
-                DownloadRate = download ? row.BytesPerSecond ?? 0 : 0,
-                UploadRate = upload ? row.BytesPerSecond ?? 0 : 0,
-            };
-        }
-
-        public void Add(Counts value, int sign)
-        {
-            Rows += sign * value.Rows; Active += sign * value.Active;
-            Downloads += sign * value.Downloads; Uploads += sign * value.Uploads;
-            Queued += sign * value.Queued; Failed += sign * value.Failed;
-            DownloadRate += sign * value.DownloadRate; UploadRate += sign * value.UploadRate;
-        }
-    }
-    private void Publish(TransferReadSnapshot? previous, TransferReadSnapshot? current, bool structural)
-    {
-        revision++;
-        Changed?.Invoke(new(previous, current, structural, revision));
-    }
-}
-
-internal readonly record struct TransferReadChange(
-    TransferReadSnapshot? Previous, TransferReadSnapshot? Current, bool Structural, long Revision);

@@ -41,8 +41,8 @@ public sealed record WorkflowJobGroupDto(
     IReadOnlyList<JobSummaryDto> Jobs);
 
 /// <summary>
-/// One coherent read of the replicated live partition. Explicitly hydrated
-/// history is intentionally excluded.
+/// One coherent read of replicated current state. Displayed job/transfer scopes
+/// use their server-owned read contracts independently of this live partition.
 /// </summary>
 public sealed record DaemonClientStateView(
     DaemonStateDto? Daemon,
@@ -54,7 +54,7 @@ public sealed record DaemonClientStateView(
 
 /// <summary>
 /// Thread-safe reducer and query store shared by local, remote, and GUI clients.
-/// Live replication and explicitly paged history are separate partitions.
+/// History and displayed scopes are reconciled by server read services, never here.
 /// </summary>
 public sealed class DaemonClientStore
 {
@@ -63,8 +63,6 @@ public sealed class DaemonClientStore
     private readonly Dictionary<Guid, JobStateDto> liveJobs = [];
     private readonly Dictionary<Guid, SearchStateDto> liveSearches = [];
     private readonly Dictionary<Guid, TransferStateDto> liveTransfers = [];
-    private readonly Dictionary<Guid, WorkflowSummaryDto> historyWorkflows = [];
-    private readonly Dictionary<Guid, JobSummaryDto> historyJobs = [];
     private readonly Dictionary<Guid, UserNotificationDto> liveNotifications = [];
     private readonly Dictionary<StateStreamScopeDto, ChatTargetSnapshotDto> liveChatTargets = [];
     private readonly Dictionary<Guid, UserBrowseDto> liveUserBrowses = [];
@@ -263,7 +261,7 @@ public sealed class DaemonClientStore
     public IReadOnlyList<WorkflowSummaryDto> GetWorkflows()
     {
         lock (gate)
-            return CombinedWorkflows().OrderBy(workflow => workflow.Title).ThenBy(workflow => workflow.WorkflowId).ToList();
+            return liveWorkflows.Values.Select(row => row.Summary).OrderBy(workflow => workflow.Title).ThenBy(workflow => workflow.WorkflowId).ToList();
     }
 
     public WorkflowSummaryDto? GetWorkflow(Guid workflowId)
@@ -271,13 +269,13 @@ public sealed class DaemonClientStore
         lock (gate)
             return liveWorkflows.TryGetValue(workflowId, out var live)
                 ? live.Summary
-                : historyWorkflows.GetValueOrDefault(workflowId);
+                : null;
     }
 
     public IReadOnlyList<JobSummaryDto> GetJobs()
     {
         lock (gate)
-            return CombinedJobs().OrderBy(job => job.DisplayId).ThenBy(job => job.JobId).ToList();
+            return liveJobs.Values.Select(row => row.ToSummary()).OrderBy(job => job.DisplayId).ThenBy(job => job.JobId).ToList();
     }
 
     public JobSummaryDto? GetJob(Guid jobId)
@@ -285,13 +283,13 @@ public sealed class DaemonClientStore
         lock (gate)
             return liveJobs.TryGetValue(jobId, out var live)
                 ? live.ToSummary()
-                : historyJobs.GetValueOrDefault(jobId);
+                : null;
     }
 
     public IReadOnlyList<JobSummaryDto> GetWorkflowJobs(Guid workflowId)
     {
         lock (gate)
-            return CombinedJobs()
+            return liveJobs.Values.Select(row => row.ToSummary())
                 .Where(job => job.WorkflowId == workflowId)
                 .OrderBy(job => job.DisplayId)
                 .ThenBy(job => job.JobId)
@@ -302,8 +300,8 @@ public sealed class DaemonClientStore
     {
         lock (gate)
         {
-            var workflows = CombinedWorkflows().ToDictionary(workflow => workflow.WorkflowId);
-            return CombinedJobs()
+            var workflows = liveWorkflows.Values.Select(row => row.Summary).ToDictionary(workflow => workflow.WorkflowId);
+            return liveJobs.Values.Select(row => row.ToSummary())
                 .GroupBy(job => job.WorkflowId)
                 .OrderBy(group => workflows.GetValueOrDefault(group.Key)?.Title)
                 .ThenBy(group => group.Key)
@@ -318,7 +316,7 @@ public sealed class DaemonClientStore
     public IReadOnlyList<JobSummaryDto> GetActiveJobs()
     {
         lock (gate)
-            return CombinedJobs()
+            return liveJobs.Values.Select(row => row.ToSummary())
                 .Where(job => job.LifecycleState != ServerJobLifecycleState.Terminal)
                 .OrderBy(job => job.DisplayId)
                 .ToList();
@@ -327,7 +325,7 @@ public sealed class DaemonClientStore
     public IReadOnlyList<JobSummaryDto> GetTerminalJobs()
     {
         lock (gate)
-            return CombinedJobs()
+            return liveJobs.Values.Select(row => row.ToSummary())
                 .Where(job => job.LifecycleState == ServerJobLifecycleState.Terminal)
                 .OrderBy(job => job.DisplayId)
                 .ToList();
@@ -358,24 +356,6 @@ public sealed class DaemonClientStore
     {
         lock (gate)
             return liveSearches.GetValueOrDefault(jobId);
-    }
-
-    public void MergeWorkflowHistory(IEnumerable<WorkflowSummaryDto> workflows)
-    {
-        lock (gate)
-        {
-            foreach (var workflow in workflows)
-                historyWorkflows[workflow.WorkflowId] = workflow;
-        }
-    }
-
-    public void MergeJobHistory(IEnumerable<JobSummaryDto> jobs)
-    {
-        lock (gate)
-        {
-            foreach (var job in jobs)
-                historyJobs[job.JobId] = job;
-        }
     }
 
     private DaemonClientUpdate RequireRecovery(
@@ -607,16 +587,6 @@ public sealed class DaemonClientStore
                 ?? (delta.ReplaceMessages ? truncated : current.HasEarlierMessages || truncated),
         };
     }
-
-    private IEnumerable<WorkflowSummaryDto> CombinedWorkflows()
-        => historyWorkflows.Values
-            .Where(workflow => !liveWorkflows.ContainsKey(workflow.WorkflowId))
-            .Concat(liveWorkflows.Values.Select(workflow => workflow.Summary));
-
-    private IEnumerable<JobSummaryDto> CombinedJobs()
-        => historyJobs.Values
-            .Where(job => !liveJobs.ContainsKey(job.JobId))
-            .Concat(liveJobs.Values.Select(job => job.ToSummary()));
 
     private static void RemoveWhere<TKey, TValue>(
         Dictionary<TKey, TValue> dictionary,

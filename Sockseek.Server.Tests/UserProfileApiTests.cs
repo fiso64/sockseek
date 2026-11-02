@@ -45,8 +45,8 @@ public sealed class UserProfileApiTests
             await connecting.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.IsFalse(connected.Task.IsCompleted);
             var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
-            Assert.IsNotNull(supervisor.PeerBrowses);
-            Assert.IsNotNull(supervisor.UserProfiles);
+            Assert.IsNotNull(supervisor.Runtime.PeerBrowses);
+            Assert.IsNotNull(supervisor.Runtime.UserProfiles);
             using var http = new HttpClient { BaseAddress = new Uri(url) };
             var api = new SockseekApiClient(http);
             await api.GetServerInfoAsync();

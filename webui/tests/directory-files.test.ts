@@ -42,7 +42,7 @@ it('shows a directory zero only when its owner confirms every planned size is kn
   const base = {
     phase: 'planned', attemptNumber: 1, downloadPath: null, fileCount: 1,
     terminalFileCount: 0, successfulFileCount: 0, failedFileCount: 0,
-    bytesTransferred: 0, totalKnownBytes: 0, progressPercent: null,
+    bytesTransferred: 0, totalKnownBytes: 0, progressPercent: null, unknownFileSizeCount: 1,
   } satisfies Schema<'DirectoryDownloadStateDto'>;
   expect(directoryKnownSize({ ...base, unknownFileSizeCount: 1 })).toBeNull();
   expect(directoryKnownSize({ ...base, unknownFileSizeCount: 0 })).toBe(0);

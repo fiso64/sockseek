@@ -573,9 +573,10 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
                     long startedAt = Stopwatch.GetTimestamp();
                     JobOutcomeCommitter.Commit(prepared.Job, outcome);
                     await _orchestrator.FlushManualSelectionTerminalEffectsAsync(prepared.Job);
+                    var state = prepared.Job.StateSnapshot;
                     DownloadLogMessages.RootJobCompleted(logger, prepared.Job.Id,
                         (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
-                        prepared.Job.LifecycleState, prepared.Job.TerminalOutcome, prepared.Job.FailureReason);
+                        state.LifecycleState, state.TerminalOutcome, state.FailureReason);
                 }
             }
             else

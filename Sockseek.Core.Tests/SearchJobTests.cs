@@ -279,12 +279,15 @@ namespace Tests.Unit
                 completion = Task.Factory.StartNew(session.Complete,
                     CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
                 var read = Task.Run(() => (Rows: session.RawSnapshot(),
-                    Page: session.RawSnapshot(1, 2), Peers: session.ObservedPeerCount,
+                    Page: session.RawSnapshot(1, 2), Projection: session.ReadProjectionPage(1, 2), Peers: session.ObservedPeerCount,
                     Public: session.Snapshot().Count));
                 var snapshot = await read.WaitAsync(TimeSpan.FromSeconds(5));
                 Assert.AreEqual(3, snapshot.Rows.Count,
                     "An admitted response must be readable before its slow observer returns.");
                 CollectionAssert.AreEqual(new long[] { 2, 3 }, snapshot.Page.Select(row => row.Sequence).ToArray());
+                CollectionAssert.AreEqual(new long[] { 2, 3 }, snapshot.Projection.Items.Select(row => row.Sequence).ToArray());
+                Assert.AreEqual(3, snapshot.Projection.Revision);
+                Assert.IsFalse(snapshot.Projection.IsComplete);
                 Assert.AreEqual(snapshot.Rows.Count, session.RawSnapshot(-1, int.MaxValue).Count);
                 Assert.AreEqual(0, session.RawSnapshot(long.MaxValue, 500).Count);
                 Assert.AreEqual(1, snapshot.Peers);
@@ -305,6 +308,11 @@ namespace Tests.Unit
             Assert.IsTrue(changes.First().Sequence < changes.Last().Sequence);
             Assert.AreEqual(3, ((SearchResultsAddedChange)changes.First()).Results.Count);
             Assert.AreEqual(4, session.Revision);
+            Assert.IsFalse(session.ReadProjectionPage(0, 2).IsComplete, "A complete source can still have a continuation page.");
+            var tail = session.ReadProjectionPage(2, 2);
+            Assert.AreEqual(4, tail.Revision);
+            Assert.IsTrue(tail.IsComplete);
+            Assert.AreEqual(3L, tail.Items.Single().Sequence);
         }
 
         private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider

@@ -11,7 +11,6 @@ export type WorkflowStateDto = Schema<'WorkflowStateDto'>;
 export type JobStateDto = Schema<'JobStateDto'>;
 export type SearchStateDto = Schema<'SearchStateDto'>;
 export type TransferStateDto = Schema<'TransferStateDto'>;
-export type TransferHistoryDto = Schema<'TransferHistoryDto'>;
 export type TransferTimelinePageDto = Schema<'TransferTimelinePageDto'>;
 export type TransferCommandReceiptDto = Schema<'TransferCommandReceiptDto'>;
 export type DashboardAnalyticsDto = Schema<'DashboardAnalyticsDto'>;

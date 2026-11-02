@@ -4,8 +4,8 @@ public sealed record PersistenceWriterOptions
 {
     public const int DefaultMaximumBatchSize = 2_048;
     // Admit the first results promptly, then amortize preparation/index writes
-    // across bounded batches. Canonical ingestion owns original facts; View
-    // publication checks committed identities independently of these sizes.
+    // across bounded batches. Views read live Core facts independently; these
+    // sizes control raw-history transactions, not projection publication.
     public const int InitialSearchResultFlushCount = 2_000;
     public const int DefaultSearchResultFlushCount = 10_000;
     // Only request commands wait for admission. History notifications describe
@@ -13,9 +13,6 @@ public sealed record PersistenceWriterOptions
     public int CommandQueueCapacity { get; init; } = 2_048;
     public int BackgroundCommandQueueCapacity { get; init; } = 2_048;
     public int ProgressEntityCapacity { get; init; } = 512;
-    public int SearchResultCapacityPerSearch { get; init; } = 2_000;
-    public int SearchResultGlobalCapacity { get; init; } = 20_000;
-    public int IncompleteSearchTrackingCapacity { get; init; } = 1_024;
     public int SearchMutationQueueCapacity { get; init; } = 256;
     public int SearchResultFlushCount { get; init; } = DefaultSearchResultFlushCount;
     public TimeSpan SearchResultFlushInterval { get; init; } = TimeSpan.FromMilliseconds(200);

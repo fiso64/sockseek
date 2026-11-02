@@ -1,5 +1,4 @@
 using System.Text.Json.Serialization;
-using System.Text.Json;
 using Sockseek.Core.Models;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Services;
@@ -14,7 +13,7 @@ namespace Sockseek.Core.Planning;
 public sealed record NormalizedJobCommand
 {
     public required JobSnapshotKind Kind { get; init; }
-    // Optional for older retained specifications. Identifies one planned child
+    // Identifies a captured child before acceptance rebinds its runtime identity,
     // without relying on its position or re-running its parent extractor.
     public Guid? AcceptedJobId { get; init; }
     public string? ItemName { get; init; }
@@ -24,10 +23,6 @@ public sealed record NormalizedJobCommand
     public InputType? SourceInputType { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public JobSourceInfo? SourceInfo { get; init; }
-    // Older retained submissions used a provider-specific source tag. Keep it
-    // readable without making that taxonomy part of shared extraction logic.
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public JsonElement? SourceInputKind { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public InputType? SourceCollectionInputType { get; init; }
     public bool EnablesIndexByDefault { get; init; }
@@ -42,7 +37,7 @@ public sealed record NormalizedJobCommand
     public FolderConditionPatch? ExtractorFolderConditions { get; init; }
     public FolderConditionPatch? ExtractorPreferredFolderConditions { get; init; }
     public string? ArtifactId { get; init; }
-    // Inline settings remain readable for older submissions and planner nodes.
+    // Planner nodes capture inline settings before submission serialization.
     // The codec writes each distinct settings/bindings pair once per submission.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? PlannedEffectiveSettingsJson { get; init; }

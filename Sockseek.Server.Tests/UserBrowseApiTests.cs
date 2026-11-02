@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Core.Settings;
+using Sockseek.Server.Persistence;
 
 namespace Sockseek.Server.Tests;
 
@@ -25,7 +26,7 @@ public sealed class UserBrowseApiTests
 
         int port = GetFreeTcpPort();
         string url = $"http://127.0.0.1:{port}";
-        await using var app = ServerHost.Build([], new ServerOptions
+        var serverOptions = new ServerOptions
         {
             Engine = new EngineSettings
             {
@@ -37,7 +38,9 @@ public sealed class UserBrowseApiTests
                 Enabled = true,
                 DataDirectory = data,
             },
-        }, url);
+        };
+        await using var app = ServerHost.Build([], serverOptions, url);
+        bool stopped = false;
 
         try
         {
@@ -47,8 +50,8 @@ public sealed class UserBrowseApiTests
             // An immediate first request must work; waiting for an internal
             // service here used to hide a race with BackgroundService startup.
             var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
-            Assert.IsNotNull(supervisor.PeerBrowses);
-            Assert.IsNotNull(supervisor.UserProfiles);
+            Assert.IsNotNull(supervisor.Runtime.PeerBrowses);
+            Assert.IsNotNull(supervisor.Runtime.UserProfiles);
 
             UserBrowseDto started = await api.StartUserBrowseAsync("local");
             UserBrowseDto complete = await WaitForCompleteAsync(api, started.BrowseId);
@@ -161,6 +164,12 @@ public sealed class UserBrowseApiTests
             Assert.AreEqual(6, submitted.Resolution.TotalPublicBytes);
             Assert.AreEqual(2, submitted.Resolution.RedundantSelectionsRemoved);
             Assert.AreEqual(Path.GetFullPath(output), submitted.Resolution.OutputParent);
+            Assert.AreEqual(requestId, submitted.Workflow.SubmissionId);
+            var accepted = await app.Services.GetRequiredService<PersistenceCoordinator>()
+                .Submissions!.GetSubmissionAsync(requestId);
+            Assert.IsNotNull(accepted);
+            Assert.IsNotNull(accepted.CommitReceiptJson);
+            Assert.IsNotNull(accepted.CommitFingerprint);
             Assert.AreEqual(submitted.Workflow.JobId, repeated.Workflow.JobId);
             Assert.AreEqual(submitted.Resolution, repeated.Resolution);
 
@@ -246,10 +255,36 @@ public sealed class UserBrowseApiTests
                         limit: 1));
             Assert.AreEqual(HttpStatusCode.BadRequest, crossSearchGeneration.StatusCode);
             Assert.AreEqual("invalid-cursor", crossSearchGeneration.Code);
+
+            // Model a lost response followed by restart and removal of temporary
+            // browse artifacts. Only accepted intent/receipt can satisfy this retry.
+            await app.StopAsync();
+            stopped = true;
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(Path.Combine(data, "peer-browses"), recursive: true);
+            await using var restarted = ServerHost.Build([], serverOptions, url);
+            try
+            {
+                await restarted.StartAsync();
+                using var restartedHttp = new HttpClient { BaseAddress = new Uri(url) };
+                var restartedApi = new SockseekApiClient(restartedHttp);
+                var missing = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
+                    restartedApi.GetUserBrowseAsync(complete.BrowseId));
+                Assert.AreEqual(HttpStatusCode.Gone, missing.StatusCode);
+                var restored = await restartedApi.StartUserShareDownloadsAsync(complete.BrowseId, downloadRequest);
+                Assert.AreEqual(submitted.Workflow.JobId, restored.Workflow.JobId);
+                Assert.AreEqual(submitted.Workflow.SubmissionId, restored.Workflow.SubmissionId);
+                Assert.AreEqual(submitted.Resolution, restored.Resolution);
+                var conflict = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
+                    restartedApi.StartUserShareDownloadsAsync(complete.BrowseId, downloadRequest with { ExcludedFileIds = [betaFile.FileId] }));
+                Assert.AreEqual(HttpStatusCode.Conflict, conflict.StatusCode);
+            }
+            finally { await restarted.StopAsync(); }
+
         }
         finally
         {
-            await app.StopAsync();
+            if (!stopped) await app.StopAsync();
             SqliteConnection.ClearAllPools();
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);

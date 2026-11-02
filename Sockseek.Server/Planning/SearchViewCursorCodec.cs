@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using Microsoft.Extensions.Options;
 using Sockseek.Persistence.Planning;
 using Sockseek.Api;
 
@@ -7,18 +6,9 @@ namespace Sockseek.Server.Planning;
 
 public sealed class SearchViewCursorCodec
 {
-    private readonly string path;
-    private readonly object keyGate = new();
-    private byte[]? key;
-
-    public SearchViewCursorCodec(IOptions<ServerOptions> options)
-    {
-        string dataDirectory = SockseekDataPaths.ResolveDataDirectory(
-            options.Value.Persistence.DataDirectory);
-        path = Path.Combine(dataDirectory, "planning", "search-view-cursor.key");
-    }
-
-    public void Initialize() => _ = RequiredKey();
+    // Cursors belong to this process's temporary snapshots. Restart discards
+    // both; no disk key or independent initialization lifecycle is needed.
+    private readonly byte[] key = RandomNumberGenerator.GetBytes(32);
 
     public string EncodeFiles(
         Guid viewId,
@@ -191,56 +181,15 @@ public sealed class SearchViewCursorCodec
     }
 
     private string Encode(CursorPayload payload)
-        => AuthenticatedCursorCodec.Encode(payload, RequiredKey());
+        => AuthenticatedCursorCodec.Encode(payload, key);
 
     private CursorPayload Decode(string cursor)
     {
         CursorPayload payload = AuthenticatedCursorCodec.Decode<CursorPayload>(
             cursor,
-            RequiredKey(),
+            key,
             "search-view");
         return payload.Version == 1 ? payload : throw Invalid();
-    }
-
-    private static byte[] LoadOrCreateKey(string path)
-    {
-        string directory = Path.GetDirectoryName(path)
-            ?? throw new InvalidOperationException("The search-view cursor key has no parent directory.");
-        Directory.CreateDirectory(directory);
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(
-                directory,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
-        if (File.Exists(path))
-        {
-            byte[] existing = File.ReadAllBytes(path);
-            if (existing.Length != 32)
-                throw new InvalidDataException("The search-view cursor key is invalid.");
-            return existing;
-        }
-        byte[] created = RandomNumberGenerator.GetBytes(32);
-        using (var stream = new FileStream(
-            path,
-            FileMode.CreateNew,
-            FileAccess.Write,
-            FileShare.Read,
-            4096,
-            FileOptions.WriteThrough))
-        {
-            stream.Write(created);
-            stream.Flush(flushToDisk: true);
-        }
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-        return created;
-    }
-
-    private byte[] RequiredKey()
-    {
-        lock (keyGate)
-            return key ??= LoadOrCreateKey(path);
     }
 
     private static ArgumentException Invalid(Exception? inner = null)

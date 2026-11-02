@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Persistence.Planning;
 using Sockseek.Api;
@@ -10,23 +9,14 @@ namespace Sockseek.Server.Tests;
 public sealed class SearchViewCursorCodecTests
 {
     [TestMethod]
-    public void CursorsSurviveRestartAndBindViewRevisionAndParent()
+    public void CursorsBindViewRevisionParentAndProcessLifetime()
     {
-        using var directory = new TemporaryDirectory();
-        var options = Options.Create(new ServerOptions
-        {
-            Persistence = new ServerPersistenceOptions
-            {
-                DataDirectory = directory.Path,
-            },
-        });
         Guid viewId = Guid.NewGuid();
         var position = new SearchViewFilePosition(9, 8, 7, 6, 5, 4, 3, 2, "row");
         var directoryPosition = new SearchViewDirectoryPosition(
             9, 8, 7, 6, 5, 4, 3, 2, "Peer", @"Share\Folder", "directory");
         var childPosition = new SearchViewDirectoryFilePosition("Track.flac", "file");
-        var first = new SearchViewCursorCodec(options);
-        first.Initialize();
+        var first = new SearchViewCursorCodec();
         string fileCursor = first.EncodeFiles(viewId, 12, position);
         string directoryCursor = first.EncodeDirectories(viewId, 12, directoryPosition);
         string childCursor = first.EncodeDirectoryFiles(
@@ -35,43 +25,29 @@ public sealed class SearchViewCursorCodecTests
         string orderedFiles = first.EncodeFiles(viewId, 12, position, ServerSearchViewSortOrder.UploadSpeed);
         string orderedDirectories = first.EncodeDirectories(viewId, 12, directoryPosition,
             ServerSearchViewSortOrder.DirectoryNameAscending);
-        var restarted = new SearchViewCursorCodec(options);
-        Assert.AreEqual(position, restarted.DecodeFiles(fileCursor, viewId, 12));
-        Assert.AreEqual(position, restarted.DecodeFiles(orderedFiles, viewId, 12, ServerSearchViewSortOrder.UploadSpeed));
-        Assert.AreEqual(directoryPosition, restarted.DecodeDirectories(orderedDirectories, viewId, 12,
+        var restarted = new SearchViewCursorCodec();
+        Assert.ThrowsExactly<ArgumentException>(() => restarted.DecodeFiles(fileCursor, viewId, 12));
+        Assert.AreEqual(position, first.DecodeFiles(fileCursor, viewId, 12));
+        Assert.AreEqual(position, first.DecodeFiles(orderedFiles, viewId, 12, ServerSearchViewSortOrder.UploadSpeed));
+        Assert.AreEqual(directoryPosition, first.DecodeDirectories(orderedDirectories, viewId, 12,
             ServerSearchViewSortOrder.DirectoryNameAscending));
-        Assert.ThrowsExactly<ArgumentException>(() => restarted.DecodeFiles(orderedFiles, viewId, 12,
+        Assert.ThrowsExactly<ArgumentException>(() => first.DecodeFiles(orderedFiles, viewId, 12,
             ServerSearchViewSortOrder.QueueDepth));
-        Assert.ThrowsExactly<ArgumentException>(() => restarted.DecodeFiles(orderedFiles, viewId, 12));
-        Assert.ThrowsExactly<ArgumentException>(() => restarted.DecodeDirectories(orderedDirectories, viewId, 12,
+        Assert.ThrowsExactly<ArgumentException>(() => first.DecodeFiles(orderedFiles, viewId, 12));
+        Assert.ThrowsExactly<ArgumentException>(() => first.DecodeDirectories(orderedDirectories, viewId, 12,
             ServerSearchViewSortOrder.DirectorySizeAscending));
-        Assert.AreEqual(directoryPosition, restarted.DecodeDirectories(
+        Assert.AreEqual(directoryPosition, first.DecodeDirectories(
             directoryCursor, viewId, 12));
-        Assert.AreEqual(childPosition, restarted.DecodeDirectoryFiles(
+        Assert.AreEqual(childPosition, first.DecodeDirectoryFiles(
             childCursor, viewId, "directory", 12));
         Assert.ThrowsExactly<ArgumentException>(() =>
-            restarted.DecodeFiles(fileCursor, viewId, 13));
+            first.DecodeFiles(fileCursor, viewId, 13));
         Assert.ThrowsExactly<ArgumentException>(() =>
-            restarted.DecodeFiles(fileCursor + "tampered", viewId, 12));
-        Assert.ThrowsExactly<ArgumentException>(() => restarted.DecodeDirectories(
+            first.DecodeFiles(fileCursor + "tampered", viewId, 12));
+        Assert.ThrowsExactly<ArgumentException>(() => first.DecodeDirectories(
             directoryCursor, viewId, 13));
-        Assert.ThrowsExactly<ArgumentException>(() => restarted.DecodeDirectoryFiles(
+        Assert.ThrowsExactly<ArgumentException>(() => first.DecodeDirectoryFiles(
             childCursor, viewId, "other-directory", 12));
     }
 
-    private sealed class TemporaryDirectory : IDisposable
-    {
-        public string Path { get; } = System.IO.Path.Combine(
-            System.IO.Path.GetTempPath(),
-            "sockseek-search-view-cursor-tests",
-            Guid.NewGuid().ToString("N"));
-
-        public TemporaryDirectory() => Directory.CreateDirectory(Path);
-
-        public void Dispose()
-        {
-            if (Directory.Exists(Path))
-                Directory.Delete(Path, recursive: true);
-        }
-    }
 }

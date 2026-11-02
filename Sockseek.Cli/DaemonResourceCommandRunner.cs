@@ -166,12 +166,12 @@ internal static class DaemonResourceCommandRunner
             return Program.CliExitCode.Success;
         }
 
-        foreach (TransferHistoryDto transfer in page.Items)
+        foreach (TransferStateDto transfer in page.Items)
         {
             Console.WriteLine(
-                $"{transfer.TransferId:D}  {transfer.Direction,-8} "
-                + $"{transfer.State,-12} {transfer.Username ?? "-"}  "
-                + $"{transfer.RemotePath ?? "-"}");
+                $"{transfer.TransferId:D}  {transfer.Identity.Direction,-8} "
+                + $"{transfer.Status.State,-12} {transfer.Identity.Username ?? "-"}  "
+                + $"{transfer.Identity.RemotePath ?? "-"}");
         }
         if (page.Items.Count == 0)
             Console.WriteLine("No transfers matched.");

@@ -5,7 +5,6 @@ namespace Sockseek.Core.Planning;
 
 public enum JobSemanticRole
 {
-    Legacy,
     UserRoot,
     SemanticResult,
     Orchestration,
@@ -55,29 +54,25 @@ public static class SubmissionIdentity
 
     public static void AssignGeneratedResult(Job source, Job result)
     {
-        if (source.SubmissionId is not Guid submissionId)
-            return;
         AssignTree(
             result,
-            submissionId,
+            source.SubmissionId,
             DateTimeOffset.UtcNow,
             JobSemanticRole.SemanticResult);
     }
 
     public static void AssignExecutionChild(Job parent, Job child)
     {
-        if (parent.SubmissionId is not Guid submissionId)
-            return;
         AssignTree(
             child,
-            submissionId,
+            parent.SubmissionId,
             DateTimeOffset.UtcNow,
             JobSemanticRole.ExecutionChild);
     }
 
     private static void AssignTree(
         Job job,
-        Guid submissionId,
+        Guid? submissionId,
         DateTimeOffset createdAtUtc,
         JobSemanticRole role)
     {

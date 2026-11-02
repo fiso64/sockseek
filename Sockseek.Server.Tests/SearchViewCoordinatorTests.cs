@@ -25,7 +25,7 @@ namespace Tests.Server;
 public sealed class SearchViewCoordinatorTests
 {
     [TestMethod]
-    public async Task MissingCommittedObservationUsesCanonicalRowsWithoutInventingLiveFacts()
+    public async Task LiveViewKeepsAvailableInputsAndRestartUsesOnlyRetainedFacts()
     {
         string directory = System.IO.Directory.CreateTempSubdirectory("sockseek-input-gap-").FullName;
         var client = ControllableSearchClientProxy.Create();
@@ -46,7 +46,7 @@ public sealed class SearchViewCoordinatorTests
             JobSummaryDto source;
             try
             {
-                source = await app.Services.GetRequiredService<EngineSupervisor>()
+                source = await app.Services.GetRequiredService<JobSubmissions>()
                     .SubmitSearchJobAsync(new("Track"), CancellationToken.None);
                 Assert.AreEqual(source.JobId, await committed.Task.WaitAsync(TimeSpan.FromSeconds(5)));
             }
@@ -59,7 +59,7 @@ public sealed class SearchViewCoordinatorTests
             // Model a lost durable middle row while Core still owns all three.
             command.CommandText = """
                 DELETE FROM search_observations WHERE source_sequence=2 AND source_id=(
-                    SELECT id FROM search_observation_sources WHERE source_job_id=$source);
+                    SELECT id FROM search_observation_sources WHERE search_job_id=$source);
                 UPDATE search_jobs SET is_complete=1,result_persistence_state='Incomplete' WHERE job_id=$source;
                 """;
             command.Parameters.AddWithValue("$source", source.JobId.ToString("D").ToUpperInvariant());
@@ -67,12 +67,29 @@ public sealed class SearchViewCoordinatorTests
             var views = app.Services.GetRequiredService<SearchViewCoordinator>();
             var created = (await views.CreateAsync(source.JobId, new(ServerSearchViewProjectionKind.Files,
                 new SongQueryDto(Title: "Track"), IncludeFullResults: true), CancellationToken.None))!;
-            var view = await WaitForConditionViewAsync(views, created.ViewId, value => value.IsComplete, () => { });
-            Assert.AreEqual(SearchViewRetentionState.Incomplete, view.RetentionState);
-            Assert.AreEqual(2L, view.Counters.PublicFileCount);
-            var files = (await views.GetFilesAsync(view.ViewId, view.Revision, null, 500, cancellationToken: CancellationToken.None))!.Items;
-            CollectionAssert.AreEquivalent(new[] { @"Music\Track-1.flac", @"Music\Track-3.flac" },
-                files.Select(file => file.RemoteFilename).ToArray());
+            var live = await WaitForConditionViewAsync(views, created.ViewId, value => value.Counters.PublicFileCount == 3, () => { });
+            Assert.IsFalse(live.IsComplete, "Stored metadata cannot finish a still-running Core search.");
+            Assert.AreEqual(3, (views.GetFiles(live.ViewId, live.Revision, null, 500, cancellationToken: CancellationToken.None))!.Items.Count);
+            finish.TrySetResult();
+            await app.StopAsync();
+            // The lost row stays lost on restart; a temporary View is not a
+            // second durable source or a promise that every observed row committed.
+            command.CommandText = "UPDATE search_jobs SET is_complete=1,result_persistence_state='Incomplete' WHERE job_id=$source;";
+            await command.ExecuteNonQueryAsync();
+            await using var restarted = ServerHost.Build([], Options(directory, ControllableSearchClientProxy.Create().Client), "http://127.0.0.1:0");
+            await restarted.StartAsync();
+            try
+            {
+                var historical = restarted.Services.GetRequiredService<SearchViewCoordinator>();
+                var fresh = (await historical.CreateAsync(source.JobId, new(ServerSearchViewProjectionKind.Files,
+                    new SongQueryDto(Title: "Track"), IncludeFullResults: true), CancellationToken.None))!;
+                var retained = await WaitForConditionViewAsync(historical, fresh.ViewId, value => value.IsComplete, () => { });
+                Assert.AreEqual(SearchViewRetentionState.Incomplete, retained.RetentionState);
+                var files = (historical.GetFiles(retained.ViewId, retained.Revision, null, 500, cancellationToken: CancellationToken.None))!.Items;
+                CollectionAssert.AreEquivalent(new[] { @"Music\Track-1.flac", @"Music\Track-3.flac" },
+                    files.Select(file => file.RemoteFilename).ToArray());
+            }
+            finally { await restarted.StopAsync(); }
         }
         finally
         {
@@ -99,7 +116,7 @@ public sealed class SearchViewCoordinatorTests
         using var supervisor = new EngineSupervisor(options, persistence, NullLoggerFactory.Instance);
         var clock = new ManualViewClock();
         await using var views = new SearchViewCoordinator(supervisor, persistence,
-            new SubmissionCommitCoordinator(persistence), new SearchViewCursorCodec(options),
+            new SubmissionCommitCoordinator(persistence), new SearchViewCursorCodec(),
             NullLogger<SearchViewCoordinator>.Instance, clock);
         using var cancellation = new CancellationTokenSource();
         Task run = Task.CompletedTask;
@@ -111,7 +128,7 @@ public sealed class SearchViewCoordinatorTests
             supervisor.EngineCreated += _ => engineCreated.TrySetResult();
             run = supervisor.RunAsync(cancellation.Token);
             await engineCreated.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var source = await supervisor.SubmitSearchJobAsync(new("Track"), CancellationToken.None);
+            var source = await supervisor.Submissions.SubmitSearchJobAsync(new("Track"), CancellationToken.None);
             var receive = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
             var view = (await views.CreateAsync(source.JobId, new(ServerSearchViewProjectionKind.Files,
                 new SongQueryDto(Title: "Track"), IncludeFullResults: true, FilterText: "match"), CancellationToken.None))!;
@@ -125,7 +142,7 @@ public sealed class SearchViewCoordinatorTests
             Assert.AreEqual(0L, observation.Current.Counters.TopLevelItemCount);
             long initialRevision = observation.Current.Revision;
             var counterPublication = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            void CountersPublished(Sockseek.Persistence.Planning.StoredSearchView published)
+            void CountersPublished(Sockseek.Server.Planning.SearchViewInfo published)
             {
                 if (published.Id == view.ViewId && published.Counters.PublicFileCount == 3)
                     counterPublication.TrySetResult();
@@ -161,7 +178,7 @@ public sealed class SearchViewCoordinatorTests
                 Assert.AreSame(clock.TimerArmed, ready,
                     "Counter-only arrivals must wait for the existing cadence instead of committing each batch.");
                 await counterInputsConsumed.Task.WaitAsync(observationCancellation.Token);
-                var beforeTick = (await persistence.SearchViews!.GetAsync(view.ViewId))!;
+                var beforeTick = (views.Cache.Get(view.ViewId))!;
                 Assert.AreEqual(initialRevision, beforeTick.Revision);
                 Assert.AreEqual(1L, beforeTick.Counters.PublicFileCount);
                 await clock.AdvanceAndFireAsync(TimeSpan.FromSeconds(1));
@@ -183,7 +200,7 @@ public sealed class SearchViewCoordinatorTests
                 if (explicitlyRequestProjection)
                 {
                     await committed.Task.WaitAsync(observationCancellation.Token);
-                    await views.GetAsync(view.ViewId, observationCancellation.Token);
+                    views.Get(view.ViewId, observationCancellation.Token);
                 }
                 Assert.IsTrue(await firstResult);
                 Assert.AreEqual(1L, observation.Current.Counters.TopLevelItemCount);
@@ -239,7 +256,7 @@ public sealed class SearchViewCoordinatorTests
     }
 
     [TestMethod]
-    public async Task LostSearchCompletionFinishesObservedViewWithItsCommittedFiles()
+    public async Task LostDurableCompletionDoesNotDiscardTheCompletedLiveProjection()
     {
         string directory = System.IO.Directory.CreateTempSubdirectory("sockseek-search-completion-failure-").FullName;
         var client = ControllableSearchClientProxy.Create();
@@ -255,7 +272,7 @@ public sealed class SearchViewCoordinatorTests
             await app.StartAsync();
             var persistence = app.Services.GetRequiredService<PersistenceCoordinator>();
             var views = app.Services.GetRequiredService<SearchViewCoordinator>();
-            var source = await app.Services.GetRequiredService<EngineSupervisor>()
+            var source = await app.Services.GetRequiredService<JobSubmissions>()
                 .SubmitSearchJobAsync(new("Track"), CancellationToken.None);
             var created = (await views.CreateAsync(source.JobId, new(ServerSearchViewProjectionKind.Files,
                 new SongQueryDto(Title: "Track"), IncludeFullResults: true), CancellationToken.None))!;
@@ -275,17 +292,21 @@ public sealed class SearchViewCoordinatorTests
                 WHEN NEW.is_complete=1 BEGIN SELECT RAISE(ABORT, 'Injected search completion failure'); END;
                 """;
             await command.ExecuteNonQueryAsync();
+            var failure = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void CompletionLost(Guid id) { if (id == source.JobId && persistence.IsSearchCompletionLost(id)) failure.TrySetResult(); }
+            persistence.SearchSourceChanged += CompletionLost;
             finish.TrySetResult();
             do { Assert.IsTrue(await observation.MoveNextAsync()); }
             while (!observation.Current.IsComplete);
-            Assert.AreEqual(SearchViewRetentionState.Incomplete, observation.Current.RetentionState);
+            Assert.AreEqual(SearchViewRetentionState.Complete, observation.Current.RetentionState, "Live completeness does not wait for durable acceptance.");
             Assert.AreEqual(2L, observation.Current.Counters.ProjectedFileCount);
             var terminal = observation.Current;
             Assert.IsFalse(await observation.MoveNextAsync());
-            var files = (await views.GetFilesAsync(created.ViewId, terminal.Revision,
-                null, 500, cancellationToken: timeout.Token))!;
+            var files = (views.GetFiles(created.ViewId, terminal.Revision, null, 500, cancellationToken: timeout.Token))!;
             CollectionAssert.AreEquivalent(new[] { @"Music\Track-one.flac", @"Music\Track-two.flac" },
                 files.Items.Select(file => file.RemoteFilename).ToArray());
+            try { await failure.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+            finally { persistence.SearchSourceChanged -= CompletionLost; }
             var retained = (await persistence.SearchHistory!.GetRawResultsAsync(source.JobId, 0, 500))!;
             Assert.IsFalse(retained.Metadata.IsComplete, "Do not fabricate a durable completion on a failed write.");
             Assert.AreEqual(2, retained.Items.Count);
@@ -293,60 +314,6 @@ public sealed class SearchViewCoordinatorTests
         finally
         {
             finish.TrySetResult();
-            await app.StopAsync();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-            System.IO.Directory.Delete(directory, recursive: true);
-        }
-    }
-
-    [TestMethod]
-    public async Task FailedPublicationFinishesAtTheDurablePrefixAndAnotherViewCanUseItsSource()
-    {
-        string directory = System.IO.Directory.CreateTempSubdirectory("sockseek-view-failure-").FullName;
-        var client = ControllableSearchClientProxy.Create();
-        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        client.Search = (receive, _) =>
-        {
-            receive(Response("Peer", [File(@"Music\Track-one.flac"), File(@"Music\Track-two.flac")]));
-            started.TrySetResult();
-            return Task.CompletedTask;
-        };
-        await using WebApplication app = ServerHost.Build([], Options(directory, client.Client), "http://127.0.0.1:0");
-        try
-        {
-            await app.StartAsync();
-            var persistence = app.Services.GetRequiredService<PersistenceCoordinator>();
-            var views = app.Services.GetRequiredService<SearchViewCoordinator>();
-            var source = await app.Services.GetRequiredService<EngineSupervisor>()
-                .SubmitSearchJobAsync(new("Track"), CancellationToken.None);
-            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
-                new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
-                { DataSource = Path.Combine(directory, "sockseek.db") }.ToString());
-            await connection.OpenAsync();
-            await using var command = connection.CreateCommand();
-            command.CommandText = """
-                CREATE TRIGGER fail_view_file BEFORE INSERT ON search_view_files
-                WHEN NEW.sequence=2 BEGIN SELECT RAISE(ABORT, 'Injected publication failure'); END;
-                """;
-            await command.ExecuteNonQueryAsync();
-            var definition = new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.Files,
-                new SongQueryDto(Title: "Track"), IncludeFullResults: true);
-            var created = (await views.CreateAsync(source.JobId, definition, CancellationToken.None))!;
-            var failed = await WaitForConditionViewAsync(views, created.ViewId, view => view.IsComplete, () => { });
-            Assert.AreEqual(SearchViewRetentionState.Incomplete, failed.RetentionState);
-            Assert.AreEqual(0L, failed.Counters.ProjectedFileCount);
-            Assert.AreEqual(2, (await persistence.SearchHistory!.GetRawResultsAsync(source.JobId, 0, 500))!.Items.Count,
-                "Failed projection cannot erase its independently committed originals.");
-            command.CommandText = "DROP TRIGGER fail_view_file;";
-            await command.ExecuteNonQueryAsync();
-            var next = (await views.CreateAsync(source.JobId, definition, CancellationToken.None))!;
-            var complete = await WaitForConditionViewAsync(views, next.ViewId, view => view.IsComplete, () => { });
-            Assert.AreEqual(SearchViewRetentionState.Complete, complete.RetentionState);
-            Assert.AreEqual(2L, complete.Counters.ProjectedFileCount);
-        }
-        finally
-        {
             await app.StopAsync();
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             System.IO.Directory.Delete(directory, recursive: true);
@@ -364,9 +331,9 @@ public sealed class SearchViewCoordinatorTests
         var options = Microsoft.Extensions.Options.Options.Create(Options(directory, client.Client));
         var persistence = new PersistenceCoordinator(options);
         using var supervisor = new EngineSupervisor(options, persistence, NullLoggerFactory.Instance);
-        var clock = new ViewClock();
+        var clock = new ManualViewClock();
         await using var views = new SearchViewCoordinator(supervisor, persistence,
-            new SubmissionCommitCoordinator(persistence), new SearchViewCursorCodec(options),
+            new SubmissionCommitCoordinator(persistence), new SearchViewCursorCodec(),
             NullLogger<SearchViewCoordinator>.Instance, clock);
         using var cancellation = new CancellationTokenSource();
         var engineCreated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -378,7 +345,7 @@ public sealed class SearchViewCoordinatorTests
             await views.StartAsync(CancellationToken.None);
             run = supervisor.RunAsync(cancellation.Token);
             await engineCreated.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var source = await supervisor.SubmitSearchJobAsync(new("Track"), CancellationToken.None);
+            var source = await supervisor.Submissions.SubmitSearchJobAsync(new("Track"), CancellationToken.None);
             var receive = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
             var definition = new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.Files, IncludeFullResults: true);
             var view = (await views.CreateAsync(source.JobId, definition, CancellationToken.None))!;
@@ -388,7 +355,7 @@ public sealed class SearchViewCoordinatorTests
                 Assert.IsTrue(await observation.MoveNextAsync());
                 Assert.AreEqual(0L, observation.Current.Revision);
                 var caughtUp = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                void Published(Sockseek.Persistence.Planning.StoredSearchView published) { if (published.Id == view.ViewId && published.Revision >= 2) caughtUp.TrySetResult(); }
+                void Published(Sockseek.Server.Planning.SearchViewInfo published) { if (published.Id == view.ViewId && published.Revision >= 2) caughtUp.TrySetResult(); }
                 views.ViewPublished += Published;
                 try
                 {
@@ -397,7 +364,7 @@ public sealed class SearchViewCoordinatorTests
                     receive(Response("peer", Enumerable.Range(0, 301)
                         .Select(index => File($@"Music\Track-{index}.flac")).ToArray()));
                     await caughtUp.Task.WaitAsync(TimeSpan.FromSeconds(5));
-                    var stored = (await persistence.SearchViews!.GetAsync(view.ViewId))!;
+                    var stored = (views.Cache.Get(view.ViewId))!;
                     Assert.AreEqual(301L, stored.Counters.PublicFileCount);
                     Assert.IsFalse(stored.IsComplete, "Exhausting the committed prefix must not finish a live search.");
                 }
@@ -405,12 +372,11 @@ public sealed class SearchViewCoordinatorTests
 
                 receive(Response("sparse-peer", [File(@"Music\Track-sparse.flac")]));
                 await CreateAndObserveAsync(views, source.JobId, definition);
-                var coalesced = (await persistence.SearchViews!.GetAsync(view.ViewId))!;
+                var coalesced = (views.Cache.Get(view.ViewId))!;
                 Assert.AreEqual(301L, coalesced.Counters.PublicFileCount,
                     "A sparse arrival must not create another tiny publication inside the refresh interval.");
-                clock.Advance(TimeSpan.FromSeconds(1));
                 var nextBatch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                void NextPublished(Sockseek.Persistence.Planning.StoredSearchView published)
+                void NextPublished(Sockseek.Server.Planning.SearchViewInfo published)
                 {
                     if (published.Id == view.ViewId && published.Counters.PublicFileCount == 303) nextBatch.TrySetResult();
                 }
@@ -418,6 +384,8 @@ public sealed class SearchViewCoordinatorTests
                 try
                 {
                     receive(Response("next-peer", [File(@"Music\Track-next.flac")]));
+                    await CreateAndObserveAsync(views, source.JobId, definition);
+                    await clock.AdvanceAndFireAsync(TimeSpan.FromSeconds(1));
                     await nextBatch.Task.WaitAsync(TimeSpan.FromSeconds(5));
                 }
                 finally { views.ViewPublished -= NextPublished; }
@@ -427,7 +395,7 @@ public sealed class SearchViewCoordinatorTests
             // A publication through the single worker is a causal barrier,
             // proving the inactive View did not process the later arrival.
             await CreateAndObserveAsync(views, source.JobId, definition);
-            var stopped = (await persistence.SearchViews!.GetAsync(view.ViewId))!;
+            var stopped = (views.Cache.Get(view.ViewId))!;
             Assert.AreEqual(303L, stopped.Counters.PublicFileCount);
             finish.TrySetResult();
         }
@@ -475,8 +443,6 @@ public sealed class SearchViewCoordinatorTests
         public Task<PersistedSearchResultPage?> GetRawResultsAsync(Guid jobId, long afterSequence,
             int limit, CancellationToken cancellationToken = default)
             => Task.FromResult<PersistedSearchResultPage?>(new(current, rows, null));
-        public Task<PersistedSearchObservationPage?> GetObservationKeysAsync(Guid id, long afterSequence,
-            int limit, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<PersistedSearchMetadata?> GetMetadataAsync(Guid id, CancellationToken cancellationToken = default)
             => Task.FromResult<PersistedSearchMetadata?>(current);
         public Task<PersistedSearchResultLookup?> GetResultAsync(Guid id, string username, string filename,
@@ -548,7 +514,9 @@ public sealed class SearchViewCoordinatorTests
             using var wrongOrder = await http.GetAsync(path + "&sortOrder=" + (directories
                 ? "DirectoryNameDescending" : "QueueDepth"));
             Assert.AreEqual(System.Net.HttpStatusCode.BadRequest, wrongOrder.StatusCode);
-            Assert.AreEqual(before, await api.GetSearchViewAsync(before.ViewId));
+            var after = (await api.GetSearchViewAsync(before.ViewId))!;
+            Assert.IsTrue(after.ExpiresAtUtc >= before.ExpiresAtUtc);
+            Assert.AreEqual(before with { ExpiresAtUtc = after.ExpiresAtUtc }, after);
             Assert.AreEqual(ServerSearchViewSortOrder.Relevance,
                 (await api.GetSearchViewDefinitionAsync(before.ViewId))!.Projection.SortOrder);
             Assert.AreEqual(1, searches);
@@ -578,7 +546,7 @@ public sealed class SearchViewCoordinatorTests
         using var supervisor = new EngineSupervisor(options, persistence, NullLoggerFactory.Instance);
         var clock = new ViewClock();
         await using var views = new SearchViewCoordinator(supervisor, persistence,
-            new SubmissionCommitCoordinator(persistence), new SearchViewCursorCodec(options),
+            new SubmissionCommitCoordinator(persistence), new SearchViewCursorCodec(),
             NullLogger<SearchViewCoordinator>.Instance, clock);
         using var cancellation = new CancellationTokenSource();
         var engineCreated = new TaskCompletionSource<DownloadEngine>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -590,11 +558,9 @@ public sealed class SearchViewCoordinatorTests
             await views.StartAsync(CancellationToken.None);
             run = supervisor.RunAsync(cancellation.Token);
             var engine = await engineCreated.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var source = await supervisor.SubmitSearchJobAsync(new("Artist"), CancellationToken.None);
+            var source = await supervisor.Submissions.SubmitSearchJobAsync(new("Artist"), CancellationToken.None);
             Action<SearchResponse> receive = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
             receive(Response("Péér A", [File(@"Artist\Album\01 - Artist - Track.flac")]));
-            await foreach (var _ in persistence.SearchViews!.ReadIncompleteAsync())
-                Assert.Fail("A plain user search must not create a projection resource before a reader requests one.");
             engine.GetUserSuccessCounts(source.WorkflowId)["Péér B"] = -1;
             var request = new CreateSearchViewRequestDto(kind,
                 SongQuery: new SongQueryDto("Artist", "", "", "", null, false),
@@ -602,7 +568,7 @@ public sealed class SearchViewCoordinatorTests
                 IncludeFullResults: true,
                 RefinementSettings: new SearchSettingsPatchDto(MinSharesAggregate: 1));
             var unread = await CreateAndObserveAsync(views, source.JobId, request);
-            var first = (await views.GetFilesAsync(unread.ViewId, unread.Revision, null, 500, cancellationToken: CancellationToken.None))!.Items.Single();
+            var first = (views.GetFiles(unread.ViewId, unread.Revision, null, 500, cancellationToken: CancellationToken.None))!.Items.Single();
             // This second View represents a refinement/another reader. Its
             // publication is also a barrier through the single projection worker.
             var active = await CreateAndObserveAsync(views, source.JobId, request);
@@ -614,7 +580,7 @@ public sealed class SearchViewCoordinatorTests
             // A fresh requested View runs after any work queued by that response.
             // This makes the unread-prefix assertion causal, without a delay.
             await CreateAndObserveAsync(views, source.JobId, request);
-            var stillUnread = (await persistence.SearchViews!.GetAsync(unread.ViewId))!;
+            var stillUnread = (views.Cache.Get(unread.ViewId))!;
             Assert.AreEqual(unread.Revision, stillUnread.Revision,
                 "Reading a refinement must not advance the View the reader left behind.");
             Assert.AreEqual(1L, stillUnread.Counters.PublicFileCount);
@@ -625,17 +591,17 @@ public sealed class SearchViewCoordinatorTests
             await persistence.WaitForJobHandoffAsync(source.JobId, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
             Assert.IsNull(supervisor.GetRuntimeJob<Job>(source.JobId));
             active = await WaitForConditionViewAsync(views, active.ViewId, value => value.IsComplete, () => { });
-            stillUnread = (await persistence.SearchViews.GetAsync(unread.ViewId))!;
+            stillUnread = (views.Cache.Get(unread.ViewId))!;
             Assert.AreEqual(unread.Revision, stillUnread.Revision,
                 "Raw search completion must not trigger unused projection work.");
-            var oldPage = (await views.GetFilesAsync(unread.ViewId, unread.Revision, null, 500, cancellationToken: CancellationToken.None))!;
+            var oldPage = (views.GetFiles(unread.ViewId, unread.Revision, null, 500, cancellationToken: CancellationToken.None))!;
             Assert.AreEqual(first.Ref, oldPage.Items.Single().Ref);
             var resumed = await WaitForConditionViewAsync(views, unread.ViewId, value => value.IsComplete, () => { });
             Assert.AreEqual(active.Counters, resumed.Counters);
-            var resumedFiles = (await views.GetFilesAsync(unread.ViewId, resumed.Revision, null, 500, cancellationToken: CancellationToken.None))!.Items;
+            var resumedFiles = (views.GetFiles(unread.ViewId, resumed.Revision, null, 500, cancellationToken: CancellationToken.None))!.Items;
             Assert.AreEqual(3, resumedFiles.Count);
             Assert.AreEqual(first.Ref, resumedFiles.Single(file => file.Peer.Username == "Péér A").Ref);
-            var activeFiles = (await views.GetFilesAsync(active.ViewId, active.Revision, null, 500, cancellationToken: CancellationToken.None))!.Items;
+            var activeFiles = (views.GetFiles(active.ViewId, active.Revision, null, 500, cancellationToken: CancellationToken.None))!.Items;
             CollectionAssert.AreEqual(activeFiles.Select(file => file.Ref).ToArray(), resumedFiles.Select(file => file.Ref).ToArray(),
                 "Evicting a working kernel must preserve this View's workflow-local ranking facts.");
         }
@@ -679,7 +645,7 @@ public sealed class SearchViewCoordinatorTests
         var persistence = new PersistenceCoordinator(options);
         using var supervisor = new EngineSupervisor(options, persistence, NullLoggerFactory.Instance);
         await using var views = new SearchViewCoordinator(supervisor, persistence,
-            new SubmissionCommitCoordinator(persistence), new SearchViewCursorCodec(options),
+            new SubmissionCommitCoordinator(persistence), new SearchViewCursorCodec(),
             NullLogger<SearchViewCoordinator>.Instance);
         using var cancellation = new CancellationTokenSource();
         Task run = Task.CompletedTask;
@@ -699,7 +665,7 @@ public sealed class SearchViewCoordinatorTests
             supervisor.EngineCreated += engine => engineCreated.TrySetResult(engine);
             run = supervisor.RunAsync(cancellation.Token);
             DownloadEngine engine = await engineCreated.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            JobSummaryDto source = await supervisor.SubmitSearchJobAsync(new("Artist"), CancellationToken.None);
+            JobSummaryDto source = await supervisor.Submissions.SubmitSearchJobAsync(new("Artist"), CancellationToken.None);
             Action<SearchResponse> receive = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
             persistence.Health!.CommitCompleted += HoldCommit;
             Interlocked.Exchange(ref holdNextCommit, 1);
@@ -718,7 +684,7 @@ public sealed class SearchViewCoordinatorTests
                 "The read handoff preserves this workflow's last counters after engine disposal.");
             Assert.AreEqual(0, engine.GetUserSuccessCounts(source.WorkflowId).Count);
 
-            var history = new HistoricalQueryFacade(supervisor.StateStore, supervisor, persistence);
+            var history = new JobReadService(supervisor.StateStore, supervisor, persistence);
             CombinedSearchRawPage firstRaw = (await history.GetRawSearchResultsAsync(source.JobId, 0, 1)
                 .WaitAsync(TimeSpan.FromSeconds(5)))!;
             Assert.AreEqual(1, firstRaw.Items.Count);
@@ -732,7 +698,6 @@ public sealed class SearchViewCoordinatorTests
             Assert.IsFalse(releaseWriter.Task.IsCompleted, "Raw paging must use the same read handoff as Search Views.");
 
             var pendingViews = new Dictionary<ServerSearchViewProjectionKind, Task<SearchViewSummaryDto?>>();
-            int queuedBefore = persistence.Queue.CriticalDepth;
             foreach (ServerSearchViewProjectionKind kind in Enum.GetValues<ServerSearchViewProjectionKind>())
             {
                 var request = new CreateSearchViewRequestDto(kind,
@@ -741,12 +706,6 @@ public sealed class SearchViewCoordinatorTests
                     RefinementSettings: new SearchSettingsPatchDto(MinSharesAggregate: 1));
                 pendingViews.Add(kind, views.CreateAsync(source.JobId, request, CancellationToken.None));
             }
-            Assert.IsTrue(pendingViews.Values.All(task => !task.IsCompleted),
-                "Persisting a View must use the paused transaction owner.");
-            Assert.IsTrue(persistence.Queue.CriticalDepth > queuedBefore,
-                "Opening a View must reach write admission without waiting for raw-history handoff or global pruning.");
-            releaseWriter.TrySetResult();
-
             var beforeDrain = new Dictionary<ServerSearchViewProjectionKind, string[]>();
             foreach (var (kind, opening) in pendingViews)
             {
@@ -759,6 +718,8 @@ public sealed class SearchViewCoordinatorTests
                 beforeDrain[kind] = ConditionRowSnapshots(await ReadConditionFilesAsync(views, view));
             }
 
+            Assert.IsFalse(releaseWriter.Task.IsCompleted, "Views must be readable while durable raw intake is held.");
+            releaseWriter.TrySetResult();
             await persistence.WaitForJobHandoffAsync(source.JobId, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
             Assert.IsNull(persistence.GetRetiringSearchSource(source.JobId), "Acknowledgement releases the in-memory read inputs.");
             CombinedSearchRawPage durableRaw = (await history.GetRawSearchResultsAsync(source.JobId, 0, 500))!;
@@ -817,7 +778,7 @@ public sealed class SearchViewCoordinatorTests
             {
                 var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
                 var views = app.Services.GetRequiredService<SearchViewCoordinator>();
-                JobSummaryDto source = await supervisor.SubmitAlbumSearchJobAsync(
+                JobSummaryDto source = await supervisor.Submissions.SubmitAlbumSearchJobAsync(
                     new(new AlbumQueryDto(Artist: "Artist")), CancellationToken.None);
                 Action<SearchResponse> receive = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
                 SearchViewSummaryDto view = (await views.CreateAsync(source.JobId,
@@ -830,13 +791,12 @@ public sealed class SearchViewCoordinatorTests
                 view = await WaitForConditionViewAsync(views, view.ViewId,
                     summary => summary.Counters.PublicFileCount == 3 && summary.Counters.LockedFileCount == 1,
                     () => receive(Response("ExactPeer", [File(first), File(second), File(sibling)], [File(locked)])));
-                var groups = (await views.GetAggregateAlbumsAsync(view.ViewId, view.Revision, null, 10, CancellationToken.None))!.Items;
+                var groups = (views.GetAggregateAlbums(view.ViewId, view.Revision, null, 10, CancellationToken.None))!.Items;
                 Assert.AreEqual(2, groups.Count);
                 SearchViewAggregateAlbumGroupDto alpha = groups.Single(group => group.Query.Album == "Album Alpha");
                 SearchViewAggregateAlbumGroupDto beta = groups.Single(group => group.Query.Album == "Album Beta");
                 Assert.AreEqual(SearchViewDirectoryVisibility.Mixed, alpha.Representative.Visibility);
-                var children = (await views.GetDirectoryFilesAsync(view.ViewId, alpha.Representative.Ref.Ref,
-                    view.Revision, null, 10, CancellationToken.None))!.Items;
+                var children = (views.GetDirectoryFiles(view.ViewId, alpha.Representative.Ref.Ref, view.Revision, null, 10, CancellationToken.None))!.Items;
                 Assert.AreEqual(3, children.Count);
                 string Ref(string path) => children.Single(child => child.File.RemoteFilename == path).Ref;
                 var chosen = new Dictionary<string, string> { [alpha.Ref] = alpha.Representative.Ref.Ref, [beta.Ref] = beta.Representative.Ref.Ref };
@@ -847,14 +807,13 @@ public sealed class SearchViewCoordinatorTests
                         : new(RefSelectionMode.Only, [Ref(first), Ref(locked)]),
                 };
                 var selection = new RefSelectionExpressionDto(RefSelectionMode.Only, [alpha.Ref, beta.Ref]);
-                var count = (await views.CountSelectionAsync(view.ViewId,
-                    new(view.Revision, selection, ChosenOptions: chosen, AlbumFileSelections: files), CancellationToken.None))!;
+                var count = (views.Selections.CountSelection(view.ViewId, new(view.Revision, selection, ChosenOptions: chosen, AlbumFileSelections: files), CancellationToken.None))!;
                 Assert.AreEqual(2L, count.PublicFileCount);
                 Assert.AreEqual(1L, count.LockedFileCount);
                 Assert.AreEqual(2L, count.SelectedItemCount);
                 var request = new CommitSearchViewSelectionRequestDto(view.Revision, selection, Guid.NewGuid(),
                     ChosenOptions: chosen, AlbumFileSelections: files);
-                var receipt = (await views.CommitSelectionAsync(view.ViewId, request, CancellationToken.None))!;
+                var receipt = (await views.Selections.CommitSelectionAsync(view.ViewId, request, CancellationToken.None))!;
                 Assert.AreEqual(2L, receipt.SubmittedCount);
                 Assert.AreEqual(0L, receipt.RejectedCount);
                 var accepted = await app.Services.GetRequiredService<PersistenceCoordinator>().Submissions!
@@ -871,9 +830,8 @@ public sealed class SearchViewCoordinatorTests
                     {
                         [alpha.Ref] = new(allExcept ? RefSelectionMode.AllExcept : RefSelectionMode.Only, [invalid]),
                     };
-                    await Assert.ThrowsExactlyAsync<ArgumentException>(() => views.CountSelectionAsync(view.ViewId,
-                        new(view.Revision, selection, ChosenOptions: chosen, AlbumFileSelections: invalidFiles), CancellationToken.None));
-                    var isolated = (await views.CommitSelectionAsync(view.ViewId,
+                    Assert.ThrowsExactly<ArgumentException>(() => views.Selections.CountSelection(view.ViewId, new(view.Revision, selection, ChosenOptions: chosen, AlbumFileSelections: invalidFiles), CancellationToken.None));
+                    var isolated = (await views.Selections.CommitSelectionAsync(view.ViewId,
                         request with { IdempotencyKey = Guid.NewGuid(), AlbumFileSelections = invalidFiles }, CancellationToken.None))!;
                     Assert.AreEqual(1L, isolated.SubmittedCount);
                     Assert.AreEqual(1L, isolated.RejectedCount);
@@ -903,23 +861,23 @@ public sealed class SearchViewCoordinatorTests
         string directory = Path.Combine(Path.GetTempPath(), "sockseek-planning-prune-" + Guid.NewGuid().ToString("N"));
         var client = ControllableSearchClientProxy.Create();
         var options = Microsoft.Extensions.Options.Options.Create(Options(directory, client.Client));
-        var persistence = new PersistenceCoordinator(options);
+        var clock = new ViewClock();
+        var persistence = new PersistenceCoordinator(options, timeProvider: clock);
         var supervisor = new EngineSupervisor(options, persistence, NullLoggerFactory.Instance);
         await using var views = new SearchViewCoordinator(
             supervisor, persistence, new SubmissionCommitCoordinator(persistence),
-            new SearchViewCursorCodec(options), NullLogger<SearchViewCoordinator>.Instance);
+            new SearchViewCursorCodec(), NullLogger<SearchViewCoordinator>.Instance, clock);
         try
         {
             await persistence.StartAsync(CancellationToken.None);
             await views.StartAsync(CancellationToken.None);
             // Admission and planning need no running engine or network search.
-            JobSummaryDto source = await supervisor.SubmitTrackSearchJobAsync(
+            JobSummaryDto source = await supervisor.Submissions.SubmitTrackSearchJobAsync(
                 new(new SongQueryDto(Artist: "Artist", Title: "Track")), CancellationToken.None);
-            var repository = persistence.SearchViews!;
+            var repository = views.Cache;
             bool commit = operation.StartsWith("commit", StringComparison.Ordinal);
             bool latePrune = operation == "commit-late";
             long expected = latePrune ? 2 : 1;
-            var inconsistent = new List<string>();
             SearchViewProjectionKind[] kinds = latePrune
                 ? [SearchViewProjectionKind.GenericDirectories] : Enum.GetValues<SearchViewProjectionKind>();
             foreach (SearchViewProjectionKind kind in kinds)
@@ -932,7 +890,7 @@ public sealed class SearchViewCoordinatorTests
                     NecessaryCond = new FileConditions(), PreferredCond = new FileConditions(),
                     NecessaryFolderCond = new FolderConditions(), MinSharesAggregate = 1,
                 });
-                var stored = await repository.CreateAsync(source.JobId, kind, "{}");
+                var stored = repository.Create(source.JobId, new SearchViewDefinition(SearchDefinition.Create(new SearchJob("test"), new SearchSettings()), definition));
                 var inputs = new List<SearchProjectionInput>
                 {
                     new(1, 1, "ExactPeer", (int)expected, @"Artist\Album\01 - Track.flac", 900,
@@ -940,15 +898,14 @@ public sealed class SearchViewCoordinatorTests
                 };
                 if (latePrune) inputs.Add(inputs[0] with { Sequence = 2, Filename = @"Artist\Album Two\02 - Track.flac" });
                 await SeedOriginalsAsync(persistence, source.JobId, inputs);
-                stored = await repository.PublishAsync(stored.Id, kernel.Apply(inputs, 1, true), "Complete");
+                stored = repository.Publish(stored.Id, kernel.Apply(inputs, 1, true), "Complete");
                 var selection = new RefSelectionExpressionDto(RefSelectionMode.AllExcept, []);
-                var control = await views.CountSelectionAsync(stored.Id,
-                    new(stored.Revision, selection), CancellationToken.None);
+                var control = views.Selections.CountSelection(stored.Id, new(stored.Revision, selection), CancellationToken.None);
                 Assert.AreEqual(expected, control!.PublicFileCount, kind.ToString());
                 Assert.AreEqual(expected, control.SelectedItemCount, kind.ToString());
                 if (commit)
                 {
-                    var accepted = await views.CommitSelectionAsync(stored.Id,
+                    var accepted = await views.Selections.CommitSelectionAsync(stored.Id,
                         new(stored.Revision, selection, Guid.NewGuid()), CancellationToken.None);
                     Assert.AreEqual(expected, accepted!.SubmittedCount, kind.ToString());
                     Assert.AreEqual(0L, accepted.RejectedCount, kind.ToString());
@@ -956,75 +913,60 @@ public sealed class SearchViewCoordinatorTests
                 }
                 if (operation == "settings")
                 {
-                    var settings = await views.ResolveSelectionSettingsAsync(stored.Id,
-                        new(stored.Revision, selection), CancellationToken.None);
+                    var settings = views.Selections.ResolveSelectionSettings(stored.Id, new(stored.Revision, selection), CancellationToken.None);
                     Assert.AreEqual(1, settings!.Variants.Count, kind.ToString());
                 }
-                Guid[] acceptedBefore = commit
-                    ? (await persistence.Submissions!.GetSubmissionsAsync(new(Limit: 100))).Items
-                        .Select(submission => submission.Id).ToArray()
-                    : [];
                 int armed = 1;
                 int pruned = 0;
                 using var observer = new ActivityListener
                 {
-                    ShouldListenTo = activitySource => activitySource.Name == "Sockseek.Persistence.SearchViews",
+                    ShouldListenTo = activitySource => activitySource.Name == "Sockseek.Server.SearchViewCache",
                     Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
                     ActivityStopped = activity =>
                     {
-                        if (activity.OperationName != (latePrune ? "directory-files" : "revision")
+                        if (activity.OperationName != (latePrune ? "directory-files" : "snapshot")
                             || activity.GetTagItem("view.id") is not Guid id
                             || id != stored.Id || Interlocked.Exchange(ref armed, 0) == 0) return;
-                        using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
-                            new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
-                            { DataSource = SockseekDataPaths.ResolveDatabasePath(directory) }.ToString());
-                        connection.Open();
-                        using var expire = connection.CreateCommand();
-                        expire.CommandText = "UPDATE search_views SET expires_at_utc = 0 WHERE id = $view;";
-                        expire.Parameters.AddWithValue("$view", stored.Id.ToString("D"));
-                        Assert.AreEqual(1, expire.ExecuteNonQuery());
-                        pruned = repository.PruneExpiredAsync().GetAwaiter().GetResult();
+                        clock.Advance(TimeSpan.FromMinutes(16));
+                        pruned = repository.PruneExpired();
                     },
                 };
                 ActivitySource.AddActivityListener(observer);
-                try
+                var request = new CommitSearchViewSelectionRequestDto(stored.Revision, selection, Guid.NewGuid());
+                if (commit)
                 {
-                    if (commit)
-                    {
-                        var receipt = await views.CommitSelectionAsync(stored.Id,
-                            new(stored.Revision, selection, Guid.NewGuid()), CancellationToken.None);
-                        if (receipt != null && receipt.SubmittedCount != expected)
-                            inconsistent.Add($"{kind}: commit submitted {receipt.SubmittedCount} instead of the complete selection.");
-                    }
-                    else if (operation == "settings")
-                    {
-                        var settings = await views.ResolveSelectionSettingsAsync(stored.Id,
-                            new(stored.Revision, selection), CancellationToken.None);
-                        if (settings != null && settings.Variants.Count != 1)
-                            inconsistent.Add($"{kind}: settings returned no variant for a nonempty selection.");
-                    }
-                    else
-                    {
-                        var count = await views.CountSelectionAsync(stored.Id,
-                            new(stored.Revision, selection), CancellationToken.None);
-                        if (count != null && (count.PublicFileCount != expected || count.SelectedItemCount != expected))
-                            inconsistent.Add($"{kind}: count returned {count.PublicFileCount} files / {count.SelectedItemCount} items.");
-                    }
+                    var receipt = await views.Selections.CommitSelectionAsync(stored.Id, request, CancellationToken.None);
+                    Assert.IsNotNull(receipt);
+                    Assert.AreEqual(expected, receipt.SubmittedCount, kind.ToString());
+                    Assert.AreEqual(0L, receipt.RejectedCount, kind.ToString());
+                    var retry = await views.Selections.CommitSelectionAsync(stored.Id, request, CancellationToken.None);
+                    Assert.AreEqual(receipt.SubmissionId, retry!.SubmissionId,
+                        "Accepted intent and its retry receipt outlive the issuing snapshot.");
                 }
-                catch (InvalidOperationException)
+                else if (operation == "settings")
                 {
-                    // An unavailable revision is valid; silently dropping selected
-                    // work or reporting a false zero count is not.
-                    if (commit)
-                        CollectionAssert.AreEquivalent(acceptedBefore,
-                            (await persistence.Submissions!.GetSubmissionsAsync(new(Limit: 100))).Items
-                                .Select(submission => submission.Id).ToArray(),
-                            "Rejecting an unavailable revision must not accept a partial submission.");
+                    var settings = views.Selections.ResolveSelectionSettings(stored.Id,
+                        new(stored.Revision, selection), CancellationToken.None);
+                    Assert.IsNotNull(settings);
+                    Assert.AreEqual(1, settings.Variants.Count, kind.ToString());
                 }
+                else
+                {
+                    var count = views.Selections.CountSelection(stored.Id,
+                        new(stored.Revision, selection), CancellationToken.None);
+                    Assert.IsNotNull(count);
+                    Assert.AreEqual(expected, count.PublicFileCount, kind.ToString());
+                    Assert.AreEqual(expected, count.SelectedItemCount, kind.ToString());
+                }
+                Assert.IsNull(views.Selections.CountSelection(stored.Id,
+                    new(stored.Revision, selection), CancellationToken.None));
+                Assert.IsNull(views.Selections.ResolveSelectionSettings(stored.Id,
+                    new(stored.Revision, selection), CancellationToken.None));
+                await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() => views.Selections.CommitSelectionAsync(
+                    stored.Id, request with { IdempotencyKey = Guid.NewGuid() }, CancellationToken.None));
                 Assert.AreEqual(1, pruned, kind.ToString());
-                Assert.IsNull(await views.GetAsync(stored.Id, CancellationToken.None));
+                Assert.IsNull(views.Get(stored.Id, CancellationToken.None));
             }
-            Assert.AreEqual(0, inconsistent.Count, string.Join(Environment.NewLine, inconsistent));
         }
         finally
         {
@@ -1045,18 +987,18 @@ public sealed class SearchViewCoordinatorTests
         var supervisor = new EngineSupervisor(options, persistence, NullLoggerFactory.Instance);
         await using var views = new SearchViewCoordinator(
             supervisor, persistence, new SubmissionCommitCoordinator(persistence),
-            new SearchViewCursorCodec(options), NullLogger<SearchViewCoordinator>.Instance);
+            new SearchViewCursorCodec(), NullLogger<SearchViewCoordinator>.Instance);
         try
         {
             await persistence.StartAsync(CancellationToken.None);
             await views.StartAsync(CancellationToken.None);
             // Do not run the engine: keep admission -> registration deterministic.
-            JobSummaryDto accepted = await supervisor.SubmitTrackSearchJobAsync(
+            JobSummaryDto accepted = await supervisor.Submissions.SubmitTrackSearchJobAsync(
                 new SubmitTrackSearchJobRequestDto(new SongQueryDto(Artist: "Fixture"), AggregatePresentation: true),
                 CancellationToken.None);
             Assert.IsNotNull(supervisor.StateStore.GetJobSummary(accepted.JobId),
                 "Durable acceptance must not leave the returned job absent from immediate reads.");
-            var queries = new HistoricalQueryFacade(supervisor.StateStore, supervisor, persistence);
+            var queries = new JobReadService(supervisor.StateStore, supervisor, persistence);
             var pendingPage = await queries.GetJobsAsync(
                 new JobQuery(null, null, null, null, IncludeAll: false), null, 100);
             Assert.AreEqual(accepted.JobId, pendingPage.Items.Single().JobId);
@@ -1075,7 +1017,7 @@ public sealed class SearchViewCoordinatorTests
             Assert.AreEqual(ServerSearchViewProjectionKind.AggregateTracks, view.Kind);
             Assert.IsFalse(view.IsComplete);
             Assert.IsNull(await persistence.JobHistory!.GetJobAsync(accepted.JobId));
-            JobSummaryDto? replay = await supervisor.RerunSearchJobAsync(accepted.JobId, CancellationToken.None);
+            JobSummaryDto? replay = await supervisor.Submissions.RerunSearchJobAsync(accepted.JobId, CancellationToken.None);
             Assert.IsNotNull(replay, "Accepted live/pending searches must not depend on a historical job row.");
             Assert.AreNotEqual(accepted.JobId, replay.JobId);
             Assert.AreNotEqual(accepted.SubmissionId, replay.SubmissionId);
@@ -1083,7 +1025,7 @@ public sealed class SearchViewCoordinatorTests
                 replay.JobId, new CreateSearchViewRequestDto(), CancellationToken.None);
             Assert.IsNotNull(replayView);
             Assert.AreEqual(ServerSearchViewProjectionKind.AggregateTracks, replayView.Kind);
-            SubmissionArchiveResponseDto archive = await supervisor.SetSubmissionArchivedAsync(
+            SubmissionArchiveResponseDto archive = await queries.SetSubmissionArchivedAsync(
                 accepted.SubmissionId!.Value, true, CancellationToken.None);
             Assert.AreEqual(1, archive.RejectedSubmissionCount);
             Assert.AreEqual("nonterminal-jobs", archive.RejectionReasons.Single().Reason);
@@ -1124,11 +1066,11 @@ public sealed class SearchViewCoordinatorTests
             {
                 var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
                 var views = app.Services.GetRequiredService<SearchViewCoordinator>();
-                JobSummaryDto job = await supervisor.SubmitSearchJobAsync(new("Folder"), CancellationToken.None);
+                JobSummaryDto job = await supervisor.Submissions.SubmitSearchJobAsync(new("Folder"), CancellationToken.None);
                 Action<SearchResponse> receive = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
                 SearchViewSummaryDto original = (await views.CreateAsync(job.JobId, new(), CancellationToken.None))!;
                 long revision = await PublishAsync(views, original.ViewId, () => receive(Response("peer", [File(@"Folder\Root.txt")])));
-                var page = (await views.GetDirectoriesAsync(original.ViewId, revision, null, 10, cancellationToken: CancellationToken.None))!;
+                var page = (views.GetDirectories(original.ViewId, revision, null, 10, cancellationToken: CancellationToken.None))!;
                 var retrievalPublished = ObserveNext(views, original.ViewId);
                 try
                 {
@@ -1148,10 +1090,8 @@ public sealed class SearchViewCoordinatorTests
                 receive(Response("peer", [File(@"Folder\NewLate.txt")]));
                 SearchViewUpdateDto updated = (await waiting)!;
                 Assert.IsTrue(updated.HasNewRevision);
-                var directories = (await views.GetDirectoriesAsync(refined.ViewId, updated.Summary.Revision,
-                    null, 10, cancellationToken: CancellationToken.None))!;
-                var files = (await views.GetDirectoryFilesAsync(refined.ViewId, directories.Items.Single().Ref.Ref,
-                    updated.Summary.Revision, null, 10, CancellationToken.None))!;
+                var directories = (views.GetDirectories(refined.ViewId, updated.Summary.Revision, null, 10, cancellationToken: CancellationToken.None))!;
+                var files = (views.GetDirectoryFiles(refined.ViewId, directories.Items.Single().Ref.Ref, updated.Summary.Revision, null, 10, CancellationToken.None))!;
                 CollectionAssert.AreEquivalent(new[] { @"Folder\NewCached.txt", @"Folder\NewLate.txt" },
                     files.Items.Select(item => item.File.RemoteFilename).ToArray());
                 Assert.AreEqual(1, browseCount, "Replaying retained observations must not browse the peer again.");
@@ -1209,7 +1149,7 @@ public sealed class SearchViewCoordinatorTests
                 [], Options(directory, client.Client), "http://127.0.0.1:0");
             await app.StartAsync();
             EngineSupervisor supervisor = app.Services.GetRequiredService<EngineSupervisor>();
-            JobSummaryDto job = await supervisor.SubmitSearchJobAsync(
+            JobSummaryDto job = await supervisor.Submissions.SubmitSearchJobAsync(
                 new SubmitSearchJobRequestDto("Track"), CancellationToken.None);
             jobId = job.JobId;
             Action<SearchResponse> receive = await searchStarted.Task.WaitAsync(
@@ -1240,8 +1180,7 @@ public sealed class SearchViewCoordinatorTests
                     SortOrder: ServerSearchViewSortOrder.ItemSizeDescending),
                 CancellationToken.None))!;
             Assert.AreEqual(ServerSearchViewSortOrder.ItemSizeDescending, view.SortOrder);
-            SearchViewDefinitionDto liveDefinition = (await views.GetDefinitionAsync(
-                view.ViewId, CancellationToken.None))!;
+            SearchViewDefinitionDto liveDefinition = (views.GetDefinition(view.ViewId, CancellationToken.None))!;
             Assert.AreEqual("flac", liveDefinition.Projection.FilterText);
             CollectionAssert.AreEqual(
                 new[] { "flac" },
@@ -1250,25 +1189,19 @@ public sealed class SearchViewCoordinatorTests
                 "peer",
                 [File(@"Music\Track.flac"), File(@"Music\Track.mp3")])));
             var invalidMode = new RefSelectionExpressionDto((RefSelectionMode)123, []);
+            Assert.ThrowsExactly<ArgumentException>(() =>
+                views.Selections.ResolveSelectionSettings(view.ViewId, new ResolveSearchViewSelectionSettingsRequestDto(revision, invalidMode), CancellationToken.None));
+            Assert.ThrowsExactly<ArgumentException>(() =>
+                views.Selections.CountSelection(view.ViewId, new CountSearchViewSelectionRequestDto(revision, invalidMode), CancellationToken.None));
             await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
-                views.ResolveSelectionSettingsAsync(view.ViewId,
-                    new ResolveSearchViewSelectionSettingsRequestDto(revision, invalidMode),
-                    CancellationToken.None));
-            await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
-                views.CountSelectionAsync(view.ViewId,
-                    new CountSearchViewSelectionRequestDto(revision, invalidMode),
-                    CancellationToken.None));
-            await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
-                views.CommitSelectionAsync(view.ViewId,
+                views.Selections.CommitSelectionAsync(view.ViewId,
                     new CommitSearchViewSelectionRequestDto(revision, invalidMode, Guid.NewGuid()),
                     CancellationToken.None));
-            SearchViewSummaryDto summary = (await views.GetAsync(
-                view.ViewId, CancellationToken.None))!;
+            SearchViewSummaryDto summary = (views.Get(view.ViewId, CancellationToken.None))!;
             Assert.AreEqual(2L, summary.Counters.PublicFileCount);
             Assert.AreEqual(1L, summary.Counters.ProjectedFileCount);
             Assert.AreEqual(1L, summary.Counters.PreferredFileCount);
-            SearchViewFilePageDto page = (await views.GetFilesAsync(
-                view.ViewId, revision, null, 10, cancellationToken: CancellationToken.None))!;
+            SearchViewFilePageDto page = (views.GetFiles(view.ViewId, revision, null, 10, cancellationToken: CancellationToken.None))!;
             Assert.AreEqual(1, page.Items.Count);
             Assert.AreEqual(@"Music\Track.flac", page.Items[0].RemoteFilename);
             Assert.AreEqual(ServerSearchPreferenceTier.Preferred, page.Items[0].PreferenceTier);
@@ -1292,7 +1225,7 @@ public sealed class SearchViewCoordinatorTests
                 .GetRequiredService<SearchViewCoordinator>();
             var historicalPublished = new TaskCompletionSource<(Guid Id, long Revision)>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-            void OnHistoricalPublished(Sockseek.Persistence.Planning.StoredSearchView published)
+            void OnHistoricalPublished(Sockseek.Server.Planning.SearchViewInfo published)
                 => historicalPublished.TrySetResult((published.Id, published.Revision));
             historicalViews.ViewPublished += OnHistoricalPublished;
             try
@@ -1309,8 +1242,7 @@ public sealed class SearchViewCoordinatorTests
                     CancellationToken.None))!;
                 Assert.AreEqual(ServerSearchViewSortOrder.ItemSizeAscending,
                     historical.SortOrder);
-                SearchViewDefinitionDto retainedDefinition = (await historicalViews
-                    .GetDefinitionAsync(historical.ViewId, CancellationToken.None))!;
+                SearchViewDefinitionDto retainedDefinition = (historicalViews.GetDefinition(historical.ViewId, CancellationToken.None))!;
                 Assert.AreEqual("mp3", retainedDefinition.Projection.FilterText);
                 CollectionAssert.AreEqual(
                     new[] { "mp3" },
@@ -1318,8 +1250,7 @@ public sealed class SearchViewCoordinatorTests
                 (Guid id, long historicalRevision) = await historicalPublished.Task
                     .WaitAsync(TimeSpan.FromSeconds(5));
                 Assert.AreEqual(historical.ViewId, id);
-                SearchViewFilePageDto historicalPage = (await historicalViews.GetFilesAsync(
-                    historical.ViewId, historicalRevision, null, 10, cancellationToken: CancellationToken.None))!;
+                SearchViewFilePageDto historicalPage = (historicalViews.GetFiles(historical.ViewId, historicalRevision, null, 10, cancellationToken: CancellationToken.None))!;
                 Assert.AreEqual(1, historicalPage.Items.Count);
                 Assert.AreEqual(@"Music\Track.mp3", historicalPage.Items[0].RemoteFilename);
             }
@@ -1368,12 +1299,12 @@ public sealed class SearchViewCoordinatorTests
             var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
             JobSummaryDto source = kind switch
             {
-                ServerSearchViewProjectionKind.GenericDirectories => await supervisor.SubmitSearchJobAsync(
+                ServerSearchViewProjectionKind.GenericDirectories => await supervisor.Submissions.SubmitSearchJobAsync(
                     new SubmitSearchJobRequestDto("Track"), CancellationToken.None),
                 ServerSearchViewProjectionKind.Files or ServerSearchViewProjectionKind.AggregateTracks =>
-                    await supervisor.SubmitTrackSearchJobAsync(new SubmitTrackSearchJobRequestDto(
+                    await supervisor.Submissions.SubmitTrackSearchJobAsync(new SubmitTrackSearchJobRequestDto(
                         new SongQueryDto(Artist: "Artist", Title: "Track")), CancellationToken.None),
-                _ => await supervisor.SubmitAlbumSearchJobAsync(new SubmitAlbumSearchJobRequestDto(
+                _ => await supervisor.Submissions.SubmitAlbumSearchJobAsync(new SubmitAlbumSearchJobRequestDto(
                     new AlbumQueryDto(Artist: "Artist", Album: "Album")), CancellationToken.None),
             };
             Action<SearchResponse> receive = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1463,8 +1394,7 @@ public sealed class SearchViewCoordinatorTests
                             ? ServerSearchPreferenceTier.Preferred : ServerSearchPreferenceTier.Other,
                         file.PreferenceTier);
                 liveRows[view.ViewId] = ConditionRowSnapshots(files);
-                var count = (await views.CountSelectionAsync(view.ViewId,
-                    new CountSearchViewSelectionRequestDto(view.Revision,
+                var count = (views.Selections.CountSelection(view.ViewId, new CountSearchViewSelectionRequestDto(view.Revision,
                         new RefSelectionExpressionDto(RefSelectionMode.AllExcept, [])), CancellationToken.None))!;
                 long selectedFiles = kind switch
                 {
@@ -1521,8 +1451,7 @@ public sealed class SearchViewCoordinatorTests
                     rows.Select(file => file.Peer.Username).Distinct(StringComparer.Ordinal).ToArray());
                 Assert.AreEqual((long)expectedPeers.Length * (albumMode ? 2 : 1), view.Counters.ProjectedFileCount);
                 Assert.AreEqual(preferred is false || necessary is false ? 1L : 2L, view.Counters.PreferredFileCount);
-                var selection = (await views.CountSelectionAsync(view.ViewId,
-                    new CountSearchViewSelectionRequestDto(view.Revision,
+                var selection = (views.Selections.CountSelection(view.ViewId, new CountSearchViewSelectionRequestDto(view.Revision,
                         new RefSelectionExpressionDto(RefSelectionMode.AllExcept, [])), CancellationToken.None))!;
                 long expectedSelectedFiles = kind switch
                 {
@@ -1575,7 +1504,7 @@ public sealed class SearchViewCoordinatorTests
         action();
         while (true)
         {
-            SearchViewSummaryDto summary = (await views.GetAsync(viewId, timeout.Token))!;
+            SearchViewSummaryDto summary = (views.Get(viewId, timeout.Token))!;
             if (ready(summary)) return summary;
             await views.GetUpdatesAsync(viewId, summary.Revision, waitForChange: true, timeout.Token);
         }
@@ -1595,20 +1524,19 @@ public sealed class SearchViewCoordinatorTests
         async Task<List<SearchViewDirectoryDto>> Directories()
             => await Pages<SearchViewDirectoryDto>(async cursor =>
             {
-                var page = (await views.GetDirectoriesAsync(view.ViewId, view.Revision, cursor, 1, cancellationToken: CancellationToken.None))!;
+                var page = (views.GetDirectories(view.ViewId, view.Revision, cursor, 1, cancellationToken: CancellationToken.None))!;
                 return (page.Items, page.NextCursor);
             });
         async Task<IEnumerable<SearchViewFileDto>> FolderFiles(SearchViewDirectoryDto folder)
             => (await Pages<SearchViewDirectoryFileDto>(async cursor =>
             {
-                var page = (await views.GetDirectoryFilesAsync(view.ViewId, folder.Ref.Ref,
-                    view.Revision, cursor, 1, CancellationToken.None))!;
+                var page = (views.GetDirectoryFiles(view.ViewId, folder.Ref.Ref, view.Revision, cursor, 1, CancellationToken.None))!;
                 return (page.Items, page.NextCursor);
             })).Select(row => row.File);
         if (view.Kind == ServerSearchViewProjectionKind.Files)
             return [.. await Pages<SearchViewFileDto>(async cursor =>
             {
-                var page = (await views.GetFilesAsync(view.ViewId, view.Revision, cursor, 1, cancellationToken: CancellationToken.None))!;
+                var page = (views.GetFiles(view.ViewId, view.Revision, cursor, 1, cancellationToken: CancellationToken.None))!;
                 return (page.Items, page.NextCursor);
             })];
         if (view.Kind is ServerSearchViewProjectionKind.GenericDirectories or ServerSearchViewProjectionKind.AlbumDirectories)
@@ -1622,13 +1550,13 @@ public sealed class SearchViewCoordinatorTests
         {
             var groups = await Pages<SearchViewAggregateTrackGroupDto>(async cursor =>
             {
-                var page = (await views.GetAggregateTracksAsync(view.ViewId, view.Revision, cursor, 1, CancellationToken.None))!;
+                var page = (views.GetAggregateTracks(view.ViewId, view.Revision, cursor, 1, CancellationToken.None))!;
                 return (page.Items, page.NextCursor);
             });
             foreach (var group in groups)
                 files.AddRange(await Pages<SearchViewFileDto>(async cursor =>
                 {
-                    var page = (await views.GetAggregateTrackOptionsAsync(view.ViewId, group.Ref, view.Revision, cursor, 1, CancellationToken.None))!;
+                    var page = (views.GetAggregateTrackOptions(view.ViewId, group.Ref, view.Revision, cursor, 1, CancellationToken.None))!;
                     return (page.Items, page.NextCursor);
                 }));
         }
@@ -1636,14 +1564,14 @@ public sealed class SearchViewCoordinatorTests
         {
             var groups = await Pages<SearchViewAggregateAlbumGroupDto>(async cursor =>
             {
-                var page = (await views.GetAggregateAlbumsAsync(view.ViewId, view.Revision, cursor, 1, CancellationToken.None))!;
+                var page = (views.GetAggregateAlbums(view.ViewId, view.Revision, cursor, 1, CancellationToken.None))!;
                 return (page.Items, page.NextCursor);
             });
             foreach (var group in groups)
             {
                 var folders = await Pages<SearchViewDirectoryDto>(async cursor =>
                 {
-                    var page = (await views.GetAggregateAlbumOptionsAsync(view.ViewId, group.Ref, view.Revision, cursor, 1, CancellationToken.None))!;
+                    var page = (views.GetAggregateAlbumOptions(view.ViewId, group.Ref, view.Revision, cursor, 1, CancellationToken.None))!;
                     return (page.Items, page.NextCursor);
                 });
                 foreach (var folder in folders) files.AddRange(await FolderFiles(folder));
@@ -1677,7 +1605,7 @@ public sealed class SearchViewCoordinatorTests
                 await app.StartAsync();
                 EngineSupervisor supervisor = app.Services.GetRequiredService<EngineSupervisor>();
 
-                JobSummaryDto track = await supervisor.SubmitTrackSearchJobAsync(
+                JobSummaryDto track = await supervisor.Submissions.SubmitTrackSearchJobAsync(
                     new SubmitTrackSearchJobRequestDto(
                         new SongQueryDto(Title: "Track"), AggregatePresentation: true),
                     CancellationToken.None);
@@ -1709,7 +1637,7 @@ public sealed class SearchViewCoordinatorTests
                 [], Options(directory, ControllableSearchClientProxy.Create().Client), "http://127.0.0.1:0"))
             {
                 await restarted.StartAsync();
-                JobDetailDto retained = (await restarted.Services.GetRequiredService<HistoricalQueryFacade>()
+                JobDetailDto retained = (await restarted.Services.GetRequiredService<JobReadService>()
                     .GetJobAsync(trackId))!;
                 if (retained.Payload is not SearchJobPayloadDto payload)
                     throw new AssertFailedException("Restarted search has no retained search payload.");
@@ -1727,7 +1655,7 @@ public sealed class SearchViewCoordinatorTests
     }
 
     [TestMethod]
-    public async Task UnavailableSearchViewStorageDoesNotDisableDirectSearchSubmission()
+    public async Task LiveSearchViewsDoNotRequirePersistence()
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -1750,22 +1678,19 @@ public sealed class SearchViewCoordinatorTests
             supervisor,
             persistence,
             commits,
-            new SearchViewCursorCodec(options),
+            new SearchViewCursorCodec(),
             NullLogger<SearchViewCoordinator>.Instance);
         try
         {
             await persistence.StartAsync(CancellationToken.None);
             await views.StartAsync(CancellationToken.None);
 
-            await Assert.ThrowsExactlyAsync<SearchViewUnavailableException>(() =>
-                views.CreateAsync(
-                    Guid.NewGuid(),
-                    new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.Files),
-                    CancellationToken.None));
-
-            JobSummaryDto direct = await supervisor.SubmitSearchJobAsync(
+            JobSummaryDto direct = await supervisor.Submissions.SubmitSearchJobAsync(
                 new SubmitSearchJobRequestDto("still accepted"),
                 CancellationToken.None);
+            var view = await views.CreateAsync(direct.JobId,
+                new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.Files), CancellationToken.None);
+            Assert.IsNotNull(view, "Live observations and temporary display state need no daemon database.");
             Assert.AreEqual(ServerJobKind.Search, direct.Kind);
             Assert.IsNotNull(direct.SubmissionId);
         }
@@ -1781,7 +1706,7 @@ public sealed class SearchViewCoordinatorTests
     [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
-    public async Task ViewResumesFromDurableSequenceAfterDaemonRestart(bool captureCompletion)
+    public async Task RestartRequiresANewViewAndRebuildsFromRetainedRawResults(bool captureCompletion)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -1789,6 +1714,7 @@ public sealed class SearchViewCoordinatorTests
             Guid.NewGuid().ToString("N"));
         System.IO.Directory.CreateDirectory(directory);
         Guid viewId;
+        Guid sourceJobId;
         long prefixRevision;
         try
         {
@@ -1808,11 +1734,8 @@ public sealed class SearchViewCoordinatorTests
                 "http://127.0.0.1:0"))
             {
                 EngineSupervisor supervisor = first.Services.GetRequiredService<EngineSupervisor>();
-                var engineCreated = new TaskCompletionSource<DownloadEngine>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-                supervisor.EngineCreated += engine => engineCreated.TrySetResult(engine);
                 await first.StartAsync();
-                JobSummaryDto job = await supervisor.SubmitSearchJobAsync(
+                JobSummaryDto job = await supervisor.Submissions.SubmitSearchJobAsync(
                     new SubmitSearchJobRequestDto("Restart Track"),
                     CancellationToken.None);
                 Action<SearchResponse> receive = await searchStarted.Task.WaitAsync(
@@ -1825,6 +1748,7 @@ public sealed class SearchViewCoordinatorTests
                         new SongQueryDto(Title: "Restart Track"),
                         IncludeFullResults: true),
                     CancellationToken.None))!;
+                sourceJobId = job.JobId;
                 viewId = created.ViewId;
                 prefixRevision = await PublishAsync(views, viewId, () => receive(Response(
                     "restart-peer",
@@ -1834,8 +1758,7 @@ public sealed class SearchViewCoordinatorTests
                     // Model losing the completion tail after a durable prefix.
                     // A graceful host stop now joins roots and captures it.
                     await views.StopAsync(CancellationToken.None);
-                    first.Services.GetRequiredService<PersistenceCoordinator>().DetachEngine(
-                        await engineCreated.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+                    supervisor.StateStore.SetJobPersistence(null);
                 }
                 await first.StopAsync();
             }
@@ -1850,23 +1773,21 @@ public sealed class SearchViewCoordinatorTests
                 try
                 {
                     await second.StartAsync();
-                    var untouched = await second.Services.GetRequiredService<PersistenceCoordinator>().SearchViews!
-                        .GetAsync(viewId, CancellationToken.None);
-                    Assert.AreEqual(prefixRevision, untouched!.Revision, "Restart must not eagerly project an unopened View.");
-                    SearchViewSummaryDto summary = await WaitForConditionViewAsync(views, viewId,
-                        value => value.IsComplete && value.Revision > prefixRevision, () => { });
+                    var untouched = views.Cache.Get(viewId, CancellationToken.None);
+                    Assert.IsNull(untouched, "Restart discards temporary Views and performs no eager projection.");
+                    Assert.IsNull(views.GetDirectories(viewId, prefixRevision, null, 10, cancellationToken: CancellationToken.None));
+                    var fresh = (await views.CreateAsync(sourceJobId,
+                        new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.GenericDirectories,
+                            new SongQueryDto(Title: "Restart Track"), IncludeFullResults: true), CancellationToken.None))!;
+                    SearchViewSummaryDto summary = await WaitForConditionViewAsync(views, fresh.ViewId,
+                        value => value.IsComplete, () => { });
                     Assert.IsTrue(summary.IsComplete);
                     Assert.AreEqual(captureCompletion
                         ? SearchViewRetentionState.Complete
                         : SearchViewRetentionState.Incomplete, summary.RetentionState);
                     Assert.AreEqual(1L, summary.Counters.PublicFileCount);
                     Assert.AreEqual(1L, summary.Counters.ProjectedFileCount);
-                    SearchViewDirectoryPageDto recoveredDirectories = (await views.GetDirectoriesAsync(
-                        viewId,
-                        prefixRevision,
-                        null,
-                        10,
-                        cancellationToken: CancellationToken.None))!;
+                    SearchViewDirectoryPageDto recoveredDirectories = (views.GetDirectories(fresh.ViewId, summary.Revision, null, 10, cancellationToken: CancellationToken.None))!;
                     Assert.AreEqual(1, recoveredDirectories.Items.Count);
                     Assert.AreEqual(@"Music", recoveredDirectories.Items[0].Ref.FolderPath);
                 }
@@ -1932,7 +1853,7 @@ public sealed class SearchViewCoordinatorTests
         {
             await app.StartAsync();
             EngineSupervisor supervisor = app.Services.GetRequiredService<EngineSupervisor>();
-            JobSummaryDto job = await supervisor.SubmitSearchJobAsync(
+            JobSummaryDto job = await supervisor.Submissions.SubmitSearchJobAsync(
                 new SubmitSearchJobRequestDto("Track"),
                 CancellationToken.None);
             Action<SearchResponse> receive = await searchStarted.Task.WaitAsync(
@@ -1963,42 +1884,22 @@ public sealed class SearchViewCoordinatorTests
             {
                 firstDirectoryPublished.Dispose();
             }
-            SearchViewSummaryDto first = (await views.GetAsync(
-                view.ViewId,
-                CancellationToken.None))!;
+            SearchViewSummaryDto first = (views.Get(view.ViewId, CancellationToken.None))!;
             Assert.IsFalse(first.IsComplete);
             Assert.AreEqual(1L, first.Counters.PublicFileCount);
             Assert.AreEqual(1L, first.Counters.ProjectedFileCount);
-            SearchViewFilePageDto firstPage = (await views.GetFilesAsync(
-                view.ViewId,
-                firstRevision,
-                cursor: null,
-                limit: 10,
-                cancellationToken: CancellationToken.None))!;
+            SearchViewFilePageDto firstPage = (views.GetFiles(view.ViewId, firstRevision, cursor: null, limit: 10, cancellationToken: CancellationToken.None))!;
             Assert.AreEqual(1, firstPage.Items.Count);
             Assert.AreEqual("first", firstPage.Items[0].Peer.Username);
             Assert.IsTrue(firstPage.Items[0].NecessaryConditionsSatisfied);
-            SearchViewSummaryDto firstDirectorySummary = (await views.GetAsync(
-                directoryView.ViewId,
-                CancellationToken.None))!;
+            SearchViewSummaryDto firstDirectorySummary = (views.Get(directoryView.ViewId, CancellationToken.None))!;
             Assert.AreEqual(1L, firstDirectorySummary.Counters.TopLevelItemCount);
-            SearchViewDirectoryPageDto firstDirectories = (await views.GetDirectoriesAsync(
-                directoryView.ViewId,
-                firstDirectorySummary.Revision,
-                null,
-                10,
-                cancellationToken: CancellationToken.None))!;
+            SearchViewDirectoryPageDto firstDirectories = (views.GetDirectories(directoryView.ViewId, firstDirectorySummary.Revision, null, 10, cancellationToken: CancellationToken.None))!;
             Assert.AreEqual(1, firstDirectories.Items.Count);
             Assert.AreEqual(@"Music", firstDirectories.Items[0].Ref.FolderPath);
             Assert.AreEqual(1, firstDirectories.Items[0].InitialFiles?.Items.Count);
             Assert.IsNull(firstDirectories.Items[0].InitialFiles?.NextCursor);
-            SearchViewDirectoryFilePageDto firstChildren = (await views.GetDirectoryFilesAsync(
-                directoryView.ViewId,
-                firstDirectories.Items[0].Ref.Ref,
-                firstDirectorySummary.Revision,
-                null,
-                10,
-                CancellationToken.None))!;
+            SearchViewDirectoryFilePageDto firstChildren = (views.GetDirectoryFiles(directoryView.ViewId, firstDirectories.Items[0].Ref.Ref, firstDirectorySummary.Revision, null, 10, CancellationToken.None))!;
             Assert.AreEqual("Track one.flac", firstChildren.Items.Single().RelativePath);
             Assert.AreEqual(firstDirectories.Items[0].Ref, firstChildren.DirectorySummary.Ref);
             Assert.AreEqual(firstDirectories.Items[0].PublicMatchingFileCount,
@@ -2046,36 +1947,17 @@ public sealed class SearchViewCoordinatorTests
                 CancellationToken.None);
             Assert.AreEqual(retrieval.JobId, replayedRetrieval?.JobId,
                 "Retrying an accepted retrieval must return its original job.");
-            SearchViewSummaryDto retrievedSummary = (await views.GetAsync(
-                directoryView.ViewId,
-                CancellationToken.None))!;
+            SearchViewSummaryDto retrievedSummary = (views.Get(directoryView.ViewId, CancellationToken.None))!;
             Assert.IsTrue(retrievedSummary.Revision > firstDirectorySummary.Revision);
-            SearchViewDirectoryDto retrieved = (await views.GetDirectoriesAsync(
-                directoryView.ViewId,
-                retrievedSummary.Revision,
-                null,
-                10,
-                cancellationToken: CancellationToken.None))!.Items.Single();
+            SearchViewDirectoryDto retrieved = (views.GetDirectories(directoryView.ViewId, retrievedSummary.Revision, null, 10, cancellationToken: CancellationToken.None))!.Items.Single();
             Assert.AreEqual(SearchViewDirectoryRetrievalState.Complete, retrieved.RetrievalState);
             Assert.AreEqual(2L, retrieved.RetrievedFileCount);
-            SearchViewDirectoryFilePageDto retrievedChildren = (await views.GetDirectoryFilesAsync(
-                directoryView.ViewId,
-                retrieved.Ref.Ref,
-                retrievedSummary.Revision,
-                null,
-                10,
-                CancellationToken.None))!;
+            SearchViewDirectoryFilePageDto retrievedChildren = (views.GetDirectoryFiles(directoryView.ViewId, retrieved.Ref.Ref, retrievedSummary.Revision, null, 10, CancellationToken.None))!;
             Assert.AreEqual(2, retrievedChildren.Items.Count);
             Assert.AreEqual(retrieved.Ref, retrievedChildren.DirectorySummary.Ref);
             Assert.AreEqual(retrieved.RetrievedFileCount,
                 retrievedChildren.DirectorySummary.RetrievedFileCount);
-            SearchViewDirectoryFilePageDto originalChildren = (await views.GetDirectoryFilesAsync(
-                directoryView.ViewId,
-                retrieved.Ref.Ref,
-                firstDirectorySummary.Revision,
-                null,
-                10,
-                CancellationToken.None))!;
+            SearchViewDirectoryFilePageDto originalChildren = (views.GetDirectoryFiles(directoryView.ViewId, retrieved.Ref.Ref, firstDirectorySummary.Revision, null, 10, CancellationToken.None))!;
             Assert.AreEqual(1, originalChildren.Items.Count,
                 "Retrieval must not mutate the issuing revision.");
             SearchViewUpdateDto preexistingUpdate = (await views.GetUpdatesAsync(
@@ -2083,12 +1965,7 @@ public sealed class SearchViewCoordinatorTests
                 preexistingSibling.Revision,
                 cancellationToken: CancellationToken.None))!;
             Assert.IsTrue(preexistingUpdate.HasNewRevision);
-            SearchViewDirectoryDto preexistingDirectory = (await views.GetDirectoriesAsync(
-                preexistingSibling.ViewId,
-                preexistingUpdate.Summary.Revision,
-                null,
-                10,
-                cancellationToken: CancellationToken.None))!.Items.Single();
+            SearchViewDirectoryDto preexistingDirectory = (views.GetDirectories(preexistingSibling.ViewId, preexistingUpdate.Summary.Revision, null, 10, cancellationToken: CancellationToken.None))!.Items.Single();
             Assert.AreEqual(SearchViewDirectoryRetrievalState.Complete,
                 preexistingDirectory.RetrievalState);
             Assert.AreEqual(2L, preexistingDirectory.RetrievedFileCount);
@@ -2100,22 +1977,11 @@ public sealed class SearchViewCoordinatorTests
                     new SongQueryDto(Title: "Track"),
                     IncludeFullResults: true,
                     FilterText: "Track"));
-            SearchViewDirectoryDto filteredDirectory = (await views.GetDirectoriesAsync(
-                filteredSibling.ViewId,
-                filteredSibling.Revision,
-                null,
-                10,
-                cancellationToken: CancellationToken.None))!.Items.Single();
+            SearchViewDirectoryDto filteredDirectory = (views.GetDirectories(filteredSibling.ViewId, filteredSibling.Revision, null, 10, cancellationToken: CancellationToken.None))!.Items.Single();
             Assert.AreEqual(SearchViewDirectoryRetrievalState.Complete,
                 filteredDirectory.RetrievalState);
             Assert.AreEqual(1L, filteredDirectory.RetrievedFileCount);
-            SearchViewDirectoryFilePageDto filteredFiles = (await views.GetDirectoryFilesAsync(
-                filteredSibling.ViewId,
-                filteredDirectory.Ref.Ref,
-                filteredSibling.Revision,
-                null,
-                10,
-                CancellationToken.None))!;
+            SearchViewDirectoryFilePageDto filteredFiles = (views.GetDirectoryFiles(filteredSibling.ViewId, filteredDirectory.Ref.Ref, filteredSibling.Revision, null, 10, CancellationToken.None))!;
             Assert.AreEqual("Track one.flac", filteredFiles.Items.Single().RelativePath);
 
             SearchViewSummaryDto unfilteredSibling = await CreateAndObserveAsync(
@@ -2125,33 +1991,19 @@ public sealed class SearchViewCoordinatorTests
                     ServerSearchViewProjectionKind.GenericDirectories,
                     new SongQueryDto(Title: "Track"),
                     IncludeFullResults: true));
-            SearchViewDirectoryDto unfilteredDirectory = (await views.GetDirectoriesAsync(
-                unfilteredSibling.ViewId,
-                unfilteredSibling.Revision,
-                null,
-                10,
-                cancellationToken: CancellationToken.None))!.Items.Single();
+            SearchViewDirectoryDto unfilteredDirectory = (views.GetDirectories(unfilteredSibling.ViewId, unfilteredSibling.Revision, null, 10, cancellationToken: CancellationToken.None))!.Items.Single();
             Assert.AreEqual(SearchViewDirectoryRetrievalState.Complete,
                 unfilteredDirectory.RetrievalState);
             Assert.AreEqual(2L, unfilteredDirectory.RetrievedFileCount);
-            Assert.AreEqual(2, (await views.GetDirectoryFilesAsync(
-                unfilteredSibling.ViewId,
-                unfilteredDirectory.Ref.Ref,
-                unfilteredSibling.Revision,
-                null,
-                10,
-                CancellationToken.None))!.Items.Count);
-            var firstDirectoryCount = (await views.CountSelectionAsync(
-                directoryView.ViewId,
-                new CountSearchViewSelectionRequestDto(
+            Assert.AreEqual(2, (views.GetDirectoryFiles(unfilteredSibling.ViewId, unfilteredDirectory.Ref.Ref, unfilteredSibling.Revision, null, 10, CancellationToken.None))!.Items.Count);
+            var firstDirectoryCount = (views.Selections.CountSelection(directoryView.ViewId, new CountSearchViewSelectionRequestDto(
                     firstDirectorySummary.Revision,
                     new RefSelectionExpressionDto(RefSelectionMode.Only,
-                        [firstDirectories.Items.Single().Ref.Ref])),
-                CancellationToken.None))!;
+                        [firstDirectories.Items.Single().Ref.Ref])), CancellationToken.None))!;
             Assert.AreEqual(1L, firstDirectoryCount.PublicFileCount);
             Assert.AreEqual(0L, firstDirectoryCount.LockedFileCount);
             Assert.AreEqual(1L, firstDirectoryCount.SelectedItemCount);
-            var firstDirectoryReceipt = (await views.CommitSelectionAsync(
+            var firstDirectoryReceipt = (await views.Selections.CommitSelectionAsync(
                 directoryView.ViewId,
                 new CommitSearchViewSelectionRequestDto(
                     firstDirectorySummary.Revision,
@@ -2168,15 +2020,13 @@ public sealed class SearchViewCoordinatorTests
             CollectionAssert.AreEqual(new[] { @"Music\Track one.flac" },
                 firstDirectoryPlan.Entries.Select(entry => entry.Target.Filename).ToArray(),
                 "File Search root selection must not browse unprojected Cover.jpg.");
-            var hiddenIncluded = (await views.CountSelectionAsync(
-                directoryView.ViewId,
-                new CountSearchViewSelectionRequestDto(
+            var hiddenIncluded = (views.Selections.CountSelection(directoryView.ViewId, new CountSearchViewSelectionRequestDto(
                     firstDirectorySummary.Revision,
                     new RefSelectionExpressionDto(RefSelectionMode.AllExcept,
                         [firstDirectories.Items.Single().Ref.Ref]),
                     IncludedFileRefs: ["not-in-this-view"]), CancellationToken.None))!;
             Assert.AreEqual(0L, hiddenIncluded.SelectedItemCount);
-            var hiddenIncludedReceipt = (await views.CommitSelectionAsync(
+            var hiddenIncludedReceipt = (await views.Selections.CommitSelectionAsync(
                 directoryView.ViewId,
                 new CommitSearchViewSelectionRequestDto(
                     firstDirectorySummary.Revision,
@@ -2186,9 +2036,7 @@ public sealed class SearchViewCoordinatorTests
                 CancellationToken.None))!;
             Assert.AreEqual(0L, hiddenIncludedReceipt.SubmittedCount);
             Assert.AreEqual("missing-ref", hiddenIncludedReceipt.RejectionReasons.Single().Reason);
-            await Assert.ThrowsExactlyAsync<ArgumentException>(() => views.CountSelectionAsync(
-                directoryView.ViewId,
-                new CountSearchViewSelectionRequestDto(
+            Assert.ThrowsExactly<ArgumentException>(() => views.Selections.CountSelection(directoryView.ViewId, new CountSearchViewSelectionRequestDto(
                     firstDirectorySummary.Revision,
                     new RefSelectionExpressionDto(RefSelectionMode.Only,
                         [firstDirectories.Items.Single().Ref.Ref]),
@@ -2197,20 +2045,14 @@ public sealed class SearchViewCoordinatorTests
                     {
                         [firstChildren.Items.Single().File.Ref] = new("different-peer", "Different\\File.txt"),
                     }), CancellationToken.None));
-            var retrievedDirectoryCount = (await views.CountSelectionAsync(
-                directoryView.ViewId,
-                new CountSearchViewSelectionRequestDto(
+            var retrievedDirectoryCount = (views.Selections.CountSelection(directoryView.ViewId, new CountSearchViewSelectionRequestDto(
                     retrievedSummary.Revision,
-                    new RefSelectionExpressionDto(RefSelectionMode.AllExcept, [])),
-                CancellationToken.None))!;
+                    new RefSelectionExpressionDto(RefSelectionMode.AllExcept, [])), CancellationToken.None))!;
             Assert.AreEqual(2L, retrievedDirectoryCount.PublicFileCount,
                 "A retrieved directory counts the children visible at its new revision, not only search matches.");
-            var explicitlySelectedRetrievedCount = (await views.CountSelectionAsync(
-                directoryView.ViewId,
-                new CountSearchViewSelectionRequestDto(
+            var explicitlySelectedRetrievedCount = (views.Selections.CountSelection(directoryView.ViewId, new CountSearchViewSelectionRequestDto(
                     retrievedSummary.Revision,
-                    new RefSelectionExpressionDto(RefSelectionMode.Only, [retrieved.Ref.Ref])),
-                CancellationToken.None))!;
+                    new RefSelectionExpressionDto(RefSelectionMode.Only, [retrieved.Ref.Ref])), CancellationToken.None))!;
             Assert.AreEqual(2L, explicitlySelectedRetrievedCount.PublicFileCount);
             Assert.AreEqual(firstDirectories.Items[0].Ref, originalChildren.DirectorySummary.Ref);
             Assert.AreEqual(firstDirectories.Items[0].PublicMatchingFileCount,
@@ -2230,20 +2072,13 @@ public sealed class SearchViewCoordinatorTests
             {
                 secondDirectoryPublished.Dispose();
             }
-            SearchViewSummaryDto second = (await views.GetAsync(
-                view.ViewId,
-                CancellationToken.None))!;
+            SearchViewSummaryDto second = (views.Get(view.ViewId, CancellationToken.None))!;
             Assert.IsFalse(second.IsComplete);
             Assert.AreEqual(2L, second.Counters.PublicFileCount);
             Assert.AreEqual(1L, second.Counters.LockedFileCount);
             Assert.AreEqual(3L, second.Counters.ProjectedFileCount);
             Assert.AreEqual(2, second.Counters.ObservedPeerCount);
-            Assert.AreEqual(1, (await views.GetFilesAsync(
-                view.ViewId,
-                firstRevision,
-                null,
-                10,
-                cancellationToken: CancellationToken.None))!.Items.Count,
+            Assert.AreEqual(1, (views.GetFiles(view.ViewId, firstRevision, null, 10, cancellationToken: CancellationToken.None))!.Items.Count,
                 "An older revision must remain an exact prefix after new rows arrive.");
 
             SearchViewUpdateDto update = (await views.GetUpdatesAsync(
@@ -2253,63 +2088,46 @@ public sealed class SearchViewCoordinatorTests
             Assert.AreEqual(secondRevision, update.Summary.Revision);
             Assert.IsTrue(update.HasNewRevision);
 
-            SearchViewSummaryDto secondDirectorySummary = (await views.GetAsync(
-                directoryView.ViewId,
-                CancellationToken.None))!;
+            SearchViewSummaryDto secondDirectorySummary = (views.Get(directoryView.ViewId, CancellationToken.None))!;
             Assert.AreEqual(3L, secondDirectorySummary.Counters.TopLevelItemCount);
             Assert.AreEqual(2L, secondDirectorySummary.Counters.SelectableOptionCount);
-            var allDirectoryCount = (await views.CountSelectionAsync(
-                directoryView.ViewId,
-                new CountSearchViewSelectionRequestDto(
+            var allDirectoryCount = (views.Selections.CountSelection(directoryView.ViewId, new CountSearchViewSelectionRequestDto(
                     secondDirectorySummary.Revision,
-                    new RefSelectionExpressionDto(RefSelectionMode.AllExcept, [])),
-                CancellationToken.None))!;
+                    new RefSelectionExpressionDto(RefSelectionMode.AllExcept, [])), CancellationToken.None))!;
             Assert.AreEqual(3L, allDirectoryCount.PublicFileCount);
             Assert.AreEqual(1L, allDirectoryCount.LockedFileCount);
             Assert.AreEqual(3L, allDirectoryCount.SelectedItemCount);
-            var excludedDirectoryFileCount = (await views.CountSelectionAsync(
-                directoryView.ViewId,
-                new CountSearchViewSelectionRequestDto(
+            var excludedDirectoryFileCount = (views.Selections.CountSelection(directoryView.ViewId, new CountSearchViewSelectionRequestDto(
                     secondDirectorySummary.Revision,
                     new RefSelectionExpressionDto(RefSelectionMode.AllExcept, []),
-                    ExcludedFileRefs: [firstChildren.Items.Single().File.Ref]),
-                CancellationToken.None))!;
+                    ExcludedFileRefs: [firstChildren.Items.Single().File.Ref]), CancellationToken.None))!;
             Assert.AreEqual(2L, excludedDirectoryFileCount.PublicFileCount);
             Assert.AreEqual(1L, excludedDirectoryFileCount.LockedFileCount);
             Assert.AreEqual(3L, excludedDirectoryFileCount.SelectedItemCount);
-            var reIncludedDirectoryFileCount = (await views.CountSelectionAsync(
-                directoryView.ViewId,
-                new CountSearchViewSelectionRequestDto(
+            var reIncludedDirectoryFileCount = (views.Selections.CountSelection(directoryView.ViewId, new CountSearchViewSelectionRequestDto(
                     secondDirectorySummary.Revision,
                     new RefSelectionExpressionDto(RefSelectionMode.AllExcept,
                         [firstDirectories.Items.Single().Ref.Ref]),
-                    IncludedFileRefs: [firstChildren.Items.Single().File.Ref]),
-                CancellationToken.None))!;
+                    IncludedFileRefs: [firstChildren.Items.Single().File.Ref]), CancellationToken.None))!;
             Assert.AreEqual(2L, reIncludedDirectoryFileCount.PublicFileCount);
             Assert.AreEqual(1L, reIncludedDirectoryFileCount.LockedFileCount);
             Assert.AreEqual(3L, reIncludedDirectoryFileCount.SelectedItemCount);
-            var directoryDefaults = (await views.ResolveSelectionSettingsAsync(
-                directoryView.ViewId,
-                new ResolveSearchViewSelectionSettingsRequestDto(
+            var directoryDefaults = (views.Selections.ResolveSelectionSettings(directoryView.ViewId, new ResolveSearchViewSelectionSettingsRequestDto(
                     secondDirectorySummary.Revision,
                     new RefSelectionExpressionDto(RefSelectionMode.Only,
                         [firstDirectories.Items.Single().Ref.Ref]),
-                    [firstChildren.Items.Single().File.Ref]),
-                CancellationToken.None))!;
+                    [firstChildren.Items.Single().File.Ref]), CancellationToken.None))!;
             CollectionAssert.AreEqual(new[] { ServerJobKind.RemoteDirectory },
                 directoryDefaults.Variants.Select(variant => variant.JobKind).ToArray(),
                 "An explicitly included child under a selected directory must not change its effective job kind.");
-            var mixedDefaults = (await views.ResolveSelectionSettingsAsync(
-                directoryView.ViewId,
-                new ResolveSearchViewSelectionSettingsRequestDto(
+            var mixedDefaults = (views.Selections.ResolveSelectionSettings(directoryView.ViewId, new ResolveSearchViewSelectionSettingsRequestDto(
                     secondDirectorySummary.Revision,
                     new RefSelectionExpressionDto(RefSelectionMode.AllExcept,
                         [firstDirectories.Items.Single().Ref.Ref]),
-                    [firstChildren.Items.Single().File.Ref]),
-                CancellationToken.None))!;
+                    [firstChildren.Items.Single().File.Ref]), CancellationToken.None))!;
             CollectionAssert.AreEqual(new[] { ServerJobKind.RemoteFile, ServerJobKind.RemoteDirectory },
                 mixedDefaults.Variants.Select(variant => variant.JobKind).ToArray());
-            var excludedChildReceipt = (await views.CommitSelectionAsync(
+            var excludedChildReceipt = (await views.Selections.CommitSelectionAsync(
                 directoryView.ViewId,
                 new CommitSearchViewSelectionRequestDto(
                     secondDirectorySummary.Revision,
@@ -2339,15 +2157,14 @@ public sealed class SearchViewCoordinatorTests
                 new RefSelectionExpressionDto(RefSelectionMode.Only, [firstDirectories.Items.Single().Ref.Ref]),
                 Guid.NewGuid(),
                 [firstChildren.Items.Single().File.Ref]);
-            var onlyDirectoryReceipt = (await views.CommitSelectionAsync(
+            var onlyDirectoryReceipt = (await views.Selections.CommitSelectionAsync(
                 directoryView.ViewId, onlyDirectoryRequest, CancellationToken.None))!;
             Assert.AreEqual(1L, onlyDirectoryReceipt.SubmittedCount);
-            var publicDirectoryRefs = (await views.GetDirectoriesAsync(directoryView.ViewId,
-                secondDirectorySummary.Revision, null, 10, cancellationToken: CancellationToken.None))!.Items
+            var publicDirectoryRefs = (views.GetDirectories(directoryView.ViewId, secondDirectorySummary.Revision, null, 10, cancellationToken: CancellationToken.None))!.Items
                 .Where(item => item.Visibility != SearchViewDirectoryVisibility.Locked)
                 .Select(item => item.Ref.Ref).ToArray();
             Assert.AreEqual(2, publicDirectoryRefs.Length);
-            var incompatibleOptions = (await views.CommitSelectionAsync(
+            var incompatibleOptions = (await views.Selections.CommitSelectionAsync(
                 directoryView.ViewId,
                 new CommitSearchViewSelectionRequestDto(
                     secondDirectorySummary.Revision,
@@ -2372,13 +2189,13 @@ public sealed class SearchViewCoordinatorTests
                 ((Sockseek.Core.Jobs.RemoteDirectoryJob)onlyRoot.Jobs.Single()).Source;
             CollectionAssert.AreEqual(new[] { @"Music\Cover.jpg" },
                 onlySource.Plan.Entries.Select(entry => entry.Target.Filename).ToArray());
-            await Assert.ThrowsExactlyAsync<IdempotencyConflictException>(() => views.CommitSelectionAsync(
+            await Assert.ThrowsExactlyAsync<IdempotencyConflictException>(() => views.Selections.CommitSelectionAsync(
                 directoryView.ViewId, onlyDirectoryRequest with { ExcludedFileRefs = [] }, CancellationToken.None));
             var reinclusionRequest = new CommitSearchViewSelectionRequestDto(
                 secondDirectorySummary.Revision,
                 new RefSelectionExpressionDto(RefSelectionMode.AllExcept, [firstDirectories.Items.Single().Ref.Ref]),
                 Guid.NewGuid(), IncludedFileRefs: [firstChildren.Items.Single().File.Ref]);
-            var reinclusionReceipt = (await views.CommitSelectionAsync(
+            var reinclusionReceipt = (await views.Selections.CommitSelectionAsync(
                 directoryView.ViewId, reinclusionRequest, CancellationToken.None))!;
             Assert.AreEqual(2L, reinclusionReceipt.SubmittedCount);
             var retainedReinclusion = await app.Services.GetRequiredService<PersistenceCoordinator>()
@@ -2389,14 +2206,9 @@ public sealed class SearchViewCoordinatorTests
                 .OfType<Sockseek.Core.Jobs.RemoteFileJob>().Single().Target.Filename);
             Assert.AreEqual("second", ((Sockseek.Core.Jobs.RemoteDirectorySource.Resolved)reinclusionRoot.Jobs
                 .OfType<Sockseek.Core.Jobs.RemoteDirectoryJob>().Single().Source).Plan.Username);
-            await Assert.ThrowsExactlyAsync<IdempotencyConflictException>(() => views.CommitSelectionAsync(
+            await Assert.ThrowsExactlyAsync<IdempotencyConflictException>(() => views.Selections.CommitSelectionAsync(
                 directoryView.ViewId, reinclusionRequest with { IncludedFileRefs = [] }, CancellationToken.None));
-            Assert.AreEqual(1, (await views.GetDirectoriesAsync(
-                directoryView.ViewId,
-                firstDirectorySummary.Revision,
-                null,
-                10,
-                cancellationToken: CancellationToken.None))!.Items.Count,
+            Assert.AreEqual(1, (views.GetDirectories(directoryView.ViewId, firstDirectorySummary.Revision, null, 10, cancellationToken: CancellationToken.None))!.Items.Count,
                 "Older directory pages remain bound to their exact observed prefix.");
 
             Guid idempotencyKey = Guid.NewGuid();
@@ -2407,7 +2219,7 @@ public sealed class SearchViewCoordinatorTests
                 Options: new SubmissionOptionsDto(
                     DownloadSettings: new DownloadSettingsPatchDto(
                         Skip: new SkipSettingsPatchDto(SkipExisting: false))));
-            CommitSearchViewSelectionResponseDto receipt = (await views.CommitSelectionAsync(
+            CommitSearchViewSelectionResponseDto receipt = (await views.Selections.CommitSelectionAsync(
                 view.ViewId,
                 commitRequest,
                 CancellationToken.None))!;
@@ -2433,7 +2245,7 @@ public sealed class SearchViewCoordinatorTests
             Assert.AreEqual(receipt.SubmissionId, repeated.SubmissionId);
             Assert.AreEqual(receipt.RequestedCount, repeated.RequestedCount);
             await Assert.ThrowsExactlyAsync<IdempotencyConflictException>(() =>
-                views.CommitSelectionAsync(
+                views.Selections.CommitSelectionAsync(
                     view.ViewId,
                     commitRequest with
                     {
@@ -2443,7 +2255,7 @@ public sealed class SearchViewCoordinatorTests
                     },
                     CancellationToken.None));
             await Assert.ThrowsExactlyAsync<IdempotencyConflictException>(() =>
-                views.CommitSelectionAsync(
+                views.Selections.CommitSelectionAsync(
                     view.ViewId,
                     commitRequest with
                     {
@@ -2453,7 +2265,7 @@ public sealed class SearchViewCoordinatorTests
                     },
                     CancellationToken.None));
 
-            CommitSearchViewSelectionResponseDto onlyReceipt = (await views.CommitSelectionAsync(
+            CommitSearchViewSelectionResponseDto onlyReceipt = (await views.Selections.CommitSelectionAsync(
                 view.ViewId,
                 new CommitSearchViewSelectionRequestDto(
                     secondRevision,
@@ -2482,9 +2294,7 @@ public sealed class SearchViewCoordinatorTests
             {
                 completedDirectoryPublished.Dispose();
             }
-            SearchViewSummaryDto completed = (await views.GetAsync(
-                view.ViewId,
-                CancellationToken.None))!;
+            SearchViewSummaryDto completed = (views.Get(view.ViewId, CancellationToken.None))!;
             Assert.AreEqual(completedRevision, completed.Revision);
             Assert.IsTrue(completed.IsComplete);
             Assert.AreEqual(SearchViewRetentionState.Complete, completed.RetentionState);
@@ -2500,23 +2310,10 @@ public sealed class SearchViewCoordinatorTests
                 completedRevision,
                 cancellationToken: CancellationToken.None))!.HasNewRevision);
 
-            // Prune the temporary issuing Views, not accepted submissions.
-            // Lost-response retries still belong to the original acceptance.
-            await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection(
-                new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
-                {
-                    DataSource = SockseekDataPaths.ResolveDatabasePath(directory),
-                    ForeignKeys = true,
-                }.ToString()))
-            {
-                await connection.OpenAsync();
-                await using var delete = connection.CreateCommand();
-                delete.CommandText = "DELETE FROM search_views WHERE id IN ($directory, $files);";
-                delete.Parameters.AddWithValue("$directory", directoryView.ViewId.ToString("D"));
-                delete.Parameters.AddWithValue("$files", view.ViewId.ToString("D"));
-                Assert.AreEqual(2, await delete.ExecuteNonQueryAsync());
-            }
-            Assert.IsNull(await views.GetAsync(view.ViewId, CancellationToken.None));
+            // Lose all temporary read state. Accepted intent and its receipt
+            // must remain recoverable independently of the issuing Views.
+            app.Services.GetRequiredService<SearchViewCoordinator>().Cache.Clear();
+            Assert.IsNull(views.Get(view.ViewId, CancellationToken.None));
             var persistence = app.Services.GetRequiredService<PersistenceCoordinator>();
             int acceptedBeforeReplay = (await persistence.Submissions!.GetSubmissionsAsync(new(Limit: 200))).Items.Count;
             replayTimer.Restart();
@@ -2538,15 +2335,15 @@ public sealed class SearchViewCoordinatorTests
             // Do not start this optional projection service or restore its memory
             // cache. Accepted intent must resolve solely from durable acceptance.
             replayTimer.Restart();
-            CommitSearchViewSelectionResponseDto durableReplay = (await recoveredViews.CommitSelectionAsync(
+            CommitSearchViewSelectionResponseDto durableReplay = (await recoveredViews.Selections.CommitSelectionAsync(
                 view.ViewId, commitRequest, CancellationToken.None))!;
             long durableReplayMs = replayTimer.ElapsedMilliseconds;
             Assert.AreEqual(ExpectedReceipt(), JsonSerializer.Serialize(durableReplay, SockseekApiJson.CreateSerializerOptions()));
-            await Assert.ThrowsExactlyAsync<IdempotencyConflictException>(() => recoveredViews.CommitSelectionAsync(
+            await Assert.ThrowsExactlyAsync<IdempotencyConflictException>(() => recoveredViews.Selections.CommitSelectionAsync(
                 view.ViewId, commitRequest with { Revision = commitRequest.Revision + 1 }, CancellationToken.None));
-            await Assert.ThrowsExactlyAsync<SearchViewUnavailableException>(() => recoveredViews.CommitSelectionAsync(
+            await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() => recoveredViews.Selections.CommitSelectionAsync(
                 view.ViewId, commitRequest with { IdempotencyKey = Guid.NewGuid() }, CancellationToken.None));
-            Assert.IsNull(await views.GetAsync(directoryView.ViewId, CancellationToken.None));
+            Assert.IsNull(views.Get(directoryView.ViewId, CancellationToken.None));
             JobSummaryDto? recoveredRetrieval = await views.StartDirectoryRetrievalAsync(
                 directoryView.ViewId, retrievalRequest, CancellationToken.None);
             Assert.AreEqual(retrieval?.JobId, recoveredRetrieval?.JobId);
@@ -2599,7 +2396,7 @@ public sealed class SearchViewCoordinatorTests
                 "http://127.0.0.1:0");
             await app.StartAsync();
             EngineSupervisor supervisor = app.Services.GetRequiredService<EngineSupervisor>();
-            JobSummaryDto job = await supervisor.SubmitSearchJobAsync(
+            JobSummaryDto job = await supervisor.Submissions.SubmitSearchJobAsync(
                 new SubmitSearchJobRequestDto("Folder"), CancellationToken.None);
             Action<SearchResponse> receive = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
             SearchViewCoordinator views = app.Services.GetRequiredService<SearchViewCoordinator>();
@@ -2608,9 +2405,8 @@ public sealed class SearchViewCoordinatorTests
                     new SongQueryDto(Title: "Folder"), IncludeFullResults: true),
                 CancellationToken.None))!;
             await PublishAsync(views, view.ViewId, () => receive(Response("peer", [File(@"Folder\Root.txt")])));
-            SearchViewSummaryDto before = (await views.GetAsync(view.ViewId, CancellationToken.None))!;
-            SearchViewDirectoryDto root = (await views.GetDirectoriesAsync(view.ViewId,
-                before.Revision, null, 10, cancellationToken: CancellationToken.None))!.Items.Single();
+            SearchViewSummaryDto before = (views.Get(view.ViewId, CancellationToken.None))!;
+            SearchViewDirectoryDto root = (views.GetDirectories(view.ViewId, before.Revision, null, 10, cancellationToken: CancellationToken.None))!.Items.Single();
             var published = ObserveNext(views, view.ViewId);
             try
             {
@@ -2620,23 +2416,20 @@ public sealed class SearchViewCoordinatorTests
                 await published.Completion.WaitAsync(TimeSpan.FromSeconds(5));
             }
             finally { published.Dispose(); }
-            SearchViewSummaryDto after = (await views.GetAsync(view.ViewId, CancellationToken.None))!;
-            SearchViewDirectoryFilePageDto firstChildPage = (await views.GetDirectoryFilesAsync(
-                view.ViewId, root.Ref.Ref, after.Revision, null, 1, CancellationToken.None))!;
+            SearchViewSummaryDto after = (views.Get(view.ViewId, CancellationToken.None))!;
+            SearchViewDirectoryFilePageDto firstChildPage = (views.GetDirectoryFiles(view.ViewId, root.Ref.Ref, after.Revision, null, 1, CancellationToken.None))!;
             Assert.IsNotNull(firstChildPage.NextCursor, "The client need not load later child pages.");
 
             var nested = new SearchViewDirectoryPathRuleDto(root.Ref.Ref, "Nested", true);
             var nestedSelection = new RefSelectionExpressionDto(RefSelectionMode.Only, []);
-            CountSearchViewSelectionResponseDto count = (await views.CountSelectionAsync(view.ViewId,
-                new CountSearchViewSelectionRequestDto(after.Revision, nestedSelection,
+            CountSearchViewSelectionResponseDto count = (views.Selections.CountSelection(view.ViewId, new CountSearchViewSelectionRequestDto(after.Revision, nestedSelection,
                     DirectoryPathRules: [nested]), CancellationToken.None))!;
             Assert.AreEqual(3L, count.PublicFileCount);
             Assert.AreEqual(1L, count.SelectedItemCount);
-            var defaults = (await views.ResolveSelectionSettingsAsync(view.ViewId,
-                new ResolveSearchViewSelectionSettingsRequestDto(after.Revision, nestedSelection,
+            var defaults = (views.Selections.ResolveSelectionSettings(view.ViewId, new ResolveSearchViewSelectionSettingsRequestDto(after.Revision, nestedSelection,
                     DirectoryPathRules: [nested]), CancellationToken.None))!;
             Assert.IsTrue(defaults.Variants.Any(variant => variant.JobKind == ServerJobKind.RemoteDirectory));
-            CommitSearchViewSelectionResponseDto receipt = (await views.CommitSelectionAsync(view.ViewId,
+            CommitSearchViewSelectionResponseDto receipt = (await views.Selections.CommitSelectionAsync(view.ViewId,
                 new CommitSearchViewSelectionRequestDto(after.Revision, nestedSelection,
                     Guid.NewGuid(), DirectoryPathRules: [nested]), CancellationToken.None))!;
             Assert.AreEqual(1L, receipt.SubmittedCount);
@@ -2653,11 +2446,10 @@ public sealed class SearchViewCoordinatorTests
             var rootSelection = new RefSelectionExpressionDto(RefSelectionMode.Only, [root.Ref.Ref]);
             var nestedOff = new SearchViewDirectoryPathRuleDto(root.Ref.Ref, "Nested", false);
             var deepOn = new SearchViewDirectoryPathRuleDto(root.Ref.Ref, "Nested/Deep", true);
-            CountSearchViewSelectionResponseDto nestedCount = (await views.CountSelectionAsync(view.ViewId,
-                new CountSearchViewSelectionRequestDto(after.Revision, rootSelection,
+            CountSearchViewSelectionResponseDto nestedCount = (views.Selections.CountSelection(view.ViewId, new CountSearchViewSelectionRequestDto(after.Revision, rootSelection,
                     DirectoryPathRules: [nestedOff, deepOn]), CancellationToken.None))!;
             Assert.AreEqual(2L, nestedCount.PublicFileCount);
-            CommitSearchViewSelectionResponseDto nestedReceipt = (await views.CommitSelectionAsync(view.ViewId,
+            CommitSearchViewSelectionResponseDto nestedReceipt = (await views.Selections.CommitSelectionAsync(view.ViewId,
                 new CommitSearchViewSelectionRequestDto(after.Revision, rootSelection,
                     Guid.NewGuid(), DirectoryPathRules: [nestedOff, deepOn]), CancellationToken.None))!;
             var nestedRetained = await app.Services.GetRequiredService<PersistenceCoordinator>()
@@ -2669,15 +2461,13 @@ public sealed class SearchViewCoordinatorTests
             CollectionAssert.AreEquivalent(new[] { @"Folder\Root.txt", @"Folder\Nested\Deep\Three.txt" },
                 nestedPlan.Entries.Select(entry => entry.Target.Filename).ToArray());
 
-            SearchViewDirectoryFilePageDto allChildren = (await views.GetDirectoryFilesAsync(
-                view.ViewId, root.Ref.Ref, after.Revision, null, 10, CancellationToken.None))!;
+            SearchViewDirectoryFilePageDto allChildren = (views.GetDirectoryFiles(view.ViewId, root.Ref.Ref, after.Revision, null, 10, CancellationToken.None))!;
             string deepRef = allChildren.Items.Single(item => item.RelativePath.EndsWith("Three.txt",
                 StringComparison.Ordinal)).File.Ref;
-            CountSearchViewSelectionResponseDto exceptionCount = (await views.CountSelectionAsync(view.ViewId,
-                new CountSearchViewSelectionRequestDto(after.Revision, nestedSelection,
+            CountSearchViewSelectionResponseDto exceptionCount = (views.Selections.CountSelection(view.ViewId, new CountSearchViewSelectionRequestDto(after.Revision, nestedSelection,
                     ExcludedFileRefs: [deepRef], DirectoryPathRules: [nested]), CancellationToken.None))!;
             Assert.AreEqual(2L, exceptionCount.PublicFileCount);
-            CommitSearchViewSelectionResponseDto exceptionReceipt = (await views.CommitSelectionAsync(view.ViewId,
+            CommitSearchViewSelectionResponseDto exceptionReceipt = (await views.Selections.CommitSelectionAsync(view.ViewId,
                 new CommitSearchViewSelectionRequestDto(after.Revision, nestedSelection,
                     Guid.NewGuid(), ExcludedFileRefs: [deepRef], DirectoryPathRules: [nested]),
                 CancellationToken.None))!;
@@ -2690,19 +2480,16 @@ public sealed class SearchViewCoordinatorTests
             CollectionAssert.AreEquivalent(new[] { @"Folder\Nested\One.txt", @"Folder\Nested\Two.txt" },
                 exceptionPlan.Entries.Select(entry => entry.Target.Filename).ToArray());
             var vanishedRule = nested with { DirectoryRef = "directory-from-an-older-view" };
-            CountSearchViewSelectionResponseDto vanishedCount = (await views.CountSelectionAsync(view.ViewId,
-                new CountSearchViewSelectionRequestDto(after.Revision, nestedSelection,
+            CountSearchViewSelectionResponseDto vanishedCount = (views.Selections.CountSelection(view.ViewId, new CountSearchViewSelectionRequestDto(after.Revision, nestedSelection,
                     DirectoryPathRules: [vanishedRule]), CancellationToken.None))!;
             Assert.AreEqual(0L, vanishedCount.PublicFileCount);
-            CommitSearchViewSelectionResponseDto vanishedReceipt = (await views.CommitSelectionAsync(view.ViewId,
+            CommitSearchViewSelectionResponseDto vanishedReceipt = (await views.Selections.CommitSelectionAsync(view.ViewId,
                 new CommitSearchViewSelectionRequestDto(after.Revision, nestedSelection,
                     Guid.NewGuid(), DirectoryPathRules: [vanishedRule]), CancellationToken.None))!;
             Assert.AreEqual(0L, vanishedReceipt.SubmittedCount);
             Assert.AreEqual("missing-ref", vanishedReceipt.RejectionReasons.Single().Reason);
-            await Assert.ThrowsExactlyAsync<ArgumentException>(() => views.CountSelectionAsync(view.ViewId,
-                new CountSearchViewSelectionRequestDto(after.Revision, nestedSelection,
-                    DirectoryPathRules: [nested with { RelativePath = "../Nested" }]),
-                CancellationToken.None));
+            Assert.ThrowsExactly<ArgumentException>(() => views.Selections.CountSelection(view.ViewId, new CountSearchViewSelectionRequestDto(after.Revision, nestedSelection,
+                    DirectoryPathRules: [nested with { RelativePath = "../Nested" }]), CancellationToken.None));
             await app.StopAsync();
         }
         finally
@@ -2761,7 +2548,7 @@ public sealed class SearchViewCoordinatorTests
         public ViewRead(SearchViewCoordinator views, Guid viewId) => Completion = ReadAsync(views, viewId);
         private async Task<long> ReadAsync(SearchViewCoordinator views, Guid viewId)
         {
-            SearchViewSummaryDto current = (await views.GetAsync(viewId, cancellation.Token))!;
+            SearchViewSummaryDto current = (views.Get(viewId, cancellation.Token))!;
             while (true)
             {
                 var update = (await views.GetUpdatesAsync(viewId, current.Revision, waitForChange: true, cancellation.Token))!;

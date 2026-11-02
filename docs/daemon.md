@@ -128,6 +128,16 @@ raw. Reopening resumes from the published prefix, including after restart.
 Creation and ordinary summary/update reads still request one bounded batch.
 Idle working kernels can be released without deleting published revisions.
 Jobs listings must not request projections merely to obtain aggregate group counts.
+
+Displayed Jobs lists use `ObserveJobList` with a query and a fetched extent (100
+roots by default). The first frame replaces that scope; subsequent frames contain
+changed fields and actual membership removals. Increasing the extent loads more
+rows. Reconnect starts a fresh authoritative scope, even when retained revisions
+are lower than the previous runtime revisions. Persistence retirement does not
+remove a displayed job. `/api/jobs/snapshot` supplies the same initial frame over
+HTTP; connected clients need only the observation. Ordinary `/api/jobs` cursor
+paging remains available for traversal without a live display.
+
 Retrieving a directory uses the exact view-issued peer-directory ref and the
 same Core folder-retrieval job for generic and album views. Completion adds a
 new immutable revision with browse-authoritative totals and pageable children;
@@ -448,6 +458,10 @@ their folder permissions. On Unix, Sockseek restricts newly created database and
 backup files to the current user.
 
 Only one daemon or database command can use a database at a time.
+
+The unreleased v4 branch uses a fresh schema baseline. Databases from earlier v4
+development builds are rejected without being replaced. Keep the old database
+with a compatible build, or explicitly choose a fresh database path.
 
 ## Retention
 

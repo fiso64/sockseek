@@ -1,6 +1,7 @@
 using Sockseek.Api;
 using Sockseek.Core.PeerBrowsing;
 using Sockseek.Core.Services;
+using Sockseek.Server.Persistence;
 
 namespace Sockseek.Server.PeerBrowsing;
 
@@ -119,11 +120,11 @@ internal static class UserBrowseEndpoints
     private static async Task<IResult> StartAsync(
         string username,
         StartUserBrowseRequestDto request,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
         {
             ServerLogMessages.FeatureRequestUnavailable(
@@ -155,11 +156,11 @@ internal static class UserBrowseEndpoints
         string? state,
         string? cursor,
         int? limit,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         PeerBrowseCursorCodec cursors,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
         try
@@ -196,10 +197,10 @@ internal static class UserBrowseEndpoints
 
     private static async Task<IResult> GetAsync(
         Guid browseId,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
         try
@@ -215,10 +216,10 @@ internal static class UserBrowseEndpoints
 
     private static async Task<IResult> CancelAsync(
         Guid browseId,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
         PeerBrowseResource? resource = await service.CancelAsync(
@@ -228,11 +229,11 @@ internal static class UserBrowseEndpoints
 
     private static async Task<IResult> SnapshotAsync(
         Guid browseId,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         EngineStateStore stateStore,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
         PeerBrowseResource? resource = await service.GetAccessibleAsync(
@@ -249,11 +250,11 @@ internal static class UserBrowseEndpoints
         bool recursive,
         string? cursor,
         int? limit,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         PeerBrowseCursorCodec cursors,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
         try
@@ -303,10 +304,10 @@ internal static class UserBrowseEndpoints
     private static async Task<IResult> DirectoryAsync(
         Guid browseId,
         long directoryId,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
         try
@@ -329,11 +330,11 @@ internal static class UserBrowseEndpoints
         string? query,
         string? cursor,
         int? limit,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         PeerBrowseCursorCodec cursors,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
         try
@@ -383,11 +384,11 @@ internal static class UserBrowseEndpoints
         string query,
         string? cursor,
         int? limit,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         PeerBrowseCursorCodec cursors,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
         try
@@ -456,8 +457,9 @@ internal static class UserBrowseEndpoints
     private static async Task<IResult> StartDownloadsAsync(
         Guid browseId,
         StartUserShareDownloadsRequestDto request,
-        EngineSupervisor supervisor,
-        UserShareSubmissionStore submissions,
+        DaemonRuntime runtime,
+        JobSubmissions submissions,
+        SubmissionCommitCoordinator commits,
         CancellationToken cancellationToken)
     {
         try
@@ -465,32 +467,23 @@ internal static class UserBrowseEndpoints
             ValidateShareOptions(request.Options);
             if (request.RequestId == Guid.Empty)
                 throw new PeerBrowseSelectionException("RequestId cannot be empty.");
-            string fingerprint = UserShareSubmissionStore.Fingerprint(browseId, request);
-            StartUserShareDownloadsResponseDto response = await submissions.ExecuteAsync(
+            string fingerprint = Fingerprint(browseId, request);
+            StartUserShareDownloadsResponseDto response = await commits.ExecuteAsync(
                 request.RequestId,
                 fingerprint,
-                async () =>
+                async operationToken =>
                 {
                     (PeerBrowseResource resource, PeerBrowseDownloadResolution resolution) =
                         await ResolveSelectionAsync(
                             browseId,
                             request.Selections,
-                            supervisor,
-                            CancellationToken.None,
+                            runtime,
+                            operationToken,
                             request.ExcludedFileIds,
                             request.ExcludedDirectoryIds).ConfigureAwait(false);
-                    string outputParent = supervisor.ResolveUserShareOutputParent(
-                        resource.Username,
-                        resolution,
-                        request.Options);
-                    UserShareResolutionSummaryDto summary = ToSummary(resolution, outputParent);
-                    return new StartUserShareDownloadsResponseDto(
-                        await supervisor.SubmitUserShareDownloadsAsync(
-                            resource.Username,
-                            resolution,
-                            request.Options,
-                            CancellationToken.None).ConfigureAwait(false),
-                        summary);
+                    return await submissions.SubmitUserShareDownloadsAsync(
+                        resource.Username, resolution, request.Options,
+                        request.RequestId, fingerprint, operationToken).ConfigureAwait(false);
                 },
                 cancellationToken).ConfigureAwait(false);
             return Results.Ok(response);
@@ -501,18 +494,31 @@ internal static class UserBrowseEndpoints
         }
     }
 
+    internal static string Fingerprint(Guid browseId, StartUserShareDownloadsRequestDto request)
+        => SubmissionFingerprint.Create("peer-share", new
+        {
+            BrowseId = browseId,
+            Request = request with
+            {
+                RequestId = Guid.Empty,
+                Options = SubmissionFingerprint.Options(request.Options),
+                ExcludedFileIds = request.ExcludedFileIds?.Distinct().Order().ToArray() ?? [],
+                ExcludedDirectoryIds = request.ExcludedDirectoryIds?.Distinct().Order().ToArray() ?? [],
+            },
+        });
+
     private static async Task<(PeerBrowseResource Resource, PeerBrowseDownloadResolution Resolution)>
         ResolveSelectionAsync(
             Guid browseId,
             IReadOnlyList<UserShareSelectionDto> selections,
-            EngineSupervisor supervisor,
+            DaemonRuntime runtime,
             CancellationToken cancellationToken,
             IReadOnlyList<long>? excludedFileIds,
             IReadOnlyList<long>? excludedDirectoryIds)
     {
         if (selections is null || selections.Count == 0)
             throw new PeerBrowseSelectionException("At least one folder or file must be selected.");
-        PeerBrowseService service = supervisor.PeerBrowses
+        PeerBrowseService service = runtime.PeerBrowses
             ?? throw new InvalidOperationException("Soulseek browsing is unavailable.");
         PeerBrowseResource? resource = await service.GetAccessibleAsync(
             browseId,

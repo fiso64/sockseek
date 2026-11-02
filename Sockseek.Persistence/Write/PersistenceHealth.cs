@@ -18,20 +18,13 @@ public sealed record PersistenceHealthSnapshot(
     int ProgressEntityCapacity,
     int RetryMutationCount,
     int BufferedSearchResultCount,
-    int BufferedSearchResultCapacity,
     long BusyRetryCount,
-    long DroppedOrdinaryCount,
     long DroppedProgressCount,
-    long DroppedSearchResultCount,
-    long IncompleteSearchCount,
     long SuccessfulCommitCount,
     long RowsWritten,
     double? LastCommitDurationMilliseconds,
     int LastBatchMutationCount,
-    long PermanentlyFailedMutationCount,
-    int IncompleteSearchTrackingCount,
-    int IncompleteSearchTrackingCapacity,
-    bool IncompleteSearchTrackingOverflowed)
+    long PermanentlyFailedMutationCount)
 {
     /// Buckets: ≤1, ≤5, ≤10, ≤50, ≤100, ≤500, &gt;500 milliseconds.
     public IReadOnlyList<long> CommitLatencyHistogram { get; init; } = [];
@@ -47,10 +40,7 @@ public sealed class PersistenceHealth
     private DateTimeOffset? lastFailureAtUtc;
     private string? lastFailure;
     private long busyRetryCount;
-    private long droppedOrdinaryCount;
     private long droppedProgressCount;
-    private long droppedSearchResultCount;
-    private long incompleteSearchCount;
     private long successfulCommitCount;
     private long rowsWritten;
     private double? lastCommitDurationMilliseconds;
@@ -107,27 +97,9 @@ public sealed class PersistenceHealth
         => RecordFailure(now, exception, transient: false);
 
     internal void RecordBusyRetry() => Interlocked.Increment(ref busyRetryCount);
-    internal void RecordDroppedOrdinary()
-    {
-        Interlocked.Increment(ref droppedOrdinaryCount);
-        MarkDegraded();
-    }
-
     internal void RecordDroppedProgress()
     {
         Interlocked.Increment(ref droppedProgressCount);
-        MarkDegraded();
-    }
-
-    internal void RecordDroppedSearchResults(int count)
-    {
-        Interlocked.Add(ref droppedSearchResultCount, count);
-        MarkDegraded();
-    }
-
-    internal void RecordIncompleteSearch()
-    {
-        Interlocked.Increment(ref incompleteSearchCount);
         MarkDegraded();
     }
 
@@ -183,20 +155,13 @@ public sealed class PersistenceHealth
                 inbox.Options.ProgressEntityCapacity,
                 retryMutationCount,
                 bufferedSearchResultCount,
-                inbox.Options.SearchResultGlobalCapacity,
                 Interlocked.Read(ref busyRetryCount),
-                Interlocked.Read(ref droppedOrdinaryCount),
                 Interlocked.Read(ref droppedProgressCount),
-                Interlocked.Read(ref droppedSearchResultCount),
-                Interlocked.Read(ref incompleteSearchCount),
                 successfulCommitCount,
                 rowsWritten,
                 lastCommitDurationMilliseconds,
                 lastBatchMutationCount,
-                Interlocked.Read(ref permanentlyFailedMutationCount),
-                inbox.IncompleteSearchTrackingCount,
-                inbox.Options.IncompleteSearchTrackingCapacity,
-                inbox.IncompleteSearchTrackingOverflowed)
+                Interlocked.Read(ref permanentlyFailedMutationCount))
             {
                 CommitLatencyHistogram = Array.AsReadOnly(commitLatencyBuckets.ToArray()),
                 BatchSizeHistogram = Array.AsReadOnly(batchSizeBuckets.ToArray()),

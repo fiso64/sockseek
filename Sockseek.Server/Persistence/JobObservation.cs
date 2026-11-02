@@ -4,7 +4,7 @@ using Sockseek.Api;
 
 namespace Sockseek.Server.Persistence;
 
-public sealed partial class HistoricalQueryFacade
+public sealed partial class JobReadService
 {
     /// <summary>
     /// One displayed job scope owns summaries, direct membership counts and file

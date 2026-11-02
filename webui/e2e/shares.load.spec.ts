@@ -221,7 +221,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
   await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveText('Complete', { timeout: 15_000 });
   await expect(page.locator('.folder-file-row').getByLabel('Complete', { exact: true })).toHaveCount(501);
   expect(childReadParents.filter(id => id === directoryJobId)).toHaveLength(0);
-  const retainedFiles: Schema<'TransferHistoryDto'>[] = [];
+  const retainedFiles: Schema<'TransferStateDto'>[] = [];
   let cursor: string | null = null;
   do {
     const response = await page.request.get('/api/transfers?direction=download&archived=false&username=paged-peer&limit=500'
@@ -232,9 +232,9 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
     cursor = result.nextCursor ?? null;
   } while (cursor);
   expect(retainedFiles).toHaveLength(501);
-  expect(new Set(retainedFiles.map(item => item.localPath)).size).toBe(501);
-  expect(retainedFiles.every(item => item.username === 'paged-peer' && item.terminalOutcome === 'Succeeded')).toBe(true);
-  for (const item of retainedFiles) expect(await readFile(item.localPath!)).toEqual(Buffer.alloc(128));
+  expect(new Set(retainedFiles.map(item => item.status.localPath)).size).toBe(501);
+  expect(retainedFiles.every(item => item.identity.username === 'paged-peer' && item.status.terminalOutcome === 'Succeeded')).toBe(true);
+  for (const item of retainedFiles) expect(await readFile(item.status.localPath!)).toEqual(Buffer.alloc(128));
   console.log('PERF_DIRECTORY_PAGE ' + JSON.stringify({ directoryJobId, rootApiMs, manifestApiMs,
     firstPageFiles: 500, continuationFiles: 1, actualCompletedOutputs: retainedFiles.length }));
 });

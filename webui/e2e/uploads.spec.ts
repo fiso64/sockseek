@@ -64,7 +64,7 @@ test('cancels queued uploads within a mixed folder without cancelling active fil
   const retained = await page.request.get('/api/transfers?direction=download');
   expect(retained.ok()).toBe(true);
   expect((await retained.json() as Schema<'TransferTimelinePageDto'>).items)
-    .toMatchObject([{ remotePath: 'Fixture\\Background.txt', terminalOutcome: 'Succeeded' }]);
+    .toMatchObject([{ identity: { remotePath: 'Fixture\\Background.txt' }, status: { terminalOutcome: 'Succeeded' } }]);
   await expect(downloads).toHaveCount(0);
   await page.clock.runFor(100); // Paint after retirement; no real-time sleep.
   expect({ historyReads, summaryReads }, 'Opposite-direction retirement leaves the upload page valid.')

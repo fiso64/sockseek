@@ -91,9 +91,9 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
         if (scope && message.item.windowTransferIds)
           timelineEvents.emit(`scope-${scope.limit}`, { milliseconds: Math.round(performance.now() - scope.started),
             boundaryId: message.item.boundaryTransferId });
-        for (const row of message.item.items as Schema<'TransferHistoryDto'>[])
-          if (row.terminalOutcome === 'Succeeded')
-            timelineEvents.emit(row.remotePath!, { row, receivedAt: Date.now() });
+        for (const row of message.item.items as Schema<'TransferStateDto'>[])
+          if (row.status.terminalOutcome === 'Succeeded')
+            timelineEvents.emit(row.identity.remotePath!, { row, receivedAt: Date.now() });
       }
     });
   });
@@ -104,7 +104,7 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
     await expect(page.getByRole('button', { name: 'Load earlier downloads', exact: true })).toBeEnabled();
     return result;
   };
-  const completedRow = async (path: string): Promise<{ row: Schema<'TransferHistoryDto'>; receivedAt: number }> => {
+  const completedRow = async (path: string): Promise<{ row: Schema<'TransferStateDto'>; receivedAt: number }> => {
     const [value] = await once(timelineEvents, path, { signal: AbortSignal.timeout(5_000) });
     return value;
   };
@@ -142,7 +142,7 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
   await expect(folder.locator('.folder-transfer-size')).toHaveText('10.00 GB');
   const moreUiMs = Math.round(performance.now() - moreStarted);
   expect(members.items).toHaveLength(500);
-  expect(members.items[0]!.remotePath).toBe('Library\\Folder049\\Track099500.flac');
+  expect(members.items[0]!.identity.remotePath).toBe('Library\\Folder049\\Track099500.flac');
   expect(new Set(await folder.locator('.folder-file-path').allTextContents()).size).toBe(1000);
   expect(requests.filter(item => item.method === 'GET')).toHaveLength(1);
   expect(requests.filter(item => item.method === 'POST' && item.path.endsWith('/group-summaries'))).toHaveLength(0);
@@ -202,7 +202,7 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
     for (const item of memberPage.items) bulkLookupIds.add(item.transferId);
     await expect(folder.locator('.folder-file-row')).toHaveCount(1999);
     expect(memberPage.items).toHaveLength(500);
-    expect(memberPage.items[0]!.remotePath).toBe('Library\\Folder049\\Track098501.flac');
+    expect(memberPage.items[0]!.identity.remotePath).toBe('Library\\Folder049\\Track098501.flac');
     // Displacement leaves one final member; continue from its real cursor.
     const finalMember = page.waitForResponse(response => response.ok()
       && new URL(response.url()).pathname === '/api/transfers'
@@ -306,7 +306,7 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
     expect(domMarks[`burst-${index}`]).toBeDefined();
     // The canonical live overlay can know the outcome before its retained
     // completion timestamp. Preserve that missing fact in the diagnostics.
-    const completedAt = completed.completedAtUtc ? Date.parse(completed.completedAtUtc) : null;
+    const completedAt = completed.status.completedAtUtc ? Date.parse(completed.status.completedAtUtc) : null;
     burstPhases.push({ acceptanceMs, completionMs: completedAt === null ? null : completedAt - submittedAt,
       notificationMs: completedAt === null ? null : receivedAt - completedAt,
       domMs: Math.round(domMarks[`burst-${index}`]! - submitted) });
@@ -349,8 +349,8 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
   expect(bulk.items).toHaveLength(1000);
   expect(bulk.nextCursor ?? null).toBeNull();
   expect(bulk.retainedCoverage.state).toBe('Available');
-  expect(bulk.items.every(item => item.terminalOutcome === 'Succeeded'
-    && Number(item.totalBytes) === 5_000_000 && Number(item.transferredBytes) === 5_000_000)).toBe(true);
+  expect(bulk.items.every(item => item.status.terminalOutcome === 'Succeeded'
+    && Number(item.progress.totalBytes) === 5_000_000 && Number(item.progress.bytesTransferred) === 5_000_000)).toBe(true);
   expect(bulkLookupApiMs, 'A batch lookup must use the requested identities instead of scanning or paging the timeline.').toBeLessThan(100);
   console.log('PERF_TRANSFERS ' + JSON.stringify({ initialUiMs, moreUiMs, arrivalUiMs, domUiMs, interleavedPaging, burstUiMs, burstObservedMs, burstRequests, burstPhases, burstRenderer, bulkLookupApiMs, requests, summaryRequests,
     daemonMetrics: daemon.logs().filter(line => line.startsWith('E2E_METRIC')) }));
@@ -382,7 +382,7 @@ for (const requestedRows of [500, 1000]) test(`downloads 50 folders of 200 tiny 
         }
         if (update.type === 3) windows.delete(update.invocationId);
         if (update.type !== 2 || !update.item?.items) continue;
-        scopedLiveRows += update.item.liveTransfers?.length ?? 0;
+        scopedLiveRows += update.item.changes?.length ?? 0;
         if (update.item.groupSummaries) {
           scopedSummaryUpdates++;
           scopedSummaryGroups += update.item.groupSummaries.items.length;
@@ -391,7 +391,7 @@ for (const requestedRows of [500, 1000]) test(`downloads 50 folders of 200 tiny 
           : windows.get(update.invocationId) ?? new Set<string>();
         for (const row of update.item.items) ids.add(row.transferId);
         for (const id of update.item.removedTransferIds) ids.delete(id);
-        for (const row of update.item.liveTransfers ?? []) if (!ids.has(row.transferId)) unrequestedLiveRows++;
+        for (const row of update.item.changes ?? []) if (!ids.has(row.transferId)) unrequestedLiveRows++;
         windows.set(update.invocationId, ids);
         observations.emit(`extent-${ids.size}`);
       }

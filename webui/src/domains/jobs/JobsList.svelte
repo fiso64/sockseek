@@ -1,7 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import type { JobSummaryDto, Schema } from '../../api/types';
   import { daemonApi } from '../../api/client';
+  import type { DaemonLiveClient } from '../../api/live';
+  import { updatedJob } from '../../api/state.svelte';
+  import { jobStateSummary } from '../../api/job-summary';
   import { formatCount } from '../../app/format';
   import Icon from '../../components/Icon.svelte';
   import { jobStatusLabel as status, jobStatusClass as statusClass } from './status';
@@ -18,6 +21,8 @@
   interface Props {
     jobs: JobSummaryDto[];
     refreshRevision?: number;
+    connected: boolean;
+    observeJobs: DaemonLiveClient['observeJobs'];
     loading?: boolean;
     daemonOffline?: boolean;
     hasMore?: boolean;
@@ -32,7 +37,7 @@
     onnew: () => void;
   }
 
-  let { jobs, refreshRevision = 0, loading = false, daemonOffline = false, hasMore = false, error = null, actionError = null, onretry, onopen, oncancel, onarchive, archivingSubmissions = new Set<string>(), onloadmore, onnew }: Props = $props();
+  let { jobs, refreshRevision = 0, connected, observeJobs, loading = false, daemonOffline = false, hasMore = false, error = null, actionError = null, onretry, onopen, oncancel, onarchive, archivingSubmissions = new Set<string>(), onloadmore, onnew }: Props = $props();
   const lifetime = new AbortController();
   onMount(() => () => lifetime.abort());
   let reads = $state(new Map<string, JobSummaryRead>());
@@ -51,10 +56,37 @@
     for (const entry of ordered) {
       const id = entry.missingResultId ?? entry.job.jobId!;
       const cached = reads.get(id)?.summary;
-      if (entry.missingResultId || cached && cached.lifecycleState !== 'Terminal'
+      if (entry.missingResultId || !connected && cached && cached.lifecycleState !== 'Terminal'
         && !provided.has(id)) wanted.set(id, `linked-result:${refreshRevision}`);
     }
     return [...wanted].filter(([id, version]) => readVersions.get(id) !== version);
+  });
+
+  // Extract roots and their executable results are distinct records. Observe
+  // only the active linked summaries being displayed; the server handles their
+  // live/history handoff just as it does for an open job detail.
+  const activeResultIds = $derived(ordered.filter(entry => !entry.missingResultId
+    && entry.job.jobId !== entry.root.jobId && entry.job.lifecycleState !== 'Terminal')
+    .map(entry => entry.job.jobId!).sort().join(','));
+  $effect(() => {
+    const ids = activeResultIds ? activeResultIds.split(',') : [];
+    if (!connected || !ids.length) return;
+    return untrack(() => {
+      const rows = new Map<string, Schema<'JobStateDto'>>();
+      return observeJobs(ids[0]!, ids, update => {
+        const next = new Map(reads);
+        for (const delta of update.state.jobs) {
+          const row = updatedJob(rows.get(delta.jobId), delta);
+          if (!row) continue;
+          rows.set(row.jobId, row);
+          next.set(row.jobId, { summary: jobStateSummary(row), error: null });
+        }
+        reads = next;
+      }, cause => {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        reads = new Map([...reads, ...ids.map(id => [id, { summary: null, error }] as const)]);
+      });
+    });
   });
   $effect(() => {
     const wanted = neededReads;

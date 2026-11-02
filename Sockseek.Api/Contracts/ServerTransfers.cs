@@ -2,42 +2,6 @@ using System.Text.Json.Serialization;
 
 namespace Sockseek.Api;
 
-public sealed record TransferHistoryDto(
-    Guid TransferId,
-    Guid? JobId,
-    Guid? WorkflowId,
-    string Direction,
-    string Source,
-    string? Username,
-    string? RemotePath,
-    string? LocalPath,
-    string State,
-    string TerminalOutcome,
-    long? TotalBytes,
-    long TransferredBytes,
-    int AttemptCount,
-    DateTimeOffset CreatedAtUtc,
-    DateTimeOffset? CompletedAtUtc,
-    string FailureReason,
-    string? FailureMessage,
-    TransferCancellationSource CancellationSource,
-    long Revision,
-    DateTimeOffset? RequestedAtUtc = null,
-    DateTimeOffset? StartedAtUtc = null,
-    DateTimeOffset? LastProgressAtUtc = null,
-    long? BytesPerSecond = null,
-    FileMetadataDto? File = null,
-    IReadOnlyList<ResourceActionDto>? AvailableActions = null,
-    DateTimeOffset? ArchivedAtUtc = null,
-    string? GroupRef = null,
-    string? GroupDisplayPath = null,
-    // Logical member path from the accepted directory plan, independent of local naming.
-    string? GroupRelativePath = null)
-{
-    public IReadOnlyList<ResourceActionDto> AvailableActions { get; init; } =
-        AvailableActions ?? [];
-}
-
 [JsonConverter(typeof(JsonStringEnumConverter<TransferRetainedCoverageState>))]
 public enum TransferRetainedCoverageState
 {
@@ -154,7 +118,7 @@ public sealed record ArchiveTransfersRequestDto(
 /// or recovered live snapshot to detect a gap before live subscription.
 /// </summary>
 public sealed record TransferTimelinePageDto(
-    IReadOnlyList<TransferHistoryDto> Items,
+    IReadOnlyList<TransferStateDto> Items,
     string? NextCursor,
     TransferRetainedCoverageDto RetainedCoverage,
     StateStreamPositionDto? ReadPosition = null);
@@ -179,8 +143,8 @@ public sealed record TransferTimelineScopeDto(
 /// extent; they need not be deleted from history. WindowTransferIds supplies its
 /// initial membership; later membership follows row additions/removals. NextCursor
 /// and BoundaryTransferId end the moving prefix, independently of
-/// additional members. LiveTransfers carries coalesced progress for this extent;
-/// RemovedLiveTransferIds retires live facts without removing the retained row.
+/// additional members. Changes carries coalesced patches to those same rows;
+/// runtime retirement after persistence does not remove a row from the extent.
 /// GroupSummaries, when present, replaces totals for all groups in this extent.
 /// It is supplied with the initial rows and when relevant group facts change;
 /// its independent coverage keeps valid rows usable if totals are unavailable.
@@ -188,15 +152,14 @@ public sealed record TransferTimelineScopeDto(
 /// it advances for queued work too, independently of the daemon live stream.
 /// </summary>
 public sealed record TransferTimelineUpdateDto(
-    IReadOnlyList<TransferHistoryDto> Items,
+    IReadOnlyList<TransferStateDto> Items,
     IReadOnlyList<Guid> RemovedTransferIds,
     TransferRetainedCoverageDto RetainedCoverage,
     IReadOnlyList<Guid>? WindowTransferIds = null,
     string? NextCursor = null,
     Guid? BoundaryTransferId = null,
     StateStreamPositionDto? ReadPosition = null,
-    IReadOnlyList<TransferDeltaDto>? LiveTransfers = null,
-    IReadOnlyList<Guid>? RemovedLiveTransferIds = null,
+    IReadOnlyList<TransferDeltaDto>? Changes = null,
     TransferGroupSummariesResponseDto? GroupSummaries = null);
 
 public sealed record TransferAttemptHistoryDto(

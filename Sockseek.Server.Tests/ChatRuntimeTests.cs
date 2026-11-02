@@ -219,13 +219,13 @@ public sealed class ChatRuntimeTests
         await using var chat = new ChatRuntime(settings, session, database.Host.Chat!);
         await chat.StartAsync(CancellationToken.None);
 
-        var joined = await chat.JoinRoomAsync("secret", remember: true, CancellationToken.None);
+        var joined = await chat.Rooms.JoinRoomAsync("secret", remember: true, CancellationToken.None);
         Assert.AreEqual(ServerChatRoomKind.Private, joined.Kind);
         Assert.IsTrue(joined.Owned);
         Assert.IsTrue(joined.Moderated);
         Assert.AreEqual(ServerChatRoomJoinPhase.Joined, joined.Phase);
         Assert.IsTrue(fake.LastJoinWasPrivate);
-        RoomMemberPageDto members = await chat.GetRoomMembersAsync(
+        RoomMemberPageDto members = await chat.Rooms.GetRoomMembersAsync(
             joined.RoomId, null, 100, null, CancellationToken.None);
         Assert.AreEqual("Alice", members.Items.Single().Username);
         Assert.IsTrue(members.Complete);
@@ -233,14 +233,14 @@ public sealed class ChatRuntimeTests
             "secret",
             new UserData("local", UserPresence.Online, 0, 0, 0, 0, "CH"));
         await WaitUntilAsync(async () =>
-            (await chat.GetRoomMembersAsync(
+            (await chat.Rooms.GetRoomMembersAsync(
                 joined.RoomId, null, 100, null, CancellationToken.None)).Items.Count == 2);
-        RoomMemberDto localMember = (await chat.GetRoomMembersAsync(
+        RoomMemberDto localMember = (await chat.Rooms.GetRoomMembersAsync(
             joined.RoomId, null, 100, null, CancellationToken.None)).Items
             .Single(member => member.Username == "local");
         Assert.IsTrue(localMember.IsOwner);
         Assert.IsTrue(localMember.IsOperator);
-        await chat.AddPrivateRoomMemberAsync(joined.RoomId, "Bob", CancellationToken.None);
+        await chat.Rooms.AddPrivateRoomMemberAsync(joined.RoomId, "Bob", CancellationToken.None);
         Assert.AreEqual(1, fake.AddMemberCount);
 
         Guid messageId = Guid.NewGuid();
@@ -284,7 +284,7 @@ public sealed class ChatRuntimeTests
         await using var session = new DaemonSoulseekRuntime(settings, _ => fake.Client);
         await using var chat = new ChatRuntime(settings, session, database.Host.Chat!);
         await chat.StartAsync(CancellationToken.None);
-        ChatRoomSummaryDto joined = await chat.JoinRoomAsync(
+        ChatRoomSummaryDto joined = await chat.Rooms.JoinRoomAsync(
             "secret", remember: false, CancellationToken.None);
         var changes = new System.Collections.Concurrent.ConcurrentQueue<ChatTargetDeltaDto>();
         chat.TargetChanged += changes.Enqueue;
@@ -293,11 +293,11 @@ public sealed class ChatRuntimeTests
 
         await WaitUntilAsync(() => changes.Any(change =>
             change.TargetId == joined.RoomId && change.Room?.Moderated == false));
-        ChatRoomDetailDto removed = await chat.GetRoomDetailAsync(
+        ChatRoomDetailDto removed = await chat.Rooms.GetRoomDetailAsync(
             joined.RoomId, CancellationToken.None) ?? throw new AssertFailedException();
         Assert.IsFalse(removed.Summary.Moderated);
         Assert.IsFalse(removed.Operators.Contains("local"));
-        RoomMemberDto removedMember = (await chat.GetRoomMembersAsync(
+        RoomMemberDto removedMember = (await chat.Rooms.GetRoomMembersAsync(
             joined.RoomId, null, 100, null, CancellationToken.None)).Items
             .Single(member => member.Username == "local");
         Assert.IsFalse(removedMember.IsOperator);
@@ -305,11 +305,11 @@ public sealed class ChatRuntimeTests
         fake.RaisePrivateRoomModeration("secret", moderated: true);
 
         await WaitUntilAsync(async () =>
-            (await chat.GetRoomDetailAsync(joined.RoomId, CancellationToken.None))?.Summary.Moderated == true);
-        ChatRoomDetailDto restored = await chat.GetRoomDetailAsync(
+            (await chat.Rooms.GetRoomDetailAsync(joined.RoomId, CancellationToken.None))?.Summary.Moderated == true);
+        ChatRoomDetailDto restored = await chat.Rooms.GetRoomDetailAsync(
             joined.RoomId, CancellationToken.None) ?? throw new AssertFailedException();
         Assert.IsTrue(restored.Operators.Contains("local"));
-        RoomMemberDto restoredMember = (await chat.GetRoomMembersAsync(
+        RoomMemberDto restoredMember = (await chat.Rooms.GetRoomMembersAsync(
             joined.RoomId, null, 100, null, CancellationToken.None)).Items
             .Single(member => member.Username == "local");
         Assert.IsTrue(restoredMember.IsOperator);
@@ -333,14 +333,14 @@ public sealed class ChatRuntimeTests
         await using var chat = new ChatRuntime(settings, session, database.Host.Chat!);
         await chat.StartAsync(CancellationToken.None);
 
-        Task<ChatRoomSummaryDto> joining = chat.JoinRoomAsync(
+        Task<ChatRoomSummaryDto> joining = chat.Rooms.JoinRoomAsync(
             "secret", remember: false, CancellationToken.None);
         await WaitUntilAsync(() => fake.RoomJoinCount == 1);
         fake.RaisePrivateRoomModeration("secret", moderated: true);
         await WaitUntilAsync(async () =>
             (await database.Host.Chat!.GetRoomByNameAsync(
                 "local", "secret", CancellationToken.None)) is { } persisted
-            && (await chat.GetRoomSummaryAsync(persisted.RoomId, CancellationToken.None))?.Moderated == true);
+            && (await chat.Rooms.GetRoomSummaryAsync(persisted.RoomId, CancellationToken.None))?.Moderated == true);
         joinResponse.SetResult(new RoomData(
             "secret",
             [new UserData("local", UserPresence.Online, 0, 0, 0, 0, "CH")],
@@ -350,10 +350,10 @@ public sealed class ChatRuntimeTests
 
         ChatRoomSummaryDto joined = await joining;
         Assert.IsTrue(joined.Moderated);
-        ChatRoomDetailDto detail = await chat.GetRoomDetailAsync(
+        ChatRoomDetailDto detail = await chat.Rooms.GetRoomDetailAsync(
             joined.RoomId, CancellationToken.None) ?? throw new AssertFailedException();
         Assert.IsTrue(detail.Operators.Contains("local"));
-        RoomMemberDto localMember = (await chat.GetRoomMembersAsync(
+        RoomMemberDto localMember = (await chat.Rooms.GetRoomMembersAsync(
             joined.RoomId, null, 100, null, CancellationToken.None)).Items.Single();
         Assert.IsTrue(localMember.IsOperator);
     }
@@ -368,7 +368,7 @@ public sealed class ChatRuntimeTests
         await using var session = new DaemonSoulseekRuntime(settings, _ => fake.Client);
         await using var chat = new ChatRuntime(settings, session, database.Host.Chat!);
         await chat.StartAsync(CancellationToken.None);
-        ChatRoomSummaryDto room = await chat.JoinRoomAsync(
+        ChatRoomSummaryDto room = await chat.Rooms.JoinRoomAsync(
             "remembered", remember: true, CancellationToken.None);
         Assert.AreEqual(1, fake.RoomJoinCount);
 
@@ -377,10 +377,10 @@ public sealed class ChatRuntimeTests
         fake.RaiseState(SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn);
         await WaitUntilAsync(() => fake.RoomJoinCount == 2);
         await WaitUntilAsync(async () =>
-            (await chat.GetRoomSummaryAsync(room.RoomId, CancellationToken.None))?.Phase
+            (await chat.Rooms.GetRoomSummaryAsync(room.RoomId, CancellationToken.None))?.Phase
             == ServerChatRoomJoinPhase.Joined);
 
-        await chat.LeaveRoomAsync(room.RoomId, CancellationToken.None);
+        await chat.Rooms.LeaveRoomAsync(room.RoomId, CancellationToken.None);
         fake.RaiseState(SoulseekClientStates.None);
         await WaitUntilAsync(() => chat.GetState().State == DaemonFeatureState.Starting);
         long disconnectedRevision = chat.GetState().Revision;
@@ -406,14 +406,14 @@ public sealed class ChatRuntimeTests
             await database.Host.Chat!.AcceptRoomMessageAsync(
                 "local", $"history-{index}", "Alice", "old", false);
         }
-        ChatRoomSummaryDto joined = await chat.JoinRoomAsync(
+        ChatRoomSummaryDto joined = await chat.Rooms.JoinRoomAsync(
             "joined", remember: false, CancellationToken.None);
 
-        ChatRoomPageDto page = await chat.GetRoomSummariesAsync(
+        ChatRoomPageDto page = await chat.Rooms.GetRoomSummariesAsync(
             "joined", null, 1, CancellationToken.None);
 
         Assert.AreEqual(joined.RoomId, page.Items.Single().RoomId);
-        await Assert.ThrowsExactlyAsync<ArgumentException>(() => chat.GetAvailableRoomsAsync(
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => chat.Rooms.GetAvailableRoomsAsync(
             null, "_w", 10, false, CancellationToken.None));
     }
 
@@ -430,7 +430,7 @@ public sealed class ChatRuntimeTests
         var changes = new System.Collections.Concurrent.ConcurrentQueue<ChatTargetDeltaDto>();
         chat.TargetChanged += changes.Enqueue;
 
-        await Assert.ThrowsExactlyAsync<IOException>(() => chat.JoinRoomAsync(
+        await Assert.ThrowsExactlyAsync<IOException>(() => chat.Rooms.JoinRoomAsync(
             "broken", remember: true, CancellationToken.None));
 
         RoomSubscriptionRecord room = await database.Host.Chat!.GetRoomByNameAsync(

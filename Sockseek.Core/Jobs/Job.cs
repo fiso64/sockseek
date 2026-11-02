@@ -4,6 +4,7 @@ using Sockseek.Core.Services;
 using Sockseek.Core.Planning;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 
 namespace Sockseek.Core.Jobs;
 
@@ -24,7 +25,8 @@ namespace Sockseek.Core.Jobs;
         JobCancellationSource CancellationSource,
         JobFailureReason FailureReason,
         string? FailureMessage,
-        string? FailureDetail);
+        string? FailureDetail,
+        long Revision = 0);
 
     public readonly record struct JobStateTransition(JobStateSnapshot Before, JobStateSnapshot After)
     {
@@ -34,27 +36,8 @@ namespace Sockseek.Core.Jobs;
             || Before.ActivityUntilUtc != After.ActivityUntilUtc;
     }
 
-    // TODO [ARCHITECTURE]: Harden the atomic job-state transition boundary into a real reducer.
-    // ApplyStateTransition now prevents observers from seeing half-applied lifecycle/activity/outcome
-    // snapshots, but callers still imperatively choose individual transitions and the reducer does not
-    // yet validate the full state machine. Next step: make transitions explicit command/result values,
-    // reject illegal state combinations centrally, and keep all lifecycle/activity/outcome/failure
-    // mutations inside that reducer before moving the Job model itself toward immutability. Until that
-    // exists, Core architecture tests require production code to commit terminal states through
-    // JobOutcomeCommitter instead of calling SetDone/Fail/SetSkipped/SetCancelled directly.
-    //
-    // TODO [ARCHITECTURE]: Convert Job models to immutable types and implement Unidirectional Data Flow.
-    // Jobs still act as globally mutable state containers. Properties like `BytesTransferred`
-    // and `DownloadPath` are mutated directly by transfer/search services on background threads.
-    // Because INotifyPropertyChanged fires on the mutating thread, this forces the UI/CLI layers to use
-    // liberal lock() statements to avoid race conditions and visual tearing.
-    // Later refactor:
-    // 1. Make Job a C# `record` with `init` only properties.
-    // 2. Background workers should yield `ProgressEvent` structs to a Channel.
-    // 3. A central reducer reads the channel, creates a *new* copy of the Job via the `with` expression,
-    //    and pushes the unified snapshot to the UI.
-    // 4. Replace runtime query/projection escape hatches with read models so server/CLI follow-up
-    //    operations no longer need GetRuntimeJob-style access to mutable Job instances.
+    // Lifecycle state and its revision have one mutation owner. Jobs remain mutable
+    // execution objects; progress and structural data do not require graph copies.
     public abstract class Job : INotifyPropertyChanged
     {
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -65,20 +48,13 @@ namespace Sockseek.Core.Jobs;
         protected void NotifyStructureChanged() => StructureChanged?.Invoke(this);
         protected void NotifyExecutionChanged() => ExecutionChanged?.Invoke(this);
 
-        private bool _deferPropertyChanged;
-        private readonly List<string> _deferredPropertyChanges = [];
-
         protected void OnPropertyChanged([CallerMemberName] string? name = null)
-        {
-            if (_deferPropertyChanged)
-            {
-                if (name != null && !_deferredPropertyChanges.Contains(name))
-                    _deferredPropertyChanges.Add(name);
-                return;
-            }
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-        }
+        private readonly Lock stateGate = new();
+        private JobStateSnapshot state;
+        private Queue<JobStateTransition>? stateNotifications;
+        private bool publishingState;
 
         private int _displayId;
         private readonly object displayIdLock = new();
@@ -126,19 +102,14 @@ namespace Sockseek.Core.Jobs;
             Cts?.Cancel();
         }
 
-        private JobCancellationSource _cancellationSource = JobCancellationSource.None;
-        public JobCancellationSource CancellationSource
-        {
-            get => _cancellationSource;
-            private set { if (_cancellationSource != value) { _cancellationSource = value; OnPropertyChanged(); } }
-        }
+        public JobCancellationSource CancellationSource => StateSnapshot.CancellationSource;
 
         internal void MarkCancellationSource(JobCancellationSource source)
         {
-            if (source == JobCancellationSource.None || CancellationSource != JobCancellationSource.None)
-                return;
-
-            CancellationSource = source;
+            if (source == JobCancellationSource.None) return;
+            ApplyStateTransition(current => current.CancellationSource == JobCancellationSource.None
+                && current.LifecycleState != JobLifecycleState.Terminal
+                ? current with { CancellationSource = source } : current);
         }
 
         private Settings.DownloadSettings? _config;
@@ -182,54 +153,28 @@ namespace Sockseek.Core.Jobs;
         public string? ExtractorInfo { get; set; }
         public JobSourceInfo? SourceInfo { get; set; }
 
-        private JobLifecycleState _lifecycleState = JobLifecycleState.Pending;
-        public JobLifecycleState LifecycleState
-        {
-            get => _lifecycleState;
-            private set { if (_lifecycleState != value) { _lifecycleState = value; OnPropertyChanged(); } }
-        }
-
-        private JobActivityPhase _activityPhase = JobActivityPhase.None;
-        public JobActivityPhase ActivityPhase
-        {
-            get => _activityPhase;
-            private set { if (_activityPhase != value) { _activityPhase = value; OnPropertyChanged(); } }
-        }
-
-        private DateTimeOffset? _activityUntilUtc;
-        public DateTimeOffset? ActivityUntilUtc
-        {
-            get => _activityUntilUtc;
-            private set { if (_activityUntilUtc != value) { _activityUntilUtc = value; OnPropertyChanged(); } }
-        }
-
-        private JobTerminalOutcome _terminalOutcome = JobTerminalOutcome.None;
-        public JobTerminalOutcome TerminalOutcome
-        {
-            get => _terminalOutcome;
-            private set { if (_terminalOutcome != value) { _terminalOutcome = value; OnPropertyChanged(); } }
-        }
-
-        private JobSkipReason _skipReason = JobSkipReason.None;
-        public JobSkipReason SkipReason
-        {
-            get => _skipReason;
-            private set { if (_skipReason != value) { _skipReason = value; OnPropertyChanged(); } }
-        }
+        public JobLifecycleState LifecycleState => StateSnapshot.LifecycleState;
+        public JobActivityPhase ActivityPhase => StateSnapshot.ActivityPhase;
+        public DateTimeOffset? ActivityUntilUtc => StateSnapshot.ActivityUntilUtc;
+        public JobTerminalOutcome TerminalOutcome => StateSnapshot.TerminalOutcome;
+        public JobSkipReason SkipReason => StateSnapshot.SkipReason;
 
         public bool IsPending => LifecycleState == JobLifecycleState.Pending;
         public bool IsRunning => LifecycleState == JobLifecycleState.Running;
         public bool IsAwaitingSelection => LifecycleState == JobLifecycleState.AwaitingSelection;
         public bool IsTerminal => LifecycleState == JobLifecycleState.Terminal;
-        public bool IsSuccessfulTerminal =>
-            TerminalOutcome == JobTerminalOutcome.Succeeded
-            || (TerminalOutcome == JobTerminalOutcome.Skipped && SkipReason == JobSkipReason.AlreadyExists);
-        public bool IsUnsuccessfulTerminal =>
-            LifecycleState == JobLifecycleState.Terminal && !IsSuccessfulTerminal;
-        public bool IsSkippedAlreadyExists =>
-            TerminalOutcome == JobTerminalOutcome.Skipped && SkipReason == JobSkipReason.AlreadyExists;
-        public bool IsSkippedNotFoundLastTime =>
-            TerminalOutcome == JobTerminalOutcome.Skipped && SkipReason == JobSkipReason.NotFoundLastTime;
+        public bool IsSuccessfulTerminal => Successful(StateSnapshot);
+        public bool IsUnsuccessfulTerminal
+        {
+            get { var current = StateSnapshot; return current.LifecycleState == JobLifecycleState.Terminal && !Successful(current); }
+        }
+        public bool IsSkippedAlreadyExists => StateSnapshot is
+            { TerminalOutcome: JobTerminalOutcome.Skipped, SkipReason: JobSkipReason.AlreadyExists };
+        public bool IsSkippedNotFoundLastTime => StateSnapshot is
+            { TerminalOutcome: JobTerminalOutcome.Skipped, SkipReason: JobSkipReason.NotFoundLastTime };
+
+        private static bool Successful(JobStateSnapshot current) => current.TerminalOutcome == JobTerminalOutcome.Succeeded
+            || current is { TerminalOutcome: JobTerminalOutcome.Skipped, SkipReason: JobSkipReason.AlreadyExists };
 
         // Extractor hints — set by extractors, consumed by JobPreparer when preparing this job's
         // Config and JobContext. JobPreparer clears them after use so they don't linger.
@@ -253,7 +198,7 @@ namespace Sockseek.Core.Jobs;
         // workflow may contain several independently accepted follow-up
         // submissions, while every generated node belongs to exactly one of them.
         public Guid? SubmissionId { get; set; }
-        public JobSemanticRole SemanticRole { get; set; } = JobSemanticRole.Legacy;
+        public JobSemanticRole SemanticRole { get; set; } = JobSemanticRole.UserRoot;
         public DateTimeOffset? CreatedAtUtc { get; set; }
         public string? SubmissionSpecificationJson { get; set; }
         public Guid? RerunOfSubmissionId { get; set; }
@@ -283,192 +228,138 @@ namespace Sockseek.Core.Jobs;
         // Discovery results (populated during Search or Folder Retrieval phases)
         public DiscoverySummary? Discovery { get; set; }
 
-        // Job-level outcome (set after the job completes or fails)
-        private JobFailureReason _failureReason = JobFailureReason.None;
-        public JobFailureReason FailureReason
+        public JobFailureReason FailureReason => StateSnapshot.FailureReason;
+        public string? FailureMessage => StateSnapshot.FailureMessage;
+        public string? FailureDetail => StateSnapshot.FailureDetail;
+
+        public JobStateSnapshot StateSnapshot { get { lock (stateGate) return state; } }
+
+        // Structural/discovery publications share this revision clock with lifecycle
+        // transitions. The caller receives the exact state belonging to that revision.
+        internal JobStateSnapshot CaptureState(bool advanceRevision = false)
         {
-            get => _failureReason;
-            private set { if (_failureReason != value) { _failureReason = value; OnPropertyChanged(); } }
+            lock (stateGate)
+            {
+                if (advanceRevision) state = state with { Revision = checked(state.Revision + 1) };
+                return state;
+            }
         }
 
-        // Optional human-readable explanation for the failure (complements FailureReason).
-        public string? FailureMessage { get; private set; }
-        public string? FailureDetail { get; private set; }
-
-        public JobStateSnapshot StateSnapshot => new(
-            LifecycleState,
-            ActivityPhase,
-            ActivityUntilUtc,
-            TerminalOutcome,
-            SkipReason,
-            CancellationSource,
-            FailureReason,
-            FailureMessage,
-            FailureDetail);
-
-        private void ApplyStateTransition(Action mutate)
+        private void ApplyStateTransition(Func<JobStateSnapshot, JobStateSnapshot> transition)
         {
-            var before = StateSnapshot;
-            _deferPropertyChanged = true;
-            try
+            lock (stateGate)
             {
-                mutate();
+                var before = state;
+                var after = transition(before);
+                if (before == after) return;
+                state = after = after with { Revision = checked(before.Revision + 1) };
+                if (StateChanged is null && PropertyChanged is null) return;
+                (stateNotifications ??= new()).Enqueue(new(before, after));
+                if (publishingState) return;
+                publishingState = true;
             }
-            finally
+            // A reentrant/concurrent transition queues behind this notification.
+            // No subscriber runs under the mutation gate or rereads individual
+            // lifecycle fields to reconstruct the transition it is observing.
+            ExceptionDispatchInfo? failure = null;
+            while (true)
             {
-                _deferPropertyChanged = false;
+                JobStateTransition change;
+                lock (stateGate)
+                {
+                    if (!stateNotifications!.TryDequeue(out change))
+                    {
+                        publishingState = false;
+                        break;
+                    }
+                }
+                if (StateChanged is { } observers)
+                    foreach (Action<Job, JobStateTransition> observer in Delegate.EnumerateInvocationList(observers))
+                        try { observer(this, change); }
+                        catch (Exception error) { failure ??= ExceptionDispatchInfo.Capture(error); }
+                var (before, after) = change;
+                Notify(nameof(LifecycleState), before.LifecycleState != after.LifecycleState);
+                Notify(nameof(ActivityPhase), before.ActivityPhase != after.ActivityPhase);
+                Notify(nameof(ActivityUntilUtc), before.ActivityUntilUtc != after.ActivityUntilUtc);
+                Notify(nameof(TerminalOutcome), before.TerminalOutcome != after.TerminalOutcome);
+                Notify(nameof(SkipReason), before.SkipReason != after.SkipReason);
+                Notify(nameof(CancellationSource), before.CancellationSource != after.CancellationSource);
+                Notify(nameof(FailureReason), before.FailureReason != after.FailureReason);
+                Notify(nameof(FailureMessage), before.FailureMessage != after.FailureMessage);
+                Notify(nameof(FailureDetail), before.FailureDetail != after.FailureDetail);
             }
+            failure?.Throw();
 
-            var after = StateSnapshot;
-            var changedProperties = _deferredPropertyChanges.ToArray();
-            _deferredPropertyChanges.Clear();
-
-            foreach (var propertyName in changedProperties)
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-
-            var transition = new JobStateTransition(before, after);
-            if (transition.Changed)
-                StateChanged?.Invoke(this, transition);
+            void Notify(string name, bool changed)
+            {
+                if (!changed || PropertyChanged is not { } observers) return;
+                var args = new PropertyChangedEventArgs(name);
+                foreach (PropertyChangedEventHandler observer in Delegate.EnumerateInvocationList(observers))
+                    try { observer(this, args); }
+                    catch (Exception error) { failure ??= ExceptionDispatchInfo.Capture(error); }
+            }
         }
 
         public void Fail(JobFailureReason reason, string? message = null, string? detail = null)
         {
             if (reason == JobFailureReason.Cancelled)
                 throw new ArgumentException("Use SetCancelled(source) for cancellation terminal state.", nameof(reason));
-
-            ApplyStateTransition(() =>
-            {
-                FailureMessage = message;
-                FailureDetail = detail;
-                FailureReason = reason;
-                SetTerminalCore(JobTerminalOutcome.Failed);
-            });
+            ApplyStateTransition(current => Terminal(current, JobTerminalOutcome.Failed) with
+                { FailureReason = reason, FailureMessage = message, FailureDetail = detail });
         }
 
         public void SetCancelled(JobCancellationSource source, string? message = null, string? detail = null)
         {
             if (source == JobCancellationSource.None)
                 throw new ArgumentException("Cancellation terminal state must include a non-None source.", nameof(source));
-
-            ApplyStateTransition(() =>
+            ApplyStateTransition(current => Terminal(current, JobTerminalOutcome.Cancelled) with
             {
-                MarkCancellationSource(source);
-                FailureMessage = message;
-                FailureDetail = detail;
-                FailureReason = JobFailureReason.Cancelled;
-                SetTerminalCore(JobTerminalOutcome.Cancelled);
+                CancellationSource = current.CancellationSource == JobCancellationSource.None ? source : current.CancellationSource,
+                FailureReason = JobFailureReason.Cancelled, FailureMessage = message, FailureDetail = detail,
             });
-        }
-
-        public void ClearFailure()
-        {
-            ApplyStateTransition(ClearFailureCore);
         }
 
         public void UpdateActivity(JobActivityPhase phase, DateTimeOffset? untilUtc = null)
-        {
-            ApplyStateTransition(() =>
+            => ApplyStateTransition(current => current.LifecycleState == JobLifecycleState.Terminal ? current : current with
             {
-                if (phase == JobActivityPhase.None)
-                {
-                    ActivityPhase = JobActivityPhase.None;
-                    ActivityUntilUtc = null;
-                    return;
-                }
-
-                if (LifecycleState != JobLifecycleState.AwaitingSelection)
-                    LifecycleState = JobLifecycleState.Running;
-                TerminalOutcome = JobTerminalOutcome.None;
-                SkipReason = JobSkipReason.None;
-                ActivityPhase = phase;
-                ActivityUntilUtc = untilUtc;
+                LifecycleState = phase == JobActivityPhase.None || current.LifecycleState == JobLifecycleState.AwaitingSelection
+                    ? current.LifecycleState : JobLifecycleState.Running,
+                ActivityPhase = phase, ActivityUntilUtc = phase == JobActivityPhase.None ? null : untilUtc,
             });
-        }
 
         public void SetAwaitingSelection()
-        {
-            ApplyStateTransition(() =>
+            => ApplyStateTransition(current => current.LifecycleState == JobLifecycleState.Terminal ? current : current with
             {
-                ActivityPhase = JobActivityPhase.None;
-                ActivityUntilUtc = null;
-                TerminalOutcome = JobTerminalOutcome.None;
-                SkipReason = JobSkipReason.None;
-                LifecycleState = JobLifecycleState.AwaitingSelection;
+                LifecycleState = JobLifecycleState.AwaitingSelection, ActivityPhase = JobActivityPhase.None,
+                ActivityUntilUtc = null, TerminalOutcome = JobTerminalOutcome.None, SkipReason = JobSkipReason.None,
             });
-        }
 
         public virtual void SetDone()
-        {
-            ApplyStateTransition(() =>
-            {
-                ClearFailureCore();
-                SetTerminalCore(JobTerminalOutcome.Succeeded);
-            });
-        }
+            => ApplyStateTransition(current => Terminal(current, JobTerminalOutcome.Succeeded) with
+                { FailureReason = JobFailureReason.None, FailureMessage = null, FailureDetail = null });
 
-        public virtual void SetAlreadyExists()
-        {
-            SetSkipped(JobSkipReason.AlreadyExists);
-        }
+        public virtual void SetAlreadyExists() => SetSkipped(JobSkipReason.AlreadyExists);
 
         public void SetSkipped(JobSkipReason skipReason = JobSkipReason.None, JobFailureReason reason = JobFailureReason.None)
-        {
-            ApplyStateTransition(() =>
-            {
-                FailureReason = reason;
-                SkipReason = skipReason;
-                SetTerminalCore(JobTerminalOutcome.Skipped);
-            });
-        }
+            => ApplyStateTransition(current => Terminal(current, JobTerminalOutcome.Skipped) with
+                { SkipReason = skipReason, FailureReason = reason, FailureMessage = null, FailureDetail = null });
 
         public void SetPartialSuccess(string? message = null, JobCancellationSource cancellationSource = JobCancellationSource.None)
-        {
-            ApplyStateTransition(() =>
+            => ApplyStateTransition(current => Terminal(current, JobTerminalOutcome.PartialSuccess) with
             {
-                if (cancellationSource != JobCancellationSource.None)
-                    MarkCancellationSource(cancellationSource);
-
-                FailureMessage = message;
-                FailureReason = JobFailureReason.Other;
-                SetTerminalCore(JobTerminalOutcome.PartialSuccess);
+                CancellationSource = current.CancellationSource == JobCancellationSource.None ? cancellationSource : current.CancellationSource,
+                FailureMessage = message, FailureDetail = null, FailureReason = JobFailureReason.Other,
             });
-        }
 
         public void ResetToPending()
-        {
-            ApplyStateTransition(() =>
+            => ApplyStateTransition(current => default(JobStateSnapshot) with { Revision = current.Revision });
+
+        private static JobStateSnapshot Terminal(JobStateSnapshot current, JobTerminalOutcome outcome)
+            => current with
             {
-                ActivityPhase = JobActivityPhase.None;
-                ActivityUntilUtc = null;
-                TerminalOutcome = JobTerminalOutcome.None;
-                SkipReason = JobSkipReason.None;
-                CancellationSource = JobCancellationSource.None;
-                ClearFailureCore();
-                LifecycleState = JobLifecycleState.Pending;
-            });
-        }
-
-        private void ClearFailureCore()
-        {
-            FailureMessage = null;
-            FailureDetail = null;
-            FailureReason = JobFailureReason.None;
-            if (TerminalOutcome is JobTerminalOutcome.Failed or JobTerminalOutcome.Cancelled)
-                TerminalOutcome = JobTerminalOutcome.None;
-        }
-
-        private void SetTerminal(JobTerminalOutcome outcome)
-            => ApplyStateTransition(() => SetTerminalCore(outcome));
-
-        private void SetTerminalCore(JobTerminalOutcome outcome)
-        {
-            ActivityPhase = JobActivityPhase.None;
-            ActivityUntilUtc = null;
-            TerminalOutcome = outcome;
-            if (outcome != JobTerminalOutcome.Skipped)
-                SkipReason = JobSkipReason.None;
-            LifecycleState = JobLifecycleState.Terminal;
-        }
+                LifecycleState = JobLifecycleState.Terminal, ActivityPhase = JobActivityPhase.None,
+                ActivityUntilUtc = null, TerminalOutcome = outcome, SkipReason = JobSkipReason.None,
+            };
 
         // Subclasses declare their default; callers can override with CanBeSkippedOverride.
         protected abstract bool DefaultCanBeSkipped { get; }

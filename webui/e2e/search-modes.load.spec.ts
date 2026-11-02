@@ -159,6 +159,7 @@ for (const mode of modes) {
         afterRenderer.metrics.find(metric => metric.name === name)!.value
         - beforeRenderer.metrics.find(metric => metric.name === name)!.value))]));
     await profiling.detach();
+    console.log('PERF_MODE_DISPLAY ' + JSON.stringify({ mode: mode.label, projectionObservedMs, uiMs, displayTiming, renderer }));
     // Discovery/View completion can precede raw-history drain. Ordinary job
     // metadata must not wait for those unrelated rows. Exercise this before
     // screenshots or selection/download work give the writer time to catch up.
@@ -241,7 +242,7 @@ for (const mode of modes) {
     ): Promise<number> {
       const outputDirectory = testInfo.outputPath('selected-download');
       await daemon.command('hold-download');
-      let transfer: Schema<'TransferHistoryDto'> | undefined;
+      let transfer: Schema<'TransferStateDto'> | undefined;
       let commitMs: number;
       try {
         const commit = await commitSelectedFiles(1, outputDirectory, { choice });
@@ -251,7 +252,7 @@ for (const mode of modes) {
           const response = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
           expect(response.ok(), await response.text()).toBe(true);
           const timeline = await response.json() as Schema<'TransferTimelinePageDto'>;
-          return timeline.items.map(item => `${item.username}:${item.remotePath}`);
+          return timeline.items.map(item => `${item.identity.username}:${item.identity.remotePath}`);
         }, { timeout: 10_000, intervals: [200, 500] })
           .toEqual([`${expected.username}:${expected.remotePath}`]);
       } finally {
@@ -262,11 +263,11 @@ for (const mode of modes) {
         expect(response.ok(), await response.text()).toBe(true);
         const timeline = await response.json() as Schema<'TransferTimelinePageDto'>;
         transfer = timeline.items[0];
-        return timeline.items.map(item => `${item.username}:${item.terminalOutcome}:${item.remotePath}`);
+        return timeline.items.map(item => `${item.identity.username}:${item.status.terminalOutcome}:${item.identity.remotePath}`);
       }, { timeout: 10_000, intervals: [200, 500] })
         .toEqual([`${expected.username}:Succeeded:${expected.remotePath}`]);
-      expect(transfer!.localPath!.startsWith(outputDirectory + sep)).toBe(true);
-      expect((await stat(transfer!.localPath!)).size).toBe(expected.size);
+      expect(transfer!.status.localPath!.startsWith(outputDirectory + sep)).toBe(true);
+      expect((await stat(transfer!.status.localPath!)).size).toBe(expected.size);
       return commitMs;
     }
 
@@ -459,7 +460,7 @@ for (const mode of modes) {
         const failures = await page.request.get('/api/transfers?direction=download&archived=false&terminalOutcome=Failed&limit=100');
         expect(failures.ok(), await failures.text()).toBe(true);
         const failed = (await failures.json() as Schema<'TransferTimelinePageDto'>).items;
-        expect(failed.some(item => item.username === first.username && item.remotePath?.startsWith(first.folderPath + '\\'))).toBe(true);
+        expect(failed.some(item => item.identity.username === first.username && item.identity.remotePath?.startsWith(first.folderPath + '\\'))).toBe(true);
 
         // Retaining the mutable post-failure list would silently discard the
         // first source. Rerun must restore all 100 accepted alternatives and
@@ -646,8 +647,11 @@ for (const mode of modes) {
             .find(item => item.ref.ref === root.ref.ref)!;
           await expect(page.locator('.folder-item-card').first().locator('.folder-file-row')).toHaveCount(11, { timeout: 30_000 });
           await expect(page.locator('.folder-item-card').first().getByLabel('Full folder loaded', { exact: true })).toBeVisible();
-          await expect(page.getByRole('button', { name: 'Download 11', exact: true })).toBeEnabled();
           browseUiMs = Math.round(performance.now() - browseStarted);
+          await expect(page.getByRole('button', { name: 'Download 10', exact: true })).toBeEnabled();
+          await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+          await page.locator('.folder-item-card').first().getByRole('checkbox', { name: 'Select all files in Fixture Album-00', exact: true }).check();
+          await expect(page.getByRole('button', { name: 'Download 11', exact: true })).toBeEnabled();
           expect(Number(loaded.publicMatchingFileCount)).toBe(10);
           expect(Number(loaded.retrievedFileCount)).toBe(11);
           expect(loaded.initialFiles?.items).toHaveLength(11);
@@ -861,11 +865,11 @@ for (const mode of modes) {
     const persisted = await page.request.get('/api/server/status');
     expect(persisted.ok()).toBe(true);
     const health = (await persisted.json() as { persistence: {
-      state: string; busyRetryCount: number; droppedSearchResultCount: number;
+      state: string; busyRetryCount: number; permanentlyFailedMutationCount: number;
       commitLatencyHistogram: number[];
     } }).persistence;
     expect(health.state).not.toBe('Unhealthy');
-    expect(health.droppedSearchResultCount).toBe(0);
+    expect(health.permanentlyFailedMutationCount).toBe(0);
     console.log('PERF_MODE ' + JSON.stringify({ mode: mode.label, projectionObservedMs, uiMs, displayTiming, renderer,
       topLevel, projected: final!.counters.projectedFileCount, pageRevisions, metadataReads,
       optionsUiMs, optionsApiMs, optionsRows, optionsBytes, optionsHasNext,
@@ -1469,13 +1473,12 @@ test('keeps an unread projection at its prefix through a 100k-result burst @Load
   const completed = await advance(await filtered.json(), view => Boolean(view.isComplete));
   expect(Number(completed.counters.publicFileCount)).toBe(100_000);
   expect(Number(completed.counters.projectedFileCount)).toBe(0);
-  await daemon.command('report-search-projections');
+  await daemon.command(`report-search-projection:${unread.viewId}`);
   const line = [...daemon.logs()].reverse().find(line => line.startsWith('E2E_PROJECTION_STATE '));
   expect(line).toBeTruthy();
-  const projections = JSON.parse(line!.slice('E2E_PROJECTION_STATE '.length)) as {
-    viewId: string; revision: number; consumedSequence: number; publicFileCount: number; isComplete: boolean;
-  }[];
-  const held = projections.find(view => view.viewId === unread.viewId)!;
+  const held = JSON.parse(line!.slice('E2E_PROJECTION_STATE '.length)) as {
+    viewId: string; revision: number; publicFileCount: number; isComplete: boolean;
+  };
   expect(held).toBeTruthy();
   // One already-requested batch may finish; raw arrivals must not drain the View.
   expect(held.publicFileCount).toBeLessThanOrEqual(11_000);
@@ -1554,9 +1557,9 @@ test('reorders one 100k-file Track View without projection writes and downloads 
   await expect(page.locator('.file-item-card .transfer-state')).toHaveText('Complete');
   const history = await page.request.get('/api/transfers?direction=download&limit=500');
   const transfers = (await history.json() as Schema<'TransferTimelinePageDto'>).items;
-  expect(transfers.map(transfer => [transfer.username, transfer.remotePath, transfer.terminalOutcome]))
+  expect(transfers.map(transfer => [transfer.identity.username, transfer.identity.remotePath, transfer.status.terminalOutcome]))
     .toEqual([[chosen.peer.username, chosen.remoteFilename, 'Succeeded']]);
-  expect((await stat(transfers[0]!.localPath!)).size).toBe(128);
+  expect((await stat(transfers[0]!.status.localPath!)).size).toBe(128);
   await daemon.command('report-peer-browses');
   expect(daemon.logs().some(line => line === 'E2E_METRIC peer-browses count=0')).toBe(true);
   console.log('PERF_READ_ORDER ' + JSON.stringify({ files: 100_000, viewCreates, sorts }));
@@ -1727,13 +1730,13 @@ test('pages a 100k-file search folder and downloads one continued child @Load', 
   const transfers = await page.request.get('/api/transfers?direction=download&limit=500');
   expect(transfers.ok(), await transfers.text()).toBe(true);
   const timeline = await transfers.json() as Schema<'TransferTimelinePageDto'>;
-  expect(timeline.items.map(item => [item.username, item.remotePath, item.terminalOutcome])).toEqual([
+  expect(timeline.items.map(item => [item.identity.username, item.identity.remotePath, item.status.terminalOutcome])).toEqual([
     [chosen.peer.username, chosen.remoteFilename, 'Succeeded'],
   ]);
   const transfer = timeline.items[0]!;
-  expect(Number(transfer.transferredBytes)).toBe(128);
-  expect(transfer.localPath!.startsWith(output + sep)).toBe(true);
-  expect((await stat(transfer.localPath!)).size).toBe(128);
+  expect(Number(transfer.progress.bytesTransferred)).toBe(128);
+  expect(transfer.status.localPath!.startsWith(output + sep)).toBe(true);
+  expect((await stat(transfer.status.localPath!)).size).toBe(128);
   // View completion must not mask a missing retained source tail. This is one
   // test-only history read, independent of the UI's projected folder requests.
 

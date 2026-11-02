@@ -21,7 +21,7 @@ internal sealed class JobEntity : IRevisionedHistoryRow
     public Guid Id { get; set; }
     public Guid WorkflowId { get; set; }
     public Guid? SubmissionId { get; set; }
-    public string SemanticRole { get; set; } = "Legacy";
+    public string SemanticRole { get; set; } = "UserRoot";
     public Guid? ParentJobId { get; set; }
     public Guid? SourceJobId { get; set; }
     public Guid? ResultJobId { get; set; }
@@ -55,7 +55,7 @@ internal sealed class SubmissionEntity
     public Guid Id { get; set; }
     public long SubmittedAtUtc { get; set; }
     public int SpecificationSchemaVersion { get; set; }
-    public string SpecificationJson { get; set; } = "";
+    public SubmissionSpecificationEntity Specification { get; set; } = null!;
     public Guid? RerunOfSubmissionId { get; set; }
     public Guid? PreviewId { get; set; }
     public string? ArtifactId { get; set; }
@@ -63,6 +63,12 @@ internal sealed class SubmissionEntity
     public string? CommitReceiptJson { get; set; }
     public long Revision { get; set; }
     public long? ArchivedAtUtc { get; set; }
+}
+
+internal sealed class SubmissionSpecificationEntity
+{
+    public Guid SubmissionId { get; set; }
+    public string Json { get; set; } = "";
 }
 
 internal sealed class SearchJobEntity

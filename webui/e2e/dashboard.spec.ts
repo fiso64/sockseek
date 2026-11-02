@@ -26,54 +26,39 @@ test('serves the WebUI at the daemon root without replacing API routes', async (
   expect(analyticsReads, 'A cold Jobs route must not mount and immediately discard Dashboard.').toBe(0);
 });
 
-test('reads Jobs history only after opening Jobs and not again for the initial live snapshot', async ({ page }) => {
+test('observes Jobs only after opening it without a duplicate HTTP page', async ({ page }) => {
+  const releaseSnapshot = await deferInitialDaemonSnapshot(page);
   const jobsRequests: string[] = [];
   const analyticsRequests: string[] = [];
-  let snapshotSeen!: () => void;
-  let releaseSnapshot!: () => void;
-  let jobsSeen!: () => void;
-  let releaseJobs!: () => void;
-  const snapshotRequested = new Promise<void>(resolve => { snapshotSeen = resolve; });
-  const snapshotReleased = new Promise<void>(resolve => { releaseSnapshot = resolve; });
-  const firstJobsRequested = new Promise<void>(resolve => { jobsSeen = resolve; });
-  const firstJobsReleased = new Promise<void>(resolve => { releaseJobs = resolve; });
-  await page.route('**/api/daemon/snapshot*', async route => {
-    const response = await route.fetch();
-    snapshotSeen();
-    await snapshotReleased;
-    await route.fulfill({ response });
-  });
-  let holdFirstJobs = true;
-  await page.route('**/api/jobs?**', async route => {
-    if (!holdFirstJobs) return route.continue();
-    holdFirstJobs = false;
-    const response = await route.fetch();
-    jobsSeen();
-    await firstJobsReleased;
-    await route.fulfill({ response });
-  });
+  let observations = 0;
+  page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
+    for (const frame of payload.toString().split('\u001e').filter(Boolean)) {
+      if (JSON.parse(frame).target === 'ObserveJobList') observations++;
+    }
+  }));
   page.on('request', request => {
     const path = new URL(request.url()).pathname;
-    if (path === '/api/jobs') jobsRequests.push(request.url());
+    if (path === '/api/jobs' || path === '/api/jobs/snapshot') jobsRequests.push(request.url());
     if (path === '/api/dashboard/analytics') analyticsRequests.push(request.url());
   });
-  const dashboardRead = page.waitForResponse(response =>
-    new URL(response.url()).pathname === '/api/dashboard/analytics');
-  await page.goto('/dashboard');
-  await dashboardRead;
-  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
-  expect(jobsRequests).toHaveLength(0);
-  expect(analyticsRequests).toHaveLength(1);
-
-  await page.getByRole('navigation', { name: 'Primary navigation' })
-    .getByRole('button', { name: 'Jobs' }).click();
-  await firstJobsRequested;
-  await snapshotRequested;
-  releaseSnapshot();
-  await expect(page.getByLabel('Connection status')).toContainText('Connected');
-  releaseJobs();
-  await expect(page.locator('.resource-state-notice.empty.blocking')).toContainText('No jobs yet');
-  expect(jobsRequests).toHaveLength(1);
+  try {
+    const dashboardRead = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/dashboard/analytics');
+    await page.goto('/dashboard');
+    await dashboardRead;
+    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+    expect(jobsRequests).toHaveLength(0);
+    expect(observations).toBe(0);
+    expect(analyticsRequests).toHaveLength(1);
+    await page.getByRole('navigation', { name: 'Primary navigation' })
+      .getByRole('button', { name: 'Jobs' }).click();
+    await expect(page.getByText('Loading jobs', { exact: true })).toBeVisible();
+    releaseSnapshot();
+    await expect(page.getByLabel('Connection status')).toContainText('Connected');
+    await expect(page.locator('.resource-state-notice.empty.blocking')).toContainText('No jobs yet');
+    expect(observations).toBe(1);
+    expect(jobsRequests).toHaveLength(0);
+  } finally { releaseSnapshot(); }
 });
 
 test('retries analytics and never labels previous-range data as the selected range', async ({ page }) => {

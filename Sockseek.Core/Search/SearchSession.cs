@@ -89,6 +89,21 @@ public sealed class SearchSession
         }
     }
 
+    // Metadata and this bounded prefix are captured under the same admission
+    // lock, so an arriving completion cannot finish a page that missed its rows.
+    public (IReadOnlyList<SearchProjectionInput> Items, int Revision, bool IsComplete) ReadProjectionPage(long afterSequence, int limit)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        lock (admissionGate)
+        {
+            int start = (int)Math.Clamp(afterSequence, 0, rawResults.Count);
+            int count = Math.Min(limit, rawResults.Count - start);
+            var inputs = new SearchProjectionInput[count];
+            for (int i = 0; i < count; i++) inputs[i] = rawResults[start + i].ProjectionInput;
+            return (inputs, _revision, _isComplete != 0 && start + count == rawResults.Count);
+        }
+    }
+
     public async IAsyncEnumerable<SearchRawResult> ReadRawResultsAsync(
         long afterSequence = 0,
         [EnumeratorCancellation] CancellationToken ct = default)
@@ -162,7 +177,8 @@ public sealed class SearchSession
                     return;
 
                 revision = _revision;
-                DateTimeOffset observedAtUtc = timeProvider.GetUtcNow();
+                // Use the same millisecond precision in live and retained facts.
+                DateTimeOffset observedAtUtc = DateTimeOffset.FromUnixTimeMilliseconds(timeProvider.GetUtcNow().ToUnixTimeMilliseconds());
                 AddFiles(response.Files, SearchResultVisibility.Public);
                 AddFiles(response.LockedFiles, SearchResultVisibility.Locked);
 

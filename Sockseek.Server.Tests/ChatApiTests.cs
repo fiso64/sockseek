@@ -152,9 +152,9 @@ public sealed class ChatApiTests
             var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
             var peerRestrictions = app.Services.GetRequiredService<
                 Sockseek.Server.PeerRestrictions.PeerRestrictionCoordinator>();
-            Assert.AreSame(peerRestrictions.Policy, supervisor.SoulseekRuntime!.Restrictions);
-            Assert.AreSame(peerRestrictions.Policy, supervisor.Sharing!.Restrictions);
-            Assert.AreSame(peerRestrictions.Policy, supervisor.Chat!.Restrictions);
+            Assert.AreSame(peerRestrictions.Policy, supervisor.Runtime.SoulseekRuntime!.Restrictions);
+            Assert.AreSame(peerRestrictions.Policy, supervisor.Runtime.Sharing!.Restrictions);
+            Assert.AreSame(peerRestrictions.Policy, supervisor.Runtime.Chat!.Restrictions);
 
             ChatMessagePageDto messages = await api.GetConversationMessagesAsync(
                 conversation.ConversationId);

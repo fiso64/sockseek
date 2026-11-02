@@ -427,7 +427,7 @@ public sealed class PersistenceWriter(
                 IReadOnlyList<SearchProjectionInput> inputs = packets.Length == 1
                     ? packets[0].Results : packets.SelectMany(item => item.Results).ToArray();
                 var write = new PreparedSearchWrite(packets[0], packets.Max(item => item.Revision),
-                    SearchObservationWriter.Prepare(inputs));
+                    SearchResultWriter.Prepare(inputs));
                 foreach (var packet in packets) attempt.Search[packet] = write;
             }
         }
@@ -436,7 +436,7 @@ public sealed class PersistenceWriter(
             foreach (var mutation in attempt.Ordered.OfType<SearchResultsPersistenceMutation>())
             {
                 attempt.Applying = mutation;
-                attempt.Search[mutation] = new(mutation, mutation.Revision, SearchObservationWriter.Prepare(mutation.Results));
+                attempt.Search[mutation] = new(mutation, mutation.Revision, SearchResultWriter.Prepare(mutation.Results));
             }
         }
         attempt.PreparingCombinedSearch = false;
@@ -537,7 +537,7 @@ public sealed class PersistenceWriter(
         BatchAttempt attempt, PreparedBatchRows prepared, CancellationToken cancellationToken)
     {
         using var application = WriteActivities.StartActivity("apply");
-        await using var rawHistory = new SearchObservationWriter.RawHistoryBatch(
+        await using var rawHistory = new SearchResultWriter.RawHistoryBatch(
             (SqliteConnection)context.Database.GetDbConnection(), (SqliteTransaction)transaction.GetDbTransaction());
         if (prepared.NewJobs is { } newJobs)
         {
@@ -623,6 +623,7 @@ public sealed class PersistenceWriter(
                 JobEntity row => row.Id == job.JobId && row.Revision == job.Revision,
                 SearchJobEntity row => row.JobId == job.JobId && row.Revision == 0 && job.Kind == "Search",
                 SubmissionEntity row => row.Id == job.SubmissionId && !string.IsNullOrWhiteSpace(job.SubmissionSpecificationJson),
+                SubmissionSpecificationEntity row => row.SubmissionId == job.SubmissionId && !string.IsNullOrWhiteSpace(job.SubmissionSpecificationJson),
                 _ => false,
             },
             TransferPersistenceMutation transfer => entity is TransferEntity row
@@ -646,7 +647,7 @@ public sealed class PersistenceWriter(
     // One transaction's positive and negative lookups. History rows stay outside
     // EF tracking; newly arriving transfers/checkpoints never require per-ID reads.
     private sealed record PreparedSearchWrite(SearchResultsPersistenceMutation Owner,
-        long Revision, SearchObservationWriter.PreparedBatch Data);
+        long Revision, SearchResultWriter.PreparedBatch Data);
 
     private sealed record BatchRows(
         HistoryRows<JobEntity> Jobs,
@@ -723,7 +724,7 @@ public sealed class PersistenceWriter(
                     SubmittedAtUtc = (mutation.RegisteredAtUtc ?? mutation.OccurredAtUtc)
                         .ToUniversalTime().ToUnixTimeMilliseconds(),
                     SpecificationSchemaVersion = SubmissionSpecification.CurrentSchemaVersion,
-                    SpecificationJson = mutation.SubmissionSpecificationJson,
+                    Specification = new() { Json = mutation.SubmissionSpecificationJson },
                     RerunOfSubmissionId = mutation.RerunOfSubmissionId,
                     PreviewId = mutation.PreviewId,
                     ArtifactId = mutation.ArtifactId,
@@ -915,7 +916,7 @@ public sealed class PersistenceWriter(
 
     private async Task<int> ApplySearchResultsAsync(SockseekDbContext context,
         SearchResultsPersistenceMutation mutation, BatchRows batchRows,
-        SearchObservationWriter.RawHistoryBatch rawHistory, CancellationToken cancellationToken)
+        SearchResultWriter.RawHistoryBatch rawHistory, CancellationToken cancellationToken)
     {
         if (!batchRows.SearchObservations.TryGetValue(mutation, out var prepared))
             throw new InvalidOperationException("Search observations must be prepared before write access.");

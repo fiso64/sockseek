@@ -63,7 +63,13 @@ public static class ServerSnapshotMapper
     }
 
     public static JobSummaryDto ToSubmittedJobSummary(Job job, Guid? sourceJobId = null)
-        => ToJobSummary(CoreSnapshotFactory.CreateJob(job, revision: 0), sourceJobId: sourceJobId);
+    {
+        // Acceptance needs the root's facts and counters, not a second descendant
+        // graph capture before the state owner registers the planned workflow.
+        var execution = CoreSnapshotFactory.CreateExecution(job, revision: 0);
+        var snapshot = new JobSnapshot(execution, execution.Payload);
+        return ToJobSummary(snapshot, sourceJobId: sourceJobId, stats: ToJobSummaryStats(snapshot));
+    }
 
     public static JobPayloadDto ToJobPayload(
         JobSnapshot job,
@@ -183,7 +189,7 @@ public static class ServerSnapshotMapper
         => new(MemberCount: outcomes.Total, CompletedMemberCount: outcomes.Completed,
             FailedMemberCount: outcomes.Failed);
 
-    private static JobOutcomeSummary ListOutcomes(JobListSnapshotPayload list, JobOutcomeSummary? liveOutcomes)
+    internal static JobOutcomeSummary ListOutcomes(JobListSnapshotPayload list, JobOutcomeSummary? liveOutcomes = null)
         => liveOutcomes ?? list.LogicalOutcomes ?? list.Jobs.Aggregate(new JobOutcomeSummary(),
             (summary, job) => summary.Include(job.LifecycleState, job.TerminalOutcome, job.SkipReason));
 
@@ -384,7 +390,6 @@ public static class ServerSnapshotMapper
     public static ServerJobRole ToServerJobRole(JobSemanticRole role)
         => role switch
         {
-            JobSemanticRole.Legacy => ServerJobRole.Legacy,
             JobSemanticRole.UserRoot => ServerJobRole.UserRoot,
             JobSemanticRole.SemanticResult => ServerJobRole.SemanticResult,
             JobSemanticRole.Orchestration => ServerJobRole.Orchestration,

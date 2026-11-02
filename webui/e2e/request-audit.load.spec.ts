@@ -15,6 +15,13 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
   test.setTimeout(90_000);
   type ApiRequest = { phase: string; method: string; path: string; elapsedMs: number };
   const requests: ApiRequest[] = [];
+  let jobListObservations = 0;
+  page.on('websocket', socket => socket.on('framesent', event => {
+    for (const frame of String(event.payload).split('\u001e').filter(Boolean)) {
+      const message = JSON.parse(frame) as { target?: string };
+      if (message.target === 'ObserveJobList') jobListObservations++;
+    }
+  }));
   const requestPhases = new WeakMap<object, string>();
   let phase = 'dashboard';
   page.on('request', request => requestPhases.set(request, phase));
@@ -48,7 +55,8 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
   await page.getByRole('navigation', { name: 'Primary navigation' })
     .getByRole('button', { name: 'Jobs' }).click();
   await expect(page.locator('.resource-state-notice.empty.blocking')).toContainText('No jobs yet');
-  expect(requests.filter(item => item.method === 'GET' && item.path.startsWith('/api/jobs?'))).toHaveLength(1);
+  expect(jobListObservations).toBe(1);
+  expect(requests.filter(item => item.path.startsWith('/api/jobs?') || item.path === '/api/jobs/snapshot')).toHaveLength(0);
   expect(requests.filter(item => item.method === 'GET' && item.path.startsWith('/api/dashboard/analytics?'))).toHaveLength(1);
   const jobsMs = performance.now() - jobsStart;
 
@@ -84,11 +92,11 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
   expect(statusResponse.ok()).toBe(true);
   const persistence = (await statusResponse.json() as {
     persistence: { state: string; lastFailure: string | null; successfulCommitCount: number;
-      commitLatencyHistogram: number[]; bufferedSearchResultCount: number; droppedSearchResultCount: number;
+      commitLatencyHistogram: number[]; bufferedSearchResultCount: number; permanentlyFailedMutationCount: number;
       databaseSizeBytes: number; walSizeBytes: number; rowsWritten: number };
   }).persistence;
   expect(persistence.state).not.toBe('Unhealthy');
-  expect(persistence.droppedSearchResultCount).toBe(0);
+  expect(persistence.permanentlyFailedMutationCount).toBe(0);
 
   const pageUrl = requests.filter(item => item.path.includes('/api/search-views/')
     && item.path.includes('/directories?')).at(-1)?.path;
@@ -508,8 +516,8 @@ test('opens a 1k-file directory and verifies paged downloads and retained outcom
   expect(timeline.nextCursor).toBeTruthy();
   expect(new Set(timeline.items.map(item => item.transferId)).size).toBe(500);
   const targets = new Set(entries.map(entry => entry.target.filename));
-  expect(timeline.items.every(item => item.workflowId === root.workflowId && item.terminalOutcome === 'Succeeded'
-    && item.transferredBytes === 128 && item.attemptCount === 1 && targets.has(item.remotePath!))).toBe(true);
+  expect(timeline.items.every(item => item.identity.workflowId === root.workflowId && item.status.terminalOutcome === 'Succeeded'
+    && item.progress.bytesTransferred === 128 && item.status.attemptCount === 1 && targets.has(item.identity.remotePath!))).toBe(true);
   for (const transfer of [timeline.items[0]!, timeline.items.at(-1)!]) {
 
     const path = `/api/transfers/${transfer.transferId}/attempts?afterAttemptNumber=0&limit=500`;
@@ -519,7 +527,7 @@ test('opens a 1k-file directory and verifies paged downloads and retained outcom
     samples.push({ path, milliseconds: response.elapsedMs });
     expect(attempts).toHaveLength(1);
     expect(attempts[0]).toMatchObject({ transferId: transfer.transferId, attemptNumber: 1,
-      sourceUsername: 'fixture-peer', sourcePath: transfer.remotePath, state: 'Completed', failureReason: 'None' });
+      sourceUsername: 'fixture-peer', sourcePath: transfer.identity.remotePath, state: 'Completed', failureReason: 'None' });
     expect(attempts[0]!.completedAtUtc).toBeTruthy();
   }
   expect(completed.summary.terminalOutcome).toBe('Succeeded');

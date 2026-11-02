@@ -11,6 +11,8 @@ import type {
 import { sameWireInteger, wireInteger } from '../../api/types';
 import type { SearchDraft } from './model';
 import { DaemonApiError } from '../../api/http';
+import { SearchSelection, hasPublishedProjection, selectionCountKey,
+  type AggregateOption, type SearchSelectionState } from './selection';
 
 export type SearchPage =
   | SearchViewFilePageDto
@@ -23,10 +25,6 @@ export type SearchRow =
   | { kind: 'directory'; ref: string; value: SearchViewDirectoryPageDto['items'][number] }
   | { kind: 'aggregate-track'; ref: string; value: SearchViewAggregateTrackPageDto['items'][number] }
   | { kind: 'aggregate-album'; ref: string; value: SearchViewAggregateAlbumPageDto['items'][number] };
-
-export type AggregateOption =
-  | { kind: 'track'; ref: string; value: Schema<'SearchViewFileDto'> }
-  | { kind: 'album'; ref: string; value: Schema<'SearchViewDirectoryDto'> };
 
 export interface AggregateOptionsPanel {
   groupRef: string;
@@ -52,15 +50,10 @@ interface DirectoryFilesPage {
   error: Error | null;
 }
 
-export interface SearchViewState {
+export interface SearchViewState extends SearchSelectionState {
   aggregateOptions: AggregateOptionsPanel | null;
-  // Per-result choices are browser state, never a daemon-owned selection resource.
-  chosenOptions: ReadonlyMap<string, AggregateOption>;
-  checkedChoiceRevisions: ReadonlyMap<string, string>;
-  staleChoices: ReadonlySet<string>;
   choiceValidationLoading: boolean;
   choiceValidationError: Error | null;
-  albumFileSelections: ReadonlyMap<string, { mode: 'Only' | 'AllExcept'; refs: ReadonlySet<string> }>;
   retrievals: ReadonlyMap<string, { loading: boolean; error: Error | null }>;
   directoryFiles: ReadonlyMap<string, DirectoryFilesPage>;
   phase: 'idle' | 'loading' | 'ready' | 'failed';
@@ -73,18 +66,8 @@ export interface SearchViewState {
   loadingMore: boolean;
   refining: boolean;
   refinementError: Error | null;
-  selectedAll: boolean;
-  selectionRevision: number | string | null;
-  selectionNeedsReview: boolean;
-  selectionTopLevelCount: number | null;
-  selectionRefs: Set<string>;
-  selectionCounts: Schema<'CountSearchViewSelectionResponseDto'> | null;
   selectionCountsLoading: boolean;
   selectionCountsError: Error | null;
-  excludedFiles: Map<string, string>;
-  excludedFileIdentities: Map<string, Schema<'FileCandidateRefDto'>>;
-  includedFiles: Map<string, string>;
-  directoryPathRules: Schema<'SearchViewDirectoryPathRuleDto'>[];
   committing: boolean;
   canRetryPendingCommit: boolean;
   receipt: CommitSearchViewSelectionResponseDto | null;
@@ -95,42 +78,14 @@ type Listener = (state: SearchViewState) => void;
 type ObserveView = (viewId: string, next: (summary: SearchViewSummaryDto) => void,
   error: (error: Error) => void, complete: () => void) => () => void;
 
-function hasPublishedProjection(summary: SearchViewSummaryDto | null): summary is SearchViewSummaryDto {
-  return summary !== null && !sameWireInteger(summary.revision, 0);
-}
-
-export function selectedSearchCount(state: SearchViewState): number {
-  if (!hasPublishedProjection(state.summary) || state.selectionNeedsReview) return 0;
-  if (state.selectionCounts && state.summary
-    && sameWireInteger(state.selectionCounts.revision,
-      state.draft?.resultMode === 'generic' && state.selectionRevision !== null
-        ? state.selectionRevision : state.summary.revision))
-    return Number(state.selectionCounts.selectedItemCount);
-  return requestedSearchCount(state);
-}
-
-function requestedSearchCount(state: SearchViewState): number {
-  if (!state.selectedAll) {
-    const selectedRoots = new Set(state.selectionRefs);
-    const selectedBranches = new Set(state.directoryPathRules
-      .filter(rule => rule.selected && !selectedRoots.has(rule.directoryRef))
-      .map(rule => rule.directoryRef));
-    return state.selectionRefs.size + state.includedFiles.size + selectedBranches.size;
-  }
-  const selectedBranches = new Set(state.directoryPathRules
-    .filter(rule => rule.selected && state.selectionRefs.has(rule.directoryRef))
-    .map(rule => rule.directoryRef));
-  return Math.max(0, selectionScopeSize(state) - state.selectionRefs.size) + state.includedFiles.size + selectedBranches.size;
-}
-
-function selectionScopeSize(state: SearchViewState): number {
-  if (state.draft?.resultMode === 'generic' && state.selectionTopLevelCount !== null)
-    return state.selectionTopLevelCount;
-  return Number(state.summary?.kind === 'Files'
-    ? state.summary.counters.selectableOptionCount : state.summary?.counters.topLevelItemCount ?? 0);
+export function searchViewUnavailable(state: Pick<SearchViewState, 'error' | 'refinementError' | 'selectionCountsError' | 'choiceValidationError' | 'aggregateOptions' | 'directoryFiles'>): boolean {
+  return [state.error, state.refinementError, state.selectionCountsError, state.choiceValidationError,
+    state.aggregateOptions?.error, ...[...state.directoryFiles.values()].map(files => files.error)]
+    .some(error => error instanceof DaemonApiError && error.status === 404);
 }
 
 export class SearchViewController {
+  private readonly selection = new SearchSelection();
   private listeners = new Set<Listener>();
   private pages: SearchPage[] = [];
   private retrievalJobs = new Map<string, string>();
@@ -141,9 +96,6 @@ export class SearchViewController {
     directory: Schema<'PeerDirectoryRefDto'>;
     idempotencyKey: string;
   }>();
-  // Keep ownership for explicit child selections even when their page is reloaded.
-  private selectedFileParents = new Map<string, string>();
-  private fileRelativePaths = new Map<string, string>();
   private directoryFileCounts = new Map<string, number>();
   private stopped = true;
   private visible = true;
@@ -156,21 +108,7 @@ export class SearchViewController {
   private observedSummary: SearchViewSummaryDto | null = null;
   private applyingObservation = false;
   private liveConnected = false;
-  private pendingCommit: {
-    viewId: string;
-    revision: number | string;
-    mode: Schema<'RefSelectionMode'>;
-    refs: string[];
-    excludedFileRefs: string[];
-    excludedFileIdentities: Record<string, Schema<'FileCandidateRefDto'>>;
-    includedFileRefs: string[];
-    chosenOptions: Record<string, string>;
-    albumFileSelections: Record<string, { mode: 'Only' | 'AllExcept'; refs: string[] }>;
-    directoryPathRules: Schema<'SearchViewDirectoryPathRuleDto'>[];
-    useRepresentativeWhenUnchosen: boolean;
-    options?: Schema<'SubmissionOptionsDto'>;
-    idempotencyKey: string;
-  } | null = null;
+
   private generation = 0;
   private refinementGeneration = 0;
   private refinementRequest: AbortController | null = null;
@@ -178,14 +116,10 @@ export class SearchViewController {
   private countRequest: AbortController | null = null;
   private choiceRequest: AbortController | null = null;
   private choiceRequestKey: string | null = null;
-  private state: SearchViewState = {
+  private state: Omit<SearchViewState, keyof SearchSelectionState | 'canRetryPendingCommit'> = {
     aggregateOptions: null,
-    chosenOptions: new Map(),
-    checkedChoiceRevisions: new Map(),
-    staleChoices: new Set(),
     choiceValidationLoading: false,
     choiceValidationError: null,
-    albumFileSelections: new Map(),
     retrievals: new Map(),
     directoryFiles: new Map(),
     phase: 'idle',
@@ -198,20 +132,9 @@ export class SearchViewController {
     sortOrder: 'Relevance',
     rows: [],
     nextCursor: null,
-    selectedAll: false,
-    selectionRevision: null,
-    selectionNeedsReview: false,
-    selectionTopLevelCount: null,
-    selectionRefs: new Set(),
-    selectionCounts: null,
     selectionCountsLoading: false,
     selectionCountsError: null,
-    excludedFiles: new Map(),
-    excludedFileIdentities: new Map(),
-    includedFiles: new Map(),
-    directoryPathRules: [],
     committing: false,
-    canRetryPendingCommit: false,
     receipt: null,
     error: null,
   };
@@ -238,7 +161,7 @@ export class SearchViewController {
 
   private startObservation(): void {
     const summary = this.state.summary;
-    if (!this.observeView || !this.liveConnected || !this.visible || this.stopped || !summary || summary.isComplete) return;
+    if (!this.observeView || !this.liveConnected || !this.visible || this.stopped || !summary || summary.isComplete || searchViewUnavailable(this.state)) return;
     if (this.observation?.viewId === summary.viewId) return;
     this.stopObservation();
     const observation = { viewId: summary.viewId, release: () => {} };
@@ -293,18 +216,16 @@ export class SearchViewController {
   }
 
   current(): SearchViewState {
-    return { ...this.state, canRetryPendingCommit: this.pendingCommit !== null,
-      selectionRefs: new Set(this.state.selectionRefs), excludedFiles: new Map(this.state.excludedFiles), excludedFileIdentities: new Map(this.state.excludedFileIdentities), includedFiles: new Map(this.state.includedFiles), directoryPathRules: [...this.state.directoryPathRules], chosenOptions: new Map(this.state.chosenOptions), checkedChoiceRevisions: new Map(this.state.checkedChoiceRevisions), staleChoices: new Set(this.state.staleChoices), albumFileSelections: new Map([...this.state.albumFileSelections].map(([ref, selection]) => [ref, { ...selection, refs: new Set(selection.refs) }])) };
+    return { ...this.state, ...this.selection.snapshot(),
+      canRetryPendingCommit: this.selection.pendingCommit !== null };
   }
 
   async open(submitted: SubmittedSearch): Promise<void> {
     this.stop();
     this.stopped = false;
     this.pages = [];
-    this.pendingCommit = null;
+    this.selection.reset();
     this.summaryError = null;
-    this.selectedFileParents.clear();
-    this.fileRelativePaths.clear();
     this.directoryFileCounts.clear();
     this.retrievalJobs.clear();
     this.retrievalInFlight.clear();
@@ -312,12 +233,8 @@ export class SearchViewController {
     this.state = {
       phase: 'loading',
       aggregateOptions: null,
-      chosenOptions: new Map(),
-      checkedChoiceRevisions: new Map(),
-      staleChoices: new Set(),
       choiceValidationLoading: false,
       choiceValidationError: null,
-      albumFileSelections: new Map(),
       retrievals: new Map(),
       loadingMore: false,
       refining: false,
@@ -329,20 +246,9 @@ export class SearchViewController {
       sortOrder: submitted.view.sortOrder ?? 'Relevance',
       rows: [],
       nextCursor: null,
-      selectedAll: false,
-      selectionRevision: null,
-      selectionNeedsReview: false,
-      selectionTopLevelCount: null,
-      selectionRefs: new Set(),
-      selectionCounts: null,
       selectionCountsLoading: false,
       selectionCountsError: null,
-      excludedFiles: new Map(),
-      excludedFileIdentities: new Map(),
-      includedFiles: new Map(),
-      directoryPathRules: [],
       committing: false,
-      canRetryPendingCommit: false,
       receipt: null,
       error: null,
     };
@@ -405,9 +311,10 @@ export class SearchViewController {
     this.timer = null;
   }
 
-  async refine(request: Schema<'CreateSearchViewRequestDto'>): Promise<boolean> {
+  async refine(request: Schema<'CreateSearchViewRequestDto'>, resetSelection = false): Promise<boolean> {
     const jobId = this.state.job?.jobId;
-    if (!jobId || this.stopped) return false;
+    if (!jobId || this.stopped || (resetSelection && this.selection.pendingCommit)
+      || (!resetSelection && searchViewUnavailable(this.state))) return false;
     const version = ++this.refinementGeneration;
     this.refinementRequest?.abort();
     const controller = new AbortController();
@@ -444,7 +351,7 @@ export class SearchViewController {
         if (this.stopped || version !== this.refinementGeneration || controller.signal.aborted) return false;
       }
       // Publish rows/counts/selection together, avoiding a destructive empty frame.
-      if (!await this.reloadVisiblePages(view, 1, { request: controller, replaceProjection: true, sortOrder: view.sortOrder ?? 'Relevance' })) return false;
+      if (!await this.reloadVisiblePages(view, 1, { request: controller, replaceProjection: true, resetSelection, sortOrder: view.sortOrder ?? 'Relevance' })) return false;
       if (this.stopped || version !== this.refinementGeneration) return false;
       this.startObservation();
       this.schedulePoll();
@@ -500,7 +407,7 @@ export class SearchViewController {
   async refresh(reloadPages = false, observed?: SearchViewSummaryDto): Promise<void> {
     if (this.refreshing) return this.refreshing;
     const summary = this.state.summary;
-    if (!summary || this.stopped || this.state.refining) return;
+    if (!summary || this.stopped || this.state.refining || searchViewUnavailable(this.state)) return;
     if (observed && wireInteger(observed.revision) < wireInteger(summary.revision)) return;
     const generation = this.generation;
     const updateRequest = new AbortController();
@@ -622,99 +529,9 @@ export class SearchViewController {
   }
 
   toggle(ref: string, selected: boolean, parentRef?: string): void {
-    if (this.genericSelectionReadOnly()) return;
-    const refs = new Set(this.state.selectionRefs);
-    const excludedFiles = new Map(this.state.excludedFiles);
-    const excludedFileIdentities = new Map(this.state.excludedFileIdentities);
-    const includedFiles = new Map(this.state.includedFiles);
-    if (parentRef && this.state.summary?.kind === 'GenericDirectories') {
-      const child = this.state.directoryFiles.get(parentRef)?.items.find(item => item.ref === ref);
-      if (child) this.fileRelativePaths.set(ref, child.relativePath);
-      const inherited = this.directoryPathInheritance(parentRef, this.fileRelativePaths.get(ref));
-      refs.delete(ref);
-      if (selected === inherited) {
-        includedFiles.delete(ref);
-        excludedFiles.delete(ref);
-        excludedFileIdentities.delete(ref);
-      } else if (selected) {
-        includedFiles.set(ref, parentRef);
-        excludedFiles.delete(ref);
-        excludedFileIdentities.delete(ref);
-      } else {
-        includedFiles.delete(ref);
-        excludedFiles.set(ref, parentRef);
-        if (child) excludedFileIdentities.set(ref, {
-          username: child.file.peer.username, filename: child.file.remoteFilename,
-        });
-      }
-      this.state = { ...this.state, selectionRefs: refs, excludedFiles, excludedFileIdentities, includedFiles, receipt: null };
-      this.pendingCommit = null;
-      this.emit();
-      return;
-    }
-    if (parentRef && this.isSelected(parentRef)) {
-      if (selected) {
-        excludedFiles.delete(ref);
-        excludedFileIdentities.delete(ref);
-      } else {
-        excludedFiles.set(ref, parentRef);
-        const file = this.state.directoryFiles.get(parentRef)?.items.find(item => item.ref === ref)?.file;
-        if (file) excludedFileIdentities.set(ref, {
-          username: file.peer.username, filename: file.remoteFilename,
-        });
-      }
-      refs.delete(ref);
-      includedFiles.delete(ref);
-    } else if (parentRef && this.state.selectedAll) {
-      if (selected) includedFiles.set(ref, parentRef);
-      else includedFiles.delete(ref);
-      refs.delete(ref);
-      excludedFiles.delete(ref);
-      excludedFileIdentities.delete(ref);
-    } else {
-      if (selected === this.state.selectedAll) refs.delete(ref);
-      else refs.add(ref);
-      excludedFiles.delete(ref);
-      excludedFileIdentities.delete(ref);
-    }
-    let directoryPathRules = this.state.directoryPathRules;
-    let albumFileSelections = this.state.albumFileSelections;
-    if (!parentRef) {
-      directoryPathRules = directoryPathRules.filter(rule => rule.directoryRef !== ref);
-      const updatedAlbumFileSelections = new Map(albumFileSelections);
-      updatedAlbumFileSelections.delete(ref);
-      albumFileSelections = updatedAlbumFileSelections;
-      for (const [fileRef, parent] of includedFiles) {
-        if (parent === ref) includedFiles.delete(fileRef);
-      }
-      for (const [fileRef, parent] of this.selectedFileParents) {
-        if (parent === ref) {
-          refs.delete(fileRef);
-          this.selectedFileParents.delete(fileRef);
-        }
-      }
-      for (const [fileRef, parent] of excludedFiles) {
-        if (parent === ref) {
-          excludedFiles.delete(fileRef);
-          excludedFileIdentities.delete(fileRef);
-        }
-      }
-    } else if (refs.has(ref) && !this.state.selectedAll) {
-      this.selectedFileParents.set(ref, parentRef);
-    } else {
-      this.selectedFileParents.delete(ref);
-    }
-    this.state = {
-      ...this.state,
-      selectionRefs: refs,
-      excludedFiles,
-      excludedFileIdentities,
-      includedFiles,
-      directoryPathRules,
-      albumFileSelections,
-      receipt: null,
-    };
-    this.pendingCommit = null;
+    const child = parentRef ? this.state.directoryFiles.get(parentRef)?.items.find(item => item.ref === ref) : undefined;
+    if (!this.selection.toggle(ref, selected, parentRef, child)) return;
+    this.state = { ...this.state, receipt: null };
     this.emit();
   }
 
@@ -783,23 +600,10 @@ export class SearchViewController {
   chooseAggregateOption(groupRef: string, option: AggregateOption): void {
     const panel = this.state.aggregateOptions;
     if (!panel || panel.groupRef !== groupRef || panel.kind !== option.kind
-        || !panel.items.some(item => item.ref === option.ref)) return;
-    const chosenOptions = new Map(this.state.chosenOptions).set(groupRef, option);
-    const checkedChoiceRevisions = new Map(this.state.checkedChoiceRevisions);
-    if (this.state.summary) checkedChoiceRevisions.set(groupRef, choiceRevisionKey(this.state.summary));
-    const staleChoices = new Set(this.state.staleChoices);
-    staleChoices.delete(groupRef);
-    const refs = new Set(this.state.selectionRefs);
-    if (this.state.selectedAll) refs.delete(groupRef);
-    else refs.add(groupRef);
-    const albumFileSelections = new Map(this.state.albumFileSelections);
-    albumFileSelections.delete(groupRef);
+      || !panel.items.some(item => item.ref === option.ref) || !this.selection.choose(groupRef, option)) return;
     const directoryFiles = new Map(this.state.directoryFiles);
     if (option.kind === 'album') this.seedDirectoryPreview(option.value, directoryFiles);
-    this.state = { ...this.state, chosenOptions, checkedChoiceRevisions, staleChoices,
-      albumFileSelections, directoryFiles,
-      selectionRefs: refs, aggregateOptions: null, choiceValidationError: null, receipt: null };
-    this.pendingCommit = null;
+    this.state = { ...this.state, directoryFiles, aggregateOptions: null, choiceValidationError: null, receipt: null };
     this.emit();
     if (this.state.summary) this.validateVisibleChoices(this.state.summary);
     if (option.kind === 'album' && !option.value.initialFiles) void this.loadDirectoryFiles(option.ref);
@@ -809,8 +613,8 @@ export class SearchViewController {
     if (this.state.rows.some(row => row.kind === 'directory' && row.ref === ref)) return true;
     if (this.state.rows.some(row => row.kind === 'aggregate-album'
       && (row.value.representative.ref.ref === ref
-        || (this.state.chosenOptions.get(row.ref)?.kind === 'album'
-          && (this.state.chosenOptions.get(row.ref)?.value as Schema<'SearchViewDirectoryDto'>).ref.ref === ref)))) return true;
+        || (this.selection.value.chosenOptions.get(row.ref)?.kind === 'album'
+          && (this.selection.value.chosenOptions.get(row.ref)?.value as Schema<'SearchViewDirectoryDto'>).ref.ref === ref)))) return true;
     return this.state.aggregateOptions?.items.some(option => option.kind === 'album' && option.ref === ref) ?? false;
   }
 
@@ -819,8 +623,8 @@ export class SearchViewController {
     const row = this.state.rows.find(row => row.kind === 'directory' && row.ref === ref);
     const aggregateDirectory = this.state.rows
       .filter(row => row.kind === 'aggregate-album')
-      .map(row => this.state.chosenOptions.get(row.ref)?.kind === 'album'
-        ? this.state.chosenOptions.get(row.ref)!.value as Schema<'SearchViewDirectoryDto'>
+      .map(row => this.selection.value.chosenOptions.get(row.ref)?.kind === 'album'
+        ? this.selection.value.chosenOptions.get(row.ref)!.value as Schema<'SearchViewDirectoryDto'>
         : row.kind === 'aggregate-album' ? row.value.representative : null)
       .find(directory => directory?.ref.ref === ref);
     const panelDirectory = this.state.aggregateOptions?.items.find(option => option.kind === 'album' && option.ref === ref);
@@ -885,7 +689,7 @@ export class SearchViewController {
       if (!sameWireInteger(page.revision.revision, summary.revision) || page.directory.ref !== ref) {
         throw new Error('Directory file page does not match the requested directory and revision.');
       }
-      for (const item of page.items) this.fileRelativePaths.set(item.ref, item.relativePath);
+      this.selection.rememberFiles(page.items);
       this.state = { ...this.state, directoryFiles: new Map(this.state.directoryFiles).set(ref, {
         items: [...pending.items, ...page.items], directorySummary: page.directorySummary,
         nextCursor: page.nextCursor ?? null, loading: false, error: null,
@@ -898,198 +702,81 @@ export class SearchViewController {
   }
 
   selectAll(selected: boolean): void {
-    if (selected && this.genericSelectionReadOnly()) return;
-    this.selectedFileParents.clear();
-    this.state = {
-      ...this.state,
-      selectedAll: selected,
-      selectionRevision: null,
-      selectionNeedsReview: false,
-      selectionTopLevelCount: null,
-      selectionRefs: new Set(),
-      excludedFiles: new Map(),
-      excludedFileIdentities: new Map(),
-      includedFiles: new Map(),
-      directoryPathRules: [],
-      albumFileSelections: new Map(),
-      receipt: null,
-    };
-    this.pendingCommit = null;
+    if (!this.selection.selectAll(selected)) return;
+    this.state = { ...this.state, receipt: null };
     this.emit();
   }
 
   isSelected(ref: string, parentRef?: string): boolean {
-    if (this.state.selectionNeedsReview) return false;
-    if (parentRef) {
-      if (this.state.summary?.kind === 'GenericDirectories') {
-        if (this.state.excludedFiles.has(ref)) return false;
-        if (this.state.includedFiles.has(ref)) return true;
-        return this.directoryPathInheritance(parentRef, this.fileRelativePaths.get(ref));
-      }
-      const album = this.state.albumFileSelections.get(parentRef);
-      if (album) return this.isSelected(parentRef) && (album.mode === 'Only' ? album.refs.has(ref) : !album.refs.has(ref));
-      if (this.state.excludedFiles.has(ref)) return false;
-      if (this.isSelected(parentRef)) return true;
-      if (this.state.selectedAll) return this.state.includedFiles.has(ref);
-    }
-    return this.state.selectedAll
-      ? !this.state.selectionRefs.has(ref)
-      : this.state.selectionRefs.has(ref);
-  }
-
-  private directoryPathInheritance(directoryRef: string, relativePath?: string, includeExact = false): boolean {
-    let selected = this.isSelected(directoryRef);
-    if (!relativePath) return selected;
-    const normalized = relativePath.replace(/\\/g, '/');
-    let bestLength = -1;
-    for (const rule of this.state.directoryPathRules) {
-      if (rule.directoryRef !== directoryRef || rule.relativePath.length <= bestLength
-        || !(normalized.startsWith(`${rule.relativePath}/`)
-          || includeExact && normalized === rule.relativePath)) continue;
-      bestLength = rule.relativePath.length;
-      selected = rule.selected;
-    }
-    return selected;
+    return this.selection.isSelected(ref, parentRef);
   }
 
   isDirectoryPathSelected(directoryRef: string, relativePath: string): boolean {
-    return this.directoryPathInheritance(directoryRef, relativePath, true);
+    return this.selection.isDirectoryPathSelected(directoryRef, relativePath);
   }
 
   toggleDirectoryPath(directoryRef: string, relativePath: string, selected: boolean): void {
-    if (this.state.summary?.kind !== 'GenericDirectories') return;
-    if (this.genericSelectionReadOnly()) return;
-    const rules = this.state.directoryPathRules.filter(rule => rule.directoryRef !== directoryRef
-      || (rule.relativePath !== relativePath && !rule.relativePath.startsWith(`${relativePath}/`)));
-    rules.push({ directoryRef, relativePath, selected });
-    const excludedFiles = new Map(this.state.excludedFiles);
-    const excludedFileIdentities = new Map(this.state.excludedFileIdentities);
-    const includedFiles = new Map(this.state.includedFiles);
-    for (const [ref, parent] of [...includedFiles, ...excludedFiles]) {
-      if (parent !== directoryRef || !this.fileRelativePaths.get(ref)?.replace(/\\/g, '/').startsWith(`${relativePath}/`)) continue;
-      includedFiles.delete(ref);
-      excludedFiles.delete(ref);
-      excludedFileIdentities.delete(ref);
-    }
-    this.state = { ...this.state, directoryPathRules: rules, includedFiles, excludedFiles, excludedFileIdentities, receipt: null };
-    this.pendingCommit = null;
+    if (!this.selection.toggleDirectoryPath(directoryRef, relativePath, selected)) return;
+    this.state = { ...this.state, receipt: null };
     this.emit();
   }
 
-  selectedCount(): number {
-    return selectedSearchCount(this.state);
-  }
-
-  private choiceIsCurrent(groupRef: string): boolean {
-    const checked = this.state.checkedChoiceRevisions.get(groupRef);
-    return checked !== undefined && this.state.summary !== null
-      && checked === choiceRevisionKey(this.state.summary)
-      && !this.state.staleChoices.has(groupRef);
-  }
-
-  private hasUnreadySelectedChoices(): boolean {
-    const visible = new Set(this.state.rows
-      .filter(row => row.kind === 'aggregate-track' || row.kind === 'aggregate-album')
-      .map(row => row.ref));
-    return [...this.state.chosenOptions.keys()].some(ref =>
-      visible.has(ref) && this.isSelected(ref) && !this.choiceIsCurrent(ref));
-  }
-
-  private selectionInput(revision: number | string): Schema<'CountSearchViewSelectionRequestDto'> {
-    const albumFileSelections = Object.fromEntries([...this.state.albumFileSelections]
-      .filter(([ref]) => this.isSelected(ref))
-      .map(([ref, selection]) => [ref, { mode: selection.mode, refs: [...selection.refs] }]));
-    return {
-      revision,
-      selection: { mode: this.state.selectedAll ? 'AllExcept' : 'Only', refs: [...this.state.selectionRefs] },
-      excludedFileRefs: [...this.state.excludedFiles.keys()],
-      excludedFileIdentities: Object.fromEntries(this.state.excludedFileIdentities),
-      includedFileRefs: [...this.state.includedFiles.keys()],
-      chosenOptions: Object.fromEntries([...this.state.chosenOptions]
-        .filter(([ref]) => this.isSelected(ref))
-        .map(([ref, option]) => [ref, option.ref])),
-      albumFileSelections,
-      directoryPathRules: this.state.directoryPathRules,
-    };
-  }
+  selectedCount(): number { return this.selection.selectedCount(); }
 
   private syncSelectionCounts(): void {
     const summary = this.state.summary;
-    // Exclusions may belong to a wider, earlier projection. Subtracting their
-    // count is only an estimate; it cannot prove that an AllExcept set is empty.
-    const maySelectUnexcludedItems = this.state.selectedAll
-      && this.state.selectionRefs.size > 0 && selectionScopeSize(this.state) > 0;
-    // Revision zero has no published projection to count or select yet.
-    if (!hasPublishedProjection(summary) || this.stopped || this.state.selectionNeedsReview
-      || (!maySelectUnexcludedItems && requestedSearchCount(this.state) === 0)
-      || this.hasUnreadySelectedChoices()) {
+    if (!summary || this.stopped || !this.selection.needsCounts(this.visibleAggregateRefs())) {
       this.countRequest?.abort();
       this.countRequest = null;
       this.countRequestKey = null;
-      if (this.state.selectionCounts || this.state.selectionCountsLoading || this.state.selectionCountsError)
-        this.state = { ...this.state, selectionCounts: null, selectionCountsLoading: false, selectionCountsError: null };
+      this.selection.clearCounts();
+      if (this.state.selectionCountsLoading || this.state.selectionCountsError)
+        this.state = { ...this.state, selectionCountsLoading: false, selectionCountsError: null };
       return;
     }
-    const revision = this.state.draft?.resultMode === 'generic'
-      ? this.state.selectionRevision ?? summary.revision : summary.revision;
-    const request = this.selectionInput(revision);
+    const request = this.selection.input();
     const key = selectionCountKey(summary.viewId, request);
     if (key === this.countRequestKey) return;
     this.countRequest?.abort();
+    this.countRequest = null;
+    this.countRequestKey = key;
+    // A refinement's membership check may already have supplied this exact count.
+    if (this.selection.value.selectionCounts) {
+      this.state = { ...this.state, selectionCountsLoading: false, selectionCountsError: null };
+      return;
+    }
     const controller = new AbortController();
     this.countRequest = controller;
-    this.countRequestKey = key;
-    this.state = { ...this.state, selectionCounts: null, selectionCountsLoading: true, selectionCountsError: null };
+    this.state = { ...this.state, selectionCountsLoading: true, selectionCountsError: null };
     void this.api.countSearchViewSelection(summary.viewId, request, controller.signal).then(counts => {
       if (this.stopped || this.countRequestKey !== key || controller.signal.aborted) return;
-      if (!sameWireInteger(counts.revision, revision))
-        throw new Error('Selection count does not match the requested revision.');
-      this.state = { ...this.state, selectionCounts: counts, selectionCountsLoading: false };
+      if (!this.selection.acceptCounts(request, counts))
+        throw new Error('Selection count does not match the requested selection and revision.');
+      this.state = { ...this.state, selectionCountsLoading: false };
       this.emit();
     }).catch(error => {
       if (this.stopped || this.countRequestKey !== key || controller.signal.aborted) return;
-      this.state = { ...this.state, selectionCounts: null, selectionCountsLoading: false, selectionCountsError: asError(error) };
+      this.selection.clearCounts();
+      this.state = { ...this.state, selectionCountsLoading: false, selectionCountsError: asError(error) };
       this.emit();
     });
+  }
+
+  private visibleAggregateRefs(): string[] {
+    return this.state.rows.filter(row => row.kind === 'aggregate-track' || row.kind === 'aggregate-album')
+      .map(row => row.ref);
   }
 
   toggleAggregateAlbumFile(groupRef: string, fileRef: string, selected: boolean): void {
     const row = this.state.rows.find(row => row.kind === 'aggregate-album' && row.ref === groupRef);
     if (row?.kind !== 'aggregate-album') return;
-    const option = this.choiceIsCurrent(groupRef) ? this.state.chosenOptions.get(groupRef) : null;
-    const chosenOptions = option?.kind === 'album' ? this.state.chosenOptions
-      : new Map(this.state.chosenOptions).set(groupRef, {
-        kind: 'album', ref: row.value.representative.ref.ref, value: row.value.representative,
-      });
-    const checkedChoiceRevisions = new Map(this.state.checkedChoiceRevisions);
-    checkedChoiceRevisions.set(groupRef, choiceRevisionKey(this.state.summary!));
-    const staleChoices = new Set(this.state.staleChoices);
-    staleChoices.delete(groupRef);
-    const wasSelected = this.isSelected(groupRef);
-    const previous = this.state.albumFileSelections.get(groupRef);
-    const mode = previous?.mode ?? (wasSelected ? 'AllExcept' : 'Only');
-    const refs = new Set(previous?.refs ?? []);
-    if (mode === 'Only') {
-      if (selected) refs.add(fileRef);
-      else refs.delete(fileRef);
-    } else if (selected) refs.delete(fileRef);
-    else refs.add(fileRef);
-    const directoryRef = chosenOptions.get(groupRef)?.ref ?? row.value.representative.ref.ref;
-    const loadedFiles = this.state.directoryFiles.get(directoryRef);
-    const allFilesKnown = Boolean(loadedFiles && (!loadedFiles.loading || loadedFiles.refreshing)
-      && !loadedFiles.error && !loadedFiles.nextCursor);
-    const allLoadedRefsMatch = allFilesKnown && loadedFiles!.items.length > 0
-      && loadedFiles!.items.every(file => refs.has(file.ref));
-    const selectionRefs = new Set(this.state.selectionRefs);
-    const groupSelected = mode === 'AllExcept' ? !allLoadedRefsMatch : refs.size > 0;
-    if (groupSelected === this.state.selectedAll) selectionRefs.delete(groupRef);
-    else selectionRefs.add(groupRef);
-    const albumFileSelections = new Map(this.state.albumFileSelections);
-    if (!groupSelected || (mode === 'AllExcept' && refs.size === 0) || (mode === 'Only' && allLoadedRefsMatch)) albumFileSelections.delete(groupRef);
-    else albumFileSelections.set(groupRef, { mode, refs });
-    this.state = { ...this.state, selectionRefs, chosenOptions, checkedChoiceRevisions,
-      staleChoices, albumFileSelections, choiceValidationError: null, receipt: null };
-    this.pendingCommit = null;
+    const choice = this.selection.choiceIsCurrent(groupRef) ? this.selection.value.chosenOptions.get(groupRef) : null;
+    const directoryRef = choice?.kind === 'album' ? choice.ref : row.value.representative.ref.ref;
+    const files = this.state.directoryFiles.get(directoryRef);
+    const completeRefs = files && (!files.loading || files.refreshing) && !files.error && !files.nextCursor
+      ? files.items.map(file => file.ref) : undefined;
+    if (!this.selection.toggleAlbumFile(groupRef, row.value.representative, fileRef, selected, completeRefs)) return;
+    this.state = { ...this.state, choiceValidationError: null, receipt: null };
     this.emit();
     if (this.state.summary) this.validateVisibleChoices(this.state.summary);
   }
@@ -1098,70 +785,30 @@ export class SearchViewController {
     const summary = this.state.summary;
     if (!summary || this.state.committing) return;
     const generation = this.generation;
-    // A lost response must retry the exact accepted command. An explicit edit
-    // to download options starts a new command, just as changing selection does.
-    const frozenOptions = options == null
-      ? undefined
-      : JSON.parse(JSON.stringify(options)) as Schema<'SubmissionOptionsDto'>;
-    if (this.pendingCommit && JSON.stringify(this.pendingCommit.options) !== JSON.stringify(frozenOptions))
-      this.pendingCommit = null;
-    if (!this.pendingCommit && (this.state.refining || this.state.refinementError)) return;
-    if (!this.pendingCommit && this.selectedCount() === 0) return;
-    if (!this.pendingCommit && this.hasUnreadySelectedChoices()) {
+    const retry = this.selection.retry(options);
+    if (!retry && (this.state.refining || this.state.refinementError || searchViewUnavailable(this.state))) return;
+    if (!retry && this.selectedCount() === 0) return;
+    if (!retry && this.selection.hasUnreadySelectedChoices(this.visibleAggregateRefs())) {
       this.state = { ...this.state, error: new Error('A chosen source changed. Recheck or reselect it before downloading.') };
       this.emit();
       return;
     }
-    // Retries reuse the entire request, not just its key: live revisions may
-    // advance after the daemon accepted a request whose response was lost.
-    const revision = this.state.draft?.resultMode === 'generic'
-      ? this.state.selectionRevision ?? summary.revision : summary.revision;
-    const selectionInput = this.selectionInput(revision);
-    const request = this.pendingCommit ??= {
-      viewId: summary.viewId,
-      revision,
-      mode: selectionInput.selection.mode,
-      refs: selectionInput.selection.refs,
-      excludedFileRefs: selectionInput.excludedFileRefs ?? [],
-      excludedFileIdentities: selectionInput.excludedFileIdentities ?? {},
-      includedFileRefs: selectionInput.includedFileRefs ?? [],
-      chosenOptions: selectionInput.chosenOptions ?? {},
-      albumFileSelections: selectionInput.albumFileSelections ?? {},
-      directoryPathRules: selectionInput.directoryPathRules ?? [],
-      useRepresentativeWhenUnchosen: summary.kind === 'AggregateTracks' || summary.kind === 'AggregateAlbums',
-      options: frozenOptions,
-      idempotencyKey: crypto.randomUUID(),
-    };
+    const pending = retry ?? this.selection.captureCommit(options);
     this.state = { ...this.state, committing: true, receipt: null, error: null };
     this.emit();
     try {
-      const receipt = await this.api.commitSearchView(
-        request.viewId,
-        request.revision,
-        request.mode,
-        request.refs,
-        request.idempotencyKey,
-        undefined,
-        request.excludedFileRefs,
-        request.includedFileRefs,
-        request.chosenOptions,
-        request.albumFileSelections,
-        request.options,
-        request.excludedFileIdentities,
-        request.useRepresentativeWhenUnchosen,
-        request.directoryPathRules,
-      );
+      const receipt = await this.api.commitSearchView(pending.viewId, pending.request);
       if (generation !== this.generation) return;
       this.state = { ...this.state, committing: false, receipt };
-      if (this.pendingCommit === request) this.pendingCommit = null;
+      this.selection.finishCommit(pending);
       this.emit();
     } catch (error) {
       if (generation !== this.generation) return;
       // The daemon replays accepted receipts before resolving the issuing View.
       // A received 404 therefore rejects this request; an unknown outcome keeps
       // its exact command/key so a lost response can still be recovered.
-      if (error instanceof DaemonApiError && error.status === 404 && this.pendingCommit === request)
-        this.pendingCommit = null;
+      if (error instanceof DaemonApiError && error.status === 404)
+        this.selection.finishCommit(pending);
       this.state = { ...this.state, committing: false, error: asError(error) };
       this.emit();
     }
@@ -1170,16 +817,9 @@ export class SearchViewController {
   async resolveSelectionSettings(signal?: AbortSignal): Promise<Schema<'ResolveSearchViewSelectionSettingsResponseDto'>> {
     const summary = this.state.summary;
     if (!summary) throw new Error('Search results are not available.');
-    return this.api.resolveSearchViewSelectionSettings(summary.viewId, {
-      revision: this.state.draft?.resultMode === 'generic'
-        ? this.state.selectionRevision ?? summary.revision : summary.revision,
-      selection: {
-        mode: this.state.selectedAll ? 'AllExcept' : 'Only',
-        refs: [...this.state.selectionRefs],
-      },
-      includedFileRefs: [...this.state.includedFiles.keys()],
-      directoryPathRules: this.state.directoryPathRules,
-    }, signal);
+    const { revision, selection, includedFileRefs, directoryPathRules } = this.selection.input();
+    return this.api.resolveSearchViewSelectionSettings(summary.viewId,
+      { revision, selection, includedFileRefs, directoryPathRules }, signal);
   }
 
   private cancelPageRequest(): void {
@@ -1189,7 +829,7 @@ export class SearchViewController {
   }
 
   private async reloadVisiblePages(summary: SearchViewSummaryDto, count: number,
-    options?: { request?: AbortController; replaceProjection?: boolean; sortOrder?: Schema<'ServerSearchViewSortOrder'> }): Promise<boolean> {
+    options?: { request?: AbortController; replaceProjection?: boolean; resetSelection?: boolean; sortOrder?: Schema<'ServerSearchViewSortOrder'> }): Promise<boolean> {
     this.cancelPageRequest();
     const replacing = options?.replaceProjection ?? false;
     const request = options?.request ?? new AbortController();
@@ -1222,19 +862,23 @@ export class SearchViewController {
       const directoryFiles = orderingOnly ? new Map(this.state.directoryFiles)
         : await this.refreshDirectoryPages(summary, directories, request.signal);
       if (this.stopped || request.signal.aborted) return false;
-      const selection = orderingOnly ? {}
-        : await this.genericSelectionBinding(summary, pages, request.signal, replacing);
+      if (options?.resetSelection) this.selection.reset();
+      const visibleRoots = new Set(directories.map(directory => directory.ref.ref));
+      const rebase = replacing ? this.selection.prepareRebase(summary, visibleRoots) : null;
+      let checked: Schema<'CountSearchViewSelectionResponseDto'> | undefined;
+      if (rebase?.validation) {
+        try { checked = await this.api.countSearchViewSelection(summary.viewId, rebase.validation, request.signal); }
+        catch { /* A replacement remains unbound when its roots cannot be validated. */ }
+      }
       if (this.stopped || request.signal.aborted) return false;
       if (replacing) {
-        this.pendingCommit = null;
+        this.selection.replaceProjection(summary, rebase, checked);
         this.state = { ...this.state, refining: false, refinementError: null, loadingMore: false,
-          selectionRevision: null, selectionTopLevelCount: null,
-          selectionNeedsReview: this.state.draft?.resultMode === 'generic' && this.hasGenericSelection(),
-          aggregateOptions: null, retrievals: new Map(), selectionCounts: null,
+          aggregateOptions: null, retrievals: new Map(),
           selectionCountsLoading: false, selectionCountsError: null,
           choiceValidationLoading: false, choiceValidationError: null, receipt: null };
       }
-      this.state = { ...this.state, ...selection, sortOrder: order,
+      this.state = { ...this.state, sortOrder: order,
         ...(options?.request ? { refining: false, refinementError: null } : {}) };
       this.pages = pages;
       this.publishPages(summary, directoryFiles);
@@ -1248,65 +892,6 @@ export class SearchViewController {
     } finally {
       if (this.request === request) this.request = null;
     }
-  }
-
-  private async genericSelectionBinding(summary: SearchViewSummaryDto, pages: SearchPage[],
-    signal: AbortSignal, replacing: boolean): Promise<Partial<SearchViewState>> {
-    if (this.state.draft?.resultMode !== 'generic'
-      || (!replacing && this.state.summary?.viewId !== summary.viewId)
-      || !hasPublishedProjection(summary)
-      || (!replacing && !this.state.selectionNeedsReview && (this.state.selectionRevision === null
-        || sameWireInteger(this.state.selectionRevision, summary.revision)))) return {};
-    let counts: Partial<SearchViewState> = {};
-    const refs = [...new Set([
-      ...this.state.selectionRefs,
-      ...this.state.directoryPathRules.map(rule => rule.directoryRef),
-      ...this.state.includedFiles.values(),
-      ...this.state.excludedFiles.values(),
-    ])];
-    // The page already proves membership for visible roots. Query only when
-    // a choice is off-page or disappeared; don't recount visible roots merely
-    // to validate them before computing the actual selection count.
-    const visibleRoots = new Set(pages.flatMap(page =>
-      (page as SearchViewDirectoryPageDto).items.map(item => item.ref.ref)));
-    if (refs.some(ref => !visibleRoots.has(ref))) {
-      try {
-        const request: Schema<'CountSearchViewSelectionRequestDto'> = {
-          revision: summary.revision,
-          selection: { mode: 'Only', refs },
-        };
-        const checked = await this.api.countSearchViewSelection(summary.viewId, request, signal);
-        const currentRefs = new Set([
-          ...this.state.selectionRefs,
-          ...this.state.directoryPathRules.map(rule => rule.directoryRef),
-          ...this.state.includedFiles.values(),
-          ...this.state.excludedFiles.values(),
-        ]);
-        if (signal.aborted || !sameWireInteger(checked.revision, summary.revision)
-          || refs.length !== currentRefs.size
-          || refs.some(ref => !currentRefs.has(ref))
-          || Number(checked.selectedItemCount) !== refs.length) return {};
-        // Simple folder choices use this exact count for display too. Reuse the
-        // existing count slot, but never substitute root validation for a count
-        // with exclusions, path rules, exact children or AllExcept semantics.
-        const key = selectionCountKey(summary.viewId, request);
-        if (key === selectionCountKey(summary.viewId, this.selectionInput(summary.revision))) {
-          this.countRequest?.abort();
-          this.countRequest = null;
-          this.countRequestKey = key;
-          counts = { selectionCounts: checked,
-            selectionCountsLoading: false, selectionCountsError: null };
-        }
-      } catch {
-        // Keep the previous exact revision, or leave a replacement unbound,
-        // if its references cannot be validated.
-        return {};
-      }
-    }
-    return { ...counts,
-      selectionNeedsReview: false,
-      selectionRevision: summary.revision,
-      selectionTopLevelCount: Number(summary.counters.topLevelItemCount) };
   }
 
   private loadPage(summary: SearchViewSummaryDto, cursor: string | null, sortOrder: Schema<'ServerSearchViewSortOrder'>, signal?: AbortSignal): Promise<SearchPage> {
@@ -1362,7 +947,7 @@ export class SearchViewController {
       }
     }
     for (const files of directoryFiles.values())
-      for (const item of files.items) this.fileRelativePaths.set(item.ref, item.relativePath);
+      this.selection.rememberFiles(files.items);
     const previousPanel = this.state.aggregateOptions;
     const panelNeedsNewRevision = Boolean(previousPanel && !sameWireInteger(previousPanel.revision, summary.revision));
     const panelRow = panelNeedsNewRevision && previousPanel
@@ -1390,14 +975,7 @@ export class SearchViewController {
   }
 
   private validateVisibleChoices(summary: SearchViewSummaryDto): void {
-    const visible = this.state.rows.filter(row =>
-      row.kind === 'aggregate-track' || row.kind === 'aggregate-album');
-    const choices = Object.fromEntries(visible.flatMap(row => {
-      const choice = this.state.chosenOptions.get(row.ref);
-      const checked = this.state.checkedChoiceRevisions.get(row.ref);
-      return choice && checked !== choiceRevisionKey(summary)
-        ? [[row.ref, choice.ref]] : [];
-    }));
+    const choices = this.selection.choicesToValidate(this.visibleAggregateRefs());
     if (Object.keys(choices).length === 0) {
       this.choiceRequest?.abort();
       this.choiceRequest = null;
@@ -1424,36 +1002,21 @@ export class SearchViewController {
       if (!sameWireInteger(resolved.revision.revision, summary.revision))
         throw new Error('Chosen sources do not match the visible Search View revision.');
       const albums = resolved.items.flatMap(item => item.album
-        && this.state.chosenOptions.get(item.groupRef)?.ref === item.optionRef
+        && this.selection.value.chosenOptions.get(item.groupRef)?.ref === item.optionRef
         && !this.state.directoryFiles.has(item.album.ref.ref) ? [item.album] : []);
       const restored = await this.refreshDirectoryPages(summary, albums, request.signal);
       if (this.stopped || request.signal.aborted || this.choiceRequest !== request
         || this.state.summary?.viewId !== summary.viewId
         || !sameWireInteger(this.state.summary.revision, summary.revision)) return;
-      const byGroup = new Map(resolved.items.map(item => [item.groupRef, item]));
-      const chosenOptions = new Map(this.state.chosenOptions);
-      const checkedChoiceRevisions = new Map(this.state.checkedChoiceRevisions);
-      const staleChoices = new Set(this.state.staleChoices);
       const directoryFiles = new Map(this.state.directoryFiles);
-      for (const [groupRef, optionRef] of Object.entries(choices)) {
-        if (chosenOptions.get(groupRef)?.ref !== optionRef) continue;
-        const item = byGroup.get(groupRef);
-        checkedChoiceRevisions.set(groupRef, choiceRevisionKey(summary));
-        if (item?.optionRef === optionRef && (item.track || item.album)) {
-          staleChoices.delete(groupRef);
-          if (item.track) chosenOptions.set(groupRef, { kind: 'track', ref: optionRef, value: item.track });
-          else if (item.album) {
-            chosenOptions.set(groupRef, { kind: 'album', ref: optionRef, value: item.album });
-            const files = restored.get(item.album.ref.ref);
-            if (files) {
-              directoryFiles.set(item.album.ref.ref, files);
-              for (const child of files.items) this.fileRelativePaths.set(child.ref, child.relativePath);
-            } else this.seedDirectoryPreview(item.album, directoryFiles);
-          }
-        } else staleChoices.add(groupRef);
+      for (const album of this.selection.acceptChoices(summary, choices, resolved)) {
+        const files = restored.get(album.ref.ref);
+        if (files) {
+          directoryFiles.set(album.ref.ref, files);
+          this.selection.rememberFiles(files.items);
+        } else this.seedDirectoryPreview(album, directoryFiles);
       }
-      this.state = { ...this.state, chosenOptions, checkedChoiceRevisions, staleChoices,
-        directoryFiles, choiceValidationLoading: false, choiceValidationError: null };
+      this.state = { ...this.state, directoryFiles, choiceValidationLoading: false, choiceValidationError: null };
       this.emit();
     }).catch(error => {
       if (this.stopped || request.signal.aborted || this.choiceRequest !== request) return;
@@ -1520,7 +1083,7 @@ export class SearchViewController {
     const ref = directory.ref.ref;
     const previous = target.get(ref);
     if (previous && !previous.error) return;
-    for (const item of preview.items) this.fileRelativePaths.set(item.ref, item.relativePath);
+    this.selection.rememberFiles(preview.items);
     target.set(ref, { items: [...preview.items], directorySummary: directory,
       nextCursor: preview.nextCursor ?? null, loading: false, error: null });
   }
@@ -1528,7 +1091,7 @@ export class SearchViewController {
   private schedulePoll(): void {
     if (this.timer) clearTimeout(this.timer);
     if (this.observation && this.retrievalJobs.size === 0) return;
-    if (this.stopped || !this.visible || (this.state.summary?.isComplete && this.retrievalJobs.size === 0
+    if (this.stopped || !this.visible || searchViewUnavailable(this.state) || (this.state.summary?.isComplete && this.retrievalJobs.size === 0
       && this.state.job?.lifecycleState === 'Terminal')) return;
     this.timer = setTimeout(async () => {
       this.timer = null;
@@ -1538,51 +1101,19 @@ export class SearchViewController {
   }
 
   private emit(): void {
-    if (this.state.draft?.resultMode === 'generic' && this.state.summary) {
-      const hasSelection = this.hasGenericSelection();
-      if (!hasSelection && this.state.selectionRevision !== null)
-        this.state = { ...this.state, selectionRevision: null, selectionTopLevelCount: null };
-      else if (hasSelection && !this.state.selectionNeedsReview
-        && this.state.selectionRevision === null && hasPublishedProjection(this.state.summary))
-        this.state = { ...this.state,
-          selectionRevision: this.state.summary.revision,
-          selectionTopLevelCount: Number(this.state.summary.counters.topLevelItemCount) };
+    if (searchViewUnavailable(this.state)) {
+      this.stopObservation();
+      if (this.timer) clearTimeout(this.timer);
+      this.timer = null;
     }
+    this.selection.observe(this.state.summary);
     this.syncSelectionCounts();
     const value = this.current();
     for (const listener of this.listeners) listener(value);
   }
 
-  private genericSelectionReadOnly(): boolean {
-    return this.state.draft?.resultMode === 'generic'
-      && (this.state.selectionNeedsReview || (this.state.summary !== null
-        && this.state.selectionRevision !== null
-        && !sameWireInteger(this.state.selectionRevision, this.state.summary.revision)));
-  }
-
-  private hasGenericSelection(): boolean {
-    return this.state.selectedAll || this.state.selectionRefs.size > 0
-      || this.state.includedFiles.size > 0 || this.state.directoryPathRules.length > 0;
-  }
 }
 
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
-}
-
-function choiceRevisionKey(summary: SearchViewSummaryDto): string {
-  return `${summary.viewId}:${String(summary.revision)}`;
-}
-
-function selectionCountKey(viewId: string, request: Schema<'CountSearchViewSelectionRequestDto'>): string {
-  // Sorting set-derived refs ignores insertion order; revision and the complete
-  // selection expression still invalidate any formerly exact count.
-  return JSON.stringify([viewId, request.revision, request.selection.mode,
-    [...request.selection.refs].sort(), [...(request.excludedFileRefs ?? [])].sort(),
-    Object.entries(request.excludedFileIdentities ?? {}).sort(([a], [b]) => a.localeCompare(b)),
-    [...(request.includedFileRefs ?? [])].sort(),
-    Object.entries(request.chosenOptions ?? {}).sort(([a], [b]) => a.localeCompare(b)),
-    Object.entries(request.albumFileSelections ?? {}).map(([ref, files]) =>
-      [ref, files.mode, [...files.refs].sort()]).sort(([a], [b]) => String(a).localeCompare(String(b))),
-    request.directoryPathRules ?? []]);
 }

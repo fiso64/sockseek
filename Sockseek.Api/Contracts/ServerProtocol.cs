@@ -47,8 +47,6 @@ public enum ServerJobKind
 [JsonConverter(typeof(JsonStringEnumConverter<ServerJobRole>))]
 public enum ServerJobRole
 {
-    [JsonStringEnumMemberName(ServerProtocol.JobRoles.Legacy)]
-    Legacy,
     [JsonStringEnumMemberName(ServerProtocol.JobRoles.UserRoot)]
     UserRoot,
     [JsonStringEnumMemberName(ServerProtocol.JobRoles.SemanticResult)]
@@ -256,7 +254,6 @@ public static class ServerProtocol
 
     public static class JobRoles
     {
-        public const string Legacy = "legacy";
         public const string UserRoot = "user-root";
         public const string SemanticResult = "semantic-result";
         public const string Orchestration = "orchestration";
@@ -354,7 +351,6 @@ public static class ServerProtocolEnumExtensions
     public static string ToWireString(this ServerJobRole role)
         => role switch
         {
-            ServerJobRole.Legacy => ServerProtocol.JobRoles.Legacy,
             ServerJobRole.UserRoot => ServerProtocol.JobRoles.UserRoot,
             ServerJobRole.SemanticResult => ServerProtocol.JobRoles.SemanticResult,
             ServerJobRole.Orchestration => ServerProtocol.JobRoles.Orchestration,

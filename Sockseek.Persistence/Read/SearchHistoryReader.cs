@@ -25,13 +25,6 @@ public sealed record PersistedSearchResultPage(
     IReadOnlyList<SearchProjectionInput> Items,
     long? NextSequence);
 
-// A bounded proof of which immutable live inputs belong to one committed snapshot.
-// Numeric identities avoid decoding another copy of every live file's facts.
-public sealed record PersistedSearchObservationPage(
-    PersistedSearchMetadata Metadata,
-    IReadOnlyList<(long Sequence, int Revision)> Items,
-    long? NextSequence);
-
 public sealed record PersistedSearchResultLookup(
     PersistedSearchMetadata Metadata,
     SearchProjectionInput? Result);
@@ -39,7 +32,6 @@ public sealed record PersistedSearchResultLookup(
 public interface ISearchHistoryReader
 {
     Task<PersistedSearchResultPage?> GetRawResultsAsync(Guid searchJobId, long afterSequence, int limit, CancellationToken cancellationToken = default);
-    Task<PersistedSearchObservationPage?> GetObservationKeysAsync(Guid searchJobId, long afterSequence, int limit, CancellationToken cancellationToken = default);
     Task<PersistedSearchResultLookup?> GetResultAsync(Guid searchJobId, string username, string remoteFilename, CancellationToken cancellationToken = default);
     Task<PersistedSearchMetadata?> GetMetadataAsync(Guid searchJobId, CancellationToken cancellationToken = default);
     IAsyncEnumerable<SearchProjectionInput> ReadProjectionInputsAsync(Guid searchJobId, CancellationToken cancellationToken = default);
@@ -69,30 +61,11 @@ public sealed class SearchHistoryReader(IDbContextFactory<SockseekDbContext> con
     private static string SourceFacts(bool peerLookup = false) => $"""
         FROM search_observation_sources source
         CROSS JOIN search_observations fact {(peerLookup ? "INDEXED BY ix_search_observations_raw_identity" : "")}
-        WHERE source.source_job_id=$job AND source.raw_search_job_id IS NOT NULL
-          AND fact.source_id=source.id AND fact.origin_kind=0
+        WHERE source.search_job_id=$job AND fact.source_id=source.id
         """;
 
     public async Task<PersistedSearchResultPage?> GetRawResultsAsync(
         Guid searchJobId, long afterSequence, int limit, CancellationToken cancellationToken = default)
-    {
-        var page = await ReadPageAsync(searchJobId, afterSequence, limit, ResultColumns,
-            ReadInput, row => row.Sequence, cancellationToken).ConfigureAwait(false);
-        return page is { } value ? new(value.Metadata, value.Items, value.NextSequence) : null;
-    }
-
-    public async Task<PersistedSearchObservationPage?> GetObservationKeysAsync(
-        Guid searchJobId, long afterSequence, int limit, CancellationToken cancellationToken = default)
-    {
-        var page = await ReadPageAsync(searchJobId, afterSequence, limit, "fact.source_sequence, fact.source_revision",
-            row => (Sequence: row.GetInt64(0), Revision: checked((int)row.GetInt64(1))),
-            key => key.Sequence, cancellationToken).ConfigureAwait(false);
-        return page is { } value ? new(value.Metadata, value.Items, value.NextSequence) : null;
-    }
-
-    private async Task<(PersistedSearchMetadata Metadata, IReadOnlyList<T> Items, long? NextSequence)?> ReadPageAsync<T>(
-        Guid searchJobId, long afterSequence, int limit, string columns,
-        Func<DbDataReader, T> readRow, Func<T, long> sequence, CancellationToken cancellationToken)
     {
         if (afterSequence < 0) throw new ArgumentOutOfRangeException(nameof(afterSequence));
         if (limit < 1) throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
@@ -102,18 +75,18 @@ public sealed class SearchHistoryReader(IDbContextFactory<SockseekDbContext> con
         if (metadata == null) return null;
 
         await using var command = Command(context, searchJobId, $"""
-            SELECT {columns} {SourceFacts()}
+            SELECT {ResultColumns} {SourceFacts()}
             AND fact.source_sequence>$after ORDER BY fact.source_sequence LIMIT $limit;
             """);
         Add(command, "$after", afterSequence);
         Add(command, "$limit", limit == int.MaxValue ? limit : limit + 1);
-        var rows = new List<T>();
+        var rows = new List<SearchProjectionInput>();
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) rows.Add(readRow(reader));
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) rows.Add(ReadInput(reader));
         bool hasMore = rows.Count > limit;
         if (hasMore) rows.RemoveAt(rows.Count - 1);
         await snapshot.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return (metadata, rows, hasMore && rows.Count > 0 ? sequence(rows[^1]) : null);
+        return new(metadata, rows, hasMore && rows.Count > 0 ? rows[^1].Sequence : null);
     }
 
     public async Task<PersistedSearchResultLookup?> GetResultAsync(
@@ -220,7 +193,7 @@ public sealed class SearchHistoryReader(IDbContextFactory<SockseekDbContext> con
             reader.GetInt32(7), filename, reader.GetInt64(4), Int(reader, 5), Int(reader, 6),
             Int(reader, 8), Int(reader, 9), reader.GetString(10), Int(reader, 11),
             reader.IsDBNull(12) ? null : reader.GetBoolean(12),
-            Planning.SearchObservationWriter.ReadAttributes(reader.IsDBNull(13) ? null : reader.GetString(13), defer: true),
+            Write.SearchResultWriter.ReadAttributes(reader.IsDBNull(13) ? null : reader.GetString(13), defer: true),
             DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(14)), Int(reader, 15),
             Enum.TryParse<SearchResultVisibility>(reader.GetString(16), out var visibility) ? visibility : SearchResultVisibility.Public);
 

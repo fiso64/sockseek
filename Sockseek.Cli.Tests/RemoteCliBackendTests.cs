@@ -386,6 +386,18 @@ public class RemoteCliBackendTests
                 ServerFolderRetrievalOutcome.Completed,
                 retrieval.RetrievalOutcome);
 
+            // A daemon restart discards temporary Views. A retained directory
+            // handle must fail explicitly rather than silently recreate a View.
+            app.Services.GetRequiredService<Sockseek.Server.Planning.SearchViewCoordinator>()
+                .Cache.Clear();
+            var expired = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => backend.StartRetrieveFolderAsync(
+                searchSummary.JobId, new RetrieveFolderRequestDto(folders.Items[0].Ref, albumQuery)));
+            StringAssert.Contains(expired.Message, "Request the results again");
+            var reread = await backend.GetFolderResultsAsync(searchSummary.JobId,
+                new FolderSearchProjectionRequestDto(albumQuery, IncludeFiles: true));
+            Assert.IsNotNull(reread);
+            Assert.AreEqual(2, reread.Items[0].Files!.Count);
+
             var downloadSummary = await backend.StartFolderDownloadAsync(
                 searchSummary.JobId,
                 new StartFolderDownloadRequestDto(folders.Items[0].Ref, AlbumQuery: albumQuery));

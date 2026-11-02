@@ -53,7 +53,7 @@ public sealed record PersistedJob(
     int PayloadSchemaVersion,
     string? PayloadJson,
     Guid? SubmissionId = null,
-    string SemanticRole = "Legacy",
+    string SemanticRole = "UserRoot",
     long? DiscoveryPublicFileCount = null,
     long? DiscoveryLockedFileCount = null,
     long? DiscoveryObservedPeerCount = null,

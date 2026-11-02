@@ -6,9 +6,13 @@ import { TransferTimelineController } from '../src/domains/transfers/controller.
 const coverage = { state: 'Available' } as const;
 const position = (sequence: number) => ({ epoch: 'transfer-facts', sequence });
 const row = (id: string, groupRef: string | null = null) => ({
-  transferId: id, revision: 1, direction: 'Download', username: 'Peer', groupRef,
-  createdAtUtc: `2026-10-26T00:00:0${id}Z`,
-}) as Schema<'TransferTimelineUpdateDto'>['items'][number];
+    transferId: id,
+    revision: 1,
+    createdAtUtc: `2026-10-26T00:00:0${id}Z`,
+    identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', groupRef: groupRef },
+    status: { attemptCount: 0, isTerminal: false, terminalOutcome: 'None', state: 'Queued', availableActions: [] },
+    progress: { totalBytes: -1, bytesTransferred: 0 }
+  }) as Schema<'TransferTimelineUpdateDto'>['items'][number];
 const totals = (groupRef: string, fileCount = 200) => ({
   key: { direction: 'Download', username: 'Peer', groupRef }, fileCount,
 }) as Schema<'TransferGroupSummaryDto'>;
@@ -20,7 +24,7 @@ function fixture(rows = [row('2'), row('1')]) {
   let publish: Parameters<DaemonLiveClient['observeTransferTimeline']>[1] = () => undefined;
   const getTransferTimeline = vi.fn().mockResolvedValue({ items: rows, windowTransferIds: rows.map(row => row.transferId), removedTransferIds: [],
     boundaryTransferId: rows.at(-1)?.transferId, nextCursor: null, retainedCoverage: coverage,
-    groupSummaries: groups(rows.filter(row => row.groupRef).map(row => totals(row.groupRef!))),
+    groupSummaries: groups(rows.filter(row => row.identity.groupRef).map(row => totals(row.identity.groupRef!))),
   });
   const cancel = vi.fn();
   const observe = vi.fn<DaemonLiveClient['observeTransferTimeline']>((_, next) => {
@@ -43,11 +47,11 @@ it('applies moving membership, preserves metadata-only row identity and expands 
   f.controller.connected = true;
   const stop = f.controller.observe('download')!;
   f.update({ windowTransferIds: ['2', '1'], groupSummaries: groups([]) });
-  const before = f.controller.history.download.items;
+  const before = f.controller.timeline.download.items;
   f.update({ readPosition: position(11) });
-  expect(f.controller.history.download.items).toBe(before);
+  expect(f.controller.timeline.download.items).toBe(before);
   f.update({ items: [row('3')], removedTransferIds: ['1'], boundaryTransferId: '2' });
-  expect(f.controller.history.download.items.map(r => r.transferId)).toEqual(['3', '2']);
+  expect(f.controller.timeline.download.items.map(r => r.transferId)).toEqual(['3', '2']);
   await f.controller.load('download');
   stop();
   const expanded = f.controller.observe('download')!;
@@ -60,14 +64,14 @@ it('uses the initial live snapshot for connected navigation, expansion and Retry
   const f = fixture();
   f.controller.connected = true;
   await f.controller.load('download', true);
-  expect(f.controller.history.download.loading).toBe(true);
+  expect(f.controller.timeline.download.loading).toBe(true);
   f.controller.observe('download');
   expect(f.observe.mock.lastCall?.[0]).toMatchObject({ limit: 500, knownRevisions: {}, includeGroupSummaries: true });
   f.update({ items: [row('2', 'Folder'), row('1', 'Folder')], windowTransferIds: ['2', '1'],
     groupSummaries: groups([totals('Folder')]) });
-  expect(f.controller.history.download.items).toHaveLength(2);
-  expect(f.controller.history.download.summaries[0]?.fileCount).toBe(200);
-  expect(f.controller.history.download.loading).toBe(false);
+  expect(f.controller.timeline.download.items).toHaveLength(2);
+  expect(f.controller.timeline.download.summaries[0]?.fileCount).toBe(200);
+  expect(f.controller.timeline.download.loading).toBe(false);
   await f.controller.load('download');
   f.controller.observe('download');
   expect(f.observe.mock.lastCall?.[0].limit).toBe(1000);
@@ -85,12 +89,12 @@ it('falls back to the shared HTTP snapshot after live observation fails', async 
   await f.controller.load('download', true);
   f.controller.observe('download');
   f.observe.mock.lastCall![2](new Error('Live delivery unavailable'));
-  expect(f.controller.history.download.error?.message).toBe('Live delivery unavailable');
+  expect(f.controller.timeline.download.error?.message).toBe('Live delivery unavailable');
   await f.controller.load('download', true);
   expect(f.getTransferTimeline).toHaveBeenCalledOnce();
   expect(f.cancel).toHaveBeenCalledOnce();
-  expect(f.controller.history.download.items).toHaveLength(2);
-  expect(f.controller.history.download.error).toBeNull();
+  expect(f.controller.timeline.download.items).toHaveLength(2);
+  expect(f.controller.timeline.download.error).toBeNull();
   f.controller.observe('download');
   expect(f.observe.mock.lastCall?.[0]).toMatchObject({ knownRevisions: { '2': 1, '1': 1 } });
   f.controller.stop();
@@ -101,10 +105,10 @@ it('displays changed whole-folder totals in the same update without another requ
   await f.controller.load('download', true);
   f.controller.observe('download');
   f.update({ windowTransferIds: ['1'], groupSummaries: groups([totals('Folder')]) });
-  const before = f.controller.history.download.items;
+  const before = f.controller.timeline.download.items;
   f.update({ groupSummaries: groups([{ ...totals('Folder'), succeededCount: 200 }], 11) });
-  expect(f.controller.history.download.items).toBe(before);
-  expect(f.controller.history.download.summaries[0]?.succeededCount).toBe(200);
+  expect(f.controller.timeline.download.items).toBe(before);
+  expect(f.controller.timeline.download.summaries[0]?.succeededCount).toBe(200);
   expect(f.getTransferTimeline).toHaveBeenCalledOnce();
   f.controller.stop();
 });
@@ -115,8 +119,8 @@ it('moves new folders and their exact totals together and removes departed total
   f.controller.observe('download');
   f.update({ windowTransferIds: ['1'], groupSummaries: groups([totals('First')]) });
   f.update({ items: [row('2', 'Second')], removedTransferIds: ['1'], groupSummaries: groups([totals('Second', 300)], 11) });
-  expect(f.controller.history.download.items.map(row => row.groupRef)).toEqual(['Second']);
-  expect(f.controller.history.download.summaries.map(summary => [summary.key.groupRef, summary.fileCount])).toEqual([['Second', 300]]);
+  expect(f.controller.timeline.download.items.map(row => row.identity.groupRef)).toEqual(['Second']);
+  expect(f.controller.timeline.download.summaries.map(summary => [summary.key.groupRef, summary.fileCount])).toEqual([['Second', 300]]);
   expect(f.getTransferTimeline).toHaveBeenCalledOnce();
   f.controller.stop();
 });
@@ -126,12 +130,12 @@ it('keeps valid rows when totals fail and recovers with the next authoritative t
   await f.controller.load('download', true);
   f.controller.observe('download');
   f.update({ windowTransferIds: ['1'], groupSummaries: { items: [], retainedCoverage: { state: 'Unavailable', reason: 'storage failure' } } });
-  expect(f.controller.history.download.items).toHaveLength(1);
-  expect(f.controller.history.download.summaryError?.message).toBe('storage failure');
-  expect(f.controller.history.download.summaryCoverage?.state).toBe('Unavailable');
+  expect(f.controller.timeline.download.items).toHaveLength(1);
+  expect(f.controller.timeline.download.summaryError?.message).toBe('storage failure');
+  expect(f.controller.timeline.download.summaryCoverage?.state).toBe('Unavailable');
   f.update({ groupSummaries: groups([totals('Folder')], 11) });
-  expect(f.controller.history.download.summaryError).toBeNull();
-  expect(f.controller.history.download.summaries[0]?.fileCount).toBe(200);
+  expect(f.controller.timeline.download.summaryError).toBeNull();
+  expect(f.controller.timeline.download.summaries[0]?.fileCount).toBe(200);
   f.controller.stop();
 });
 
@@ -143,36 +147,43 @@ it('ends observation when hidden and ignores later row and summary arrivals', as
   f.controller.stop();
   stop();
   f.update({ items: [row('2', 'Other')], groupSummaries: groups([totals('Other')], 11) });
-  expect(f.controller.history.download.items.map(row => row.transferId)).toEqual(['1']);
-  expect(f.controller.history.download.summaries[0]?.key.groupRef).toBe('Folder');
+  expect(f.controller.timeline.download.items.map(row => row.transferId)).toEqual(['1']);
+  expect(f.controller.timeline.download.summaries[0]?.key.groupRef).toBe('Folder');
   expect(f.cancel).toHaveBeenCalledOnce();
   expect(f.getTransferTimeline).toHaveBeenCalledOnce();
 });
 
-it('updates scoped progress without fetching history and retains history after live eviction', async () => {
+it('patches the canonical row without rebuilding membership and preserves it across reconnect', async () => {
   const f = fixture();
   await f.controller.load('download', true);
   const stop = f.controller.observe('download')!;
   const live = {
-    transferId: '2', revision: 1,
+    transferId: '2', revision: 1, createdAtUtc: row('2').createdAtUtc,
     identity: { direction: 'Download', source: 'RemoteFile' },
     status: { state: 'InProgress', isTerminal: false, attemptCount: 1, terminalOutcome: 'None', failureReason: 'None', cancellationSource: 'None' },
     progress: { bytesTransferred: 10, totalBytes: 100 },
   } satisfies Schema<'TransferStateDto'>;
-  f.update({ windowTransferIds: ['2', '1'], liveTransfers: [{ transferId: '2', revision: 1, added: live }] });
-  const history = f.controller.history.download.items;
-  f.update({ liveTransfers: [{ transferId: '2', revision: 2, progress: { bytesTransferred: 50, totalBytes: 100 } }] });
-  expect(f.controller.live.read('2')?.progress.bytesTransferred).toBe(50);
-  expect(f.controller.history.download.items).toBe(history);
+  f.update({ windowTransferIds: ['2', '1'], changes: [{ transferId: '2', revision: 1, added: live }] });
+  const history = f.controller.timeline.download.items;
+  f.update({ changes: [{ transferId: '2', revision: 2, progress: { bytesTransferred: 50, totalBytes: 100 } }] });
+  expect(f.controller.rows.download.read('2')?.progress.bytesTransferred).toBe(50);
+  expect(f.controller.timeline.download.items).toBe(history);
   expect(f.getTransferTimeline).toHaveBeenCalledOnce();
-  f.update({ liveTransfers: [{ transferId: '2', revision: 1, added: live }] });
-  expect(f.controller.live.read('2')?.progress.bytesTransferred).toBe(50);
-  f.update({ removedLiveTransferIds: ['2'] });
-  expect(f.controller.live.read('2')).toBeUndefined();
-  expect(f.controller.history.download.items).toBe(history);
+  f.update({ changes: [{ transferId: '2', revision: 1, added: live }] });
+  expect(f.controller.rows.download.read('2')?.progress.bytesTransferred).toBe(50);
+  f.update({ readPosition: position(12) });
+  expect(f.controller.rows.download.read('2')?.progress.bytesTransferred).toBe(50);
+  expect(f.controller.timeline.download.items).toBe(history);
   stop();
-  f.update({ liveTransfers: [{ transferId: '2', revision: 3, added: live }] });
-  expect(f.controller.live.size).toBe(0);
+  f.update({ changes: [{ transferId: '2', revision: 3, added: live }] });
+  expect(f.controller.rows.download.read('2')?.progress.bytesTransferred).toBe(50);
+  f.controller.observe('download');
+  expect(f.observe.mock.lastCall?.[0].knownRevisions).toMatchObject({ '2': 2 });
+  f.update({ windowTransferIds: ['2', '1'], items: [row('2')],
+    readPosition: { epoch: 'restarted', sequence: 1 } });
+  expect(f.controller.rows.download.read('2')?.revision).toBe(1);
+  expect(f.controller.timeline.download.items[0]?.revision).toBe(1);
+  f.controller.stop();
 });
 
 it('stops old observation before a snapshot and reconciles the gap through a fresh scope', async () => {
@@ -188,43 +199,46 @@ it('stops old observation before a snapshot and reconciles the gap through a fre
   expect(f.controller.observe('download')).toBeUndefined();
   resolve({ items: [row('2', 'Folder'), row('1', 'Folder')], windowTransferIds: ['2', '1'], removedTransferIds: [], nextCursor: null, retainedCoverage: coverage, groupSummaries: groups([totals('Folder', 2)]) });
   await reset;
-  expect(f.controller.history.download.summaries[0]?.fileCount).toBe(2);
+  expect(f.controller.timeline.download.summaries[0]?.fileCount).toBe(2);
   f.controller.observe('download');
   f.update({ windowTransferIds: ['3', '2'], items: [row('3', 'Folder')], removedTransferIds: ['1'], groupSummaries: groups([totals('Folder', 3)], 12) });
-  expect(f.controller.history.download.items.map(r => r.transferId)).toEqual(['3', '2']);
-  expect(f.controller.history.download.summaries[0]?.fileCount).toBe(3);
+  expect(f.controller.timeline.download.items.map(r => r.transferId)).toEqual(['3', '2']);
+  expect(f.controller.timeline.download.summaries[0]?.fileCount).toBe(3);
   f.controller.stop();
 });
 
-it('applies snapshot progress through the same live overlay as observation', async () => {
+it('renders complete HTTP snapshot rows through the same keyed reader as observation', async () => {
   const f = fixture();
   const live = {
-    transferId: '2', revision: 2, identity: { direction: 'Download', source: 'RemoteFile' },
+    transferId: '2', revision: 2, createdAtUtc: row('2').createdAtUtc, identity: { direction: 'Download', source: 'RemoteFile' },
     status: { state: 'InProgress', isTerminal: false, attemptCount: 1, terminalOutcome: 'None', failureReason: 'None', cancellationSource: 'None' },
     progress: { bytesTransferred: 50, totalBytes: 100 },
   } satisfies Schema<'TransferStateDto'>;
-  f.getTransferTimeline.mockResolvedValueOnce({ items: [row('2')], windowTransferIds: ['2'], removedTransferIds: [],
-    retainedCoverage: coverage, groupSummaries: groups([]), liveTransfers: [{ transferId: '2', revision: 2, added: live }] });
+  f.getTransferTimeline.mockResolvedValueOnce({ items: [live], windowTransferIds: ['2'], removedTransferIds: [],
+    retainedCoverage: coverage, groupSummaries: groups([]) });
   await f.controller.load('download', true);
-  expect(f.controller.live.read('2')?.progress.bytesTransferred).toBe(50);
-  expect(f.controller.history.download.items).toHaveLength(1);
+  expect(f.controller.rows.download.read('2')?.progress.bytesTransferred).toBe(50);
+  expect(f.controller.timeline.download.items).toHaveLength(1);
 });
 
 it('keeps the visible upload observation intact when a hidden download refresh finishes', async () => {
-  const f = fixture([{ ...row('7'), direction: 'Upload' }]);
+  const f = fixture([{
+    ...row('7'),
+    identity: { ...row('7').identity, direction: 'Upload' }
+  }]);
   await f.controller.load('upload', true);
   f.controller.observe('upload');
   const live = {
-    transferId: '7', revision: 1, identity: { direction: 'Upload', source: 'RemoteFile' },
+    transferId: '7', revision: 1, createdAtUtc: row('7').createdAtUtc, identity: { direction: 'Upload', source: 'RemoteFile' },
     status: { state: 'InProgress', isTerminal: false, attemptCount: 1, terminalOutcome: 'None', failureReason: 'None', cancellationSource: 'None' },
     progress: { bytesTransferred: 50, totalBytes: 100 },
   } satisfies Schema<'TransferStateDto'>;
-  f.update({ windowTransferIds: ['7'], liveTransfers: [{ transferId: '7', revision: 1, added: live }] });
+  f.update({ windowTransferIds: ['7'], items: [{ ...live, revision: 2 }] });
   f.getTransferTimeline.mockResolvedValueOnce({ items: [row('1')], windowTransferIds: ['1'], removedTransferIds: [], retainedCoverage: coverage, groupSummaries: groups([]) });
   await f.controller.load('download', true);
   expect(f.cancel).not.toHaveBeenCalled();
-  expect(f.controller.live.read('7')?.progress.bytesTransferred).toBe(50);
-  expect(f.controller.history.upload.items.map(row => row.transferId)).toEqual(['7']);
+  expect(f.controller.rows.upload.read('7')?.progress.bytesTransferred).toBe(50);
+  expect(f.controller.timeline.upload.items.map(row => row.transferId)).toEqual(['7']);
   f.controller.stop();
 });
 
@@ -238,7 +252,7 @@ it('retains newly fetched folder members when an older scoped snapshot finishes'
   resolve({ items: [row('2', 'Folder')], windowTransferIds: ['2'], removedTransferIds: [], retainedCoverage: coverage,
     groupSummaries: groups([totals('Folder')]) });
   await reset;
-  expect(f.controller.history.download.items.map(row => row.transferId)).toEqual(['2', '0']);
+  expect(f.controller.timeline.download.items.map(row => row.transferId)).toEqual(['2', '0']);
   expect(f.controller.missingMembers.download).toEqual([]);
   f.controller.observe('download');
   expect(f.observe.mock.lastCall?.[0].additionalTransferIds).toEqual(['0']);

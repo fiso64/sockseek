@@ -190,10 +190,9 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
     const status = await measureApi(daemon.url, '/api/server/status');
     expect(status.ok, status.body).toBe(true);
     const { persistence } = JSON.parse(status.body) as { persistence: {
-      state: string; droppedSearchResultCount: number; permanentlyFailedMutationCount: number;
+      state: string; permanentlyFailedMutationCount: number;
     } };
     expect(persistence.state).toBe('Healthy');
-    expect(persistence.droppedSearchResultCount).toBe(0);
     expect(persistence.permanentlyFailedMutationCount).toBe(0);
     const statusApiMs = status.elapsedMs;
     expect(statusApiMs, 'Health is a bounded snapshot even with 10k accepted jobs.').toBeLessThan(100);
@@ -204,10 +203,10 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
       const response = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
       const transfers = (await response.json() as Schema<'TransferTimelinePageDto'>).items;
       expect(transfers).toHaveLength(1);
-      expect(transfers[0]!.username).toBe('fixture-peer');
-      expect(transfers[0]!.remotePath).toBe('Fixture\\Fixture song.flac');
-      expect(transfers[0]!.terminalOutcome).toBe('Succeeded');
-      expect((await stat(transfers[0]!.localPath!)).size).toBe(128);
+      expect(transfers[0]!.identity.username).toBe('fixture-peer');
+      expect(transfers[0]!.identity.remotePath).toBe('Fixture\\Fixture song.flac');
+      expect(transfers[0]!.status.terminalOutcome).toBe('Succeeded');
+      expect((await stat(transfers[0]!.status.localPath!)).size).toBe(128);
     }
     const daemonMetrics = daemon.logs().filter(line => line.includes('Job Preview ') || line.includes('Submission commit ')
       || line.startsWith('E2E_METRIC persistence-commit '));

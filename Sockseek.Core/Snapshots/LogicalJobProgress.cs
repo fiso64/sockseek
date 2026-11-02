@@ -29,11 +29,13 @@ public static class LogicalJobProgress
     {
         HashSet<Guid>? visited = null;
         Job current = member;
-        while (current is ExtractJob extract
-            && extract.AutoProcessResult
-            && extract.LifecycleState == JobLifecycleState.Terminal
-            && extract.TerminalOutcome == JobTerminalOutcome.Succeeded)
+        while (true)
         {
+            var state = current.StateSnapshot;
+            if (current is not ExtractJob { AutoProcessResult: true } extract
+                || state.LifecycleState != JobLifecycleState.Terminal
+                || state.TerminalOutcome != JobTerminalOutcome.Succeeded)
+                return new(state.LifecycleState, state.TerminalOutcome, state.SkipReason);
             visited ??= [];
             if (!visited.Add(current.Id))
                 throw new InvalidDataException("An extraction result relationship contains a cycle.");
@@ -41,7 +43,6 @@ public static class LogicalJobProgress
                 return Pending;
             current = extract.Result;
         }
-        return new(current.LifecycleState, current.TerminalOutcome, current.SkipReason);
     }
 
     public static Outcome FromSnapshot(

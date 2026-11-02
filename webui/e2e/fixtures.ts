@@ -59,7 +59,7 @@ type FixtureCommand = `prune-search-results:${string}` | `wait-job-complete:${st
   | 'staged-search' | 'next-search-batch' | 'finish-search' | 'incoming-chat' | 'directory-selection-search' | 'nested-generic-search' | 'concurrent-retrieval-search' | 'mixed-retrieval-search' | 'hold-directory-browse' | 'release-directory-browse' | 'paged-subfolder-search' | 'aggregate-search' | 'rich-aggregate-search' | 'aggregate-failure-search' | 'aggregate-album-search' | 'staged-aggregate-album-search' | 'rich-aggregate-album-search' | 'paged-aggregate-album-search'
   | 'request-upload' | 'request-queued-upload' | 'release-upload' | 'incoming-room-chat' | 'seed-chat-history'
   | 'album-art-search' | 'large-album-art-search' | 'nested-album-search' | 'bare-filename-search' | 'hold-art-download' | 'release-art-download' | 'wait-directory-complete' | 'aggregate-album-failure-search' | 'staged-conditioned-music-search' | 'mixed-aggregate-album-search'
-  | 'long-song-fallback' | 'report-fallback-downloads' | 'report-search-projections' | 'terminal-transfer-committed';
+  | 'long-song-fallback' | 'report-fallback-downloads' | `report-search-projection:${string}` | 'terminal-transfer-committed';
 
 function startDaemonWorker() {
   const child = spawn('dotnet', [assembly, webRoot], { stdio: ['pipe', 'pipe', 'pipe'] });

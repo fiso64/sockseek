@@ -40,13 +40,13 @@ internal static class UserProfileEndpoints
 
     private static async Task<IResult> GetProfileAsync(
         string username,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         PeerRestrictionCoordinator peerRestrictions,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken,
         bool refresh = false)
     {
-        UserProfileService? service = supervisor.UserProfiles;
+        UserProfileService? service = runtime.UserProfiles;
         if (service is null)
         {
             ServerLogMessages.FeatureRequestUnavailable(
@@ -77,11 +77,11 @@ internal static class UserProfileEndpoints
         string username,
         HttpRequest request,
         HttpResponse response,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
-        UserProfileService? service = supervisor.UserProfiles;
+        UserProfileService? service = runtime.UserProfiles;
         if (service is null)
         {
             ServerLogMessages.FeatureRequestUnavailable(
@@ -118,11 +118,11 @@ internal static class UserProfileEndpoints
 
     private static async Task<IResult> GetPresenceAsync(
         string username,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
-        UserProfileService? service = supervisor.UserProfiles;
+        UserProfileService? service = runtime.UserProfiles;
         if (service is null)
         {
             ServerLogMessages.FeatureRequestUnavailable(

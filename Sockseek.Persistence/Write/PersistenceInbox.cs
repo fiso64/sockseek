@@ -38,31 +38,6 @@ public sealed class PersistenceInbox : IPersistenceMutationSink
     private int searchDepth;
     private int bufferedSearchResultCount;
     private int searchCompletionCount;
-    private int preparingInteractiveCommands;
-
-    // Preparation runs on the caller, before its command can enter the queue.
-    // Preserve short source transactions during that work without pausing intake.
-    internal IDisposable BeginInteractivePreparation()
-    {
-        Interlocked.Increment(ref preparingInteractiveCommands);
-        Signal();
-        return new InteractivePreparation(this);
-    }
-
-    private sealed class InteractivePreparation(PersistenceInbox inbox) : IDisposable
-    {
-        private PersistenceInbox? owner = inbox;
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref owner, null) is not { } inbox) return;
-            Interlocked.Decrement(ref inbox.preparingInteractiveCommands);
-            inbox.Signal();
-        }
-    }
-
-    private int SearchBatchLimit => Volatile.Read(ref preparingInteractiveCommands) == 0
-        ? Options.SearchResultFlushCount
-        : Math.Min(Options.SearchResultFlushCount, PersistenceWriterOptions.InitialSearchResultFlushCount);
     private int completed;
     private int activeAdmissions;
 
@@ -108,8 +83,6 @@ public sealed class PersistenceInbox : IPersistenceMutationSink
     public int RetryMutationCount { get { lock (retryGate) return retry.Count; } }
     public int BufferedSearchResultCount => Volatile.Read(ref bufferedSearchResultCount);
     internal int SearchDepth => Volatile.Read(ref searchDepth);
-    public int IncompleteSearchTrackingCount => 0;
-    public bool IncompleteSearchTrackingOverflowed => false;
     internal bool IsCompleted => Volatile.Read(ref completed) != 0;
     internal int ActiveAdmissionCount => Volatile.Read(ref activeAdmissions);
 
@@ -273,13 +246,12 @@ public sealed class PersistenceInbox : IPersistenceMutationSink
         bool includeProgress, TimeSpan gathering, TimeProvider clock, CancellationToken cancellationToken)
     {
         var batch = new List<PersistenceMutation>(Options.MaximumBatchSize);
-        int searchResultCount = 0, searchResultLimit = SearchBatchLimit;
+        int searchResultCount = 0, searchResultLimit = Options.SearchResultFlushCount;
         long started = clock.GetTimestamp();
         try
         {
             while (true)
             {
-                searchResultLimit = Math.Min(searchResultLimit, SearchBatchLimit);
                 DrainBatch(batch, includeProgress, ref searchResultCount, ref searchResultLimit);
                 TimeSpan remaining = gathering - clock.GetElapsedTime(started);
                 if (remaining <= TimeSpan.Zero || IsCompleted || CommandDepth > 0
@@ -329,12 +301,12 @@ public sealed class PersistenceInbox : IPersistenceMutationSink
         || SearchDepth >= Options.SearchMutationQueueCapacity
         || waiter.Mutations + Volatile.Read(ref criticalDepth) + Volatile.Read(ref ordinaryDepth)
             + PendingStateCount + RetryMutationCount + SearchDepth >= Options.MaximumBatchSize
-        || waiter.SearchResults + BufferedSearchResultCount >= Math.Min(waiter.SearchLimit, SearchBatchLimit);
+        || waiter.SearchResults + BufferedSearchResultCount >= waiter.SearchLimit;
 
     internal IReadOnlyList<PersistenceMutation> DrainBatch(bool includeProgress = true)
     {
         var batch = new List<PersistenceMutation>(Options.MaximumBatchSize);
-        int searchResultCount = 0, searchResultLimit = SearchBatchLimit;
+        int searchResultCount = 0, searchResultLimit = Options.SearchResultFlushCount;
         DrainBatch(batch, includeProgress, ref searchResultCount, ref searchResultLimit);
         return batch;
     }

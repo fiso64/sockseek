@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures';
 import type { WebSocketRoute } from '@playwright/test';
 
-test('shows prototype offline states and recovers history after daemon startup returns', async ({ page }) => {
+test('shows offline states and recovers history after daemon startup returns', async ({ page }) => {
   let unavailable = true;
   await page.route('**/api/**', (route) => unavailable ? route.abort('failed') : route.continue());
   await page.goto('/downloads');
@@ -34,6 +34,12 @@ test('reloads an open Jobs page when the daemon first becomes reachable', async 
   let release!: () => void;
   const restored = new Promise<void>(resolve => { release = resolve; });
   let historyReads = 0;
+  let observations = 0;
+  page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
+    for (const frame of payload.toString().split('\u001e').filter(Boolean)) {
+      if (JSON.parse(frame).target === 'ObserveJobList') observations++;
+    }
+  }));
   page.on('request', request => {
     if (request.method() === 'GET' && new URL(request.url()).pathname === '/api/jobs') historyReads++;
   });
@@ -56,6 +62,7 @@ test('reloads an open Jobs page when the daemon first becomes reachable', async 
   await expect(offline).toHaveCount(0);
   await expect(page.getByText('No jobs yet', { exact: true })).toBeVisible();
   historyReads = 0;
+  observations = 0;
   try {
     outage = true;
     await socket!.close({ code: 1012, reason: 'E2E reconnect history check' });
@@ -64,7 +71,8 @@ test('reloads an open Jobs page when the daemon first becomes reachable', async 
     release();
     await expect(page.getByLabel('Connection status').locator('strong').nth(1)).toHaveText('Connected');
     await expect(page.getByText('No jobs yet', { exact: true })).toBeVisible();
-    expect(historyReads).toBe(1);
+    expect(historyReads).toBe(0);
+    expect(observations).toBe(1);
   } finally { outage = false; release(); }
 });
 

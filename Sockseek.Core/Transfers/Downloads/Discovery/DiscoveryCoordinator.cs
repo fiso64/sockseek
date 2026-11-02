@@ -220,9 +220,8 @@ internal sealed class DiscoveryCoordinator
             await context.ClientManager.WaitUntilReadyAsync(job.Cts!.Token);
             job.UpdateActivity(JobActivityPhase.RetrievingFolder);
             job.Result = await context.Runtime.Searcher.RetrieveDirectory(job.Directory, job.Cts!.Token);
-            job.NewFilesFoundCount = job.AsyncResultObserver != null
-                ? await job.AsyncResultObserver(job.Result, job.Cts.Token).ConfigureAwait(false)
-                : job.ResultObserver?.Invoke(job.Result) ?? job.Result.Files.Count;
+            job.NewFilesFoundCount = job.ResultObserver?.Invoke(job.Result, job.Cts.Token)
+                ?? job.Result.Files.Count;
             job.RetrievalOutcome = FolderRetrievalOutcome.Completed;
             job.Discovery = new DiscoverySummary { RawResultCount = job.NewFilesFoundCount, LockedFileCount = 0 };
             var outcome = JobOutcome.Done();

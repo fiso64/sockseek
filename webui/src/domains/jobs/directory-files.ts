@@ -9,8 +9,7 @@ export function directoryKnownSize(directory: Schema<'DirectoryDownloadStateDto'
   if (directory.attemptNumber == null) return null;
   const bytes = Number(directory.totalKnownBytes);
   if (!Number.isFinite(bytes) || bytes < 0) return null;
-  if (bytes === 0 && (directory.unknownFileSizeCount == null
-    || Number(directory.unknownFileSizeCount) > 0)) return null;
+  if (bytes === 0 && Number(directory.unknownFileSizeCount) > 0) return null;
   return bytes;
 }
 

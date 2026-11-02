@@ -135,8 +135,11 @@ internal sealed class JobMembers<T>(bool followExtractResults, Action changed) w
     }
 
     private LogicalJobProgress.Outcome Outcome(Job job)
-        => followResults ? LogicalJobProgress.FromRuntime(job)
-            : new(job.LifecycleState, job.TerminalOutcome, job.SkipReason);
+    {
+        if (followResults) return LogicalJobProgress.FromRuntime(job);
+        var state = job.StateSnapshot;
+        return new(state.LifecycleState, state.TerminalOutcome, state.SkipReason);
+    }
 
     private void Update(Member member, bool relationshipsChanged)
     {

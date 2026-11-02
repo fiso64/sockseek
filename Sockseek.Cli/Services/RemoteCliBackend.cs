@@ -284,7 +284,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                 cursor,
                 SearchViewPageSize,
                 ct: ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("The Search View disappeared while paging file results.");
+                ?? throw new InvalidOperationException(ResultsExpiredMessage);
             revision ??= page.Revision;
             items.AddRange(page.Items.Select(CliSearchProjectionMapper.ToDto));
             cursor = page.NextCursor;
@@ -332,7 +332,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                 cursor,
                 SearchViewPageSize,
                 ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("The Search View disappeared while paging aggregate tracks.");
+                ?? throw new InvalidOperationException(ResultsExpiredMessage);
             revision ??= page.Revision;
             foreach (SearchViewAggregateTrackGroupDto group in page.Items)
             {
@@ -374,7 +374,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                 cursor,
                 SearchViewPageSize,
                 ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("The Search View disappeared while paging aggregate albums.");
+                ?? throw new InvalidOperationException(ResultsExpiredMessage);
             revision ??= page.Revision;
             foreach (SearchViewAggregateAlbumGroupDto group in page.Items)
             {
@@ -412,7 +412,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                 cursor,
                 SearchViewPageSize,
                 ct: ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("The Search View disappeared while paging directories.");
+                ?? throw new InvalidOperationException(ResultsExpiredMessage);
             revision ??= page.Revision;
             foreach (SearchViewDirectoryDto directory in page.Items)
                 items.Add(await ToCliDirectoryAsync(view, directory, includeFiles, ct).ConfigureAwait(false));
@@ -450,7 +450,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                 cursor,
                 SearchViewPageSize,
                 ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("The Search View directory disappeared while paging children.");
+                ?? throw new InvalidOperationException(ResultsExpiredMessage);
             files.AddRange(page.Items.Select(item => CliSearchProjectionMapper.ToDto(item.File)));
             cursor = page.NextCursor;
         }
@@ -475,7 +475,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                     cursor,
                     SearchViewPageSize,
                     ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("The Search View track group disappeared while paging alternatives.");
+                ?? throw new InvalidOperationException(ResultsExpiredMessage);
             files.AddRange(page.Items.Select(CliSearchProjectionMapper.ToDto));
             cursor = page.NextCursor;
         }
@@ -500,7 +500,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                     cursor,
                     SearchViewPageSize,
                     ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("The Search View album group disappeared while paging alternatives.");
+                ?? throw new InvalidOperationException(ResultsExpiredMessage);
             foreach (SearchViewDirectoryDto directory in page.Items)
                 folders.Add(await ToCliDirectoryAsync(view, directory, includeFiles: true, ct).ConfigureAwait(false));
             cursor = page.NextCursor;
@@ -551,6 +551,8 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
             view.RetentionState,
             view.Counters);
 
+    private const string ResultsExpiredMessage =
+        "The results snapshot is no longer available (expiry or daemon restart). Request the results again and review the new selection.";
     private const int SearchViewPageSize = 200;
     private sealed record SearchViewDirectoryHandle(
         Guid ViewId,
@@ -564,13 +566,20 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
             searchJobId,
             request.Folder.Username,
             request.Folder.FolderPath);
-        return await api.RetrieveSearchViewDirectoryAsync(
-            handle.ViewId,
-            new RetrieveSearchViewDirectoryRequestDto(
-                handle.Revision,
-                handle.Directory,
-                Guid.NewGuid()),
-            ct).ConfigureAwait(false);
+        try
+        {
+            return await api.RetrieveSearchViewDirectoryAsync(
+                handle.ViewId,
+                new RetrieveSearchViewDirectoryRequestDto(
+                    handle.Revision,
+                    handle.Directory,
+                    Guid.NewGuid()),
+                ct).ConfigureAwait(false);
+        }
+        catch (SockseekApiRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException(ResultsExpiredMessage, exception);
+        }
     }
 
     public async Task<RetrieveFolderJobPayloadDto?> RetrieveFolderAndWaitAsync(Guid searchJobId, RetrieveFolderRequestDto request, CancellationToken ct = default)

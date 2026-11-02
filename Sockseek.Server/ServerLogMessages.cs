@@ -92,12 +92,6 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4520, LogLevel.Warning, "Job Preview {PreviewId} was released but artifact pin cleanup was degraded")]
     internal static partial void JobPreviewArtifactCleanupDegraded(ILogger logger, Exception exception, Guid previewId);
 
-    [LoggerMessage(4530, LogLevel.Warning, "Search View storage is unavailable; search execution remains available")]
-    internal static partial void SearchViewUnavailable(ILogger logger);
-
-    [LoggerMessage(4531, LogLevel.Warning, "Search View storage is unavailable; search execution remains available")]
-    internal static partial void SearchViewInitializationFailed(ILogger logger, Exception exception);
-
     [LoggerMessage(4532, LogLevel.Information, "Search View {ViewId} for job {JobId} created with outcome Live")]
     internal static partial void SearchViewCreated(ILogger logger, Guid viewId, Guid jobId);
 
@@ -110,23 +104,17 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4535, LogLevel.Error, "Search View {ViewId} completed with outcome Incomplete after projection failure")]
     internal static partial void SearchViewProjectionFailed(ILogger logger, Exception exception, Guid viewId);
 
-    [LoggerMessage(4536, LogLevel.Warning, "Search View {ViewId} incomplete state could not be persisted; its last durable revision remains readable")]
+    [LoggerMessage(4536, LogLevel.Warning, "Search View {ViewId} incomplete state could not be published; its last snapshot remains readable")]
     internal static partial void SearchViewIncompleteStateFailed(ILogger logger, Exception exception, Guid viewId);
 
     [LoggerMessage(4537, LogLevel.Debug, "Search View {ViewId} revision {Revision} observer failed")]
     internal static partial void SearchViewObserverFailed(ILogger logger, Exception exception, Guid viewId, long revision);
 
-    [LoggerMessage(4538, LogLevel.Error, "Search View {ViewId} restart recovery failed with outcome Incomplete")]
-    internal static partial void SearchViewRecoveryFailed(ILogger logger, Exception exception, Guid viewId);
+    [LoggerMessage(4538, LogLevel.Error, "Search View {ViewId} projection restoration failed with outcome Incomplete")]
+    internal static partial void SearchViewRestoreFailed(ILogger logger, Exception exception, Guid viewId);
 
-    [LoggerMessage(4539, LogLevel.Warning, "Search View restart enumeration degraded; existing durable revisions remain readable")]
-    internal static partial void SearchViewRecoveryEnumerationDegraded(ILogger logger, Exception exception);
-
-    [LoggerMessage(4540, LogLevel.Information, "Search View restart recovery scheduled {ViewCount} incomplete views")]
-    internal static partial void SearchViewRecoveryScheduled(ILogger logger, int viewCount);
-
-    [LoggerMessage(4541, LogLevel.Warning, "Search View {ViewId} could not persist its restart outcome; its last durable revision remains readable")]
-    internal static partial void SearchViewRecoveryOutcomeFailed(ILogger logger, Exception exception, Guid viewId);
+    [LoggerMessage(4541, LogLevel.Warning, "Search View {ViewId} could not publish its restoration outcome; its last snapshot remains readable")]
+    internal static partial void SearchViewRestorePublicationFailed(ILogger logger, Exception exception, Guid viewId);
 
     [LoggerMessage(4542, LogLevel.Error, "Search View {ViewId} could not replay retrieval observation {ObservationId}")]
     internal static partial void SearchViewRetrievalReplayFailed(ILogger logger, Exception exception, Guid viewId, Guid observationId);
@@ -155,17 +143,11 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4560, LogLevel.Warning, "Dashboard transfer accounting is unavailable; suppressedWarnings={SuppressedWarnings}")]
     internal static partial void DashboardAccountingUnavailable(ILogger logger, Exception exception, int suppressedWarnings);
 
-    [LoggerMessage(4561, LogLevel.Error, "Terminal upload persistence handoff failed for transfer {TransferId}")]
-    internal static partial void TerminalUploadHandoffFailed(ILogger logger, Exception exception, Guid transferId);
-
     [LoggerMessage(4562, LogLevel.Error, "Bulk transfer cancellation failed for transfer {TransferId}")]
     internal static partial void BulkTransferCancellationFailed(ILogger logger, Exception exception, Guid transferId);
 
     [LoggerMessage(4563, LogLevel.Warning, "Submission {SubmissionId} could not release its temporary input-artifact references")]
     internal static partial void SubmissionArtifactReleaseFailed(ILogger logger, Exception exception, Guid submissionId);
-
-    [LoggerMessage(4564, LogLevel.Error, "Terminal download persistence handoff failed for transfer {TransferId}")]
-    internal static partial void TerminalDownloadHandoffFailed(ILogger logger, Exception exception, Guid transferId);
 
     [LoggerMessage(4565, LogLevel.Error, "Terminal transfer commit observer failed")]
     internal static partial void TerminalTransferCommitObserverFailed(ILogger logger, Exception exception);

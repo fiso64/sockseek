@@ -73,7 +73,7 @@ function batch(browseId: string, sequence: number, previousSequence: number, rev
 }
 function fixture() {
   const api = {
-    getServerInfo: vi.fn().mockResolvedValue({ liveProtocolVersion: 16 }),
+    getServerInfo: vi.fn().mockResolvedValue({ liveProtocolVersion: 17 }),
     getDaemonSnapshot: vi.fn().mockResolvedValue(snapshot()),
     getUserBrowseSnapshot: vi.fn((id: string) => Promise.resolve(snapshot(id))),
   };
@@ -195,11 +195,9 @@ it('starts a fresh daemon recovery for a second gap immediately after snapshot p
   const recovered = deferred<void>();
   const recoveredAgain = deferred<void>();
   let publications = 0;
-  let removed: readonly string[] | undefined;
-  let removedTransfers: readonly string[] | undefined;
-  client.onState((_, history) => {
-    removed = history.removedJobIds;
-    removedTransfers = history.removedTransferIds;
+  let replacedSnapshot = false;
+  client.onState((_, changes) => {
+    replacedSnapshot = changes.snapshot;
     if (++publications === 2) recovered.resolve();
     if (publications === 3) recoveredAgain.resolve();
   });
@@ -216,15 +214,14 @@ it('starts a fresh daemon recovery for a second gap immediately after snapshot p
   hubs[0]!.receive(update(14, 13));
   expect(api.getDaemonSnapshot).toHaveBeenCalledTimes(3);
   await recoveredAgain.promise;
-  expect(removedTransfers, 'A snapshot cannot enumerate workflows it missed entirely.').toBeUndefined();
+  expect(replacedSnapshot).toBe(true);
   await client.stop();
   await client.startDaemon();
   const before = publications;
   hubs[0]!.reconnecting();
   hubs[1]!.receive(update(11, 10));
   expect(publications).toBe(before + 1);
-  expect(removed, 'Exact retirement survives even when this client never saw the live job.').toEqual([firstId]);
-  expect(removedTransfers).toEqual([secondId]);
+  expect(replacedSnapshot).toBe(false);
   hubs[0]!.receive(update(12, 11));
   expect(publications).toBe(before + 1);
 });

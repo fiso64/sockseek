@@ -120,14 +120,14 @@ public sealed class SubmissionStore(
 
         var command = new AwaitablePersistenceCommand<bool>(async (context, ct) =>
         {
-            var existing = await context.Submissions
+            var existing = await context.Submissions.Include(item => item.Specification)
                 .SingleOrDefaultAsync(item => item.Id == registration.SubmissionId, ct)
                 .ConfigureAwait(false);
             if (existing != null)
             {
                 if (existing.SpecificationSchemaVersion != registration.SpecificationSchemaVersion
                     || !string.Equals(
-                        existing.SpecificationJson,
+                        existing.Specification.Json,
                         registration.SpecificationJson,
                         StringComparison.Ordinal)
                     || !string.Equals(
@@ -151,7 +151,7 @@ public sealed class SubmissionStore(
                 SubmittedAtUtc = registration.SubmittedAtUtc
                     .ToUniversalTime().ToUnixTimeMilliseconds(),
                 SpecificationSchemaVersion = registration.SpecificationSchemaVersion,
-                SpecificationJson = registration.SpecificationJson,
+                Specification = new() { Json = registration.SpecificationJson },
                 RerunOfSubmissionId = registration.RerunOfSubmissionId,
                 PreviewId = registration.PreviewId,
                 ArtifactId = registration.ArtifactId,
@@ -219,7 +219,7 @@ public sealed class SubmissionStore(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await SqliteReadSnapshot.BeginAsync(context, cancellationToken).ConfigureAwait(false);
-        var row = await context.Submissions.AsNoTracking()
+        var row = await context.Submissions.AsNoTracking().Include(item => item.Specification)
             .SingleOrDefaultAsync(item => item.Id == submissionId, cancellationToken)
             .ConfigureAwait(false);
         if (row == null)
@@ -228,7 +228,7 @@ public sealed class SubmissionStore(
             row.Id,
             DateTimeOffset.FromUnixTimeMilliseconds(row.SubmittedAtUtc),
             row.SpecificationSchemaVersion,
-            row.SpecificationJson,
+            row.Specification.Json,
             row.RerunOfSubmissionId,
             row.PreviewId,
             row.ArtifactId,
@@ -252,7 +252,7 @@ public sealed class SubmissionStore(
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         return await context.Submissions.AsNoTracking()
             .Where(item => item.Id == submissionId)
-            .Select(item => item.SpecificationJson)
+            .Select(item => item.Specification.Json)
             .SingleOrDefaultAsync(cancellationToken).ConfigureAwait(false);
     }
 

@@ -1,4 +1,4 @@
-import { wireInteger, type TransferHistoryDto, type TransferStateDto, type Schema, type WireInteger } from '../../api/types';
+import { wireInteger, type TransferStateDto, type Schema, type WireInteger } from '../../api/types';
 import type { AudioAttributes, FolderItemFile, TransferPresentation } from '../presentation/items';
 import { audioAttributes as audio } from '../presentation/items';
 import { formatBytes } from '../../app/format';
@@ -85,7 +85,7 @@ export class TransferProjection {
     for (let index = 0; index < entries.length; index++) {
       const entry = entries[index]!;
       const previous = this.layouts.get(entry.id);
-      // An unrelated arrival must not recreate every card's live subscriptions.
+      // An unrelated arrival must not recreate every card's row subscriptions.
       // Drop departed entries with the page; this cache has no separate lifetime.
       const retained = previous && previous.kind === entry.kind && previous.direction === entry.direction
         && sameGroupSummary(previous.summary, entry.summary) && previous.rows.length === entry.rows.length
@@ -110,10 +110,7 @@ export class TransferProjection {
     return rows;
   }
 
-  private readonly retainedRows = new WeakMap<TransferHistoryDto, UnifiedTransfer>();
-  private readonly activeRows = new WeakMap<TransferStateDto, {
-    createdAt: string | undefined; completedAt: string | null | undefined; row: UnifiedTransfer;
-  }>();
+  private readonly rows = new WeakMap<TransferStateDto, UnifiedTransfer>();
   private readonly folderFiles = new WeakMap<UnifiedTransfer, { path: string; file: FolderItemFile }>();
   private readonly fileEntries = new WeakMap<UnifiedTransfer, TransferTimelineFileEntry>();
   private readonly groups = new WeakMap<Schema<'TransferGroupSummaryDto'>, {
@@ -130,17 +127,9 @@ export class TransferProjection {
     if (summary) this.groups.set(summary, { rows, entry });
   }
 
-  retained(value: TransferHistoryDto): UnifiedTransfer {
-    let row = this.retainedRows.get(value);
-    if (!row) { row = fromHistory(value); this.retainedRows.set(value, row); }
-    return row;
-  }
-
-  active(value: TransferStateDto, createdAt?: string, completedAt?: string | null): UnifiedTransfer {
-    const previous = this.activeRows.get(value);
-    if (previous && previous.createdAt === createdAt && previous.completedAt === completedAt) return previous.row;
-    const row = fromLive(value, createdAt, completedAt);
-    this.activeRows.set(value, { createdAt, completedAt, row });
+  row(value: TransferStateDto): UnifiedTransfer {
+    let row = this.rows.get(value);
+    if (!row) { row = fromTransfer(value); this.rows.set(value, row); }
     return row;
   }
 
@@ -175,13 +164,13 @@ function sameGroupSummary(left: Schema<'TransferGroupSummaryDto'> | undefined,
 }
 
 export function arrangeTransferGroups(
-  history: readonly TransferHistoryDto[],
+  items: readonly TransferStateDto[],
   direction: 'download' | 'upload',
   summaries: readonly Schema<'TransferGroupSummaryDto'>[],
   projection: TransferProjection,
 ): TransferPeerLayout[] {
-  return arrangeRows(history.filter(row => row.direction.toLowerCase() === direction)
-    .map(row => projection.retained(row)), direction, summaries, projection);
+  return arrangeRows(items.filter(row => row.identity.direction.toLowerCase() === direction)
+    .map(row => projection.row(row)), direction, summaries, projection);
 }
 
 function arrangeRows(
@@ -245,19 +234,19 @@ function arrangeRows(
 }
 
 function currentRow(row: UnifiedTransfer, projection: TransferProjection,
-  live?: (id: string) => TransferStateDto | undefined): UnifiedTransfer {
-  const current = live?.(row.id);
+  readTransfer?: (id: string) => TransferStateDto | undefined): UnifiedTransfer {
+  const current = readTransfer?.(row.id);
   return current && wireInteger(current.revision) >= wireInteger(row.revision)
-    ? projection.active(current, row.createdAt ?? undefined, row.transfer.completedAt) : row;
+    ? projection.row(current) : row;
 }
 
-/** Called inside a card's reactive scope. A live update touches this card's
+/** Called inside a card's reactive scope. A transfer update touches this card's
  * members only; it cannot sort the timeline or regroup unrelated entries. */
 export function presentTransferEntry(
   entry: TransferEntryLayout, projection: TransferProjection,
-  live?: (id: string) => TransferStateDto | undefined,
+  readTransfer?: (id: string) => TransferStateDto | undefined,
 ): TransferTimelineEntry {
-  const run = entry.rows.map(row => currentRow(row, projection, live));
+  const run = entry.rows.map(row => currentRow(row, projection, readTransfer));
   const row = run[0]!;
   if (entry.kind === 'file') return projection.file(row);
   const { summary, direction } = entry;
@@ -282,14 +271,14 @@ export function presentTransferEntry(
 /** Bulk-action eligibility needs status, not file-card arrays or folder sorting. */
 export function* transferEntryActions(
   entry: TransferEntryLayout, projection: TransferProjection,
-  live: (id: string) => TransferStateDto | undefined,
+  readTransfer: (id: string) => TransferStateDto | undefined,
 ): Generator<TransferPresentation> {
   if (entry.kind === 'folder') {
     if (entry.summary) yield combineGroupSummary(entry.summary, entry.direction, entry.rows[0]!.createdAt);
-    else yield combineFolderPresentation(entry.rows.map(row => currentRow(row, projection, live)),
+    else yield combineFolderPresentation(entry.rows.map(row => currentRow(row, projection, readTransfer)),
       entry.direction, entry.rows[0]!.createdAt);
   }
-  for (const row of entry.rows) yield currentRow(row, projection, live).transfer;
+  for (const row of entry.rows) yield currentRow(row, projection, readTransfer).transfer;
 }
 
 export function isTerminalTransfer(transfer?: TransferPresentation): boolean {
@@ -300,9 +289,9 @@ export function isQueuedTransfer(transfer?: TransferPresentation): boolean {
   return transfer?.tone === 'queued';
 }
 
-function fromLive(value: TransferStateDto, retainedCreatedAt?: string, retainedCompletedAt?: string | null): UnifiedTransfer {
+function fromTransfer(value: TransferStateDto): UnifiedTransfer {
   const path = value.identity.remotePath ?? value.status.localPath ?? value.file?.name ?? 'Unknown file';
-  const createdAt = value.scheduling?.requestedAtUtc ?? retainedCreatedAt ?? null;
+  const createdAt = value.createdAtUtc;
   return {
     id: value.transferId,
     revision: value.revision,
@@ -317,7 +306,7 @@ function fromLive(value: TransferStateDto, retainedCreatedAt?: string, retainedC
     createdAt,
     totalBytes: knownNumber(value.progress.totalBytes) ?? knownNumber(value.file?.size),
     bytesTransferred: knownNumber(value.progress.bytesTransferred),
-    transfer: liveTransferPresentation(value, createdAt ?? undefined, retainedCompletedAt),
+    transfer: liveTransferPresentation(value, value.scheduling?.requestedAtUtc),
   };
 }
 
@@ -344,47 +333,6 @@ export function liveTransferPresentation(value: TransferStateDto, createdAt?: st
     direction,
     createdAt,
     completedAt: direction === 'download' && transferTone === 'complete' ? completedAt ?? undefined : undefined,
-  };
-}
-
-function fromHistory(value: TransferHistoryDto): UnifiedTransfer {
-  const total = number(value.totalBytes);
-  const transferred = number(value.transferredBytes);
-  const terminal = Boolean(value.completedAtUtc) || value.terminalOutcome.toLowerCase() !== 'none';
-  const transferTone = tone(terminal, value.terminalOutcome, value.state, transferred, value.startedAtUtc);
-  const direction = value.direction.toLowerCase() === 'upload' ? 'upload' : 'download';
-  const percent = total > 0 ? clamp(transferred / total * 100) : undefined;
-  const path = value.remotePath ?? value.localPath ?? value.file?.name ?? 'Unknown file';
-  return {
-    id: value.transferId,
-    revision: value.revision,
-    peer: value.username ?? 'Unknown peer',
-    username: value.username ?? null,
-    path,
-    groupRef: value.groupRef ?? null,
-    groupDisplayPath: value.groupDisplayPath ?? null,
-    groupRelativePath: value.groupRelativePath ?? null,
-    sizeBytes: knownNumber(value.file?.size) ?? knownNumber(value.totalBytes),
-    audio: audio(value.file),
-    createdAt: value.requestedAtUtc ?? value.createdAtUtc,
-    totalBytes: knownNumber(value.totalBytes) ?? knownNumber(value.file?.size),
-    bytesTransferred: knownNumber(value.transferredBytes),
-    transfer: {
-      state: transferTone === 'active' ? activeTransferState(direction)
-        : transferState(value.state, value.terminalOutcome),
-      tone: transferTone,
-      cancellable: value.availableActions?.some((action) => action.kind === 'cancel') ?? false,
-      progressPercent: percent,
-      progressText: direction === 'download' && transferTone === 'complete' && !value.completedAtUtc
-        ? 'Complete' : fileProgressText(direction, transferTone, transferred, percent),
-      speed: transferTone === 'active' && number(value.bytesPerSecond) > 0
-        ? `${formatBytes(number(value.bytesPerSecond))}/s` : undefined,
-      detail: value.failureMessage ?? undefined,
-      direction,
-      createdAt: value.requestedAtUtc ?? value.createdAtUtc,
-      completedAt: direction === 'download' && transferTone === 'complete'
-        ? value.completedAtUtc ?? undefined : undefined,
-    },
   };
 }
 

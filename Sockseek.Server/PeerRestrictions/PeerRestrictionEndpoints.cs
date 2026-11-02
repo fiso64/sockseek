@@ -52,7 +52,7 @@ internal static class PeerRestrictionEndpoints
                 request.Override,
                 cancellationToken).ConfigureAwait(false);
             if (request.Kind == UserRestrictionKind.PrivateMessages
-                && supervisor.Chat is { } chat)
+                && supervisor.Runtime.Chat is { } chat)
             {
                 await chat.PublishPeerRestrictionsChangedAsync(
                     result.Username,
@@ -60,7 +60,7 @@ internal static class PeerRestrictionEndpoints
             }
             else if (request.Kind == UserRestrictionKind.UploadAccess)
             {
-                supervisor.Sharing?.PublishPeerRestrictionsChanged();
+                supervisor.Runtime.Sharing?.PublishPeerRestrictionsChanged();
             }
             return Results.Ok(result);
         }

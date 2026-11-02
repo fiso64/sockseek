@@ -157,10 +157,6 @@ public sealed record SearchViewKernelSnapshot(
 /// </summary>
 public sealed class SearchViewKernel
 {
-    // Retained-definition metadata for one-time database migrations. Runtime
-    // reads never inspect or repair obsolete projection representations.
-    public const int GenericDirectoryGroupingVersion = 2;
-
     private readonly object gate = new();
     private readonly IncrementalResultSorter? sorter;
     private readonly IncrementalAlbumFolderProjector? albumFolderProjector;

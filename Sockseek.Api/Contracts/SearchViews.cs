@@ -2,6 +2,8 @@ using System.Text.Json.Serialization;
 
 namespace Sockseek.Api;
 
+// Completeness of the available source used by this projection. A complete
+// live source does not imply its asynchronous history writes have committed.
 [JsonConverter(typeof(JsonStringEnumConverter<SearchViewRetentionState>))]
 public enum SearchViewRetentionState
 {

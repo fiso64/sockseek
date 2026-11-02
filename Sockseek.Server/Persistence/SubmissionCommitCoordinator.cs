@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Sockseek.Api;
 using Sockseek.Persistence.Read;
@@ -9,6 +8,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Sockseek.Server.Persistence;
+
+public sealed class IdempotencyConflictException : InvalidOperationException;
 
 /// <summary>
 /// Submission-owned single-flight and durable receipt lookup for mutation
@@ -64,152 +65,6 @@ public sealed class SubmissionCommitCoordinator(
         }
     }
 
-    public static string Fingerprint(
-        string scope,
-        Guid resourceId,
-        long revision,
-        RefSelectionExpressionDto selection,
-        IReadOnlyList<string>? excludedFileRefs = null,
-        IReadOnlyList<string>? includedFileRefs = null,
-        IReadOnlyDictionary<string, string>? chosenOptions = null,
-        IReadOnlyDictionary<string, RefSelectionExpressionDto>? albumFileSelections = null,
-        SubmissionOptionsDto? options = null,
-        IReadOnlyList<JobPreviewSelectionOverrideDto>? subtreeOverrides = null,
-        IReadOnlyDictionary<string, FileCandidateRefDto>? excludedFileIdentities = null,
-        bool useRepresentativeWhenUnchosen = false,
-        IReadOnlyList<SearchViewDirectoryPathRuleDto>? directoryPathRules = null)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(scope);
-        ArgumentNullException.ThrowIfNull(selection);
-        ArgumentNullException.ThrowIfNull(selection.Refs);
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        Append(hash, scope);
-        hash.AppendData(resourceId.ToByteArray());
-        hash.AppendData(BitConverter.GetBytes(revision));
-        Append(hash, selection.Mode.ToString());
-        foreach (string itemRef in selection.Refs
-                     .Distinct(StringComparer.Ordinal)
-                     .OrderBy(value => value, StringComparer.Ordinal))
-        {
-            Append(hash, itemRef);
-        }
-        if (subtreeOverrides is { Count: > 0 })
-        {
-            byte[] selectionHash = hash.GetHashAndReset();
-            hash.AppendData(selectionHash);
-            Append(hash, "preview-subtree-overrides");
-            foreach (JobPreviewSelectionOverrideDto rule in subtreeOverrides.OrderBy(
-                         rule => rule.Ref, StringComparer.Ordinal))
-            {
-                Append(hash, rule.Ref);
-                Append(hash, rule.Selected ? "selected" : "excluded");
-            }
-        }
-        if (directoryPathRules is { Count: > 0 })
-        {
-            byte[] selectionHash = hash.GetHashAndReset();
-            hash.AppendData(selectionHash);
-            Append(hash, "directory-path-rules");
-            foreach (SearchViewDirectoryPathRuleDto rule in directoryPathRules
-                         .OrderBy(rule => rule.DirectoryRef, StringComparer.Ordinal)
-                         .ThenBy(rule => rule.RelativePath, StringComparer.Ordinal))
-            {
-                Append(hash, rule.DirectoryRef);
-                Append(hash, rule.RelativePath);
-                Append(hash, rule.Selected ? "selected" : "excluded");
-            }
-        }
-        if (excludedFileRefs is { Count: > 0 })
-        {
-            byte[] selectionHash = hash.GetHashAndReset();
-            hash.AppendData(selectionHash);
-            Append(hash, "excluded-files");
-            foreach (string itemRef in excludedFileRefs.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
-                Append(hash, itemRef);
-        }
-        if (includedFileRefs is { Count: > 0 })
-        {
-            byte[] selectionHash = hash.GetHashAndReset();
-            hash.AppendData(selectionHash);
-            Append(hash, "included-files");
-            foreach (string itemRef in includedFileRefs.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
-                Append(hash, itemRef);
-        }
-        if (excludedFileIdentities is { Count: > 0 })
-        {
-            byte[] selectionHash = hash.GetHashAndReset();
-            hash.AppendData(selectionHash);
-            Append(hash, "excluded-file-identities");
-            foreach (var entry in excludedFileIdentities.OrderBy(pair => pair.Key, StringComparer.Ordinal))
-            {
-                Append(hash, entry.Key);
-                Append(hash, entry.Value.Username);
-                Append(hash, entry.Value.Filename);
-            }
-        }
-        if (chosenOptions is { Count: > 0 })
-        {
-            byte[] selectionHash = hash.GetHashAndReset();
-            hash.AppendData(selectionHash);
-            Append(hash, "chosen-options");
-            foreach (var option in chosenOptions.OrderBy(pair => pair.Key, StringComparer.Ordinal))
-            {
-                Append(hash, option.Key);
-                Append(hash, option.Value);
-            }
-        }
-        if (useRepresentativeWhenUnchosen)
-        {
-            byte[] selectionHash = hash.GetHashAndReset();
-            hash.AppendData(selectionHash);
-            Append(hash, "use-representative-when-unchosen");
-        }
-        if (albumFileSelections is { Count: > 0 })
-        {
-            byte[] selectionHash = hash.GetHashAndReset();
-            hash.AppendData(selectionHash);
-            Append(hash, "album-file-selections");
-            foreach (var group in albumFileSelections.OrderBy(pair => pair.Key, StringComparer.Ordinal))
-            {
-                Append(hash, group.Key);
-                Append(hash, group.Value.Mode.ToString());
-                foreach (string fileRef in group.Value.Refs.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
-                    Append(hash, fileRef);
-            }
-        }
-        if (options != null)
-        {
-            byte[] selectionHash = hash.GetHashAndReset();
-            hash.AppendData(selectionHash);
-            Append(hash, "download-options");
-            // Profile context is a map, not an ordered caller preference.
-            var canonical = options with
-            {
-                ProfileContext = options.ProfileContext?
-                    .OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal),
-            };
-            Append(hash, JsonSerializer.Serialize(canonical));
-        }
-        return Convert.ToHexString(hash.GetHashAndReset());
-    }
-
-    public static string FingerprintDirectoryRetrieval(
-        Guid viewId,
-        long revision,
-        PeerDirectoryRefDto directory)
-    {
-        ArgumentNullException.ThrowIfNull(directory);
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        Append(hash, "search-view-directory-retrieval");
-        hash.AppendData(viewId.ToByteArray());
-        hash.AppendData(BitConverter.GetBytes(revision));
-        Append(hash, directory.Ref);
-        Append(hash, directory.Username);
-        Append(hash, directory.FolderPath);
-        return Convert.ToHexString(hash.GetHashAndReset());
-    }
-
     private async Task<string> ExecuteCoreAsync<T>(
         Guid idempotencyKey,
         string fingerprint,
@@ -260,15 +115,29 @@ public sealed class SubmissionCommitCoordinator(
         }
     }
 
-    private static void Append(IncrementalHash hash, string value)
-    {
-        byte[] bytes = Encoding.UTF8.GetBytes(value);
-        hash.AppendData(BitConverter.GetBytes(bytes.Length));
-        hash.AppendData(bytes);
-    }
-
     private sealed record Entry(
         string Fingerprint,
         DateTimeOffset CreatedAtUtc,
         Lazy<Task<string>> Receipt);
+}
+
+// Features define the canonical request. The shared owner only supplies hashing
+// and normalization of common submission inputs, never feature selection policy.
+internal static class SubmissionFingerprint
+{
+    internal static string Create<T>(string scope, T request)
+        => Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new { Scope = scope, Request = request })));
+
+    internal static RefSelectionExpressionDto Selection(RefSelectionExpressionDto selection)
+        => selection with { Refs = Refs(selection.Refs) };
+
+    internal static string[] Refs(IReadOnlyList<string>? refs)
+        => refs?.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray() ?? [];
+
+    internal static Dictionary<string, T> Map<T>(IReadOnlyDictionary<string, T>? map)
+        => map?.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal) ?? [];
+
+    internal static SubmissionOptionsDto? Options(SubmissionOptionsDto? options)
+        => options is null ? null : options with { ProfileContext = Map(options.ProfileContext) };
 }

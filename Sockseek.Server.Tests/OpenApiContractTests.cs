@@ -304,6 +304,7 @@ public class OpenApiContractTests
                 $"Album-aggregate payload schema is missing {property}.");
         foreach (var (payload, outcomeFields) in new[]
         {
+            (nameof(AlbumAggregateJobPayloadDto), new[] { "completedAlbumCount", "succeededAlbumCount", "failedAlbumCount" }),
             (nameof(AggregateJobPayloadDto), new[] { "completedSongCount", "succeededSongCount", "failedSongCount" }),
             (nameof(JobListPayloadDto), new[] { "activeJobCount", "completedJobCount", "succeededJobCount", "failedJobCount" }),
         })
@@ -312,11 +313,11 @@ public class OpenApiContractTests
             JsonElement requiredFields = schema.GetProperty("required");
             foreach (string field in outcomeFields)
             {
-                Assert.IsFalse(requiredFields.EnumerateArray().Any(entry => entry.GetString() == field),
-                    $"{payload}.{field} is omitted for legacy jobs and must not be required.");
-                Assert.IsTrue(schema.GetProperty("properties").GetProperty(field)
+                Assert.IsTrue(requiredFields.EnumerateArray().Any(entry => entry.GetString() == field),
+                    $"{payload}.{field} must carry the current outcome count.");
+                Assert.IsFalse(schema.GetProperty("properties").GetProperty(field)
                     .GetProperty("type").EnumerateArray().Any(entry => entry.GetString() == "null"),
-                    $"{payload}.{field} must allow null.");
+                    $"{payload}.{field} must not allow null.");
             }
         }
         JsonElement stateDelta = schemas.GetProperty(nameof(StateDeltaDto));
@@ -404,7 +405,7 @@ public class OpenApiContractTests
         JsonElement transferDetailProperties = schemas
             .GetProperty(nameof(TransferDetailDto))
             .GetProperty("properties");
-        Assert.IsTrue(transferDetailProperties.TryGetProperty("attemptCount", out _));
+        Assert.IsTrue(transferDetailProperties.TryGetProperty("transfer", out _));
         Assert.IsTrue(transferDetailProperties.TryGetProperty("latestAttempt", out _));
         Assert.IsFalse(transferDetailProperties.TryGetProperty("attempts", out _));
         Assert.IsFalse(json.Contains("attemptLimit", StringComparison.Ordinal));

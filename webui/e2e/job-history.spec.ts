@@ -10,10 +10,8 @@ test('keeps mixed Jobs rows legible at narrow width with singular search counts'
   });
   try {
     await page.setViewportSize({ width: 390, height: 900 });
-    const initialHistory = page.waitForResponse(response => response.request().method() === 'GET'
-      && new URL(response.url()).pathname === '/api/jobs' && response.ok());
     await page.goto('/jobs');
-    expect(await (await initialHistory).json()).toEqual([]);
+    await expect(page.getByText('Loading jobs', { exact: true })).toBeVisible();
     const list = await page.request.post('/api/jobs/lists', { data: {
       name: 'Fixture album download', jobs: [{ kind: 'remote-file', target: {
         username: 'fixture-peer', filename: 'Fixture\\Fixture song.txt', size: 128, extension: '.txt',
@@ -23,8 +21,8 @@ test('keeps mixed Jobs rows legible at narrow width with singular search counts'
     const search = await page.request.post('/api/jobs/search', { data: { queryText: 'Fixture' } });
     expect(search.status()).toBe(202);
 
-    // Both workflows can retire after the empty HTTP read, before the first
-    // live snapshot. The initial history must still recover their terminal rows.
+    // Both workflows retire before connection hydration. The list scope must
+    // recover their retained rows without relying on a live workflow snapshot.
     await expect.poll(async () => {
       const response = await page.request.get('/api/jobs?includeAll=false&archived=false&newestFirst=true&limit=100');
       expect(response.ok()).toBeTruthy();
@@ -40,7 +38,7 @@ test('keeps mixed Jobs rows legible at narrow width with singular search counts'
     await expect(searchRow.locator('.search-history-stats')).toContainText('1 file');
     await expect(searchRow.locator('.search-history-stats')).toContainText('1 peer');
     await expect(page.locator('.search-history-row')).toHaveCount(2);
-    expect(historyReads).toBe(2);
+    expect(historyReads).toBe(0);
     const layout = await page.locator('.search-history-row').evaluateAll((rows) => rows.map((row) => {
       const context = row.querySelector('.search-history-context')!.getBoundingClientRect();
       const stats = row.querySelector('.search-history-stats')!.getBoundingClientRect();
@@ -51,17 +49,9 @@ test('keeps mixed Jobs rows legible at narrow width with singular search counts'
       expect(row.verticalGap).toBeGreaterThanOrEqual(0);
       expect(row.rightOverflow).toBeLessThanOrEqual(0);
     }
-    // A late transfer-history acknowledgement can arrive between the retained
-    // Jobs read and startup snapshot. It must not refetch unchanged Jobs rows.
-    let captureReloadHistory!: () => void;
-    const reloadHistory = new Promise<void>(resolve => { captureReloadHistory = resolve; });
-    await page.route('**/api/jobs?**', async route => {
-      const result = await route.fetch();
-      captureReloadHistory();
-      await route.fulfill({ response: result });
-    });
+    // A transfer acknowledgement during connection hydration must not trigger
+    // a second Jobs HTTP path alongside the canonical list observation.
     await page.route('**/api/daemon/snapshot*', async route => {
-      await reloadHistory;
       await daemon.command('terminal-transfer-committed');
       await route.continue();
     });
@@ -69,11 +59,24 @@ test('keeps mixed Jobs rows legible at narrow width with singular search counts'
     await page.reload();
     await expect(page.getByLabel('Connection status').locator('strong').nth(1)).toHaveText('Connected');
     await expect(page.locator('.search-history-row')).toHaveCount(2);
-    expect(historyReads).toBe(1);
+    expect(historyReads).toBe(0);
   } finally { releaseSnapshot(); }
 });
 
-test('keeps loaded Jobs rows visible when a later history refresh fails', async ({ page }) => {
+test('keeps loaded Jobs rows visible when a later observation fails', async ({ page }) => {
+  let unavailable = false;
+  await page.routeWebSocket('**/api/events?**', route => {
+    const server = route.connectToServer();
+    route.onMessage(payload => {
+      if (typeof payload !== 'string') { server.send(payload); return; }
+      for (const frame of payload.split('\u001e').filter(Boolean)) {
+        const message = JSON.parse(frame);
+        if (unavailable && message.type === 4 && message.target === 'ObserveJobList')
+          route.send(JSON.stringify({ type: 3, invocationId: message.invocationId, error: 'Jobs temporarily unavailable' }) + '\u001e');
+        else server.send(frame + '\u001e');
+      }
+    });
+  });
   const response = await page.request.post('/api/jobs/lists', { data: {
     name: 'Cached root', jobs: [{ kind: 'remote-file', target: {
       username: 'fixture-peer', filename: 'Fixture\\Cached.txt', size: 128, extension: '.txt',
@@ -84,8 +87,7 @@ test('keeps loaded Jobs rows visible when a later history refresh fails', async 
   const row = page.locator('.search-history-row').filter({ hasText: 'Cached root' });
   await expect(row).toBeVisible();
 
-  let unavailable = true;
-  await page.route('**/api/jobs?**', (route) => unavailable ? route.abort('failed') : route.continue());
+  unavailable = true;
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   await page.getByRole('button', { name: 'Jobs', exact: true }).click();
   const alert = page.getByRole('alert').filter({ hasText: 'Jobs unavailable' });
@@ -101,7 +103,7 @@ test('keeps loaded Jobs rows visible when a later history refresh fails', async 
 
 test.describe('Jobs paging', () => {
 
-test('renders full server pages for Jobs and children and fetches only the next cursor', async ({ page, daemon }) => {
+test('renders full Jobs scopes and child pages without redundant detail reads', async ({ page, daemon }) => {
   await daemon.command('retained-imports');
   await daemon.command('hold-download');
   const response = await page.request.post('/api/jobs/lists', { data: {
@@ -124,6 +126,13 @@ test('renders full server pages for Jobs and children and fetches only the next 
   const olderPage = await page.request.get(`/api/jobs?includeAll=false&archived=false&newestFirst=true&limit=3&cursor=${encodeURIComponent(newestCursor!)}`);
   expect((await olderPage.json() as Schema<'JobSummaryDto'>[]).map((job) => job.itemName))
     .toEqual(['Paging parent 99', 'Paging parent 99', 'Paging parent 98']);
+  const observedLimits: number[] = [];
+  page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
+    for (const frame of payload.toString().split('\u001e').filter(Boolean)) {
+      const message = JSON.parse(frame);
+      if (message.target === 'ObserveJobList') observedLimits.push(message.arguments[0].limit);
+    }
+  }));
   let childReads = 0, historyReads = 0;
   let listing = false;
   const detailReads: string[] = [];
@@ -165,11 +174,13 @@ test('renders full server pages for Jobs and children and fetches only the next 
   expect(detailReads).toEqual([]);
   const earlier = page.getByRole('button', { name: 'Load earlier jobs', exact: true });
   await expect(earlier).toBeEnabled();
-  const previousHistoryReads = historyReads;
+  expect(observedLimits).toEqual([100]);
+  expect(historyReads).toBe(0);
   await earlier.click();
   await expect(page.locator('.search-history-row')).toHaveCount(101);
   await expect(page.locator('.search-history-query').last()).toHaveText('Paging parent 1');
-  expect(historyReads).toBe(previousHistoryReads + 1);
+  expect(observedLimits).toEqual([100, 200]);
+  expect(historyReads).toBe(0);
   await expect(earlier).toHaveCount(0);
   await expect(page.locator('.job-type-badge.import')).toHaveText(Array(100).fill('Text import'));
   await expect(page.locator('.search-history-row .search-status-badge')).toHaveText(Array(101).fill('Complete'));
@@ -192,78 +203,69 @@ test('renders full server pages for Jobs and children and fetches only the next 
 
 });
 
-test('keeps a completed submission in Jobs across both initial snapshot and history orderings', async ({ page, daemon }) => {
-  for (const ordering of ['history-first', 'snapshot-first'] as const) {
-    const name = `Live history fixture ${ordering}`;
-    await daemon.command('hold-download');
-    const response = await page.request.post('/api/jobs/lists', { data: {
-      name, jobs: [{ kind: 'remote-file', target: {
-        username: 'fixture-peer', filename: `Fixture\\${ordering}.txt`, size: 128, extension: '.txt',
-      } }],
-    } satisfies Schema<'SubmitJobListRequestDto'> });
-    expect(response.status()).toBe(202);
-    const root = await response.json() as Schema<'JobSummaryDto'>;
-    await daemon.command('wait-download-started');
-    let observeRetirement!: () => void;
-    const retired = new Promise<void>(resolve => { observeRetirement = resolve; });
-    const watchRetirement = (socket: import('@playwright/test').WebSocket) => socket.on('framereceived', ({ payload }) => {
-      for (const frame of payload.toString().split('\u001e').filter(Boolean)) {
-        const message = JSON.parse(frame) as { target?: string; arguments?: Schema<'StateUpdateBatchDto'>[] };
-        if (message.target?.toLowerCase() !== 'stateupdatebatch') continue;
-        const state = message.arguments?.[0]?.state;
-        if (state?.removedJobIds.includes(root.jobId!) || state?.removedWorkflowIds.includes(root.workflowId!)) observeRetirement();
+test('keeps completed Jobs through a delayed list snapshot and reconnect', async ({ page, daemon }) => {
+  let holding = true;
+  let releaseList = () => {};
+  let captureList!: () => void;
+  const captured = new Promise<void>(resolve => { captureList = resolve; });
+  await page.routeWebSocket('**/api/events?**', route => {
+    const server = route.connectToServer();
+    const lists = new Set<string>();
+    const delayed: string[] = [];
+    releaseList = () => { holding = false; for (const frame of delayed.splice(0)) route.send(frame); };
+    route.onMessage(payload => {
+      if (typeof payload === 'string') for (const frame of payload.split('\u001e').filter(Boolean)) {
+        const message = JSON.parse(frame);
+        if (message.type === 4 && message.target === 'ObserveJobList') lists.add(message.invocationId);
+      }
+      server.send(payload);
+    });
+    server.onMessage(payload => {
+      if (typeof payload !== 'string') { route.send(payload); return; }
+      for (const frame of payload.split('\u001e').filter(Boolean)) {
+        const message = JSON.parse(frame);
+        if (holding && lists.has(message.invocationId)) {
+          delayed.push(frame + '\u001e');
+          if (message.type === 2 && message.item.windowJobIds) captureList();
+        } else route.send(frame + '\u001e');
       }
     });
-    page.on('websocket', watchRetirement);
-    let releaseSnapshot!: () => void;
-    let observeSnapshot!: () => void;
-    const snapshotGate = new Promise<void>(resolve => { releaseSnapshot = resolve; });
-    const snapshotRequested = new Promise<void>(resolve => { observeSnapshot = resolve; });
-    await page.route('**/api/daemon/snapshot*', async route => {
-      observeSnapshot();
-      await snapshotGate;
-      await route.continue();
-    });
-    let releaseHistory!: () => void;
-    let captureHistory!: (jobs: Schema<'JobSummaryDto'>[]) => void;
-    const historyGate = new Promise<void>(resolve => { releaseHistory = resolve; });
-    const historyCaptured = new Promise<Schema<'JobSummaryDto'>[]>(resolve => { captureHistory = resolve; });
-    let historyReads = 0;
-    await page.route('**/api/jobs?**', async route => {
-      const first = ++historyReads === 1;
-      const result = await route.fetch();
-      if (first) {
-        captureHistory(await result.json() as Schema<'JobSummaryDto'>[]);
-        if (ordering === 'snapshot-first') await historyGate;
-      }
-      await route.fulfill({ response: result });
-    });
-    try {
-      await page.goto('/jobs');
-      const captured = await historyCaptured;
-      expect(captured.find(job => job.jobId === root.jobId)?.lifecycleState).toBe('Running');
-      await snapshotRequested;
-      const row = page.locator('.search-history-row').filter({ hasText: name });
-      if (ordering === 'history-first') await expect(row.locator('.search-status-badge')).toHaveText('Running');
-      await daemon.command('release-download');
-      await retired;
-      releaseSnapshot();
-      await expect(page.getByLabel('Connection status').locator('strong').last()).toHaveText('Connected');
-      releaseHistory();
-      await expect(row.locator('.search-status-badge')).toHaveText('Complete');
-      await expect(row.getByRole('button', { name: `Remove ${name}`, exact: true })).toBeVisible();
-      // Exactly one reconciliation read: no stale Running row and no repeated
-      // polling or duplicate initial-history refreshes.
-      expect(historyReads).toBe(2);
-    } finally {
-      releaseSnapshot();
-      releaseHistory();
-      page.off('websocket', watchRetirement);
-      await page.unroute('**/api/daemon/snapshot*');
-      await page.unroute('**/api/jobs?**');
+  });
+  await daemon.command('hold-download');
+  const response = await page.request.post('/api/jobs/lists', { data: {
+    name: 'Delayed list fixture', jobs: [{ kind: 'remote-file', target: {
+      username: 'fixture-peer', filename: 'Fixture\\Delayed.txt', size: 128, extension: '.txt',
+    } }],
+  } satisfies Schema<'SubmitJobListRequestDto'> });
+  expect(response.status()).toBe(202);
+  const root = await response.json() as Schema<'JobSummaryDto'>;
+  await daemon.command('wait-download-started');
+  let observeRetirement!: () => void;
+  const retired = new Promise<void>(resolve => { observeRetirement = resolve; });
+  page.on('websocket', socket => socket.on('framereceived', ({ payload }) => {
+    for (const frame of payload.toString().split('\u001e').filter(Boolean)) {
+      const message = JSON.parse(frame) as { target?: string; arguments?: Schema<'StateUpdateBatchDto'>[] };
+      if (message.target?.toLowerCase() === 'stateupdatebatch'
+        && message.arguments?.[0]?.state?.removedWorkflowIds.includes(root.workflowId!)) observeRetirement();
     }
-  }
-  await page.reload();
-  await expect(page.locator('.search-history-row').filter({ hasText: 'Live history fixture' })
-    .locator('.search-status-badge')).toHaveText(['Complete', 'Complete']);
+  }));
+  let httpPages = 0;
+  page.on('request', request => {
+    if (['/api/jobs', '/api/jobs/snapshot'].includes(new URL(request.url()).pathname)) httpPages++;
+  });
+  try {
+    await page.goto('/jobs');
+    await captured;
+    await expect(page.getByText('Loading jobs', { exact: true })).toBeVisible();
+    await daemon.command('release-download');
+    await retired;
+    releaseList();
+    const row = page.locator('.search-history-row').filter({ hasText: 'Delayed list fixture' });
+    await expect(row.locator('.search-status-badge')).toHaveText('Complete');
+    await expect(row.getByRole('button', { name: 'Remove Delayed list fixture', exact: true })).toBeVisible();
+    expect(httpPages).toBe(0);
+    await page.reload();
+    await expect(row.locator('.search-status-badge')).toHaveText('Complete');
+    expect(httpPages).toBe(0);
+  } finally { releaseList(); }
 });

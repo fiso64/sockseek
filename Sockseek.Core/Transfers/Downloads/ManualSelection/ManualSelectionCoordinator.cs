@@ -206,7 +206,6 @@ internal sealed class ManualSelectionCoordinator
 
     private void StartExistingAlbumSelection(AlbumJob albumJob, AlbumFolder selectedFolder, Action<AlbumJob>? configureSelection)
     {
-        albumJob.ClearFailure();
         albumJob.ResolvedTarget = selectedFolder;
         ApplySelectionSettings(albumJob, configureSelection);
         if (!albumJob.Results.Any(folder => SameAlbumFolder(folder, selectedFolder)))

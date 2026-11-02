@@ -126,7 +126,9 @@ public class DownloadEvents
 
     internal void RaiseJobStateChanged(Job job, JobStateTransition? transition = null)
     {
-        var snapshot = Execution(job, incrementRevision: true);
+        var snapshot = transition is { } captured
+            ? CoreSnapshotFactory.CreateExecution(job, captured.After)
+            : Execution(job, incrementRevision: true);
         Publish(new JobStateChangedChange(NextSequence(), UtcNow(), snapshot));
         // An activity notification cannot be published without its owning state
         // transition. Consumers persist the state once and may render this edge.
@@ -567,24 +569,24 @@ public class DownloadEvents
     private JobEventState JobState(Job job)
         => jobs.GetOrAdd(job.Id, static (_, workflowId) => new JobEventState(workflowId), job.WorkflowId);
 
-    private long JobRevision(Job job, bool incrementRevision)
+    private JobStateSnapshot CaptureJobState(Job job, bool incrementRevision)
     {
         var state = JobState(job);
         lock (state)
         {
             state.WorkflowId = job.WorkflowId;
-            return incrementRevision ? ++state.Revision : state.Revision;
+            return job.CaptureState(incrementRevision);
         }
     }
 
     private JobSnapshot Snapshot(Job job, bool incrementRevision = false)
-        => CoreSnapshotFactory.CreateJob(job, JobRevision(job, incrementRevision));
+        => CoreSnapshotFactory.CreateJob(job, CaptureJobState(job, incrementRevision));
 
     private JobExecutionSnapshot Execution(Job job, bool incrementRevision = false)
-        => CoreSnapshotFactory.CreateExecution(job, JobRevision(job, incrementRevision));
+        => CoreSnapshotFactory.CreateExecution(job, CaptureJobState(job, incrementRevision));
 
     private JobReferenceSnapshot Reference(Job job, bool incrementRevision = false)
-        => CoreSnapshotFactory.CreateJobReference(job, JobRevision(job, incrementRevision));
+        => CoreSnapshotFactory.CreateJobReference(job, CaptureJobState(job, incrementRevision).Revision);
 
     private IReadOnlyList<JobSnapshot> SnapshotSongs(IEnumerable<SongJob> songs)
         => SnapshotCollections.Freeze(songs.Select(song => Snapshot(song)));
@@ -770,10 +772,9 @@ public class DownloadEvents
 
     private sealed class JobEventState(Guid workflowId)
     {
-        // The small job gate protects its revision/identity; transfer publication
-        // has a separate per-transfer gate and never holds the job gate in observers.
+        // The small event gate protects workflow metadata. Job owns its coherent
+        // lifecycle/revision capture; neither gate is held while notifying observers.
         public Guid WorkflowId = workflowId;
-        public long Revision;
         public volatile DirectoryTransferGroup? DirectoryGroup;
         public Guid? LastTransferId;
     }

@@ -14,6 +14,9 @@ public static class CoreSnapshotFactory
     public static JobSnapshot CreateJob(Job job, long revision)
         => CreateJob(job, revision, []);
 
+    internal static JobSnapshot CreateJob(Job job, JobStateSnapshot state)
+        => CreateJob(job, state.Revision, [], state);
+
     public static JobReferenceSnapshot CreateJobReference(Job job, long revision)
         => new(job.Id, job.DisplayId, job.WorkflowId, GetJobKind(job), revision,
             JobTitle(job), job.EffectivePrintOption);
@@ -228,17 +231,22 @@ public static class CoreSnapshotFactory
     public static JobExecutionSnapshot CreateExecution(Job job, long revision)
         => new(CreateHeader(job, revision), CreateExecutionPayload(job));
 
-    private static JobSnapshot CreateJob(Job job, long revision, HashSet<Guid> visited)
+    internal static JobExecutionSnapshot CreateExecution(Job job, JobStateSnapshot state)
+        => new(CreateHeader(job, state.Revision, state), CreateExecutionPayload(job));
+
+    private static JobSnapshot CreateJob(Job job, long revision, HashSet<Guid> visited, JobStateSnapshot? state = null)
     {
-        var header = CreateHeader(job, revision);
+        var header = CreateHeader(job, revision, state);
         if (!visited.Add(job.Id))
             return new(header, new GenericJobSnapshotPayload(job.ToString(noInfo: true)));
         try { return new(header, CreatePayload(job, visited)); }
         finally { visited.Remove(job.Id); }
     }
 
-    private static JobSnapshotHeader CreateHeader(Job job, long revision)
-        => new(
+    private static JobSnapshotHeader CreateHeader(Job job, long revision, JobStateSnapshot? captured = null)
+    {
+        var state = captured ?? job.StateSnapshot;
+        return new(
                 job.Id,
                 job.DisplayId,
                 job.WorkflowId,
@@ -251,22 +259,23 @@ public static class CoreSnapshotFactory
                 job.ArtifactId,
                 GetJobKind(job),
                 revision,
-                job.LifecycleState,
-                job.ActivityPhase,
-                job.ActivityUntilUtc,
-                job.TerminalOutcome,
-                job.SkipReason,
-                job.CancellationSource,
-                job.FailureReason,
-                job.FailureMessage,
-                job.FailureDetail,
+                state.LifecycleState,
+                state.ActivityPhase,
+                state.ActivityUntilUtc,
+                state.TerminalOutcome,
+                state.SkipReason,
+                state.CancellationSource,
+                state.FailureReason,
+                state.FailureMessage,
+                state.FailureDetail,
                 JobTitle(job),
                 job.ToString(noInfo: true),
                 CreateDiscovery(job.Discovery),
                 SnapshotCollections.Freeze(job.EffectiveAutoProfiles.OrderBy(x => x)),
                 job.EffectivePrintOption,
-                CanCancel(job),
+                CanCancel(job, state),
                 SourceDetail(job));
+    }
 
     public static string? JobTitle(Job job)
     {
@@ -497,8 +506,8 @@ public static class CoreSnapshotFactory
                 discovery.LockedFileCount,
                 discovery.ObservedPeerCount);
 
-    private static bool CanCancel(Job job)
-        => job.LifecycleState != JobLifecycleState.Terminal
+    private static bool CanCancel(Job job, JobStateSnapshot state)
+        => state.LifecycleState != JobLifecycleState.Terminal
             && job.Cts != null
             && !job.Cts.IsCancellationRequested;
 

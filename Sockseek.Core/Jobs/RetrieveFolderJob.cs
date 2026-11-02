@@ -31,8 +31,7 @@ namespace Sockseek.Core.Jobs;
         /// terminal snapshot is published. It may return a caller-relative added
         /// count without introducing album/search data into this generic job.
         /// </summary>
-        public Func<PeerDirectorySnapshot, int>? ResultObserver { get; init; }
-        public Func<PeerDirectorySnapshot, CancellationToken, Task<int>>? AsyncResultObserver { get; init; }
+        public Func<PeerDirectorySnapshot, CancellationToken, int>? ResultObserver { get; init; }
         public bool RetrievalCompleted => RetrievalOutcome == FolderRetrievalOutcome.Completed;
         public bool RetrievalCancelled => RetrievalOutcome == FolderRetrievalOutcome.Cancelled;
 

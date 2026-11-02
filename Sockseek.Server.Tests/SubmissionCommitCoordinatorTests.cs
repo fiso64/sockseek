@@ -3,6 +3,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Persistence.Read;
 using Sockseek.Server.Persistence;
+using Sockseek.Server.Planning;
+using Sockseek.Server.PeerBrowsing;
 
 namespace Sockseek.Server.Tests;
 
@@ -30,20 +32,14 @@ public sealed class SubmissionCommitCoordinatorTests
                 ["music"] = true,
             },
         };
-        string fingerprint = SubmissionCommitCoordinator.Fingerprint(
-            "search-view", viewId, 4, selection, options: first);
-        Assert.AreEqual(fingerprint, SubmissionCommitCoordinator.Fingerprint(
-            "search-view", viewId, 4, selection, options: reordered));
-        Assert.AreNotEqual(fingerprint, SubmissionCommitCoordinator.Fingerprint(
-            "search-view", viewId, 4, selection,
-            options: first with
-            {
-                DownloadSettings = new DownloadSettingsPatchDto(
-                    Skip: new SkipSettingsPatchDto(SkipExisting: true)),
-            }));
-        Assert.AreNotEqual(fingerprint, SubmissionCommitCoordinator.Fingerprint(
-            "search-view", viewId, 4, selection, options: first,
-            useRepresentativeWhenUnchosen: true));
+        var request = new CommitSearchViewSelectionRequestDto(4, selection, Guid.NewGuid(), Options: first);
+        string fingerprint = SearchViewSelections.Fingerprint(viewId, request);
+        Assert.AreEqual(fingerprint, SearchViewSelections.Fingerprint(viewId, request with { Options = reordered }));
+        Assert.AreNotEqual(fingerprint, SearchViewSelections.Fingerprint(viewId, request with
+        {
+            Options = first with { DownloadSettings = new DownloadSettingsPatchDto(Skip: new SkipSettingsPatchDto(SkipExisting: true)) },
+        }));
+        Assert.AreNotEqual(fingerprint, SearchViewSelections.Fingerprint(viewId, request with { UseRepresentativeWhenUnchosen = true }));
     }
 
     [TestMethod]
@@ -51,17 +47,17 @@ public sealed class SubmissionCommitCoordinatorTests
     {
         Guid viewId = Guid.NewGuid();
         var directory = new PeerDirectoryRefDto("opaque-ref", "Peer", @"Music\Album");
-        string fingerprint = SubmissionCommitCoordinator.FingerprintDirectoryRetrieval(
+        string fingerprint = SearchViewCoordinator.FingerprintDirectoryRetrieval(
             viewId, 7, directory);
         Assert.AreEqual(fingerprint,
-            SubmissionCommitCoordinator.FingerprintDirectoryRetrieval(viewId, 7, directory));
+            SearchViewCoordinator.FingerprintDirectoryRetrieval(viewId, 7, directory));
         Assert.AreNotEqual(fingerprint,
-            SubmissionCommitCoordinator.FingerprintDirectoryRetrieval(viewId, 8, directory));
+            SearchViewCoordinator.FingerprintDirectoryRetrieval(viewId, 8, directory));
         Assert.AreNotEqual(fingerprint,
-            SubmissionCommitCoordinator.FingerprintDirectoryRetrieval(viewId, 7,
+            SearchViewCoordinator.FingerprintDirectoryRetrieval(viewId, 7,
                 directory with { Username = "peer" }));
         Assert.AreNotEqual(fingerprint,
-            SubmissionCommitCoordinator.FingerprintDirectoryRetrieval(viewId, 7,
+            SearchViewCoordinator.FingerprintDirectoryRetrieval(viewId, 7,
                 directory with { FolderPath = @"Music\Other" }));
     }
 
@@ -184,6 +180,117 @@ public sealed class SubmissionCommitCoordinatorTests
                 Directory.Delete(directory, recursive: true);
         }
     }
+
+    [TestMethod]
+    public async Task SameKeyAndBodySingleFlightWhileDifferentBodyConflicts()
+    {
+        var store = new SubmissionCommitCoordinator(new PersistenceCoordinator(Options.Create(new ServerOptions())));
+        var gate = new TaskCompletionSource<StartUserShareDownloadsResponseDto>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Guid requestId = Guid.NewGuid();
+        int submissions = 0;
+
+        Task<StartUserShareDownloadsResponseDto> first = store.ExecuteAsync<StartUserShareDownloadsResponseDto>(
+            requestId,
+            "same",
+            _ =>
+            {
+                Interlocked.Increment(ref submissions);
+                return gate.Task;
+            });
+        Task<StartUserShareDownloadsResponseDto> second = store.ExecuteAsync<StartUserShareDownloadsResponseDto>(
+            requestId,
+            "same",
+            _ => throw new AssertFailedException("A replay must join the first submission."));
+
+        await Assert.ThrowsExactlyAsync<IdempotencyConflictException>(() =>
+            store.ExecuteAsync<StartUserShareDownloadsResponseDto>(requestId, "different", _ => Task.FromResult(Response())));
+
+        StartUserShareDownloadsResponseDto expected = Response();
+        gate.SetResult(expected);
+        Assert.AreEqual(expected.Resolution, (await first).Resolution);
+        Assert.AreEqual(expected.Resolution, (await second).Resolution);
+        Assert.AreEqual(1, submissions);
+    }
+
+    [TestMethod]
+    public void FingerprintBindsRequestToBrowseGeneration()
+    {
+        Guid requestId = Guid.NewGuid();
+        var request = new StartUserShareDownloadsRequestDto(
+            requestId,
+            [new UserShareDirectorySelectionDto(42)],
+            null);
+        Guid firstBrowse = Guid.NewGuid();
+        Guid secondBrowse = Guid.NewGuid();
+
+        string first = UserBrowseEndpoints.Fingerprint(firstBrowse, request);
+
+        Assert.AreEqual(first, UserBrowseEndpoints.Fingerprint(firstBrowse, request));
+        Assert.AreNotEqual(first, UserBrowseEndpoints.Fingerprint(secondBrowse, request));
+        Assert.AreNotEqual(first, UserBrowseEndpoints.Fingerprint(firstBrowse,
+            request with { ExcludedFileIds = [7] }));
+        Assert.AreNotEqual(first, UserBrowseEndpoints.Fingerprint(firstBrowse,
+            request with { ExcludedDirectoryIds = [8] }));
+    }
+
+    [TestMethod]
+    public async Task CallerCancellationDetachesButFailedSubmissionCanBeRetried()
+    {
+        var store = new SubmissionCommitCoordinator(new PersistenceCoordinator(Options.Create(new ServerOptions())));
+        var gate = new TaskCompletionSource<StartUserShareDownloadsResponseDto>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Guid requestId = Guid.NewGuid();
+        using var cancelled = new CancellationTokenSource();
+
+        Task<StartUserShareDownloadsResponseDto> detached = store.ExecuteAsync<StartUserShareDownloadsResponseDto>(
+            requestId, "body", _ => gate.Task, cancelled.Token);
+        cancelled.Cancel();
+        await Assert.ThrowsExactlyAsync<TaskCanceledException>(() => detached);
+
+        StartUserShareDownloadsResponseDto expected = Response();
+        Task<StartUserShareDownloadsResponseDto> joined = store.ExecuteAsync<StartUserShareDownloadsResponseDto>(
+            requestId,
+            "body",
+            _ => throw new AssertFailedException("Cancellation must not forget active work."));
+        gate.SetResult(expected);
+        Assert.AreEqual(expected.Resolution, (await joined).Resolution);
+
+        Guid failedId = Guid.NewGuid();
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => store.ExecuteAsync<StartUserShareDownloadsResponseDto>(
+            failedId,
+            "body",
+            _ => Task.FromException<StartUserShareDownloadsResponseDto>(new InvalidOperationException("failed"))));
+
+        StartUserShareDownloadsResponseDto retried = await store.ExecuteAsync<StartUserShareDownloadsResponseDto>(
+            failedId, "body", _ => Task.FromResult(expected));
+        Assert.AreEqual(expected.Resolution, retried.Resolution);
+    }
+
+    [TestMethod]
+    public async Task SynchronouslyFailedSubmissionCanBeRetried()
+    {
+        var store = new SubmissionCommitCoordinator(new PersistenceCoordinator(Options.Create(new ServerOptions())));
+        Guid requestId = Guid.NewGuid();
+
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => store.ExecuteAsync<StartUserShareDownloadsResponseDto>(
+            requestId,
+            "body",
+            _ => throw new InvalidOperationException("failed before returning a task")));
+
+        StartUserShareDownloadsResponseDto expected = Response();
+        StartUserShareDownloadsResponseDto retried = await store.ExecuteAsync<StartUserShareDownloadsResponseDto>(
+            requestId,
+            "body",
+            _ => Task.FromResult(expected));
+
+        Assert.AreEqual(expected.Resolution, retried.Resolution);
+    }
+
+    private static StartUserShareDownloadsResponseDto Response()
+        => new(
+            new JobSummaryDto(),
+            new UserShareResolutionSummaryDto(1, 0, 1, 1, 0, 0, "downloads"));
 
     private static void AssertReceipt(
         CommitJobPreviewResponseDto expected,

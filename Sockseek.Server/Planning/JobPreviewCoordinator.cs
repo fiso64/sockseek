@@ -20,7 +20,7 @@ public sealed class JobPreviewUnavailableException(string message, Exception? in
 
 public sealed class JobPreviewCoordinator(
     IOptions<ServerOptions> options,
-    EngineSupervisor supervisor,
+    JobSubmissions submissions,
     SubmissionCommitCoordinator commits,
     JobPreviewCursorCodec cursors,
     ILogger<JobPreviewCoordinator> logger,
@@ -245,7 +245,7 @@ public sealed class JobPreviewCoordinator(
                 request.Job,
                 cancellationToken).ConfigureAwait(false);
             var artifactNamesByExtractRef = new Dictionary<string, string>(StringComparer.Ordinal);
-            await foreach (PlannedJobNode node in supervisor.PlanDraftAsync(
+            await foreach (PlannedJobNode node in submissions.PlanDraftAsync(
                 resolvedArtifacts.Draft,
                 request.Options,
                 resolvedArtifacts.Revisions,
@@ -420,18 +420,25 @@ public sealed class JobPreviewCoordinator(
         return new CursorPage<JobPreviewNodeDto>(rows.Select(ToDto).ToArray(), next);
     }
 
+    internal static string Fingerprint(Guid previewId, CommitJobPreviewRequestDto request)
+        => SubmissionFingerprint.Create("job-preview", new
+        {
+            PreviewId = previewId,
+            Request = request with
+            {
+                IdempotencyKey = Guid.Empty,
+                Selection = SubmissionFingerprint.Selection(request.Selection),
+                SubtreeOverrides = request.SubtreeOverrides?.OrderBy(rule => rule.Ref, StringComparer.Ordinal).ToArray() ?? [],
+            },
+        });
+
     public async Task<CommitJobPreviewResponseDto?> CommitAsync(
         Guid previewId,
         CommitJobPreviewRequestDto request,
         CancellationToken cancellationToken)
     {
         ValidateCommitRequest(request);
-        string fingerprint = SubmissionCommitCoordinator.Fingerprint(
-            "job-preview",
-            previewId,
-            request.Revision,
-            request.Selection,
-            subtreeOverrides: request.SubtreeOverrides);
+        string fingerprint = Fingerprint(previewId, request);
         return await commits.ExecuteAsync(
             request.IdempotencyKey,
             fingerprint,
@@ -493,7 +500,7 @@ public sealed class JobPreviewCoordinator(
         }
 
         SubmissionSpecification acceptedSpecification = AssembleSelectedSpecification(resolved);
-        var (root, rootSettings) = acceptedSpecification.Materialize(supervisor.DefaultDownloadSettings);
+        var (root, rootSettings) = acceptedSpecification.Materialize(submissions.DefaultDownloadSettings);
         JobRequestMapper.AssignWorkflowId(root, root.WorkflowId);
         long materializedMs = started.ElapsedMilliseconds;
 
@@ -511,7 +518,7 @@ public sealed class JobPreviewCoordinator(
             rejectedBeforeSubmission, RejectionReasons(failedCount, resolved.MissingRequestedRefCount));
         try
         {
-            await supervisor.QueuePlannedSubmissionAsync(
+            await submissions.AcceptPreviewAsync(
                 root,
                 rootSettings,
                 acceptedSpecification,

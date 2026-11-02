@@ -1,5 +1,6 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
+using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
@@ -68,7 +69,7 @@ public sealed class JobSummaryStatsTests
         var retained = new PersistedJob(search.Id, 1, search.WorkflowId, null, null, null,
             "Search", "Terminal", "None", null, "Succeeded", "None", "None", "None",
             null, null, null, search.QueryText, now, now, now, 1, 1,
-            $$"""{"Definition":{{SearchDefinitionCodec.Serialize(search.Definition)}}}""");
+            RetainedJobPayloadCodec.Capture(CoreSnapshotFactory.CreateJob(search, 1).Payload).Value);
         JobSummaryDto historical = HistoricalJobDtoMapper.ToSummary(retained);
         Assert.AreEqual(live.SearchDefaultProjection, historical.SearchDefaultProjection);
         Assert.AreEqual(live.SearchAggregatePresentation, historical.SearchAggregatePresentation);
@@ -81,25 +82,30 @@ public sealed class JobSummaryStatsTests
     [TestMethod]
     public void RetainedListStatsReportCountsAndProgress()
     {
-        (string kind, string payload, JobSummaryStatsDto expected)[] cases =
+        SongQuerySnapshot songQuery = new(null, null, null, null, null, false);
+        AlbumQuerySnapshot albumQuery = new(null, null, null, null, false);
+        FileDownloadStateSnapshot file = new(null, 0, null);
+        DirectoryDownloadStateSnapshot directory = new("transferring", 1, null, 8, 3, 2, 1, 45, 100, 0, 0.45);
+        (string kind, JobSnapshotPayload payload, JobSummaryStatsDto expected)[] cases =
         [
-            ("Song", """{"Query":{},"CandidateCount":3}""", new(CandidateCount: 3)),
-            ("Album", """{"Query":{},"ResultCount":4,"Directory":{"FileCount":8,"TerminalFileCount":3,"FailedFileCount":1,"BytesTransferred":45,"TotalKnownBytes":100}}""",
+            ("Song", new SongJobSnapshotPayload(songQuery, 3, null, null, SongDownloadSource.None, file, null), new(CandidateCount: 3)),
+            ("Album", new AlbumExecutionPayload(albumQuery, 4, null, directory, null),
                 new(MemberCount: 8, CompletedMemberCount: 3, FailedMemberCount: 1, FolderCount: 4, FileCount: 8, ProgressPercent: 45)),
-            ("RemoteFile", """{"Target":{"Identity":{"Username":"Peer","Filename":"Music\\Song.mp3"},"Size":123}}""", new(KnownBytes: 123)),
-            ("RemoteDirectory", """{"Directory":{"FileCount":9,"TerminalFileCount":4,"FailedFileCount":1,"BytesTransferred":35,"TotalKnownBytes":100}}""",
+            ("RemoteFile", new RemoteFileJobSnapshotPayload(new(new("Peer", @"Music\Song.mp3"), 123, ".mp3"), new(["Song.mp3"]), file), new(KnownBytes: 123)),
+            ("RemoteDirectory", new RemoteDirectoryExecutionPayload(RemoteDirectorySourceSnapshotKind.Resolved, null, null, null, null,
+                directory with { FileCount = 9, TerminalFileCount = 4, BytesTransferred = 35, Progress = 0.35 }),
                 new(MemberCount: 9, CompletedMemberCount: 4, FailedMemberCount: 1, FileCount: 9, ProgressPercent: 35)),
-            ("Aggregate", """{"Query":{},"SongCount":5,"CompletedSongCount":2,"FailedSongCount":1}""", new(MemberCount: 5, CompletedMemberCount: 2, FailedMemberCount: 1)),
-            ("AlbumAggregate", """{"Query":{},"AlbumCount":5,"CompletedAlbumCount":2,"FailedAlbumCount":1}""", new(MemberCount: 5, CompletedMemberCount: 2, FailedMemberCount: 1)),
-            ("JobList", """{"Count":6,"CompletedJobCount":3,"FailedJobCount":1}""", new(MemberCount: 6, CompletedMemberCount: 3, FailedMemberCount: 1)),
-            ("RetrieveFolder", """{"FolderPath":"Music","Username":"Peer","NewFilesFoundCount":2}""", new(NewFilesFoundCount: 2)),
+            ("Aggregate", new AggregateExecutionPayload(songQuery, null, new(5, 2, 1, 1)), new(MemberCount: 5, CompletedMemberCount: 2, FailedMemberCount: 1)),
+            ("AlbumAggregate", new AlbumAggregateJobSnapshotPayload(albumQuery, new(5, 2, 1, 1), null), new(MemberCount: 5, CompletedMemberCount: 2, FailedMemberCount: 1)),
+            ("JobList", new JobListExecutionPayload(new(6, 3, 2, 1)), new(MemberCount: 6, CompletedMemberCount: 3, FailedMemberCount: 1)),
+            ("RetrieveFolder", new RetrieveFolderExecutionPayload(new("Peer", "Music"), 2, FolderRetrievalOutcome.Completed, false), new(NewFilesFoundCount: 2)),
         ];
         foreach (var (kind, payload, expected) in cases)
         {
             var now = DateTimeOffset.UtcNow;
             var job = new PersistedJob(Guid.NewGuid(), 1, Guid.NewGuid(), null, null, null,
                 kind, "Terminal", "None", null, "Succeeded", "None", "None", "None",
-                null, null, null, kind, now, now, now, 1, 1, payload);
+                null, null, null, kind, now, now, now, 1, RetainedJobPayloadCodec.SchemaVersion, RetainedJobPayloadCodec.Capture(payload).Value);
             Assert.AreEqual(expected, HistoricalJobDtoMapper.ToSummary(job).Stats, kind);
         }
     }

@@ -1,5 +1,8 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
+using Sockseek.Core;
+using Sockseek.Core.Models;
+using Sockseek.Core.Snapshots;
 using Sockseek.Persistence.Read;
 using Sockseek.Server.Persistence;
 
@@ -11,13 +14,11 @@ public sealed class HistoricalSongPayloadTests
     [TestMethod]
     public void RetainedSongPreservesSelectedIdentityAndUnknownMetadata()
     {
-        var selected = Read("""
-            {"Query":{"Title":"Track"},"CandidateCount":3,
-             "ResolvedTarget":{"Username":"Peer Name","Filename":"Music\\Mix CASE.flac",
-               "Size":128,"SampleRate":48000,"Extension":"flac",
-               "Peer":{"HasFreeUploadSlot":false,"UploadSpeed":1000000},
-               "Attributes":[{"Type":"BitDepth","Value":24}]}}
-            """);
+        var song = new SongJobSnapshotPayload(new(null, "Track", null, null, null, false),
+            null, null, null, SongDownloadSource.None, new(null, 0, null), null);
+        var candidate = new FileCandidateSnapshot("Peer Name", @"Music\Mix CASE.flac",
+            new("Peer Name", false, 1_000_000), 128, null, 24, 48000, null, "flac", [new("BitDepth", 24)]);
+        var selected = Read(song with { CandidateCount = 3, ResolvedTarget = candidate });
         Assert.AreEqual("Peer Name", selected.ResolvedUsername);
         Assert.AreEqual(@"Music\Mix CASE.flac", selected.ResolvedFilename);
         Assert.AreEqual(3, selected.CandidateCount);
@@ -26,20 +27,19 @@ public sealed class HistoricalSongPayloadTests
         Assert.AreEqual(128L, selected.ResolvedSize);
         Assert.AreEqual(24, selected.ResolvedAttributes!.Single().Value);
 
-        var legacy = Read("""{"Query":{"Title":"Track"}}""");
-        Assert.IsNull(legacy.ResolvedUsername);
-        Assert.IsNull(legacy.ResolvedHasFreeUploadSlot);
-        Assert.IsNull(legacy.ResolvedSize);
-        Assert.IsNull(legacy.CandidateCount);
-        Assert.IsNull(legacy.LastAttemptedFile);
+        var unresolved = Read(song);
+        Assert.IsNull(unresolved.ResolvedUsername);
+        Assert.IsNull(unresolved.ResolvedHasFreeUploadSlot);
+        Assert.IsNull(unresolved.ResolvedSize);
+        Assert.IsNull(unresolved.CandidateCount);
+        Assert.IsNull(unresolved.LastAttemptedFile);
 
-        var attempted = Read("""
-            {"Query":{"Title":"Track"},"CandidateCount":2,
-             "File":{"BytesTransferred":64,"FileSize":128},
-             "LastAttemptedCandidate":{"Username":" Peer CASE ","Filename":"Music\\Mix CASE.flac",
-               "Size":128,"BitRate":320,"BitDepth":24,"SampleRate":48000,"Extension":".flac",
-               "Peer":{"HasFreeUploadSlot":false,"UploadSpeed":1000}}}
-            """);
+        var attempted = Read(song with
+        {
+            CandidateCount = 2, File = new(null, 64, 128),
+            LastAttemptedCandidate = candidate with { Username = " Peer CASE ", Extension = ".flac",
+                BitRate = 320, Peer = new(" Peer CASE ", false, 1000) },
+        });
         Assert.IsNull(attempted.ResolvedUsername);
         Assert.IsNull(attempted.ExactTarget);
         Assert.IsNotNull(attempted.LastAttemptedFile);
@@ -51,23 +51,10 @@ public sealed class HistoricalSongPayloadTests
         Assert.AreEqual(50d, attempted.File.ProgressPercent);
     }
 
-    private static SongJobPayloadDto Read(string payload)
-    {
-        var now = DateTimeOffset.UtcNow;
-        var job = new PersistedJob(Guid.NewGuid(), 1, Guid.NewGuid(), null, null, null,
-            "Song", "Terminal", "None", null, "Succeeded", "None", "None", "None",
-            null, null, null, "Track", now, now, now, 1, 1, payload);
-        return (SongJobPayloadDto)HistoricalJobDtoMapper.ToPayload(job);
-    }
-
     [TestMethod]
-    public void RetainedAggregatePreservesOutcomeCounts()
+    public void RetainedAggregatePreservesOutcomeCountsAndInvalidRowsDoNotHideNeighbors()
     {
-        var now = DateTimeOffset.UtcNow;
-        var job = new PersistedJob(Guid.NewGuid(), 1, Guid.NewGuid(), null, null, null,
-            "Aggregate", "Terminal", "None", null, "Succeeded", "None", "None", "None",
-            null, null, null, "Tracks", now, now, now, 1, 1,
-            """{"Query":{},"SongCount":7,"CompletedSongCount":7,"SucceededSongCount":5,"FailedSongCount":2}""");
+        var job = Job("Aggregate", new AggregateExecutionPayload(new(null, null, null, null, null, false), null, new(7, 7, 5, 2)));
         var payload = (AggregateJobPayloadDto)HistoricalJobDtoMapper.ToPayload(job);
         Assert.AreEqual(7, payload.SongCount);
         Assert.AreEqual(7, payload.CompletedSongCount);
@@ -77,31 +64,25 @@ public sealed class HistoricalSongPayloadTests
         Assert.AreEqual(7, stats.MemberCount);
         Assert.AreEqual(7, stats.CompletedMemberCount);
         Assert.AreEqual(2, stats.FailedMemberCount);
-        var legacy = job with { PayloadJson = """{"Query":{},"SongCount":7}""" };
-        var legacyPayload = (AggregateJobPayloadDto)HistoricalJobDtoMapper.ToPayload(legacy);
-        Assert.IsNull(legacyPayload.CompletedSongCount);
-        Assert.IsNull(legacyPayload.SucceededSongCount);
-        Assert.IsNull(legacyPayload.FailedSongCount);
-        JobSummaryStatsDto legacyStats = HistoricalJobDtoMapper.ToSummary(legacy).Stats!;
-        Assert.AreEqual(7, legacyStats.MemberCount);
-        Assert.IsNull(legacyStats.CompletedMemberCount);
-        Assert.IsNull(legacyStats.FailedMemberCount);
-        Assert.IsNull(HistoricalJobDtoMapper.ToSummary(job with { PayloadJson = "{invalid" }).Stats);
+        var invalid = job with { PayloadJson = "{invalid" };
+        var unsupported = job with { PayloadSchemaVersion = RetainedJobPayloadCodec.SchemaVersion + 1 };
+        var summaries = new[] { invalid, unsupported, job }.Select(HistoricalJobDtoMapper.ToSummary).ToArray();
+        Assert.IsNull(summaries[0].Stats);
+        Assert.IsNull(summaries[1].Stats);
+        Assert.AreEqual(stats, summaries[2].Stats);
+        Assert.ThrowsExactly<System.Text.Json.JsonException>(() => HistoricalJobDtoMapper.ToPayload(invalid));
+        Assert.ThrowsExactly<InvalidDataException>(() => HistoricalJobDtoMapper.ToPayload(unsupported));
     }
 
-    [TestMethod]
-    public void RetainedLegacyListKeepsMissingOutcomeCountsUnknown()
+    private static SongJobPayloadDto Read(SongJobSnapshotPayload payload)
+        => (SongJobPayloadDto)HistoricalJobDtoMapper.ToPayload(Job("Song", payload));
+
+    private static PersistedJob Job(string kind, JobSnapshotPayload payload)
     {
         var now = DateTimeOffset.UtcNow;
-        var job = new PersistedJob(Guid.NewGuid(), 1, Guid.NewGuid(), null, null, null,
-            "JobList", "Terminal", "None", null, "Succeeded", "None", "None", "None",
-            null, null, null, "List", now, now, now, 1, 1,
-            """{"Count":3}""");
-        var payload = (JobListPayloadDto)HistoricalJobDtoMapper.ToPayload(job);
-        Assert.AreEqual(3, payload.Count);
-        Assert.IsNull(payload.ActiveJobCount);
-        Assert.IsNull(payload.CompletedJobCount);
-        Assert.IsNull(payload.SucceededJobCount);
-        Assert.IsNull(payload.FailedJobCount);
+        return new(Guid.NewGuid(), 1, Guid.NewGuid(), null, null, null,
+            kind, "Terminal", "None", null, "Succeeded", "None", "None", "None",
+            null, null, null, "Track", now, now, now, 1, RetainedJobPayloadCodec.SchemaVersion,
+            RetainedJobPayloadCodec.Capture(payload).Value);
     }
 }

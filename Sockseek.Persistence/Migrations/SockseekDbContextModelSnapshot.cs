@@ -673,6 +673,14 @@ namespace Sockseek.Persistence.Migrations
 
             modelBuilder.Entity("Sockseek.Persistence.Entities.SearchResultEntity", b =>
                 {
+                    b.Property<Guid>("SearchJobId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("search_job_id");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("sequence");
+
                     b.Property<string>("AttributesJson")
                         .HasColumnType("TEXT")
                         .HasColumnName("attributes_json");
@@ -725,14 +733,6 @@ namespace Sockseek.Persistence.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("sample_rate");
 
-                    b.Property<Guid>("SearchJobId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("search_job_id");
-
-                    b.Property<long>("Sequence")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("sequence");
-
                     b.Property<long>("SizeBytes")
                         .HasColumnType("INTEGER")
                         .HasColumnName("size_bytes");
@@ -756,6 +756,7 @@ namespace Sockseek.Persistence.Migrations
                     b.HasKey("SearchJobId", "Sequence");
 
                     b.ToTable((string)null);
+
                     b.ToView("search_results", (string)null);
                 });
 
@@ -796,11 +797,6 @@ namespace Sockseek.Persistence.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("revision");
 
-                    b.Property<string>("SpecificationJson")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("specification_json");
-
                     b.Property<int>("SpecificationSchemaVersion")
                         .HasColumnType("INTEGER")
                         .HasColumnName("specification_schema_version");
@@ -823,15 +819,22 @@ namespace Sockseek.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_submissions_specification_schema", "specification_schema_version > 0");
                         });
+                });
 
-                    b.SplitToTable("submission_specifications", null, t =>
-                        {
-                            t.Property("Id")
-                                .HasColumnName("submission_id");
+            modelBuilder.Entity("Sockseek.Persistence.Entities.SubmissionSpecificationEntity", b =>
+                {
+                    b.Property<Guid>("SubmissionId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("submission_id");
 
-                            t.Property("SpecificationJson")
-                                .HasColumnName("specification_json");
-                        });
+                    b.Property<string>("Json")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("specification_json");
+
+                    b.HasKey("SubmissionId");
+
+                    b.ToTable("submission_specifications", (string)null);
                 });
 
             modelBuilder.Entity("Sockseek.Persistence.Entities.TransferAccountingCheckpointEntity", b =>
@@ -1104,14 +1107,14 @@ namespace Sockseek.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("group_display_path");
 
-                    b.Property<string>("GroupRelativePath")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("group_relative_path");
-
                     b.Property<string>("GroupRef")
                         .HasMaxLength(4096)
                         .HasColumnType("TEXT")
                         .HasColumnName("group_ref");
+
+                    b.Property<string>("GroupRelativePath")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("group_relative_path");
 
                     b.Property<Guid?>("JobId")
                         .HasColumnType("TEXT")
@@ -1190,9 +1193,9 @@ namespace Sockseek.Persistence.Migrations
 
                     b.HasIndex("LastRuntimeId", "TerminalOutcome");
 
-                    b.HasIndex("ArchivedAtUtc", "CreatedAtUtc", "Id");
-
                     b.HasIndex("TerminalOutcome", "CompletedAtUtc");
+
+                    b.HasIndex("ArchivedAtUtc", "CreatedAtUtc", "Id");
 
                     b.HasIndex("WorkflowId", "CreatedAtUtc", "Id");
 
@@ -1257,15 +1260,18 @@ namespace Sockseek.Persistence.Migrations
             modelBuilder.Entity("Sockseek.Persistence.Entities.SubmissionEntity", b =>
                 {
                     b.HasOne("Sockseek.Persistence.Entities.SubmissionEntity", null)
-                        .WithOne()
-                        .HasForeignKey("Sockseek.Persistence.Entities.SubmissionEntity", "Id")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Sockseek.Persistence.Entities.SubmissionEntity", null)
                         .WithMany()
                         .HasForeignKey("RerunOfSubmissionId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Sockseek.Persistence.Entities.SubmissionSpecificationEntity", b =>
+                {
+                    b.HasOne("Sockseek.Persistence.Entities.SubmissionEntity", null)
+                        .WithOne("Specification")
+                        .HasForeignKey("Sockseek.Persistence.Entities.SubmissionSpecificationEntity", "SubmissionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Sockseek.Persistence.Entities.TransferAccountingCheckpointEntity", b =>
@@ -1303,6 +1309,12 @@ namespace Sockseek.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("LastRuntimeId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Sockseek.Persistence.Entities.SubmissionEntity", b =>
+                {
+                    b.Navigation("Specification")
                         .IsRequired();
                 });
 #pragma warning restore 612, 618

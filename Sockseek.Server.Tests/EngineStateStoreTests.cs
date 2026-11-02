@@ -79,6 +79,58 @@ public class EngineStateStoreTests
     }
 
     [TestMethod]
+    public async Task DisplayedJobListTracksItsWindowAndKeepsTerminalRowsAcrossRetirement()
+    {
+        var options = Microsoft.Extensions.Options.Options.Create(
+            new ServerOptions { Persistence = new() { Enabled = false } });
+        using var supervisor = new EngineSupervisor(options);
+        var store = supervisor.StateStore;
+        await using var events = new ServerEventBroadcaster(store, supervisor, new NoOpHubContext<ServerEventHub>());
+        var queries = new Sockseek.Server.Persistence.JobReadService(store, supervisor,
+            new Sockseek.Server.Persistence.PersistenceCoordinator(options));
+        var roots = Enumerable.Range(0, 4).Select(i => new SearchJob("Root " + i)
+            { SubmissionId = Guid.NewGuid() }).ToArray();
+        foreach (var root in roots.Take(3)) Register(store, root);
+        var query = new JobQuery(null, null, null, null, IncludeAll: false, NewestFirst: true);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await using var updates = queries.ObserveJobListAsync(new(query, 2), events, deadline.Token).GetAsyncEnumerator();
+        Assert.IsTrue(await updates.MoveNextAsync());
+        CollectionAssert.AreEqual(new[] { roots[2].Id, roots[1].Id }, updates.Current.WindowJobIds!.ToArray());
+        Assert.IsNotNull(updates.Current.NextCursor);
+
+        roots[2].SetAwaitingSelection();
+        UpdateState(store, roots[2]);
+        Assert.IsTrue(await updates.MoveNextAsync());
+        Assert.IsNull(updates.Current.WindowJobIds);
+        var patch = updates.Current.Jobs.Single();
+        Assert.AreEqual(roots[2].Id, patch.JobId);
+        Assert.IsNull(patch.Added, "Existing rows receive compact changes, not another page.");
+        Assert.IsNotNull(patch.Lifecycle);
+
+        Register(store, roots[3]);
+        Assert.IsTrue(await updates.MoveNextAsync());
+        Assert.AreEqual(roots[3].Id, updates.Current.Jobs.Single().Added!.JobId);
+        CollectionAssert.AreEqual(new[] { roots[1].Id }, updates.Current.RemovedJobIds.ToArray());
+        roots[3].SetDone();
+        UpdateState(store, roots[3]);
+        store.RetireJobProjections(roots[3].WorkflowId, [roots[3].Id]);
+        Assert.IsTrue(await updates.MoveNextAsync());
+        Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, updates.Current.Jobs.Single().Lifecycle!.TerminalOutcome);
+        Assert.AreEqual(0, updates.Current.RemovedJobIds.Count, "Storage retirement cannot remove the displayed result.");
+
+        store.SetSubmissionArchived(roots[3].SubmissionId!.Value, true);
+        Assert.IsTrue(await updates.MoveNextAsync());
+        CollectionAssert.Contains(updates.Current.RemovedJobIds.ToArray(), roots[3].Id);
+        CollectionAssert.Contains(updates.Current.Jobs.Select(row => row.JobId).ToArray(), roots[1].Id);
+
+        var expanded = await queries.GetJobListSnapshotAsync(new(query, 3), events, deadline.Token);
+        CollectionAssert.AreEqual(new[] { roots[2].Id, roots[1].Id, roots[0].Id }, expanded.WindowJobIds!.ToArray());
+        Assert.IsNull(expanded.NextCursor);
+        Assert.IsTrue(expanded.Jobs.All(row => row.Added is not null && row.Revision == 0),
+            "A fresh scope replaces earlier rows even when their previous revision was higher.");
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task DisplayedJobKeepsFinalMembershipWhenRegistrationAndRetirementPrecedeItsNextRead(bool childRetiresFirst)
@@ -88,7 +140,7 @@ public class EngineStateStoreTests
         using var supervisor = new EngineSupervisor(options);
         var store = supervisor.StateStore;
         await using var events = new ServerEventBroadcaster(store, supervisor, new NoOpHubContext<ServerEventHub>());
-        var queries = new Sockseek.Server.Persistence.HistoricalQueryFacade(store, supervisor,
+        var queries = new Sockseek.Server.Persistence.JobReadService(store, supervisor,
             new Sockseek.Server.Persistence.PersistenceCoordinator(options));
         var root = new JobList("Visible list");
         Register(store, root);
@@ -119,7 +171,7 @@ public class EngineStateStoreTests
         using var supervisor = new EngineSupervisor(options);
         var store = supervisor.StateStore;
         await using var events = new ServerEventBroadcaster(store, supervisor, new NoOpHubContext<ServerEventHub>());
-        var queries = new Sockseek.Server.Persistence.HistoricalQueryFacade(store, supervisor,
+        var queries = new Sockseek.Server.Persistence.JobReadService(store, supervisor,
             new Sockseek.Server.Persistence.PersistenceCoordinator(options));
         var root = new JobList("Visible list");
         var child = new SongJob(new SongQuery { Title = "Visible member" }) { WorkflowId = root.WorkflowId };
@@ -183,7 +235,7 @@ public class EngineStateStoreTests
         using var supervisor = new EngineSupervisor(options);
         var store = supervisor.StateStore;
         await using var events = new ServerEventBroadcaster(store, supervisor, new NoOpHubContext<ServerEventHub>());
-        var queries = new Sockseek.Server.Persistence.HistoricalQueryFacade(store, supervisor,
+        var queries = new Sockseek.Server.Persistence.JobReadService(store, supervisor,
             new Sockseek.Server.Persistence.PersistenceCoordinator(options));
         var first = new SongJob(new SongQuery { Title = "First" }) { FileSize = 100 };
         var other = new SongJob(new SongQuery { Title = "Other" }) { FileSize = 100 };
@@ -245,7 +297,7 @@ public class EngineStateStoreTests
     [TestMethod]
     public void TransferTotalsTrackProgressUploadsAndWorkflowVisibilityWithoutDependingOnViewedRows()
     {
-        var state = new TransferReadState();
+        var state = new TransferState();
         Guid workflow = Guid.NewGuid();
         Guid job = Guid.NewGuid();
         var download = new TransferSnapshot(Guid.NewGuid(), TransferSnapshotDirection.Download,
@@ -254,17 +306,18 @@ public class EngineStateStoreTests
         var upload = new UploadTransferSnapshot(Guid.NewGuid(), 1, "Peer", "Track.flac", 100,
             DateTimeOffset.UnixEpoch, UploadTransferState.Queued, UploadFailureReason.None,
             UploadCancellationSource.None, 0, 0, null, null, null);
-        state.UpsertActive(new(download), true);
-        state.UpsertUpload(new(upload), replicated: false, structural: true);
+        state.ApplyDownload(download, terminal: false);
+        state.ApplyUpload(upload);
         Assert.AreEqual(LiveTransferSummaryDto.Empty, state.Summary);
         state.SetWorkflowVisible(workflow, true);
         Assert.AreEqual(new LiveTransferSummaryDto(1, 1, 0, 0, 0, 10, 0), state.Summary);
         LiveTransferSummaryDto earlier = state.Summary;
 
-        upload = upload with { Revision = 2, State = UploadTransferState.InProgress, BytesPerSecond = 7 };
-        state.UpsertUpload(new(upload), replicated: true, structural: true);
+        upload = upload with { Revision = 2, State = UploadTransferState.InProgress, BytesPerSecond = 7,
+            Attempt = new(Guid.NewGuid(), 1, DateTimeOffset.UnixEpoch, null, 0, 7) };
+        state.ApplyUpload(upload);
         download = download with { Revision = 2, BytesTransferred = 50, BytesPerSecond = 30 };
-        state.UpsertActive(new(download), false);
+        state.ApplyDownload(download, terminal: false);
         Assert.AreEqual(download.Id, state.ForJobs(new HashSet<Guid> { job }).Single().TransferId);
         Assert.AreEqual(0, state.ForJobs(new HashSet<Guid> { Guid.NewGuid() }).Count);
         Assert.AreEqual(new LiveTransferSummaryDto(2, 1, 1, 0, 0, 30, 7), state.Summary);
@@ -274,17 +327,20 @@ public class EngineStateStoreTests
         Assert.AreEqual(new LiveTransferSummaryDto(1, 0, 1, 0, 0, 0, 7), state.Summary);
         Assert.AreEqual(2, state.Active.Count, "Visibility must not retire the underlying transfer facts.");
         state.SetWorkflowVisible(workflow, true);
-        download = download with { Revision = 3,
+        download = download with { Revision = 3, State = "Queued, Remotely", BytesPerSecond = 0 };
+        state.ApplyDownload(download, terminal: false);
+        Assert.AreEqual(new LiveTransferSummaryDto(2, 1, 1, 1, 0, 0, 7), state.Summary);
+        Assert.AreEqual("Queued, Remotely", state.Active[download.Id].State);
+        download = download with { Revision = 4,
             State = "Failed", TerminalOutcome = TransferSnapshotTerminalOutcome.Failed };
-        state.UpsertActive(new(download), false);
+        state.ApplyDownload(download, terminal: false);
         Assert.AreEqual(new LiveTransferSummaryDto(1, 0, 1, 0, 1, 0, 7), state.Summary);
         state.SetWorkflowVisible(workflow, false);
         Assert.AreEqual(0, state.Summary.Failed);
         state.SetWorkflowVisible(workflow, true);
         Assert.AreEqual(1, state.Summary.Failed);
-        state.RemoveActive(download.Id, out _);
-        state.RemoveUpload(upload.TransferId);
-        state.RemoveActive(upload.TransferId, out _);
+        state.Remove(download.Id);
+        state.Remove(upload.TransferId);
         Assert.AreEqual(LiveTransferSummaryDto.Empty, state.Summary);
         Assert.AreEqual(0, state.ForJobs(new HashSet<Guid> { job }).Count);
     }
@@ -1114,7 +1170,7 @@ public class EngineStateStoreTests
 
         typeof(EngineStateStore)
             .GetMethod("OnTerminalTransfer", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(store, [terminal, DateTimeOffset.UtcNow, null]);
+            .Invoke(store, [terminal, DateTimeOffset.UtcNow, null, null]);
         store.FlushStateUpdates();
 
         Assert.IsNotNull(store.GetLiveTransfer(transferId));
@@ -1241,7 +1297,7 @@ public class EngineStateStoreTests
         Assert.AreEqual(
             new EngineStateStoreRetainedWorkflowCounts(
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
             store.RetainedWorkflowStateCounts);
 
         var removal = batches.First(batch => batch.State.RemovedJobIds.Contains(parent.Id));

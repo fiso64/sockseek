@@ -28,23 +28,11 @@ public sealed record LiveTransferPageDto(
     long ObservedQueueRevision,
     bool QueueChanged);
 
-[JsonConverter(typeof(JsonStringEnumConverter<TransferDetailSource>))]
-public enum TransferDetailSource
-{
-    Live,
-    Historical,
-    Merged,
-}
-
 /// <summary>
-/// Point-in-time transfer detail. Live is authoritative when present; History
-/// supplies retained metadata and is the fallback after live removal. Complete
-/// attempt history is available from the paged transfer-attempts resource.
+/// One current transfer record, including retained metadata after runtime retirement.
+/// Complete attempt history is available from the paged transfer-attempts resource.
 /// </summary>
 public sealed record TransferDetailDto(
-    TransferDetailSource Source,
-    TransferStateDto? Live,
+    TransferStateDto Transfer,
     TransferQueueEstimateDto? QueueEstimate,
-    TransferHistoryDto? History,
-    int AttemptCount,
     TransferAttemptHistoryDto? LatestAttempt);

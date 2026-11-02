@@ -35,11 +35,11 @@ it('shows authoritative outcome totals without counting loaded children', () => 
   })).toEqual(['20 songs', '20 complete']);
 });
 
-it('does not manufacture a file size or legacy album outcome counts', () => {
+it('preserves unknown file sizes and displays authoritative container outcomes', () => {
   const directory = {
     phase: 'resolving', attemptNumber: null, downloadPath: null, fileCount: 0,
     terminalFileCount: 0, successfulFileCount: 0, failedFileCount: 0,
-    bytesTransferred: 0, totalKnownBytes: 0, progressPercent: null,
+    bytesTransferred: 0, totalKnownBytes: 0, progressPercent: null, unknownFileSizeCount: 0,
   };
   expect(jobHeaderStats({ kind: 'remote-directory', sourceKind: 'PeerDirectory',
     sourceUsername: 'peer', sourceFolderPath: 'Music', directory })).toEqual([]);
@@ -56,15 +56,16 @@ it('does not manufacture a file size or legacy album outcome counts', () => {
     target: { username: 'peer', filename: 'file', size: null, extension: null },
     outputPathComponents: [], file: { downloadPath: null, fileSize: null, bytesTransferred: 0, progressPercent: null },
   })).toEqual([]);
-  expect(jobHeaderStats({ kind: 'album-aggregate', query: { artistMaybeWrong: false }, resultCount: 12 }))
-    .toEqual(['12 albums']);
+  expect(jobHeaderStats({ kind: 'album-aggregate', query: { artistMaybeWrong: false }, resultCount: 12,
+    completedAlbumCount: 0, succeededAlbumCount: 0, failedAlbumCount: 0 }))
+    .toEqual(['12 albums', '0 complete']);
   expect(jobHeaderStats({ kind: 'album-aggregate', query: { artistMaybeWrong: false },
     resultCount: 12, completedAlbumCount: 9, succeededAlbumCount: 8, failedAlbumCount: 1 }))
     .toEqual(['12 albums', '8 complete', '1 failed']);
   expect(jobHeaderStats({ kind: 'aggregate', query: { artistMaybeWrong: false }, songCount: 7,
-    completedSongCount: null, succeededSongCount: null, failedSongCount: null }))
-    .toEqual(['7 songs']);
-  expect(jobHeaderStats({ kind: 'job-list', count: 3, activeJobCount: null,
-    completedJobCount: null, succeededJobCount: null, failedJobCount: null }))
-    .toEqual(['3 jobs']);
+    completedSongCount: 0, succeededSongCount: 0, failedSongCount: 0 }))
+    .toEqual(['7 songs', '0 complete']);
+  expect(jobHeaderStats({ kind: 'job-list', count: 3, activeJobCount: 3,
+    completedJobCount: 0, succeededJobCount: 0, failedJobCount: 0 }))
+    .toEqual(['3 jobs', '0 complete']);
 });

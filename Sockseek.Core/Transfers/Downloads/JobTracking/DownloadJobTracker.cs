@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
+using Sockseek.Core.Planning;
 
 namespace Sockseek.Core.Transfers.Downloads.JobTracking;
 
@@ -47,6 +48,11 @@ internal sealed class DownloadJobTracker
                 events.UpdateDirectoryGroup(job, parent, directoryEntry);
             return;
         }
+
+        // Direct Core execution need not carry a retained submission. Still assign
+        // child roles before publishing registration, preserving extracted result roles.
+        if (parent is not null && job.SemanticRole == JobSemanticRole.UserRoot)
+            SubmissionIdentity.AssignExecutionChild(parent, job);
 
         Action<Job, JobStateTransition> stateHandler = (_, transition)
             => events.RaiseJobStateChanged(job, transition);

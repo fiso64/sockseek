@@ -117,7 +117,7 @@ public sealed class JobPreviewTests
                 var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
                 var previews = app.Services.GetRequiredService<JobPreviewCoordinator>();
                 var persistence = app.Services.GetRequiredService<Persistence.PersistenceCoordinator>();
-                var facade = app.Services.GetRequiredService<Persistence.HistoricalQueryFacade>();
+                var facade = app.Services.GetRequiredService<Persistence.JobReadService>();
                 var terminals = new System.Collections.Concurrent.ConcurrentDictionary<Guid, TaskCompletionSource<JobSummaryDto>>();
                 TaskCompletionSource<JobSummaryDto> Terminal(Guid id) => terminals.GetOrAdd(id,
                     _ => new(TaskCreationOptions.RunContinuationsAsynchronously));
@@ -157,7 +157,7 @@ public sealed class JobPreviewTests
                         var rootSpecification = SubmissionSpecificationCodec.Deserialize(rootRetained.SpecificationJson);
                         var child = children.Single(item => rootSpecification.ForSearchJob(item.JobId)!
                             .MaterializeSettings().Search.NecessaryCond.Formats.SequenceEqual(["txt"]));
-                        var replay = await supervisor.RerunSearchJobAsync(child.JobId, CancellationToken.None);
+                        var replay = await supervisor.Submissions.RerunSearchJobAsync(child.JobId, CancellationToken.None);
                         Assert.IsNotNull(replay);
                         Assert.AreNotEqual(child.JobId, replay.JobId);
                         Assert.AreNotEqual(root.SubmissionId, replay.SubmissionId);
@@ -178,7 +178,7 @@ public sealed class JobPreviewTests
                         .Command.AcceptedJobId!.Value;
                     var reviewedRoot = await Terminal(acceptedRootId).Task.WaitAsync(TimeSpan.FromSeconds(5));
                     await AssertChildReplay(reviewedRoot);
-                    var rerun = await supervisor.RerunSubmissionAsync(receipt.SubmissionId.Value, CancellationToken.None);
+                    var rerun = await supervisor.Submissions.RerunSubmissionAsync(receipt.SubmissionId.Value, CancellationToken.None);
                     Assert.IsNotNull(rerun);
                     await AssertChildReplay(rerun);
                 }
@@ -277,7 +277,7 @@ public sealed class JobPreviewTests
             new Persistence.PersistenceCoordinator(options));
         await using var coordinator = new JobPreviewCoordinator(
             options,
-            supervisor,
+            supervisor.Submissions,
             commits,
             new JobPreviewCursorCodec(),
             NullLogger<JobPreviewCoordinator>.Instance);
@@ -380,7 +380,7 @@ public sealed class JobPreviewTests
                 Assert.AreEqual("browser-name.csv", artifact.OriginalName);
 
                 var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
-                JobSummaryDto direct = await supervisor.SubmitExtractJobAsync(
+                JobSummaryDto direct = await supervisor.Submissions.SubmitExtractJobAsync(
                     new SubmitExtractJobRequestDto(
                         Input: "browser-path-is-not-used",
                         ArtifactId: artifact.ArtifactId),
@@ -639,7 +639,7 @@ public sealed class JobPreviewTests
             new Persistence.PersistenceCoordinator(options));
         await using var coordinator = new JobPreviewCoordinator(
             options,
-            supervisor,
+            supervisor.Submissions,
             commits,
             new JobPreviewCursorCodec(),
             NullLogger<JobPreviewCoordinator>.Instance);
@@ -652,7 +652,7 @@ public sealed class JobPreviewTests
                         new ExtractJobDraftDto("Artist - Title", InputType.String.ToString())),
                     CancellationToken.None));
 
-            JobSummaryDto direct = await supervisor.SubmitExtractJobAsync(
+            JobSummaryDto direct = await supervisor.Submissions.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(
                     "Artist - Title",
                     InputType.String.ToString()),
@@ -702,7 +702,7 @@ public sealed class JobPreviewTests
             new Persistence.PersistenceCoordinator(options));
         return new JobPreviewCoordinator(
             options,
-            supervisor,
+            supervisor.Submissions,
             commits,
             new JobPreviewCursorCodec(),
             NullLogger<JobPreviewCoordinator>.Instance);

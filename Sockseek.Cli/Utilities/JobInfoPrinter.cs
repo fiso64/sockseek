@@ -141,7 +141,7 @@ internal static class JobInfoPrinter
         var queryText = FormatSongQuery(p.Query);
         if (queryText != null) Field("Query", queryText);
 
-        Field("Songs", $"{p.SongCount} total  •  {CountOrUnknown(p.CompletedSongCount)} completed  •  {CountOrUnknown(p.SucceededSongCount)} ok  •  {CountOrUnknown(p.FailedSongCount)} failed");
+        Field("Songs", $"{p.SongCount} total  •  {p.CompletedSongCount} completed  •  {p.SucceededSongCount} ok  •  {p.FailedSongCount} failed");
 
         if (children.Count > 0)
         {
@@ -169,7 +169,7 @@ internal static class JobInfoPrinter
 
     private static void PrintJobList(JobListPayloadDto p, IReadOnlyList<JobSummaryDto> children)
     {
-        Field("Jobs", $"{p.Count} total  •  {CountOrUnknown(p.ActiveJobCount)} active  •  {CountOrUnknown(p.SucceededJobCount)} ok  •  {CountOrUnknown(p.FailedJobCount)} failed");
+        Field("Jobs", $"{p.Count} total  •  {p.ActiveJobCount} active  •  {p.SucceededJobCount} ok  •  {p.FailedJobCount} failed");
 
         if (children.Count > 0)
         {
@@ -261,9 +261,6 @@ internal static class JobInfoPrinter
         Printing.Write($"  {label,-LabelWidth}  ", ConsoleColor.DarkGray, force: true);
         Printing.WriteLine(value, valueColor, force: true);
     }
-
-    private static string CountOrUnknown(int? count)
-        => count?.ToString() ?? "unknown";
 
     private static string? FormatSongQuery(SongQueryDto? q)
     {

@@ -12,18 +12,18 @@ export function jobHeaderStats(payload: Schema<'JobPayloadDto'> | null | undefin
     ];
     case 'aggregate': return [
       `${formatCount(payload.songCount)} songs`,
-      ...(payload.succeededSongCount == null ? [] : [`${formatCount(payload.succeededSongCount)} complete`]),
+      `${formatCount(payload.succeededSongCount)} complete`,
       ...(Number(payload.failedSongCount) > 0 ? [`${formatCount(payload.failedSongCount)} failed`] : []),
     ];
     case 'album-aggregate': return [
       `${formatCount(payload.resultCount)} albums`,
-      ...(payload.succeededAlbumCount == null ? [] : [`${formatCount(payload.succeededAlbumCount)} complete`]),
+      `${formatCount(payload.succeededAlbumCount)} complete`,
       ...(Number(payload.failedAlbumCount) > 0 ? [`${formatCount(payload.failedAlbumCount)} failed`] : []),
     ];
     case 'extract': return payload.inputType ? [extractSourceLabel(payload.inputType)] : [];
     case 'job-list': return [
       `${formatCount(payload.count)} jobs`,
-      ...(payload.succeededJobCount == null ? [] : [`${formatCount(payload.succeededJobCount)} complete`]),
+      `${formatCount(payload.succeededJobCount)} complete`,
       ...(Number(payload.failedJobCount) > 0 ? [`${formatCount(payload.failedJobCount)} failed`] : []),
     ];
     case 'remote-file': {

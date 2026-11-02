@@ -40,9 +40,8 @@ public sealed class SubmissionSpecificationTests
         album.ExtractorInfo = "Catalog entry: A12";
         var settings = SubmissionSpecification.CreateShallow(new SearchJob("settings"), new DownloadSettings());
         var specification = settings with { Command = SubmissionSpecification.CommandFrom(new JobList(null, [song, album])), Search = null };
-        var retained = System.Text.Json.Nodes.JsonNode.Parse(SubmissionSpecificationCodec.Serialize(specification))!;
-        retained["command"]!["sourceInputKind"] = "SpotifyPlaylist";
-        var restored = (JobList)SubmissionSpecificationCodec.Deserialize(retained.ToJsonString()).MaterializeJob();
+        var restored = (JobList)SubmissionSpecificationCodec.Deserialize(
+            SubmissionSpecificationCodec.Serialize(specification)).MaterializeJob();
 
         Assert.AreEqual(song.ExtractorInfo, restored[0].ExtractorInfo);
         var pinned = (AlbumJob)restored[1];
@@ -174,32 +173,23 @@ public sealed class SubmissionSpecificationTests
     }
 
     [TestMethod]
-    public void LegacyQueryCommandsStillReplayAndInvalidAcceptedAlbumIndicesAreRejected()
+    public void QueryCommandsReplayAndInvalidAcceptedAlbumIndicesAreRejected()
     {
-        var legacy = SubmissionSpecification.Create(new AlbumJob(new AlbumQuery { Album = "Legacy" }), new DownloadSettings()) with
-        {
-            SchemaVersion = 2,
-            Command = new NormalizedJobCommand
-            {
-                Kind = Sockseek.Core.Snapshots.JobSnapshotKind.Album,
-                AlbumQuery = AlbumQueryDefinition.From(new AlbumQuery { Album = "Legacy" }),
-            },
-        };
-        var replay = (AlbumJob)SubmissionSpecificationCodec.Deserialize(SubmissionSpecificationCodec.Serialize(legacy)).MaterializeJob();
-        Assert.AreEqual("Legacy", replay.Query.Album);
+        var specification = SubmissionSpecification.Create(
+            new AlbumJob(new AlbumQuery { Album = "Discovery" }), new DownloadSettings());
+        var replay = (AlbumJob)SubmissionSpecificationCodec.Deserialize(
+            SubmissionSpecificationCodec.Serialize(specification)).MaterializeJob();
+        Assert.AreEqual("Discovery", replay.Query.Album);
         Assert.IsNull(replay.ResolvedTarget);
         Assert.AreEqual(0, replay.Results.Count);
         Assert.AreEqual(AlbumDirectoryResolutionPolicy.CompleteIfNeeded, replay.DirectoryResolutionPolicy);
-        SubmissionIdentity.AssignAccepted(replay, legacy);
-        Assert.AreEqual(SubmissionSpecification.CurrentSchemaVersion,
-            SubmissionSpecificationCodec.Deserialize(replay.SubmissionSpecificationJson!).SchemaVersion);
         foreach (int invalid in new[] { -1, 0, 99 })
             Assert.ThrowsExactly<InvalidDataException>(() =>
-                (legacy with { Command = legacy.Command with { SelectedAlbumOption = invalid } }).Validate());
+                (specification with { Command = specification.Command with { SelectedAlbumOption = invalid } }).Validate());
     }
 
     [TestMethod]
-    public void AggregateSearchPresentationSurvivesSubmissionReplayAndOldDefinitionsDefaultToNormal()
+    public void AggregateSearchPresentationSurvivesSubmissionReplay()
     {
         var job = new SearchJob(new SongQuery { Artist = "Artist", Title = "Title" })
         {
@@ -214,10 +204,7 @@ public sealed class SubmissionSpecificationTests
         Assert.IsTrue(retained.Search!.AggregatePresentation);
         Assert.IsTrue(SearchDefinition.Create(replayed, settings.Search).AggregatePresentation);
 
-        var oldJson = System.Text.Json.Nodes.JsonNode.Parse(
-            SearchDefinitionCodec.Serialize(retained.Search))!.AsObject();
-        oldJson.Remove("aggregatePresentation");
-        Assert.IsFalse(SearchDefinitionCodec.Deserialize(oldJson.ToJsonString()).AggregatePresentation);
+
     }
 
     [TestMethod]
@@ -364,39 +351,35 @@ public sealed class SubmissionSpecificationTests
         Assert.AreEqual(commands[0].PlannedEffectiveSettingsJson, commands[1].PlannedEffectiveSettingsJson);
         CollectionAssert.Contains(commands[0].PlannedCredentialBindings!.ToArray(), "youtube.api-key");
         Assert.AreEqual(0, commands[1].PlannedCredentialBindings!.Count);
-        foreach (int schemaVersion in new[] { 2, 3, SubmissionSpecification.CurrentSchemaVersion })
+        foreach (var retained in new[] { specification,
+            SubmissionSpecificationCodec.Deserialize(SubmissionSpecificationCodec.Serialize(specification)) })
         {
-            var source = specification with { SchemaVersion = schemaVersion };
-            foreach (var retained in new[] { source,
-                SubmissionSpecificationCodec.Deserialize(SubmissionSpecificationCodec.Serialize(source)) })
+            for (int attempt = 0; attempt < 2; attempt++)
             {
-                for (int attempt = 0; attempt < 2; attempt++)
-                {
-                    var credentials = new DownloadSettings();
-                    credentials.YouTube.ApiKey = $"current-{attempt}";
-                    var (restoredJob, rootSettings) = retained.Materialize(credentials);
-                    var restored = (JobList)restoredJob;
-                    Assert.IsNull(rootSettings.YouTube.ApiKey);
-                    rootSettings.Search.NecessaryCond.Formats = ["root-only"];
-                    var first = restored.Jobs[0].PlannedSettings!.ReadSettings();
-                    var second = restored.Jobs[1].PlannedSettings!.ReadSettings();
-                    Assert.AreEqual(credentials.YouTube.ApiKey, first.YouTube.ApiKey);
-                    Assert.IsNull(second.YouTube.ApiKey, "Equal settings JSON must not merge credential binding slots.");
-                    Assert.IsNull(retained.MaterializeSettings(credentials).YouTube.ApiKey);
-                    first.Search.NecessaryCond.Formats[0] = "mutated";
-                    first.Output.OnComplete!.Add("later");
-                    first.AppliedAutoProfiles.Add("runtime-only");
-                    CollectionAssert.AreEqual(new[] { "flac" }, second.Search.NecessaryCond.Formats);
-                    CollectionAssert.AreEqual(new[] { "original" }, second.Output.OnComplete);
-                    Assert.AreEqual(0, second.AppliedAutoProfiles.Count);
-                    var sameSettings = restored.Jobs[2].PlannedSettings!.ReadSettings();
-                    Assert.AreEqual(credentials.YouTube.ApiKey, sameSettings.YouTube.ApiKey);
-                    CollectionAssert.AreEqual(new[] { "flac" }, sameSettings.Search.NecessaryCond.Formats);
-                    CollectionAssert.AreEqual(new[] { "original" }, sameSettings.Output.OnComplete);
-                    Assert.AreEqual(0, sameSettings.AppliedAutoProfiles.Count);
-                    CollectionAssert.AreEqual(new[] { "flac" },
-                        restored.Jobs[0].PlannedSettings!.ReadSettings().Search.NecessaryCond.Formats);
-                }
+                var credentials = new DownloadSettings();
+                credentials.YouTube.ApiKey = $"current-{attempt}";
+                var (restoredJob, rootSettings) = retained.Materialize(credentials);
+                var restored = (JobList)restoredJob;
+                Assert.IsNull(rootSettings.YouTube.ApiKey);
+                rootSettings.Search.NecessaryCond.Formats = ["root-only"];
+                var first = restored.Jobs[0].PlannedSettings!.ReadSettings();
+                var second = restored.Jobs[1].PlannedSettings!.ReadSettings();
+                Assert.AreEqual(credentials.YouTube.ApiKey, first.YouTube.ApiKey);
+                Assert.IsNull(second.YouTube.ApiKey, "Equal settings JSON must not merge credential binding slots.");
+                Assert.IsNull(retained.MaterializeSettings(credentials).YouTube.ApiKey);
+                first.Search.NecessaryCond.Formats[0] = "mutated";
+                first.Output.OnComplete!.Add("later");
+                first.AppliedAutoProfiles.Add("runtime-only");
+                CollectionAssert.AreEqual(new[] { "flac" }, second.Search.NecessaryCond.Formats);
+                CollectionAssert.AreEqual(new[] { "original" }, second.Output.OnComplete);
+                Assert.AreEqual(0, second.AppliedAutoProfiles.Count);
+                var sameSettings = restored.Jobs[2].PlannedSettings!.ReadSettings();
+                Assert.AreEqual(credentials.YouTube.ApiKey, sameSettings.YouTube.ApiKey);
+                CollectionAssert.AreEqual(new[] { "flac" }, sameSettings.Search.NecessaryCond.Formats);
+                CollectionAssert.AreEqual(new[] { "original" }, sameSettings.Output.OnComplete);
+                Assert.AreEqual(0, sameSettings.AppliedAutoProfiles.Count);
+                CollectionAssert.AreEqual(new[] { "flac" },
+                    restored.Jobs[0].PlannedSettings!.ReadSettings().Search.NecessaryCond.Formats);
             }
         }
 
@@ -464,7 +447,7 @@ public sealed class SubmissionSpecificationTests
         // Single and streaming captures must retain exactly the same values.
         var buffer = new System.Buffers.ArrayBufferWriter<byte>();
         using (var writer = new System.Text.Json.Utf8JsonWriter(buffer))
-            RetainedSettingsCodec.Serialize(writer, settings, generated: true);
+            RetainedSettingsCodec.Serialize(writer, settings);
         Assert.AreEqual(original.EffectiveSettingsJson, System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan));
         string json = SubmissionSpecificationCodec.Serialize(original);
         SubmissionSpecification restored = SubmissionSpecificationCodec.Deserialize(json);
@@ -517,18 +500,21 @@ public sealed class SubmissionSpecificationTests
         var settings = SearchSettingsBaselines.Create(SearchSettingsBaselineKind.Generic);
         job.PlannedSettings = JobSettingsSnapshot.Capture(settings);
         SubmissionSpecification specification = SubmissionSpecification.Create(job);
-        string json = SubmissionSpecificationCodec.Serialize(specification)
-            .Replace($"\"schemaVersion\":{SubmissionSpecification.CurrentSchemaVersion}", "\"schemaVersion\":99", StringComparison.Ordinal);
-
-        Assert.ThrowsExactly<NotSupportedException>(() =>
-            SubmissionSpecificationCodec.Deserialize(json));
+        foreach (int unsupported in new[] { 2, 3, 4, 99 })
+        {
+            string json = SubmissionSpecificationCodec.Serialize(specification)
+                .Replace($"\"schemaVersion\":{SubmissionSpecification.CurrentSchemaVersion}",
+                    $"\"schemaVersion\":{unsupported}", StringComparison.Ordinal);
+            Assert.ThrowsExactly<NotSupportedException>(() => SubmissionSpecificationCodec.Deserialize(json));
+            Assert.ThrowsExactly<NotSupportedException>(() =>
+                SubmissionSpecificationCodec.Serialize(specification with { SchemaVersion = unsupported }));
+        }
 
         SubmissionSpecification retained = SubmissionSpecificationCodec.Deserialize(
             SubmissionSpecificationCodec.Serialize(specification));
         foreach (SubmissionSpecification invalid in new[]
         {
             retained with { SharedSettings = null },
-            retained with { SchemaVersion = 3 },
             retained with { Command = retained.Command with { PlannedSettingsRef = -1 } },
             retained with { Command = retained.Command with { PlannedSettingsRef = retained.SharedSettings!.Count } },
             retained with { Command = retained.Command with { PlannedEffectiveSettingsJson = "{}" } },
@@ -601,14 +587,17 @@ public sealed class SubmissionSpecificationTests
     }
 
     [TestMethod]
-    public void DelayedGeneratedResultKeepsSubmissionTimeSeparateFromRegistrationTime()
+    [DataRow(true)]
+    [DataRow(false)]
+    public void GeneratedResultsAndChildrenHaveRolesWithOrWithoutRetainedSubmission(bool accepted)
     {
         DateTimeOffset submittedAt = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
         var source = new ExtractJob("Artist - Title", InputType.String);
-        Guid submissionId = SubmissionIdentity.AssignAccepted(
+        Guid? submissionId = accepted ? SubmissionIdentity.AssignAccepted(
             source,
             new DownloadSettings(),
-            submittedAtUtc: submittedAt);
+            submittedAtUtc: submittedAt) : null;
+        Assert.AreEqual(JobSemanticRole.UserRoot, source.SemanticRole);
         var generated = new SongJob(new SongQuery
         {
             Artist = "Artist",
@@ -621,6 +610,13 @@ public sealed class SubmissionSpecificationTests
         Assert.AreEqual(JobSemanticRole.SemanticResult, generated.SemanticRole);
         Assert.IsTrue(generated.CreatedAtUtc > submittedAt,
             "A generated child's creation time is its own registration time, not submission time.");
-        Assert.AreEqual(submittedAt, source.CreatedAtUtc);
+        Assert.AreEqual(accepted ? submittedAt : (DateTimeOffset?)null, source.CreatedAtUtc);
+
+        var nestedSong = new SongJob(new SongQuery { Title = "Nested" });
+        var group = new JobList("Generated group", [nestedSong]);
+        SubmissionIdentity.AssignExecutionChild(generated, group);
+        Assert.AreEqual(JobSemanticRole.Orchestration, group.SemanticRole);
+        Assert.AreEqual(JobSemanticRole.ExecutionChild, nestedSong.SemanticRole);
+        Assert.AreEqual(submissionId, nestedSong.SubmissionId);
     }
 }

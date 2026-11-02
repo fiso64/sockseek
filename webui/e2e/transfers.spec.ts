@@ -126,13 +126,13 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   await expect(folder.locator('.folder-transfer-footer')).toContainText('2 files complete');
   const retained = await page.request.get('/api/transfers?direction=download&limit=100');
   expect(retained.ok()).toBeTruthy();
-  const rows = (await retained.json() as { items: Array<{ transferId: string; groupRef?: string | null; groupDisplayPath?: string | null }> }).items;
+  const rows = (await retained.json() as Schema<'TransferTimelinePageDto'>).items;
   expect(rows).toHaveLength(2);
-  expect(rows[0]?.groupRef).toBeTruthy();
-  expect(rows[0]?.groupRef).toBe(rows[1]?.groupRef);
-  expect(rows.every(row => row.groupDisplayPath === 'Fixture')).toBeTruthy();
+  expect(rows[0]?.identity.groupRef).toBeTruthy();
+  expect(rows[0]?.identity.groupRef).toBe(rows[1]?.identity.groupRef);
+  expect(rows.every(row => row.identity.groupDisplayPath === 'Fixture')).toBeTruthy();
   const totals = await page.request.post('/api/transfers/group-summaries', { data: {
-    groups: [{ direction: 'Download', username: 'fixture-peer', groupRef: rows[0]!.groupRef! }],
+    groups: [{ direction: 'Download', username: 'fixture-peer', groupRef: rows[0]!.identity.groupRef! }],
   } satisfies Schema<'TransferGroupSummariesRequestDto'> });
   expect(totals.ok()).toBeTruthy();
   const summary = (await totals.json() as Schema<'TransferGroupSummariesResponseDto'>).items[0]!;
@@ -171,7 +171,7 @@ test('groups directory downloads in live and retained transfer views', async ({ 
           const excluded = rows[1]!.transferId;
           const additional = new Set(scope.additionalTransferIds);
           if (!additional.has(excluded)) {
-            value.item.items = value.item.items.filter((row: Schema<'TransferHistoryDto'>) => row.transferId !== excluded);
+            value.item.items = value.item.items.filter((row: Schema<'TransferStateDto'>) => row.transferId !== excluded);
             if (value.item.windowTransferIds?.includes(excluded)) {
               value.item.windowTransferIds = value.item.windowTransferIds.filter((id: string) => id !== excluded);
               value.item.nextCursor = firstTimelineCursor;
@@ -181,8 +181,8 @@ test('groups directory downloads in live and retained transfer views', async ({ 
           if (coverageOverride) value.item.retainedCoverage = coverageOverride;
           if (failSummary && value.item.groupSummaries) value.item.groupSummaries = unavailableSummary;
         }
-        if (failTimeline && value.type === 2 && value.item?.items?.some((row: Schema<'TransferHistoryDto'>) =>
-          row.remotePath === 'Other\\Unrelated.txt' && row.terminalOutcome !== 'None')) {
+        if (failTimeline && value.type === 2 && value.item?.items?.some((row: Schema<'TransferStateDto'>) =>
+          row.identity.remotePath === 'Other\\Unrelated.txt' && row.status.isTerminal)) {
           failTimeline = false;
           failedInvocations.add(value.invocationId);
           // Fail only the observation, leaving the daemon connection and real
@@ -214,14 +214,14 @@ test('groups directory downloads in live and retained transfer views', async ({ 
     }
     const response = await route.fetch();
     const body = await response.json() as Schema<'TransferTimelineUpdateDto'>;
-    if (body.items.some((item) => item.remotePath === 'Other\\Unrelated.txt'))
+    if (body.items.some((item) => item.identity.remotePath === 'Other\\Unrelated.txt'))
       resolveUnrelatedHistory();
     if (failSummary) await delayedSummary;
     const additional = new Set<string>(route.request().postDataJSON()?.additionalTransferIds ?? []);
     await route.fulfill({ response, json: {
       ...body,
       groupSummaries: failSummary ? unavailableSummary : body.groupSummaries,
-      items: body.items.filter((item) => item.groupRef !== rows[0]!.groupRef || item.transferId === rows[0]!.transferId || additional.has(item.transferId)),
+      items: body.items.filter((item) => item.identity.groupRef !== rows[0]!.identity.groupRef || item.transferId === rows[0]!.transferId || additional.has(item.transferId)),
       nextCursor: null,
     } });
   });
@@ -278,7 +278,7 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   await page.setViewportSize({ width: 390, height: 900 });
   await page.setViewportSize({ width: 1280, height: 720 });
   // Removing an expanded-only member must work even without folder totals.
-  const expandedPath = nextMemberPage.items[0]!.remotePath!.replace(/^Fixture\\/, '').replaceAll('\\', '/');
+  const expandedPath = nextMemberPage.items[0]!.identity.remotePath!.replace(/^Fixture\\/, '').replaceAll('\\', '/');
   const expandedFile = partialFolder.locator('.folder-file-row').filter({ hasText: expandedPath });
   await page.route(`**/api/transfers/${nextMemberPage.items[0]!.transferId}/archive`, async route => {
     await route.fulfill({ contentType: 'application/json', json: {
@@ -315,7 +315,7 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   await partialFolder.getByRole('button', { name: 'Remove Fixture' }).click();
   await expect(partialFolder).toHaveCount(0);
   const remaining = await page.request.get('/api/transfers?direction=download&limit=100');
-  expect((await remaining.json() as Schema<'TransferTimelinePageDto'>).items.map((item) => item.remotePath)).toEqual(['Other\\Unrelated.txt']);
+  expect((await remaining.json() as Schema<'TransferTimelinePageDto'>).items.map((item) => item.identity.remotePath)).toEqual(['Other\\Unrelated.txt']);
 
   // The daemon integration test exercises actual isolated writer loss. At
   // this browser boundary, keep real retained rows and vary only coverage:
@@ -352,7 +352,7 @@ test('keeps a loaded folder member page when another member finishes', async ({ 
   const retained = await page.request.get('/api/transfers?direction=download&limit=100');
   expect(retained.ok()).toBeTruthy();
   const rows = (await retained.json() as Schema<'TransferTimelinePageDto'>).items;
-  const cancelled = rows.find((row) => row.remotePath === 'Fixture\\Cancelled.txt');
+  const cancelled = rows.find((row) => row.identity.remotePath === 'Fixture\\Cancelled.txt');
   expect(cancelled).toBeTruthy();
   const cancel = await page.request.post(`/api/transfers/${cancelled!.transferId}/cancel`);
   expect(cancel.ok()).toBeTruthy();
@@ -375,7 +375,7 @@ test('keeps a loaded folder member page when another member finishes', async ({ 
         const value = JSON.parse(frame);
         const scope = scopes.get(value.invocationId);
         if (scope && value.type === 2 && !scope.additionalTransferIds?.includes(cancelled!.transferId)) {
-          value.item.items = value.item.items.filter((row: Schema<'TransferHistoryDto'>) => row.transferId !== cancelled!.transferId);
+          value.item.items = value.item.items.filter((row: Schema<'TransferStateDto'>) => row.transferId !== cancelled!.transferId);
           if (value.item.windowTransferIds) {
             value.item.windowTransferIds = value.item.windowTransferIds.filter((id: string) => id !== cancelled!.transferId);
             value.item.nextCursor = null;

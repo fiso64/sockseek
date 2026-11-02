@@ -81,8 +81,8 @@ public sealed class RetentionService(
             prunedResults = await context.SearchResults.Where(result => searchIdsToPrune.Contains(result.SearchJobId))
                 .CountAsync(cancellationToken).ConfigureAwait(false);
             await context.Database.ExecuteSqlInterpolatedAsync($"""
-                UPDATE search_observation_sources SET raw_search_job_id = NULL
-                WHERE raw_search_job_id IN (SELECT value FROM json_each({sources}));
+                DELETE FROM search_observation_sources
+                WHERE search_job_id IN (SELECT value FROM json_each({sources}));
                 """, cancellationToken).ConfigureAwait(false);
             searchesMarkedPruned = await context.SearchJobs
                 .Where(search => searchIdsToPrune.Contains(search.JobId))
@@ -132,11 +132,6 @@ public sealed class RetentionService(
         int prunedJobs = 0;
         if (agedJobIds.Count > 0)
             prunedJobs = await context.Jobs.Where(job => agedJobIds.Contains(job.Id)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
-
-        await SearchObservationWriter.PruneUnreferencedAsync(
-            (SqliteConnection)context.Database.GetDbConnection(),
-            (SqliteTransaction)context.Database.CurrentTransaction!.GetDbTransaction(),
-            searchIdsToPrune.Concat(agedJobIds).Distinct().ToArray(), cancellationToken).ConfigureAwait(false);
 
         int prunedAttempts = 0;
         int prunedTransfers = 0;

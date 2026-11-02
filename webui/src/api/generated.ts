@@ -2696,21 +2696,21 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/workflows/{workflowId}/snapshot": {
+    "/api/persistence/integrity": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Gets one complete workflow replication snapshot and its workflow-local stream position. */
-        get: {
+        get?: never;
+        put?: never;
+        /** Runs SQLite integrity_check against the live database. */
+        post: {
             parameters: {
                 query?: never;
                 header?: never;
-                path: {
-                    workflowId: string;
-                };
+                path?: never;
                 cookie?: never;
             };
             requestBody?: never;
@@ -2721,13 +2721,159 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["StateSnapshotDto"];
+                        "application/json": components["schemas"]["PersistenceIntegrityResultDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/persistence/backup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
         put?: never;
-        post?: never;
+        /** Creates and independently verifies a WAL-safe online backup. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PersistenceBackupRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PersistenceBackupResultDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/persistence/checkpoint": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Requests a bounded passive WAL checkpoint. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PersistenceCheckpointResultDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/persistence/retention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs one bounded retention batch. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PersistenceRetentionResultDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -2912,190 +3058,6 @@ export interface paths {
         };
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/persistence/integrity": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Runs SQLite integrity_check against the live database. */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["PersistenceIntegrityResultDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/persistence/backup": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Creates and independently verifies a WAL-safe online backup. */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["PersistenceBackupRequestDto"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["PersistenceBackupResultDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/persistence/checkpoint": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Requests a bounded passive WAL checkpoint. */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["PersistenceCheckpointResultDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/persistence/retention": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Runs one bounded retention batch. */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["PersistenceRetentionResultDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
         delete?: never;
         options?: never;
         head?: never;
@@ -5367,6 +5329,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workflows/{workflowId}/snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gets one complete workflow replication snapshot and its workflow-local stream position. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    workflowId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StateSnapshotDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/profiles": {
         parameters: {
             query?: never;
@@ -5697,7 +5697,7 @@ export interface paths {
                     workflowId?: string;
                     parentJobId?: string;
                     submissionId?: string;
-                    role?: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                    role?: "user-root" | "semantic-result" | "orchestration" | "execution-child";
                     archived?: boolean;
                     includeAll?: boolean;
                     newestFirst?: boolean;
@@ -5728,6 +5728,46 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Gets the same displayed job-list snapshot used by live observations. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["JobListScopeDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["JobListUpdateDto"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -5968,868 +6008,6 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/transfers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Pages the combined newest-first live and retained transfer timeline.
-         * @description The cursor is a moving keyset over stable creation time and transfer ID. New transfers may appear above an existing traversal; status changes do not reorder rows.
-         */
-        get: {
-            parameters: {
-                query?: {
-                    jobId?: string;
-                    workflowId?: string;
-                    direction?: string;
-                    source?: string;
-                    state?: string;
-                    terminalOutcome?: string;
-                    username?: string;
-                    groupRef?: string;
-                    fromUtc?: string;
-                    toUtc?: string;
-                    archived?: boolean;
-                    cursor?: string;
-                    limit?: number | string;
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["TransferTimelinePageDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/dashboard/analytics": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Gets bounded transfer analytics for a dashboard range.
-         * @description Ranges are 24h, 7d, 30d, 90d, 1y, or all. Coverage explicitly reports retention and persistence degradation; byte activity is cumulative-attempt accounting, not transfer creation size.
-         */
-        get: {
-            parameters: {
-                query?: {
-                    range?: string;
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["DashboardAnalyticsDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/sharing": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Gets bounded sharing and catalog status. */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["SharingStateDto"];
-                    };
-                };
-                /** @description Service Unavailable */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/sharing/scans": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Starts a share scan or returns the currently active scan. */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["StartShareScanResponseDto"];
-                    };
-                };
-                /** @description Accepted */
-                202: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["StartShareScanResponseDto"];
-                    };
-                };
-                /** @description Service Unavailable */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/sharing/scans/{scanId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Gets an active or recently completed share scan. */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    scanId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ShareScanStateDto"];
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/sharing/scans/{scanId}/cancel": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Cancels an active share scan. */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    scanId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ShareScanStateDto"];
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Conflict */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Service Unavailable */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/transfers/live": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Pages the bounded live transfer queue. */
-        get: {
-            parameters: {
-                query?: {
-                    direction?: string;
-                    state?: string;
-                    username?: string;
-                    cursor?: string;
-                    limit?: number | string;
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["LiveTransferPageDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Service Unavailable */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/transfers/lookup": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Looks up current unarchived transfer timeline rows by ID.
-         * @description Uses the same live, queued and retained projection as the timeline. Returns all found IDs in newest-first order without a continuation. Missing IDs are omitted; retained availability is explicit.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["TransferLookupRequestDto"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["TransferTimelinePageDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/transfers/timeline": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Snapshots a timeline extent, expanded files and requested folder totals.
-         * @description Uses the same scoped read as ObserveTransferTimeline. Window membership and boundary describe the moving prefix independently of explicitly requested additional files.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["TransferTimelineScopeDto"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["TransferTimelineUpdateDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/transfers/group-summaries": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Gets moving whole-group totals for the requested transfer groups.
-         * @description Uses the retained transfer ledger with a live overlay; group refs are opaque, and an unavailable retained resource does not yield authoritative totals.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["TransferGroupSummariesRequestDto"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["TransferGroupSummariesResponseDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/transfers/{transferId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Gets one transfer using a live-first overlay and retained history fallback. */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    transferId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["TransferDetailDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/transfers/{transferId}/cancel": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Cancels a queued or active download or upload transfer. */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    transferId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["TransferStateDto"];
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Conflict */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Service Unavailable */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/transfers/cancel": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Cancels a snapshot of transfers by direction, queue state, and optional exact peer/group.
-         * @description Targets are resolved once, then cancelled independently. Races and per-transfer failures are reported in a fixed-size receipt.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["BulkCancelTransfersRequestDto"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["TransferCommandReceiptDto"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/transfers/{transferId}/archive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Archives or restores one terminal retained transfer.
-         * @description Archive is reversible and separate from cancellation; a nonterminal transfer is rejected.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    transferId: string;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["SetTransferArchivedRequestDto"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["TransferCommandReceiptDto"];
-                    };
-                };
-                /** @description Service Unavailable */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/transfers/archive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Archives or restores terminal transfer history, optionally scoped to an exact peer/group.
-         * @description The command is reversible, excludes active transfers, and returns bounded outcome counts.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["ArchiveTransfersRequestDto"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["TransferCommandReceiptDto"];
-                    };
-                };
-                /** @description Service Unavailable */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/transfers/{transferId}/attempts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Lists current and retained attempts for one transfer. */
-        get: {
-            parameters: {
-                query: {
-                    afterAttemptNumber: number | string;
-                    limit?: number | string;
-                };
-                header?: never;
-                path: {
-                    transferId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["TransferAttemptHistoryDto"][];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
                 };
             };
         };
@@ -7990,6 +7168,868 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/transfers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pages the combined newest-first live and retained transfer timeline.
+         * @description The cursor is a moving keyset over stable creation time and transfer ID. New transfers may appear above an existing traversal; status changes do not reorder rows.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    jobId?: string;
+                    workflowId?: string;
+                    direction?: string;
+                    source?: string;
+                    state?: string;
+                    terminalOutcome?: string;
+                    username?: string;
+                    groupRef?: string;
+                    fromUtc?: string;
+                    toUtc?: string;
+                    archived?: boolean;
+                    cursor?: string;
+                    limit?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TransferTimelinePageDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dashboard/analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Gets bounded transfer analytics for a dashboard range.
+         * @description Ranges are 24h, 7d, 30d, 90d, 1y, or all. Coverage explicitly reports retention and persistence degradation; byte activity is cumulative-attempt accounting, not transfer creation size.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    range?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DashboardAnalyticsDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/transfers/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pages the bounded live transfer queue. */
+        get: {
+            parameters: {
+                query?: {
+                    direction?: string;
+                    state?: string;
+                    username?: string;
+                    cursor?: string;
+                    limit?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LiveTransferPageDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/transfers/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Looks up current unarchived transfer timeline rows by ID.
+         * @description Uses the same live, queued and retained projection as the timeline. Returns all found IDs in newest-first order without a continuation. Missing IDs are omitted; retained availability is explicit.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TransferLookupRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TransferTimelinePageDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/transfers/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Snapshots a timeline extent, expanded files and requested folder totals.
+         * @description Uses the same scoped read as ObserveTransferTimeline. Window membership and boundary describe the moving prefix independently of explicitly requested additional files.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TransferTimelineScopeDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TransferTimelineUpdateDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/transfers/group-summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Gets moving whole-group totals for the requested transfer groups.
+         * @description Uses the retained transfer ledger with a live overlay; group refs are opaque, and an unavailable retained resource does not yield authoritative totals.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TransferGroupSummariesRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TransferGroupSummariesResponseDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/transfers/{transferId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gets one transfer with its latest attempt and optional queue estimate. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    transferId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TransferDetailDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/transfers/{transferId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancels a queued or active download or upload transfer. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    transferId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TransferStateDto"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/transfers/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancels a snapshot of transfers by direction, queue state, and optional exact peer/group.
+         * @description Targets are resolved once, then cancelled independently. Races and per-transfer failures are reported in a fixed-size receipt.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["BulkCancelTransfersRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TransferCommandReceiptDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/transfers/{transferId}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archives or restores one terminal retained transfer.
+         * @description Archive is reversible and separate from cancellation; a nonterminal transfer is rejected.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    transferId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetTransferArchivedRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TransferCommandReceiptDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/transfers/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archives or restores terminal transfer history, optionally scoped to an exact peer/group.
+         * @description The command is reversible, excludes active transfers, and returns bounded outcome counts.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ArchiveTransfersRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TransferCommandReceiptDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/transfers/{transferId}/attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lists current and retained attempts for one transfer. */
+        get: {
+            parameters: {
+                query: {
+                    afterAttemptNumber: number | string;
+                    limit?: number | string;
+                };
+                header?: never;
+                path: {
+                    transferId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TransferAttemptHistoryDto"][];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sharing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gets bounded sharing and catalog status. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SharingStateDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sharing/scans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Starts a share scan or returns the currently active scan. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StartShareScanResponseDto"];
+                    };
+                };
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StartShareScanResponseDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sharing/scans/{scanId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gets an active or recently completed share scan. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    scanId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ShareScanStateDto"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sharing/scans/{scanId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancels an active share scan. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    scanId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ShareScanStateDto"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -8866,7 +8906,7 @@ export interface components {
             /** Format: double */
             progressPercent?: null | number | string;
             /** Format: int32 */
-            unknownFileSizeCount?: null | number | string;
+            unknownFileSizeCount: number | string;
         };
         DirectoryManifestEntryDto: {
             /** Format: int32 */
@@ -9107,180 +9147,12 @@ export interface components {
             jobId: string;
             /** Format: int64 */
             revision: number | string;
-            added?: {
-                /** Format: uuid */
-                jobId: string;
-                /** Format: int64 */
-                revision: number | string;
-                display: {
-                    /** Format: int32 */
-                    displayId: number | string;
-                    /** Format: uuid */
-                    workflowId: string;
-                    /** @enum {unknown} */
-                    kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
-                    itemName?: null | string;
-                    queryText?: null | string;
-                    appliedAutoProfiles: string[];
-                    printOption: number;
-                    /** Format: uuid */
-                    submissionId?: null | string;
-                    /** @enum {unknown} */
-                    role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
-                    /** Format: date-time */
-                    createdAtUtc?: null | string;
-                    /** @enum {unknown} */
-                    searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
-                    searchAggregatePresentation?: null | boolean;
-                    sourceDetail?: null | string;
-                };
-                lifecycle: {
-                    /** @enum {unknown} */
-                    lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
-                    /** @enum {unknown} */
-                    activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
-                    /** Format: date-time */
-                    activityUntilUtc?: null | string;
-                    /** @enum {unknown} */
-                    terminalOutcome: "None" | "Succeeded" | "Failed" | "Skipped" | "Cancelled" | "PartialSuccess";
-                    /** @enum {unknown} */
-                    skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
-                    /** @enum {unknown} */
-                    failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
-                    failureMessage?: null | string;
-                    failureDetail?: null | string;
-                    /** @enum {unknown} */
-                    cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
-                    availableActions: {
-                        /** @enum {unknown} */
-                        kind: "cancel";
-                        method: string;
-                        href: string;
-                    }[];
-                };
-                discovery: {
-                    /** Format: int32 */
-                    rawResultCount?: null | number | string;
-                    /** Format: int32 */
-                    lockedFileCount?: null | number | string;
-                    /** Format: int32 */
-                    publicFileCount?: null | number | string;
-                    /** Format: int32 */
-                    observedPeerCount?: null | number | string;
-                };
-                relationships: {
-                    /** Format: uuid */
-                    parentJobId?: null | string;
-                    /** Format: uuid */
-                    resultJobId?: null | string;
-                    /** Format: uuid */
-                    sourceJobId?: null | string;
-                };
-                stats?: {
-                    /** Format: int32 */
-                    memberCount?: null | number | string;
-                    /** Format: int32 */
-                    completedMemberCount?: null | number | string;
-                    /** Format: int32 */
-                    failedMemberCount?: null | number | string;
-                    /** Format: int32 */
-                    candidateCount?: null | number | string;
-                    /** Format: int32 */
-                    folderCount?: null | number | string;
-                    /** Format: int32 */
-                    fileCount?: null | number | string;
-                    /** Format: int64 */
-                    knownBytes?: null | number | string;
-                    /** Format: int32 */
-                    newFilesFoundCount?: null | number | string;
-                    /** Format: double */
-                    progressPercent?: null | number | string;
-                };
-            };
-            display?: {
-                /** Format: int32 */
-                displayId: number | string;
-                /** Format: uuid */
-                workflowId: string;
-                /** @enum {unknown} */
-                kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
-                itemName?: null | string;
-                queryText?: null | string;
-                appliedAutoProfiles: string[];
-                printOption: number;
-                /** Format: uuid */
-                submissionId?: null | string;
-                /** @enum {unknown} */
-                role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
-                /** Format: date-time */
-                createdAtUtc?: null | string;
-                /** @enum {unknown} */
-                searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
-                searchAggregatePresentation?: null | boolean;
-                sourceDetail?: null | string;
-            };
-            lifecycle?: {
-                /** @enum {unknown} */
-                lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
-                /** @enum {unknown} */
-                activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
-                /** Format: date-time */
-                activityUntilUtc?: null | string;
-                /** @enum {unknown} */
-                terminalOutcome: "None" | "Succeeded" | "Failed" | "Skipped" | "Cancelled" | "PartialSuccess";
-                /** @enum {unknown} */
-                skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
-                /** @enum {unknown} */
-                failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
-                failureMessage?: null | string;
-                failureDetail?: null | string;
-                /** @enum {unknown} */
-                cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
-                availableActions: {
-                    /** @enum {unknown} */
-                    kind: "cancel";
-                    method: string;
-                    href: string;
-                }[];
-            };
-            discovery?: {
-                /** Format: int32 */
-                rawResultCount?: null | number | string;
-                /** Format: int32 */
-                lockedFileCount?: null | number | string;
-                /** Format: int32 */
-                publicFileCount?: null | number | string;
-                /** Format: int32 */
-                observedPeerCount?: null | number | string;
-            };
-            relationships?: {
-                /** Format: uuid */
-                parentJobId?: null | string;
-                /** Format: uuid */
-                resultJobId?: null | string;
-                /** Format: uuid */
-                sourceJobId?: null | string;
-            };
-            stats?: {
-                /** Format: int32 */
-                memberCount?: null | number | string;
-                /** Format: int32 */
-                completedMemberCount?: null | number | string;
-                /** Format: int32 */
-                failedMemberCount?: null | number | string;
-                /** Format: int32 */
-                candidateCount?: null | number | string;
-                /** Format: int32 */
-                folderCount?: null | number | string;
-                /** Format: int32 */
-                fileCount?: null | number | string;
-                /** Format: int64 */
-                knownBytes?: null | number | string;
-                /** Format: int32 */
-                newFilesFoundCount?: null | number | string;
-                /** Format: double */
-                progressPercent?: null | number | string;
-            };
+            added?: null | components["schemas"]["JobStateDto"];
+            display?: null | components["schemas"]["JobDisplayFieldsDto"];
+            lifecycle?: null | components["schemas"]["JobLifecycleFieldsDto"];
+            discovery?: null | components["schemas"]["JobDiscoveryFieldsDto"];
+            relationships?: null | components["schemas"]["JobRelationshipFieldsDto"];
+            stats?: null | components["schemas"]["JobSummaryStatsDto"];
         };
         JobDetailDto: {
             summary: components["schemas"]["JobSummaryDto"];
@@ -9420,6 +9292,20 @@ export interface components {
             failureDetail?: null | string;
             cancellationSource: components["schemas"]["ServerJobCancellationSource"];
             availableActions: components["schemas"]["ResourceActionDto"][];
+        };
+        JobListScopeDto: {
+            query: components["schemas"]["JobQuery"];
+            /**
+             * Format: int32
+             * @default 100
+             */
+            limit: number | string;
+        };
+        JobListUpdateDto: {
+            jobs: components["schemas"]["JobDeltaDto"][];
+            removedJobIds: string[];
+            nextCursor?: null | string;
+            windowJobIds?: null | string[];
         };
         JobLookupRequestDto: {
             jobIds: string[];
@@ -9620,7 +9506,7 @@ export interface components {
                             /** Format: uuid */
                             submissionId?: null | string;
                             /** @enum {unknown} */
-                            role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                            role: "user-root" | "semantic-result" | "orchestration" | "execution-child";
                             /** Format: date-time */
                             createdAtUtc?: null | string;
                             /** @enum {unknown} */
@@ -9705,7 +9591,7 @@ export interface components {
                         /** Format: uuid */
                         submissionId?: null | string;
                         /** @enum {unknown} */
-                        role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                        role: "user-root" | "semantic-result" | "orchestration" | "execution-child";
                         /** Format: date-time */
                         createdAtUtc?: null | string;
                         /** @enum {unknown} */
@@ -9838,6 +9724,8 @@ export interface components {
                             /** Format: date-time */
                             completedAtUtc?: null | string;
                             failureMessage?: null | string;
+                            /** Format: date-time */
+                            archivedAtUtc?: null | string;
                             availableActions?: {
                                 /** @enum {unknown} */
                                 kind: "cancel";
@@ -9880,6 +9768,11 @@ export interface components {
                                 value: number | string;
                             }[];
                         };
+                        /**
+                         * Format: date-time
+                         * @default 0001-01-01T00:00:00+00:00
+                         */
+                        createdAtUtc: string;
                     };
                     status?: {
                         state: string;
@@ -9905,6 +9798,8 @@ export interface components {
                         /** Format: date-time */
                         completedAtUtc?: null | string;
                         failureMessage?: null | string;
+                        /** Format: date-time */
+                        archivedAtUtc?: null | string;
                         availableActions?: {
                             /** @enum {unknown} */
                             kind: "cancel";
@@ -10097,11 +9992,11 @@ export interface components {
             /** Format: int32 */
             songCount: number | string;
             /** Format: int32 */
-            completedSongCount?: null | number | string;
+            completedSongCount: number | string;
             /** Format: int32 */
-            succeededSongCount?: null | number | string;
+            succeededSongCount: number | string;
             /** Format: int32 */
-            failedSongCount?: null | number | string;
+            failedSongCount: number | string;
         };
         JobPayloadDtoAlbumAggregateJobPayloadDto: {
             /** @enum {string} */
@@ -10110,11 +10005,11 @@ export interface components {
             /** Format: int32 */
             resultCount: number | string;
             /** Format: int32 */
-            completedAlbumCount?: null | number | string;
+            completedAlbumCount: number | string;
             /** Format: int32 */
-            succeededAlbumCount?: null | number | string;
+            succeededAlbumCount: number | string;
             /** Format: int32 */
-            failedAlbumCount?: null | number | string;
+            failedAlbumCount: number | string;
         };
         JobPayloadDtoAlbumJobPayloadDto: {
             /** @enum {string} */
@@ -10145,13 +10040,13 @@ export interface components {
             /** Format: int32 */
             count: number | string;
             /** Format: int32 */
-            activeJobCount?: null | number | string;
+            activeJobCount: number | string;
             /** Format: int32 */
-            completedJobCount?: null | number | string;
+            completedJobCount: number | string;
             /** Format: int32 */
-            succeededJobCount?: null | number | string;
+            succeededJobCount: number | string;
             /** Format: int32 */
-            failedJobCount?: null | number | string;
+            failedJobCount: number | string;
         };
         JobPayloadDtoRemoteDirectoryJobPayloadDto: {
             /** @enum {string} */
@@ -10327,6 +10222,26 @@ export interface components {
             lineNumber: number | string;
             sourceMutation?: null | components["schemas"]["SourceMutationDto"];
         };
+        JobQuery: {
+            lifecycleState?: null | components["schemas"]["ServerJobLifecycleState"];
+            terminalOutcome?: null | components["schemas"]["ServerJobTerminalOutcome"];
+            kind?: null | components["schemas"]["ServerJobKind"];
+            /** Format: uuid */
+            workflowId?: null | string;
+            includeAll: boolean;
+            skipReason?: null | components["schemas"]["ServerJobSkipReason"];
+            /** Format: uuid */
+            parentJobId?: null | string;
+            /** Format: uuid */
+            submissionId?: null | string;
+            role?: null | components["schemas"]["ServerJobRole"];
+            /** @default false */
+            archived: boolean;
+            /** @default false */
+            newestFirst: boolean;
+            /** @default false */
+            excludeExtractResults: boolean;
+        };
         JobRelationshipFieldsDto: {
             /** Format: uuid */
             parentJobId?: null | string;
@@ -10424,9 +10339,9 @@ export interface components {
             remember: boolean;
         };
         /** @enum {unknown} */
-        LiveClientInvocation: "SubscribeAll" | "UnsubscribeAll" | "SubscribeWorkflow" | "UnsubscribeWorkflow" | "SubscribeChat" | "UnsubscribeChat" | "SubscribeUserBrowse" | "UnsubscribeUserBrowse" | "ObserveSearchView" | "ObserveTransferTimeline" | "ObserveJobs";
+        LiveClientInvocation: "SubscribeAll" | "UnsubscribeAll" | "SubscribeWorkflow" | "UnsubscribeWorkflow" | "SubscribeChat" | "UnsubscribeChat" | "SubscribeUserBrowse" | "UnsubscribeUserBrowse" | "ObserveSearchView" | "ObserveTransferTimeline" | "ObserveJobs" | "ObserveJobList";
         /** @enum {integer} */
-        LiveProtocolContractVersion: 16;
+        LiveProtocolContractVersion: 17;
         /** @enum {unknown} */
         LiveServerMessage: "stateUpdateBatch";
         LiveTransferPageDto: {
@@ -10604,19 +10519,11 @@ export interface components {
             /** Format: int32 */
             bufferedSearchResultCount: number | string;
             /** Format: int32 */
-            bufferedSearchResultCapacity: number | string;
-            /** Format: int32 */
             retryMutationCount: number | string;
             /** Format: int64 */
             busyRetryCount: number | string;
             /** Format: int64 */
-            droppedOrdinaryCount: number | string;
-            /** Format: int64 */
             droppedProgressCount: number | string;
-            /** Format: int64 */
-            droppedSearchResultCount: number | string;
-            /** Format: int64 */
-            incompleteSearchCount: number | string;
             /** Format: int64 */
             successfulCommitCount: number | string;
             /** Format: int64 */
@@ -10634,18 +10541,6 @@ export interface components {
              * @default 0
              */
             permanentlyFailedMutationCount: number | string;
-            /**
-             * Format: int32
-             * @default 0
-             */
-            incompleteSearchTrackingCount: number | string;
-            /**
-             * Format: int32
-             * @default 0
-             */
-            incompleteSearchTrackingCapacity: number | string;
-            /** @default false */
-            incompleteSearchTrackingOverflowed: boolean;
             commitLatencyHistogram?: null | (number | string)[];
             batchSizeHistogram?: null | (number | string)[];
             /**
@@ -11107,7 +11002,7 @@ export interface components {
         /** @enum {unknown} */
         ServerJobLifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
         /** @enum {unknown} */
-        ServerJobRole: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+        ServerJobRole: "user-root" | "semantic-result" | "orchestration" | "execution-child";
         /** @enum {unknown} */
         ServerJobSkipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
         /** @enum {unknown} */
@@ -11499,7 +11394,7 @@ export interface components {
                         /** Format: uuid */
                         submissionId?: null | string;
                         /** @enum {unknown} */
-                        role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                        role: "user-root" | "semantic-result" | "orchestration" | "execution-child";
                         /** Format: date-time */
                         createdAtUtc?: null | string;
                         /** @enum {unknown} */
@@ -11584,7 +11479,7 @@ export interface components {
                     /** Format: uuid */
                     submissionId?: null | string;
                     /** @enum {unknown} */
-                    role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                    role: "user-root" | "semantic-result" | "orchestration" | "execution-child";
                     /** Format: date-time */
                     createdAtUtc?: null | string;
                     /** @enum {unknown} */
@@ -11717,6 +11612,8 @@ export interface components {
                         /** Format: date-time */
                         completedAtUtc?: null | string;
                         failureMessage?: null | string;
+                        /** Format: date-time */
+                        archivedAtUtc?: null | string;
                         availableActions?: {
                             /** @enum {unknown} */
                             kind: "cancel";
@@ -11759,6 +11656,11 @@ export interface components {
                             value: number | string;
                         }[];
                     };
+                    /**
+                     * Format: date-time
+                     * @default 0001-01-01T00:00:00+00:00
+                     */
+                    createdAtUtc: string;
                 };
                 status?: {
                     state: string;
@@ -11784,6 +11686,8 @@ export interface components {
                     /** Format: date-time */
                     completedAtUtc?: null | string;
                     failureMessage?: null | string;
+                    /** Format: date-time */
+                    archivedAtUtc?: null | string;
                     availableActions?: {
                         /** @enum {unknown} */
                         kind: "cancel";
@@ -12202,7 +12106,7 @@ export interface components {
                             /** Format: uuid */
                             submissionId?: null | string;
                             /** @enum {unknown} */
-                            role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                            role: "user-root" | "semantic-result" | "orchestration" | "execution-child";
                             /** Format: date-time */
                             createdAtUtc?: null | string;
                             /** @enum {unknown} */
@@ -12287,7 +12191,7 @@ export interface components {
                         /** Format: uuid */
                         submissionId?: null | string;
                         /** @enum {unknown} */
-                        role: "legacy" | "user-root" | "semantic-result" | "orchestration" | "execution-child";
+                        role: "user-root" | "semantic-result" | "orchestration" | "execution-child";
                         /** Format: date-time */
                         createdAtUtc?: null | string;
                         /** @enum {unknown} */
@@ -12420,6 +12324,8 @@ export interface components {
                             /** Format: date-time */
                             completedAtUtc?: null | string;
                             failureMessage?: null | string;
+                            /** Format: date-time */
+                            archivedAtUtc?: null | string;
                             availableActions?: {
                                 /** @enum {unknown} */
                                 kind: "cancel";
@@ -12462,6 +12368,11 @@ export interface components {
                                 value: number | string;
                             }[];
                         };
+                        /**
+                         * Format: date-time
+                         * @default 0001-01-01T00:00:00+00:00
+                         */
+                        createdAtUtc: string;
                     };
                     status?: {
                         state: string;
@@ -12487,6 +12398,8 @@ export interface components {
                         /** Format: date-time */
                         completedAtUtc?: null | string;
                         failureMessage?: null | string;
+                        /** Format: date-time */
+                        archivedAtUtc?: null | string;
                         availableActions?: {
                             /** @enum {unknown} */
                             kind: "cancel";
@@ -12927,16 +12840,10 @@ export interface components {
             scheduling?: null | components["schemas"]["TransferSchedulingFieldsDto"];
         };
         TransferDetailDto: {
-            source: components["schemas"]["TransferDetailSource"];
-            live?: null | components["schemas"]["TransferStateDto"];
+            transfer: components["schemas"]["TransferStateDto"];
             queueEstimate?: null | components["schemas"]["TransferQueueEstimateDto"];
-            history?: null | components["schemas"]["TransferHistoryDto"];
-            /** Format: int32 */
-            attemptCount: number | string;
             latestAttempt?: null | components["schemas"]["TransferAttemptHistoryDto"];
         };
-        /** @enum {unknown} */
-        TransferDetailSource: "Live" | "Historical" | "Merged";
         /**
          * @default None
          * @enum {unknown}
@@ -12983,51 +12890,6 @@ export interface components {
             cancelledCount: number | string;
             /** Format: int64 */
             interruptedCount: number | string;
-        };
-        TransferHistoryDto: {
-            /** Format: uuid */
-            transferId: string;
-            /** Format: uuid */
-            jobId?: null | string;
-            /** Format: uuid */
-            workflowId?: null | string;
-            direction: string;
-            source: string;
-            username?: null | string;
-            remotePath?: null | string;
-            localPath?: null | string;
-            state: string;
-            terminalOutcome: string;
-            /** Format: int64 */
-            totalBytes?: null | number | string;
-            /** Format: int64 */
-            transferredBytes: number | string;
-            /** Format: int32 */
-            attemptCount: number | string;
-            /** Format: date-time */
-            createdAtUtc: string;
-            /** Format: date-time */
-            completedAtUtc?: null | string;
-            failureReason: string;
-            failureMessage?: null | string;
-            cancellationSource: components["schemas"]["TransferCancellationSource"];
-            /** Format: int64 */
-            revision: number | string;
-            /** Format: date-time */
-            requestedAtUtc?: null | string;
-            /** Format: date-time */
-            startedAtUtc?: null | string;
-            /** Format: date-time */
-            lastProgressAtUtc?: null | string;
-            /** Format: int64 */
-            bytesPerSecond?: null | number | string;
-            file?: null | components["schemas"]["FileMetadataDto"];
-            /** Format: date-time */
-            archivedAtUtc?: null | string;
-            groupRef?: null | string;
-            groupDisplayPath?: null | string;
-            groupRelativePath?: null | string;
-            availableActions?: null | components["schemas"]["ResourceActionDto"][];
         };
         TransferIdentityFieldsDto: {
             /** Format: uuid */
@@ -13097,6 +12959,11 @@ export interface components {
             progress: components["schemas"]["TransferProgressFieldsDto"];
             scheduling?: null | components["schemas"]["TransferSchedulingFieldsDto"];
             file?: null | components["schemas"]["FileMetadataDto"];
+            /**
+             * Format: date-time
+             * @default 0001-01-01T00:00:00+00:00
+             */
+            createdAtUtc: string;
         };
         TransferStatusFieldsDto: {
             state: string;
@@ -13110,6 +12977,8 @@ export interface components {
             /** Format: date-time */
             completedAtUtc?: null | string;
             failureMessage?: null | string;
+            /** Format: date-time */
+            archivedAtUtc?: null | string;
             availableActions?: components["schemas"]["ResourceActionDto"][] | null;
         };
         /**
@@ -13118,7 +12987,7 @@ export interface components {
          */
         TransferTerminalOutcome: "None" | "Succeeded" | "Cancelled" | "Failed" | "Interrupted";
         TransferTimelinePageDto: {
-            items: components["schemas"]["TransferHistoryDto"][];
+            items: components["schemas"]["TransferStateDto"][];
             nextCursor?: null | string;
             retainedCoverage: components["schemas"]["TransferRetainedCoverageDto"];
             readPosition?: null | components["schemas"]["StateStreamPositionDto"];
@@ -13140,7 +13009,7 @@ export interface components {
             includeGroupSummaries: boolean;
         };
         TransferTimelineUpdateDto: {
-            items: components["schemas"]["TransferHistoryDto"][];
+            items: components["schemas"]["TransferStateDto"][];
             removedTransferIds: string[];
             retainedCoverage: components["schemas"]["TransferRetainedCoverageDto"];
             windowTransferIds?: null | string[];
@@ -13148,8 +13017,7 @@ export interface components {
             /** Format: uuid */
             boundaryTransferId?: null | string;
             readPosition?: null | components["schemas"]["StateStreamPositionDto"];
-            liveTransfers?: null | components["schemas"]["TransferDeltaDto"][];
-            removedLiveTransferIds?: null | string[];
+            changes?: null | components["schemas"]["TransferDeltaDto"][];
             groupSummaries?: null | components["schemas"]["TransferGroupSummariesResponseDto"];
         };
         UploadRuntimeStateDto: {

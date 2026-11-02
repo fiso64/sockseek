@@ -1,4 +1,4 @@
-import type { TransferHistoryDto, TransferStateDto, Schema } from '../../api/types';
+import type { TransferStateDto, Schema } from '../../api/types';
 import { wireInteger } from '../../api/types';
 
 export function transferGroupKeyId(key: Schema<'TransferGroupKeyDto'>): string {
@@ -7,11 +7,11 @@ export function transferGroupKeyId(key: Schema<'TransferGroupKeyDto'>): string {
 
 /** Merge changed rows without replacing the loaded timeline or regressing revisions. */
 export function mergeTransferHistory(
-  previous: readonly TransferHistoryDto[],
-  updates: readonly TransferHistoryDto[],
+  previous: readonly TransferStateDto[],
+  updates: readonly TransferStateDto[],
   removedIds: readonly string[] = [],
   windowIds?: readonly string[] | null,
-): TransferHistoryDto[] {
+): TransferStateDto[] {
   const rows = new Map(previous.map(row => [row.transferId, row]));
   for (const id of removedIds) rows.delete(id);
   for (const row of updates) {
@@ -28,8 +28,7 @@ export function mergeTransferHistory(
 /** Exact visible identities, shared by pagination admission and summary reads. */
 export function transferGroupKeys(
   direction: 'download' | 'upload',
-  history: readonly TransferHistoryDto[],
-  live: readonly TransferStateDto[],
+  history: readonly TransferStateDto[],
 ): Schema<'TransferGroupKeyDto'>[] {
   const keys = new Map<string, Schema<'TransferGroupKeyDto'>>();
   const wireDirection = direction === 'download' ? 'Download' : 'Upload';
@@ -38,24 +37,22 @@ export function transferGroupKeys(
     const key: Schema<'TransferGroupKeyDto'> = { direction: wireDirection, username: username ?? null, groupRef };
     keys.set(transferGroupKeyId(key), key);
   };
-  for (const row of history) if (row.direction.toLowerCase() === direction) add(row.username, row.groupRef);
-  for (const row of live) if (row.identity.direction.toLowerCase() === direction)
-    add(row.identity.username, row.identity.groupRef);
+  for (const row of history) if (row.identity.direction.toLowerCase() === direction) add(row.identity.username, row.identity.groupRef);
   return [...keys.values()];
 }
 
 /** Track the loaded group's membership, not its accidental share of a global page. */
 export function transferGroupMemberScope(
   summary: Schema<'TransferGroupSummaryDto'>,
-  history: readonly TransferHistoryDto[],
-  cached: readonly TransferHistoryDto[] = [],
-  globalBoundary: TransferHistoryDto | null = history.at(-1) ?? null,
+  history: readonly TransferStateDto[],
+  cached: readonly TransferStateDto[] = [],
+  globalBoundary: TransferStateDto | null = history.at(-1) ?? null,
 ): string {
   const direction = summary.key.direction.toLowerCase();
-  const inGroup = (row: TransferHistoryDto): boolean => row.direction.toLowerCase() === direction
-    && (row.username ?? null) === (summary.key.username ?? null) && row.groupRef === summary.key.groupRef;
+  const inGroup = (row: TransferStateDto): boolean => row.identity.direction.toLowerCase() === direction
+    && (row.identity.username ?? null) === (summary.key.username ?? null) && row.identity.groupRef === summary.key.groupRef;
   const cachedGroup = cached.filter(inGroup);
-  const oldestCached = cachedGroup.reduce<TransferHistoryDto | undefined>((oldest, row) =>
+  const oldestCached = cachedGroup.reduce<TransferStateDto | undefined>((oldest, row) =>
     !oldest || comparePosition(row, oldest) < 0 ? row : oldest, undefined);
   // Revealing older global rows does not change the cached folder prefix.
   // Replacements/removals inside that prefix must still invalidate it, even
@@ -77,7 +74,7 @@ export function transferGroupMemberScope(
   ]);
 }
 
-function comparePosition(left: TransferHistoryDto, right: TransferHistoryDto): number {
+function comparePosition(left: TransferStateDto, right: TransferStateDto): number {
   return compareTransferPosition(left.createdAtUtc, left.transferId, right.createdAtUtc, right.transferId);
 }
 
@@ -93,12 +90,12 @@ export function compareTransferPosition(
 
 /** Both cursors use the same moving keyset; skip the farther fetched prefix. */
 export function transferGroupCursor(
-  cached: readonly TransferHistoryDto[],
+  cached: readonly TransferStateDto[],
   memberCursor: string | null,
-  globalBoundary: TransferHistoryDto | null,
+  globalBoundary: TransferStateDto | null,
   globalCursor: string | null,
 ): string | null {
-  const oldest = cached.reduce<TransferHistoryDto | null>((oldest, row) =>
+  const oldest = cached.reduce<TransferStateDto | null>((oldest, row) =>
     !oldest || comparePosition(row, oldest) < 0 ? row : oldest, null);
   return globalCursor && globalBoundary && (!oldest || comparePosition(globalBoundary, oldest) < 0)
     ? globalCursor : memberCursor ?? globalCursor;

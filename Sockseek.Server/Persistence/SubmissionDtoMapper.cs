@@ -33,8 +33,7 @@ internal static class SubmissionDtoMapper
         }
         catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or System.Text.Json.JsonException)
         {
-            // The durable row and its jobs remain readable if a future/legacy
-            // command schema is not executable by this server version.
+            // An unsupported or malformed command must not hide its history.
             return new SubmissionDetailDto(ToSummary(submission), null, []);
         }
     }

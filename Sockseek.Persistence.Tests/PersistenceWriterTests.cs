@@ -318,30 +318,6 @@ public sealed class PersistenceWriterTests
         }
     }
 
-    [TestMethod]
-    public void Inbox_InitialPublicationPreparationKeepsSourceTransactionsSmallAndReleasesAfterFailure()
-    {
-        var inbox = new PersistenceInbox(new(), new());
-        Guid runtime = Guid.NewGuid(), source = Guid.NewGuid();
-        for (int first = 2_001; first <= 8_001; first += 1_000)
-            Assert.IsTrue(inbox.TryEnqueue(new SearchResultsPersistenceMutation(
-                runtime, first, DateTimeOffset.UtcNow, source, first + 999,
-                Enumerable.Range(first, 1_000).Select(value => Result(value)).ToArray())));
-        using var queuedPreparation = inbox.BeginInteractivePreparation();
-        try
-        {
-            using var preparation = inbox.BeginInteractivePreparation();
-            Assert.AreEqual(2_000, inbox.DrainBatch().OfType<SearchResultsPersistenceMutation>().Sum(item => item.Results.Count));
-            throw new InvalidOperationException("Preparing the initial publication failed.");
-        }
-        catch (InvalidOperationException) { }
-        Assert.AreEqual(2_000, inbox.DrainBatch().OfType<SearchResultsPersistenceMutation>().Sum(item => item.Results.Count));
-        queuedPreparation.Dispose();
-        Assert.AreEqual(3_000, inbox.DrainBatch().OfType<SearchResultsPersistenceMutation>().Sum(item => item.Results.Count));
-        Assert.AreEqual(0, inbox.BufferedSearchResultCount);
-        inbox.Complete();
-    }
-
     private sealed class BatchClock : TimeProvider
     {
         private long timestamp;
@@ -430,9 +406,9 @@ public sealed class PersistenceWriterTests
         else
         {
             var reader = new TransferHistoryReader(database.Factory);
-            var timeline = await reader.GetTransfersAsync(new TransferHistoryQuery(Limit: 500));
+            var timeline = await reader.GetTransfersAsync(new TransferQuery(Limit: 500));
             Assert.AreEqual(1L, timeline.Items.Single().TransferredBytes);
-            var selected = await reader.GetTransfersAsync(new TransferHistoryQuery(
+            var selected = await reader.GetTransfersAsync(new TransferQuery(
                 Limit: 500, TransferIds: [transferId]));
             Assert.AreEqual(1L, selected.Items.Single().TransferredBytes);
             var group = await reader.GetGroupProjectionAsync([new("Download", "user", "folder")], [transferId]);
@@ -445,7 +421,7 @@ public sealed class PersistenceWriterTests
         await transaction.CommitAsync();
         if (domain == "transfers")
             Assert.AreEqual(99L, (await new TransferHistoryReader(database.Factory)
-                .GetTransfersAsync(new TransferHistoryQuery(Limit: 500))).Items.Single().TransferredBytes);
+                .GetTransfersAsync(new TransferQuery(Limit: 500))).Items.Single().TransferredBytes);
         Assert.AreEqual(99L, (await new TransferHistoryReader(database.Factory).GetTransferAsync(transferId))?.Transfer.TransferredBytes);
         Assert.AreEqual(99L, (await new SearchHistoryReader(database.Factory).GetMetadataAsync(jobId))?.ResultCount);
         Assert.AreEqual(99L, (await new JobHistoryReader(database.Factory).GetJobAsync(jobId))?.Revision);
@@ -996,7 +972,6 @@ public sealed class PersistenceWriterTests
             inbox.Complete();
             Assert.AreSame(first, inbox.DrainBatch().Single());
             Assert.AreSame(second, inbox.DrainBatch().Single(), "Stop must preserve complete, ordered manifests and terminal facts.");
-            Assert.AreEqual(0L, health.Snapshot(inbox).DroppedOrdinaryCount);
             Assert.IsFalse(inbox.TryEnqueue(first));
             CollectionAssert.AreEqual(new[] { first }, observer.Failed.ToArray());
             Assert.AreEqual(0, inbox.ActiveAdmissionCount);
@@ -1558,8 +1533,6 @@ public sealed class PersistenceWriterTests
         Guid searchId = Guid.NewGuid();
         var options = new PersistenceWriterOptions
         {
-            SearchResultCapacityPerSearch = 10_000,
-            SearchResultGlobalCapacity = 10_000,
         };
         var health = new PersistenceHealth();
         var inbox = new PersistenceInbox(options, health);
@@ -1866,12 +1839,10 @@ public sealed class PersistenceWriterTests
     }
 
     [TestMethod]
-    public void SearchRowsAreNotRejectedByLegacyCountSettings()
+    public void SearchRowsDrainBeforeCompletionWithoutLoss()
     {
         var options = new PersistenceWriterOptions
         {
-            SearchResultCapacityPerSearch = 1,
-            SearchResultGlobalCapacity = 1,
             SearchMutationQueueCapacity = 4,
             MaximumBatchSize = 4,
         };
@@ -1902,7 +1873,6 @@ public sealed class PersistenceWriterTests
         Assert.AreEqual(2, drained.Count);
         Assert.IsInstanceOfType<SearchResultsPersistenceMutation>(drained[0]);
         Assert.IsInstanceOfType<SearchCompletionPersistenceMutation>(drained[1]);
-        Assert.AreEqual(0L, health.Snapshot(inbox).DroppedSearchResultCount);
     }
 
     [TestMethod]
@@ -2507,7 +2477,7 @@ public sealed class PersistenceWriterTests
         }
 
         var reader = new TransferHistoryReader(database.Factory);
-        var first = await reader.GetTransfersAsync(new TransferHistoryQuery(Limit: 2, WorkflowId: workflowId));
+        var first = await reader.GetTransfersAsync(new TransferQuery(Limit: 2, WorkflowId: workflowId));
         Guid concurrentlyInsertedId = Guid.Parse("00000000-0000-0000-0000-000000000014");
         await using (var context = await database.Factory.CreateDbContextAsync())
         {
@@ -2534,44 +2504,44 @@ public sealed class PersistenceWriterTests
             changed.Revision++;
             await context.SaveChangesAsync();
         }
-        var second = await reader.GetTransfersAsync(new TransferHistoryQuery(first.NextCursor, 2, WorkflowId: workflowId));
+        var second = await reader.GetTransfersAsync(new TransferQuery(first.NextCursor, 2, WorkflowId: workflowId));
         CollectionAssert.AreEqual(ids.Reverse().Take(2).ToArray(), first.Items.Select(item => item.Id).ToArray());
         CollectionAssert.AreEqual(ids.Take(1).ToArray(), second.Items.Select(item => item.Id).ToArray());
         Assert.IsNull(second.NextCursor);
         Assert.IsFalse(second.Items.Any(item => item.Id == concurrentlyInsertedId),
             "A row inserted above the moving boundary must not enter an existing traversal.");
-        Assert.AreEqual(concurrentlyInsertedId, (await reader.GetTransfersAsync(new TransferHistoryQuery(
+        Assert.AreEqual(concurrentlyInsertedId, (await reader.GetTransfersAsync(new TransferQuery(
             Limit: 1, WorkflowId: workflowId))).Items.Single().Id);
-        Assert.AreEqual(1, (await reader.GetTransfersAsync(new TransferHistoryQuery(
+        Assert.AreEqual(1, (await reader.GetTransfersAsync(new TransferQuery(
             Limit: 10, WorkflowId: workflowId, Source: "YtDlpFallback"))).Items.Count);
-        Assert.AreEqual(4, (await reader.GetTransfersAsync(new TransferHistoryQuery(
+        Assert.AreEqual(4, (await reader.GetTransfersAsync(new TransferQuery(
             Limit: 10, WorkflowId: workflowId, Direction: "download"))).Items.Count);
-        Assert.AreEqual(ids[2], (await reader.GetTransfersAsync(new TransferHistoryQuery(
+        Assert.AreEqual(ids[2], (await reader.GetTransfersAsync(new TransferQuery(
             Limit: 10, Username: "special-user", TerminalOutcome: "Succeeded"))).Items.Single().Id);
-        var lookup = await reader.GetTransfersAsync(new TransferHistoryQuery(
+        var lookup = await reader.GetTransfersAsync(new TransferQuery(
             Limit: 10, TransferIds: [ids[0], ids[0], ids[2], Guid.NewGuid()]));
         CollectionAssert.AreEqual(new[] { ids[2], ids[0] }, lookup.Items.Select(row => row.Id).ToArray());
         Assert.IsNull(lookup.NextCursor);
-        Assert.AreEqual(0, (await reader.GetTransfersAsync(new TransferHistoryQuery(TransferIds: []))).Items.Count);
+        Assert.AreEqual(0, (await reader.GetTransfersAsync(new TransferQuery(TransferIds: []))).Items.Count);
         Guid[] requestedIds = [ids[0], ids[0], ids[2], Guid.NewGuid()];
-        var lookupFirst = await reader.GetTransfersAsync(new TransferHistoryQuery(
+        var lookupFirst = await reader.GetTransfersAsync(new TransferQuery(
             Limit: 1, WorkflowId: workflowId, Direction: "download", Source: "SoulseekPeer",
             TerminalOutcome: "Succeeded", TransferIds: requestedIds));
         Assert.AreEqual(ids[2], lookupFirst.Items.Single().Id);
         Assert.IsNotNull(lookupFirst.NextCursor);
-        var lookupSecond = await reader.GetTransfersAsync(new TransferHistoryQuery(
+        var lookupSecond = await reader.GetTransfersAsync(new TransferQuery(
             lookupFirst.NextCursor, 1, WorkflowId: workflowId, Direction: "download",
             Source: "SoulseekPeer", TerminalOutcome: "Succeeded", TransferIds: requestedIds));
         Assert.AreEqual(ids[0], lookupSecond.Items.Single().Id);
         Assert.IsNull(lookupSecond.NextCursor);
-        Assert.AreEqual(ids[2], (await reader.GetTransfersAsync(new TransferHistoryQuery(
+        Assert.AreEqual(ids[2], (await reader.GetTransfersAsync(new TransferQuery(
             TransferIds: requestedIds, Username: "special-user"))).Items.Single().Id);
-        Assert.AreEqual(0, (await reader.GetTransfersAsync(new TransferHistoryQuery(
+        Assert.AreEqual(0, (await reader.GetTransfersAsync(new TransferQuery(
             TransferIds: requestedIds, Username: "SPECIAL-USER"))).Items.Count);
-        Assert.AreEqual(0, (await reader.GetTransfersAsync(new TransferHistoryQuery(
+        Assert.AreEqual(0, (await reader.GetTransfersAsync(new TransferQuery(
             TransferIds: requestedIds, WorkflowId: Guid.NewGuid()))).Items.Count);
 
-        var excludingNewest = new TransferHistoryQuery(Limit: 1, WorkflowId: workflowId,
+        var excludingNewest = new TransferQuery(Limit: 1, WorkflowId: workflowId,
             LiveCandidates: [new(concurrentlyInsertedId, 2, 0, false), new(ids[2], 2, 0, false)]);
         var filteredFirst = await reader.GetTransfersAsync(excludingNewest);
         Assert.AreEqual(ids[1], filteredFirst.Items.Single().Id,
@@ -2580,27 +2550,27 @@ public sealed class PersistenceWriterTests
         var filteredSecond = await reader.GetTransfersAsync(excludingNewest with { Cursor = filteredFirst.NextCursor });
         Assert.AreEqual(ids[0], filteredSecond.Items.Single().Id);
         Assert.IsNull(filteredSecond.NextCursor);
-        var filteredLookup = await reader.GetTransfersAsync(new TransferHistoryQuery(
+        var filteredLookup = await reader.GetTransfersAsync(new TransferQuery(
             Limit: 1, TransferIds: requestedIds, LiveCandidates: [new(ids[2], 2, 0, false)]));
         Assert.AreEqual(ids[0], filteredLookup.Items.Single().Id);
         Assert.IsNull(filteredLookup.NextCursor);
-        var newerLookup = await reader.GetTransfersAsync(new TransferHistoryQuery(
+        var newerLookup = await reader.GetTransfersAsync(new TransferQuery(
             TransferIds: [ids[2]], LiveCandidates: [new(ids[2], 1, 0, false)]));
         Assert.AreEqual(ids[2], newerLookup.Items.Single().Id,
             "A newer retained revision is not superseded by an older live snapshot.");
-        var matchingLive = await reader.GetTransfersAsync(new TransferHistoryQuery(
+        var matchingLive = await reader.GetTransfersAsync(new TransferQuery(
             State: "InProgress", LiveCandidates: [new(ids[2], 1, 0, true)]));
         Assert.AreEqual(concurrentlyInsertedId, matchingLive.Items.Single().Id);
         CollectionAssert.AreEqual(new[] { concurrentlyInsertedId }, matchingLive.TransferIds.ToArray(),
             "A newer nonmatching retained successor must exclude its older matching live copy before paging.");
-        var nullOwner = await reader.GetTransfersAsync(new TransferHistoryQuery(
+        var nullOwner = await reader.GetTransfersAsync(new TransferQuery(
             JobId: Guid.NewGuid(), TransferIds: requestedIds,
             LiveCandidates: [new(ids[0], 1, 0, true), new(ids[2], 1, 0, true)]));
         Assert.AreEqual(0, nullOwner.Items.Count);
         Assert.AreEqual(0, nullOwner.TransferIds.Count,
             "A retained NULL owner cannot satisfy a requested owner or resurrect its older live copy.");
         Guid sourceOnlyId = Guid.NewGuid();
-        var sourceOnly = await reader.GetTransfersAsync(new TransferHistoryQuery(
+        var sourceOnly = await reader.GetTransfersAsync(new TransferQuery(
             FromUtc: DateTimeOffset.FromUnixTimeMilliseconds(102),
             ToUtc: DateTimeOffset.FromUnixTimeMilliseconds(102),
             LiveCandidates: [new(sourceOnlyId, 1, 102, true)]));
@@ -2627,8 +2597,8 @@ public sealed class PersistenceWriterTests
         while (nextAttemptNumber != null);
         CollectionAssert.AreEqual(Enumerable.Range(1, 225).ToArray(), attemptNumbers.ToArray());
 
-        await Assert.ThrowsExactlyAsync<ArgumentException>(() => reader.GetTransfersAsync(new TransferHistoryQuery("bad", 2)));
-        await Assert.ThrowsExactlyAsync<ArgumentException>(() => reader.GetTransfersAsync(new TransferHistoryQuery(
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => reader.GetTransfersAsync(new TransferQuery("bad", 2)));
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => reader.GetTransfersAsync(new TransferQuery(
             first.NextCursor + new string(' ', 129), 2)));
         await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(() => reader.GetAttemptsAsync(ids[0], 0, 0));
         CollectionAssert.AreEqual(Enumerable.Range(1, 225).ToArray(),
@@ -2658,7 +2628,7 @@ public sealed class PersistenceWriterTests
         await using (var context = await database.Factory.CreateDbContextAsync())
         {
             context.Transfers.AddRange(
-                Row(null, folder, "Download", "Queued", "None", long.MaxValue, 0, speed: 4),
+                Row(null, folder, "Download", "Queued, Remotely", "None", long.MaxValue, 0, speed: 4),
                 Row(null, folder, "Download", "Queued", "None", long.MaxValue, 0, size: 0),
                 Row(null, folder, "Download", "InProgress", "None", long.MaxValue, 64, size: 200, speed: 10),
                 Row(null, folder, "Download", "InProgress", "None", 100, 120, speed: 20),
@@ -2675,6 +2645,10 @@ public sealed class PersistenceWriterTests
                 Row(null, "unknown", "Download", "Queued", "None", long.MaxValue, 0));
             await context.SaveChangesAsync();
         }
+        var queued = await new TransferHistoryReader(database.Factory).GetTransfersAsync(
+            new(Direction: "Download", State: "Queued", GroupRef: folder));
+        CollectionAssert.AreEquivalent(new[] { "Queued", "Queued, Remotely" },
+            queued.Items.Select(row => row.State).ToArray());
         var key = new TransferGroupKey("Download", null, folder);
         var projection = await new TransferHistoryReader(database.Factory).GetGroupProjectionAsync(
             [key, key, new("Download", "null", folder), new("Download", "peer", folder),
@@ -2821,11 +2795,11 @@ public sealed class PersistenceWriterTests
         Assert.AreEqual(1, (await reader.GetGroupProjectionAsync([folderKey], [])).Summaries.Single().FileCount);
         CollectionAssert.AreEquivalent(
             new[] { activeId, otherGroupId, otherPeerId },
-            (await reader.GetTransfersAsync(new TransferHistoryQuery(Limit: 10)))
+            (await reader.GetTransfersAsync(new TransferQuery(Limit: 10)))
                 .Items.Select(item => item.Id).ToArray());
         Assert.AreEqual(
             terminalId,
-            (await reader.GetTransfersAsync(new TransferHistoryQuery(Limit: 10, Archived: true)))
+            (await reader.GetTransfersAsync(new TransferQuery(Limit: 10, Archived: true)))
                 .Items.Single().Id);
         Guid[] requestedIds = [terminalId, terminalId, activeId, otherGroupId, Guid.NewGuid()];
         CollectionAssert.AreEquivalent(new[] { activeId, otherGroupId },
@@ -2837,7 +2811,7 @@ public sealed class PersistenceWriterTests
             new TransferArchiveFilter(TransferId: terminalId),
             archived: false);
         Assert.AreEqual(1, restored.ChangedCount);
-        Assert.AreEqual(4, (await reader.GetTransfersAsync(new TransferHistoryQuery(Limit: 10))).Items.Count);
+        Assert.AreEqual(4, (await reader.GetTransfersAsync(new TransferQuery(Limit: 10))).Items.Count);
 
         TransferArchiveResult missing = await reader.SetArchivedAsync(
             new TransferArchiveFilter(TransferId: Guid.NewGuid()),

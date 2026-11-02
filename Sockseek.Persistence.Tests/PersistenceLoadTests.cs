@@ -204,12 +204,12 @@ public sealed class PersistenceLoadTests
         await ExecuteAsync(database, """
             WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 100000)
             INSERT INTO jobs (
-                id, workflow_id, parent_job_id, source_job_id, result_job_id,
+                id, workflow_id, semantic_role, parent_job_id, source_job_id, result_job_id,
                 last_runtime_id, last_sequence, display_id, kind, lifecycle_state,
                 activity_phase, terminal_outcome, skip_reason, cancellation_source,
                 failure_reason, created_at_utc, started_at_utc, updated_at_utc,
                 completed_at_utc, revision, payload_schema_version)
-            SELECT upper(printf('10000000-0000-0000-0000-%012x', x)), $workflow, NULL,
+            SELECT upper(printf('10000000-0000-0000-0000-%012x', x)), $workflow, CASE WHEN x % 2 = 1 THEN 'UserRoot' ELSE 'SemanticResult' END, NULL,
                 CASE WHEN x % 2 = 0 THEN upper(printf('10000000-0000-0000-0000-%012x', x - 1)) END,
                 CASE WHEN x % 2 = 1 THEN upper(printf('10000000-0000-0000-0000-%012x', x + 1)) END,
                 $runtime, x, x, CASE WHEN x % 2 = 1 THEN 'Extract' ELSE 'Song' END, 'Terminal', 'None', 'Succeeded', 'None', 'None',
@@ -223,12 +223,12 @@ public sealed class PersistenceLoadTests
                 id, job_id, workflow_id, last_runtime_id, last_sequence, direction,
                 source, username, remote_path, local_path, state, terminal_outcome,
                 total_bytes, transferred_bytes, attempt_count, created_at_utc,
-                started_at_utc, completed_at_utc, failure_reason, revision)
+                started_at_utc, completed_at_utc, failure_reason, cancellation_source, revision)
             SELECT upper(printf('20000000-0000-0000-0000-%012x', x)), NULL, $workflow, $runtime, x,
                 CASE WHEN x BETWEEN 2001 AND 2501 THEN 'Upload' ELSE 'Download' END,
                 'SoulseekPeer', CASE WHEN x BETWEEN 2001 AND 2501 THEN 'Raré' ELSE 'peer' END,
                 'remote', 'local', 'Completed', 'Succeeded',
-                100, 100, 1, x, x, x, 'None', 2
+                100, 100, 1, x, x, x, 'None', 'None', 2
             FROM n;
             """, ("$workflow", SqlGuid(workflowId)), ("$runtime", SqlGuid(runtimeId)));
 
@@ -245,8 +245,8 @@ public sealed class PersistenceLoadTests
         var firstJobs = await ReadPage("jobs-workflow", () => jobs.GetJobsAsync(new JobHistoryQuery(Limit: 100, WorkflowId: workflowId, IncludeAll: true)));
         var secondJobs = await ReadPage("jobs-workflow-next", () => jobs.GetJobsAsync(new JobHistoryQuery(firstJobs.NextCursor, 100, WorkflowId: workflowId, IncludeAll: true)));
         var transfers = new TransferHistoryReader(database.Factory);
-        var firstTransfers = await ReadPage("transfers-workflow", () => transfers.GetTransfersAsync(new TransferHistoryQuery(Limit: 100, WorkflowId: workflowId)));
-        var secondTransfers = await ReadPage("transfers-workflow-next", () => transfers.GetTransfersAsync(new TransferHistoryQuery(firstTransfers.NextCursor, 100, WorkflowId: workflowId)));
+        var firstTransfers = await ReadPage("transfers-workflow", () => transfers.GetTransfersAsync(new TransferQuery(Limit: 100, WorkflowId: workflowId)));
+        var secondTransfers = await ReadPage("transfers-workflow-next", () => transfers.GetTransfersAsync(new TransferQuery(firstTransfers.NextCursor, 100, WorkflowId: workflowId)));
         stopwatch.Stop();
         TimeSpan workflowPages = stopwatch.Elapsed;
 
@@ -275,11 +275,11 @@ public sealed class PersistenceLoadTests
         var visibleJobs = await ReadPage("jobs-page", () => jobs.GetJobsAsync(new JobHistoryQuery(Limit: 100, NewestFirst: true)));
         TimeSpan jobsPage = stopwatch.Elapsed;
         stopwatch.Restart();
-        var visibleTransfers = await ReadPage("transfers-page", () => transfers.GetTransfersAsync(new TransferHistoryQuery(Limit: 100, Direction: "Download")));
+        var visibleTransfers = await ReadPage("transfers-page", () => transfers.GetTransfersAsync(new TransferQuery(Limit: 100, Direction: "Download")));
         TimeSpan transfersPage = stopwatch.Elapsed;
 
         var rareTimes = new List<(string Name, double Milliseconds)>();
-        async Task<PersistedTransferPage> ReadRare(string name, TransferHistoryQuery query)
+        async Task<PersistedTransferPage> ReadRare(string name, TransferQuery query)
         {
             stopwatch.Restart();
             var page = await transfers.GetTransfersAsync(query);
@@ -366,7 +366,7 @@ public sealed class PersistenceLoadTests
                 file_attributes_json = '[{"Type":"BitRate","Value":1000},{"Type":"SampleRate","Value":44100}]'
             WHERE created_at_utc <= 10000;
             """);
-        var overlapQuery = new TransferHistoryQuery(Limit: 500,
+        var overlapQuery = new TransferQuery(Limit: 500,
             LiveCandidates: Enumerable.Range(1, 10000).Select(value => new LiveTransferCandidate(
                 Guid.Parse($"20000000-0000-0000-0000-{value:x12}"), 3, 0, true)).ToArray());
         await transfers.GetTransfersAsync(overlapQuery); // Warm this query shape outside the guard.
@@ -425,155 +425,6 @@ public sealed class PersistenceLoadTests
 
     [TestMethod]
     [TestCategory("Load")]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task HundredThousandDirectoryFiles_PageCurrentAndOlderMembershipsPromptly(bool bare)
-    {
-        await using var database = new LoadDatabase();
-        await database.Initializer.InitializeAsync();
-        await using var writer = new TestPersistenceWriter(database.Factory);
-        await using var store = new SearchViewStore(database.DatabasePath, writer.Inbox);
-        await store.InitializeAsync();
-        var kernel = new SearchViewKernel(
-            new SearchViewProjectionDefinition(SearchViewProjectionKind.GenericDirectories, new SongQuery { Title = "Track" }),
-            new SearchSettings { NecessaryCond = new FileConditions(), PreferredCond = new FileConditions() },
-            retainProjectedRows: false, trackPeerIdentities: false);
-        SearchProjectionInput Input(int index, bool late) => new(
-            index, late ? 2 : 1, "peer", late ? 99000 : 1000,
-            (bare ? "" : @"Share\Large\") + $"Track-{(late ? "A" : "Z")}-{index:D6}.txt", 128,
-            null, null, null, null, ".txt", 1_000_000, true, [], DateTimeOffset.UnixEpoch, 0);
-        var view = await store.CreateAsync(Guid.NewGuid(), SearchViewProjectionKind.GenericDirectories, "{}");
-        view = await store.PublishSeededAsync(writer.Inbox, view.Id,
-            kernel.Apply(Enumerable.Range(1, 1000).Select(index => Input(index, false)).ToArray(), 1, false), "Live");
-        long oldRevision = view.Revision;
-        var pinnedFiles = (await store.GetFilesAsync(view.Id, oldRevision, null, 500))!;
-        var phases = new System.Collections.Concurrent.ConcurrentDictionary<string, double>();
-        using var listener = new ActivityListener
-        {
-            ShouldListenTo = source => source.Name == "Sockseek.Persistence.Write",
-            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
-            ActivityStopped = activity =>
-            {
-                phases.AddOrUpdate(activity.OperationName, activity.Duration.TotalMilliseconds,
-                    (_, total) => total + activity.Duration.TotalMilliseconds);
-                if (activity.GetTagItem("queue.duration_ms") is double queued)
-                    phases.AddOrUpdate("queue", queued, (_, total) => total + queued);
-            },
-        };
-        ActivitySource.AddActivityListener(listener);
-        long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
-        long? writtenBefore = ProcessWriteBytes();
-        var publication = Stopwatch.StartNew();
-        // Exercise repeated durable publications, not one unusually large write
-        // that hides checkpoint/index costs as the folder grows.
-        for (int start = 1001; start <= 100000; start += 2000)
-        {
-            int count = Math.Min(2000, 100001 - start);
-            bool complete = start + count == 100001;
-            view = await store.PublishSeededAsync(writer.Inbox, view.Id,
-                kernel.Apply(Enumerable.Range(start, count).Select(index => Input(index, true)), 2, complete),
-                complete ? "Complete" : "Live");
-            Assert.AreEqual(start + count - 1L, view.Counters.ProjectedFileCount);
-        }
-        publication.Stop();
-        listener.Dispose();
-        long allocated = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
-        long? written = ProcessWriteBytes() - writtenBefore;
-        Console.WriteLine($"Final 99k observations: input construction + generic folder projection + publication allocated "
-            + $"{allocated / 1048576.0:F1} MiB; process write_bytes delta {written?.ToString() ?? "unavailable"}. "
-            + "Writer phase totals (command includes child phases): "
-            + string.Join(", ", phases.OrderBy(pair => pair.Key).Select(pair => $"{pair.Key}={pair.Value:F1} ms")));
-        Assert.IsTrue(allocated < 500_000_000L,
-            "Projection and persistence of this 99k-file arrival workload must stay below 500 MB allocated.");
-        Assert.AreEqual(100000L, view.Counters.ProjectedFileCount);
-        var readTimes = new Dictionary<string, double>();
-        async Task<T> Measure<T>(string name, Func<Task<T>> read)
-        {
-            var stopwatch = Stopwatch.StartNew();
-            T result = await read();
-            readTimes.Add(name, stopwatch.Elapsed.TotalMilliseconds);
-            return result;
-        }
-        var folders = (await Measure("folder", () => store.GetDirectoriesAsync(
-            view.Id, view.Revision, null, 100, initialFileLimit: 24)))!;
-        string directoryRef = folders.Items.Single().Ref;
-        Assert.AreEqual(100000L, folders.Items.Single().PublicMatchingFileCount);
-        Assert.AreEqual(24, folders.DirectoryFilePreviews[directoryRef].Items.Count);
-        Assert.IsNotNull(folders.DirectoryFilePreviews[directoryRef].NextPosition);
-        var first = (await Measure("first", () => store.GetDirectoryFilesAsync(
-            view.Id, directoryRef, view.Revision, null, 500)))!;
-        var second = (await Measure("second", () => store.GetDirectoryFilesAsync(
-            view.Id, directoryRef, view.Revision, first.NextPosition, 500)))!;
-        var old = (await Measure("older-revision", () => store.GetDirectoryFilesAsync(
-            view.Id, directoryRef, oldRevision, null, 500)))!;
-        var oldSecond = (await Measure("older-continuation", () => store.GetDirectoryFilesAsync(
-            view.Id, directoryRef, oldRevision, old.NextPosition, 500)))!;
-        CollectionAssert.AreEqual(Enumerable.Range(1001, 1000).Select(index => Input(index, true).Filename).ToArray(),
-            first.Items.Concat(second.Items).Select(item => item.File.Input.Filename).ToArray());
-        CollectionAssert.AreEqual(Enumerable.Range(1, 1000).Select(index => Input(index, false).Filename).ToArray(),
-            old.Items.Concat(oldSecond.Items).Select(item => item.File.Input.Filename).ToArray());
-        Assert.AreEqual(1000L, old.DirectorySummary.PublicMatchingFileCount);
-        Assert.AreEqual(100000L, first.DirectorySummary.PublicMatchingFileCount);
-        Assert.IsNotNull(first.NextPosition);
-        Assert.IsNotNull(second.NextPosition);
-        Assert.IsNotNull(old.NextPosition);
-        Assert.IsNull(oldSecond.NextPosition);
-        // Reuse the already ingested file rows to exercise the flat-page SQL;
-        // this qualifies the storage query, not a Files-kind API response.
-        var flatFirst = (await Measure("projected-files", () => store.GetFilesAsync(
-            view.Id, view.Revision, null, 500)))!;
-        var flatNext = (await Measure("projected-files-next", () => store.GetFilesAsync(
-            view.Id, view.Revision, flatFirst.NextPosition, 500)))!;
-        var oldFlatNext = (await Measure("projected-files-old-next", () => store.GetFilesAsync(
-            view.Id, oldRevision, pinnedFiles.NextPosition, 500)))!;
-        Assert.AreEqual(500, flatFirst.Items.Count);
-        Assert.AreEqual(500, flatNext.Items.Count);
-        Assert.AreEqual(1000, flatFirst.Items.Concat(flatNext.Items).Select(item => item.Ref).Distinct().Count());
-        Assert.IsNotNull(flatNext.NextPosition);
-        CollectionAssert.AreEquivalent(Enumerable.Range(1, 1000).Select(index => (long)index).ToArray(),
-            pinnedFiles.Items.Concat(oldFlatNext.Items).Select(item => item.Input.Sequence).ToArray());
-        Assert.IsNull(oldFlatNext.NextPosition);
-        var selectedRefs = new HashSet<string>([second.Items.Last().Ref], StringComparer.Ordinal);
-        var membership = await Measure("selected-membership", () => store.ReadDirectoryFileRefsAsync(
-            view.Id, view.Revision, selectedRefs));
-        Assert.AreEqual(1, membership.Count);
-        Assert.AreEqual(directoryRef, membership.Single().DirectoryRef);
-        Assert.AreEqual(selectedRefs.Single(), membership.Single().Ref);
-        Assert.AreEqual(SearchResultVisibility.Public, membership.Single().Visibility);
-        Assert.AreEqual(0, (await Measure("older-selected-membership", () => store.ReadDirectoryFileRefsAsync(
-            view.Id, oldRevision, selectedRefs))).Count);
-        async Task<List<StoredSearchViewCommitItem>> ReadSelectedAsync()
-        {
-            var items = new List<StoredSearchViewCommitItem>();
-            await foreach (var item in store.ReadCommitItemsAsync(
-                view.Id, view.Revision, "GenericDirectories", "Only", selectedRefs))
-                items.Add(item);
-            return items;
-        }
-        var selected = await Measure("selected-plan", ReadSelectedAsync);
-        Assert.AreEqual(1, selected.Count);
-        Assert.AreEqual(directoryRef, selected.Single().ParentRef);
-        Assert.AreEqual(JsonSerializer.Serialize(second.Items.Last().File.Input),
-            JsonSerializer.Serialize(selected.Single().File!.Input));
-        Console.WriteLine($"bare={bare} 100k directory publication: {publication.Elapsed.TotalMilliseconds:F1} ms; reads: " + string.Join(", ",
-            readTimes.Select(pair => $"{pair.Key}={pair.Value:F1} ms")));
-        Assert.IsTrue(readTimes.Values.Count(ms => ms < 100) >= readTimes.Count - 1,
-            "Most bounded directory reads should finish below 100 ms.");
-        Assert.IsTrue(readTimes.Where(pair => pair.Key.Contains("selected", StringComparison.Ordinal))
-                .All(pair => pair.Value < 100),
-            "Selecting one exact file must not scan all directory members.");
-        Assert.IsTrue(readTimes.Values.All(ms => ms < 1000),
-            "A bounded directory page must not take seconds.");
-
-        static long? ProcessWriteBytes()
-            => File.Exists("/proc/self/io")
-                ? File.ReadLines("/proc/self/io").Where(line => line.StartsWith("write_bytes:", StringComparison.Ordinal))
-                    .Select(line => (long?)long.Parse(line.AsSpan("write_bytes:".Length).Trim())).Single()
-                : null;
-    }
-
-    [TestMethod]
-    [TestCategory("Load")]
     public async Task HundredThousandSearchResults_StaySequenceBoundedAndUsePaginationIndex()
     {
         var readWork = new ReadWorkCounter();
@@ -585,16 +436,16 @@ public sealed class PersistenceLoadTests
         await SeedRuntimeAsync(database, runtimeId);
         await ExecuteAsync(database, """
             INSERT INTO jobs (
-                id, workflow_id, last_runtime_id, last_sequence, display_id, kind,
+                id, workflow_id, semantic_role, last_runtime_id, last_sequence, display_id, kind,
                 lifecycle_state, activity_phase, terminal_outcome, skip_reason,
                 cancellation_source, failure_reason, created_at_utc, started_at_utc,
                 updated_at_utc, completed_at_utc, revision, payload_schema_version)
-            VALUES ($search, $workflow, $runtime, 100001, 1, 'Search', 'Terminal', 'None',
+            VALUES ($search, $workflow, 'UserRoot', $runtime, 100001, 1, 'Search', 'Terminal', 'None',
                 'Succeeded', 'None', 'None', 'None', 1, 1, 100001, 100001, 100001, 1);
             INSERT INTO search_jobs (
-                job_id, query, revision, result_count, locked_file_count, is_complete,
+                job_id, query, revision, result_count, locked_file_count, observed_peer_count, is_complete,
                 completed_at_utc, result_persistence_state)
-            VALUES ($search, 'large search', 100001, 100000, 0, 1, 100001, 'Complete');
+            VALUES ($search, 'large search', 100001, 100000, 0, 100000, 1, 100001, 'Complete');
             """, ("$search", SqlGuid(searchId)), ("$workflow", SqlGuid(workflowId)), ("$runtime", SqlGuid(runtimeId)));
         IReadOnlyList<FileAttributeSnapshot> attributes = [
             new("BitRate", 320, 0), new("Length", 180, 1),
@@ -605,7 +456,7 @@ public sealed class PersistenceLoadTests
             ".mp3", null, null, attributes, DateTimeOffset.FromUnixTimeMilliseconds(i), null)).ToArray();
         long beforePreparation = GC.GetTotalAllocatedBytes(precise: true);
         var prepared = inputs.Chunk(10_000)
-            .Select(batch => SearchObservationWriter.Prepare(batch)).ToArray();
+            .Select(batch => SearchResultWriter.Prepare(batch)).ToArray();
         long preparationAllocation = GC.GetTotalAllocatedBytes(precise: true) - beforePreparation;
         Console.WriteLine($"Prepare 100k collected files with four attributes: {preparationAllocation / 1048576.0:F1} MiB.");
         Assert.IsTrue(preparationAllocation < 32 * 1024 * 1024,
@@ -617,7 +468,7 @@ public sealed class PersistenceLoadTests
             await context.Database.OpenConnectionAsync();
             var connection = (SqliteConnection)context.Database.GetDbConnection();
             await using var transaction = connection.BeginTransaction();
-            await using var observations = await SearchObservationWriter.ForRawHistoryAsync(
+            await using var observations = await SearchResultWriter.ForRawHistoryAsync(
                 connection, transaction, searchId, CancellationToken.None);
             int added = 0;
             foreach (var batch in prepared)
