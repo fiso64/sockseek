@@ -79,7 +79,8 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
   const firstResultPersistence = (await firstResultStatus.json() as {
     persistence: { rowsWritten: number; bufferedSearchResultCount: number }
   }).persistence;
-  await expect(page.locator('.search-results-summary')).toContainText('Complete', { timeout: 60_000 });
+  await expect(page.locator('.search-results-summary')).toBeVisible();
+  await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0, { timeout: 60_000 });
   await expect(page.locator('.folder-item-card')).toHaveCount(100, { timeout: 60_000 });
   const searchMs = performance.now() - searchStart;
   expect(requests.filter(item => item.phase === 'large search'
@@ -152,13 +153,15 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
   }
 
   phase = 'selection';
+  await page.locator('.folder-file-row input[type=checkbox]').first().check();
+  await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
   const countResponse = () => page.waitForResponse(response => response.request().method() === 'POST'
     && /\/api\/search-views\/[^/]+\/selection-counts$/.test(new URL(response.url()).pathname));
   const selectStart = performance.now();
   const allCount = countResponse();
   // Keep locator traversal out of the application-latency measurement: the
   // 2,400 file checkboxes are not candidates for either of these controls.
-  const selectionControls = page.locator('.result-refine-row');
+  const selectionControls = page.locator('.floating-selection-actions');
   await measureRenderer('selectAll', () => selectionControls.getByRole('button', { name: 'Select all', exact: true }).click());
   const all = await allCount;
   expect(all.ok(), await all.text()).toBe(true);
@@ -177,7 +180,7 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
   const excludeMs = Math.round(performance.now() - excludeStart);
   const selectionMs = Math.round(performance.now() - selectStart);
   expect(requests.filter(item => item.phase === 'selection' && item.method === 'POST'
-    && /\/api\/search-views\/[^/]+\/selection-counts$/.test(item.path))).toHaveLength(2);
+    && /\/api\/search-views\/[^/]+\/selection-counts$/.test(item.path))).toHaveLength(3); // One file, all results, then one excluded folder.
   await testInfo.attach('large-result-renderer-metrics', {
     contentType: 'application/json', body: JSON.stringify(interactionMetrics),
   });
@@ -194,7 +197,8 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
   expect(refinedView.ok(), await refinedView.text()).toBe(true);
   await expect(page.locator('.folder-item-card')).toHaveCount(1, { timeout: 60_000 });
   const refineFirstResultMs = performance.now() - refineStart;
-  await expect(page.locator('.search-results-summary')).toContainText('Complete', { timeout: 60_000 });
+  await expect(page.locator('.search-results-summary')).toBeVisible();
+  await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0, { timeout: 60_000 });
   const refineMs = performance.now() - refineStart;
   const refineRequests = requests.filter(item => item.phase === 'refine');
   expect(refineRequests.filter(item => item.method === 'POST'
@@ -216,7 +220,7 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
 
   phase = 'shares';
   const sharesStart = performance.now();
-  await page.goto('/users/fixture-peer/shares');
+  await page.goto('/shares/fixture-peer');
   await expect(page.getByText('Selected.txt', { exact: true })).toBeVisible();
   const sharesMs = performance.now() - sharesStart;
   expect(requests.filter(item => item.phase === 'shares'
@@ -350,12 +354,12 @@ test('pages 2 named tracks and 1001 supplemental images without child-detail req
   const continuationMs: number[] = [];
   for (const expected of [1000, 1003]) {
     const start = performance.now();
-    await page.getByRole('button', { name: 'Load more files', exact: true }).click();
+    await page.getByRole('button', { name: 'Load more', exact: true }).click();
     await expect(folder.locator('.folder-file-row')).toHaveCount(expected);
     continuationMs.push(Math.round(performance.now() - start));
   }
   await expect(folder).toContainText('Art1000.jpg');
-  await expect(page.getByRole('button', { name: 'Load more files', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
   await folder.locator('.folder-transfer-summary').scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath('queued-artwork.png') });
   const finishing = performance.now();
@@ -375,9 +379,9 @@ test('pages 2 named tracks and 1001 supplemental images without child-detail req
   await page.reload();
   await expect(folder.locator('.folder-file-row')).toHaveCount(500);
   await expect(folder.locator('.folder-transfer-file-count strong')).toHaveText('500/1003');
-  await page.getByRole('button', { name: 'Load more files', exact: true }).click();
+  await page.getByRole('button', { name: 'Load more', exact: true }).click();
   await expect(folder.locator('.folder-file-row')).toHaveCount(1000);
-  await page.getByRole('button', { name: 'Load more files', exact: true }).click();
+  await page.getByRole('button', { name: 'Load more', exact: true }).click();
   await expect(folder.locator('.folder-file-row')).toHaveCount(1003);
   await expect(folder).toContainText('Art1000.jpg');
   await expect(folder.locator('.folder-file-state.complete')).toHaveCount(1003);
@@ -454,7 +458,7 @@ test('opens a 1k-file directory and verifies paged downloads and retained outcom
   await displayTiming.dispose();
   expect(initialDomMs).not.toBeNull();
   const continuing = performance.now();
-  await page.getByRole('button', { name: 'Load more files', exact: true }).click();
+  await page.getByRole('button', { name: 'Load more', exact: true }).click();
   await expect(folder.locator('.folder-file-row')).toHaveCount(1000);
   const continuationMs = Math.round(performance.now() - continuing);
   await daemon.command('wait-download-started');

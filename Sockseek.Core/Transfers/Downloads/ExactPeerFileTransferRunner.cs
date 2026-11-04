@@ -101,7 +101,7 @@ public sealed class ExactPeerFileTransferRunner
         // probe is only an optimization; PrepareAsync rechecks under the owner.
         if (!clientManager.IsConnectedAndLoggedIn || fileOperations.MayHaveReusable(target))
         {
-            var reused = await fileOperations.TryReuseAsync(target, outputPath, owner.Id,
+            var reused = await fileOperations.TryReuseAsync(target, outputPath, owner.Id, owner.WorkflowId,
                 publishToDuplicateCache, allowOverwrite, protectPublishedOutput);
             if (reused != null) return reused;
         }
@@ -112,6 +112,7 @@ public sealed class ExactPeerFileTransferRunner
         int attemptCount = 0;
         Guid currentAttemptId = Guid.Empty;
         long totalBytes = target.Size ?? 0;
+        long lastProgressPublished = long.MinValue;
 
         StaleDownloadCoordinator.PeerTransferActivity? staleActivity = null;
         var transferOptions = new TransferOptions(
@@ -119,6 +120,11 @@ public sealed class ExactPeerFileTransferRunner
             stateChanged: (state) =>
             {
                 staleActivity?.ReportState(state.Transfer);
+                if (state.Transfer.Size is { } negotiatedSize && negotiatedSize >= 0)
+                {
+                    totalBytes = negotiatedSize;
+                    owner.FileSize = negotiatedSize;
+                }
                 events.RaiseDownloadStateChangedWithSpeed(
                     transferId,
                     owner,
@@ -126,20 +132,28 @@ public sealed class ExactPeerFileTransferRunner
                     outputPath,
                     state.Transfer.State,
                     state.Transfer.BytesTransferred,
-                    target.Size ?? 0,
+                    totalBytes,
                     state.Transfer.AverageSpeed);
             },
             progressUpdated: (progress) =>
             {
                 staleActivity?.ReportProgress(progress.Transfer);
                 owner.BytesTransferred = progress.Transfer.BytesTransferred;
+                // Soulseek reports every network read. Keep liveness and byte
+                // tracking exact, but don't rebuild public/persistent state for
+                // every chunk. State transitions publish final progress as well.
+                long now = Environment.TickCount64;
+                if (lastProgressPublished != long.MinValue && now - lastProgressPublished < 250
+                    && progress.Transfer.BytesTransferred != totalBytes)
+                    return;
+                lastProgressPublished = now;
                 events.RaiseDownloadProgressWithSpeed(
                     transferId,
                     owner,
                     target,
                     outputPath,
                     progress.Transfer.BytesTransferred,
-                    target.Size ?? 0,
+                    totalBytes,
                     progress.Transfer.AverageSpeed);
             }
         );
@@ -161,7 +175,7 @@ public sealed class ExactPeerFileTransferRunner
             }
         }
 
-        var prepared = await fileOperations.PrepareAsync(target, outputPath, incompleteOutputPath, owner.Id,
+        var prepared = await fileOperations.PrepareAsync(target, outputPath, incompleteOutputPath, owner.Id, owner.WorkflowId,
             publishToDuplicateCache, allowOverwrite, protectPublishedOutput);
         if (prepared.Reused != null) return prepared.Reused;
 
@@ -370,7 +384,7 @@ public sealed class ExactPeerFileTransferRunner
                 cache.InvalidatePath(outputPath);
                 Utils.Move(incompleteOutputPath, outputPath);
             }
-            if (publishToDuplicateCache) cache.Publish(outputPath, target);
+            if (publishToDuplicateCache) cache.Publish(outputPath, target, owner.WorkflowId);
             return !deferTerminalCompletion && File.Exists(outputPath)
                 ? new FileInfo(outputPath).Length : target.Size ?? owner.BytesTransferred;
         }
@@ -435,11 +449,18 @@ public sealed class ExactPeerFileTransferRunner
     }
 
     private static bool IsRetryableTransferFailure(Exception exception)
-        => exception is not (OperationCanceledException
-            or FileNotFoundException
-            or UserNotFoundException
-            or TransferRejectedException
-            or StaleDownloadException);
+    {
+        // Soulseek.NET wraps stream/open failures. Retrying the same unavailable
+        // file, permissions or size contract cannot recover a network interruption.
+        for (Exception? cause = exception; cause is not null; cause = cause.InnerException)
+        {
+            if (cause is OperationCanceledException or FileNotFoundException or DirectoryNotFoundException
+                or UnauthorizedAccessException or UserNotFoundException or TransferRejectedException
+                or TransferSizeMismatchException or TransferStreamException or StaleDownloadException)
+                return false;
+        }
+        return true;
+    }
 
     private sealed class DownloadOutput(Stream stream, DownloadFileOperations files) : IAsyncDisposable
     {
@@ -457,16 +478,6 @@ public sealed class ExactPeerFileTransferRunner
         }
     }
 
-
-    static string GetStateLabel(TransferStates s)
-    {
-        if (s.HasFlag(TransferStates.InProgress))   return "InProgress";
-        if (s.HasFlag(TransferStates.Queued))
-            return s.HasFlag(TransferStates.Remotely) ? "Queued (R)" :
-                   s.HasFlag(TransferStates.Locally)  ? "Queued (L)" : "Queued";
-        if (s.HasFlag(TransferStates.Initializing)) return "Initialising";
-        return "Requested";
-    }
 
     private static string CleanupRootForIncompletePath(string path, string? parentDir)
     {

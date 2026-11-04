@@ -4,6 +4,7 @@ using Sockseek.Core.Services;
 using Sockseek.Core.Models;
 using Sockseek.Core.PeerBrowsing;
 using Soulseek;
+using Soulseek.Diagnostics;
 
 namespace Tests.ClientTests
 {
@@ -26,6 +27,8 @@ namespace Tests.ClientTests
         private readonly HashSet<string> disconnectingUsers = new(StringComparer.Ordinal);
         private int disconnectingSearches;
         private int failingSearches;
+
+        public void RaiseDiagnostic(DiagnosticEventArgs args) => DiagnosticGenerated?.Invoke(this, args);
 
         public int ConnectCallCount;
         public int SearchCallCount;
@@ -165,6 +168,7 @@ namespace Tests.ClientTests
         {
             Interlocked.Increment(ref ConnectCallCount);
             Connecting?.Invoke();
+            cancellationToken?.ThrowIfCancellationRequested();
 
             if (ConnectException != null)
             {

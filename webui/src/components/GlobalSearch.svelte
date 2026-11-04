@@ -1,13 +1,11 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import type { SearchDraft, SearchResultMode } from '../domains/search/model';
-  import { searchModeFamily as family } from '../domains/search/model';
+  import { editableSearchDraft, searchModeFamily as family } from '../domains/search/model';
   import ModeIconToggle from './ModeIconToggle.svelte';
   import Icon from './Icon.svelte';
+  import Modal from './Modal.svelte';
   import SearchConfiguration from '../domains/search/SearchConfiguration.svelte';
-  import SearchConditionPills from './SearchConditionPills.svelte';
-  import { createEmptySearchConditions } from '../domains/search/config-state';
-  import { hasAppliedConditions } from '../domains/search/applied-conditions';
 
   export interface UserBrowseDraft {
     query: string;
@@ -21,26 +19,25 @@
     busy?: boolean;
     onchange: (value: SearchDraft) => void;
     onsubmit: (value: SearchDraft) => void;
+    ondownloadrequest: (value: SearchDraft) => void;
     onuserchange: (value: UserBrowseDraft) => void;
     onusersubmit: (value: UserBrowseDraft) => void;
   }
 
-  let { variant = 'content', value, userValue, busy = false, onchange, onsubmit, onuserchange, onusersubmit }: Props = $props();
+  let { variant = 'content', value, userValue, busy = false, onchange, onsubmit, ondownloadrequest, onuserchange, onusersubmit }: Props = $props();
   let suppressAutoSplit = $state(false);
   let settingsOpen = $state(false);
   let modeMenuOpen = $state(false);
+  let modeHelpOpen = $state(false);
   let settingsMounted = $state(false);
   let configurationError = $state<string | null>(null);
   let configurationPending = $state(false);
+  let queuedDownload = false;
   let queuedSubmitKey = $state<string | null>(null);
   let searchRoot: HTMLDivElement;
   let searchEngaged = $state(false);
-  let conditions = $state(createEmptySearchConditions());
   let conditionsResolved = $state(false);
-  let conditionOverlayHeight = $state(0);
-  let overlayVisible = $derived(conditionsResolved && (searchEngaged || settingsOpen) && hasAppliedConditions(value.resultMode, conditions));
-  $effect(() => { if (searchEngaged && variant === 'content') settingsMounted = true; });
-  $effect(() => { variant; modeMenuOpen = false; });
+  $effect(() => { variant; modeMenuOpen = false; modeHelpOpen = false; });
 
   function submissionKey(): string {
     return JSON.stringify([value.resultMode, value.mode, value.query, value.artist, value.title]);
@@ -60,8 +57,7 @@
       if (queuedSubmitKey !== queued || queued !== submissionKey()
         || configurationPending || configurationError || busy) return;
       queuedSubmitKey = null;
-      onsubmit(value);
-      dismissSearch();
+      submitDraft(queuedDownload);
     });
   });
 
@@ -79,11 +75,11 @@
   }
 
   const modes = [
-    { value: 'generic', label: 'File Search', icon: 'generic' as const },
-    { value: 'track', label: 'Track Search', icon: 'track' as const },
-    { value: 'album', label: 'Album Search', icon: 'album' as const },
-    { value: 'song-aggregate', label: 'Song Aggregate', icon: 'song-aggregate' as const },
-    { value: 'album-aggregate', label: 'Album Aggregate', icon: 'album-aggregate' as const },
+    { value: 'generic', label: 'File Search', icon: 'generic' as const, description: 'Search for any file type, organized by peer and folder. No music filters are applied by default.' },
+    { value: 'track', label: 'Track Search', icon: 'track' as const, description: 'Search for individual songs by artist and title. Uses your music format and quality conditions; each peer’s copy appears separately.' },
+    { value: 'album', label: 'Album Search', icon: 'album' as const, description: 'Search by artist and album, with each peer’s album folder shown separately. Applies music and album conditions, such as track count. Select whole folders or individual files.' },
+    { value: 'song-aggregate', label: 'Song Aggregate', icon: 'song-aggregate' as const, description: 'Like Track Search, but combines matching copies from different peers into one result per song. Choose a copy within each result. By default, only songs shared by at least two peers are shown.' },
+    { value: 'album-aggregate', label: 'Album Aggregate', icon: 'album-aggregate' as const, description: 'Like Album Search, but combines matching album folders from different peers into one result per album. Choose a folder within each result. By default, only albums shared by at least two peers are shown.' },
   ];
   const userModes = [
     { value: 'user', label: 'User', icon: 'user' as const },
@@ -98,11 +94,11 @@
   }
 
   function setSimple(query: string): void {
-    onchange({ ...value, mode: 'simple', query, artist: '', title: '' });
+    onchange({ ...editableSearchDraft(value), mode: 'simple', query, artist: '', title: '' });
   }
 
   function setSplit(artist: string, title: string): void {
-    onchange({ ...value, mode: 'split', query: '', artist, title });
+    onchange({ ...editableSearchDraft(value), mode: 'split', query: '', artist, title });
   }
 
   function setMode(next: string): void {
@@ -112,9 +108,11 @@
     // The prototype starts a fresh condition set across the generic/music
     // boundary. The daemon then resolves defaults for the new concrete intent.
     const crossingGeneric = resultMode === 'generic' || value.resultMode === 'generic';
-    const base = crossingGeneric
-      ? { ...value, searchSettings: undefined, expectedLength: undefined }
-      : value;
+    const base = family(resultMode) === family(value.resultMode) ? value : editableSearchDraft(value);
+    if (crossingGeneric) {
+      base.searchSettings = undefined;
+      base.expectedLength = undefined;
+    }
     if (resultMode === 'generic' && value.mode === 'split') {
       onchange({ ...base, mode: 'simple', resultMode, query: [value.artist.trim(), value.title.trim()].filter(Boolean).join(' '), artist: '', title: '' });
     } else {
@@ -167,17 +165,35 @@
     });
   }
 
+  function submitDraft(download: boolean): void {
+    if (download) ondownloadrequest(value);
+    else onsubmit(value);
+    dismissSearch();
+  }
+
   function keydown(event: KeyboardEvent): void {
     if (event.key === 'Enter') {
       event.preventDefault();
       if (busy) return;
+      const download = event.ctrlKey && family(value.resultMode) !== 'generic';
       if (configurationPending) {
+        queuedDownload = download;
         queuedSubmitKey = submissionKey();
         return;
       }
       if (queuedSubmitKey) return;
-      if (!configurationError) { onsubmit(value); dismissSearch(); }
+      if (!configurationError) submitDraft(download);
     }
+  }
+
+  function splitKeydown(event: KeyboardEvent, field: 'artist' | 'title'): void {
+    if (event.key === 'Backspace' && !value[field]) {
+      event.preventDefault();
+      if (field === 'artist' || family(value.resultMode) === 'album') merge();
+      else searchRoot?.querySelector<HTMLInputElement>('#global-search-artist')?.focus();
+      return;
+    }
+    keydown(event);
   }
 
   function userKeydown(event: KeyboardEvent): void {
@@ -216,7 +232,7 @@
       <span class="search-settings-spacer" aria-hidden="true"></span>
     {:else}
     <div class="search-entry">
-      <ModeIconToggle value={value.resultMode} options={modes} ariaLabel="Search result mode" onchange={setMode} onopenchange={(open) => modeMenuOpen = open} />
+      <ModeIconToggle value={value.resultMode} options={modes} ariaLabel="Search result mode" onchange={setMode} onhelp={() => { settingsOpen = false; modeHelpOpen = true; }} onopenchange={(open) => modeMenuOpen = open} />
       {#if value.mode === 'simple'}
         <div class="search-bar simple has-mode-picker">
           <input id="global-search-simple" value={value.query} disabled={busy} placeholder={placeholder()} autocomplete="off" spellcheck="false" aria-label={placeholder().replace('…', '')} oninput={handleInput} onkeydown={keydown} />
@@ -225,29 +241,40 @@
         </div>
       {:else}
         <div class="search-bar split has-mode-picker">
-          <label class="search-field"><span>artist</span><input id="global-search-artist" value={value.artist} placeholder="artist…" autocomplete="off" spellcheck="false" oninput={(event) => setSplit((event.currentTarget as HTMLInputElement).value, value.title)} onkeydown={(event) => { if (event.key === 'Backspace' && !value.artist) { event.preventDefault(); merge(); } else keydown(event); }} /></label>
+          <label class="search-field"><span>artist</span><input id="global-search-artist" value={value.artist} placeholder="artist…" autocomplete="off" spellcheck="false" oninput={(event) => setSplit((event.currentTarget as HTMLInputElement).value, value.title)} onkeydown={(event) => splitKeydown(event, 'artist')} /></label>
           <span class="search-divider" aria-hidden="true"></span>
-          <label class="search-field"><span>{family(value.resultMode) === 'album' ? 'album' : 'track'}</span><input id="global-search-title" value={value.title} placeholder={family(value.resultMode) === 'album' ? 'album…' : 'track…'} autocomplete="off" spellcheck="false" oninput={(event) => setSplit(value.artist, (event.currentTarget as HTMLInputElement).value)} onkeydown={(event) => { if (event.key === 'Backspace' && !value.title) { event.preventDefault(); document.querySelector<HTMLInputElement>('#global-search-artist')?.focus(); } else keydown(event); }} /></label>
+          <label class="search-field"><span>{family(value.resultMode) === 'album' ? 'album' : 'track'}</span><input id="global-search-title" value={value.title} placeholder={family(value.resultMode) === 'album' ? 'album…' : 'track…'} autocomplete="off" spellcheck="false" oninput={(event) => setSplit(value.artist, (event.currentTarget as HTMLInputElement).value)} onkeydown={(event) => splitKeydown(event, 'title')} /></label>
           <button type="button" class="search-mode-button" onclick={merge}>merge</button>
         </div>
       {/if}
-      {#if overlayVisible}
-        <section class="search-focus-overlay" aria-label="Applied search conditions" bind:clientHeight={conditionOverlayHeight}>
-          <div class="search-condition-pills"><SearchConditionPills mode={value.resultMode} bind:conditions /></div>
-        </section>
-      {/if}
+
     </div>
     <button type="button" class:active={settingsOpen} class="search-settings-button" aria-label="Search configuration" aria-expanded={settingsOpen} onclick={() => { settingsMounted = true; settingsOpen = !settingsOpen; }}><Icon name="sliders" /></button>
     {/if}
   </div>
   {#if variant === 'content' && settingsMounted}
-    {@const configurationTop = 62 + (overlayVisible ? conditionOverlayHeight + 8 : 0)}
-    <section class="search-config-popover" aria-label="Search configuration" style={`top: ${configurationTop}px; max-height: calc(100dvh - 25px - ${configurationTop}px)`} style:display={settingsOpen ? undefined : 'none'}>
-      <SearchConfiguration draft={value} active={settingsOpen} prefetch={searchEngaged} bind:conditions bind:resolved={conditionsResolved} {onchange} onvalidation={(message, pending) => { configurationError = message; configurationPending = pending; }} onclose={() => settingsOpen = false} />
+    <section class="search-config-popover" aria-label="Search configuration" style="top: 62px; max-height: calc(100dvh - 87px)" style:display={settingsOpen ? undefined : 'none'}>
+      <SearchConfiguration draft={value} active={settingsOpen} bind:resolved={conditionsResolved} {onchange} onvalidation={(message, pending) => { configurationError = message; configurationPending = pending; }} onclose={() => settingsOpen = false} />
     </section>
   {/if}
-  {#if variant === 'content' && (overlayVisible || settingsOpen)}
+  {#if variant === 'content' && settingsOpen}
     <button class="search-focus-backdrop" type="button" tabindex="-1" aria-label="Close focused search" onclick={dismissSearch}></button>
   {/if}
   {#if variant === 'content' && !settingsOpen && configurationError}<p role="alert">{configurationError} Open Search configuration to resolve it.</p>{/if}
 </div>
+
+
+{#if modeHelpOpen}
+  <Modal title="Search modes" closeLabel="Close search modes" onclose={() => modeHelpOpen = false}>
+    <div class="search-mode-help-cards">
+      {#each modes as mode}
+        <button type="button" class="search-mode-help-card" aria-label={`Use ${mode.label}`} aria-describedby={`search-mode-help-${mode.value}`} aria-pressed={value.resultMode === mode.value}
+          onclick={() => { setMode(mode.value); modeHelpOpen = false; }}>
+          <span class="search-mode-help-icon"><Icon name={mode.icon} /></span>
+          <span class="search-mode-help-copy"><strong>{mode.label}</strong><span id={`search-mode-help-${mode.value}`}>{mode.description}</span></span>
+          <span class="search-mode-help-check">{#if value.resultMode === mode.value}<Icon name="check" />{/if}</span>
+        </button>
+      {/each}
+    </div>
+  </Modal>
+{/if}

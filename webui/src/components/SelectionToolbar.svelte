@@ -1,6 +1,7 @@
 <script lang="ts">
   interface Props {
     selectedCount: number;
+    visible?: boolean;
     floatingLabel?: string;
     detail?: string;
     actionDisabled?: boolean;
@@ -8,12 +9,14 @@
     optionsOpen?: boolean;
     optionsCustomized?: boolean;
     onclear: () => void;
+    onselectall?: () => void;
     onoptions?: () => void;
     onaction?: () => void;
   }
 
   let {
     selectedCount,
+    visible = selectedCount > 0,
     floatingLabel = `Download ${selectedCount}`,
     detail,
     actionDisabled = false,
@@ -21,14 +24,16 @@
     optionsOpen = false,
     optionsCustomized = false,
     onclear,
+    onselectall,
     onoptions,
     onaction = () => {},
   }: Props = $props();
 </script>
 
-{#if selectedCount}
+{#if visible}
   <div class="floating-selection-actions" aria-label="Selection actions">
     {#if detail}<span class="floating-selection-detail">{detail}</span>{/if}
+    {#if onselectall}<button type="button" class="floating-select-action" onclick={onselectall}>Select all</button>{/if}
     <button type="button" class="floating-deselect-action" onclick={onclear}>Deselect all</button>
     {#if onoptions}
       <button

@@ -14,10 +14,11 @@
     options: ModeIconOption[];
     ariaLabel: string;
     onchange: (value: string) => void;
+    onhelp?: () => void;
     onopenchange?: (open: boolean) => void;
   }
 
-  let { value, options, ariaLabel, onchange, onopenchange }: Props = $props();
+  let { value, options, ariaLabel, onchange, onhelp, onopenchange }: Props = $props();
   let menuOpen = $state(false);
   let root = $state<HTMLDivElement | null>(null);
 
@@ -83,6 +84,13 @@
           <span>{option.label}</span>
         </button>
       {/each}
+      {#if onhelp}
+        <button type="button" role="menuitem" class="mode-menu-help" onclick={() => { setMenuOpen(false); onhelp?.(); }}>
+          <span class="mode-menu-check" aria-hidden="true"></span>
+          <span class="mode-menu-icon" aria-hidden="true"><Icon name="help" /></span>
+          <span>About search modes</span>
+        </button>
+      {/if}
     </div>
   {/if}
 </div>

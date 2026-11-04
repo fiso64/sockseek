@@ -76,7 +76,8 @@ public sealed class SharingRuntime : IAsyncDisposable
             () => manager.Client,
             soulseek.LocalProfile.Description,
             uploadServingEnabled: settings.ListenPort is not null,
-            userPicture: soulseek.LocalProfile.Picture?.Bytes);
+            userPicture: soulseek.LocalProfile.Picture?.Bytes,
+            logger: this.logger);
         ClientManager = manager;
         inboundRegistration = soulseek.InboundRequests.Attach(Adapter);
         ClientManager.StateChanged += OnClientStateChanged;

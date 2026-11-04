@@ -6,9 +6,9 @@ test('shows offline states and recovers history after daemon startup returns', a
   await page.route('**/api/**', (route) => unavailable ? route.abort('failed') : route.continue());
   await page.goto('/downloads');
 
-  const daemonStatus = page.getByLabel('Connection status').locator('strong').nth(1);
+  const daemonStatus = page.getByLabel('Connection status').locator('strong');
   const offline = page.locator('.resource-state-notice.offline.blocking');
-  await expect(daemonStatus).toHaveText('Offline');
+  await expect(daemonStatus).toHaveText('Daemon disconnected');
   await expect(offline).toContainText('Daemon unavailable');
   await expect(offline).toContainText('Current download state cannot be loaded while the daemon is offline.');
   await expect(offline.getByRole('button', { name: 'Retry' })).toHaveCount(0);
@@ -16,13 +16,13 @@ test('shows offline states and recovers history after daemon startup returns', a
 
   await page.getByRole('button', { name: 'Jobs', exact: true }).click();
   await expect(offline).toContainText('This resource cannot be loaded while the daemon is offline.');
-  await expect(page.getByText('No jobs yet', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('No searches yet', { exact: true })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Uploads', exact: true }).click();
   await expect(offline).toContainText('Current upload state cannot be loaded while the daemon is offline.');
   unavailable = false;
 
-  await expect(daemonStatus).toHaveText('Connected', { timeout: 20_000 });
+  await expect(daemonStatus).toContainText('Connected', { timeout: 20_000 });
   await expect(offline).toHaveCount(0);
   await expect(page.getByText('No uploads', { exact: true })).toBeVisible();
 });
@@ -57,20 +57,20 @@ test('reloads an open Jobs page when the daemon first becomes reachable', async 
   await expect(offline).toContainText('Daemon unavailable');
   unavailable = false;
 
-  await expect(page.getByLabel('Connection status').locator('strong').nth(1))
-    .toHaveText('Connected', { timeout: 20_000 });
+  await expect(page.getByLabel('Connection status').locator('strong'))
+    .toContainText('Connected', { timeout: 20_000 });
   await expect(offline).toHaveCount(0);
-  await expect(page.getByText('No jobs yet', { exact: true })).toBeVisible();
+  await expect(page.getByText('No searches yet', { exact: true })).toBeVisible();
   historyReads = 0;
   observations = 0;
   try {
     outage = true;
     await socket!.close({ code: 1012, reason: 'E2E reconnect history check' });
-    await expect(page.getByLabel('Connection status').locator('strong').nth(1)).toHaveText('Reconnecting');
+    await expect(page.getByLabel('Connection status').locator('strong')).toHaveText('Daemon reconnecting');
     outage = false;
     release();
-    await expect(page.getByLabel('Connection status').locator('strong').nth(1)).toHaveText('Connected');
-    await expect(page.getByText('No jobs yet', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Connection status').locator('strong')).toContainText('Connected');
+    await expect(page.getByText('No searches yet', { exact: true })).toBeVisible();
     expect(historyReads).toBe(0);
     expect(observations).toBe(1);
   } finally { outage = false; release(); }
@@ -95,8 +95,8 @@ test('reopens a search deep link after a fresh offline read fails', async ({ pag
   await expect(page.locator('.search-results-empty')).toHaveCount(0);
   unavailable = false;
 
-  await expect(page.getByLabel('Connection status').locator('strong').nth(1))
-    .toHaveText('Connected', { timeout: 20_000 });
+  await expect(page.getByLabel('Connection status').locator('strong'))
+    .toContainText('Connected', { timeout: 20_000 });
   await expect(offline).toHaveCount(0);
   await expect(page.locator('.folder-item-card')).toHaveCount(1);
   await expect(page).toHaveURL(/\?results=generic$/);
@@ -116,8 +116,8 @@ test('recovers an open Chat list and disables sending during a fresh offline sta
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeDisabled();
   unavailable = false;
 
-  await expect(page.getByLabel('Connection status').locator('strong').nth(1))
-    .toHaveText('Connected', { timeout: 20_000 });
+  await expect(page.getByLabel('Connection status').locator('strong'))
+    .toContainText('Connected', { timeout: 20_000 });
   await expect(offline).toHaveCount(0);
   await expect(page.locator('.chat-messages')).toContainText('Retained hello');
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled();

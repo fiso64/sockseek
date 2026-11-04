@@ -190,11 +190,13 @@ public class StaleDownloadCoordinatorTests
     }
 
     [TestMethod]
-    public void ActivityFromDifferentUserDoesNotProtectQueuedAttempt()
+    [DataRow("user-b")]
+    [DataRow("USER-A")]
+    public void ActivityFromDifferentUserDoesNotProtectQueuedAttempt(string otherUsername)
     {
         using var scenario = new Scenario();
         var queued = scenario.Start("user-a", @"Music\Artist - Queued.mp3");
-        var otherUser = scenario.Start("user-b", @"Music\Artist - Other.mp3");
+        var otherUser = scenario.Start(otherUsername, @"Music\Artist - Other.mp3");
         scenario.ReportState(queued, TransferStates.Queued | TransferStates.Remotely, bytesTransferred: 0);
         scenario.ReportState(otherUser, TransferStates.InProgress, bytesTransferred: 0);
 

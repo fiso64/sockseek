@@ -7,7 +7,7 @@
   import { daemonApi } from '../../api/client';
   import { formatBytes as formatKnownBytes, formatCount as formatKnownCount, formatCountWithNoun, humanizeStateValue, soulseekStatusLabel } from '../../app/format';
   import UsernameLink from '../../components/UsernameLink.svelte';
-  import { availableDashboardSummary, bandwidthMegabytesPerSecond, dashboardBandwidthAxis, dashboardChartLabels, dashboardTransferRate, shareRatioDelta } from './presentation';
+  import { availableDashboardSummary, dashboardByteAxis, dashboardChartLabels, dashboardTransferRate, shareRatioDelta } from './presentation';
 
   const rangeIds = ['24h', '7d', '30d', '90d', '1y', 'all'] as const;
   type RangeId = (typeof rangeIds)[number];
@@ -26,7 +26,7 @@
   }
 
   let { liveStatus, terminalTransferCommitRevision, soulseek = null, transfers, userActions }: Props = $props();
-  let range = $state<RangeId>('24h');
+  let range = $state<RangeId>('30d');
   let rankingTab = $state<'downloads' | 'uploads' | 'content' | 'errors'>('downloads');
   let data = $state<DashboardAnalyticsDto | null>(null);
   let loading = $state(true);
@@ -82,15 +82,14 @@
     return () => request.abort();
   });
 
-  let downloadMbps = $derived(data?.bandwidth.map((bucket) => bandwidthMegabytesPerSecond(bucket.downloadBytes, bucket.startUtc, bucket.endUtc)) ?? []);
-  let uploadMbps = $derived(data?.bandwidth.map((bucket) => bandwidthMegabytesPerSecond(bucket.uploadBytes, bucket.startUtc, bucket.endUtc)) ?? []);
-  let activityAxis = $derived(dashboardBandwidthAxis(downloadMbps, uploadMbps));
-  let hasDownloadHistory = $derived(downloadMbps.some((value) => value > 0) || Number(summary?.downloadedFiles ?? 0) > 0);
-  let hasUploadHistory = $derived(uploadMbps.some((value) => value > 0) || Number(summary?.uploadedFiles ?? 0) > 0);
+  let downloadBytes = $derived(data?.bandwidth.map((bucket) => Number(bucket.downloadBytes)) ?? []);
+  let uploadBytes = $derived(data?.bandwidth.map((bucket) => Number(bucket.uploadBytes)) ?? []);
+  let activityAxis = $derived(dashboardByteAxis(downloadBytes, uploadBytes));
+  let hasDownloadHistory = $derived(downloadBytes.some((value) => value > 0) || Number(summary?.downloadedFiles ?? 0) > 0);
+  let hasUploadHistory = $derived(uploadBytes.some((value) => value > 0) || Number(summary?.uploadedFiles ?? 0) > 0);
   let hasHistory = $derived(hasDownloadHistory || hasUploadHistory);
-  let shareRatioSamples = $derived(uploadMbps.map((upload, index) => upload / Math.max(downloadMbps[index] ?? 0, 0.1)));
+  let shareRatioSamples = $derived(uploadBytes.map((upload, index) => downloadBytes[index] ? upload / downloadBytes[index]! : 0));
   let daemonReachable = $derived(liveStatus === 'connected');
-  let coverage = $derived(data?.range.coverage ?? null);
 
   function formatBytes(value: number | string | null | undefined): string {
     return value == null ? '—' : formatKnownBytes(value);
@@ -110,10 +109,11 @@
     return Math.round(14 + value / maximum * 86);
   }
 
-  function chartPath(values: number[], width = 760, height = 150): string {
-    const max = activityAxis.maxMbps;
+  function chartY(value: number): number { return 150 - value / activityAxis.maxBytes * 138; }
+
+  function chartPath(values: number[], width = 760): string {
     const step = width / Math.max(1, values.length - 1);
-    const points = values.map((value, index) => ({ x: index * step, y: height - value / max * (height - 12) }));
+    const points = values.map((value, index) => ({ x: index * step, y: chartY(value) }));
     const first = points[0];
     if (!first) return '';
     if (points.length === 1) return `M ${first.x.toFixed(1)} ${first.y.toFixed(1)}`;
@@ -124,12 +124,24 @@
     }, `M ${first.x.toFixed(1)} ${first.y.toFixed(1)}`);
   }
 
-  function areaPath(values: number[]): string { return `${chartPath(values)} L 760 150 L 0 150 Z`; }
+  let downloadPath = $derived(chartPath(downloadBytes));
+  let uploadPath = $derived(chartPath(uploadBytes));
+  let labels = $derived(data ? dashboardChartLabels(data.bandwidth, range, data.range.endUtc, Number(data.range.bucketSeconds)) : []);
+  let hoveredIndex = $state<number | null>(null);
+  let tooltipWidth = $state(0);
+  let hoveredBucket = $derived(hoveredIndex == null ? null : data?.bandwidth[hoveredIndex]);
+  let hoveredX = $derived(hoveredIndex == null ? 0 : hoveredIndex / Math.max(1, (data?.bandwidth.length ?? 0) - 1));
+  $effect(() => { data; hoveredIndex = null; });
 
-  function chartLabels(): string[] {
-    if (!data) return [];
-    return dashboardChartLabels(data.bandwidth, range, data.range.endUtc, Number(data.range.bucketSeconds));
+  function hoverActivity(event: PointerEvent): void {
+    const count = data?.bandwidth.length ?? 0;
+    if (!count) return;
+    const bounds = (event.currentTarget as SVGSVGElement).getBoundingClientRect();
+    const fraction = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+    hoveredIndex = Math.round(fraction * (count - 1));
   }
+
+  const intervalDateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' });
 
   function ratioDelta(): string {
     return shareRatioDelta(data);
@@ -158,7 +170,7 @@
       <h1>Dashboard</h1>
     </div>
     <div class="dashboard-range-control" aria-label="Dashboard history range">
-      <span>History range</span>
+      <span class="dashboard-range-label" role="status">{loading ? 'Loading analytics' : ''}</span>
       <div class="range-buttons">
         {#each rangeIds as id}
           <button type="button" class:active={range === id} onclick={() => (range = id)}>{rangeLabels[id]}</button>
@@ -178,22 +190,6 @@
         <button type="button" onclick={() => retryRevision++}>Retry</button>
       {/if}
     </div>
-  {:else if loading && !data}
-    <div class="resource-state-notice loading blocking">
-      <span class="resource-state-dot"></span>
-      <span class="resource-state-copy">
-        <strong>Loading analytics</strong>
-        <small>Reading retained transfer accounting.</small>
-      </span>
-    </div>
-  {:else if coverage && (coverage.state !== 'Available' || !coverage.isComplete)}
-    <div class={`resource-state-notice ${coverage.state === 'Unavailable' ? 'unavailable' : 'degraded'}`} role="status">
-      <span class="resource-state-dot"></span>
-      <span class="resource-state-copy">
-        <strong>Analytics {coverage.state === 'Available' ? 'partially covered' : coverage.state.toLowerCase()}</strong>
-        <small>{coverage.reason ?? 'The selected range is only partially covered.'}</small>
-      </span>
-    </div>
   {/if}
 
   <div class="dashboard-metrics">
@@ -203,8 +199,8 @@
       <small>{filesInRange(summary?.downloadedFiles)}</small>
       <div class="metric-sparkline" aria-hidden="true">
         {#if hasDownloadHistory}
-          {#each downloadMbps.slice(-8) as point}
-            <i class:zero={point <= 0} style={`height:${metricBarHeight(downloadMbps, point)}%`}></i>
+          {#each downloadBytes.slice(-8) as point}
+            <i class:zero={point <= 0} style={`height:${metricBarHeight(downloadBytes, point)}%`}></i>
           {/each}
         {/if}
       </div>
@@ -215,8 +211,8 @@
       <small>{filesInRange(summary?.uploadedFiles)}</small>
       <div class="metric-sparkline upload" aria-hidden="true">
         {#if hasUploadHistory}
-          {#each uploadMbps.slice(-8) as point}
-            <i class:zero={point <= 0} style={`height:${metricBarHeight(uploadMbps, point)}%`}></i>
+          {#each uploadBytes.slice(-8) as point}
+            <i class:zero={point <= 0} style={`height:${metricBarHeight(uploadBytes, point)}%`}></i>
           {/each}
         {/if}
       </div>
@@ -248,11 +244,11 @@
     <div class="activity-chart">
       <div class="chart-y-labels">
         {#each activityAxis.labels as tick}
-          <span>{tick === 0 ? '0' : `${tick.toLocaleString()} MB/s`}</span>
+          <span>{formatBytes(tick)}</span>
         {/each}
       </div>
       <div class="chart-canvas">
-        <svg viewBox="0 0 760 150" preserveAspectRatio="none" role="img" aria-label={`Transfer activity for ${range}`}>
+        <svg viewBox="0 0 760 150" preserveAspectRatio="none" role="img" aria-label={`Bytes transferred per interval for ${range}`} onpointermove={hoverActivity} onpointerleave={() => hoveredIndex = null}>
           <g class="chart-grid">
             <line x1="0" y1="12" x2="760" y2="12"/>
             <line x1="0" y1="58" x2="760" y2="58"/>
@@ -265,16 +261,31 @@
             <line x1="633" y1="0" x2="633" y2="150"/>
           </g>
           {#if hasHistory}
-            <path class="chart-area download" d={areaPath(downloadMbps)}/>
-            <path class="chart-line download" d={chartPath(downloadMbps)}/>
-            <path class="chart-area upload" d={areaPath(uploadMbps)}/>
-            <path class="chart-line upload" d={chartPath(uploadMbps)}/>
+            <path class="chart-area download" d={`${downloadPath} L 760 150 L 0 150 Z`}/>
+            <path class="chart-line download" d={downloadPath}/>
+            <path class="chart-area upload" d={`${uploadPath} L 760 150 L 0 150 Z`}/>
+            <path class="chart-line upload" d={uploadPath}/>
           {/if}
+          {#if hoveredBucket}<line class="chart-hover-line" x1={hoveredX * 760} x2={hoveredX * 760} y1="0" y2="150" />{/if}
         </svg>
+        {#if hoveredBucket}
+          <span class="chart-hover-dot download" style:left={`${hoveredX * 100}%`} style:top={`${chartY(Number(hoveredBucket.downloadBytes))}px`}></span>
+          <span class="chart-hover-dot upload" style:left={`${hoveredX * 100}%`} style:top={`${chartY(Number(hoveredBucket.uploadBytes))}px`}></span>
+        {/if}
         <div class="chart-x-labels">
-          {#each chartLabels() as label}<span>{label}</span>{/each}
+          {#each labels as label}<span>{label}</span>{/each}
         </div>
       </div>
+      {#if hoveredBucket}
+        <div class="chart-tooltip" role="tooltip" bind:offsetWidth={tooltipWidth} style:left={`clamp(0px, ${hoveredX * 100}% - ${tooltipWidth / 2}px, calc(100% - ${tooltipWidth}px))`}>
+          <strong class="chart-tooltip-interval">
+            <span>From <time datetime={hoveredBucket.startUtc}>{intervalDateFormat.format(new Date(hoveredBucket.startUtc))}</time></span>
+            <span>To <time datetime={hoveredBucket.endUtc}>{intervalDateFormat.format(new Date(hoveredBucket.endUtc))}</time></span>
+          </strong>
+          <span class="download">Downloaded <b>{formatBytes(hoveredBucket.downloadBytes)}</b></span>
+          <span class="upload">Uploaded <b>{formatBytes(hoveredBucket.uploadBytes)}</b></span>
+        </div>
+      {/if}
     </div>
     <div class="chart-legend">
       <span><i class="download"></i>Download</span>

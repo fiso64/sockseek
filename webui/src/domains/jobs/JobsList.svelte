@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import type { JobsTab } from './job-list.svelte';
+  import LoadingIndicator from '../../components/LoadingIndicator.svelte';
+  import { onMount, untrack, tick } from 'svelte';
   import type { JobSummaryDto, Schema } from '../../api/types';
   import { daemonApi } from '../../api/client';
   import type { DaemonLiveClient } from '../../api/live';
@@ -20,6 +22,11 @@
 
   interface Props {
     jobs: JobSummaryDto[];
+    tab: JobsTab;
+    submissionId: string | null;
+    onclearfilter: () => void;
+    ontabchange: (tab: JobsTab) => void;
+    position: { scrollTop: number };
     refreshRevision?: number;
     connected: boolean;
     observeJobs: DaemonLiveClient['observeJobs'];
@@ -37,7 +44,24 @@
     onnew: () => void;
   }
 
-  let { jobs, refreshRevision = 0, connected, observeJobs, loading = false, daemonOffline = false, hasMore = false, error = null, actionError = null, onretry, onopen, oncancel, onarchive, archivingSubmissions = new Set<string>(), onloadmore, onnew }: Props = $props();
+  let { jobs, tab, submissionId, onclearfilter, ontabchange, position, refreshRevision = 0, connected, observeJobs, loading = false, daemonOffline = false, hasMore = false, error = null, actionError = null, onretry, onopen, oncancel, onarchive, archivingSubmissions = new Set<string>(), onloadmore, onnew }: Props = $props();
+  let section: HTMLElement;
+  onMount(() => {
+    const scroller = section.closest('main')!;
+    scroller.scrollTop = position.scrollTop;
+    const remember = () => { position.scrollTop = scroller.scrollTop; };
+    scroller.addEventListener('scroll', remember);
+    return () => scroller.removeEventListener('scroll', remember);
+  });
+  function tabKey(event: KeyboardEvent): void {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === 'Home' ? 'searches' : event.key === 'End' ? 'downloads'
+      : tab === 'searches' ? 'downloads' : 'searches';
+    ontabchange(next);
+    // This list is remounted on tab changes; focus its replacement after rendering.
+    void tick().then(() => document.getElementById(`jobs-tab-${next}`)?.focus());
+  }
   const lifetime = new AbortController();
   onMount(() => () => lifetime.abort());
   let reads = $state(new Map<string, JobSummaryRead>());
@@ -124,24 +148,33 @@
 
 </script>
 
-<section class="page page-search redesigned-search-page">
+<section bind:this={section} class="page page-search redesigned-search-page">
   <header class="page-heading search-list-heading jobs-list-heading">
     <div><p class="eyebrow">Work</p><h1>Jobs</h1></div>
     <button type="button" class="new-job-button" onclick={onnew}><span>+</span> New job</button>
   </header>
 
+  <div class="jobs-tabs" role="tablist" aria-label="Jobs">
+    {#each [{ id: 'searches', label: 'Searches' }, { id: 'downloads', label: 'Download jobs' }] as item}
+      <button type="button" role="tab" id={`jobs-tab-${item.id}`} aria-selected={tab === item.id}
+        aria-controls="jobs-tab-panel" tabindex={tab === item.id ? 0 : -1} class:active={tab === item.id}
+        onkeydown={tabKey} onclick={() => ontabchange(item.id as JobsTab)}>{item.label}</button>
+    {/each}
+  </div>
+  {#if submissionId}<div class="jobs-filter">Showing one download request <button type="button" onclick={onclearfilter}>Show all download jobs</button></div>{/if}
+  <div role="tabpanel" id="jobs-tab-panel" aria-labelledby={`jobs-tab-${tab}`}>
   {#if error && ordered.length}
     <div class="resource-state-notice unavailable" role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Jobs unavailable</strong><small>{error.message}</small></span><button type="button" disabled={loading} onclick={onretry}>Retry</button></div>
   {/if}
   {#if actionError}<div class="resource-state-notice unavailable" role="alert"><strong>Job action failed</strong><span>{actionError.message}</span></div>{/if}
   {#if loading && !ordered.length}
-    <div class="resource-state-notice loading blocking"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Loading jobs</strong><small>Synchronizing live daemon state.</small></span></div>
+    <LoadingIndicator label="Loading jobs" blocking />
   {:else if error && !ordered.length}
     <div class={`resource-state-notice ${daemonOffline ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : 'Jobs unavailable'}</strong><small>{daemonOffline ? 'This resource cannot be loaded while the daemon is offline.' : error.message}</small></span>{#if !daemonOffline}<button type="button" onclick={onretry}>Retry</button>{/if}</div>
   {:else if !ordered.length && !error && !hasMore}
-    <div class="resource-state-notice empty blocking" role="status"><span class="resource-state-dot" aria-hidden="true"></span><span class="resource-state-copy"><strong>No jobs yet</strong><small>New searches and automatic jobs will appear here.</small></span></div>
+    <div class="resource-state-notice empty blocking" role="status"><span class="resource-state-dot" aria-hidden="true"></span><span class="resource-state-copy"><strong>{tab === 'searches' ? 'No searches yet' : 'No download jobs yet'}</strong></span></div>
   {:else}
-    <div class="search-history-list mixed-job-history-list">
+    <div class="search-history-list">
       {#each ordered as entry (entry.root.jobId)}
         {@const job = entry.job}
         {@const unavailable = Boolean(entry.missingResultId || entry.error)}
@@ -149,10 +182,13 @@
         {@const searchStats = job.kind === 'search' ? searchJobStats(job) : []}
         {@const automaticStats = job.kind === 'search' ? [] : automaticJobListStats(job)}
         {@const searchMode = searchJobMode(job)}
+        {@const statusLabel = unavailable ? entryError ? 'Result unavailable' : 'Loading result' : status(job)}
         <div class="search-history-row" class:automatic-history-row={job.kind !== 'search'}>
           <button type="button" class="search-history-open" class:automatic-history-open={job.kind !== 'search'} onclick={() => onopen(job)}>
             <span class="search-history-query">{title(entry.root)}</span>
-            <span class={`search-status-badge ${unavailable ? 'pending' : statusClass(job)}`}><i></i>{unavailable ? entryError ? 'Result unavailable' : 'Loading result' : status(job)}</span>
+            {#if statusLabel !== 'Complete'}
+              <span class={`search-status-badge ${unavailable ? 'pending' : statusClass(job)}`}><i></i>{statusLabel}</span>
+            {/if}
             <span class="search-history-context">
               <span class={`job-type-badge ${entry.root.kind === 'extract' ? 'import' : job.kind === 'search' ? 'search' : 'automatic'}`}><Icon name={searchMode ?? jobKindIcon(job.kind)} /><span>{entry.root.kind === 'extract' ? importContext(entry) : searchMode ? searchModeLabel(searchMode) : jobKindLabel(job.kind)}</span></span>
               {#if entry.root.createdAtUtc}<span class="stat-separator">·</span><RelativeTime timestamp={entry.root.createdAtUtc} />{/if}
@@ -161,7 +197,7 @@
               <span class="search-history-stats">
                 {#each searchStats as stat, index}
                   {#if index}<span class="stat-separator">·</span>{/if}
-                  <span title={stat.count === null ? 'Group count is unavailable in Jobs history; open the search for its current result count.' : undefined}><strong>{stat.count === null ? '—' : formatCount(stat.count)}</strong> {stat.label}</span>
+                  <span><strong>{formatCount(stat.count)}</strong> {stat.label}</span>
                 {/each}
                 {#each automaticStats as stat, index}
                   {#if index}<span class="stat-separator">·</span>{/if}
@@ -181,6 +217,7 @@
         {#if entryError}<div class="resource-state-notice unavailable" role="alert"><span>Import unavailable: {entryError.message}</span><button type="button" onclick={() => retry(entry)}>Retry</button></div>{/if}
       {/each}
     </div>
-    {#if hasMore && onloadmore}<LoadMoreButton label="Load earlier jobs" loadingLabel="Loading jobs…" {loading} onclick={onloadmore} />{/if}
+    {#if hasMore && onloadmore}<LoadMoreButton loadingLabel="Loading jobs…" {loading} onclick={onloadmore} />{/if}
   {/if}
+  </div>
 </section>

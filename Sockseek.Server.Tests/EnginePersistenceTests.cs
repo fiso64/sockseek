@@ -17,6 +17,76 @@ namespace Sockseek.Server.Tests;
 public sealed class EnginePersistenceTests
 {
     [TestMethod]
+    public async Task PartialDownloadRetryPreservesOutputAndAccountsOnlyNewBytesPerAttempt()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "sockseek-resume-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(root);
+        byte[] content = Enumerable.Range(0, 16).Select(value => (byte)value).ToArray();
+        var offsets = new List<long>();
+        var fake = global::Tests.Server.SoulseekClientProxy.Create();
+        fake.DownloadHandler = async args =>
+        {
+            long offset = (long)args[4]!;
+            offsets.Add(offset);
+            var options = (TransferOptions)args[6]!;
+            var ct = (CancellationToken)args[7]!;
+            Stream output = await ((Func<Task<Stream>>)args[2]!)();
+            Assert.AreEqual(offset, output.Position);
+            long end = offsets.Count == 1 ? 4 : content.Length;
+            Transfer Snapshot(TransferStates state, long bytes) => new(TransferDirection.Download,
+                (string)args[0]!, (string)args[1]!, 1, state, content.Length, offset, bytes);
+            options.StateChanged?.Invoke((TransferStates.Queued, Snapshot(TransferStates.InProgress, offset)));
+            options.ProgressUpdated?.Invoke((offset, Snapshot(TransferStates.InProgress, offset)));
+            await output.WriteAsync(content.AsMemory((int)offset, (int)(end - offset)), ct);
+            options.ProgressUpdated?.Invoke((offset, Snapshot(TransferStates.InProgress, end)));
+            if (offsets.Count == 1)
+            {
+                options.StateChanged?.Invoke((TransferStates.InProgress, Snapshot(TransferStates.Completed | TransferStates.Errored, end)));
+                throw new ConnectionException("Peer connection interrupted after four bytes.");
+            }
+            var completed = Snapshot(TransferStates.Completed | TransferStates.Succeeded, end);
+            options.StateChanged?.Invoke((TransferStates.InProgress, completed));
+            return completed;
+        };
+        var settings = new Sockseek.Core.Settings.EngineSettings { Username = "test", Password = "test" };
+        await using var manager = new SoulseekClientManager(settings, fake.Client);
+        await using var engine = new DownloadEngine(settings, manager);
+        var sink = new CapturingSink();
+        AttachPersistence(engine.Events, Guid.NewGuid(), sink);
+        var job = new RemoteFileJob(new PeerFileTarget(new PeerFileIdentity("Peer", @"Share\Track.bin"), content.Length, ".bin"));
+        var download = new Sockseek.Core.Settings.DownloadSettings
+        {
+            Output = { ParentDir = root, NameFormat = "" },
+            Transfer = { UnknownErrorRetries = 1 },
+        };
+        try
+        {
+            engine.Enqueue(job, download);
+            engine.CompleteEnqueue();
+            await engine.RunAsync(CancellationToken.None);
+
+            Assert.AreEqual(JobTerminalOutcome.Succeeded, job.TerminalOutcome);
+            CollectionAssert.AreEqual(new long[] { 0, 4 }, offsets);
+            CollectionAssert.AreEqual(content, await System.IO.File.ReadAllBytesAsync(job.DownloadPath!));
+            Assert.IsFalse(System.IO.File.Exists(job.DownloadPath + ".incomplete"));
+            var terminal = sink.Mutations.OfType<TransferTerminalPersistenceMutation>().Single();
+            Assert.AreEqual(16, terminal.Transfer.TransferredBytes);
+            Assert.AreEqual(2, terminal.Transfer.AttemptCount);
+            var observations = sink.Mutations.SelectMany(mutation => mutation switch
+            {
+                TransferPersistenceMutation transfer => transfer.AccountingObservations ?? [],
+                TransferAttemptPersistenceMutation attempt => attempt.AccountingObservations ?? [],
+                TransferTerminalPersistenceMutation end => end.Transfer.AccountingObservations ?? [],
+                _ => Array.Empty<TransferAccountingObservation>(),
+            }).GroupBy(observation => observation.AttemptId)
+                .Select(attempt => attempt.Max(observation => observation.CumulativeBytes)).Order().ToArray();
+            CollectionAssert.AreEqual(new long[] { 4, 12 }, observations,
+                "The retry's resume prefix must not be counted twice by persistence.");
+        }
+        finally { System.IO.Directory.Delete(root, recursive: true); }
+    }
+
+    [TestMethod]
     [TestCategory("Load")]
     [DoNotParallelize]
     public void RepeatedJobStateCaptureDoesNotEncodeRetainedDetail()
@@ -67,7 +137,7 @@ public sealed class EnginePersistenceTests
                     for (int part = 0; part < 128; part++) file.Write(chunk);
                     file.Flush(flushToDisk: true); // Prepare a stable existing input before measurement.
                 }
-                await files.WithCacheAsync(cache => { cache.Publish(source, target); return true; });
+                await files.WithCacheAsync(cache => { cache.Publish(source, target, Guid.NewGuid()); return true; });
             }
             else
             {
@@ -84,7 +154,7 @@ public sealed class EnginePersistenceTests
             if (cachedCopy)
             {
                 for (int file = 0; file < 8; file++)
-                    Assert.IsNotNull(await files.TryReuseAsync(target, Path.Combine(root, file + ".bin"), Guid.NewGuid(),
+                    Assert.IsNotNull(await files.TryReuseAsync(target, Path.Combine(root, file + ".bin"), Guid.NewGuid(), Guid.NewGuid(),
                         publish: false, allowOverwrite: true, protectPublishedOutput: false));
             }
             else

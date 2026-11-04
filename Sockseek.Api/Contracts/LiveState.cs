@@ -444,6 +444,7 @@ public enum TransferFailureReason
     PeerDisconnected,
     ConnectionFailed,
     TransferTimedOut,
+    InternalError,
     Unknown,
 }
 

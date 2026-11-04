@@ -24,6 +24,7 @@ public sealed class SubmissionCommitCoordinator(
     private readonly ConcurrentDictionary<Guid, Entry> entries = [];
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     private readonly ILogger<SubmissionCommitCoordinator> log = logger ?? NullLogger<SubmissionCommitCoordinator>.Instance;
+    private long nextSweepTicks;
 
     public async Task<T> ExecuteAsync<T>(
         Guid idempotencyKey,
@@ -72,31 +73,40 @@ public sealed class SubmissionCommitCoordinator(
     {
         var started = Stopwatch.StartNew();
         ISubmissionStore? store = persistence.Submissions;
-        if (store != null)
+        try
         {
-            PersistedSubmissionCommitReceipt? existing = await store.GetCommitReceiptAsync(
-                idempotencyKey,
-                CancellationToken.None).ConfigureAwait(false);
-            if (existing != null)
+            if (store != null)
             {
-                if (!StringComparer.Ordinal.Equals(existing.CommitFingerprint, fingerprint))
-                    throw new IdempotencyConflictException();
-                return existing.CommitReceiptJson
-                    ?? throw new InvalidOperationException(
-                        "The submission was accepted but its commit receipt is not yet available.");
+                PersistedSubmissionCommitReceipt? existing = await store.GetCommitReceiptAsync(
+                    idempotencyKey,
+                    CancellationToken.None).ConfigureAwait(false);
+                if (existing != null)
+                {
+                    if (!StringComparer.Ordinal.Equals(existing.CommitFingerprint, fingerprint))
+                        throw new IdempotencyConflictException();
+                    return existing.CommitReceiptJson
+                        ?? throw new InvalidOperationException(
+                            "The submission was accepted but its commit receipt is not yet available.");
+                }
             }
-        }
 
-        long lookupMs = started.ElapsedMilliseconds;
-        T receipt = await submit(CancellationToken.None)
-            .ConfigureAwait(false);
-        long receiptStartMs = started.ElapsedMilliseconds;
-        string receiptJson = SerializeReceipt(receipt!);
-        long durationMs = started.ElapsedMilliseconds;
-        ServerLogMessages.SubmissionCommitCompleted(log, idempotencyKey, durationMs);
-        ServerLogMessages.SubmissionCommitTiming(log, idempotencyKey,
-            lookupMs, receiptStartMs - lookupMs, durationMs - receiptStartMs);
-        return receiptJson;
+            long lookupMs = started.ElapsedMilliseconds;
+            T receipt = await submit(CancellationToken.None)
+                .ConfigureAwait(false);
+            long receiptStartMs = started.ElapsedMilliseconds;
+            string receiptJson = SerializeReceipt(receipt!);
+            long durationMs = started.ElapsedMilliseconds;
+            ServerLogMessages.SubmissionCommitCompleted(log, idempotencyKey, durationMs);
+            ServerLogMessages.SubmissionCommitTiming(log, idempotencyKey,
+                lookupMs, receiptStartMs - lookupMs, durationMs - receiptStartMs);
+            return receiptJson;
+        }
+        finally
+        {
+            // Durable acceptance already owns the receipt. Keep only in-flight
+            // work here, including when its original HTTP caller disconnected.
+            if (store != null) entries.TryRemove(idempotencyKey, out _);
+        }
     }
 
     internal static string SerializeReceipt(object receipt)
@@ -104,7 +114,11 @@ public sealed class SubmissionCommitCoordinator(
 
     private void EvictCompleted()
     {
-        DateTimeOffset cutoff = clock.GetUtcNow() - MemoryRetention;
+        DateTimeOffset now = clock.GetUtcNow();
+        long previous = Volatile.Read(ref nextSweepTicks);
+        if (now.UtcTicks < previous || Interlocked.CompareExchange(ref nextSweepTicks,
+            (now + TimeSpan.FromMinutes(1)).UtcTicks, previous) != previous) return;
+        DateTimeOffset cutoff = now - MemoryRetention;
         foreach ((Guid key, Entry entry) in entries)
         {
             if (entry.CreatedAtUtc < cutoff

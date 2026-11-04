@@ -2,10 +2,11 @@
   import type { Snippet } from 'svelte';
   import Icon from '../Icon.svelte';
   import LoadMoreButton from '../LoadMoreButton.svelte';
+  import TransferStateLabel from './TransferStateLabel.svelte';
   import RelativeTime from '../RelativeTime.svelte';
   import type { AppIconName } from '../../app/icons';
   import type { FolderItemFile, TransferPresentation } from '../../domains/presentation/items';
-  import { audioSummary, basename, formatBytes, formatLength } from '../../domains/presentation/items';
+  import { audioSummary, basename, folderSources, formatBytes, formatLength } from '../../domains/presentation/items';
   import { buildFolderTreeRows, type FolderTreeNode } from '../../domains/presentation/folder-tree';
   import { fileTypeIcon } from '../../domains/presentation/file-types';
 
@@ -82,6 +83,9 @@
   }
 
   let transferDirectionClass = $derived(transfer?.direction ? `transfer-${transfer.direction}` : '');
+  let sources = $derived(transfer?.direction === 'download' ? folderSources(files, filesComplete) : null);
+  let headingPaths = $derived(sources?.folders.length ? sources.folders : [path]);
+  let detailPath = $derived(headingPaths.join(' · '));
 
   function indeterminate(node: HTMLInputElement, value: boolean) {
     node.indeterminate = value;
@@ -108,7 +112,7 @@
   }
 
   function fileTransferSecondary(value: TransferPresentation): string {
-    return [value.detail, value.speed, value.eta].filter(Boolean).join(' · ');
+    return [value.tone === 'failed' ? undefined : value.detail, value.speed, value.eta].filter(Boolean).join(' · ');
   }
 
   function needsTransferDetail(value?: TransferPresentation): boolean {
@@ -117,9 +121,8 @@
   }
 
   function parentPath(value: string): string {
-    const normalized = value.replace(/\\/g, '/');
-    const splitAt = normalized.lastIndexOf('/');
-    return splitAt >= 0 ? normalized.slice(0, splitAt + 1) : '';
+    const splitAt = Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\'));
+    return value.slice(0, splitAt + 1);
   }
 
   function subfolderSizeTitle(node: FolderTreeNode): string | undefined {
@@ -132,18 +135,23 @@
 
 
 {#snippet folderIdentity()}
-  <div class="item-path-block result-path-block" title={fileLayout === 'tree' ? path : undefined}>
-    <div class="item-name-line result-name-line">
-      {#if fileLayout === 'tree'}
-        <strong class="tree-root-path"><span>{parentPath(path)}</span><b>{basename(path)}</b></strong>
-      {:else}
-        <strong>{basename(path)}</strong>
-      {/if}
+  <div class="folder-heading-copy">
+    <div class="folder-heading-identity">
+      <strong class="folder-heading-path" class:folder-transfer-path={Boolean(transfer)} title={sources?.complete === false ? `Remote folders of loaded files: ${detailPath}` : detailPath}>
+        <bdi dir="ltr">
+          {#each headingPaths as folder, index}
+            {#if index > 0}<span class="folder-path-separator"> · </span>{/if}<span class="folder-path-ancestors">{parentPath(folder)}</span><b class:folder-transfer-name={Boolean(transfer)}>{basename(folder)}</b>
+          {/each}
+        </bdi>
+      </strong>
       {#if locked}<span class="locked-badge">Locked</span>{/if}
     </div>
-    <small>{path}</small>
-    {#if dataStateLabel}
-      <div class="item-data-state"><span>{dataStateLabel}</span>{#if !filesComplete}<small>{totalFileCount == null ? `${files.length} ${files.length === 1 ? 'file' : 'files'} loaded; total unknown` : `${files.length} of ${totalFileCount} ${totalFileCount === 1 ? 'file' : 'files'} loaded`}</small>{/if}</div>
+    {#if totalFileCount !== 1}
+      <div class="folder-heading-meta">
+        <span class="folder-file-count" class:folder-transfer-file-count={Boolean(transfer)}><strong>{filesComplete ? totalFileCount ?? '—' : `${files.length}/${totalFileCount ?? '?'}`}</strong> files</span>
+        <span class="folder-heading-size" title="Total known file size; unreported sizes are excluded.">{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</span>
+        {#if transfer?.createdAt}<span class="folder-transfer-age"><RelativeTime timestamp={transfer.createdAt} lowercase /></span>{/if}
+      </div>
     {/if}
   </div>
 {/snippet}
@@ -171,28 +179,6 @@
   {/if}
 {/snippet}
 
-{#snippet transferSummary()}
-  <div class="folder-transfer-summary">
-    <div class="folder-transfer-summary-primary">
-      <div class="folder-transfer-identity">
-        <strong class="folder-transfer-name">{basename(path)}</strong>
-        {#if locked}<span class="locked-badge">Locked</span>{/if}
-      </div>
-      <div class="folder-transfer-summary-meta">
-        <span class="folder-transfer-file-count"><strong>{filesComplete ? totalFileCount ?? '—' : `${files.length}/${totalFileCount ?? '?'}`}</strong><span>{filesComplete && totalFileCount === 1 ? 'file' : 'files'}</span></span>
-        {@render contentsControl()}
-        <strong class="folder-transfer-size" title="Total known file size; unreported sizes are excluded.">{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</strong>
-        <span class={`transfer-state ${transfer?.tone ?? ''} ${transferDirectionClass}`}>{transfer?.state}</span>
-        {#if actions}<span class="item-card-action">{@render actions()}</span>{/if}
-      </div>
-    </div>
-    <div class="folder-transfer-summary-secondary">
-      <small class="folder-transfer-path">{path}</small>
-      {#if transfer?.createdAt}<span class="folder-transfer-age">{transfer.direction === 'upload' ? 'latest request' : 'created'} <RelativeTime timestamp={transfer.createdAt} lowercase /></span>{/if}
-    </div>
-  </div>
-{/snippet}
-
 <article
   class="item-card result-card folder-result-block folder-item-card"
   class:locked
@@ -203,15 +189,8 @@
   class:tree-layout={fileLayout === 'tree'}
   class:transfer-card={Boolean(transfer)}
 >
-  <div
-    class="folder-item-summary folder-result-summary"
-    class:transfer-summary={Boolean(transfer)}
-    class:has-contents-control={Boolean(contentsState)}
-    class:has-card-action={Boolean(actions)}
-  >
-    {#if transfer}
-      {@render transferSummary()}
-    {:else}
+  <div class="folder-item-summary folder-result-summary" class:folder-transfer-summary={Boolean(transfer)}>
+    <div class="folder-heading-primary">
       {#if selectable}
         <label class="folder-summary-select-target clickable">
           <input
@@ -228,18 +207,19 @@
           {@render folderIdentity()}
         </div>
       {/if}
-
-      <div class="folder-summary-stat folder-file-count"><strong>{filesComplete ? totalFileCount ?? '—' : `${files.length}/${totalFileCount ?? '?'}`}</strong><small>{filesComplete && totalFileCount === 1 ? 'file' : 'files'}</small></div>
-      {@render contentsControl()}
-      <div class="item-detail result-detail item-size-detail"><strong>{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</strong></div>
-      {#if actions}
-        <div class="item-card-action">{@render actions()}</div>
-      {/if}
+      <div class="folder-heading-actions">
+        {@render contentsControl()}
+        {#if transfer?.job}<TransferStateLabel {transfer} {path} {sizeBytes} {files} {filesComplete} />{/if}
+        {#if actions}<span class="item-card-action">{@render actions()}</span>{/if}
+      </div>
+    </div>
+    {#if dataStateLabel}
+      <div class="item-data-state"><span>{dataStateLabel}</span>{#if !transfer && !filesComplete}<small>{totalFileCount == null ? `${files.length} ${files.length === 1 ? 'file' : 'files'} loaded; total unknown` : `${files.length} of ${totalFileCount} ${totalFileCount === 1 ? 'file' : 'files'} loaded`}</small>{/if}</div>
     {/if}
   </div>
 
   {#if transfer}
-    {#if dataStateLabel}<div class="item-data-state"><span>{dataStateLabel}</span></div>{/if}
+    {#if transfer.tone !== 'complete'}
     <div class={`transfer-card-footer folder-transfer-footer ${transfer.tone ?? ''} ${transferDirectionClass}`}>
       {#if transfer.progressPercent !== undefined}
         <div class="transfer-progress-track" aria-label={`${transfer.progressPercent.toFixed(0)}% complete`}>
@@ -253,6 +233,7 @@
         </div>
       {/if}
     </div>
+    {/if}
   {/if}
 
   <div class="folder-files-table" class:tree-layout={fileLayout === 'tree'}>
@@ -340,18 +321,13 @@
                 <small class="folder-file-transfer-detail" title={secondaryTransferText}>{secondaryTransferText}</small>
               {/if}
               {#if usesCircularTransferState(file.transfer)}
-                <span
-                  class={`folder-file-state ${fileDirectionClass}`}
-                  class:active={file.transfer.tone === 'active'}
-                  class:queued={file.transfer.tone === 'queued'}
-                  class:complete={file.transfer.tone === 'complete'}
-                  aria-label={file.transfer.state}
-                  title={file.transfer.state}
-                >
+                <TransferStateLabel transfer={file.transfer} path={file.sourcePath ?? file.relativePath}
+                  sizeBytes={file.sizeUnknown ? null : file.sizeBytes} circular>
                   <Icon name={transferIcon(file.transfer)} />
-                </span>
+                </TransferStateLabel>
               {:else}
-                <span class={`transfer-state folder-file-transfer-label ${file.transfer.tone ?? ''}`}>{file.transfer.state}</span>
+                <TransferStateLabel transfer={file.transfer} path={file.sourcePath ?? file.relativePath}
+                  sizeBytes={file.sizeUnknown ? null : file.sizeBytes} class="folder-file-transfer-label" />
               {/if}
             </span>
           {/if}
@@ -364,6 +340,6 @@
   </div>
   {#if fileLoadError}<div class="item-data-state" role="alert">{fileLoadError}</div>{/if}
   {#if onloadmorefiles && (!filesComplete || fileLoadError)}
-    <LoadMoreButton label={fileLoadError ? 'Retry loading folder files' : 'Load more folder files'} loading={loadingMoreFiles} onclick={onloadmorefiles} />
+    <LoadMoreButton label={fileLoadError ? 'Retry loading folder files' : 'Load more'} loading={loadingMoreFiles} onclick={onloadmorefiles} />
   {/if}
 </article>

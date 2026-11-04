@@ -363,7 +363,7 @@ public sealed class PersistenceWriter(
                 checkpoint!.RequestIfNeeded();
                 health.RecordCommit(clock.GetUtcNow(), rows, stopwatch.Elapsed, batch.Count,
                     reconciliationComplete: inbox.RetryMutationCount == 0);
-                mutationObserver?.Committed(attempt.Normalized);
+                mutationObserver?.Committed(attempt.Normalized, attempt.SupersededTransfers);
                 return (WriteBatchResult.Success, null, null);
             }
             catch (Exception ex) when (attempt.PreparingCombinedSearch && ex is not OperationCanceledException)
@@ -405,6 +405,7 @@ public sealed class PersistenceWriter(
         public PersistenceMutation? Applying;
         public bool PreparingCombinedSearch;
         public bool InsertingRows;
+        public List<(Guid TransferId, long Revision)> SupersededTransfers = [];
     }
 
     private static void PrepareBatchInputs(BatchAttempt attempt)
@@ -525,12 +526,51 @@ public sealed class PersistenceWriter(
                 await prepared.Rows.Accounting.WriteAsync(cancellationToken).ConfigureAwait(false);
             }
             await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await SupersedeUploadsAsync(context, attempt, prepared.Rows.NewUploadIds, cancellationToken).ConfigureAwait(false);
         }
         operation?.SetTag("ready.background_commands", inbox.BackgroundCommandDepth);
         operation?.SetTag("ready.interactive_commands", inbox.CommandDepth);
         using (WriteActivities.StartActivity("commit"))
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         RecordCacheCounters(operation, context, "after");
+    }
+
+    private static async Task SupersedeUploadsAsync(
+        SockseekDbContext context, BatchAttempt attempt, IReadOnlyCollection<Guid> ids,
+        CancellationToken cancellationToken)
+    {
+        // Keep attempts/accounting for diagnostics, but display only the latest
+        // request for an uploaded file. Run once per batch in its transaction;
+        // repeating this on replay is harmless. Downloads already reuse their
+        // transfer identity for retries, and separate jobs remain independent.
+        // Terminal uploads have no later progress; source sequence orders requests
+        // admitted in the same millisecond within one runtime.
+        if (ids.Count == 0) return;
+        await using var command = context.Database.GetDbConnection().CreateCommand();
+        command.Transaction = context.Database.CurrentTransaction!.GetDbTransaction();
+        command.CommandText = """
+            UPDATE transfers AS old SET archived_at_utc = $now
+            WHERE old.id IN (
+                SELECT old.id FROM json_each($ids) incoming
+                JOIN transfers inserted ON inserted.id = incoming.value
+                JOIN transfers old ON old.username = inserted.username COLLATE BINARY
+                    AND old.remote_path = inserted.remote_path COLLATE BINARY
+                    AND old.direction = 'Upload' AND old.archived_at_utc IS NULL
+                JOIN transfers current ON current.username = inserted.username COLLATE BINARY
+                    AND current.remote_path = inserted.remote_path COLLATE BINARY
+                    AND current.direction = 'Upload' AND current.archived_at_utc IS NULL
+                WHERE old.id <> current.id AND old.terminal_outcome <> 'None'
+                    AND (old.created_at_utc < current.created_at_utc
+                        OR (old.created_at_utc = current.created_at_utc
+                            AND old.last_runtime_id = current.last_runtime_id
+                            AND old.last_sequence < current.last_sequence)))
+            RETURNING id, revision;
+            """;
+        command.Parameters.Add(new SqliteParameter("$ids", SerializeSqliteGuids(ids)));
+        command.Parameters.Add(new SqliteParameter("$now", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            attempt.SupersededTransfers.Add((reader.GetGuid(0), reader.GetInt64(1)));
     }
 
     private async Task ApplyBatchAsync(SockseekDbContext context, IDbContextTransaction transaction,
@@ -654,7 +694,10 @@ public sealed class PersistenceWriter(
         HistoryRows<TransferEntity> Transfers,
         HistoryRows<TransferAttemptEntity> Attempts,
         TransferAccounting Accounting,
-        Dictionary<SearchResultsPersistenceMutation, PreparedSearchWrite> SearchObservations);
+        Dictionary<SearchResultsPersistenceMutation, PreparedSearchWrite> SearchObservations)
+    {
+        public HashSet<Guid> NewUploadIds { get; } = [];
+    }
 
     private static async Task<BatchRows> LoadBatchRowsAsync(
         SockseekDbContext context, IReadOnlyList<PersistenceMutation> mutations,
@@ -808,6 +851,7 @@ public sealed class PersistenceWriter(
                     ?? occurredAt,
             };
             batchRows.Transfers.Add(entity.Id, entity);
+            if (mutation.Direction == "Upload") batchRows.NewUploadIds.Add(entity.Id);
         }
 
         entity.JobId = mutation.JobId;

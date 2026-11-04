@@ -6144,6 +6144,17 @@
             }
           },
           {
+            "name": "excludeKinds",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
             "name": "cursor",
             "in": "query",
             "schema": {
@@ -15844,6 +15855,7 @@
                                 "PeerDisconnected",
                                 "ConnectionFailed",
                                 "TransferTimedOut",
+                                "InternalError",
                                 "Unknown"
                               ],
                               "default": "None"
@@ -16115,6 +16127,7 @@
                             "PeerDisconnected",
                             "ConnectionFailed",
                             "TransferTimedOut",
+                            "InternalError",
                             "Unknown"
                           ],
                           "default": "None"
@@ -18058,6 +18071,15 @@
           "excludeExtractResults": {
             "type": "boolean",
             "default": false
+          },
+          "excludeKinds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ServerJobKind"
+            }
           }
         }
       },
@@ -23812,6 +23834,7 @@
                             "PeerDisconnected",
                             "ConnectionFailed",
                             "TransferTimedOut",
+                            "InternalError",
                             "Unknown"
                           ],
                           "default": "None"
@@ -24083,6 +24106,7 @@
                         "PeerDisconnected",
                         "ConnectionFailed",
                         "TransferTimedOut",
+                        "InternalError",
                         "Unknown"
                       ],
                       "default": "None"
@@ -26793,6 +26817,7 @@
                                 "PeerDisconnected",
                                 "ConnectionFailed",
                                 "TransferTimedOut",
+                                "InternalError",
                                 "Unknown"
                               ],
                               "default": "None"
@@ -27064,6 +27089,7 @@
                             "PeerDisconnected",
                             "ConnectionFailed",
                             "TransferTimedOut",
+                            "InternalError",
                             "Unknown"
                           ],
                           "default": "None"
@@ -29018,6 +29044,7 @@
           "PeerDisconnected",
           "ConnectionFailed",
           "TransferTimedOut",
+          "InternalError",
           "Unknown"
         ],
         "default": "None"

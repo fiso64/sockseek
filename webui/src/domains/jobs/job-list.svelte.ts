@@ -4,6 +4,8 @@ import { jobStateSummary } from '../../api/job-summary';
 import { updatedJob } from '../../api/state.svelte';
 import type { JobStateDto, JobSummaryDto, Schema } from '../../api/types';
 
+export type JobsTab = 'searches' | 'downloads';
+
 /** One displayed server scope; it never interprets live/history retirement. */
 export class JobListController {
   items = $state.raw<JobSummaryDto[]>([]);
@@ -11,6 +13,18 @@ export class JobListController {
   loading = $state(false);
   error = $state<Error | null>(null);
   refreshRevision = $state(0);
+  scrollTop = 0;
+  submissionId = $state<string | null>(null);
+
+  filterSubmission(id: string | null): void {
+    if (this.submissionId === id) return;
+    this.submissionId = id;
+    this.items = [];
+    this.cursor = null;
+    this.limit = nestedPageSize;
+    this.scrollTop = 0;
+    this.refresh();
+  }
   private rows = new Map<string, JobStateDto>();
   private ids: string[] = [];
   private limit = nestedPageSize;
@@ -20,7 +34,8 @@ export class JobListController {
   private cancel?: () => void;
 
   constructor(private readonly api: Pick<DaemonApiClient, 'getJobListSnapshot'>,
-    private readonly observe: DaemonLiveClient['observeJobList']) {}
+    private readonly observe: DaemonLiveClient['observeJobList'],
+    readonly tab: JobsTab = 'searches') {}
 
   setActive(active: boolean, status: LiveConnectionStatus): void {
     if (this.active === active && this.status === status) return;
@@ -57,8 +72,8 @@ export class JobListController {
     this.loading = true;
     this.error = null;
     const scope: Schema<'JobListScopeDto'> = {
-      query: { lifecycleState: null, terminalOutcome: null, kind: null, workflowId: null,
-        includeAll: false, newestFirst: true, excludeExtractResults: true, archived: false },
+      query: { lifecycleState: null, terminalOutcome: null, kind: this.tab === 'searches' ? 'search' : null, workflowId: null,
+        submissionId: this.submissionId, includeAll: false, newestFirst: true, excludeExtractResults: true, excludeKinds: this.tab === 'downloads' ? ['search', 'retrieve-folder'] : null, archived: false },
       limit: this.limit,
     };
     const next = (value: Schema<'JobListUpdateDto'>) => {

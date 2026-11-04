@@ -197,7 +197,7 @@ internal sealed class OutputFinalizer
         PeerFileTarget? target = song.ResolvedPeerTarget;
         if (target == null || string.IsNullOrEmpty(song.DownloadPath)) return;
         if (song.Config != null && OutputStaging.Contains(song.DownloadPath, song.Config.Output)) return;
-        cache.Publish(song.DownloadPath, target);
+        cache.Publish(song.DownloadPath, target, song.WorkflowId);
     }
 
     private static void PublishDownloadedFileCache(DownloadFileOperations.Cache cache, IEnumerable<SongJob>? songs)

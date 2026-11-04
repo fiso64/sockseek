@@ -215,7 +215,7 @@ public sealed class ExactFileTransferRunnerTests
             File.WriteAllBytes(original, payload);
             entered.SetResult();
             release.Wait();
-            cache.Publish(original, target);
+            cache.Publish(original, target, Guid.NewGuid());
             return true;
         }).AsTask();
         Task<ExactFileTransferOutcome>? copying = null;
@@ -564,7 +564,7 @@ public sealed class ExactFileTransferRunnerTests
         try
         {
             System.IO.File.WriteAllBytes(original, new byte[checked((int)target.Size!.Value)]);
-            await files.WithCacheAsync(cache => { cache.Publish(original, target); return true; });
+            await files.WithCacheAsync(cache => { cache.Publish(original, target, song.WorkflowId); return true; });
             var outcome = await runner.DownloadFile(target, copy, song, settings, root,
                 30_000, publishToDuplicateCache: publishCopy);
             Assert.AreEqual(ExactFileTransferStatus.Completed, outcome.Status);
@@ -590,9 +590,9 @@ public sealed class ExactFileTransferRunnerTests
         try
         {
             System.IO.File.WriteAllBytes(output, new byte[16]);
-            await files.WithCacheAsync(cache => { cache.Publish(output, first); return true; });
+            await files.WithCacheAsync(cache => { cache.Publish(output, first, Guid.NewGuid()); return true; });
             System.IO.File.WriteAllBytes(output, Enumerable.Repeat((byte)1, 16).ToArray());
-            await files.WithCacheAsync(cache => { cache.Publish(output, second); return true; });
+            await files.WithCacheAsync(cache => { cache.Publish(output, second, Guid.NewGuid()); return true; });
 
             Assert.IsNull(await ReusableAsync(files, first));
             var retained = await ReusableAsync(files, second);

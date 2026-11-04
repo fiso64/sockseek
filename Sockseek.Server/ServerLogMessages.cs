@@ -31,8 +31,8 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4008, LogLevel.Error, "Persistence drain timed out; runtime {RuntimeId} remains unfinished for startup reconciliation")]
     internal static partial void PersistenceDrainTimedOut(ILogger logger, Guid? runtimeId);
 
-    [LoggerMessage(4009, LogLevel.Information, "Persistence retention pruned {PrunedJobs} jobs, {PrunedSearchResults} raw search results, and {PrunedChatMessages} chat messages in {DurationMilliseconds} ms")]
-    internal static partial void PersistenceRetentionCompleted(ILogger logger, int prunedJobs, int prunedSearchResults, int prunedChatMessages, long durationMilliseconds);
+    [LoggerMessage(4009, LogLevel.Information, "Persistence retention pruned {PrunedJobs} jobs, {PrunedSearchResults} raw search results, {PrunedTransfers} transfers, and {PrunedChatMessages} chat messages in {DurationMilliseconds} ms")]
+    internal static partial void PersistenceRetentionCompleted(ILogger logger, int prunedJobs, int prunedSearchResults, int prunedTransfers, int prunedChatMessages, long durationMilliseconds);
 
     [LoggerMessage(4010, LogLevel.Error, "Scheduled persistence retention failed")]
     internal static partial void PersistenceRetentionFailed(ILogger logger, Exception exception);

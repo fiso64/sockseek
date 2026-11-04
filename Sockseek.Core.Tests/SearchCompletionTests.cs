@@ -14,6 +14,48 @@ namespace Tests.Unit;
 public class SearchCompletionTests
 {
     [TestMethod]
+    public async Task Search_MalformedEntriesAreIsolatedBeforeCandidateConversion()
+    {
+        var validFile = new Soulseek.File(1, @"Artist\Album\Zero.flac", 0, "flac");
+        var validLocked = new Soulseek.File(1, @"Artist\Album\Locked.flac", 42, "flac");
+        var healthy = Response(2);
+        var responses = new[]
+        {
+            new SearchResponse("Bad\nPeer", 1, true, 1000, 0, [validFile]),
+            new SearchResponse("Exact Peer", 1, true, 1000, 3,
+                [new Soulseek.File(1, "", 1, "flac"), validFile, new Soulseek.File(1, "negative.flac", -1, "flac")],
+                [new Soulseek.File(1, "invalid\ud800.flac", 1, "flac"), validLocked]),
+            healthy,
+        };
+        var client = new MockSoulseekClient([])
+        {
+            SearchHandler = (query, callback, options, ct) =>
+            {
+                foreach (var response in responses)
+                    callback(response);
+                SignalState(query, options, SearchStates.Completed);
+                return Task.FromResult(new Search(query, new SearchScope(SearchScopeType.Network), 1, SearchStates.Completed, 3, 7, 0));
+            },
+        };
+        var accepted = new List<SearchResponse>();
+        await SoulseekSearchRunner.RunAsync(client, new SearchQuery("Artist Album"), new SearchOptions(), response =>
+        {
+            // This is also the fast-search boundary: every admitted entry must
+            // be usable immediately, before a Search View has been requested.
+            foreach (var file in response.Files.Concat(response.LockedFiles))
+                _ = new PeerFileTarget(new PeerFileIdentity(response.Username, file.Filename), file.Size, file.Extension);
+            accepted.Add(response);
+        }, CancellationToken.None);
+
+        Assert.HasCount(2, accepted);
+        Assert.AreEqual("Exact Peer", accepted[0].Username);
+        Assert.AreEqual(3, accepted[0].QueueLength);
+        CollectionAssert.AreEqual(new[] { validFile }, accepted[0].Files.ToArray());
+        CollectionAssert.AreEqual(new[] { validLocked }, accepted[0].LockedFiles.ToArray());
+        Assert.AreSame(healthy, accepted[1], "Healthy responses should not be copied.");
+    }
+
+    [TestMethod]
     public async Task Search_CompletedSearchKeepsConcurrentResponsesWhenLibraryCleanupFails()
     {
         var cleanupFailure = SearchTestFaults.CreateDisposalFailure();

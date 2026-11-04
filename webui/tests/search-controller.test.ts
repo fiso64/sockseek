@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { DaemonApiClient } from '../src/api/client';
 import { DaemonApiError } from '../src/api/http';
 import type { Schema, SearchViewFilePageDto, SearchViewSummaryDto, SearchViewUpdateDto } from '../src/api/types';
+import { allSearchResultsSelected, SearchSelection } from '../src/domains/search/selection';
 import { SearchViewController } from '../src/domains/search/controller';
 import { emptySearchDraft } from '../src/domains/search/model';
 
@@ -46,6 +47,34 @@ function open(controller: SearchViewController, id: string) {
 }
 
 describe('Search View request isolation', () => {
+  it('recognizes explicit whole selections while retaining file and branch exclusions', () => {
+    const view = { ...summary('view'), kind: 'GenericDirectories' as const,
+      counters: { ...summary('view').counters, topLevelItemCount: 2, publicFileCount: 6, projectedPublicFileCount: 4 } };
+    const selection = new SearchSelection();
+    selection.observe(view);
+    const all = () => allSearchResultsSelected({ ...selection.value, summary: view });
+    selection.toggle('first', true);
+    expect(all()).toBe(false);
+    selection.toggle('second', true);
+    expect(all()).toBe(true);
+    selection.toggle('child', false, 'first');
+    expect(all()).toBe(false);
+    selection.toggle('child', true, 'first');
+    expect(all()).toBe(true);
+    selection.selectAll(true);
+    selection.toggleDirectoryPath('first', 'nested', false);
+    expect(all()).toBe(false);
+    selection.selectAll(false);
+    selection.toggle('child', true, 'first');
+    expect(allSearchResultsSelected({ ...selection.value, summary: view,
+      selectionCounts: { revision: 1, selectedItemCount: 2, publicFileCount: 4, lockedFileCount: 0 } })).toBe(true);
+    expect(allSearchResultsSelected({ ...selection.value, summary: { ...view, kind: 'AlbumDirectories',
+      counters: { ...view.counters, topLevelItemCount: 1 } },
+      selectionRefs: new Set(['file']), selectionCounts: { revision: 1, selectedItemCount: 1, publicFileCount: 1, lockedFileCount: 0 } })).toBe(false);
+    expect(allSearchResultsSelected({ ...selection.value, summary: { ...view, kind: 'AggregateAlbums' },
+      selectionCounts: { revision: 1, selectedItemCount: 1, publicFileCount: 4, lockedFileCount: 0 } })).toBe(false);
+  });
+
   it.each(['track', 'generic', 'album', 'song-aggregate', 'album-aggregate'] as const)(
     'keeps an all-except %s selection exact while new results arrive', async mode => {
       const commits: Parameters<DaemonApiClient['commitSearchView']>[] = [];
@@ -75,8 +104,11 @@ describe('Search View request isolation', () => {
       const controller = new SearchViewController(new Api(), 60_000);
       try {
         await controller.open({ job: { jobId: 'search' }, view: view(1), draft: { ...emptySearchDraft, resultMode: mode } });
+        expect(allSearchResultsSelected(controller.current())).toBe(false);
         controller.selectAll(true);
+        expect(allSearchResultsSelected(controller.current())).toBe(true);
         controller.toggle('excluded', false);
+        expect(allSearchResultsSelected(controller.current())).toBe(false);
         await controller.refresh();
         expect(controller.current().summary?.counters.topLevelItemCount).toBe(3);
         expect(controller.selectedCount()).toBe(1);

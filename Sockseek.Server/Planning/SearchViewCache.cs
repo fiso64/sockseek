@@ -263,7 +263,7 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
         cancellationToken.ThrowIfCancellationRequested();
         TimeSpan lifetime = retention ?? DefaultRetention;
         if (lifetime <= TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(retention));
-        PruneExpired(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         var now = clock.GetUtcNow();
         var projectionKind = definition.Projection.Kind;
         var summary = new SearchViewInfo(Guid.NewGuid(), sourceJobId, definition,

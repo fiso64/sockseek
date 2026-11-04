@@ -2,7 +2,7 @@ import { test, expect, deferInitialDaemonSnapshot } from './fixtures';
 import { performance } from 'node:perf_hooks';
 import type { Schema } from '../src/api/types';
 
-test('keeps mixed Jobs rows legible at narrow width with singular search counts', async ({ page, daemon }) => {
+test('separates search and download tabs with narrow rows, retained jobs and browser navigation', async ({ page, daemon }) => {
   const releaseSnapshot = await deferInitialDaemonSnapshot(page);
   let historyReads = 0;
   page.on('request', request => {
@@ -11,7 +11,7 @@ test('keeps mixed Jobs rows legible at narrow width with singular search counts'
   try {
     await page.setViewportSize({ width: 390, height: 900 });
     await page.goto('/jobs');
-    await expect(page.getByText('Loading jobs', { exact: true })).toBeVisible();
+    await expect(page.getByRole('status', { name: 'Loading jobs', exact: true })).toBeVisible();
     const list = await page.request.post('/api/jobs/lists', { data: {
       name: 'Fixture album download', jobs: [{ kind: 'remote-file', target: {
         username: 'fixture-peer', filename: 'Fixture\\Fixture song.txt', size: 128, extension: '.txt',
@@ -37,7 +37,7 @@ test('keeps mixed Jobs rows legible at narrow width with singular search counts'
     await expect(searchRow.locator('.job-type-badge')).toHaveText('File Search');
     await expect(searchRow.locator('.search-history-stats')).toContainText('1 file');
     await expect(searchRow.locator('.search-history-stats')).toContainText('1 peer');
-    await expect(page.locator('.search-history-row')).toHaveCount(2);
+    await expect(page.locator('.search-history-row')).toHaveCount(1);
     expect(historyReads).toBe(0);
     const layout = await page.locator('.search-history-row').evaluateAll((rows) => rows.map((row) => {
       const context = row.querySelector('.search-history-context')!.getBoundingClientRect();
@@ -49,6 +49,13 @@ test('keeps mixed Jobs rows legible at narrow width with singular search counts'
       expect(row.verticalGap).toBeGreaterThanOrEqual(0);
       expect(row.rightOverflow).toBeLessThanOrEqual(0);
     }
+    await page.getByRole('tab', { name: 'Download jobs', exact: true }).click();
+    await expect(page.locator('.search-history-query')).toHaveText('Fixture album download');
+    await expect(page.getByRole('tab', { name: 'Download jobs', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await page.goBack();
+    await expect(searchRow).toBeVisible();
+    await page.goForward();
+    await expect(page.locator('.search-history-query')).toHaveText('Fixture album download');
     // A transfer acknowledgement during connection hydration must not trigger
     // a second Jobs HTTP path alongside the canonical list observation.
     await page.route('**/api/daemon/snapshot*', async route => {
@@ -57,8 +64,8 @@ test('keeps mixed Jobs rows legible at narrow width with singular search counts'
     });
     historyReads = 0;
     await page.reload();
-    await expect(page.getByLabel('Connection status').locator('strong').nth(1)).toHaveText('Connected');
-    await expect(page.locator('.search-history-row')).toHaveCount(2);
+    await expect(page.getByLabel('Connection status').locator('strong')).toContainText('Connected');
+    await expect(page.locator('.search-history-row')).toHaveCount(1);
     expect(historyReads).toBe(0);
   } finally { releaseSnapshot(); }
 });
@@ -83,7 +90,7 @@ test('keeps loaded Jobs rows visible when a later observation fails', async ({ p
     } }],
   } satisfies Schema<'SubmitJobListRequestDto'> });
   expect(response.status()).toBe(202);
-  await page.goto('/jobs');
+  await page.goto('/jobs?tab=downloads');
   const row = page.locator('.search-history-row').filter({ hasText: 'Cached root' });
   await expect(row).toBeVisible();
 
@@ -156,10 +163,10 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
   await expect(page.locator('.job-detail-heading-summary .search-status-badge')).toHaveText('Running');
   await expect(page.locator('.job-child-row')).toHaveCount(100);
   const previousChildReads = childReads;
-  await page.getByRole('button', { name: 'Load more jobs', exact: true }).click();
+  await page.getByRole('button', { name: 'Load more', exact: true }).click();
   await expect(page.locator('.job-child-row')).toHaveCount(101);
   expect(childReads).toBe(previousChildReads + 1);
-  await expect(page.getByRole('button', { name: 'Load more jobs', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
   await daemon.command('release-download');
   await expect(page.locator('.job-child-row .search-status-badge')).toHaveText(Array(101).fill('Complete'));
   listing = true;
@@ -167,12 +174,12 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
   await page.getByRole('button', { name: 'Jobs', exact: true }).click();
   await expect(page.locator('.search-history-query')).toHaveText(
     Array.from({ length: 100 }, (_, index) => `Paging parent ${101 - index}`));
-  await expect(page.locator('.search-history-row .search-status-badge')).toHaveText(Array(100).fill('Complete'));
+  await expect(page.locator('.search-history-row .search-status-badge')).toHaveCount(0);
   await expect(page.locator('.job-type-badge.import')).toHaveText(Array(99).fill('Text import'));
   const initialListingMs = Math.round(performance.now() - listingStarted);
   expect(lookups).toEqual([99]);
   expect(detailReads).toEqual([]);
-  const earlier = page.getByRole('button', { name: 'Load earlier jobs', exact: true });
+  const earlier = page.getByRole('button', { name: 'Load more', exact: true });
   await expect(earlier).toBeEnabled();
   expect(observedLimits).toEqual([100]);
   expect(historyReads).toBe(0);
@@ -183,9 +190,19 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
   expect(historyReads).toBe(0);
   await expect(earlier).toHaveCount(0);
   await expect(page.locator('.job-type-badge.import')).toHaveText(Array(100).fill('Text import'));
-  await expect(page.locator('.search-history-row .search-status-badge')).toHaveText(Array(101).fill('Complete'));
+  await expect(page.locator('.search-history-row .search-status-badge')).toHaveCount(0);
   expect(lookups).toEqual([99, 1]);
   expect(detailReads).toEqual([]);
+
+  await page.locator('.page-content').evaluate(element => { element.scrollTop = 400; element.dispatchEvent(new Event('scroll')); });
+  await page.getByRole('tab', { name: 'Searches', exact: true }).click({ force: true });
+  await expect(page.getByText('No searches yet', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Download jobs', exact: true }).click();
+  await expect(page.locator('.search-history-row')).toHaveCount(101);
+  expect(Math.abs(await page.locator('.page-content').evaluate(element => element.scrollTop) - 400)).toBeLessThan(20);
+  expect(observedLimits.slice(-2)).toEqual([100, 200]);
+  // Linked result summaries refresh on remount, once for the displayed window.
+  lookups.length = 0;
 
   // One failed batch must keep the unrelated parent healthy, and one Retry
   // must recover all affected imports rather than demand 99 separate clicks.
@@ -194,10 +211,10 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
   }), { times: 1 });
   await page.reload();
   await expect(page.locator('.search-history-row .search-status-badge'))
-    .toHaveText(['Complete', ...Array(99).fill('Result unavailable')]);
+    .toHaveText(Array(99).fill('Result unavailable'));
   await page.getByRole('button', { name: 'Retry', exact: true }).first().click();
-  await expect(page.locator('.search-history-row .search-status-badge')).toHaveText(Array(100).fill('Complete'));
-  expect(lookups).toEqual([99, 1, 99, 99]);
+  await expect(page.locator('.search-history-row .search-status-badge')).toHaveCount(0);
+  expect(lookups).toEqual([99, 99]);
   expect(detailReads).toEqual([]);
 });
 
@@ -254,18 +271,20 @@ test('keeps completed Jobs through a delayed list snapshot and reconnect', async
     if (['/api/jobs', '/api/jobs/snapshot'].includes(new URL(request.url()).pathname)) httpPages++;
   });
   try {
-    await page.goto('/jobs');
+    await page.goto('/jobs?tab=downloads');
     await captured;
-    await expect(page.getByText('Loading jobs', { exact: true })).toBeVisible();
+    await expect(page.getByRole('status', { name: 'Loading jobs', exact: true })).toBeVisible();
     await daemon.command('release-download');
     await retired;
     releaseList();
     const row = page.locator('.search-history-row').filter({ hasText: 'Delayed list fixture' });
-    await expect(row.locator('.search-status-badge')).toHaveText('Complete');
+    await expect(row).toBeVisible();
+    await expect(row.locator('.search-status-badge')).toHaveCount(0);
     await expect(row.getByRole('button', { name: 'Remove Delayed list fixture', exact: true })).toBeVisible();
     expect(httpPages).toBe(0);
     await page.reload();
-    await expect(row.locator('.search-status-badge')).toHaveText('Complete');
+    await expect(row).toBeVisible();
+    await expect(row.locator('.search-status-badge')).toHaveCount(0);
     expect(httpPages).toBe(0);
   } finally { releaseList(); }
 });

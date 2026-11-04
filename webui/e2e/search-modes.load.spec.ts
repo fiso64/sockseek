@@ -2,7 +2,7 @@ import { performance } from 'node:perf_hooks';
 import { rm, stat } from 'node:fs/promises';
 import { sep } from 'node:path';
 import type { Page, Request } from '@playwright/test';
-import { test, expect, measureApi } from './fixtures';
+import { test, expect, measureApi, expectFolderLayoutUnchanged } from './fixtures';
 import type { Schema } from '../src/api/types';
 
 test.use({ daemonLogMetrics: true, daemonAssertFastReads: true, trace: 'off' });
@@ -61,7 +61,7 @@ async function observeSearchDisplay(page: Page, selector: string, expectedRows: 
       const rows = document.querySelectorAll(selector).length;
       const elapsed = Math.round(performance.now() - submittedAt);
       if (rows > 0 && timing.firstResultDomMs === null) timing.firstResultDomMs = elapsed;
-      if (document.querySelector('.search-results-summary')?.textContent?.includes('Complete')) {
+      if (document.querySelector('.search-results-summary') && !document.querySelector('.search-results-summary .search-status-badge')) {
         timing.completeDomMs ??= elapsed;
         if (rows === expectedRows) timing.fullPageDomMs ??= elapsed;
       }
@@ -145,7 +145,9 @@ for (const mode of modes) {
     expect(Number(final!.counters.projectedPublicFileCount)).toBe(10_000);
     expect(Number(final!.counters.projectedLockedFileCount)).toBe(0);
 
-    await expect(page.locator('.search-results-summary')).toContainText('Complete');
+    await expect(page.locator('.search-results-summary')).toBeVisible();
+
+    await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
     await expect(page.locator(mode.selector)).toHaveCount(Math.min(topLevel, mode.kind === 'Files' ? 500 : 100));
     const uiMs = Math.round(performance.now() - started);
     const displayTiming = await displayObserver.evaluate(observer => observer.finish());
@@ -377,7 +379,7 @@ for (const mode of modes) {
         const moreResponse = page.waitForResponse(next => next.ok()
           && next.request().method() === 'GET'
           && new URL(next.url()).pathname.endsWith('/alternatives'));
-        await page.getByRole('button', { name: 'Load more options', exact: true }).click();
+        await page.getByRole('button', { name: 'Load more', exact: true }).click();
         const next = await moreResponse;
         const nextPage = await next.json() as typeof optionPage;
         optionsMoreRows = nextPage.items.length;
@@ -649,7 +651,7 @@ for (const mode of modes) {
           await expect(page.locator('.folder-item-card').first().getByLabel('Full folder loaded', { exact: true })).toBeVisible();
           browseUiMs = Math.round(performance.now() - browseStarted);
           await expect(page.getByRole('button', { name: 'Download 10', exact: true })).toBeEnabled();
-          await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+          await page.getByRole('button', { name: 'Deselect all', exact: true }).click();
           await page.locator('.folder-item-card').first().getByRole('checkbox', { name: 'Select all files in Fixture Album-00', exact: true }).check();
           await expect(page.getByRole('button', { name: 'Download 11', exact: true })).toBeEnabled();
           expect(Number(loaded.publicMatchingFileCount)).toBe(10);
@@ -785,7 +787,7 @@ for (const mode of modes) {
           await expect(page.getByRole('heading', { name: 'Generated albums', exact: true })).toBeVisible();
           await expect(page.locator('.job-child-row')).toHaveCount(10);
           await expect(page.locator('.job-child-copy small')).toHaveText(Array(10).fill(/^Album ·/));
-          await expect(page.getByRole('button', { name: 'Load more jobs', exact: true })).toHaveCount(0);
+          await expect(page.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
         } else {
           await expect(page.locator('.folder-item-card .folder-file-row')).toHaveCount(11, { timeout: 30_000 });
           await expect(page.locator('.folder-item-card')).toContainText('10 - Fixture Bonus.flac');
@@ -797,7 +799,7 @@ for (const mode of modes) {
       // second test-only status polling loop or a fixed transfer wait.
       // The aggregate writes ~1 GB across 110 files and builds large peer
       // indexes. Its I/O completion budget is separate from the 100-ms reads.
-      await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveText('Complete', {
+      await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveCount(0, {
         timeout: mode.kind === 'AggregateAlbums' ? 60_000 : 30_000,
       });
       const rootResponse = await measureApi(daemon.url, `/api/jobs/${root.jobId}`);
@@ -1032,7 +1034,8 @@ for (const mode of modes) {
     expect(Number(final.counters.publicFileCount)).toBe(10_000);
     expect(Number(final.counters.projectedFileCount)).toBe(10_000);
     expect(Number(final.counters.topLevelItemCount)).toBe(mode.expectedRoots);
-    await expect(page.locator('.search-results-summary')).toContainText('Complete');
+    await expect(page.locator('.search-results-summary')).toBeVisible();
+    await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
     if (laterPage) {
       const collapsed = page.getByRole('button', { name: /^Expand fixture-peer-000 / }).first();
       await expect(collapsed, 'Live insertion must preserve the collapsed peer group.').toBeVisible();
@@ -1156,7 +1159,8 @@ for (const { mode, shape } of [
       projectedPublicFileCount: 100_000, projectedLockedFileCount: 0, topLevelItemCount: expectedRoots });
     expect(Number(final.counters.preferredFileCount) + Number(final.counters.otherFileCount)).toBe(100_000);
     expect(first.items).toHaveLength(displayed);
-    await expect(page.locator('.search-results-summary')).toContainText('Complete');
+    await expect(page.locator('.search-results-summary')).toBeVisible();
+    await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
     await expect(page.locator(mode.selector)).toHaveCount(displayed);
     const display = await displayObserver.evaluate(observer => observer.finish());
     await displayObserver.dispose();
@@ -1178,7 +1182,7 @@ for (const { mode, shape } of [
     if (first.nextCursor) {
       const continued = page.waitForResponse(response => response.ok()
         && rootPath(new URL(response.url())) && new URL(response.url()).searchParams.has('cursor'));
-      await page.getByRole('button', { name: 'Load more results', exact: true }).click();
+      await page.getByRole('button', { name: 'Load more', exact: true }).click();
       const next = await (await continued).json() as ResultPage;
       expect(next.revision.revision).toBe(final.revision);
       expect(next.items).toHaveLength(Math.min(pageSize, expectedRoots - displayed));
@@ -1216,7 +1220,7 @@ for (const { mode, shape } of [
       expect(options.items.every(item => item.initialFiles?.items.length === 10)).toBe(true);
       await expect(page.getByRole('dialog').locator('.aggregate-option')).toHaveCount(100);
       const moreResponse = observeOptions();
-      await page.getByRole('button', { name: 'Load more options', exact: true }).click();
+      await page.getByRole('button', { name: 'Load more', exact: true }).click();
       const more = await (await moreResponse).json() as typeof options;
       expect(more.items).toHaveLength(100);
       expect(new Set([...options.items, ...more.items].map(item => item.ref.ref)).size).toBe(200);
@@ -1239,6 +1243,8 @@ for (const { mode, shape } of [
       // and excluding one displayed group must update both the count and action.
       const filesPerGroup = mode.kind === 'AggregateAlbums' ? 10 : 1;
       const countPath = `/api/search-views/${final.viewId}/selection-counts`;
+      await page.locator('.aggregate-header-select-button').first().click();
+      await expect(page.getByRole('button', { name: `Download ${filesPerGroup}`, exact: true })).toBeEnabled();
       const countRequests: string[] = [];
       const recordCount = (request: Request) => {
         if (new URL(request.url()).pathname === countPath) countRequests.push(request.postData() ?? '');
@@ -1321,7 +1327,7 @@ for (const { mode, shape } of [
               .some(button => button.textContent?.trim() === 'Download 1' && !button.disabled);
             firstResultDomMs ??= elapsed;
             if (ready) firstDownloadReadyMs ??= elapsed;
-            if (document.querySelector('.search-results-summary')?.textContent?.includes('Complete')) {
+            if (document.querySelector('.search-results-summary') && !document.querySelector('.search-results-summary .search-status-badge')) {
               completeDomMs ??= elapsed;
               if (ready) completedDownloadReadyMs ??= elapsed;
             }
@@ -1349,7 +1355,8 @@ for (const { mode, shape } of [
       expect(filtered.items[0]!.shareCount).toBe(10);
       await expect(page.locator('.aggregate-result-group')).toHaveCount(1);
       await expect(page.locator('.result-refinement-status')).toHaveCount(0);
-      await expect(page.locator('.search-results-summary')).toContainText('Complete');
+      await expect(page.locator('.search-results-summary')).toBeVisible();
+      await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
       const filterTiming = await filteredDisplay.evaluate(observer => observer.finish());
       await filteredDisplay.dispose();
@@ -1402,16 +1409,17 @@ test('projects 100k File Search hits from 20 peers with 25 folders of 200 files 
   await page.locator('#global-search-simple').press('Enter');
   expect((await (await initialPage).json() as Schema<'SearchViewDirectoryPageDto'>).revision.isComplete).toBe(false);
   await expect(page.locator('.folder-item-card')).toHaveCount(5);
-  await expect(page.locator('.folder-file-row')).toHaveCount(5 * 24);
+  await expect(page.locator('.folder-file-row')).toHaveCount(5 * 100);
   await expect(page.locator('.search-results-summary')).toContainText('Searching');
 
   const finished = waitForCompleteView(page);
   const releasedAt = performance.now();
   await daemon.command('next-search-batch');
   const summary = await finished;
-  await expect(page.locator('.search-results-summary')).toContainText('Complete');
+  await expect(page.locator('.search-results-summary')).toBeVisible();
+  await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
   await expect(page.locator('.folder-item-card')).toHaveCount(100);
-  await expect(page.locator('.folder-file-row')).toHaveCount(100 * 24);
+  await expect(page.locator('.folder-file-row')).toHaveCount(100 * 100);
   const finalBatchToDomMs = Math.round(performance.now() - releasedAt);
   await Promise.all(captures);
   expect(captureErrors).toEqual([]);
@@ -1427,16 +1435,18 @@ test('projects 100k File Search hits from 20 peers with 25 folders of 200 files 
     'Folder previews come with the root page, without one request per card.').toHaveLength(0);
   const directoryReads = reads.filter(read => /\/api\/search-views\/[^/]+\/directories\?/.test(read.path));
   expect(directoryReads.length).toBeGreaterThan(1);
-  expect(Math.max(...directoryReads.map(read => read.milliseconds)),
-    'A bounded page with previews must stay responsive during ingestion, not repeatedly scan whole folders.').toBeLessThan(500);
+  console.log('PERF_DIRECTORY_PAGE_READS ' + JSON.stringify(directoryReads));
   const timing = await display.evaluate(timing => timing.finish());
   await display.dispose();
   expect(timing.firstResultDomMs).not.toBeNull();
   expect(timing.fullPageDomMs).not.toBeNull();
   await page.screenshot({ path: testInfo.outputPath('100k-files-20-peers.png') });
   console.log('PERF_DISTRIBUTED_SEARCH ' + JSON.stringify({ peers: 20, foldersPerPeer: 25, filesPerFolder: 200,
-    totalFiles: 100_000, firstBatchFiles: 1_000, displayedFolders: 100, displayedPreviewFiles: 2_400,
+    totalFiles: 100_000, firstBatchFiles: 1_000, displayedFolders: 100, displayedPreviewFiles: 10_000,
     finalBatchToDomMs, ...timing, reads }));
+  await expectFolderLayoutUnchanged(page, '.redesigned-search-page');
+  expect(Math.max(...directoryReads.map(read => read.milliseconds)),
+    'A bounded page with previews must stay responsive during ingestion, not repeatedly scan whole folders.').toBeLessThan(500);
 });
 
 test('keeps an unread projection at its prefix through a 100k-result burst @Load', async ({ page, daemon }) => {
@@ -1619,9 +1629,9 @@ test('pages a 100k-file search folder and downloads one continued child @Load', 
   await expect(page.locator('.search-results-summary')).toContainText('Searching');
   const folder = page.locator('.folder-item-card');
   await expect(folder).toHaveCount(1);
-  await expect(folder.locator('.folder-file-row')).toHaveCount(24);
+  await expect(folder.locator('.folder-file-row')).toHaveCount(100);
   expect(childRequests).toHaveLength(0);
-  const more = page.getByRole('button', { name: 'Load more matching files', exact: true });
+  const more = page.getByRole('button', { name: 'Load more', exact: true });
   await expect(more).toBeEnabled();
   const continuedStarted = performance.now();
   const [response] = await Promise.all([
@@ -1631,7 +1641,7 @@ test('pages a 100k-file search folder and downloads one continued child @Load', 
   ]);
   expect(response.ok(), await response.text()).toBe(true);
   const files = await response.json() as Schema<'SearchViewDirectoryFilePageDto'>;
-  await expect(folder.locator('.folder-file-row')).toHaveCount(524);
+  await expect(folder.locator('.folder-file-row')).toHaveCount(600);
   const continuedUiMs = Math.round(performance.now() - continuedStarted);
   const continuedApiMs = Math.round(response.request().timing().responseEnd);
   expect(childRequests).toHaveLength(1);
@@ -1640,7 +1650,7 @@ test('pages a 100k-file search folder and downloads one continued child @Load', 
   expect(files.items).toHaveLength(500);
   expect(files.nextCursor).toBeTruthy();
   expect(files.items.map(item => item.file.remoteFilename)).toEqual(Array.from({ length: 500 }, (_, index) =>
-    'Fixture\\Album-000\\track-000-' + String(index + 24).padStart(6, '0') + '.txt'));
+    'Fixture\\Album-000\\track-000-' + String(index + 100).padStart(6, '0') + '.txt'));
   expect(continuedApiMs, 'A 500-file page must not join metadata for all 100k members.').toBeLessThan(100);
   const chosen = files.items.at(-1)!.file;
   const counted = page.waitForResponse(result => result.request().method() === 'POST'
@@ -1657,8 +1667,9 @@ test('pages a 100k-file search folder and downloads one continued child @Load', 
   const advanced = directoryPageAt(2000);
   await daemon.command('next-search-batch');
   await advanced;
-  await expect(folder.locator('.folder-file-row')).toHaveCount(524);
-  await expect(folder.locator('.folder-file-row').last().getByRole('checkbox')).toBeChecked();
+  await expect(folder.locator('.folder-file-row')).toHaveCount(600);
+  await expect(page.getByText('Selection from earlier results', { exact: true })).toBeVisible();
+  await expect(folder.getByRole('checkbox')).toHaveCount(0);
   await expect(page.locator('.search-results-summary')).toContainText('Searching');
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
   const output = testInfo.outputPath('selected-download');
@@ -1682,6 +1693,7 @@ test('pages a 100k-file search folder and downloads one continued child @Load', 
   const commit = await committed;
   expect(commit.status(), await commit.text()).toBe(202);
   const receipt = await commit.json() as Schema<'CommitSearchViewSelectionResponseDto'>;
+  expect(String(commit.request().postDataJSON().revision)).toBe(String(initialSummary.revision));
   expect(Number(receipt.submittedCount)).toBe(1);
   expect(Number(receipt.rejectedCount)).toBe(0);
   // The source may have retired while its View still publishes queued results.
@@ -1696,9 +1708,11 @@ test('pages a 100k-file search folder and downloads one continued child @Load', 
   expect(Number(summary.counters.publicFileCount)).toBe(100_000);
   expect(Number(summary.counters.observedPeerCount)).toBe(1);
   expect(Number(summary.counters.topLevelItemCount)).toBe(1);
-  await expect(page.locator('.search-results-summary')).toContainText('Complete');
-  await expect(folder.locator('.folder-file-row')).toHaveCount(524);
-  await expect(folder.locator('.folder-file-row').last().getByRole('checkbox')).toBeChecked();
+  await expect(page.locator('.search-results-summary')).toBeVisible();
+  await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
+  await expect(folder.locator('.folder-file-row')).toHaveCount(600);
+  await expect(page.getByText('Selection from earlier results', { exact: true })).toBeVisible();
+  await expect(folder.getByRole('checkbox')).toHaveCount(0);
   page.off('requestfinished', observeFinished);
   await Promise.all(captured);
   expect(captureErrors).toEqual([]);

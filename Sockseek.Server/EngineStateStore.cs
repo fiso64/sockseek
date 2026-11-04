@@ -296,6 +296,8 @@ public sealed class EngineStateStore
         lock (gate)
         {
             RecordTerminalTransferCommit();
+            // A retry can supersede an already-retired upload in the same commit.
+            transferState.MarkHistoryChanged();
             foreach (var (id, revision) in committed)
             {
                 var row = liveUploadTransfers.GetValueOrDefault(id) ?? activeTransfers.GetValueOrDefault(id);

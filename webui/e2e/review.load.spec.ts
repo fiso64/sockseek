@@ -32,7 +32,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
   });
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
-  await page.getByRole('button', { name: 'CSV file CSV of songs and albums' }).click();
+  await page.getByRole('button', { name: 'CSV file', exact: true }).click();
   await page.locator('input[type=file]').setInputFiles({
     name: 'large-review.csv', mimeType: 'text/csv',
     buffer: Buffer.from(['artist,title', 'Fixture,Fixture song',
@@ -240,7 +240,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
       console.log('PERF_REVIEW_QUEUED_READ ' + JSON.stringify({ queuedRootApiMs, queuedPageApiMs,
         childCount: queuedDetail.childCount }));
       try {
-        await page.getByRole('button', { name: 'Load more jobs', exact: true }).click();
+        await page.getByRole('button', { name: 'Load more', exact: true }).click();
         await expect(page.locator('.job-child-row')).toHaveCount(200);
       } finally {
         console.log('PERF_REVIEW_PAGING ' + JSON.stringify({ jobReads, childPages }));

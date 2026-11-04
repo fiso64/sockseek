@@ -22,8 +22,10 @@ public sealed class PersistenceMaintenanceHostedService(
         using var timer = new PeriodicTimer(options.RetentionInterval);
         try
         {
-            while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
+            // Run on startup too: a daemon restarted daily must still expire history.
+            do
             {
+                timer.Period = options.RetentionInterval;
                 try
                 {
                     var started = TimeProvider.System.GetTimestamp();
@@ -40,10 +42,17 @@ public sealed class PersistenceMaintenanceHostedService(
                     while (mayHaveMore
                         && TimeProvider.System.GetElapsedTime(started) < MaximumContinuousRetentionWork);
 
+                    // Yield between bounded maintenance turns, without abandoning
+                    // an accumulated backlog until the next daily interval.
+                    if (mayHaveMore)
+                        timer.Period = TimeSpan.FromTicks(Math.Min(options.RetentionInterval.Ticks,
+                            TimeSpan.FromMinutes(1).Ticks));
+
                     ServerLogMessages.PersistenceRetentionCompleted(
                         logger,
                         aggregate!.PrunedJobs,
                         aggregate.PrunedSearchResults,
+                        aggregate.PrunedTransfers,
                         aggregate.PrunedChatMessages,
                         aggregate.DurationMilliseconds);
                 }
@@ -56,6 +65,7 @@ public sealed class PersistenceMaintenanceHostedService(
                     ServerLogMessages.PersistenceRetentionFailed(logger, ex);
                 }
             }
+            while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false));
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {

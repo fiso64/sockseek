@@ -109,7 +109,8 @@ public sealed class SqliteInitializationTests
         Assert.AreEqual("1", Scalar(context, "PRAGMA foreign_keys;"));
         Assert.AreEqual("2", Scalar(context, "PRAGMA synchronous;"));
         Assert.IsFalse(context.Database.HasPendingModelChanges());
-        Assert.AreEqual(1, context.Database.GetMigrations().Count());
+        CollectionAssert.AreEqual(context.Database.GetMigrations().ToArray(),
+            (await context.Database.GetAppliedMigrationsAsync()).ToArray());
         Assert.AreEqual("0", Scalar(context,
             "SELECT COUNT(*) FROM sqlite_master WHERE name GLOB 'search_view*' OR name GLOB 'search_directory_observation*';"));
         Assert.AreEqual("1", Scalar(context,
@@ -199,7 +200,8 @@ public sealed class SqliteInitializationTests
         await using var preserved = await database.Factory.CreateDbContextAsync();
         await preserved.Database.OpenConnectionAsync();
         Assert.AreEqual("keep me", Scalar(preserved, "SELECT value FROM operator_data;"));
-        Assert.AreEqual(2, (await preserved.Database.GetAppliedMigrationsAsync()).Count());
+        CollectionAssert.AreEquivalent(preserved.Database.GetMigrations().Append(unknownMigration).ToArray(),
+            (await preserved.Database.GetAppliedMigrationsAsync()).ToArray());
     }
 
     [TestMethod]

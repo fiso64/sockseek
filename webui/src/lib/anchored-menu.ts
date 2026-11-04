@@ -36,12 +36,15 @@ function placeMenu(node: HTMLElement, options: AnchoredMenuOptions): void {
 
 /**
  * Positions an anchored popup menu inside the viewport and flips it above the
- * trigger when there is not enough room below. The menu itself remains fixed so
- * clipping/overflow containers cannot push it off-screen.
+ * trigger when there is not enough room below. The browser's popover layer keeps
+ * it above row stacking contexts and outside ancestor clipping. Components still
+ * own open/close state, outside clicks and Escape.
  */
 export function anchoredMenu(node: HTMLElement, initial: AnchoredMenuOptions) {
   let options = initial;
   let frame = 0;
+  node.popover = 'manual';
+  node.showPopover();
 
   const schedule = () => {
     cancelAnimationFrame(frame);

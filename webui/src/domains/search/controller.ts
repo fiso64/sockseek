@@ -1,3 +1,4 @@
+import { randomUUID } from '../../app/uuid';
 import { DaemonApiClient, daemonApi, defaultPageSize, nestedPageSize, type SubmittedSearch } from '../../api/client';
 import type {
   CommitSearchViewSelectionResponseDto,
@@ -639,7 +640,7 @@ export class SearchViewController {
       viewId: summary.viewId,
       revision: summary.revision,
       directory: directory.ref,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: randomUUID(),
     };
     this.retrievalRequests.set(ref, request);
     const inFlight = Symbol();

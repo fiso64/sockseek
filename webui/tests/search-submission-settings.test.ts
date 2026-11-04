@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { DaemonApiClient } from '../src/api/client';
 import { DaemonHttpClient } from '../src/api/http';
-import { albumQuery, emptySearchDraft, parseSearchResultMode, searchJobPath, songQuery, type SearchResultMode } from '../src/domains/search/model';
+import { albumQuery, editableSearchDraft, emptySearchDraft, parseSearchResultMode, searchJobPath, songQuery, type SearchResultMode } from '../src/domains/search/model';
 
 it('keeps only known result modes in search-detail URLs', () => {
   expect(searchJobPath('a/b', 'song-aggregate')).toBe('/jobs/a%2Fb?results=song-aggregate');
@@ -17,6 +17,9 @@ it('restores album context and search hints independently on reopening', async (
   vi.spyOn(http, 'get').mockResolvedValue({ payload: { kind: 'search', albumQuery: query } });
   const opened = await new DaemonApiClient(http).openSearchJob({ jobId: 'job' });
   expect(opened.draft.mode).toBe('split');
+  expect(albumQuery(opened.draft)).toEqual(query);
+  const edited = { ...editableSearchDraft(opened.draft), artist: 'New artist', title: '' };
+  expect(albumQuery(edited)).toEqual({ artist: 'New artist', album: null, searchHint: null, uri: null, artistMaybeWrong: false });
   expect(albumQuery(opened.draft)).toEqual(query);
 });
 
@@ -38,6 +41,9 @@ it('restores structured track fields from retained detail instead of parsing dis
   expect(opened.draft).toMatchObject({ mode: 'split', artist: 'Artist — Name', title: 'Track', expectedLength: 180 });
   expect(songQuery(opened.draft)).toMatchObject({ artist: 'Artist — Name', title: 'Track', length: 180,
     album: 'Album context', uri: 'source:track', artistMaybeWrong: true });
+  expect(songQuery({ ...editableSearchDraft(opened.draft), title: 'New track' })).toMatchObject({
+    title: 'New track', length: 180, album: null, uri: null, artistMaybeWrong: false,
+  });
 });
 
 it('uses only a compatible result mode when reopening a retained search', async () => {

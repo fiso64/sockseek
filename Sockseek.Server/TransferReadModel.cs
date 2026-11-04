@@ -125,7 +125,7 @@ internal static class TransferReadModel
                             "POST",
                             $"/api/transfers/{transfer.TransferId:D}/cancel"),
                     ],
-                transfer.FinishedAtUtc),
+                transfer.FinishedAtUtc, transfer.FailureMessage),
             previous is not null && (fields & TransferFields.Progress) == 0 ? previous.Progress : new TransferProgressFieldsDto(
                 transfer.BytesTransferred,
                 transfer.SizeBytes,
@@ -294,6 +294,7 @@ public sealed class TransferReadSnapshot
         IsTerminal = transfer.State is UploadTransferState.Completed or UploadTransferState.Cancelled
             or UploadTransferState.Failed or UploadTransferState.Interrupted;
         CompletedAtUtc = transfer.FinishedAtUtc;
+        FailureMessage = transfer.FailureMessage;
         // Preserve validation at admission rather than deferring invalid numeric
         // input until every subsequent reader attempts to project it.
         BytesPerSecond = checked((long)Math.Max(0, transfer.BytesPerSecond));

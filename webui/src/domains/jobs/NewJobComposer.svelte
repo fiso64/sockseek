@@ -1,11 +1,13 @@
 <script lang="ts">
+  import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { onMount, untrack } from 'svelte';
   import Icon from '../../components/Icon.svelte';
   import ExpandableSettingsPanel from '../../components/ExpandableSettingsPanel.svelte';
   import DownloadOptionsPanel from '../../components/DownloadOptionsPanel.svelte';
   import SearchConfigPanel from '../../components/SearchConfigPanel.svelte';
+  import type { SearchDraft } from '../search/model';
   import type { SearchConditions } from '../search/config-state';
-  import { readSearchConditions, rebaseSearchConditions, searchConditionsPatchForFamily, searchExpectedLength } from '../search/config-mapping';
+  import { readSearchConditions, rebaseSearchConditions, searchConditionsPatchForFamily, searchExpectedLength, mergeSearchSettings } from '../search/config-mapping';
   import { buildDownloadOptionsPatch, downloadOptionsFromResolved, type DownloadOptions } from './download-options';
   import JobTypeNav, { jobChoiceMetadata } from './JobTypeNav.svelte';
   import JobInputs from './JobInputs.svelte';
@@ -17,11 +19,14 @@
   import { DaemonApiError } from '../../api/http';
   import { PreviewController, type PreviewState } from './preview-controller';
   import { selectedPreviewCount, selectedSubtreeCount, toggleSubtree, type SubtreeRule } from './preview-selection';
-  import { buildJobPreviewRequest, buildJobSettingsRequest, createNewJobDraft, type NewJobChoice, type NewJobDraft } from './submission';
+  import { buildJobPreviewRequest, buildJobSettingsRequest, createNewJobDraft, newJobDraftFromSearch, type NewJobChoice, type NewJobDraft } from './submission';
   import { jobKindIcon, jobKindLabel } from './kind';
 
-  let { onclose, onstarted, oncommittingchange }: { onclose: () => void; onstarted: () => void; oncommittingchange: (committing: boolean) => void } = $props();
-  let draft = $state(createNewJobDraft());
+  let { initialSearch = null, onstarted, oncommittingchange }: { initialSearch?: SearchDraft | null; onstarted: () => void; oncommittingchange: (committing: boolean) => void } = $props();
+  const initial = untrack(() => initialSearch);
+  let draft = $state(initial ? newJobDraftFromSearch(initial) : createNewJobDraft());
+  const initialChoice = untrack(() => draft.choice);
+  let carriedSearchSettings = $derived(draft.choice === initialChoice ? initial?.searchSettings : undefined);
   let choiceMetadata = $derived(jobChoiceMetadata(draft.choice));
   let downloadOpen = $state(false);
   let filteringOpen = $state(false);
@@ -109,6 +114,7 @@
   $effect(() => {
     settingsRetry;
     const requestDraft = { ...draft };
+    const carriedSettings = carriedSearchSettings;
     const requestFamily: ConditionFamily = requestDraft.choice === 'song' ? 'track' : requestDraft.choice === 'album' ? 'album' : 'mixed';
     const hasEditedSettings = untrack(() => downloadBaseline !== null || conditionSessions[requestFamily] !== null);
     if (!downloadOpen && !filteringOpen && !rankingOpen && !hasEditedSettings) return;
@@ -118,11 +124,12 @@
       settingsError = null;
       void (async () => {
         try {
-          const resolved = await daemonApi.resolveEffectiveSettings(buildJobSettingsRequest(requestDraft), abort.signal);
+          const resolved = await daemonApi.resolveEffectiveSettings({ ...buildJobSettingsRequest(requestDraft),
+            options: carriedSettings ? { downloadSettings: { search: carriedSettings } } : undefined }, abort.signal);
           if (abort.signal.aborted) return;
           const baseline = downloadOptionsFromResolved(resolved.settings);
           if (!resolved.settings.values.search) throw new Error('The daemon did not return resolved search settings.');
-          const searchBaseline = readSearchConditions(resolved.settings.values.search);
+          const searchBaseline = readSearchConditions(resolved.settings.values.search, requestDraft.expectedLength);
           const resolvedFamily = requestFamily;
           const previousConditions = conditionSessions[resolvedFamily];
           const nextConditions: ConditionSession = {
@@ -205,6 +212,7 @@
       next.artist = '';
       next.title = '';
       next.album = '';
+      next.expectedLength = undefined;
     } else if (choice !== 'csv' && choice !== 'list') {
       next.source = '';
       if (choice === 'spotify') next.spotifyInput = 'url';
@@ -241,10 +249,10 @@
   function plan(start: boolean): void {
     if (busy) return;
     try {
-      const settings: Schema<'DownloadSettingsPatchDto'> = { ...downloadPatch.downloadSettings };
+      const settings: Schema<'DownloadSettingsPatchDto'> = { ...downloadPatch.downloadSettings, search: carriedSearchSettings };
       if (conditionSession) {
         const searchEdits = searchConditionsPatchForFamily(family, conditionSession.baseline, conditionSession.values);
-        if (Object.keys(searchEdits).length) settings.search = { ...settings.search, ...searchEdits };
+        if (Object.keys(searchEdits).length) settings.search = mergeSearchSettings(settings.search ?? undefined, searchEdits);
         if (family === 'mixed' && conditionSession.values.track.expectedLength !== conditionSession.baseline.track.expectedLength) {
           throw new Error('Expected length belongs to each extracted song; it cannot be applied to every item in a mixed source.');
         }
@@ -276,9 +284,7 @@
   }
 </script>
 
-<svelte:window onkeydown={(event) => { if (event.key === 'Escape' && !preview.committing) onclose(); }} />
 <section class="new-job-composer" aria-label="New job">
-  <header class="new-job-heading"><h2>Create new job</h2><button type="button" class="new-job-close" aria-label="Close new job" disabled={Boolean(preview.committing)} onclick={onclose}><Icon name="x" /></button></header>
   <div class="new-job-layout" inert={preview.committing ? true : undefined}>
     <JobTypeNav value={draft.choice} onchange={choose} />
     <div class="new-job-workspace">
@@ -290,21 +296,21 @@
           {#if hasImportOptions}<ImportOptionsPanel value={importOptions} bind:open={importOptionsOpen} onchange={(value) => { change({ ...draft }); importOptions = value; }} />{/if}
           <section class="new-job-job-settings" aria-label="Job settings">
             <ExpandableSettingsPanel title="Filtering" summary={filteringCustomized ? 'Custom' : 'Defaults'} customized={filteringCustomized} bind:open={filteringOpen} bodyId="new-job-filtering-options">
-              {#if settingsLoading}<p role="status">Loading effective settings…</p>
+              {#if settingsLoading}<LoadingIndicator label="Loading effective settings" />
               {:else if settingsError}<p role="alert">{settingsError.message}</p><button type="button" onclick={() => settingsRetry++}>Retry settings</button>
               {:else if conditionSession}
                 <SearchConfigPanel mode={family === 'album' ? 'album' : 'track'} configurationFamily={family} bind:conditions={conditionSession.values} section="conditions" embedded expectedLengthEditable={draft.choice === 'song'} />
               {/if}
             </ExpandableSettingsPanel>
             <ExpandableSettingsPanel title="Ranking" summary={rankingCustomized ? 'Custom' : 'Defaults'} customized={rankingCustomized} bind:open={rankingOpen} bodyId="new-job-ranking-options">
-              {#if settingsLoading}<p role="status">Loading effective settings…</p>
+              {#if settingsLoading}<LoadingIndicator label="Loading effective settings" />
               {:else if settingsError}<p role="alert">{settingsError.message}</p><button type="button" onclick={() => settingsRetry++}>Retry settings</button>
               {:else if conditionSession}
                 <SearchConfigPanel mode={family === 'album' ? 'album' : 'track'} configurationFamily={family} bind:conditions={conditionSession.values} section="ranking" embedded />
               {/if}
             </ExpandableSettingsPanel>
             <ExpandableSettingsPanel title="Download" summary={downloadCustomized ? 'Custom' : 'Defaults'} customized={downloadCustomized} bind:open={downloadOpen} bodyId="new-job-download-options">
-              {#if settingsLoading}<p role="status">Loading effective settings…</p>
+              {#if settingsLoading}<LoadingIndicator label="Loading effective settings" />
               {:else if settingsError}<p role="alert">{settingsError.message}</p><button type="button" onclick={() => settingsRetry++}>Retry settings</button>
               {:else if downloadValues}
                 <div oninput={invalidatePreview}>

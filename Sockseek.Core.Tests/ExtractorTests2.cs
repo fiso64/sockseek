@@ -494,6 +494,37 @@ namespace Tests.ExtractorTests2
         }
 
         [TestMethod]
+        public async Task SourceRemovalDeduplicatesWithinWorkflowButAllowsLaterRuns()
+        {
+            var mutations = new Sockseek.Core.Transfers.Downloads.SourceMutations.SourceMutationCoordinator(
+                new DownloadEvents(), Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                    Sockseek.Core.Transfers.Downloads.SourceMutations.SourceMutationCoordinator>.Instance);
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            config.Extraction.RemoveTracksFromSource = true;
+            var first = new SongJob(new SongQuery { Title = "First" })
+            {
+                SourceMutation = SourceMutation.ClearCsvRow(_tempCsv, 2, 1, 2),
+            };
+            var second = new SongJob(new SongQuery { Title = "Later" }) { SourceMutation = first.SourceMutation };
+            File.WriteAllText(_tempCsv, "artist,title\nArtist,First\n");
+            await mutations.ApplyIfNeededAsync(first, config);
+            Assert.AreEqual(",", File.ReadAllLines(_tempCsv)[1]);
+
+            File.WriteAllText(_tempCsv, "artist,title\nArtist,Later\n");
+            await mutations.ApplyIfNeededAsync(first, config);
+            Assert.AreEqual("Artist,Later", File.ReadAllLines(_tempCsv)[1], "Duplicate completion must not mutate the source twice.");
+            await mutations.ApplyIfNeededAsync(second, config);
+            Assert.AreEqual(",", File.ReadAllLines(_tempCsv)[1], "A new workflow must process a repopulated row.");
+            Assert.AreEqual(2, mutations.RetainedWorkflowCount);
+            mutations.RetireWorkflow(first.WorkflowId);
+            mutations.RetireWorkflow(second.WorkflowId);
+            Assert.AreEqual(0, mutations.RetainedWorkflowCount);
+            File.WriteAllText(_tempCsv, "artist,title\nArtist,Successor\n");
+            await mutations.ApplyIfNeededAsync(first, config);
+            Assert.AreEqual(",", File.ReadAllLines(_tempCsv)[1], "A successor generation can reuse a retired workflow identity.");
+        }
+
+        [TestMethod]
         public async Task SourceMutationExecutor_ClearsCsvRowsWithoutTouchingHeader()
         {
             File.WriteAllText(_tempCsv, "artist,title\nArtist1,Song1\nArtist2,Song2\n");

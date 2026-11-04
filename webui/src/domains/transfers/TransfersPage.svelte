@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { onDestroy, untrack } from 'svelte';
   import { runTransferCommands } from './commands';
   import type { UserLinkActions } from '../../app/navigation';
@@ -462,11 +463,11 @@
   </div>
 
   {#if loading && !groups.length}
-    <div class="resource-state-notice loading blocking"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Loading {direction}s</strong><small>Fetching transfers.</small></span></div>
+    <LoadingIndicator label={`Loading ${direction}s`} blocking />
   {:else if error && !groups.length}
     <div class={`resource-state-notice ${daemonOffline ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : 'Transfers unavailable'}</strong><small>{daemonOffline ? direction === 'download' ? 'Current download state cannot be loaded while the daemon is offline.' : 'Current upload state cannot be loaded while the daemon is offline.' : error.message}</small></span>{#if !daemonOffline}<button type="button" onclick={() => void onchanged()}>Retry</button>{/if}</div>
   {:else if !groups.length && !error && coverage?.state === 'Available'}
-    <div class="resource-state-notice empty blocking" role="status"><span class="resource-state-dot" aria-hidden="true"></span><span class="resource-state-copy"><strong>No {direction}s</strong><small>{direction === 'download' ? 'Downloaded files and folders will appear here in creation order.' : 'Uploads will appear here as peers request shared files.'}</small></span></div>
+    <div class="resource-state-notice empty blocking" role="status"><span class="resource-state-dot" aria-hidden="true"></span><span class="resource-state-copy"><strong>No {direction}s</strong></span></div>
   {:else if groups.length}
     <div class="transfer-peer-list">
       {#each groups as group (group.key)}
@@ -507,6 +508,6 @@
         </section>
       {/each}
     </div>
-    {#if nextCursor}<LoadMoreButton label={`Load earlier ${direction}s`} loading={loading} onclick={onloadmore} />{/if}
+    {#if nextCursor}<LoadMoreButton loading={loading} onclick={onloadmore} />{/if}
   {/if}
 </section>

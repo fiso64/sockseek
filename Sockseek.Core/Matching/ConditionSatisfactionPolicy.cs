@@ -61,9 +61,12 @@ internal static class ConditionSatisfactionPolicy
         int visibleAudioFileCount,
         IEnumerable<string> visibleFilenames,
         AlbumQuery query,
-        SearchSettings search)
+        SearchSettings search,
+        bool enforceMinimumTrackCount)
     {
-        bool enforceMinimum = SearchResultsLikelyContainCompleteAlbumFolders(query, search);
+        // User-facing filters describe the files observed so far. Automatic
+        // discovery may defer a minimum until browsing the complete candidate.
+        bool enforceMinimum = enforceMinimumTrackCount || SearchResultsLikelyContainCompleteAlbumFolders(query, search);
         return AlbumFolderSatisfies(conditions, visibleAudioFileCount, visibleFilenames, enforceMinimum);
     }
 

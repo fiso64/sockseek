@@ -3,6 +3,8 @@ namespace Sockseek.Core.IO;
 /// <summary>
 /// Restricts reads to an exact declared length and converts an early underlying
 /// EOF into a deterministic failure instead of allowing a caller to spin.
+/// A seekable source retains its initial absolute position: Soulseek.NET reads
+/// Position again at completion, including when the peer resumed partway through.
 /// </summary>
 public sealed class ExactLengthReadStream : Stream
 {
@@ -21,7 +23,10 @@ public sealed class ExactLengthReadStream : Stream
 
         this.inner = inner;
         this.leaveOpen = leaveOpen;
-        remaining = length;
+        long startOffset = inner.CanSeek ? inner.Position : 0;
+        if (startOffset < 0 || startOffset > length)
+            throw new ArgumentOutOfRangeException(nameof(length), "Declared length must include the current stream position.");
+        remaining = length - startOffset;
         Length = length;
     }
 

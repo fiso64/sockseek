@@ -32,8 +32,8 @@ public readonly record struct PeerBrowseFileMetadata(int? BitRate, int? BitDepth
 
 
 /// <summary>
-/// Receives one materialized browse-response row at a time. Implementations are
-/// expected to retain rows in bounded transactions.
+/// Receives and validates one browse-response row at a time. Implementations own
+/// storage and publication; CompleteAsync publishes only a complete generation.
 /// </summary>
 public interface IPeerBrowseRowSink : IAsyncDisposable
 {

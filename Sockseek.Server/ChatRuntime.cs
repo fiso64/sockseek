@@ -179,7 +179,7 @@ public sealed class ChatRuntime : IAsyncDisposable
     {
         username = username.Trim();
         ChatIdentity.ValidateUsername(username);
-        text = ChatIdentity.ValidateMessage(text);
+        text = ChatIdentity.ValidateOutgoingMessage(text);
         EnsureReady();
         string account = Account;
         ISoulseekClient client = Client;
@@ -217,7 +217,7 @@ public sealed class ChatRuntime : IAsyncDisposable
     public async Task<ChatMessageRecord> SendRoomMessageAsync(
         Guid roomId, Guid messageId, string text, CancellationToken cancellationToken)
     {
-        text = ChatIdentity.ValidateMessage(text);
+        text = ChatIdentity.ValidateOutgoingMessage(text);
         EnsureReady();
         var room = await store.GetRoomAsync(Account, roomId, cancellationToken).ConfigureAwait(false)
                    ?? throw new KeyNotFoundException("The room was not found.");

@@ -17,6 +17,20 @@ namespace Tests.Server;
 public class EngineStateStoreTests
 {
     [TestMethod]
+    public void HistoryOnlyArchiveChangesInvalidateJobReadersWithoutLiveMembers()
+    {
+        var store = new EngineStateStore();
+        int invalidations = 0;
+        store.JobListChanged += () => invalidations++;
+        // Unarchive after restart has no prior in-memory archive marker.
+        store.SetSubmissionArchived(Guid.NewGuid(), false);
+        Guid archived = Guid.NewGuid();
+        store.SetSubmissionArchived(archived, true);
+        store.SetSubmissionArchived(archived, false);
+        Assert.AreEqual(3, invalidations);
+    }
+
+    [TestMethod]
     public async Task StandalonePublicationDeliversBurstsAndFlushesBeforeDisposal()
     {
         var store = new EngineStateStore();
@@ -91,7 +105,10 @@ public class EngineStateStoreTests
         var roots = Enumerable.Range(0, 4).Select(i => new SearchJob("Root " + i)
             { SubmissionId = Guid.NewGuid() }).ToArray();
         foreach (var root in roots.Take(3)) Register(store, root);
-        var query = new JobQuery(null, null, null, null, IncludeAll: false, NewestFirst: true);
+        var query = new JobQuery(null, null, null, null, IncludeAll: false, NewestFirst: true,
+            ExcludeKinds: [ServerJobKind.RetrieveFolder, ServerJobKind.Song]);
+        Register(store, new SongJob(new SongQuery { Title = "Hidden download" }));
+        Register(store, new RetrieveFolderJob(new PeerDirectoryIdentity("Peer", @"Public\Album")));
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await using var updates = queries.ObserveJobListAsync(new(query, 2), events, deadline.Token).GetAsyncEnumerator();
         Assert.IsTrue(await updates.MoveNextAsync());
@@ -1006,6 +1023,27 @@ public class EngineStateStoreTests
         Assert.AreEqual("Started", upload.LatestAttempt?.State);
         Assert.AreEqual("upload-peer", upload.LatestAttempt?.SourceUsername);
         Assert.IsNull(upload.Transfer.File, "Genuinely unknown upload metadata remains null.");
+        store.UpdateUploadTransfer(new UploadTransferSnapshot(uploadId, 5, "upload-peer", @"Share\Track.mp3",
+            100, startedAt, UploadTransferState.Failed, UploadFailureReason.Unavailable,
+            UploadCancellationSource.None, 50, 0, completedAt,
+            new UploadAttemptSnapshot(uploadAttemptId, 1, startedAt, completedAt, 50, 0), completedAt,
+            FailureMessage: "The shared file was removed."));
+        upload = store.GetLiveTransferDetail(uploadId)!;
+        Assert.AreEqual("The shared file was removed.", upload.Transfer.Status.FailureMessage);
+        Assert.AreEqual(upload.Transfer.Status.FailureMessage, upload.LatestAttempt?.FailureMessage);
+
+        foreach (var (reason, wireReason) in new[] {
+            (UploadFailureReason.ConnectionFailed, Sockseek.Api.TransferFailureReason.ConnectionFailed),
+            (UploadFailureReason.TimedOut, Sockseek.Api.TransferFailureReason.TransferTimedOut),
+        })
+        {
+            var id = Guid.NewGuid();
+            store.UpdateUploadTransfer(new UploadTransferSnapshot(id, 1, "upload-peer", @"Share\Failed.mp3",
+                100, startedAt, UploadTransferState.Failed, reason, UploadCancellationSource.None,
+                0, 0, null, null, completedAt, FailureMessage: "Peer failure details"));
+            Assert.AreEqual(wireReason, store.GetLiveTransferDetail(id)!.Transfer.Status.FailureReason);
+        }
+
     }
 
     [TestMethod]

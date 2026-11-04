@@ -220,11 +220,13 @@ internal sealed class PersistenceHandoffTracker : IPersistenceMutationObserver
         return completion.WaitAsync(cancellationToken);
     }
 
-    public void Committed(IReadOnlyList<PersistenceMutation> mutations)
+    public void Committed(IReadOnlyList<PersistenceMutation> mutations,
+        IReadOnlyList<(Guid TransferId, long Revision)>? supersededTransfers = null)
     {
         List<Generation> released = [];
         var committed = mutations.Select(TerminalTransfer).OfType<TransferPersistenceMutation>()
-            .Select(transfer => (transfer.TransferId, transfer.Revision)).ToArray();
+            .Select(transfer => (transfer.TransferId, transfer.Revision))
+            .Concat(supersededTransfers ?? []).Distinct().ToArray();
         // Publish exact durable revisions before releasing command waiters. The
         // state owner retires a batch directly; no task per completed transfer.
         if (committed.Length > 0 && TerminalTransfersCommitted is { } observers)

@@ -1,9 +1,21 @@
 import type { SearchConditions } from './config-state';
 import { searchModeFamily, type SearchResultMode } from './model';
+
+// Matches Core's SearchDefaults.Formats, not the shorter format-button suggestions.
+// The real-daemon browser journey verifies that its music defaults stay hidden.
+const defaultMusicFormats = new Set(['mp3', 'flac', 'ogg', 'm4a', 'opus', 'wav', 'aac', 'alac']);
+
+export function visibleFormatPills(mode: SearchResultMode, formats: string[]): string[] {
+  if (mode === 'generic') return formats;
+  const selected = new Set(formats.map(format => format.toLowerCase()));
+  return selected.size === defaultMusicFormats.size && [...selected].every(format => defaultMusicFormats.has(format))
+    ? [] : formats;
+}
+
 export function hasAppliedConditions(mode: SearchResultMode, conditions: SearchConditions): boolean {
   const family = searchModeFamily(mode);
   const common = Boolean(
-    conditions.common.formats.length
+    visibleFormatPills(mode, conditions.common.formats).length
       || conditions.common.minBitrate
       || conditions.common.maxBitrate
       || conditions.common.minSampleRate

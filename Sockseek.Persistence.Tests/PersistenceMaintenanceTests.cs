@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Persistence.Read;
@@ -134,6 +135,43 @@ public sealed class PersistenceMaintenanceTests
         Assert.IsTrue(await gate.WaitAsync(TimeSpan.FromSeconds(1)),
             "Maintenance did not release the gate after failure.");
         gate.Release();
+    }
+
+    [TestMethod]
+    public async Task FailedArtifactDeletionDoesNotBlockOtherCleanupAndRetriesWithoutRestart()
+    {
+        await using var fixture = await RuntimeFixture.StartAsync();
+        var host = fixture.Host;
+        var store = host.InputArtifacts!;
+        var blocked = await store.CreateAsync(new MemoryStream([1]), "blocked.csv");
+        var other = await store.CreateAsync(new MemoryStream([2]), "other.csv");
+        string blockedPath = (await store.ResolveAsync(blocked.Id))!.Path;
+        string otherPath = (await store.ResolveAsync(other.Id))!.Path;
+        File.Delete(blockedPath);
+        Directory.CreateDirectory(blockedPath); // File.Delete cannot unlink a directory.
+        var inbox = (PersistenceInbox)host.MutationSink!;
+        await inbox.ExecuteAsync((context, ct) => context.InputArtifacts
+            .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.ExpiresAtUtc, 0), ct),
+            CancellationToken.None);
+
+        await host.RunRetentionAsync();
+
+        Assert.IsFalse(File.Exists(otherPath), "One failed unlink must not stop unrelated cleanup.");
+        Assert.IsTrue(Directory.Exists(blockedPath));
+        Assert.AreEqual(1, await CountArtifactsAsync());
+        Assert.AreEqual(PersistenceHealthState.Healthy, host.HealthSnapshot!.State,
+            "A blob deletion failure must not mark the database unhealthy.");
+
+        Directory.Delete(blockedPath);
+        await File.WriteAllTextAsync(blockedPath, "now removable");
+        await host.RunRetentionAsync();
+
+        Assert.IsFalse(File.Exists(blockedPath), "The ordinary retention pass must retry failed files.");
+        Assert.AreEqual(0, await CountArtifactsAsync());
+
+        Task<int> CountArtifactsAsync() => inbox.ExecuteAsync(
+            (context, ct) => context.InputArtifacts.CountAsync(ct), CancellationToken.None,
+            requiresTransaction: false);
     }
 
     private static SemaphoreSlim MaintenanceGate(PersistenceRuntimeHost host)

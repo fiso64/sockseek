@@ -12,6 +12,89 @@ namespace Sockseek.Core.Tests;
 public sealed class WorkflowRetirementTests
 {
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task CompletedDownloadsReleaseActiveCacheOwnershipWhenTheirWorkflowRetires(bool retire)
+    {
+        string output = Directory.CreateTempSubdirectory("sockseek-download-retirement-").FullName;
+        var targets = Enumerable.Range(0, 8).Select(i =>
+            new PeerFileTarget(new("Peer", $@"Share\File-{i}.bin"), 16, ".bin")).ToArray();
+        var client = new MockSoulseekClient([new Soulseek.SearchResponse("Peer", 1, true, 100, 0,
+            targets.Select(target => new Soulseek.File(1, target.Filename, 16, ".bin")))]);
+        var settings = new EngineSettings { Username = "test", Password = "test", ConcurrentJobs = 2 };
+        await using var engine = new DownloadEngine(settings,
+            TestHelpers.CreateMockClientManager(client, settings), retireTerminalWorkflows: retire);
+        try
+        {
+            string source = Path.Combine(output, "pending.txt");
+            File.WriteAllLines(source, targets.Select(target => target.Filename));
+            var jobs = targets.Select((target, index) => new RemoteFileJob(target)
+            {
+                SourceMutation = SourceMutation.ClearTextLine(source, index + 1),
+            }).ToArray();
+            foreach (var job in jobs)
+                engine.Enqueue(job, new DownloadSettings
+                {
+                    Output = { ParentDir = output }, Transfer = { NoIncompleteExt = true },
+                    Extraction = { RemoveTracksFromSource = true },
+                });
+            engine.CompleteEnqueue();
+            await engine.RunAsync(CancellationToken.None);
+            Assert.AreEqual(8, client.DownloadCallCount);
+            Assert.IsTrue(jobs.All(job => job.TerminalOutcome == JobTerminalOutcome.Succeeded));
+            Assert.AreEqual(retire ? 0 : 8, engine.RetainedStateCounts.ActiveCachedDownloads);
+            Assert.AreEqual(retire ? 0 : 8, engine.RetainedStateCounts.SourceMutationWorkflows);
+            Assert.IsTrue(File.ReadAllLines(source).All(string.IsNullOrEmpty));
+            Assert.AreEqual(8, Directory.EnumerateFiles(output, "*.bin", SearchOption.AllDirectories).Count());
+        }
+        finally { Directory.Delete(output, true); }
+    }
+
+    [TestMethod]
+    public async Task DownloadReuseSurvivesRetirementWithoutKeepingWorkflowOwners()
+    {
+        string directory = Directory.CreateTempSubdirectory("sockseek-cache-lifetime-").FullName;
+        using var files = new Sockseek.Core.Services.DownloadFileOperations(1);
+        try
+        {
+            string path = Path.Combine(directory, "track.flac");
+            string copy = Path.Combine(directory, "copy.flac");
+            File.WriteAllBytes(path, [1, 2, 3]);
+            var target = new PeerFileTarget(new("Peer", @"Album\track.flac"), 3, ".flac");
+            for (int i = 0; i < 16; i++)
+            {
+                Guid first = Guid.NewGuid(), second = Guid.NewGuid();
+                await files.WithCacheAsync(cache => { cache.Publish(path, target, first); return true; });
+                Assert.IsNotNull(await files.TryReuseAsync(target, copy, Guid.NewGuid(), second,
+                    publish: true, allowOverwrite: true, protectPublishedOutput: false));
+                files.RetireWorkflow(second);
+                Assert.IsTrue(files.MayHaveReusable(target), "Publishing a copy must retain the original workflow's ownership.");
+                files.RetireWorkflow(first);
+                Assert.IsTrue(files.MayHaveReusable(target), "A later submission should still reuse recent completed downloads.");
+                Assert.AreEqual(0, files.ActiveCachedDownloadCount);
+                Assert.AreEqual(1, files.CachedDownloadCount);
+                CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(copy));
+            }
+            var bounded = new Sockseek.Core.Services.DownloadFileOperations.Cache(maximumIdleEntries: 2);
+            Guid active = Guid.NewGuid();
+            bounded.Publish(path, target, active);
+            for (int i = 0; i < 16; i++)
+            {
+                Guid owner = Guid.NewGuid();
+                var completed = new PeerFileTarget(new("Peer", $@"Album\Other-{i}.flac"), 3, ".flac");
+                bounded.Publish(Path.Combine(directory, $"other-{i}.flac"), completed, owner);
+                bounded.RetireWorkflow(owner);
+                Assert.IsTrue(bounded.Contains(target.Identity), "Idle cache pressure must not evict active workflow entries.");
+                Assert.IsTrue(bounded.Count <= 3);
+            }
+            bounded.RetireWorkflow(active);
+            Assert.AreEqual(2, bounded.Count);
+            Assert.AreEqual(0, bounded.ActiveCount);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [TestMethod]
     public async Task DaemonModePublishesFinalStateThenReleasesEveryWorkflowOwner()
     {
         var engineSettings = new EngineSettings

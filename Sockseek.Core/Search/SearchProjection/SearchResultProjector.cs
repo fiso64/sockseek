@@ -93,14 +93,16 @@ public static partial class SearchResultProjector
         SearchSettings search,
         ConcurrentDictionary<string, int>? userSuccessCounts = null,
         bool ignoreStringSortConditions = false,
-        FolderSortMode sortMode = FolderSortMode.AlbumRanked)
+        FolderSortMode sortMode = FolderSortMode.AlbumRanked,
+        bool enforceMinimumTrackCount = true)
     {
         var plan = new AlbumFolderProjectionPlan(
             query,
             search,
             userSuccessCounts,
             ignoreStringSortConditions,
-            sortMode);
+            sortMode,
+            enforceMinimumTrackCount);
         var inputs = rawResults.Select((result, index) => SearchProjectionInput.FromLive(
             index + 1L,
             index + 1,
@@ -117,14 +119,16 @@ public static partial class SearchResultProjector
         SearchSettings search,
         ConcurrentDictionary<string, int>? userSuccessCounts = null,
         bool ignoreStringSortConditions = false,
-        FolderSortMode sortMode = FolderSortMode.AlbumRanked)
+        FolderSortMode sortMode = FolderSortMode.AlbumRanked,
+        bool enforceMinimumTrackCount = true)
     {
         var plan = new AlbumFolderProjectionPlan(
             query,
             search,
             userSuccessCounts,
             ignoreStringSortConditions,
-            sortMode);
+            sortMode,
+            enforceMinimumTrackCount);
         List<EvaluatedAlbumProjectionInput> evaluated = plan.EvaluateToList(rawResults);
         return plan.ProjectEvaluatedResults(evaluated);
     }
@@ -135,7 +139,8 @@ public static partial class SearchResultProjector
         IEnumerable<EvaluatedAlbumProjectionInput> results,
         AlbumQuery query,
         SearchSettings search,
-        bool useAlbumFolderQualityRanking)
+        bool useAlbumFolderQualityRanking,
+        bool enforceMinimumTrackCount)
     {
         var dirStructure = new Dictionary<PeerPathKey, AlbumFolderBuilder>();
         foreach (var evaluated in results)
@@ -189,7 +194,8 @@ public static partial class SearchResultProjector
                     folder.MusicCount,
                     folder.Files.Select(file => file.Input.Filename),
                     query,
-                    search)) continue;
+                    search,
+                    enforceMinimumTrackCount)) continue;
 
             if (folder.Files.Count > 1)
                 folder.Files.Sort(AlbumFolderFileComparer.Instance);

@@ -232,7 +232,10 @@ internal sealed class TransferConfiguration : IEntityTypeConfiguration<TransferE
         builder.HasIndex(x => new { x.LastRuntimeId, x.TerminalOutcome });
         builder.HasIndex(x => x.CompletedAtUtc);
         builder.HasIndex(x => new { x.ArchivedAtUtc, x.CreatedAtUtc, x.Id });
+        builder.HasIndex(x => new { x.ArchivedAtUtc, x.Direction, x.CreatedAtUtc, x.Id });
         builder.HasIndex(x => new { x.GroupRef, x.Username, x.Direction, x.ArchivedAtUtc });
+        builder.HasIndex(x => new { x.Username, x.RemotePath })
+            .HasFilter("direction = 'Upload' AND archived_at_utc IS NULL");
     }
 }
 

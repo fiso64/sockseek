@@ -1163,7 +1163,11 @@ namespace Tests.Eventing
         }
 
         [TestMethod]
-        public async Task StrictAlbumQuality_BrowsesAndRejectsFolderWhenHiddenFilesBreakQuality()
+        [DataRow(false, false, false)]
+        [DataRow(true, false, false)]
+        [DataRow(true, true, false)]
+        [DataRow(true, true, true)]
+        public async Task AlbumValidation_RespectsUserAcceptedSelections(bool userAccepted, bool loadFullFolder, bool exactFiles)
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-strict-quality-browse-" + Guid.NewGuid());
             System.IO.Directory.CreateDirectory(outputDir);
@@ -1182,18 +1186,22 @@ namespace Tests.Eventing
                 };
                 var badResponse = new SearchResponse("bad-user", 1, true, 100_000, 0, badFiles);
                 var goodResponse = new SearchResponse("good-user", 1, true, 100_000, 0, goodFiles);
-                var badFolder = AlbumFolderFromSearch(badResponse, badFiles.Take(1));
+                var badFolder = AlbumFolderFromSearch(badResponse, userAccepted ? badFiles.Skip(1) : badFiles.Take(1));
                 var goodFolder = AlbumFolderFromSearch(goodResponse, goodFiles.Take(1));
                 var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
                 {
                     Results = [badFolder, goodFolder],
+                    ResolvedTarget = userAccepted ? badFolder : null,
+                    ValidationRequirement = userAccepted ? AlbumValidationRequirement.UserAccepted : AlbumValidationRequirement.Standard,
+                    DirectoryResolutionPolicy = exactFiles ? AlbumDirectoryResolutionPolicy.UseSelectedSnapshot : AlbumDirectoryResolutionPolicy.CompleteIfNeeded,
                 };
 
                 var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
                 var downloadSettings = AlbumDownloadSettings(outputDir);
-                downloadSettings.Search.NoBrowseFolder = true;
+                downloadSettings.Search.NoBrowseFolder = !loadFullFolder;
                 downloadSettings.Search.NecessaryCond.Formats = ["flac"];
                 downloadSettings.Search.StrictAlbumQuality = true;
+                if (userAccepted) downloadSettings.Search.NecessaryFolderCond.MinTrackCount = 3;
 
                 var client = new ClientTests.MockSoulseekClient([badResponse, goodResponse]);
                 var clientManager = TestHelpers.CreateMockClientManager(client, engineSettings);
@@ -1206,12 +1214,24 @@ namespace Tests.Eventing
 
                 await engine.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobTerminalOutcome.Succeeded, album.TerminalOutcome, "Album should fall back to the next folder after browse reveals hidden non-matching files.");
-                Assert.AreEqual(goodFolder, album.ResolvedTarget, "Strict quality should reject the first folder after full browse and select the next matching folder.");
-                Assert.AreEqual(2, client.BrowseCallCount, "Strict quality should browse each candidate before download, even with NoBrowseFolder enabled.");
-                Assert.AreEqual(0, client.DownloadCallCountAtFirstBrowse, "Strict quality browse must happen before any download starts.");
-                Assert.AreEqual(2, downloadsStarted, "Only the fully matching browsed folder should download.");
-                Assert.AreEqual(2, client.DownloadCallCount, "The rejected folder must not start downloads.");
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, album.TerminalOutcome);
+                if (userAccepted)
+                {
+                    bool expand = loadFullFolder && !exactFiles;
+                    Assert.AreSame(badFolder, album.ResolvedTarget, "Discovery conditions must not override the user's chosen folder.");
+                    Assert.AreEqual(expand ? 1 : 0, client.BrowseCallCount, "Only the user's full-folder option may expand a selection.");
+                    Assert.AreEqual(expand ? 2 : 1, downloadsStarted);
+                    Assert.AreEqual(expand ? 2 : 1, client.DownloadCallCount);
+                    Assert.IsTrue(album.TrackJobs.Any(track => track.ResolvedTarget!.Filename.EndsWith(".mp3")), "The explicitly selected MP3 must survive FLAC-only discovery conditions.");
+                }
+                else
+                {
+                    Assert.AreSame(goodFolder, album.ResolvedTarget, "Automatic selection must still reject hidden non-matching files and try the next folder.");
+                    Assert.AreEqual(2, client.BrowseCallCount);
+                    Assert.AreEqual(0, client.DownloadCallCountAtFirstBrowse);
+                    Assert.AreEqual(2, downloadsStarted);
+                    Assert.AreEqual(2, client.DownloadCallCount);
+                }
             }
             finally
             {

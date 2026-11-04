@@ -13,6 +13,7 @@ namespace Sockseek.Core.Jobs;
     public enum AlbumValidationRequirement
     {
         Standard,
+        // Explicitly accepted input is not rechecked against discovery conditions.
         UserAccepted,
     }
 

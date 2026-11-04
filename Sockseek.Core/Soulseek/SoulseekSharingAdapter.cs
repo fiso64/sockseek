@@ -1,5 +1,8 @@
 using System.Net;
 using System.Text;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Sockseek.Core.Diagnostics;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Sharing;
 using Sockseek.Core.Transfers.Uploads;
@@ -66,6 +69,8 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
     public static readonly TimeSpan BrowseIdleTimeout = TimeSpan.FromMinutes(2);
 
     private readonly IShareCatalogProvider catalogs;
+    private readonly ILogger logger;
+    private readonly RepeatedWarningGate warningGate = new();
     private readonly UploadCoordinator uploads;
     private readonly PeerRestrictionPolicy restrictions;
     private readonly UploadSettings uploadSettings;
@@ -92,8 +97,10 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
         Func<ISoulseekClient?> clientProvider,
         string? userDescription = null,
         bool uploadServingEnabled = true,
-        byte[]? userPicture = null)
+        byte[]? userPicture = null,
+        ILogger? logger = null)
     {
+        this.logger = logger ?? NullLogger.Instance;
         this.catalogs = catalogs ?? throw new ArgumentNullException(nameof(catalogs));
         this.uploads = uploads ?? throw new ArgumentNullException(nameof(uploads));
         this.restrictions = restrictions ?? throw new ArgumentNullException(nameof(restrictions));
@@ -214,8 +221,9 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
                     files);
             }
         }
-        catch
+        catch (Exception exception)
         {
+            ReportCallbackFailure("search", username, exception);
             return null;
         }
         finally
@@ -258,8 +266,9 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
             return Task.FromResult<BrowseResponse>(
                 new RawBrowseResponse(browse.Length, browse.Stream));
         }
-        catch
+        catch (Exception exception)
         {
+            ReportCallbackFailure("browse", username, exception);
             lease?.Dispose();
             browseConcurrency.Release();
             return Task.FromResult<BrowseResponse>(new BrowseResponse());
@@ -307,8 +316,9 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
                 ];
             }
         }
-        catch
+        catch (Exception exception)
         {
+            ReportCallbackFailure("directory", username, exception);
             return [];
         }
     }
@@ -341,13 +351,14 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
         IPEndPoint endpoint,
         string remotePath)
     {
-        if (disposed
-            || !uploadServingEnabled
+        if (disposed)
+            throw new DownloadEnqueueException("Pending shutdown.");
+        if (!uploadServingEnabled
             || !IsValidUsername(username)
             || !IsValidRemotePath(remotePath)
             || restrictions.IsUploadAccessBlocked(username, endpoint))
         {
-            throw new DownloadEnqueueException("File not shared");
+            throw new DownloadEnqueueException("File not shared.");
         }
 
         using var timeout = new CancellationTokenSource(RequestTimeout);
@@ -358,7 +369,7 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
             if (global is null)
             {
                 SharingTelemetry.RecordDroppedRequest("upload");
-                throw new DownloadEnqueueException("File not shared");
+                throw new DownloadEnqueueException("Temporarily unavailable; try again later.");
             }
 
             string exactUsername = PeerUsername.Validate(username);
@@ -376,16 +387,13 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
 
             throw new DownloadEnqueueException(result.Rejection switch
             {
-                _ => "File not shared",
+                UploadAdmissionRejection.Unavailable => "Temporarily unavailable; try again later.",
+                _ => "File not shared.",
             });
         }
-        catch (DownloadEnqueueException)
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
-            throw;
-        }
-        catch
-        {
-            throw new DownloadEnqueueException("File not shared");
+            throw new DownloadEnqueueException("Temporarily unavailable; try again later.");
         }
     }
 
@@ -411,10 +419,17 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
         }
     }
 
+    private void ReportCallbackFailure(string operation, string username, Exception exception)
+    {
+        if (exception is OperationCanceledException) return;
+        if (warningGate.TryAcquire(out long suppressed))
+            SoulseekLogMessages.SharingCallbackFailed(logger, exception, operation, LogIdentity.PeerHash(username), suppressed);
+    }
+
     private int EffectiveUploadSpeedBytesPerSecond
         => uploadSettings.SpeedLimitKiBPerSecond is { } kib
-            ? checked(kib * 1_024)
-            : int.MaxValue;
+            ? Math.Min(uploads.MeasuredUploadSpeed, checked(kib * 1_024))
+            : uploads.MeasuredUploadSpeed;
 
     private void SafeReleaseBrowsePermit()
     {

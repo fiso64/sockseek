@@ -81,23 +81,16 @@ export function dashboardTransferRate(bytesPerSecond: number): string {
   return `${Math.round(bytesPerSecond / 1_000)} KB/s`;
 }
 
-export function bandwidthMegabytesPerSecond(bytes: number | string, start: string, end: string): number {
-  const seconds = (Date.parse(end) - Date.parse(start)) / 1_000;
-  if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('Invalid analytics bucket interval.');
-  return Number(bytes) / seconds / 1_000_000;
-}
-
-/** Keep the prototype's baseline ticks, but scale labels with real bandwidth. */
-export function dashboardBandwidthAxis(
+/** One byte scale for both directions, with three evenly spaced intervals. */
+export function dashboardByteAxis(
   downloads: readonly number[], uploads: readonly number[],
-): { maxMbps: number; labels: readonly number[] } {
+): { maxBytes: number; labels: readonly number[] } {
   let observed = 0;
   for (const value of downloads) if (Number.isFinite(value) && value > observed) observed = value;
   for (const value of uploads) if (Number.isFinite(value) && value > observed) observed = value;
-  if (observed <= 12) return { maxMbps: 12, labels: [12, 8, 4, 0] };
-  const magnitude = 10 ** Math.floor(Math.log10(observed / 3));
-  const step = Math.ceil(observed / 3 / magnitude) * magnitude;
-  return { maxMbps: step * 3, labels: [step * 3, step * 2, step, 0] };
+  const magnitude = 10 ** Math.max(0, Math.floor(Math.log10(Math.max(1, observed / 3))));
+  const step = Math.max(1, Math.ceil(observed / 3 / magnitude)) * magnitude;
+  return { maxBytes: step * 3, labels: [step * 3, step * 2, step, 0] };
 }
 
 export function shareRatioDelta(data: DashboardAnalyticsDto | null): string {

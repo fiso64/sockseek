@@ -1,15 +1,12 @@
 import type { JobSummaryDto } from '../../api/types';
-import { searchJobMode } from './kind';
 
 export interface SearchJobStat {
-  count: number | string | null;
+  count: number | string;
   label: string;
 }
 
-/** Show the missing default aggregate count explicitly; never infer it from a loaded result page. */
+/** Job lists show collected facts; projection/group counts belong to the results view. */
 export function searchJobStats(job: JobSummaryDto): SearchJobStat[] {
-  const mode = searchJobMode(job);
-  const aggregate = mode === 'song-aggregate' || mode === 'album-aggregate';
   const files = job.discoveryPublicFileCount ?? job.discoveryRawResultCount;
   const peers = job.discoveryObservedPeerCount;
   const counts = [
@@ -17,8 +14,5 @@ export function searchJobStats(job: JobSummaryDto): SearchJobStat[] {
     { count: job.discoveryLockedFileCount, label: 'locked' },
     { count: peers, label: peers === 1 || peers === '1' ? 'peer' : 'peers' },
   ];
-  return [
-    ...(aggregate ? [{ count: null, label: 'groups' }] : []),
-    ...counts.filter((item): item is { count: number | string; label: string } => item.count != null),
-  ];
+  return counts.filter((item): item is { count: number | string; label: string } => item.count != null);
 }

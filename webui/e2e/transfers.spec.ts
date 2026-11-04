@@ -1,4 +1,4 @@
-import { test, expect, deferInitialDaemonSnapshot, expectTransferLayoutUnchanged } from './fixtures';
+import { test, expect, deferInitialDaemonSnapshot, expectFolderLayoutUnchanged } from './fixtures';
 import type { Schema } from '../src/api/types';
 
 for (const direction of ['download', 'upload'] as const) {
@@ -23,9 +23,7 @@ test(`retries unavailable ${direction} history without presenting it as empty`, 
     await loaded;
     await expect(alert).toHaveCount(0);
     await expect(page.getByText(`No ${direction}s`, { exact: true })).toBeVisible();
-    await expect(page.locator('.resource-state-notice.empty.blocking')).toContainText(direction === 'download'
-      ? 'Downloaded files and folders will appear here in creation order.'
-      : 'Uploads will appear here as peers request shared files.');
+
   } finally { releaseSnapshot(); }
   await expect(page.getByLabel('Connection status')).toContainText('Connected');
 });
@@ -44,7 +42,7 @@ test('cancels a live download and retains its cancelled state after reload', asy
   await expect(card.getByLabel('50% complete', { exact: true })).toBeVisible();
   await expect(card.locator('.transfer-state')).toHaveText('Downloading');
   await expect(card.locator('.transfer-progress-meta').first()).toContainText('64 B · 50%');
-  await expect(card.locator('.file-transfer-age')).toContainText('created');
+  await expect(card.locator('.file-transfer-age')).toHaveText(/^(just now|\d+ .+ ago)$/);
   await expect(card.locator('.file-transfer-age time')).toHaveAttribute('datetime', /T/);
   await page.getByRole('button', { name: 'Actions for fixture-peer', exact: true }).click();
   for (const name of ['Profile', 'Shares', 'Message']) {
@@ -85,8 +83,8 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   const response = await page.request.post('/api/jobs/lists', { data: {
     name: 'Directory transfer fixture', jobs: [{ kind: 'remote-directory', plan: {
       displayRoot: 'Fixture', totalKnownBytes: 256, entries: [
-        { target: { username: 'fixture-peer', filename: 'Fixture\\Selected.txt', size: 128, extension: '.txt' }, relativeDirectoryComponents: [] },
-        { target: { username: 'fixture-peer', filename: 'Fixture\\Nested\\Nested.txt', size: 128, extension: '.txt',
+        { target: { username: 'fixture-peer', filename: 'Shares\\Fixture\\Selected.txt', size: 128, extension: '.txt' }, relativeDirectoryComponents: [] },
+        { target: { username: 'fixture-peer', filename: 'Shares\\Fixture\\Nested\\Nested.txt', size: 128, extension: '.txt',
           bitRate: 320, bitDepth: 24, sampleRate: 96000, length: 123 }, relativeDirectoryComponents: ['Nested'] },
       ],
     } }],
@@ -95,14 +93,21 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   await page.goto('/downloads');
   const folder = page.locator('.folder-item-card').filter({ hasText: 'Selected.txt' });
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
+  expect((await folder.locator('.folder-transfer-name').allTextContents()).sort()).toEqual(['Fixture', 'Nested']);
+  await expect(folder.locator('.folder-transfer-path')).toContainText('Shares\\Fixture');
   await expect(folder).toContainText('Nested/Nested.txt');
   await expect(folder.locator('.folder-transfer-file-count')).toContainText('2');
   await expect(folder.locator('.item-data-state')).toHaveCount(0);
-  await expect(folder.locator('.transfer-state').first()).toHaveText('Downloading');
-  await expect(folder.locator('.folder-transfer-age')).toContainText('created');
+  await expect(folder.locator('.folder-transfer-summary .transfer-state')).toHaveCount(0);
+  await expect(folder.locator('.folder-transfer-footer .transfer-progress-track')).toBeVisible();
+  await expect(folder.locator('.folder-transfer-age')).toHaveText(/^(just now|\d+ .+ ago)$/);
   await expect(folder.locator('.folder-transfer-age time')).toHaveAttribute('datetime', /T/);
+  await expect(folder.locator('.folder-heading-primary .folder-transfer-path')).toBeVisible();
+  await expect(folder.locator('.folder-heading-meta')).toContainText('2 files');
+  await expect(folder.locator('.folder-heading-meta .folder-transfer-age')).toBeVisible();
   await page.setViewportSize({ width: 390, height: 900 });
-  await expectTransferLayoutUnchanged(page);
+  await expect(folder.locator('.folder-heading-meta .folder-file-count')).toBeVisible();
+  await expectFolderLayoutUnchanged(page);
   for (const filename of await folder.locator('.folder-file-path').all()) {
     await expect(filename).toBeVisible();
     expect((await filename.boundingBox())?.width).toBeGreaterThan(40);
@@ -111,19 +116,19 @@ test('groups directory downloads in live and retained transfer views', async ({ 
     nodes.map(node => ({ right: node.getBoundingClientRect().right, width: window.innerWidth })));
   for (const bounds of peerCountBounds) expect(bounds.right).toBeLessThanOrEqual(bounds.width);
   await page.setViewportSize({ width: 1280, height: 720 });
-  await expectTransferLayoutUnchanged(page);
+  await expectFolderLayoutUnchanged(page);
 
   await daemon.command('release-download');
-  await expect(folder.locator('.transfer-state').first()).toHaveText('Complete');
-  await expect(folder.locator('.folder-transfer-footer')).toContainText('2 files complete');
+  await expect(folder.locator('.folder-file-state.complete')).toHaveCount(2);
+  await expect(folder.locator('.folder-transfer-footer')).toHaveCount(0);
   await expect(folder.locator('.folder-file-audio')).toHaveCount(1);
   for (const width of [390, 900, 1280]) {
     await page.setViewportSize({ width, height: 720 });
-    await expectTransferLayoutUnchanged(page);
+    await expectFolderLayoutUnchanged(page);
   }
   await page.reload();
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
-  await expect(folder.locator('.folder-transfer-footer')).toContainText('2 files complete');
+  await expect(folder.locator('.folder-transfer-footer')).toHaveCount(0);
   const retained = await page.request.get('/api/transfers?direction=download&limit=100');
   expect(retained.ok()).toBeTruthy();
   const rows = (await retained.json() as Schema<'TransferTimelinePageDto'>).items;
@@ -228,13 +233,16 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   await page.reload();
   const partialFolder = page.locator('.folder-item-card').first();
   await expect(partialFolder.locator('.folder-file-row')).toHaveCount(1);
+  await expect(partialFolder.locator('.folder-transfer-path')).toContainText('Shares\\Fixture');
+  await expect(partialFolder.locator('.folder-transfer-path')).toHaveAttribute('title', /^Remote folders of loaded files:/);
   await expect(partialFolder.locator('.folder-transfer-file-count')).toContainText('1/2');
   await expect(partialFolder).toContainText('Showing loaded files');
-  await expect(partialFolder.locator('.transfer-state').first()).toHaveText('Complete');
+  await expect(partialFolder.locator('.folder-file-state.complete')).toHaveCount(1);
+  await expect(partialFolder.locator('.folder-transfer-footer')).toHaveCount(0);
   const nextMembers = page.waitForResponse(response => response.ok()
     && new URL(response.url()).pathname === '/api/transfers'
     && new URL(response.url()).searchParams.has('groupRef'));
-  await partialFolder.getByRole('button', { name: 'Load more folder files' }).click();
+  await partialFolder.getByRole('button', { name: 'Load more' }).click();
   const nextMemberPage = await (await nextMembers).json() as Schema<'TransferTimelineUpdateDto'>;
   expect(nextMemberPage.items).toHaveLength(1);
   expect(nextMemberPage.items[0]!.transferId).not.toBe(rows[0]!.transferId);
@@ -278,7 +286,7 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   await page.setViewportSize({ width: 390, height: 900 });
   await page.setViewportSize({ width: 1280, height: 720 });
   // Removing an expanded-only member must work even without folder totals.
-  const expandedPath = nextMemberPage.items[0]!.identity.remotePath!.replace(/^Fixture\\/, '').replaceAll('\\', '/');
+  const expandedPath = nextMemberPage.items[0]!.identity.groupRelativePath!;
   const expandedFile = partialFolder.locator('.folder-file-row').filter({ hasText: expandedPath });
   await page.route(`**/api/transfers/${nextMemberPage.items[0]!.transferId}/archive`, async route => {
     await route.fulfill({ contentType: 'application/json', json: {
@@ -403,7 +411,7 @@ test('keeps a loaded folder member page when another member finishes', async ({ 
   });
   await page.reload();
   await expect(folder.locator('.folder-file-row')).toHaveCount(1);
-  await folder.getByRole('button', { name: 'Load more folder files' }).click();
+  await folder.getByRole('button', { name: 'Load more' }).click();
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
   failGroupRefresh = true;
   await daemon.command('release-download');

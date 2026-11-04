@@ -478,6 +478,7 @@ public sealed class SockseekApiClient
             + QueryPart("terminalOutcome", query.TerminalOutcome?.ToString())
             + QueryPart("skipReason", query.SkipReason?.ToString())
             + QueryPart("kind", query.Kind?.ToWireString())
+            + string.Concat(query.ExcludeKinds?.Select(kind => QueryPart("excludeKinds", kind.ToWireString())) ?? [])
             + QueryPart("workflowId", query.WorkflowId?.ToString())
             + QueryPart("parentJobId", query.ParentJobId?.ToString())
             + QueryPart("submissionId", query.SubmissionId?.ToString())

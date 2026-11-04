@@ -64,6 +64,12 @@ export const emptySearchDraft: SearchDraft = {
   title: '',
 };
 
+/** Retained query metadata belongs to the original input, not a newly edited search. */
+export function editableSearchDraft(draft: SearchDraft): SearchDraft {
+  const { albumSearchHint, albumContext, sourceUri, artistMaybeWrong, ...editable } = draft;
+  return editable;
+}
+
 export function networkQuery(draft: SearchDraft): string {
   return draft.mode === 'split'
     ? [draft.artist.trim(), draft.title.trim()].filter(Boolean).join(' ')

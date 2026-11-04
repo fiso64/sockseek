@@ -1,7 +1,8 @@
 <script lang="ts">
+  import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import type { JobStateDto, Schema } from '../../api/types';
   import { searchViewUnavailable } from './controller';
-  import { selectionUsesEarlierRevision as usesEarlierRevision, type AggregateOption } from './selection';
+  import { allSearchResultsSelected, selectionUsesEarlierRevision as usesEarlierRevision, type AggregateOption } from './selection';
   import { DaemonApiError } from '../../api/http';
   import { formatCount, formatCountWithNoun, humanizeStateValue } from '../../app/format';
   import FileItemCard from '../../components/items/FileItemCard.svelte';
@@ -60,6 +61,7 @@
     onloadoptions: () => void;
     onchooseoption: (groupRef: string, option: AggregateOption) => void;
     ontogglealbumfile: (groupRef: string, fileRef: string, selected: boolean) => void;
+    onviewdownloads: (submissionId: string) => void;
     onback: () => void;
     onsearchagain: () => void;
   }
@@ -96,11 +98,14 @@
     onloadoptions,
     onchooseoption,
     ontogglealbumfile,
+    onviewdownloads,
     onback,
     onsearchagain,
   }: Props = $props();
 
   let status = $derived(liveJob?.lifecycle ?? null);
+  let searching = $derived((status ?? viewState.job)?.lifecycleState !== 'Terminal'
+    && (status ?? viewState.job)?.activityPhase === 'Searching');
   let filterText = $state('');
   let sort = $state<'relevance' | 'speed' | 'queue' | 'size' | 'count' | 'name'>('relevance');
   let sizeDirection = $state<'asc' | 'desc'>('desc');
@@ -151,17 +156,20 @@
 
   function emptyResultsHeading(): string {
     if (retentionNotice) return retentionNotice.title;
-    if (!viewState.summary?.isComplete && !filterText.trim()) return 'No matching results yet';
+    if (!receivedFileCount()) return 'No results';
     return aggregateMode ? 'No matching groups' : genericMode ? 'No matching directories' : 'No matching results';
+  }
+
+  function receivedFileCount(): number {
+    const counters = viewState.summary?.counters;
+    return Number(counters?.publicFileCount ?? 0) + Number(counters?.lockedFileCount ?? 0);
   }
 
   function emptyResultsDetail(): string {
     if (retentionNotice) return retentionNotice.detail;
-    if (filterText.trim()) return aggregateMode ? 'Adjust the text filter.' : 'Adjust the text filter or result conditions.';
-    if (!viewState.summary?.isComplete) return 'Results will appear here as peers respond.';
-    if (viewState.draft && hasAppliedConditions(viewState.draft.resultMode, conditions))
-      return aggregateMode ? 'Adjust the text filter.' : 'Adjust the text filter or result conditions.';
-    return 'The search finished without a match.';
+    const count = receivedFileCount();
+    if (!count) return 'No files were returned by peers.';
+    return `${formatCountWithNoun(count, 'file')} received, but none match the current ${filterText.trim() ? 'text filter or ' : ''}${aggregateMode ? 'conditions and grouping requirements' : 'result conditions'}.`;
   }
 
   function currentFingerprint(): string {
@@ -434,12 +442,16 @@
   }
 
   function queryTitle(): string {
+    const title = viewState.job?.itemName ?? viewState.job?.queryText;
+    if (title != null) return title;
     const draft = viewState.draft;
     if (!draft) return '';
     return draft.mode === 'split'
       ? [draft.artist.trim(), draft.title.trim()].filter(Boolean).join(' — ')
       : draft.query;
   }
+
+  let statusLabel = $derived(jobStatus());
 
   function jobStatus(): string {
     if (!status) {
@@ -567,7 +579,7 @@
         onselectfile={(file, checked) => ontogglealbumfile(row.ref, file.id, checked)}
       />
       {#if !children || (children.loading && !children.refreshing) || children.error || children.nextCursor}
-        <div class="load-more-row"><button type="button" disabled={children?.loading} onclick={() => onloaddirectory(directory.ref.ref)}>{children?.loading ? 'Loading…' : children?.error ? 'Retry matching files' : children ? 'Load more matching files' : 'Load matching files'}</button></div>
+        <div class="load-more-row"><button type="button" disabled={children?.loading} onclick={() => onloaddirectory(directory.ref.ref)}>{children?.loading ? 'Loading…' : children?.error ? 'Retry matching files' : children ? 'Load more' : 'Load matching files'}</button></div>
       {/if}
     </section>
   {/if}
@@ -583,7 +595,9 @@
       <h1>{queryTitle()}</h1>
     </div>
     <div class="search-results-summary">
-      <span class={`search-status-badge ${isActive ? 'searching' : retentionNotice ? '' : 'complete'}`}><i></i>{jobStatus()}</span>
+      {#if statusLabel !== 'Complete'}
+        <span class={`search-status-badge ${isActive ? 'searching' : retentionNotice ? '' : 'complete'}`}><i></i>{statusLabel}</span>
+      {/if}
       {#if (!retentionNotice && !viewUnavailable) || viewState.rows.length > 0}
       {#if viewState.draft?.resultMode === 'generic'}<span>{formatCountWithNoun(viewState.summary?.counters.topLevelItemCount, hasBareFileGroups ? 'group' : 'directory', hasBareFileGroups ? 'groups' : 'directories')}</span>{/if}
       {#if viewState.draft?.resultMode?.includes('aggregate')}<span>{formatCountWithNoun(viewState.summary?.counters.topLevelItemCount, 'group')}</span>{/if}
@@ -660,18 +674,7 @@
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h12"/><circle cx="8" cy="5" r="1.6"/><circle cx="13" cy="10" r="1.6"/><circle cx="7" cy="15" r="1.6"/></svg>
         Filtering
       </button>
-      {#if aggregateMode}
-        <button type="button" class="aggregate-select-all-button" disabled={viewState.rows.length === 0} onclick={() => onselectall(!viewState.selectedAll)}>{viewState.selectedAll ? 'Deselect all' : 'Select all'}</button>
-      {:else}
-        <button
-          type="button"
-          class="aggregate-select-all-button ordinary-select-all-button"
-          aria-label={viewState.selectedAll ? 'Deselect all' : 'Select all'}
-          aria-pressed={viewState.selectedAll}
-          title={viewState.selectedAll ? 'Deselect all' : 'Select all'}
-          disabled={viewState.rows.length === 0 || selectionReadOnly}
-          onclick={() => onselectall(!viewState.selectedAll)}
-        ><span class="ordinary-select-all-label">{viewState.selectedAll ? 'Deselect all' : 'Select all'}</span><Icon name={viewState.selectedAll ? 'x' : 'check'} class="ordinary-select-all-icon" /></button>
+      {#if !aggregateMode}
         <div class="result-sort-control">
           <label for="result-sort">Sort</label>
           <select id="result-sort" value={sort} onchange={changeSort}>
@@ -691,7 +694,6 @@
         </div>
       {/if}
     </div>
-    {#if viewState.refining}<small class="result-refinement-status">Updating results…</small>{/if}
     {#if viewState.draft && hasAppliedConditions(viewState.draft.resultMode, conditions)}
       <div class="result-condition-pills"><SearchConditionPills mode={viewState.draft.resultMode} bind:conditions /></div>
     {/if}
@@ -706,18 +708,17 @@
     <div class="resource-state-notice degraded" role="status">
       <span class="resource-state-dot"></span>
       <span class="resource-state-copy"><strong>Selection needs review</strong><small>Result grouping changed or could not be checked. Restore your filters or clear the selection to choose from these results.</small></span>
-      <button type="button" onclick={() => onselectall(false)}>Clear selection</button>
     </div>
   {:else if selectionUsesEarlierRevision}
     <div class="resource-state-notice degraded" role="status">
       <span class="resource-state-dot"></span>
       <span class="resource-state-copy"><strong>Selection from earlier results</strong><small>Download the files you selected, or clear the selection to choose from the latest results.</small></span>
-      <button type="button" onclick={() => onselectall(false)}>Clear selection</button>
     </div>
   {/if}
 
   <SelectionToolbar
-    selectedCount={selectedCount || (viewState.canRetryPendingCommit ? 1 : 0)}
+    {selectedCount}
+    visible={selectedCount > 0 || viewState.selectionNeedsReview || viewState.canRetryPendingCommit}
     floatingLabel={viewState.committing ? 'Requesting…' : viewState.canRetryPendingCommit ? 'Retry download request' : viewState.selectionCounts
       && BigInt(viewState.selectionCounts.publicFileCount) > 0n
       ? `Download ${formatCount(viewState.selectionCounts.publicFileCount)}` : 'Download selected'}
@@ -731,6 +732,7 @@
     optionsOpen={downloadOptionsOpen}
     optionsCustomized={downloadCustomized}
     onclear={() => onselectall(false)}
+    onselectall={selectedCount && !selectionReadOnly && !viewState.committing && !allSearchResultsSelected(viewState) ? () => onselectall(true) : undefined}
     onoptions={selectedCount ? toggleDownloadOptions : undefined}
     onaction={() => ondownload(downloadCustomized ? downloadPatch : undefined)}
   />
@@ -740,18 +742,19 @@
     <section class="floating-download-options-popover" aria-label="Download options">
       <header><strong>Download options</strong><button type="button" aria-label="Close download options" onclick={() => (downloadOptionsOpen = false)}>×</button></header>
       {#if downloadOptionsLoading}
-        <p class="download-option-note">Loading effective defaults…</p>
+        <LoadingIndicator label="Loading effective defaults" />
       {:else if downloadOptionsError}
         <p class="download-option-note" role="alert">{downloadOptionsError.message}</p>
         <button type="button" onclick={() => void loadDownloadOptions()}>Retry</button>
       {:else if downloadDefaults && downloadValues}
-        <DownloadOptionsPanel bind:value={downloadValues} capabilities={downloadDefaults.capabilities} mixedFields={visibleMixedFields} onfieldchange={markDownloadField} compact />
+        <DownloadOptionsPanel bind:value={downloadValues} capabilities={downloadDefaults.capabilities} context="selection" mixedFields={visibleMixedFields} onfieldchange={markDownloadField} compact />
       {/if}
     </section>
   {/if}
 
   {#if viewState.receipt}
     <p class:partially-succeeded={Number(viewState.receipt.skippedCount) > 0 || Number(viewState.receipt.rejectedCount) > 0} class="mutation-status succeeded">
+      {#if viewState.receipt.submissionId}<button type="button" class="text-button" onclick={() => onviewdownloads(viewState.receipt!.submissionId!)}>View download jobs</button>{/if}
       {formatCount(mutationDownloadCount)} download{Number(mutationDownloadCount) === 1 ? '' : 's'} requested
       {#if Number(viewState.receipt.skippedCount) || Number(viewState.receipt.rejectedCount)}<small>{formatCount(viewState.receipt.skippedCount)} skipped · {formatCount(viewState.receipt.rejectedCount)} rejected</small>{/if}
     </p>
@@ -775,9 +778,17 @@
   {/if}
 
   {#if viewState.phase === 'loading' && viewState.rows.length === 0}
-    <div class="resource-state-notice loading blocking"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Loading search results</strong><small>Results will appear as peers respond.</small></span></div>
+    <LoadingIndicator label="Loading search results" blocking />
   {:else if viewState.rows.length === 0 && !viewState.error && !viewUnavailable}
-    <div class="search-results-empty"><strong>{emptyResultsHeading()}</strong><span>{emptyResultsDetail()}</span></div>
+    {#if !retentionNotice && !viewState.summary?.isComplete && !daemonOffline}
+      {#if searching && receivedFileCount()}
+        <div class="resource-state-notice loading blocking" role="status"><span class="resource-state-dot" aria-hidden="true"></span><span class="resource-state-copy"><strong>{emptyResultsHeading()}</strong><small>{emptyResultsDetail()}</small></span></div>
+      {:else}
+        <LoadingIndicator label={searching ? 'Searching' : 'Loading search results'} blocking />
+      {/if}
+    {:else}
+      <div class="search-results-empty"><strong>{emptyResultsHeading()}</strong>{#if retentionNotice || searching || (viewState.summary?.isComplete && !viewState.refining)}<span>{emptyResultsDetail()}</span>{/if}</div>
+    {/if}
   {:else if viewState.draft?.resultMode === 'song-aggregate' || viewState.draft?.resultMode === 'album-aggregate'}
     <div class="aggregate-results-list">
       {#each viewState.rows as row (row.ref)}
@@ -803,7 +814,6 @@
                 uploadSpeedMbps: peer.uploadSpeed == null ? undefined : Number(peer.uploadSpeed) / 1_000_000,
                 queueLength: peer.queueLength == null ? undefined : Number(peer.queueLength),
               }}
-              itemCount={group.rows.length}
               itemNoun={noun}
               itemNounPlural={noun === 'directory' ? 'directories' : `${noun}s`}
               {userActions}
@@ -849,7 +859,7 @@
                       isfolderselected={genericMode ? (path) => isfolderselected(row.ref, path) : undefined}
                     />
                     {#if !children || (children.loading && !children.refreshing) || children.error || children.nextCursor}
-                      <div class="load-more-row"><button type="button" disabled={children?.loading} onclick={() => onloaddirectory(row.ref)}>{children?.loading ? 'Loading…' : children?.error ? 'Retry matching files' : children ? 'Load more matching files' : 'Load matching files'}</button></div>
+                      <div class="load-more-row"><button type="button" disabled={children?.loading} onclick={() => onloaddirectory(row.ref)}>{children?.loading ? 'Loading…' : children?.error ? 'Retry matching files' : children ? 'Load more' : 'Load matching files'}</button></div>
                     {/if}
                   {/if}
                 {/each}
@@ -860,7 +870,7 @@
     {/each}
   {/if}
 
-  {#if viewState.nextCursor}<LoadMoreButton label="Load more results" loading={viewState.loadingMore} disabled={viewState.refining} onclick={onloadmore}/>{/if}
+  {#if viewState.nextCursor}<LoadMoreButton loading={viewState.loadingMore} disabled={viewState.refining} onclick={onloadmore}/>{/if}
   {/if}
 </section>
 
@@ -909,7 +919,7 @@
                 />
                 {#if !children || (children.loading && !children.refreshing) || children.error || children.nextCursor}
                   <div class="load-more-row">
-                    <button type="button" disabled={children?.loading} onclick={() => onloaddirectory(directory.ref.ref)}>{children?.loading ? 'Loading…' : children?.error ? 'Retry matching files' : children ? 'Load more matching files' : 'Load matching files'}</button>
+                    <button type="button" disabled={children?.loading} onclick={() => onloaddirectory(directory.ref.ref)}>{children?.loading ? 'Loading…' : children?.error ? 'Retry matching files' : children ? 'Load more' : 'Load matching files'}</button>
                   </div>
                 {/if}
               {/if}
@@ -919,8 +929,8 @@
         {#if panel.error}
           <div class="resource-state-notice unavailable" role="alert"><span class="resource-state-copy"><strong>Options unavailable</strong><small>{panel.error.message}</small></span><button type="button" onclick={onloadoptions}>Retry</button></div>
         {/if}
-        {#if panel.loading && panel.items.length === 0}<div class="resource-state-notice loading"><span class="resource-state-copy">Loading options…</span></div>{/if}
-        {#if panel.nextCursor}<LoadMoreButton label="Load more options" loading={panel.loading} onclick={onloadoptions}/>{/if}
+        {#if panel.loading && panel.items.length === 0}<LoadingIndicator label="Loading options" />{/if}
+        {#if panel.nextCursor}<LoadMoreButton loading={panel.loading} onclick={onloadoptions}/>{/if}
       </div>
     </div>
   </div>

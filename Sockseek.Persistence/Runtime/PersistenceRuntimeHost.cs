@@ -221,7 +221,18 @@ public sealed class PersistenceRuntimeHost
         RetentionResult result = await retention!.RunBatchAsync(cancellationToken)
             .ConfigureAwait(false);
         if (InputArtifacts is not null)
-            await InputArtifacts.PruneExpiredAsync(cancellationToken).ConfigureAwait(false);
+        {
+            try
+            {
+                await InputArtifacts.PruneExpiredAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // Blob cleanup does not invalidate committed history pruning or
+                // database health. Failed files remain queued for the next pass.
+                PersistenceLogMessages.InputArtifactCleanupFailed(logger, exception);
+            }
+        }
         return result;
     }
 

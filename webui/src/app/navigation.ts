@@ -6,6 +6,7 @@ export const navigationItems = [
   { id: 'downloads', label: 'Downloads', icon: 'download', placement: 'primary' },
   { id: 'uploads', label: 'Uploads', icon: 'upload', placement: 'primary' },
   { id: 'users', label: 'Users', icon: 'user', placement: 'primary' },
+  { id: 'shares', label: 'Shares', icon: 'folder', placement: 'primary' },
   { id: 'chat', label: 'Chat', icon: 'chat', placement: 'primary' },
   { id: 'settings', label: 'Settings', icon: 'settings', placement: 'secondary' },
 ] as const satisfies readonly {

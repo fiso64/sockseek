@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { availableDashboardSummary, bandwidthMegabytesPerSecond, dashboardBandwidthAxis, dashboardChartLabel, dashboardChartLabels, dashboardTransferRate, shareRatioDelta } from '../src/domains/dashboard/presentation';
+import { availableDashboardSummary, dashboardByteAxis, dashboardChartLabel, dashboardChartLabels, dashboardTransferRate, shareRatioDelta } from '../src/domains/dashboard/presentation';
 import type { DashboardAnalyticsDto } from '../src/api/types';
 
 function analytics(current: number | null, previous: number | null): DashboardAnalyticsDto {
@@ -65,17 +65,12 @@ describe('dashboard presentation', () => {
     expect(dashboardTransferRate(1_000_000)).toBe('1.00 MB/s');
     expect(dashboardTransferRate(12_345_678)).toBe('12.35 MB/s');
   });
-  it('displays byte accounting in decimal MB/s using the actual bucket duration', () => {
-    expect(bandwidthMegabytesPerSecond('120000000', '2026-09-08T00:00:00Z', '2026-09-08T00:01:00Z')).toBe(2);
-    expect(bandwidthMegabytesPerSecond(30_000_000, '2026-09-08T00:00:00Z', '2026-09-08T00:00:15Z')).toBe(2);
-  });
-
-  it('keeps chart ticks aligned with the same scale used by high-rate paths', () => {
-    expect(dashboardBandwidthAxis([], [])).toEqual({ maxMbps: 12, labels: [12, 8, 4, 0] });
-    expect(dashboardBandwidthAxis([2, 12], [8])).toEqual({ maxMbps: 12, labels: [12, 8, 4, 0] });
-    expect(dashboardBandwidthAxis([16], [8])).toEqual({ maxMbps: 18, labels: [18, 12, 6, 0] });
-    expect(dashboardBandwidthAxis([120], [80])).toEqual({ maxMbps: 120, labels: [120, 80, 40, 0] });
-    expect(dashboardBandwidthAxis([Number.NaN], [0])).toEqual({ maxMbps: 12, labels: [12, 8, 4, 0] });
+  it('scales both byte series together without treating totals as rates', () => {
+    const axis = dashboardByteAxis([120_000_000, 30_000_000], [80_000_000]);
+    expect(axis).toEqual({ maxBytes: 120_000_000, labels: [120_000_000, 80_000_000, 40_000_000, 0] });
+    expect(dashboardByteAxis([128], [256]).maxBytes).toBeGreaterThanOrEqual(256);
+    expect(dashboardByteAxis([], []).maxBytes).toBeGreaterThan(0);
+    expect(dashboardByteAxis([Number.NaN], [0]).labels.every(Number.isFinite)).toBe(true);
   });
 
   it('distinguishes unknown ratios and incomplete coverage from a real zero', () => {

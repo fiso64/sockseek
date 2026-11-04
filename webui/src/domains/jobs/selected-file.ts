@@ -1,5 +1,6 @@
 import type { Schema, TransferStateDto } from '../../api/types';
 import { liveTransferPresentation } from '../transfers/model';
+import { jobStatusLabel, jobTransferTone } from './status';
 import type { TransferPresentation } from '../presentation/items';
 
 export function selectedJobFileTransfer(live: TransferStateDto): TransferPresentation {
@@ -14,6 +15,25 @@ export function selectedJobFileTransfer(live: TransferStateDto): TransferPresent
       ? transfer.progressText
       : `${Math.round(transfer.progressPercent)}%`,
     eta: transfer.eta?.replace(/ remaining$/, ''),
+  };
+}
+
+/** Job outcomes own skip/finalization/cancellation facts that a network attempt cannot describe. */
+export function jobFileTransfer(job: Schema<'JobSummaryDto'> | null | undefined,
+  file: Schema<'FileDownloadStateDto'> | null | undefined,
+  target?: Schema<'PeerFileTargetDto'> | null, live?: TransferStateDto): TransferPresentation {
+  const current = live ? selectedJobFileTransfer(live) : undefined;
+  const terminal = job?.lifecycleState === 'Terminal';
+  return {
+    ...current, job: job ?? undefined, file: file ?? undefined, target: target ?? undefined,
+    state: terminal || !current ? job ? jobStatusLabel(job) : 'Pending' : current.state,
+    tone: terminal || !current ? jobTransferTone(job) : current.tone,
+    direction: 'download',
+    speed: terminal ? undefined : current?.speed,
+    eta: terminal ? undefined : current?.eta,
+    detail: job?.failureMessage ?? (terminal ? undefined : current?.detail),
+    progressPercent: job?.terminalOutcome === 'Skipped' ? undefined
+      : current?.progressPercent ?? (file?.progressPercent == null ? undefined : Number(file.progressPercent)),
   };
 }
 

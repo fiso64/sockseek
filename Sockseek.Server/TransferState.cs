@@ -168,7 +168,7 @@ internal sealed class TransferState
                 ? attempt.FinishedAtUtc ?? transfer.FinishedAtUtc
                 : null,
             transfer.FailureReason.ToString(),
-            null,
+            transfer.FailureMessage,
             transfer.Revision);
     }
 

@@ -46,7 +46,7 @@ test('a cancelled list snapshot cannot resurrect an archived submission', async 
   });
   // Install the interceptor on a fresh connection. Keep the first displayed
   // row while the second scope's pre-archive snapshot is delayed.
-  await page.goto('/jobs');
+  await page.goto('/jobs?tab=downloads');
   const row = page.locator('.search-history-row').filter({ hasText: 'Archive history race fixture' });
   await expect(row).toBeVisible();
   await row.locator('.search-history-open').click();
@@ -54,12 +54,12 @@ test('a cancelled list snapshot cannot resurrect an archived submission', async 
   await oldReady;
   await row.locator('.search-history-open').click();
   await remove.click();
-  await expect(page).toHaveURL(/\/jobs$/);
+  await expect(page).toHaveURL(/\/jobs\?tab=downloads$/);
   releaseOld();
   await freshReady;
   // The old cancelled scope must not undo successful removal while the
   // replacement observation is still waiting for its initial snapshot.
   await expect(row).toHaveCount(0);
   releaseFresh();
-  await expect(page.getByText('No jobs yet', { exact: true })).toBeVisible();
+  await expect(page.getByText('No download jobs yet', { exact: true })).toBeVisible();
 });

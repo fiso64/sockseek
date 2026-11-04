@@ -107,20 +107,20 @@ it('groups interleaved transfers by run identity independently of optional total
   expect(summarized[0]!.items[0]?.kind === 'folder' && summarized[0]!.items[0].filesComplete).toBe(true);
 });
 
-it('keeps timeline ordering independent of progress and reads only the requested card', () => {
+it.each(['download', 'upload'] as const)('sorts %s folder files by name while keeping cards and progress stable', direction => {
   const rows = ['one', 'two', 'other'].map((transferId, index) => ({ revision: 1,
     transferId,
     createdAtUtc: `2026-10-26T00:00:0${3 - index}Z`,
-    identity: { source: 'SoulseekPeer', direction: 'Download', username: index === 2 ? 'Other' : 'Peer', remotePath: `Folder\\${transferId}`, groupRef: index === 2 ? null : 'folder' },
+    identity: { source: 'SoulseekPeer', direction: direction === 'download' ? 'Download' : 'Upload', username: index === 2 ? 'Other' : 'Peer', remotePath: `Folder\\${index === 0 ? "10" : "2"} Track.flac`, groupRef: index === 2 ? null : 'folder' },
     status: { attemptCount: 0, availableActions: [], state: 'Queued', terminalOutcome: 'None', isTerminal: false },
     progress: { totalBytes: 100, bytesTransferred: 0 }
   }) as TransferStateDto);
   const projection = new TransferProjection();
-  const groups = arrangeTransferGroups(rows, 'download', [], projection);
+  const groups = arrangeTransferGroups(rows, direction, [], projection);
   const layout = groups[0]!.items[0]!;
   const live = { createdAtUtc: '2026-09-10T00:00:00Z',
     transferId: 'one', revision: 2,
-    identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: 'Folder\\one', groupRef: 'folder' },
+    identity: { source: 'SoulseekPeer', direction: direction === 'download' ? 'Download' : 'Upload', username: 'Peer', remotePath: 'Folder\\10 Track.flac', groupRef: 'folder' },
     status: { attemptCount: 0, state: 'InProgress', isTerminal: false, terminalOutcome: 'None', availableActions: [{ kind: 'cancel' }] },
     progress: { bytesTransferred: 50, totalBytes: 100, bytesPerSecond: 10 },
   } as TransferStateDto;
@@ -128,8 +128,8 @@ it('keeps timeline ordering independent of progress and reads only the requested
   const card = presentTransferEntry(layout, projection, read);
   expect(card.kind).toBe('folder');
   if (card.kind !== 'folder') throw new Error('Expected a folder');
-  expect(card.files.map(file => file.id)).toEqual(['one', 'two']);
-  expect(card.files[0]!.transfer).toMatchObject({ tone: 'active', progressPercent: 50 });
+  expect(card.files.map(file => file.id)).toEqual(['two', 'one']);
+  expect(card.files[1]!.transfer).toMatchObject({ tone: 'active', progressPercent: 50 });
   expect(card.transfer).toMatchObject({ tone: 'active', progressPercent: 25 });
   expect(read.mock.calls.flat()).toEqual(['one', 'two']);
   expect([...transferEntryActions(layout, projection, read)].some(action => action.cancellable)).toBe(true);
@@ -140,7 +140,7 @@ it('keeps timeline ordering independent of progress and reads only the requested
     status: { ...row.status, state: 'Completed', terminalOutcome: 'Succeeded' as const, isTerminal: true },
     progress: { ...row.progress, bytesTransferred: 100 }
   }));
-  const after = arrangeTransferGroups([...finished].reverse(), 'download', [], projection);
+  const after = arrangeTransferGroups([...finished].reverse(), direction, [], projection);
   expect(after.map(group => group.key)).toEqual(groups.map(group => group.key));
   expect(presentTransferEntry(after[0]!.items[0]!, projection).transfer.tone).toBe('complete');
   expect(presentTransferEntry(after[0]!.items[0]!, projection, read).transfer.tone).toBe('complete');

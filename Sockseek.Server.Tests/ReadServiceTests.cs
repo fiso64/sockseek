@@ -143,6 +143,7 @@ public sealed class ReadServiceTests
             ("Download", "Failed", "PeerFailure", "None", "ConnectionFailed", TransferCancellationSource.None),
             ("Download", "Failed", "Stale", "None", "TransferTimedOut", TransferCancellationSource.None),
             ("Download", "Failed", "Finalization", "None", "Unknown", TransferCancellationSource.None),
+            ("Upload", "Failed", "InternalFailure", "None", "InternalError", TransferCancellationSource.None),
             ("Upload", "Failed", "Unavailable", "None", "FileUnavailable", TransferCancellationSource.None),
             ("Upload", "Failed", "NotShared", "None", "FileNoLongerShared", TransferCancellationSource.None),
             ("Upload", "Cancelled", "None", "User", "None", TransferCancellationSource.User),
@@ -431,13 +432,13 @@ public sealed class ReadServiceTests
             var equalId = Guid.NewGuid();
             var edgeRows = new[]
             {
-                initialMutation with { TransferId = fallbackId, Sequence = 10, TotalBytes = -1,
+                initialMutation with { TransferId = fallbackId, RemotePath = "Known.bin", Sequence = 10, TotalBytes = -1,
                     File = new("Known.bin", 400, ".bin", null, null, null, null), GroupRef = edgeGroup },
-                initialMutation with { TransferId = newerId, Sequence = 11, Revision = 3, TotalBytes = 200,
+                initialMutation with { TransferId = newerId, RemotePath = "Newer.bin", Sequence = 11, Revision = 3, TotalBytes = 200,
                     TransferredBytes = 200, State = "Completed", TerminalOutcome = "Succeeded", GroupRef = edgeGroup },
-                initialMutation with { TransferId = archivedId, Sequence = 12, TransferredBytes = 100,
+                initialMutation with { TransferId = archivedId, RemotePath = "Archived.bin", Sequence = 12, TransferredBytes = 100,
                     State = "Completed", TerminalOutcome = "Succeeded", GroupRef = edgeGroup },
-                initialMutation with { TransferId = equalId, Sequence = 13, TotalBytes = -1,
+                initialMutation with { TransferId = equalId, RemotePath = "Empty.bin", Sequence = 13, TotalBytes = -1,
                     File = new("Empty.bin", 0, ".bin", null, null, null, null), GroupRef = edgeGroup },
             };
             foreach (var row in edgeRows) Assert.IsTrue(persistence.MutationSink!.TryEnqueue(row));
@@ -987,6 +988,11 @@ public sealed class ReadServiceTests
             CollectionAssert.AreEqual(jobs.Select(job => job.Id).Concat(new[] { liveExtract.Id, retainedExtract.Id }).ToArray(),
                 roots.Select(job => job.JobId).ToArray());
             Assert.AreEqual("Text import", roots.Single(job => job.JobId == retainedExtract.Id).SourceDetail);
+            var onlyImports = await facade.GetJobsAsync(new JobQuery(null, null, null, workflowId,
+                IncludeAll: false, ExcludeExtractResults: true, ExcludeKinds: [ServerJobKind.Song, ServerJobKind.RetrieveFolder]), null, 2);
+            CollectionAssert.AreEqual(new[] { liveExtract.Id, retainedExtract.Id },
+                onlyImports.Items.Select(job => job.JobId).ToArray());
+            Assert.IsNull(onlyImports.NextCursor, "Excluded kinds must not consume page slots or create another page.");
             var nestedPage = await facade.GetJobsAsync(new JobQuery(null, null, null, workflowId,
                 IncludeAll: false, ParentJobId: jobs[0].Id, ExcludeExtractResults: true), null, 1);
             Assert.AreEqual(nestedExtract.Id, nestedPage.Items.Single().JobId);

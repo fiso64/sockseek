@@ -13,6 +13,25 @@ public sealed class SearchViewKernelTests
     [TestMethod]
     [DataRow(SearchViewProjectionKind.AlbumDirectories)]
     [DataRow(SearchViewProjectionKind.AggregateAlbums)]
+    public void FreeTextAlbumMinimumCountsObservedTracksAcrossPublications(SearchViewProjectionKind kind)
+    {
+        var settings = new SearchSettings
+        {
+            NecessaryCond = new FileConditions(), PreferredCond = new FileConditions(),
+            NecessaryFolderCond = new FolderConditions { MinTrackCount = 2 }, MinSharesAggregate = 1,
+        };
+        var kernel = new SearchViewKernel(new SearchViewProjectionDefinition(kind,
+            AlbumQuery: new AlbumQuery { SearchHint = "Track" }), settings);
+        var first = Input(1, "Peer", @"Share\Album\01 Track.flac", 900, SearchResultVisibility.Public);
+        var second = Input(2, "Peer", @"Share\Album\02 Track.flac", 900, SearchResultVisibility.Public);
+        Assert.AreEqual(0L, kernel.Apply([first], 1, false).Counters.ProjectedFileCount);
+        Assert.AreEqual(2L, kernel.Apply([second], 2, false).Counters.ProjectedFileCount);
+        Assert.AreEqual(2L, kernel.Apply([], 3, true).Counters.ProjectedFileCount);
+    }
+
+    [TestMethod]
+    [DataRow(SearchViewProjectionKind.AlbumDirectories)]
+    [DataRow(SearchViewProjectionKind.AggregateAlbums)]
     public void AlbumGroupingAcceptsSmallResponsesWithLargePeerFileCounts(SearchViewProjectionKind kind)
     {
         var settings = new SearchSettings

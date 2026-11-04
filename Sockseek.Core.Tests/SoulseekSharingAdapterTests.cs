@@ -1,4 +1,6 @@
 using System.Net;
+using Microsoft.Extensions.Logging;
+using Sockseek.Core.Diagnostics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
@@ -12,6 +14,66 @@ namespace Sockseek.Core.Tests;
 public sealed class SoulseekSharingAdapterTests
 {
     [TestMethod]
+    public async Task SearchCallbackFailureIsReportedAndDoesNotPoisonLaterRequests()
+    {
+        var records = new List<CompactLogRecord>();
+        using var logs = LoggerFactory.Create(builder => builder.AddProvider(new CompactTextLoggerProvider(records.Add, LogLevel.Warning)));
+        var reader = new FakeCatalogReader([File(@"Public\track.flac")]) { SearchFailure = new IOException("catalog read failed") };
+        await using var uploads = CreateUploads(reader);
+        using var adapter = new SoulseekSharingAdapter(new FakeProvider(reader), uploads,
+            new PeerRestrictionPolicy(new PeerRestrictionSettings()), new UploadSettings { Slots = 1 },
+            () => null, logger: logs.CreateLogger("sharing-test"));
+        Assert.IsNull(await adapter.ResolveSearchAsync("alice", 1, new SearchQuery("track")));
+        Assert.IsNull(await adapter.ResolveSearchAsync("alice", 2, new SearchQuery("track")));
+        Assert.AreEqual(1, records.Count);
+        StringAssert.Contains(records[0].Message, "search response failed");
+        reader.SearchFailure = null;
+        Assert.IsNotNull(await adapter.ResolveSearchAsync("alice", 3, new SearchQuery("track")));
+    }
+
+    [TestMethod]
+    public async Task UploadLookupFailureIsTemporaryAndDoesNotExposeLocalDetails()
+    {
+        var reader = new FakeCatalogReader([]) { ResolveFailure = new IOException("private storage path") };
+        await using var uploads = CreateUploads(reader);
+        using var adapter = CreateAdapter(reader, uploads);
+        var endpoint = new IPEndPoint(IPAddress.Loopback, 1234);
+        var unavailable = await Assert.ThrowsExactlyAsync<DownloadEnqueueException>(
+            () => adapter.EnqueueUploadAsync("alice", endpoint, @"Public\missing.flac"));
+        Assert.AreEqual("Temporarily unavailable; try again later.", unavailable.Message);
+        reader.ResolveFailure = null;
+        var missing = await Assert.ThrowsExactlyAsync<DownloadEnqueueException>(
+            () => adapter.EnqueueUploadAsync("alice", endpoint, @"Public\missing.flac"));
+        Assert.AreEqual("File not shared.", missing.Message);
+        adapter.Dispose();
+        var stopped = await Assert.ThrowsExactlyAsync<DownloadEnqueueException>(
+            () => adapter.EnqueueUploadAsync("alice", endpoint, @"Public\missing.flac"));
+        Assert.AreEqual("Pending shutdown.", stopped.Message);
+    }
+
+    [TestMethod]
+    public async Task DetachedRouterRejectsUploadsAndPreservesAttachedRejection()
+    {
+        var router = new SoulseekInboundRequestRouter();
+        var endpoint = new IPEndPoint(IPAddress.Loopback, 1234);
+        var unavailable = await Assert.ThrowsExactlyAsync<DownloadEnqueueException>(
+            () => router.EnqueueUploadAsync("alice", endpoint, @"Public\missing.flac"));
+        Assert.AreEqual("Pending shutdown.", unavailable.Message);
+
+        var reader = new FakeCatalogReader([]);
+        await using var uploads = CreateUploads(reader);
+        using var adapter = CreateAdapter(reader, uploads);
+        using (router.Attach(adapter))
+        {
+            var missing = await Assert.ThrowsExactlyAsync<DownloadEnqueueException>(
+                () => router.EnqueueUploadAsync("alice", endpoint, @"Public\missing.flac"));
+            Assert.AreEqual("File not shared.", missing.Message);
+        }
+        await Assert.ThrowsExactlyAsync<DownloadEnqueueException>(
+            () => router.EnqueueUploadAsync("alice", endpoint, @"Public\missing.flac"));
+    }
+
+    [TestMethod]
     public async Task SearchStartsWithEmptyExcludedPhraseSet()
     {
         var reader = new FakeCatalogReader([File(@"Public\allowed track.flac")]);
@@ -24,6 +86,7 @@ public sealed class SoulseekSharingAdapterTests
             new SearchQuery("allowed"));
         Assert.IsNotNull(response);
         Assert.AreEqual(1, response.Files.Count);
+        Assert.AreEqual(0, response.UploadSpeed, "Unknown bandwidth must not be advertised as unlimited speed.");
     }
 
     [TestMethod]
@@ -242,6 +305,8 @@ public sealed class SoulseekSharingAdapterTests
     private sealed class FakeCatalogReader(
         IReadOnlyList<ShareCatalogFile> files) : IShareCatalogReader
     {
+        public Exception? ResolveFailure { get; set; }
+        public Exception? SearchFailure { get; set; }
         public int SearchCount { get; private set; }
         public int LastLimit { get; private set; }
         public IReadOnlyCollection<string> LastExclusions { get; private set; } = [];
@@ -261,7 +326,9 @@ public sealed class SoulseekSharingAdapterTests
         public ValueTask<ShareCatalogResolvedFile?> ResolveFileAsync(
             RemotePathKey remotePath,
             CancellationToken cancellationToken = default)
-            => ValueTask.FromResult<ShareCatalogResolvedFile?>(null);
+            => ResolveFailure is { } failure
+                ? ValueTask.FromException<ShareCatalogResolvedFile?>(failure)
+                : ValueTask.FromResult<ShareCatalogResolvedFile?>(null);
 
         public ValueTask<IReadOnlyList<ShareCatalogFile>> SearchAsync(
             string query,
@@ -276,6 +343,7 @@ public sealed class SoulseekSharingAdapterTests
             CancellationToken cancellationToken = default)
         {
             SearchCount++;
+            if (SearchFailure is { } failure) return ValueTask.FromException<IReadOnlyList<ShareCatalogFile>>(failure);
             LastLimit = limit;
             LastExclusions = exclusions.ToArray();
             return ValueTask.FromResult<IReadOnlyList<ShareCatalogFile>>(

@@ -6,10 +6,9 @@
   import { createEmptySearchConditions, type SearchConditions } from './config-state';
   import { readSearchConditions, searchConditionsPatch, searchExpectedLength, mergeSearchSettings } from './config-mapping';
 
-  let { draft, active, prefetch = false, conditions = $bindable(createEmptySearchConditions()), resolved = $bindable(false), onchange, onvalidation, onclose }: {
+  let { draft, active, conditions = $bindable(createEmptySearchConditions()), resolved = $bindable(false), onchange, onvalidation, onclose }: {
     draft: SearchDraft;
     active: boolean;
-    prefetch?: boolean;
     conditions?: SearchConditions;
     resolved?: boolean;
     onchange: (value: SearchDraft) => void;
@@ -33,15 +32,13 @@
       validationKey = key;
       onvalidation(null, false);
     }
-    // A closed panel must not expose pills from a different query/intent or
-    // apply their edits using the previous mode's condition mapping.
+    // Never apply edits using a different query's condition mapping.
     if (loadedKey !== key) {
       baseline = null;
       initial = null;
       resolved = false;
     }
-    if (!active && !prefetch) return;
-    const blocking = active;
+    if (!active) return;
     retry;
     if (untrack(() => loadedKey === key && baseline !== null)) return;
     const snapshot = untrack(() => JSON.parse(JSON.stringify(draft)) as SearchDraft);
@@ -51,7 +48,7 @@
     initial = null;
     error = null;
     loading = true;
-    if (blocking) untrack(() => onvalidation('Search configuration is loading.', true));
+    untrack(() => onvalidation('Search configuration is loading.', true));
     const timer = setTimeout(() => { void daemonApi.resolveEffectiveSettings({
       job: searchJobDraft(snapshot),
       options: snapshot.searchSettings ? { downloadSettings: { search: snapshot.searchSettings } } : undefined,
@@ -67,8 +64,8 @@
     }).catch((cause: unknown) => {
       if (controller.signal.aborted) return;
       error = cause instanceof Error ? cause.message : 'Search configuration unavailable.';
-      if (blocking) onvalidation(error, false);
-    }).finally(() => { if (!controller.signal.aborted) loading = false; }); }, blocking ? 0 : 250);
+      onvalidation(error, false);
+    }).finally(() => { if (!controller.signal.aborted) loading = false; }); }, 0);
     return () => { clearTimeout(timer); controller.abort(); };
   });
 

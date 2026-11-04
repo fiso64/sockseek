@@ -41,6 +41,7 @@ export function formatCountWithNoun(value: number | string | null | undefined, s
 
 export function formatBytes(value: number | string | null | undefined): string {
   const bytes = Number(value ?? 0);
+  if (bytes >= 1_000_000_000_000) return `${(bytes / 1_000_000_000_000).toFixed(2)} TB`;
   if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
   if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(bytes >= 100_000_000 ? 0 : 1)} MB`;
   if (bytes >= 1_000) return `${(bytes / 1_000).toFixed(1)} KB`;

@@ -287,6 +287,7 @@ public sealed record WorkflowDetailDto(
 /// </param>
 /// <param name="NewestFirst">Return newest display IDs first; continuation cursors are bound to the selected direction.</param>
 /// <param name="ExcludeExtractResults">Exclude generated jobs represented by their extraction source, before paging.</param>
+/// <param name="ExcludeKinds">Omit these job kinds before paging, including live updates.</param>
 public sealed record JobQuery(
     ServerJobLifecycleState? LifecycleState,
     ServerJobTerminalOutcome? TerminalOutcome,
@@ -299,7 +300,8 @@ public sealed record JobQuery(
     ServerJobRole? Role = null,
     bool Archived = false,
     bool NewestFirst = false,
-    bool ExcludeExtractResults = false);
+    bool ExcludeExtractResults = false,
+    IReadOnlyList<ServerJobKind>? ExcludeKinds = null);
 
 /// <summary>Read compact summaries for linked jobs without hydrating their full details.</summary>
 public sealed record JobLookupRequestDto(IReadOnlyList<Guid> JobIds);

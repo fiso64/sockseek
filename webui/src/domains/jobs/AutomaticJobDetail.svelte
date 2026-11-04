@@ -1,6 +1,8 @@
 <script lang="ts">
+  import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { untrack } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
+  import TransferStateLabel from '../../components/items/TransferStateLabel.svelte';
   import { audioAttributes, basename, type FolderItemFile, type TransferPresentation } from '../presentation/items';
   import { daemonApi, defaultPageSize, nestedPageSize } from '../../api/client';
   import { DaemonApiError } from '../../api/http';
@@ -9,7 +11,7 @@
   import { TransferRows, updatedTransfer, updatedJob } from '../../api/state.svelte';
   import { jobStateSummary } from '../../api/job-summary';
   import { liveTransferPresentation } from '../transfers/model';
-  import { selectedJobFile, selectedJobFileTransfer } from './selected-file';
+  import { selectedJobFile, jobFileTransfer } from './selected-file';
   import { directoryManifestFileRow, directoryKnownSize } from './directory-files';
   import { canReuseJobDetail, jobDetailVersion, startJobDetailRefresh, readJobSummaries, jobSummaryRetryIds, type JobSummaryRead } from './details';
   import { completedExtract, presentedChildren, resolvePresentedJob, extractSourceLabel } from './presentation';
@@ -207,6 +209,8 @@
     const total = Number(payload.directory.fileCount);
     const successful = Number(payload.directory.successfulFileCount);
     return {
+      job: job ?? undefined, directory: payload.directory,
+      detail: job?.failureMessage ?? undefined,
       state: job ? jobStatusLabel(job) : humanizeStateValue(payload.directory.phase),
       tone: job?.lifecycleState !== 'Terminal' ? 'active' : jobTransferTone(job),
       direction: 'download',
@@ -565,20 +569,24 @@
 </script>
 
 <section class="page page-search redesigned-search-page automatic-job-detail">
+  {#if job?.sourceJobId && job.role === 'user-root' && !job.parentJobId}<button type="button" class="text-button" onclick={() => onopenjob({ jobId: job!.sourceJobId! })}>Open source job</button>{/if}
   <header class="job-detail-heading">
     <button type="button" class="icon-button back-button" aria-label={job?.parentJobId ? `Back to ${parentTitle}` : 'Back to jobs'} onclick={() => job?.parentJobId ? onopenjob(parent ?? { jobId: job.parentJobId }) : onback()}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5M7.5 10H16" /></svg>
     </button>
     <div class="job-detail-title">
       <div class="job-detail-kicker">{#each ancestors as ancestor (ancestor.jobId)}<button type="button" onclick={() => onopenjob(ancestor)}>{ancestor.itemName ?? ancestor.queryText ?? 'Parent job'}</button><span>/</span>{/each}<span>{jobKindLabel(job?.kind)}</span></div>
-      <h1>{detail ? title : 'Loading job…'}</h1>
+      <h1>{detail ? title : 'Job'}</h1>
       {#if job?.sourceDetail}<small>{job.sourceDetail}</small>{/if}
       {#if !job?.sourceDetail && payload?.kind === 'remote-directory'}<small>Soulseek directory</small>{/if}
       {#if !job?.sourceDetail && payload?.kind === 'remote-file'}<small>Soulseek link</small>{/if}
     </div>
     {#if job}
+      {@const statusLabel = jobStatusLabel(job)}
       <div class="job-detail-heading-summary">
-        <span class={`search-status-badge ${jobStatusClass(job)}`}><i></i>{jobStatusLabel(job)}</span>
+        {#if statusLabel !== 'Complete'}
+          <span class={`search-status-badge ${jobStatusClass(job)}`}><i></i>{statusLabel}</span>
+        {/if}
         {#each jobHeaderStats(payload) as stat}<span>{stat}</span>{/each}
         {#if job.createdAtUtc}<span class="job-detail-age"><RelativeTime timestamp={job.createdAtUtc} /></span>{/if}
         {#if job.availableActions?.some((action) => action.kind === 'cancel')}
@@ -589,6 +597,7 @@
       </div>
     {/if}
   </header>
+  {#if !detail && !error}<LoadingIndicator label="Loading job" blocking />{/if}
   {#if error}<div class="resource-state-notice unavailable" role="alert">{error.message}</div>{/if}
   {#if transferError}<div class="resource-state-notice unavailable" role="alert"><span>Live file progress unavailable: {transferError.message}</span><button type="button" onclick={() => transferRetry++}>Retry</button></div>{/if}
   {#if parentError}<div class="resource-state-notice unavailable" role="alert">Parent job unavailable: {parentError.message}</div>{/if}
@@ -606,7 +615,11 @@
     {#if payload.resultJobId}
       <button type="button" class="job-child-load-more" onclick={() => onopenjob({ jobId: payload?.kind === 'extract' ? payload.resultJobId ?? undefined : undefined })}>Open extracted job</button>
     {:else}
-      <div class="job-detail-empty"><strong>{job?.terminalOutcome === 'Failed' ? 'Extraction failed' : 'Extracting source'}</strong><span>{job?.terminalOutcome === 'Failed' ? 'The source did not produce a job.' : 'The extracted job will appear here when it is ready.'}</span></div>
+      {#if job?.lifecycleState === 'Terminal'}
+        <div class="job-detail-empty"><strong>{job.terminalOutcome === 'Failed' ? 'Extraction failed' : 'No extracted job'}</strong><span>The source did not produce a job.</span></div>
+      {:else}
+        <LoadingIndicator label="Extracting source" blocking />
+      {/if}
     {/if}
   {:else if payload?.kind === 'generic'}
     <dl class="job-detail-facts"><div><dt>Detail</dt><dd>{payload.text}</dd></div></dl>
@@ -637,33 +650,36 @@
       </header>
       <FileItemCard path={target.filename} sizeBytes={file.fileSize == null && target.size == null ? null : Number(file.fileSize ?? target.size)}
         audio={audioAttributes(target)}
-        transfer={activeFileTransfer ? selectedJobFileTransfer(activeFileTransfer) : {
-          state: job?.terminalOutcome === 'Succeeded' ? 'Complete' : humanizeStateValue(job?.lifecycleState === 'Terminal' ? job.terminalOutcome ?? 'Terminal' : job?.activityPhase ?? 'Pending'),
-          tone: jobTransferTone(job),
-          direction: 'download',
-          progressPercent: job?.terminalOutcome === 'Skipped' || file.progressPercent == null
-            ? undefined : Number(file.progressPercent),
-        }} />
+        transfer={jobFileTransfer(job, file, target, activeFileTransfer)} />
     </section>
   {:else if payload?.kind === 'song'}
     {#if payload.query.album}<div class="job-detail-context-line"><span>Album</span><strong>{payload.query.album}</strong></div>{/if}
-    <div class="job-detail-empty"><strong>{job?.terminalOutcome === 'Failed' ? 'No matching file' : job?.lifecycleState === 'Terminal' ? 'No selected file' : 'Finding a file'}</strong><span>{job?.terminalOutcome === 'Failed' ? 'No candidate satisfied this job.' : job?.lifecycleState !== 'Terminal' ? 'The job will select the best matching candidate when discovery completes.' : job.skipReason && job.skipReason !== 'None' ? humanizeStateValue(job.skipReason) : jobStatusLabel(job)}</span></div>
+    {#if job?.lifecycleState === 'Terminal'}
+      <div class="job-detail-empty"><strong>{job.terminalOutcome === 'Failed' ? 'No matching file' : 'No selected file'}</strong><span>{job.terminalOutcome === 'Failed' ? 'No candidate satisfied this job.' : job.skipReason && job.skipReason !== 'None' ? humanizeStateValue(job.skipReason) : jobStatusLabel(job)}</span></div>
+    {:else}
+      <LoadingIndicator label="Finding a file" blocking />
+    {/if}
+    <TransferStateLabel transfer={jobFileTransfer(job, payload.file)} />
   {:else if payload?.kind === 'album'}
     {#if payload.resolvedFolderPath || manifest}
       <section class="job-content-section">
         <header class="job-section-heading"><h2>Selected folder</h2>{#if payload.resolvedFolderUsername}<div class="job-source-summary"><UsernameLink username={payload.resolvedFolderUsername} actions={userActions} /></div>{/if}</header>
         <FolderItemCard path={(payload.resolvedFolderPath ?? manifest?.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} />
-        {#if moreFolderFiles}<button type="button" class="job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more files</button>{/if}
+        {#if moreFolderFiles}<button type="button" class="job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
       </section>
     {:else}
-      <div class="job-detail-empty"><strong>{job?.lifecycleState === 'Terminal' ? 'Folder details unavailable' : 'Finding an album'}</strong><span>{job?.lifecycleState === 'Terminal' ? 'No selected folder plan is available for this job.' : 'The job will select the best matching folder after discovery.'}</span></div>
+      {#if job?.lifecycleState === 'Terminal'}
+        <div class="job-detail-empty"><strong>Folder details unavailable</strong><span>No selected folder plan is available for this job.</span></div>
+      {:else}
+        <LoadingIndicator label="Finding an album" blocking />
+      {/if}
     {/if}
   {:else if payload?.kind === 'remote-directory'}
     {#if payload.sourceUsername}<div class="job-detail-context-line"><span>User</span><strong><UsernameLink username={payload.sourceUsername} actions={userActions} /></strong></div>{/if}
     <section class="job-content-section">
       <header class="job-section-heading"><h2>Remote directory</h2></header>
       <FolderItemCard path={(payload.sourceFolderPath ?? manifest?.displayRoot ?? payload.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} />
-      {#if moreFolderFiles}<button type="button" class="job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more files</button>{/if}
+      {#if moreFolderFiles}<button type="button" class="job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
     </section>
   {:else if payload && payload.kind !== 'job-list' && payload.kind !== 'aggregate' && payload.kind !== 'album-aggregate'}
     <div class="resource-state-notice unavailable">This job's detailed result presentation is not connected yet.</div>
@@ -715,7 +731,7 @@
       {#if payload?.kind === 'album' ? retrievalCursor : cursor}
         <button type="button" class="job-child-load-more"
           disabled={payload?.kind === 'album' ? retrievalMoreRequested : moreChildrenRequested}
-          onclick={() => void showMoreChildren()}>Load more jobs</button>
+          onclick={() => void showMoreChildren()}>Load more</button>
       {/if}
     </section>
   {/if}

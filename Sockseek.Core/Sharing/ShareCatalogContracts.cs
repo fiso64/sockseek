@@ -4,7 +4,7 @@ namespace Sockseek.Core.Sharing;
 
 public static class ShareCatalogVersions
 {
-    public const int Schema = 4;
+    public const int Schema = 5;
     public const int BrowseWire = 1;
 }
 
@@ -52,6 +52,7 @@ public sealed record ShareCatalogRoot(
 public sealed record ShareCatalogDirectory(
     long DirectoryId,
     long RootId,
+    // Native filesystem spelling, relative to the configured root; never a wire path.
     string RelativePath,
     string RemotePath,
     RemotePathKey ComparisonPath);
@@ -62,6 +63,7 @@ public sealed record ShareCatalogFile(
     long FileId,
     long RootId,
     long DirectoryId,
+    // Native filesystem spelling, relative to the configured root; never a wire path.
     string RelativePath,
     string RemotePath,
     RemotePathKey ComparisonPath,

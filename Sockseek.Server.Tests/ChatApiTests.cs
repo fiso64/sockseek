@@ -71,6 +71,17 @@ public sealed class ChatApiTests
             ChatMessageDto outgoing = await api.SendPrivateMessageAsync(
                 new SendPrivateMessageRequestDto(outgoingId, "Alice", "outbound"));
             Assert.AreEqual(ServerChatMessageState.Sent, outgoing.State);
+            foreach (string newline in new[] { "\n", "\r", "\r\n" })
+            {
+                var invalid = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
+                    api.SendPrivateMessageAsync(new(Guid.NewGuid(), "Alice", $"first{newline}second")));
+                Assert.AreEqual(HttpStatusCode.BadRequest, invalid.StatusCode);
+                StringAssert.Contains(invalid.Message, "cannot contain line breaks");
+            }
+            var invalidConversation = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
+                api.SendConversationMessageAsync(outgoing.TargetId, new(Guid.NewGuid(), "first\nsecond")));
+            Assert.AreEqual(HttpStatusCode.BadRequest, invalidConversation.StatusCode);
+            Assert.AreEqual(1, fake.PrivateSendCount, "Invalid text must not reach the Soulseek client.");
             ConversationSummaryDto? byPeer = await api.GetConversationByPeerAsync("Alice");
             Assert.IsNotNull(byPeer);
             Assert.AreEqual(outgoing.TargetId, byPeer.ConversationId);
@@ -172,9 +183,24 @@ public sealed class ChatApiTests
             await api.ArchiveConversationAsync(conversation.ConversationId);
             Assert.IsTrue((await api.GetConversationAsync(conversation.ConversationId))!.Archived);
 
+            foreach (string invalidRoom in new[] { "caf\u00e9", "two  spaces", new string('a', 25) })
+            {
+                var invalid = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
+                    api.JoinRoomAsync(invalidRoom));
+                Assert.AreEqual(HttpStatusCode.BadRequest, invalid.StatusCode);
+                StringAssert.Contains(invalid.Message, "Soulseek room names");
+            }
             ChatRoomSummaryDto room = await api.JoinRoomAsync("indie");
             Assert.AreEqual(ServerChatRoomJoinPhase.Joined, room.Phase);
             Assert.IsTrue((await api.GetRoomMembersAsync(room.RoomId)).Complete);
+            foreach (string newline in new[] { "\n", "\r", "\r\n" })
+            {
+                var invalid = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
+                    api.SendRoomMessageAsync(room.RoomId, new(Guid.NewGuid(), $"first{newline}second")));
+                Assert.AreEqual(HttpStatusCode.BadRequest, invalid.StatusCode);
+                StringAssert.Contains(invalid.Message, "cannot contain line breaks");
+            }
+            Assert.AreEqual(0, fake.RoomSendCount);
             ChatMessageDto roomMessage = await api.SendRoomMessageAsync(
                 room.RoomId,
                 new SendChatMessageRequestDto(Guid.NewGuid(), "hello room"));

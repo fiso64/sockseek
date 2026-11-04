@@ -1195,9 +1195,14 @@ namespace Sockseek.Persistence.Migrations
 
                     b.HasIndex("TerminalOutcome", "CompletedAtUtc");
 
+                    b.HasIndex("Username", "RemotePath")
+                        .HasFilter("direction = 'Upload' AND archived_at_utc IS NULL");
+
                     b.HasIndex("ArchivedAtUtc", "CreatedAtUtc", "Id");
 
                     b.HasIndex("WorkflowId", "CreatedAtUtc", "Id");
+
+                    b.HasIndex("ArchivedAtUtc", "Direction", "CreatedAtUtc", "Id");
 
                     b.HasIndex("GroupRef", "Username", "Direction", "ArchivedAtUtc");
 

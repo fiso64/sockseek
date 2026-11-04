@@ -89,15 +89,19 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
         if (uploadShares)
         {
             Directory.CreateDirectory(sharedDirectory);
-            await File.WriteAllBytesAsync(Path.Combine(sharedDirectory, "Uploaded.txt"), new byte[128]);
-            await File.WriteAllBytesAsync(Path.Combine(sharedDirectory, "Queued.txt"), new byte[128]);
+            // Exercise native nested paths through the actual scanner and
+            // upload stream factory, not just files at the share root.
+            string albumDirectory = Path.Combine(sharedDirectory, "Album");
+            Directory.CreateDirectory(albumDirectory);
+            await File.WriteAllBytesAsync(Path.Combine(albumDirectory, "Uploaded.txt"), new byte[128]);
+            await File.WriteAllBytesAsync(Path.Combine(albumDirectory, "Queued.txt"), new byte[128]);
         }
         var peer = SoulseekClientProxy.Create();
         byte[] profilePicture = Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
         peer.ProfileInfoForPeer = username => username switch
         {
-            "fixture-peer" => new Soulseek.UserInfo("A small shared library. More at https://example.org/fixture", 3, 1, true, profilePicture),
+            "fixture-peer" => new Soulseek.UserInfo("A small shared library.\n\nMore at https://example.org/fixture", 3, 1, true, profilePicture),
             "info-unavailable-peer" => throw new IOException("Peer info unavailable."),
             _ => new Soulseek.UserInfo("", 0, 0, false),
         };
@@ -164,7 +168,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             : pagedSubfolderSearch && username == "fixture-peer"
             ? new Soulseek.BrowseResponse([
                 new Soulseek.Directory("Paged", [new Soulseek.File(1, "Root.txt", 128, ".txt", [])]),
-            new Soulseek.Directory(@"Paged\Nested", Enumerable.Range(1, 25)
+            new Soulseek.Directory(@"Paged\Nested", Enumerable.Range(1, 101)
                 .Select(index => new Soulseek.File(1, $"{index:D2}.txt", 128, ".txt", []))
                 .ToArray()),
             ])
@@ -223,8 +227,14 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
         TaskCompletionSource? artDownloadGate = null;
         var directoryComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var uploadGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool failNextUpload = false;
         peer.UploadHandler = async arguments =>
         {
+            if (failNextUpload)
+            {
+                failNextUpload = false;
+                throw new IOException("The fixture peer disconnected during upload.");
+            }
             string username = (string)arguments[0]!;
             string filename = (string)arguments[1]!;
             var streamFactory = arguments.OfType<Func<long, Task<Stream>>>().Single();
@@ -234,7 +244,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             DateTime started = DateTime.UtcNow;
             Soulseek.Transfer Snapshot(Soulseek.TransferStates state, long bytes) => new(
                 Soulseek.TransferDirection.Upload, username, filename, 1, state,
-                128, 0, bytes, 128, started, state == Soulseek.TransferStates.Completed ? DateTime.UtcNow : null,
+                128, 0, bytes, 128, started, state.HasFlag(Soulseek.TransferStates.Completed) ? DateTime.UtcNow : null,
                 null, null, null);
             options.StateChanged?.Invoke(new(Soulseek.TransferStates.Queued, Snapshot(Soulseek.TransferStates.InProgress, 0)));
             var buffer = new byte[64];
@@ -242,12 +252,13 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             options.ProgressUpdated?.Invoke(new(0, Snapshot(Soulseek.TransferStates.InProgress, 64)));
             await uploadGate.Task.WaitAsync(cancellationToken);
             await input.ReadExactlyAsync(buffer, cancellationToken);
-            var completed = Snapshot(Soulseek.TransferStates.Completed, 128);
+            var completed = Snapshot(Soulseek.TransferStates.Succeeded, 128);
             options.ProgressUpdated?.Invoke(new(0, completed));
             return completed;
         };
         TaskCompletionSource? nextSearchBatch = null;
         TaskCompletionSource? finishSearch = null;
+        bool emptySearch = false;
         var searchStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         bool musicSearch = false;
         bool ordinaryTrackSearch = false;
@@ -275,6 +286,11 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             cancellationToken.ThrowIfCancellationRequested();
             searchStarted.TrySetResult();
             Interlocked.Increment(ref networkSearches);
+            if (emptySearch)
+            {
+                await finishSearch!.Task.WaitAsync(cancellationToken);
+                return;
+            }
             if (longSongFallback)
             {
                 for (int index = 0; index < 100; index++)
@@ -653,7 +669,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             }
             Soulseek.Transfer Snapshot(Soulseek.TransferStates state, long bytes) => new(
                 Soulseek.TransferDirection.Download, username, filename, 1, state,
-                size, 0, bytes, size, started, state == Soulseek.TransferStates.Completed ? DateTime.UtcNow : null,
+                size, 0, bytes, size, started, state.HasFlag(Soulseek.TransferStates.Completed) ? DateTime.UtcNow : null,
                 null, null, null);
             var active = Snapshot(Soulseek.TransferStates.InProgress, 0);
             options.StateChanged?.Invoke(new(Soulseek.TransferStates.Queued, active));
@@ -919,8 +935,9 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     }
                     finally { sharing.StateChanged -= OnSharingReady; }
                     await sharing.Adapter.EnqueueUploadAsync("upload-peer", new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 12345),
-                        command == "request-upload" ? @"Public\Uploaded.txt" : @"Public\Queued.txt");
+                        command == "request-upload" ? @"Public\Album\Uploaded.txt" : @"Public\Album\Queued.txt");
                     break;
+                case "fail-next-upload": failNextUpload = true; break;
                 case "release-upload": uploadGate.TrySetResult(); break;
                 case "music-search": musicSearch = true; break;
                 case "large-search": largeSearch = true; break;
@@ -1027,6 +1044,10 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                 case "paged-subfolder-search": pagedSubfolderSearch = true; break;
                 case "staged-search":
                     nextSearchBatch = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                    finishSearch = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                    break;
+                case "empty-search":
+                    emptySearch = true;
                     finishSearch = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     break;
                 case "next-search-batch": nextSearchBatch?.TrySetResult(); break;

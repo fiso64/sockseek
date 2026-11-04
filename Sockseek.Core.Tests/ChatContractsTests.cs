@@ -31,6 +31,9 @@ public sealed class ChatContractsTests
     public void MessageValidationPreservesWhitespaceButRejectsBlankAndNul()
     {
         Assert.AreEqual(" hello\n", ChatIdentity.ValidateMessage(" hello\n"));
+        Assert.AreEqual(" hello ", ChatIdentity.ValidateOutgoingMessage(" hello "));
+        foreach (string newline in new[] { "\r", "\n", "\r\n" })
+            Assert.ThrowsExactly<ArgumentException>(() => ChatIdentity.ValidateOutgoingMessage($"hello{newline}world"));
         Assert.ThrowsExactly<ArgumentException>(() => ChatIdentity.ValidateMessage(" \t"));
         Assert.ThrowsExactly<ArgumentException>(() => ChatIdentity.ValidateMessage("hello\0world"));
     }
@@ -56,9 +59,12 @@ public sealed class ChatContractsTests
     }
 
     [TestMethod]
-    public void CanonicallyEquivalentRoomNamesNormalizeToOneIdentity()
+    public void RoomValidationRejectsUnsupportedServerNamesInsteadOfChangingTheirIdentity()
     {
-        Assert.AreEqual("caf\u00e9", ChatIdentity.NormalizeRoom(" cafe\u0301 "));
+        Assert.AreEqual("Indie Music", ChatIdentity.NormalizeRoom(" Indie Music "));
+        Assert.AreEqual(new string('a', 24), ChatIdentity.NormalizeRoom(new string('a', 24)));
+        foreach (string invalid in new[] { "caf\u00e9", "cafe\u0301", "two  spaces", "control\u007f", new string('a', 25) })
+            Assert.ThrowsExactly<ArgumentException>(() => ChatIdentity.NormalizeRoom(invalid));
     }
 
     [TestMethod]

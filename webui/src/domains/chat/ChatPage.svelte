@@ -1,4 +1,6 @@
 <script lang="ts">
+  import LoadingIndicator from '../../components/LoadingIndicator.svelte';
+  import { randomUUID } from '../../app/uuid';
   import { onMount, tick } from 'svelte';
   import type { ChatMessageDto, ChatRoomSummaryDto, ChatTargetSnapshotDto, ConversationSummaryDto, Schema, UserPresenceObservationDto } from '../../api/types';
   import { wireInteger } from '../../api/types';
@@ -51,10 +53,10 @@
   let presence = $state<UserPresenceObservationDto | null>(null);
   let presenceError = $state<Error | null>(null);
   let draft = $state('');
+  let composerTextarea = $state<HTMLTextAreaElement | null>(null);
   let adding = $state<'room' | 'user' | null>(null);
   let addDraft = $state('');
   let menuOpen = $state(false);
-  let composerTextarea = $state<HTMLTextAreaElement | null>(null);
   let messagesElement = $state<HTMLDivElement | null>(null);
   let chatOptionsElement = $state<HTMLDivElement | null>(null);
   let mutation = $state<MutationState>({ phase: 'idle' });
@@ -400,7 +402,6 @@
     menuOpen = false;
     mutation = { phase: 'idle' };
     draft = '';
-    scheduleComposerResize();
   }
 
   function openOrCreateConversation(username: string): void {
@@ -420,7 +421,6 @@
       const composed = draft;
       selectTarget({ kind: 'conversation', id: existing.conversationId });
       draft = composed;
-      scheduleComposerResize();
     } catch (cause) {
       if (revision === selectionRevision) targetError = asError(cause);
     }
@@ -467,12 +467,12 @@
   async function sendMessage(): Promise<void> {
     const text = draft;
     if (!text.trim() || !target || composerDisabled || mutation.phase === 'pending') return;
+    if (!acceptComposerText(text)) return;
     const selected = target;
     const revision = selectionRevision;
-    const messageId = crypto.randomUUID();
+    const messageId = randomUUID();
     mutation = { phase: 'pending', label: 'Sending…' };
     draft = '';
-    scheduleComposerResize();
     try {
       const message = selected.kind === 'draft'
         ? await daemonApi.sendPrivateMessage(selected.username, text, messageId)
@@ -605,22 +605,39 @@
       if (revision === selectionRevision && messagesElement) messagesElement.scrollTop = messagesElement.scrollHeight;
     });
   }
-  function scheduleComposerResize(): void { requestAnimationFrame(() => resizeComposer(composerTextarea)); }
-  function resizeComposer(node: HTMLTextAreaElement | null): void {
+  $effect(() => {
+    draft;
+    resizeComposer();
+  });
+  function resizeComposer(): void {
+    const node = composerTextarea;
     if (!node) return;
-    if (!node.value) {
-      node.style.height = '38px';
-      node.style.overflowY = 'hidden';
-      return;
-    }
-    node.style.height = 'auto';
-    node.style.height = `${Math.max(38, Math.min(node.scrollHeight, 156))}px`;
-    node.style.overflowY = node.scrollHeight > 156 ? 'auto' : 'hidden';
+    node.style.height = '38px';
+    node.style.overflowY = 'hidden';
+    if (!node.value) return;
+    node.style.height = `${Math.min(156, Math.max(38, node.scrollHeight + 2))}px`;
+    node.style.overflowY = node.scrollHeight > node.clientHeight ? 'auto' : 'hidden';
+  }
+  function pasteComposerText(event: ClipboardEvent & { currentTarget: HTMLTextAreaElement }): void {
+    const pasted = event.clipboardData?.getData('text/plain');
+    if (pasted === undefined) return;
+    const singleLine = pasted.replace(/\r\n|[\r\n\v\f\u0085\u2028\u2029]/g, ' ');
+    if (singleLine === pasted) return;
+    event.preventDefault();
+    const input = event.currentTarget;
+    input.setRangeText(singleLine, input.selectionStart ?? input.value.length, input.selectionEnd ?? input.value.length, 'end');
+    draft = input.value;
+  }
+  function acceptComposerText(text: string): boolean {
+    if (!/[\r\n]/.test(text)) return true;
+    mutation = { phase: 'rejected', label: 'Soulseek messages cannot contain line breaks.' };
+    return false;
   }
   function asError(cause: unknown): Error { return cause instanceof Error ? cause : new Error(String(cause)); }
 </script>
 
 <svelte:window
+  onresize={resizeComposer}
   onkeydown={(event) => {
     if (event.key === 'Escape') {
       menuOpen = false;
@@ -715,7 +732,7 @@
           {/each}
         </div>
         {#if conversationCursor || roomCursor}
-          <LoadMoreButton label="Load more chats" loading={listsLoading} onclick={() => void loadLists()}/>
+          <LoadMoreButton loading={listsLoading} onclick={() => void loadLists()}/>
         {/if}
       </section>
     </aside>
@@ -775,17 +792,16 @@
       </div>
       <div class:short-thread={activeMessages.length < 6} class="chat-messages" aria-live="polite" bind:this={messagesElement}>
         {#if messageCursor}
-          <LoadMoreButton label="Load earlier messages" loading={messagesLoading}
+          <LoadMoreButton loading={messagesLoading}
             onclick={() => void loadEarlier()}/>
         {/if}
         {#if messagesLoading && !activeMessages.length && target?.kind !== 'draft'}
-          <div class="resource-state-notice loading">
-            <span class="resource-state-dot"></span>
-            <span class="resource-state-copy"><strong>Loading messages</strong></span>
-          </div>
+          <LoadingIndicator label="Loading messages" />
+        {:else if listsLoading && !target && !listsError}
+          <LoadingIndicator label="Loading chat" />
         {:else if activeMessages.length === 0}
           <div class="chat-empty-thread">
-            <strong>{targetError || (listsError && !target) ? 'Messages unavailable' : target?.kind === 'draft' ? 'New chat' : target ? 'No messages yet' : listsLoading ? 'Loading chat…' : 'Choose a room or user'}</strong>
+            <strong>{targetError || (listsError && !target) ? 'Messages unavailable' : target?.kind === 'draft' ? 'New chat' : target ? 'No messages yet' : 'Choose a room or user'}</strong>
           </div>
         {:else if activeRoom}
           {#each activeMessages as message (message.messageId)}
@@ -800,7 +816,7 @@
                 {/if}
                 <time>{messageTime(message)}</time>
                 {#if message.direction === 'Outgoing'}
-                  <span class={`message-send-state ${message.state.toLowerCase()}`}>{message.state}{message.failureReason ? ` · ${message.failureReason}` : ''}</span>
+                  <span class={`message-send-state ${message.state.toLowerCase()}`} title={message.state === 'Sent' ? 'Sent to the Soulseek server; recipient delivery is not confirmed.' : undefined}>{message.state}{message.failureReason ? ` · ${message.failureReason}` : ''}</span>
                 {/if}
               </div>
               <div class="message-body"><LinkifiedText text={message.text}/></div>
@@ -816,7 +832,7 @@
                 <div class="direct-message-meta">
                   <time>{messageTime(message)}</time>
                   {#if message.direction === 'Outgoing'}
-                    <span class={`message-send-state ${message.state.toLowerCase()}`}>{message.state}{message.failureReason ? ` · ${message.failureReason}` : ''}</span>
+                    <span class={`message-send-state ${message.state.toLowerCase()}`} title={message.state === 'Sent' ? 'Sent to the Soulseek server; recipient delivery is not confirmed.' : undefined}>{message.state}{message.failureReason ? ` · ${message.failureReason}` : ''}</span>
                   {/if}
                 </div>
               </div>
@@ -835,14 +851,15 @@
           <span class="composer-state">Chat {(runtime?.state ?? 'Unavailable').toLowerCase()}{runtime?.reason ? ` · ${runtime.reason}` : ''}</span>
         {/if}
         <div class="chat-composer-row">
-          <textarea aria-label="Message" rows="1"
+          <textarea rows="1" wrap="soft" aria-label="Message"
             placeholder={activeRoom ? `Message #${activeRoom.name}…` : activeUsername ? `Message ${activeUsername}…` : 'Message…'}
             bind:value={draft} bind:this={composerTextarea} disabled={composerDisabled}
-            oninput={(event) => resizeComposer(event.currentTarget as HTMLTextAreaElement)}
+            onpaste={pasteComposerText}
+            ondrop={(event) => { if (!acceptComposerText(event.dataTransfer?.getData('text/plain') ?? '')) event.preventDefault(); }}
             onkeydown={(event) => {
-              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+              if (event.key === 'Enter' && !event.isComposing) {
                 event.preventDefault();
-                void sendMessage();
+                if (event.ctrlKey || event.metaKey) void sendMessage();
               }
             }}></textarea>
           <button type="button" title="Send (Ctrl+Enter)" disabled={composerDisabled || !draft.trim()}

@@ -211,7 +211,7 @@ public sealed class JobSubmissions
         CancellationToken cancellationToken)
     {
         EnsureShareSubmissionConnection();
-        JobList workflow = CreateUserShareWorkflow(username, resolution);
+        Job workflow = CreateUserShareWorkflow(username, resolution);
         return SubmitJobAsync(workflow, options, cancellationToken,
             (summary, settings) => new StartUserShareDownloadsResponseDto(summary, new(
                 resolution.CanonicalDirectoryRoots, resolution.StandaloneFiles,
@@ -221,7 +221,7 @@ public sealed class JobSubmissions
             submissionId: submissionId, commitFingerprint: fingerprint);
     }
 
-    private static JobList CreateUserShareWorkflow(
+    private static Job CreateUserShareWorkflow(
         string username,
         PeerBrowseDownloadResolution resolution)
     {
@@ -229,10 +229,9 @@ public sealed class JobSubmissions
         ArgumentNullException.ThrowIfNull(resolution);
         if (resolution.Plans.Count == 0)
             throw new PeerBrowseSelectionException("The selection contains no downloadable public files.");
-        return new JobList(
-            $"Shares from {username}",
-            resolution.Plans.Select(plan =>
-                (Job)new RemoteDirectoryJob(new RemoteDirectorySource.Resolved(plan))));
+        var jobs = resolution.Plans.Select(plan =>
+            (Job)new RemoteDirectoryJob(new RemoteDirectorySource.Resolved(plan))).ToArray();
+        return jobs.Length == 1 ? jobs[0] : new JobList($"Shares from {username}", jobs);
     }
 
     private void EnsureShareSubmissionConnection()
@@ -504,7 +503,7 @@ public sealed class JobSubmissions
     }
 
     internal async Task AcceptSearchSelectionAsync(
-        JobList root,
+        Job root,
         Guid sourceJobId,
         Guid submissionId,
         string commitFingerprint,
@@ -512,10 +511,11 @@ public sealed class JobSubmissions
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(root);
-        if (root.Count == 0)
+        if (root is JobList { Count: 0 })
             throw new ArgumentException("A search-view submission requires at least one resolved job.");
-        DownloadSettings rootSettings = SearchSettingsBaselines.Create(
-            SearchSettingsBaselineKind.Generic);
+        // Selected jobs already have their final, independently resolved settings.
+        DownloadSettings rootSettings = root.PlannedSettings?.ReadSettings()
+            ?? SearchSettingsBaselines.Create(SearchSettingsBaselineKind.Generic);
         root.PlannedSettings = JobSettingsSnapshot.Capture(rootSettings);
         JobRequestMapper.AssignWorkflowId(root, root.WorkflowId);
         SubmissionSpecification specification = SubmissionSpecification.Create(root);

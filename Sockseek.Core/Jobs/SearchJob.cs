@@ -10,7 +10,8 @@ public sealed record FolderSearchProjection(
     AlbumQuery Query,
     bool IncludeFiles = false,
     bool IgnoreStringSortConditions = false,
-    FolderSortMode SortMode = FolderSortMode.AlbumRanked);
+    FolderSortMode SortMode = FolderSortMode.AlbumRanked,
+    bool EnforceMinimumTrackCount = true);
 public sealed record AggregateTrackProjection(SongQuery Query);
 public sealed record AggregateAlbumProjection(AlbumQuery Query);
 
@@ -136,7 +137,8 @@ public class SearchJob : Job
                     projection.Query,
                     ProjectionSettings(search),
                     ignoreStringSortConditions: projection.IgnoreStringSortConditions,
-                    sortMode: projection.SortMode),
+                    sortMode: projection.SortMode,
+                    enforceMinimumTrackCount: projection.EnforceMinimumTrackCount),
                 (projector, results) => projector.AddRange(results),
                 projector => projector.Snapshot(),
                 includeLocked));

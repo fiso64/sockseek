@@ -348,7 +348,7 @@ public sealed class ShareScanner
                         var child = new ShareCatalogDirectory(
                             ++directoryId,
                             root.RootId,
-                            ToRemoteSeparators(entryRelative),
+                            entryRelative,
                             entryRemote,
                             entryRemoteKey);
                         DirectoryFrame childFrame;
@@ -451,7 +451,7 @@ public sealed class ShareScanner
                     fileId,
                     candidate.Root.RootId,
                     candidate.Directory.DirectoryId,
-                    ToRemoteSeparators(candidate.RelativePath),
+                    candidate.RelativePath,
                     candidate.RemotePath,
                     candidate.RemotePathKey,
                     candidate.RemotePath.Replace('\\', ' '),

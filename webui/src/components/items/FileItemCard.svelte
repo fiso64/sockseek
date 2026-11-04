@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import TransferStateLabel from './TransferStateLabel.svelte';
   import RelativeTime from '../RelativeTime.svelte';
   import type { AudioAttributes, TransferPresentation } from '../../domains/presentation/items';
   import { audioSummary, basename, formatBytes, formatLength } from '../../domains/presentation/items';
@@ -33,7 +34,7 @@
   let transferDirectionClass = $derived(transfer?.direction ? `transfer-${transfer.direction}` : '');
 
   function transferFooterDetail(value: TransferPresentation): string {
-    return [value.detail, value.speed, value.eta].filter(Boolean).join(' · ');
+    return [value.tone === 'failed' ? undefined : value.detail, value.speed, value.eta].filter(Boolean).join(' · ');
   }
 </script>
 
@@ -60,13 +61,13 @@
               <strong class="file-transfer-length">{formatLength(audio.lengthSeconds)}</strong>
             {/if}
             <strong class="file-transfer-size">{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</strong>
-            <span class={`transfer-state ${transfer.tone ?? ''} ${transferDirectionClass}`}>{transfer.state}</span>
+            <TransferStateLabel {transfer} {path} {sizeBytes} />
             {#if actions}<span class="item-card-action">{@render actions()}</span>{/if}
           </div>
         </div>
         <div class="file-transfer-summary-secondary">
           <small class="file-transfer-path">{path}</small>
-          {#if transfer.createdAt}<span class="file-transfer-age">{transfer.direction === 'upload' ? 'requested' : 'created'} <RelativeTime timestamp={transfer.createdAt} lowercase /></span>{/if}
+          {#if transfer.createdAt}<span class="file-transfer-age"><RelativeTime timestamp={transfer.createdAt} lowercase /></span>{/if}
         </div>
       </div>
     </div>
@@ -100,7 +101,7 @@
     </svelte:element>
   {/if}
 
-  {#if transfer}
+  {#if transfer && transfer.tone !== 'complete'}
     {@const footerDetail = transferFooterDetail(transfer)}
     <div class={`transfer-card-footer file-transfer-footer ${transfer.tone ?? ''} ${transferDirectionClass}`}>
       {#if transfer.progressPercent !== undefined}
@@ -111,7 +112,7 @@
       {#if transfer.progressText || footerDetail || transfer.completedAt}
         <div class="transfer-progress-meta">
           <span>{transfer.progressText ?? ''}</span>
-          <span>{#if transfer.completedAt}completed <RelativeTime timestamp={transfer.completedAt} lowercase />{#if footerDetail} · {/if}{/if}{footerDetail}</span>
+          <span>{#if transfer.completedAt}<RelativeTime timestamp={transfer.completedAt} lowercase />{#if footerDetail} · {/if}{/if}{footerDetail}</span>
         </div>
       {/if}
     </div>

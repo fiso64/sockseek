@@ -277,6 +277,52 @@ public sealed class PersistenceDaemonTests
     }
 
     [TestMethod]
+    public async Task RetentionRunsAtStartupWithoutWaitingForTheDailyInterval()
+    {
+        string directory = Directory.CreateTempSubdirectory("sockseek-startup-retention-").FullName;
+        var options = Options.Create(new ServerOptions
+        {
+            Persistence = new ServerPersistenceOptions { Enabled = true, DataDirectory = directory },
+        });
+        var persistence = new PersistenceCoordinator(options);
+        using var maintenance = new PersistenceMaintenanceHostedService(persistence, options,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<PersistenceMaintenanceHostedService>.Instance);
+        try
+        {
+            await persistence.StartAsync(CancellationToken.None);
+            await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+                { DataSource = Path.Combine(directory, "sockseek.db") }.ToString()))
+            {
+                await connection.OpenAsync();
+                using var seed = connection.CreateCommand();
+                seed.CommandText = """
+                    INSERT INTO transfers (id, last_runtime_id, last_sequence, direction, source,
+                        state, terminal_outcome, total_bytes, transferred_bytes, attempt_count, created_at_utc,
+                        completed_at_utc, failure_reason, cancellation_source, revision)
+                    VALUES ($id, $runtime, 1, 'Upload', 'SoulseekPeer', 'Completed', 'Succeeded',
+                        10, 10, 1, $at, $at, 'None', 'None', 1);
+                    """;
+                seed.Parameters.AddWithValue("$id", Guid.NewGuid());
+                seed.Parameters.AddWithValue("$runtime", persistence.Runtime!.RuntimeId);
+                seed.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.AddDays(-100).ToUnixTimeMilliseconds());
+                await seed.ExecuteNonQueryAsync();
+            }
+            var pruned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            persistence.TransfersPruned += () => pruned.TrySetResult();
+            await maintenance.StartAsync(CancellationToken.None);
+            await pruned.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.AreEqual(0, (await persistence.TransferHistory!.GetTransfersAsync(new())).Items.Count);
+        }
+        finally
+        {
+            await maintenance.StopAsync(CancellationToken.None);
+            await persistence.StopAsync(CancellationToken.None);
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [TestMethod]
     public void RetentionBatchCeiling_RequestsBoundedCatchUpWork()
     {
         Assert.IsTrue(PersistenceMaintenanceHostedService.MayHaveMore(

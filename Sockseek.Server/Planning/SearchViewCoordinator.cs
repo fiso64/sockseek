@@ -76,13 +76,15 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
     }
 
     private static readonly TimeSpan IdleKernelRetention = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan PublicationInterval = TimeSpan.FromSeconds(1);
     private static readonly ActivitySource ProjectionActivities = new("Sockseek.Server.SearchViews");
     private const int InitialProjectionBatchSize = 200;
     // Keep first results prompt and bound each turn of projection work. Sparse
     // streams publish without waiting for a full batch; publication does no SQL.
     private int ProjectionBatchSize => persistence.SearchResultBatchSize;
-    private const int InitialDirectoryFileLimit = 24;
+    // Directory pages fan out; embed up to 100 files per folder, then continue in 500-file pages.
+    private const int InitialDirectoryFileLimit = ServerProtocol.DefaultNestedPageSize;
     private readonly ConcurrentDictionary<Guid, RuntimeView> runtimes = [];
     private readonly ConcurrentDictionary<Guid, byte> pending = [];
     private readonly ConcurrentDictionary<Guid, byte> requested = [];
@@ -93,6 +95,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
     private readonly CancellationTokenSource lifetime = new();
     internal SearchViewCache Cache { get; }
     private Task? worker;
+    private int disposed;
 
     // Selection requests read snapshots; they never drive projection scheduling.
     public SearchViewSelections Selections { get; }
@@ -746,6 +749,10 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
 
     private async Task RunWorkerAsync(CancellationToken cancellationToken)
     {
+        // Cleanup must also run when no reader requests more results. Queue it on
+        // the projection owner so releasing kernels cannot race their use.
+        using ITimer cleanup = clock.CreateTimer(_ => Schedule(Guid.Empty, observation: true),
+            null, CleanupInterval, CleanupInterval);
         try
         {
             await foreach (Guid viewId in work.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
@@ -754,8 +761,12 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                 // until idle; queued observation work is discarded after cancellation.
                 pending.TryRemove(viewId, out _);
                 bool explicitlyRequested = requested.TryRemove(viewId, out _);
+                if (viewId == Guid.Empty)
+                {
+                    ReleaseIdleKernels();
+                    continue;
+                }
                 if (!explicitlyRequested && !IsObserved(viewId)) continue;
-                ReleaseIdleKernels();
                 RuntimeView? runtime = null;
                 try
                 {
@@ -806,6 +817,8 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                 runtime.UnpublishedUsernames.Clear();
             }
         }
+        foreach (var key in replayFailureLogged.Keys)
+            if (!Cache.IsActive(key.ViewId)) replayFailureLogged.TryRemove(key, out _);
     }
 
     private void RequestAdvance(SearchViewInfo view)
@@ -1523,12 +1536,16 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         bool IsComplete,
         string RetentionState);
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        await StopAsync(CancellationToken.None).ConfigureAwait(false);
         lifetime.Dispose();
         foreach (RuntimeView runtime in runtimes.Values) runtime.PublicationTimer?.Dispose();
         runtimes.Clear();
+        replayFailureLogged.Clear();
+        pending.Clear();
+        requested.Clear();
         Cache.Clear();
-        return ValueTask.CompletedTask;
     }
 }

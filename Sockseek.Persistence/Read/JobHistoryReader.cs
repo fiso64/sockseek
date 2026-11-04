@@ -25,7 +25,8 @@ public sealed record JobHistoryQuery(
     bool Archived = false,
     bool NewestFirst = false,
     bool ExcludeExtractResults = false,
-    IReadOnlyCollection<Guid>? ExcludedJobIds = null);
+    IReadOnlyCollection<Guid>? ExcludedJobIds = null,
+    IReadOnlyList<string>? ExcludeKinds = null);
 
 public sealed record PersistedJob(
     Guid Id,
@@ -264,6 +265,9 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
         Filter("job.terminal_outcome=$outcome", "$outcome", query.TerminalOutcome);
         Filter("job.skip_reason=$skip", "$skip", query.SkipReason);
         Filter("job.kind=$kind", "$kind", query.Kind);
+        if (query.ExcludeKinds is { Count: > 0 })
+            Filter("job.kind NOT IN (SELECT value FROM json_each($excludeKinds))", "$excludeKinds",
+                JsonSerializer.Serialize(query.ExcludeKinds));
         Filter("job.workflow_id=$workflow", "$workflow", query.WorkflowId);
         Filter("job.submission_id=$submission", "$submission", query.SubmissionId);
         Filter("job.semantic_role=$role", "$role", query.SemanticRole);

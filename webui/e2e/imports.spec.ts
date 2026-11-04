@@ -37,7 +37,7 @@ test('folds a running text extraction into one source-labelled root and opens it
         && message.arguments?.[0]?.state?.removedWorkflowIds.includes(submitted.workflowId!)) observeRetired();
     }
   }));
-  await page.goto('/jobs');
+  await page.goto('/jobs?tab=downloads');
   const row = page.locator('.search-history-row').filter({ hasText: 'Fixture song' });
   await expect(page.locator('.search-history-row')).toHaveCount(1);
   await expect(row.locator('.search-status-badge')).toHaveText('Running');
@@ -53,7 +53,8 @@ test('folds a running text extraction into one source-labelled root and opens it
   await resultObserved;
   await daemon.command('release-download');
   await retired;
-  await expect(row.locator('.search-status-badge')).toHaveText('Complete');
+  await expect(row).toBeVisible();
+  await expect(row.locator('.search-status-badge')).toHaveCount(0);
   expect(observations).toBe(1);
   expect(summaryReads, 'Progress and retirement must not refetch the linked summary.').toBe(1);
   await row.locator('.search-history-open').click();

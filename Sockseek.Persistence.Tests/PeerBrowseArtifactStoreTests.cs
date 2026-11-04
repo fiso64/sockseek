@@ -21,7 +21,7 @@ public sealed class PeerBrowseArtifactStoreTests
         await using (var original = new PeerBrowseArtifactStore(directory.Path))
         {
             expiredId = (await CompleteEmptyAsync(original)).BrowseId;
-            artifactPath = Directory.EnumerateFiles(Path.Combine(original.RootDirectory, "artifacts"), "*.sqlite").Single();
+            artifactPath = Directory.EnumerateFiles(Path.Combine(original.RootDirectory, "artifacts"), "*.browse.gz").Single();
             registryPath = Path.Combine(original.RootDirectory, "resources.sqlite");
         }
         await using (var connection = new SqliteConnection($"Data Source={registryPath};Pooling=False"))
@@ -72,19 +72,10 @@ public sealed class PeerBrowseArtifactStoreTests
             await writer.CompleteAsync();
         }
 
-        string artifactPath = Directory.EnumerateFiles(
-            Path.Combine(store.RootDirectory, "artifacts"),
-            "*.sqlite").Single();
-        await using (var connection = new SqliteConnection($"Data Source={artifactPath};Mode=ReadOnly;Pooling=False"))
-        {
-            await connection.OpenAsync();
-            await using SqliteCommand command = connection.CreateCommand();
-            command.CommandText = "SELECT completion_marker FROM artifact_metadata;";
-            Assert.AreEqual(1L, await command.ExecuteScalarAsync());
-        }
+        await using var restarted = new PeerBrowseArtifactStore(directory.Path, clock);
 
         PeerBrowseResource? completed = await store.GetAsync(resource.BrowseId);
-        PeerDirectorySnapshot snapshot = await store.ReadDirectoryAsync(
+        PeerDirectorySnapshot snapshot = await restarted.ReadDirectoryAsync(
             resource.BrowseId,
             new PeerDirectoryIdentity("Peer", "Collection"));
 
@@ -104,29 +95,29 @@ public sealed class PeerBrowseArtifactStoreTests
         CollectionAssert.AreEqual(attributes.Select(a => (a.Type, a.Value)).ToArray(),
             snapshot.Files[0].Attributes!.Select(a => (a.StableCode, a.Value)).ToArray());
 
-        PeerBrowsePage<PeerBrowseDirectoryEntry> allDirectories = await store.ReadDirectoriesAsync(
+        PeerBrowsePage<PeerBrowseDirectoryEntry> allDirectories = await restarted.ReadDirectoriesAsync(
             resource.BrowseId, null, null, true, null, null, 20);
         PeerBrowseDirectoryEntry publicDirectory = allDirectories.Items.Single(
             item => item.DisplayPath == @"Collection\Public");
         PeerBrowseDirectoryEntry lockedDirectory = allDirectories.Items.Single(
             item => item.DisplayPath == @"Collection\Locked");
-        PeerBrowseFileEntry publicFile = (await store.ReadFilesAsync(
+        PeerBrowseFileEntry publicFile = (await restarted.ReadFilesAsync(
             resource.BrowseId, publicDirectory.DirectoryId, null, null, null, 20)).Items.Single();
-        PeerBrowseFileEntry lockedFile = (await store.ReadFilesAsync(
+        PeerBrowseFileEntry lockedFile = (await restarted.ReadFilesAsync(
             resource.BrowseId, lockedDirectory.DirectoryId, null, null, null, 20)).Items.Single();
         Assert.AreEqual(PeerBrowseEntryVisibility.Public, publicFile.Visibility);
         Assert.AreEqual(PeerBrowseEntryVisibility.Locked, lockedFile.Visibility);
         Assert.IsNull(lockedFile.Attributes);
         CollectionAssert.AreEqual(attributes.Select(a => new PeerBrowseFileAttribute(a.Type, a.Value)).ToArray(),
             publicFile.Attributes!.ToArray());
-        PeerBrowseFileEntry direct = (await store.ReadFileEntryAsync(resource.BrowseId, publicFile.FileId))!;
+        PeerBrowseFileEntry direct = (await restarted.ReadFileEntryAsync(resource.BrowseId, publicFile.FileId))!;
         CollectionAssert.AreEqual(publicFile.Attributes!.ToArray(), direct.Attributes!.ToArray());
         Assert.AreEqual(900, direct.BitRate, "The first valid scalar value still wins over duplicate codes.");
-        var selected = await store.ResolveDownloadSelectionAsync(resource.BrowseId, [], [publicFile.FileId]);
+        var selected = await restarted.ResolveDownloadSelectionAsync(resource.BrowseId, [], [publicFile.FileId]);
         CollectionAssert.AreEqual(snapshot.Files[0].Attributes!.ToArray(), selected.Plans.Single().Entries.Single().Target.Attributes!.ToArray());
 
         await Assert.ThrowsExactlyAsync<PeerBrowseSelectionException>(() =>
-            store.ResolveDownloadSelectionAsync(resource.BrowseId, [], [lockedFile.FileId]));
+            restarted.ResolveDownloadSelectionAsync(resource.BrowseId, [], [lockedFile.FileId]));
     }
 
     [TestMethod]
@@ -201,7 +192,7 @@ public sealed class PeerBrowseArtifactStoreTests
         PeerBrowseResource resource = await CompleteEmptyAsync(store);
         string artifactPath = Directory.EnumerateFiles(
             Path.Combine(store.RootDirectory, "artifacts"),
-            "*.sqlite").Single();
+            "*.browse.gz").Single();
         File.Delete(artifactPath);
 
         PeerBrowseResource? fresh = await store.FindFreshAsync(
@@ -604,7 +595,7 @@ public sealed class PeerBrowseArtifactStoreTests
             "fİle.flac", "ſound.flac", "sound.flac", "Kelvin.flac", "Kelvin.flac",
             "a+b \"live\".flac", "percent%_star*.flac", "𐐀abc.flac", "𐐨abc.flac", "café.flac", "café.flac",
             "Აbc.flac", "აbc.flac", "𞤀bc.flac", "𞤢bc.flac", "abc--def--ghi.flac",
-            "abcdefghi.flac", "aaaaa.flac", "abc\"def.flac", "[literal].flac"];
+            "abcdefghi.flac", "aaaaa.flac", "abc\"def.flac", "[literal].flac", "\uE000.flac"];
         await using (PeerBrowseArtifactWriter writer = await store.BeginWriteAsync(resource))
         {
             await writer.BeginDirectoryAsync("Root", PeerShareVisibility.Public, names.Length);
@@ -625,6 +616,18 @@ public sealed class PeerBrowseArtifactStoreTests
             Assert.AreEqual(expected.Length, page.PublicMatchingFileCount, query);
             Assert.AreEqual(expected.Length, page.PublicMatchingBytes, query);
         }
+        // The same exact refs and UTF-8 ordering must survive disk reload.
+        await using var restarted = new PeerBrowseArtifactStore(directory.Path);
+        var pagedNames = new List<string>();
+        PeerBrowseSearchPage? previous = null;
+        do
+        {
+            previous = await restarted.SearchAsync(resource.BrowseId, "flac", previous?.NextSortKey,
+                previous?.NextKind, previous?.NextId, 1);
+            pagedNames.AddRange(previous.Items.Where(row => row.Kind == PeerBrowseSearchEntryKind.File).Select(row => row.Name));
+        } while (previous.NextId is not null);
+        var utf8 = Comparer<byte[]>.Create((a, b) => a.AsSpan().SequenceCompareTo(b));
+        CollectionAssert.AreEqual(names.OrderBy(System.Text.Encoding.UTF8.GetBytes, utf8).ToArray(), pagedNames.ToArray());
     }
 
     [TestMethod]
@@ -1023,13 +1026,20 @@ public sealed class PeerBrowseArtifactStoreTests
         Assert.IsTrue(new[] { broadElapsed, continuationElapsed, shortElapsed }
                 .All(elapsed => elapsed < TimeSpan.FromMilliseconds(300)),
             "Broad filtering of 100k shares must remain within the 300-ms browse budget.");
+        await using var reopened = new PeerBrowseArtifactStore(directory.Path);
+        stopwatch.Restart();
+        var reloadedPage = await reopened.ReadFilesAsync(resource.BrowseId, album.DirectoryId, null, null, null, 500);
+        TimeSpan coldRead = stopwatch.Elapsed;
+        CollectionAssert.AreEqual(firstPage.Items.Select(file => (file.FileId, file.Name, file.Size)).ToArray(),
+            reloadedPage.Items.Select(file => (file.FileId, file.Name, file.Size)).ToArray());
+
         Console.WriteLine($"Peer browse 100 albums x1k files, long paths/four attributes: ingest {ingestion.TotalMilliseconds:F0} ms, "
             + $"{ingestionAllocation:N0} allocated bytes; "
             + $"selective filter {selectiveElapsed.TotalMilliseconds:F0} ms; "
             + $"broad filter {broadElapsed.TotalMilliseconds:F0} ms; "
             + $"continuation {continuationElapsed.TotalMilliseconds:F0} ms; "
             + $"short filter {shortElapsed.TotalMilliseconds:F0} ms; "
-            + $"root/page {pageElapsed.TotalMilliseconds:F0} ms, filtering writes {filterWrites:N0} bytes.");
+            + $"root/page {pageElapsed.TotalMilliseconds:F0} ms, cold reopen/page {coldRead.TotalMilliseconds:F0} ms, filtering writes {filterWrites:N0} bytes.");
 
         static long? ProcessWriteBytes()
             => File.Exists("/proc/self/io")

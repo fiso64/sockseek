@@ -258,7 +258,8 @@ internal sealed class AlbumDownloadExecutor
         var config = job.Config;
         var state = new AlbumAudioDownloadState(config.Transfer.AlbumTrackCountMaxRetries);
         var activeQuality = AlbumQualityPolicy.ActiveConditions(config.Search.NecessaryCond);
-        bool verifyStrictAlbumQuality = config.Search.StrictAlbumQuality && activeQuality.IsActive;
+        bool verifyStrictAlbumQuality = job.ValidationRequirement != AlbumValidationRequirement.UserAccepted
+            && config.Search.StrictAlbumQuality && activeQuality.IsActive;
 
         while (job.Results.Count > 0 && !config.Output.AlbumArtOnly)
         {

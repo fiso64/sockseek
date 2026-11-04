@@ -24,6 +24,44 @@ public sealed class PersistenceWriterTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
+    public async Task UploadRetrySupersedesOnlyEarlierMatchingTerminalRows(bool oldArrivesLate)
+    {
+        await using var database = new WriterDatabase();
+        await database.Initializer.InitializeAsync();
+        var runtime = (await new PersistenceRuntimeSession(database.Factory).StartAsync("upload-retry")).Runtime;
+        var requested = DateTimeOffset.UtcNow.AddSeconds(-1);
+        var failed = Transfer(runtime.RuntimeId, Guid.NewGuid(), 2) with
+        {
+            Direction = "Upload", State = "Failed", TerminalOutcome = "Failed",
+            Priority = PersistenceMutationPriority.Terminal, RequestedAtUtc = requested,
+            FailureMessage = "Peer disconnected.",
+        };
+        var retry = failed with { TransferId = Guid.NewGuid(), Sequence = 3, Revision = 1,
+            State = "Queued", TerminalOutcome = "None", Priority = PersistenceMutationPriority.Structural,
+            RequestedAtUtc = requested, FailureMessage = null };
+        var otherPeer = failed with { TransferId = Guid.NewGuid(), Username = "User" };
+        var otherPath = failed with { TransferId = Guid.NewGuid(), RemotePath = "Remote" };
+        var download = failed with { TransferId = Guid.NewGuid(), Direction = "Download" };
+        var observer = new RecordingMutationObserver();
+        Assert.AreEqual(0L, (await RunCompletedWriterAsync(database,
+            [otherPeer, otherPath, download, oldArrivesLate ? retry : failed], observer)).PermanentlyFailedMutationCount);
+        Assert.AreEqual(0L, (await RunCompletedWriterAsync(database,
+            [oldArrivesLate ? failed : retry], observer)).PermanentlyFailedMutationCount);
+        await using var read = await database.Factory.CreateDbContextAsync();
+        var rows = await read.Transfers.ToDictionaryAsync(row => row.Id);
+        Assert.IsNotNull(rows[failed.TransferId].ArchivedAtUtc);
+        Assert.AreEqual("Peer disconnected.", rows[failed.TransferId].FailureMessage);
+        Assert.IsTrue(rows.Values.Where(row => row.Id != failed.TransferId).All(row => row.ArchivedAtUtc is null));
+        CollectionAssert.AreEqual(new[] { failed.TransferId }, observer.SupersededTransfers);
+        // A later progress write must not resurrect the superseded row.
+        await RunCompletedWriterAsync(database, [failed with { Revision = 4, Sequence = 4 }]);
+        Assert.IsNotNull(await read.Transfers.AsNoTracking().Where(row => row.Id == failed.TransferId)
+            .Select(row => row.ArchivedAtUtc).SingleAsync());
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
     public void Inbox_ReplacesPendingJobStateButKeepsNewerPostTerminalFacts(bool composite)
     {
         var inbox = new PersistenceInbox(new(), new());
@@ -3735,7 +3773,8 @@ public sealed class PersistenceWriterTests
 
     private static async Task<PersistenceHealthSnapshot> RunCompletedWriterAsync(
         WriterDatabase database,
-        IReadOnlyList<PersistenceMutation> mutations)
+        IReadOnlyList<PersistenceMutation> mutations,
+        IPersistenceMutationObserver? observer = null)
     {
         var options = new PersistenceWriterOptions();
         var health = new PersistenceHealth();
@@ -3743,7 +3782,7 @@ public sealed class PersistenceWriterTests
         foreach (var mutation in mutations)
             Assert.IsTrue(inbox.TryEnqueue(mutation));
         inbox.Complete();
-        await new PersistenceWriter(database.Factory, inbox, health, options).RunAsync(CancellationToken.None);
+        await new PersistenceWriter(database.Factory, inbox, health, options, mutationObserver: observer).RunAsync(CancellationToken.None);
         return health.Snapshot(inbox);
     }
 
@@ -3833,12 +3872,15 @@ public sealed class PersistenceWriterTests
     private sealed class RecordingMutationObserver : IPersistenceMutationObserver
     {
         public List<PersistenceMutation> CommittedMutations { get; } = [];
+        public List<Guid> SupersededTransfers { get; } = [];
         public List<PersistenceMutation> Failed { get; } = [];
         public Action? OnCommit { get; init; }
         public Action? OnFailure { get; init; }
-        public void Committed(IReadOnlyList<PersistenceMutation> mutations)
+        public void Committed(IReadOnlyList<PersistenceMutation> mutations,
+        IReadOnlyList<(Guid TransferId, long Revision)>? supersededTransfers = null)
         {
             CommittedMutations.AddRange(mutations);
+            SupersededTransfers.AddRange((supersededTransfers ?? []).Select(item => item.TransferId));
             OnCommit?.Invoke();
         }
         public void PermanentlyFailed(IReadOnlyList<PersistenceMutation> mutations, Exception exception)

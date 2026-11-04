@@ -167,7 +167,15 @@ public sealed class TransferHistoryReader(
         }
         Filter("t.job_id = $job", "$job", query.JobId);
         Filter("t.workflow_id = $workflow", "$workflow", query.WorkflowId);
-        Filter("t.direction COLLATE NOCASE = $direction", "$direction", query.Direction);
+        // Stored directions are canonical enum names. Normalize the filter once
+        // so SQLite can seek the direction/time index instead of scanning the
+        // opposite transfer history for a sparse Downloads or Uploads page.
+        string? direction = query.Direction;
+        if (string.Equals(direction, nameof(TransferSnapshotDirection.Download), StringComparison.OrdinalIgnoreCase))
+            direction = nameof(TransferSnapshotDirection.Download);
+        else if (string.Equals(direction, nameof(TransferSnapshotDirection.Upload), StringComparison.OrdinalIgnoreCase))
+            direction = nameof(TransferSnapshotDirection.Upload);
+        Filter("t.direction = $direction", "$direction", direction);
         Filter("t.source COLLATE NOCASE = $source", "$source", query.Source);
         // Keep the exact source label (including local/remote queue flags),
         // while the Queued filter covers the same family as live counters.
@@ -204,7 +212,10 @@ public sealed class TransferHistoryReader(
             ? await SqliteReadSnapshot.BeginAsync(context, cancellationToken).ConfigureAwait(false)
             : null;
         string predicate = string.Join(" AND ", conditions);
-        string from = $"FROM {shape.TableName} t WHERE {predicate}";
+        // A job identifies its few transfer attempts. Do not let a broad
+        // direction/time index displace that lookup when history grows.
+        string jobIndex = query.JobId.HasValue ? " INDEXED BY IX_transfers_job_id" : "";
+        string from = $"FROM {shape.TableName} t{jobIndex} WHERE {predicate}";
         if (query.TransferIds is { } ids)
         {
             values.Add(("$ids", EncodeIds(ids)));

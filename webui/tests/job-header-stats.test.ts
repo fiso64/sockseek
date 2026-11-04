@@ -9,9 +9,11 @@ it('keeps unknown search counts absent while preserving explicit zero and public
   expect(searchJobStats({ discoveryObservedPeerCount: 2 })).toEqual([{ count: 2, label: 'peers' }]);
   expect(searchJobStats({ discoveryPublicFileCount: '1', discoveryLockedFileCount: 0, discoveryObservedPeerCount: 1 }))
     .toEqual([{ count: '1', label: 'file' }, { count: 0, label: 'locked' }, { count: 1, label: 'peer' }]);
-  expect(searchJobStats({ kind: 'search', searchDefaultProjection: 'Track', searchAggregatePresentation: true,
-    discoveryPublicFileCount: 5, discoveryObservedPeerCount: 2 }))
-    .toEqual([{ count: null, label: 'groups' }, { count: 5, label: 'files' }, { count: 2, label: 'peers' }]);
+  for (const projection of ['Track', 'Album'] as const) {
+    expect(searchJobStats({ kind: 'search', searchDefaultProjection: projection, searchAggregatePresentation: true,
+      discoveryPublicFileCount: 5, discoveryObservedPeerCount: 2 }))
+      .toEqual([{ count: 5, label: 'files' }, { count: 2, label: 'peers' }]);
+  }
 });
 
 it('shares prototype lifecycle labels without presenting skipped jobs as failed', () => {

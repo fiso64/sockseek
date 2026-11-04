@@ -25,10 +25,21 @@ test('shows observed private-chat presence without loading the full profile', as
   }
   const composer = page.getByRole('textbox', { name: 'Message', exact: true });
   expect(await composer.evaluate((node) => node.getBoundingClientRect().height)).toBe(38);
-  await composer.fill('First line\nSecond line');
-  expect(await composer.evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThan(38);
-  await composer.clear();
-  expect(await composer.evaluate((node) => node.getBoundingClientRect().height)).toBe(38);
+  const longText = 'Long text should wrap visually without adding newline characters. '.repeat(12);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await composer.fill(longText);
+    await expect(composer).toHaveValue(longText);
+    const dimensions = await composer.evaluate(node => ({
+      height: node.getBoundingClientRect().height, width: node.clientWidth, contentWidth: node.scrollWidth,
+    }));
+    expect(dimensions.height).toBeGreaterThan(38);
+    expect(dimensions.contentWidth).toBeLessThanOrEqual(dimensions.width);
+    await composer.press('Enter');
+    await expect(composer).toHaveValue(longText);
+    await composer.clear();
+    expect(await composer.evaluate(node => node.getBoundingClientRect().height)).toBe(38);
+  }
   expect(profileRequests).toBe(0);
 });
 
@@ -105,7 +116,7 @@ test('recovers a silently missed chat batch without a connection transition', as
   const messages = page.locator('.chat-messages');
   await expect(messages).toContainText('Before gap');
   const status = page.locator('.connection-status').locator('strong').last();
-  await expect(status).toHaveText('Connected');
+  await expect(status).toContainText('Connected');
   const send = async (text: string) => {
     const response = await page.request.post('/api/chat/private-messages', {
       data: { username: 'Gap Peer', text, messageId: crypto.randomUUID() },
@@ -118,7 +129,7 @@ test('recovers a silently missed chat batch without a connection transition', as
   await expect(messages.getByText('Missed while connected', { exact: true })).toBeAttached();
   await expect(messages.getByText('After the gap', { exact: true })).toBeAttached();
   await expect(messages.locator('[data-message-id]')).toHaveCount(3);
-  await expect(status).toHaveText('Connected');
+  await expect(status).toContainText('Connected');
   expect(snapshotReads).toBeGreaterThan(2);
 });
 
@@ -141,10 +152,10 @@ test('preserves reading position and catches up across a multi-page connection o
     });
     expect(response.ok()).toBeTruthy();
   };
-  await send(Array.from({ length: 60 }, (_, i) => `Reading line ${i}`).join('\n'));
+  await send(Array.from({ length: 300 }, (_, i) => `Reading line ${i}`).join(' '));
   await page.goto('/chat/users/Reconnect%20Peer');
   const status = page.locator('.connection-status').locator('strong').last();
-  await expect(status).toHaveText('Connected');
+  await expect(status).toContainText('Connected');
   const messages = page.locator('.chat-messages');
   await expect(messages).toContainText('Reading line 59');
   await messages.evaluate(async element => {
@@ -154,7 +165,7 @@ test('preserves reading position and catches up across a multi-page connection o
   outage = true;
   try {
     await socket!.close({ code: 1012, reason: 'E2E interruption' });
-    await expect(status).toContainText('Reconnecting');
+    await expect(status).toHaveText('Daemon reconnecting');
     // Cross one history page, not a load test. Recovery must not silently skip
     // the first messages received while the browser's live transport was down.
     for (let i = 0; i < 103; i++) await send(`Offline ${String(i).padStart(3, '0')}`);
@@ -162,7 +173,7 @@ test('preserves reading position and catches up across a multi-page connection o
     outage = false;
     restoreConnection();
   }
-  await expect(status).toHaveText('Connected');
+  await expect(status).toContainText('Connected');
   await expect(messages.getByText('Offline 102', { exact: true })).toBeAttached();
   await expect(messages.getByText('Offline 000', { exact: true })).toBeAttached();
   await expect(messages.locator('[data-message-id]')).toHaveCount(104);
@@ -199,7 +210,7 @@ test('recovers failed conversation loading without losing a composed draft', asy
 test('does not pull a reader to the bottom when a peer message arrives', async ({ page, daemon }) => {
   await page.goto('/chat/users/Scroll%20Peer');
   const composer = page.getByRole('textbox', { name: 'Message', exact: true });
-  await composer.fill(Array.from({ length: 60 }, (_, index) => `History line ${index}`).join('\n'));
+  await composer.fill(Array.from({ length: 300 }, (_, index) => `History line ${index}`).join(' '));
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   const messages = page.locator('.chat-messages');
   await expect(messages).toContainText('History line 59');
@@ -233,7 +244,7 @@ test('keeps the first visible message anchored when loading an older page', asyn
   const anchor = messages.getByText('History 003', { exact: true });
   await expect(anchor).toBeVisible();
   const before = await anchor.boundingBox();
-  await page.getByRole('button', { name: 'Load earlier messages', exact: true }).click();
+  await page.getByRole('button', { name: 'Load more', exact: true }).click();
   await expect(messages.getByText('History 000', { exact: true })).toBeAttached();
   await messages.evaluate(() => new Promise(requestAnimationFrame));
   const after = await anchor.boundingBox();
@@ -279,8 +290,8 @@ test('opens an exact peer conversation outside the loaded sidebar page', async (
       if (request.method() === 'GET' && ['/api/chat/conversations', '/api/chat/rooms'].includes(path)) continuedReads.push(request);
     };
     page.on('request', recordContinuation);
-    await page.getByRole('button', { name: 'Load more chats', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Load more chats', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Load more', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
     await expect(page.locator('.chat-destination.user')).toHaveCount(2);
     await expect(page.locator('.chat-messages')).toContainText('Retained for Older Peer');
     page.off('request', recordContinuation);
@@ -298,17 +309,37 @@ test('opens an exact peer conversation outside the loaded sidebar page', async (
   } finally { releaseList(); releaseSnapshot(); }
 });
 
-test('preserves the exact recipient and keyboard-composed multiline message when starting a conversation', async ({ page }) => {
+test('ignores Enter, pastes line breaks as spaces and sends with Ctrl+Enter', async ({ page }) => {
   const username = ' Peer ';
-  const text = '  Indented message\nwith trailing space  \n';
+  const text = '  before first second after  ';
+  let sends = 0;
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/api/chat/private-messages' && request.method() === 'POST') sends++;
+  });
   await page.goto('/chat');
   await page.getByRole('button', { name: 'Message user', exact: true }).click();
   await page.getByRole('textbox', { name: 'Username', exact: true }).fill(username);
   await page.getByRole('button', { name: 'Open', exact: true }).click();
   const composer = page.getByRole('textbox', { name: 'Message', exact: true });
-  await composer.fill('  Indented message\nwith trailing space  ');
+  await expect(composer).toHaveAttribute('wrap', 'soft');
+  await composer.fill(text);
   await composer.press('Enter');
   await expect(composer).toHaveValue(text);
+  await composer.press('Shift+Enter');
+  await expect(composer).toHaveValue(text);
+  for (const newline of ['\n', '\r', '\r\n', '\v', '\f', '\u0085', '\u2028', '\u2029']) {
+    await composer.fill('  before replace after  ');
+    await composer.evaluate((node, newline) => {
+      const input = node as HTMLTextAreaElement;
+      input.setSelectionRange(9, 16);
+      const clipboardData = new DataTransfer();
+      clipboardData.setData('text/plain', `first${newline}second`);
+      input.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+    }, newline);
+    await expect(composer).toHaveValue(text);
+    expect(await composer.evaluate(node => (node as HTMLTextAreaElement).selectionStart)).toBe(21);
+  }
+  expect(sends).toBe(0);
   const sent = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/chat/private-messages' && response.request().method() === 'POST');
   await composer.press('Control+Enter');
   const response = await sent;
@@ -316,8 +347,9 @@ test('preserves the exact recipient and keyboard-composed multiline message when
   expect(response.request().postDataJSON()).toMatchObject({ username, text });
   const message = await response.json() as Schema<'ChatMessageDto'>;
   expect(message.text).toBe(text);
+  expect(sends).toBe(1);
   await page.reload();
-  await expect(page.locator('.chat-messages')).toContainText('Indented message');
+  await expect(page.locator('.chat-messages')).toContainText('before first second after');
   const retained = await page.request.get(`/api/chat/conversations/${message.targetId}/messages`);
   expect(retained.ok()).toBeTruthy();
   expect((await retained.json()).items).toEqual(expect.arrayContaining([expect.objectContaining({ text })]));

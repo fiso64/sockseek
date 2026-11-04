@@ -279,7 +279,8 @@ public partial class Searcher : IDisposable
 
         job.UpdateActivity(JobActivityPhase.ProcessingSearchResults);
         job.Results = searchJob.GetAlbumFolders(
-            searchJob.DefaultFolderProjection!, search, includeLocked: job.Config?.PrintResults == true).Items.ToList();
+            searchJob.DefaultFolderProjection! with { EnforceMinimumTrackCount = job.Config?.PrintResults == true },
+            search, includeLocked: job.Config?.PrintResults == true).Items.ToList();
         return null;
     }
 
@@ -340,7 +341,8 @@ public partial class Searcher : IDisposable
             new FolderSearchProjection(
                 job.Query,
                 IgnoreStringSortConditions: true,
-                SortMode: FolderSortMode.DeterministicUnranked),
+                SortMode: FolderSortMode.DeterministicUnranked,
+                EnforceMinimumTrackCount: job.Config?.PrintResults == true),
             search,
             includeLocked: job.Config?.PrintResults == true);
         var albums = SearchResultProjector.AggregateAlbums(folders.Items, job.Query, search);

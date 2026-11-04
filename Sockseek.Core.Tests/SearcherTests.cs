@@ -802,8 +802,10 @@ namespace Tests.Unit
             search.NecessaryFolderCond.MinTrackCount = 10;
             var query = new AlbumQuery { Artist = "ELO", SearchHint = "Twilight" };
 
-            var folders = SearchResultProjector.AlbumFolders([(response, track)], query, search);
+            var folders = SearchResultProjector.AlbumFolders([(response, track)], query, search, enforceMinimumTrackCount: false);
 
+            Assert.AreEqual(0, SearchResultProjector.AlbumFolders([(response, track)], query, search).Count,
+                "A displayed minimum filters observed tracks even when discovery can defer it.");
             Assert.AreEqual(1, folders.Count,
                 "When SearchHint supplies the network query, visible results may be only the hinted track and must not prove min-count failure.");
             Assert.AreEqual(@"ELO\Time", folders[0].FolderPath);
@@ -821,8 +823,10 @@ namespace Tests.Unit
             search.NecessaryCond.StrictTitle = true;
             var query = new AlbumQuery { Artist = "ELO", Album = "Time", SearchHint = "Twilight" };
 
-            var folders = SearchResultProjector.AlbumFolders([(response, track)], query, search);
+            var folders = SearchResultProjector.AlbumFolders([(response, track)], query, search, enforceMinimumTrackCount: false);
 
+            Assert.AreEqual(0, SearchResultProjector.AlbumFolders([(response, track)], query, search).Count,
+                "A displayed minimum filters observed tracks even when discovery can defer it.");
             Assert.AreEqual(1, folders.Count,
                 "When SearchHint can become a title filter, visible results may be partial and must not prove min-count failure.");
             Assert.AreEqual(@"ELO\Time", folders[0].FolderPath);

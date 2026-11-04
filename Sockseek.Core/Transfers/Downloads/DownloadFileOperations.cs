@@ -47,6 +47,9 @@ internal sealed class DownloadFileOperations : IDisposable
         => ExecuteAsync(() => work(cache), outputUpdate: true);
 
     public bool MayHaveReusable(PeerFileTarget target) => cache.Contains(target.Identity);
+    public void RetireWorkflow(Guid workflowId) => cache.RetireWorkflow(workflowId);
+    internal int CachedDownloadCount => cache.Count;
+    internal int ActiveCachedDownloadCount => cache.ActiveCount;
 
     private sealed class OutputWrite
     {
@@ -131,16 +134,16 @@ internal sealed class DownloadFileOperations : IDisposable
         return failure;
     }
 
-    public ValueTask<ExactFileTransferOutcome?> TryReuseAsync(PeerFileTarget target, string outputPath, Guid jobId,
+    public ValueTask<ExactFileTransferOutcome?> TryReuseAsync(PeerFileTarget target, string outputPath, Guid jobId, Guid workflowId,
         bool publish, bool allowOverwrite, bool protectPublishedOutput)
-        => WithCacheAsync(state => TryReuse(state, target, outputPath, jobId, publish, allowOverwrite, protectPublishedOutput));
+        => WithCacheAsync(state => TryReuse(state, target, outputPath, jobId, workflowId, publish, allowOverwrite, protectPublishedOutput));
 
     public ValueTask<(ExactFileTransferOutcome? Reused, Stream? Output)> PrepareAsync(
-        PeerFileTarget target, string outputPath, string incompletePath, Guid jobId,
+        PeerFileTarget target, string outputPath, string incompletePath, Guid jobId, Guid workflowId,
         bool publish, bool allowOverwrite, bool protectPublishedOutput)
         => WithCacheAsync(state =>
         {
-            var reused = TryReuse(state, target, outputPath, jobId, publish, allowOverwrite, protectPublishedOutput);
+            var reused = TryReuse(state, target, outputPath, jobId, workflowId, publish, allowOverwrite, protectPublishedOutput);
             // No callback/queue gap between the final reuse decision and opening
             // a new output: another completed publication cannot be missed here.
             return (reused, reused == null ? Open(state, incompletePath) : null);
@@ -168,7 +171,7 @@ internal sealed class DownloadFileOperations : IDisposable
     }
 
     private ExactFileTransferOutcome? TryReuse(Cache cache, PeerFileTarget target, string outputPath,
-        Guid jobId, bool publishToDuplicateCache, bool allowOverwrite, bool protectPublishedOutput)
+        Guid jobId, Guid workflowId, bool publishToDuplicateCache, bool allowOverwrite, bool protectPublishedOutput)
     {
         if (protectPublishedOutput
             && File.Exists(outputPath)
@@ -210,11 +213,11 @@ internal sealed class DownloadFileOperations : IDisposable
                 // the path after our check (including an existing symlink).
                 File.Copy(existingPath, outputPath, overwrite: true);
             }
-            // Staging copies are private until their finalizer publishes
-            // the organized path; never expose one to another duplicate.
-            if (publishToDuplicateCache)
-                cache.Publish(outputPath, target);
         }
+
+        // A reused path belongs to this workflow too. Staging copies remain
+        // private until their finalizer publishes the organized path.
+        if (publishToDuplicateCache) cache.Publish(outputPath, target, workflowId);
 
         return ExactFileTransferOutcome.Completed(new ExactFileTransferResult(outputPath, target));
     }
@@ -389,14 +392,25 @@ internal sealed class DownloadFileOperations : IDisposable
         }
     }
 
-    // No independent lifecycle or synchronization: only WithCacheAsync supplies
-    // this access object, and the owner runs one such callback at a time.
-    internal sealed class Cache
+    // Output I/O remains serialized by WithCacheAsync. Retirement only changes
+    // metadata under this lock; it never waits for filesystem work or deletes files.
+    internal sealed class Cache(int maximumIdleEntries = 10_000)
     {
-        internal sealed record CachedDownload(string OutputPath, PeerFileTarget Target);
+        internal sealed record CachedDownload(string OutputPath, PeerFileTarget Target)
+        {
+            public HashSet<Guid> Workflows { get; } = [];
+            public LinkedListNode<PeerFileIdentity>? IdleNode { get; set; }
+        }
+        private readonly Lock gate = new();
         private readonly ConcurrentDictionary<PeerFileIdentity, CachedDownload> downloadedFiles = new();
         public bool Contains(PeerFileIdentity identity) => downloadedFiles.ContainsKey(identity);
-        private readonly Dictionary<string, HashSet<PeerFileIdentity>> identitiesByPath = new(PathComparer);
+        public int Count => downloadedFiles.Count;
+        public int ActiveCount { get { lock (gate) return downloadedFiles.Count - idle.Count; } }
+        private readonly Dictionary<string, PeerFileIdentity> identitiesByPath = new(PathComparer);
+        private readonly Dictionary<Guid, HashSet<PeerFileIdentity>> identitiesByWorkflow = [];
+        // Retain reuse across submissions without retaining every download for
+        // daemon uptime. Active workflows are never evicted to meet this target.
+        private readonly LinkedList<PeerFileIdentity> idle = [];
 
         public bool TryGetReusable(PeerFileTarget target, [NotNullWhen(true)] out CachedDownload? result)
         {
@@ -408,39 +422,92 @@ internal sealed class DownloadFileOperations : IDisposable
                 result = cached;
                 return true;
             }
-            RemoveIdentity(target.Identity);
+            lock (gate)
+                if (ReferenceEquals(downloadedFiles.GetValueOrDefault(target.Identity), cached))
+                    RemoveIdentity(target.Identity);
             result = null;
             return false;
         }
 
-        public void Publish(string outputPath, PeerFileTarget target)
+        public void Publish(string outputPath, PeerFileTarget target, Guid workflowId)
         {
             string path = Path.GetFullPath(outputPath);
-            InvalidatePath(path);
-            RemoveIdentity(target.Identity);
-            downloadedFiles[target.Identity] = new(path, target);
-            if (!identitiesByPath.TryGetValue(path, out var identities)) identitiesByPath.Add(path, identities = []);
-            identities.Add(target.Identity);
+            lock (gate)
+            {
+                if (!downloadedFiles.TryGetValue(target.Identity, out var cached)
+                    || !PathComparer.Equals(cached.OutputPath, path))
+                {
+                    Guid[] workflows = cached?.Workflows.ToArray() ?? [];
+                    InvalidatePath(path);
+                    RemoveIdentity(target.Identity);
+                    cached = new(path, target);
+                    cached.Workflows.UnionWith(workflows);
+                    downloadedFiles[target.Identity] = cached;
+                    identitiesByPath[path] = target.Identity;
+                }
+                else if (cached.Target != target)
+                {
+                    cached = cached with { Target = target };
+                    downloadedFiles[target.Identity] = cached;
+                }
+                if (cached.IdleNode is { } node)
+                {
+                    idle.Remove(node);
+                    cached.IdleNode = null;
+                }
+                cached.Workflows.Add(workflowId);
+                foreach (Guid workflow in cached.Workflows)
+                {
+                    if (!identitiesByWorkflow.TryGetValue(workflow, out var identities))
+                        identitiesByWorkflow.Add(workflow, identities = []);
+                    identities.Add(target.Identity);
+                }
+            }
+        }
+
+        public void RetireWorkflow(Guid workflowId)
+        {
+            lock (gate)
+            {
+                if (!identitiesByWorkflow.Remove(workflowId, out var identities)) return;
+                foreach (var identity in identities)
+                    if (downloadedFiles.TryGetValue(identity, out var cached))
+                    {
+                        cached.Workflows.Remove(workflowId);
+                        if (cached.Workflows.Count == 0)
+                            cached.IdleNode = idle.AddLast(identity);
+                    }
+                while (idle.Count > maximumIdleEntries)
+                    RemoveIdentity(idle.First!.Value);
+            }
         }
 
         public void InvalidatePath(string outputPath)
         {
-            if (!identitiesByPath.Remove(Path.GetFullPath(outputPath), out var identities)) return;
-            foreach (var identity in identities) downloadedFiles.TryRemove(identity, out _);
+            lock (gate)
+                if (identitiesByPath.TryGetValue(Path.GetFullPath(outputPath), out var identity)) RemoveIdentity(identity);
         }
 
         public bool IsPathOwnedByAnotherTarget(string path, PeerFileTarget target)
-            => identitiesByPath.TryGetValue(Path.GetFullPath(path), out var identities)
-                && identities.Any(identity => identity != target.Identity);
-        public bool HasPublishedPathOwner(string path) => identitiesByPath.ContainsKey(Path.GetFullPath(path));
+        {
+            lock (gate) return identitiesByPath.TryGetValue(Path.GetFullPath(path), out var identity) && identity != target.Identity;
+        }
+        public bool HasPublishedPathOwner(string path)
+        {
+            lock (gate) return identitiesByPath.ContainsKey(Path.GetFullPath(path));
+        }
 
         private void RemoveIdentity(PeerFileIdentity identity)
         {
             if (!downloadedFiles.TryRemove(identity, out var previous)) return;
-            string path = Path.GetFullPath(previous.OutputPath);
-            if (!identitiesByPath.TryGetValue(path, out var identities)) return;
-            identities.Remove(identity);
-            if (identities.Count == 0) identitiesByPath.Remove(path);
+            if (previous.IdleNode is { } node) idle.Remove(node);
+            identitiesByPath.Remove(previous.OutputPath);
+            foreach (Guid workflow in previous.Workflows)
+                if (identitiesByWorkflow.TryGetValue(workflow, out var identities))
+                {
+                    identities.Remove(identity);
+                    if (identities.Count == 0) identitiesByWorkflow.Remove(workflow);
+                }
         }
     }
 

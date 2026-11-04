@@ -108,10 +108,10 @@ test('retains 100-candidate Song and aggregate fallback without leaking peer pen
     expect(JSON.parse(report.slice('E2E_FALLBACK_DOWNLOADS '.length))).toEqual(
       aggregate ? [...expectedPeers, ...expectedPeers] : expectedPeers);
 
-    await expect(page.getByLabel('Connection status').locator('strong').last()).toHaveText('Connected');
+    await expect(page.getByLabel('Connection status').locator('strong')).toContainText('Connected');
     await daemon.command('release-download');
     await retired;
-    await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveText('Complete');
+    await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveCount(0);
     await expect(card.locator('.transfer-state')).toHaveText('Complete');
     await page.reload();
     await expect(page.locator('.job-source-summary')).toContainText('Péér 099');

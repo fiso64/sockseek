@@ -181,6 +181,7 @@ internal static class JobEndpoints
             bool? includeAll,
             bool? newestFirst,
             bool? excludeExtractResults,
+            [Microsoft.AspNetCore.Mvc.FromQuery] string[]? excludeKinds,
             string? cursor,
             int? limit,
             CancellationToken cancellationToken) =>
@@ -194,6 +195,9 @@ internal static class JobEndpoints
                         throw new ArgumentException($"Unknown job kind '{kind}'.", nameof(kind));
                     parsedKind = value;
                 }
+                var parsedExcludeKinds = excludeKinds?.Select(kind =>
+                    ServerProtocolEnumExtensions.TryParseJobKind(kind, out var value) ? value
+                        : throw new ArgumentException($"Unknown job kind '{kind}'.", nameof(excludeKinds))).ToArray();
                 ServerJobRole? parsedRole = null;
                 if (role != null)
                 {
@@ -214,7 +218,8 @@ internal static class JobEndpoints
                         parsedRole,
                         archived ?? false,
                         newestFirst ?? false,
-                        excludeExtractResults ?? false),
+                        excludeExtractResults ?? false,
+                        parsedExcludeKinds),
                     cursor,
                     limit ?? ServerProtocol.DefaultNestedPageSize,
                     cancellationToken);

@@ -8,10 +8,38 @@ test('renders populated and partial peer profiles without inventing missing fact
     const path = new URL(request.url()).pathname;
     if (request.method() === 'GET' && /^\/api\/users\/[^/]+\/profile$/.test(path)) profileReads.push(path);
   });
-  await page.goto('/users/fixture-peer');
+  const browseRequests: string[] = [];
+  page.on('request', request => {
+    if (new URL(request.url()).pathname.startsWith('/api/user-browses')) browseRequests.push(request.url());
+  });
+  const navigation = page.getByRole('navigation', { name: 'Primary navigation' });
+  const input = page.locator('#global-user-search');
+  await page.goto('/jobs');
+  await navigation.getByRole('button', { name: 'Users', exact: true }).click();
+  await expect(input).toHaveAttribute('aria-label', 'Search users');
+  await input.fill('fixture-peer');
+  await navigation.getByRole('button', { name: 'Users', exact: true }).click();
+  await expect(input).toHaveAttribute('aria-label', 'Search users');
+  await expect(input).toHaveValue('fixture-peer');
+  await navigation.getByRole('button', { name: 'Shares', exact: true }).click();
+  await expect(input).toHaveAttribute('aria-label', 'Search user shares');
+  await expect(navigation.getByRole('button', { name: 'Shares', exact: true })).toHaveAttribute('aria-current', 'page');
+  await navigation.getByRole('button', { name: 'Users', exact: true }).click();
+  expect(profileReads).toEqual([]);
+  expect(browseRequests).toEqual([]);
+  await input.press('Enter');
   const card = page.locator('.user-profile-card');
   await expect(card.getByRole('heading', { name: 'fixture-peer' })).toBeVisible();
+  await navigation.getByRole('button', { name: 'Users', exact: true }).click();
+  await expect(input).toHaveAttribute('aria-label', 'Search users');
+  await expect(card).toBeVisible();
+  await expect(page).toHaveURL(/\/users\/fixture-peer$/);
+  expect(profileReads).toEqual(['/api/users/fixture-peer/profile']);
+  expect(browseRequests).toEqual([]);
+
   await expect(card.locator('.user-profile-description')).toContainText('A small shared library.');
+  await expect(card.locator('.user-profile-description')).toHaveCSS('white-space', 'pre-wrap');
+  expect(await card.locator('.user-profile-description').textContent()).toContain('library.\n\nMore');
   await expect(card.locator('.user-profile-description a')).toHaveAttribute('href', 'https://example.org/fixture');
   await expect(card.locator('.user-capacity-card')).toContainText('Free slot');
   await expect(card.locator('.user-profile-stats > div').nth(0).locator('strong')).toHaveText('5');
@@ -25,6 +53,14 @@ test('renders populated and partial peer profiles without inventing missing fact
   await expect(page.getByRole('dialog', { name: 'fixture-peer profile picture' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog', { name: 'fixture-peer profile picture' })).toHaveCount(0);
+
+  await page.locator('.user-view-tabs').getByRole('button', { name: 'Shares', exact: true }).click();
+  await expect(navigation.getByRole('button', { name: 'Shares', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page).toHaveURL(/\/shares\/fixture-peer$/);
+  await expect(card).toHaveCount(0);
+  await page.locator('.user-view-tabs').getByRole('button', { name: 'User', exact: true }).click();
+  await expect(navigation.getByRole('button', { name: 'Users', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(card).toBeVisible();
 
   // Actual peer-section failures, not fabricated HTTP DTOs. A successful zero
   // must remain zero/false, whereas an omitted unknown must not become either.
@@ -74,8 +110,8 @@ test('filters shared files through the daemon and restores the tree when cleared
   });
   await daemon.command('hold-directory-browse');
   try {
-    await page.goto('/users/fixture-peer/shares');
-    await expect(page.getByLabel('Connection status').locator('strong').nth(1)).toHaveText('Connected');
+    await page.goto('/shares/fixture-peer');
+    await expect(page.getByLabel('Connection status').locator('strong')).toContainText('Connected');
     await expect(page.locator('.share-tree-row.file')).toHaveCount(0);
     measuringLiveBrowse = true;
     await page.clock.fastForward(5_000);
@@ -87,6 +123,14 @@ test('filters shared files through the daemon and restores the tree when cleared
   await expect(page.getByText('Selected.txt', { exact: true })).toBeVisible();
   expect(lifecycleReads).toEqual([]);
   expect(browseSnapshots).toHaveLength(1);
+  const navigation = page.getByRole('navigation', { name: 'Primary navigation' });
+  await navigation.getByRole('button', { name: 'Shares', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Search user shares', exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/shares\/fixture-peer$/);
+  await expect(page.getByText('Selected.txt', { exact: true })).toBeVisible();
+  expect(profileReads).toEqual([]);
+  expect(browseSnapshots).toHaveLength(1);
+  expect(lifecycleReads).toEqual([]);
   const tree = page.locator('.share-tree');
   await expect(tree.locator('.share-tree-name')).toHaveText(['Fixture', 'Selected.txt', 'Unselected.txt', 'Nested']);
   await page.getByRole('button', { name: 'Expand Nested', exact: true }).click();
@@ -144,7 +188,7 @@ test('filters shared files through the daemon and restores the tree when cleared
   await page.getByRole('button', { name: 'User', exact: true }).click();
   await expect(page.locator('.user-profile-description')).toContainText('A small shared library.');
   expect(profileReads).toHaveLength(1);
-  await page.getByRole('button', { name: 'Shares', exact: true }).click();
+  await navigation.getByRole('button', { name: 'Shares', exact: true }).click();
   await expect(tree.locator('.share-tree-name')).toHaveText(['Fixture', 'Selected.txt', 'Unselected.txt', 'Nested']);
   await expect(page.locator('.share-tree-row.file').filter({ has: page.getByText('Unselected.txt', { exact: true }) }).getByRole('checkbox')).toBeChecked();
   expect(profileReads).toHaveLength(1);
@@ -154,7 +198,7 @@ test('filters shared files through the daemon and restores the tree when cleared
 test('filters Unicode share names without changing the selected download identity', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await page.emulateMedia({ colorScheme: 'dark' });
-  await page.goto('/users/unicode-peer/shares');
+  await page.goto('/shares/unicode-peer');
   await expect(page.locator('.share-tree-row.file')).toHaveCount(4);
   const filter = page.getByRole('textbox', { name: 'Filter user shares', exact: true });
   async function applyFilter(query: string) {
@@ -206,7 +250,7 @@ test('filters Unicode share names without changing the selected download identit
 
 test('keeps whole-folder selection exact across paged shares and filtering', async ({ page }) => {
   // One file beyond the 500-row page boundary; this is not a load test.
-  await page.goto('/users/paged-peer/shares');
+  await page.goto('/shares/paged-peer');
   const folder = page.getByRole('checkbox', { name: 'Select Library', exact: true });
   await expect(folder).toBeVisible();
   await expect(page.locator('.share-tree-row.file')).toHaveCount(500);
@@ -215,7 +259,7 @@ test('keeps whole-folder selection exact across paged shares and filtering', asy
   await expect(page.getByRole('button', { name: 'Download 501', exact: true })).toBeEnabled();
   const childPages = '**/api/user-browses/*/directories/*/files?**';
   await page.route(childPages, route => route.abort());
-  await page.getByRole('button', { name: 'Load more shared entries', exact: true }).click();
+  await page.getByRole('button', { name: 'Load more', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Folder page unavailable');
   await expect(page.locator('.share-tree-row.file')).toHaveCount(500);
   await expect(page.getByRole('button', { name: 'Download 501', exact: true })).toBeEnabled();
@@ -237,7 +281,7 @@ test('keeps whole-folder selection exact across paged shares and filtering', asy
 });
 
 test('excludes an individual file from a selected folder across filter changes', async ({ page }) => {
-  await page.goto('/users/fixture-peer/shares');
+  await page.goto('/shares/fixture-peer');
   await expect(page.getByText('Selected.txt', { exact: true })).toBeVisible();
   const filter = page.getByRole('textbox', { name: 'Filter user shares', exact: true });
   await filter.fill('Deep');
@@ -272,7 +316,7 @@ test('excludes an individual file from a selected folder across filter changes',
 });
 
 test('excludes an unloaded subfolder and restores a deeper branch with a file exception', async ({ page }) => {
-  await page.goto('/users/fixture-peer/shares');
+  await page.goto('/shares/fixture-peer');
   await expect(page.getByText('Selected.txt', { exact: true })).toBeVisible();
   await page.getByRole('checkbox', { name: 'Select Fixture', exact: true }).check();
   const nested = page.locator('.share-tree-row.folder').filter({ has: page.getByText('Nested', { exact: true }) }).getByRole('checkbox');

@@ -1,11 +1,13 @@
 <script lang="ts">
+  import LoadingIndicator from './components/LoadingIndicator.svelte';
   import { onMount, untrack } from 'svelte';
   import AppShell from './components/AppShell.svelte';
   import JobsList from './domains/jobs/JobsList.svelte';
   import { canArchiveSubmission, requireArchived } from './domains/jobs/archive';
   import { completedExtract } from './domains/jobs/presentation';
-  import { JobListController } from './domains/jobs/job-list.svelte';
+  import { JobListController, type JobsTab } from './domains/jobs/job-list.svelte';
   import { JobRouteReader } from './domains/jobs/route-reader';
+  import Modal from './components/Modal.svelte';
   import NewJobComposer from './domains/jobs/NewJobComposer.svelte';
   import AutomaticJobDetail from './domains/jobs/AutomaticJobDetail.svelte';
   import SearchResults from './domains/search/SearchResults.svelte';
@@ -27,8 +29,20 @@
 
   const liveClient = new DaemonLiveClient();
   const observeJobs = liveClient.observeJobs.bind(liveClient);
-  const jobList = new JobListController(daemonApi,
-    (scope, next, error) => liveClient.observeJobList(scope, next, error));
+  const jobLists = {
+    searches: new JobListController(daemonApi, (scope, next, error) => liveClient.observeJobList(scope, next, error), 'searches'),
+    downloads: new JobListController(daemonApi, (scope, next, error) => liveClient.observeJobList(scope, next, error), 'downloads'),
+  };
+  let jobsTab = $state<JobsTab>('searches');
+  let jobList = $derived(jobLists[jobsTab]);
+  const jobsListPath = () => jobsTab === 'downloads'
+    ? `/jobs?tab=downloads${jobLists.downloads.submissionId ? `&submission=${encodeURIComponent(jobLists.downloads.submissionId)}` : ''}` : '/jobs';
+
+  function changeJobsTab(tab: JobsTab): void {
+    jobsTab = tab;
+    mutationError = null;
+    setPath(jobsListPath());
+  }
   const jobRoutes = new JobRouteReader(daemonApi, liveClient);
   const transferTimeline = new TransferTimelineController(daemonApi,
     (scope, next, error) => liveClient.observeTransferTimeline(scope, next, error));
@@ -40,6 +54,7 @@
   // The Jobs subview survives a visit to another top-level page.
   let showingSearch = $state(false);
   let composingJob = $state(false);
+  let composerSearch = $state<SearchDraft | null>(null);
   let composingJobCommitPending = $state(false);
   let automaticJobId = $state<string | null>(null);
   let automaticInitialDetail = $state<Schema<'JobDetailDto'> | null>(null);
@@ -50,7 +65,7 @@
   let search = $state<SearchDraft>({ ...emptySearchDraft });
   let userBrowse = $state<{ query: string; mode: UserBrowseView }>({ query: '', mode: 'user' });
   let activeUsername = $state('');
-  let userView = $state<UserBrowseView>('user');
+  let userView = $derived<UserBrowseView>(activePage === 'shares' ? 'shares' : 'user');
   let initialChatUsername = $state<string | null>(null);
   let searchBusy = $state(false);
   let rerunningSearch = $state(false);
@@ -65,7 +80,11 @@
   $effect(() => {
     const active = documentVisible && jobsListVisible();
     const status = liveStatus;
-    untrack(() => jobList.setActive(active, status));
+    const tab = jobsTab;
+    untrack(() => {
+      jobLists.searches.setActive(active && tab === 'searches', status);
+      jobLists.downloads.setActive(active && tab === 'downloads', status);
+    });
   });
 
   let observedSearchJob = $state.raw<Schema<'JobStateDto'> | null>(null);
@@ -124,6 +143,11 @@
       activePage = 'jobs';
       showingSearch = Boolean(parts[1]);
       pendingJobId = parts[1] ? decodeSegment(parts[1]) : null;
+      if (!pendingJobId) {
+        const params = new URLSearchParams(window.location.search);
+        jobsTab = params.get('tab') === 'downloads' ? 'downloads' : 'searches';
+        if (jobsTab === 'downloads') jobLists.downloads.filterSubmission(params.get('submission'));
+      }
       if (pendingJobId) {
         const requestedMode = parseSearchResultMode(new URLSearchParams(window.location.search).get('results'));
         if (searchState.job?.jobId !== pendingJobId || !searchState.draft
@@ -132,11 +156,10 @@
       }
       return;
     }
-    if (root === 'users') {
-      activePage = 'users';
+    if (root === 'users' || root === 'shares') {
+      activePage = root;
       activeUsername = parts[1] ? decodeSegment(parts[1]) : activeUsername;
-      userView = parts[2] === 'shares' ? 'shares' : 'user';
-      userBrowse = { query: activeUsername, mode: userView };
+      userBrowse = { query: activeUsername, mode: root === 'shares' ? 'shares' : 'user' };
       return;
     }
     if (root === 'chat') {
@@ -204,7 +227,7 @@
     void Promise.allSettled(startup);
     return () => {
       transferTimeline.stop();
-      jobList.stop();
+      for (const list of Object.values(jobLists)) list.stop();
       statusSubscription();
       searchSubscription();
       window.removeEventListener('popstate', popstate);
@@ -235,16 +258,25 @@
         setPath(searchJobPath(pendingJobId, searchState.draft.resultMode));
         return;
       }
-      setPath('/jobs');
+      setPath(jobsListPath());
       return;
     }
     activePage = page;
     if (page === 'chat') initialChatUsername = null;
-    setPath(page === 'users' && activeUsername
-      ? `/users/${encodeURIComponent(activeUsername)}${userView === 'shares' ? '/shares' : ''}`
-      : `/${page}`);
+    if (page === 'users' || page === 'shares') userBrowse = { ...userBrowse, mode: page === 'shares' ? 'shares' : 'user' };
+    setPath((page === 'users' || page === 'shares') && activeUsername
+      ? `/${page}/${encodeURIComponent(activeUsername)}` : `/${page}`);
     if (page === 'downloads') void transferTimeline.load('download', true);
     if (page === 'uploads') void transferTimeline.load('upload', true);
+  }
+
+  function composeSearchDownload(draft: SearchDraft): void {
+    if (composingJobCommitPending) return;
+    composerSearch = JSON.parse(JSON.stringify(draft)) as SearchDraft;
+    activePage = 'jobs';
+    jobsTab = 'downloads';
+    backToJobs();
+    composingJob = true;
   }
 
   async function submit(next: SearchDraft): Promise<void> {
@@ -254,6 +286,7 @@
     mutationError = null;
     try {
       const submitted = await daemonApi.submitSearch(next);
+      jobsTab = 'searches';
       if (submitted.job.jobId) {
         searchModeByJob.set(submitted.job.jobId, submitted.draft.resultMode);
       }
@@ -266,7 +299,7 @@
       mutationError = asError(error);
       activePage = 'jobs';
       showingSearch = false;
-      setPath('/jobs');
+      setPath(jobsListPath());
     } finally {
       searchBusy = false;
     }
@@ -280,7 +313,6 @@
     mutationError = null;
     try {
       const submitted = await daemonApi.rerunSearch(job, view);
-      search = submitted.draft;
       if (submitted.job.jobId) {
         searchModeByJob.set(submitted.job.jobId, submitted.draft.resultMode);
       }
@@ -336,6 +368,7 @@
       }
       return;
     }
+    jobsTab = job.kind === 'search' ? 'searches' : 'downloads';
     if (job.kind !== 'search') {
       automaticJobId = job.jobId;
       automaticInitialDetail = detail ?? null;
@@ -363,7 +396,6 @@
       if (openingJobKey !== openKey || routeLocation() !== route) return;
       await searchController.open(opened);
       if (openingJobKey !== openKey || routeLocation() !== route) return;
-      search = { ...opened.draft };
       searchModeByJob.set(job.jobId, opened.draft.resultMode);
       activePage = 'jobs';
       showingSearch = true;
@@ -374,7 +406,7 @@
       if (openingJobKey !== openKey || routeLocation() !== route) return;
       mutationError = asError(error);
       showingSearch = false;
-      setPath('/jobs');
+      setPath(jobsListPath());
     } finally {
       if (openingJobKey === openKey) openingJobKey = null;
     }
@@ -393,7 +425,7 @@
     mutationError = null;
     try {
       requireArchived(await daemonApi.archiveSubmission(job.submissionId!));
-      jobList.afterArchive(job.submissionId!);
+      for (const list of Object.values(jobLists)) list.afterArchive(job.submissionId!);
       return true;
     } catch (error) { mutationError = asError(error); return false; }
     finally { archivingSubmissionIds = new Set([...archivingSubmissionIds].filter((id) => id !== job.submissionId)); }
@@ -425,7 +457,6 @@
 
   function openUser(username: string): void {
     activeUsername = username;
-    userView = 'user';
     userBrowse = { query: username, mode: 'user' };
     activePage = 'users';
     setPath(`/users/${encodeURIComponent(username)}`);
@@ -435,10 +466,9 @@
     profile: openUser,
     shares: (username) => {
       activeUsername = username;
-      userView = 'shares';
       userBrowse = { query: username, mode: 'shares' };
-      activePage = 'users';
-      setPath(`/users/${encodeURIComponent(username)}/shares`);
+      activePage = 'shares';
+      setPath(`/shares/${encodeURIComponent(username)}`);
     },
     message: (username) => {
       initialChatUsername = username;
@@ -451,16 +481,20 @@
     const username = value.query.trim();
     if (!username) return;
     activeUsername = username;
-    userView = value.mode;
     userBrowse = { ...value, query: username };
-    activePage = 'users';
-    setPath(`/users/${encodeURIComponent(username)}${value.mode === 'shares' ? '/shares' : ''}`);
+    activePage = value.mode === 'shares' ? 'shares' : 'users';
+    setPath(`/${activePage}/${encodeURIComponent(username)}`);
   }
 
   function changeUserView(value: UserBrowseView): void {
-    userView = value;
-    userBrowse = { query: activeUsername, mode: value };
-    setPath(activeUsername ? `/users/${encodeURIComponent(activeUsername)}${value === 'shares' ? '/shares' : ''}` : '/users');
+    activePage = value === 'shares' ? 'shares' : 'users';
+    userBrowse = { ...userBrowse, mode: value };
+    setPath(activeUsername ? `/${activePage}/${encodeURIComponent(activeUsername)}` : `/${activePage}`);
+  }
+
+  function changeUserBrowse(value: { query: string; mode: UserBrowseView }): void {
+    userBrowse = value;
+    if (value.mode !== userView) changeUserView(value.mode);
   }
 
   function backToJobs(): void {
@@ -470,7 +504,7 @@
     showingSearch = false;
     pendingJobId = null;
     jobRouteError = null;
-    setPath('/jobs');
+    setPath(jobsListPath());
   }
 
   function asError(error: unknown): Error {
@@ -482,14 +516,14 @@
   applyPath(window.location.pathname);
 </script>
 
-<AppShell {activePage} {liveStatus} {liveState} {search} {userBrowse} {searchBusy} onnavigate={navigate} onsearchchange={(value) => (search = value)} onsearchsubmit={(value) => void submit(value)} onuserbrowsechange={(value) => (userBrowse = value)} onuserbrowsesubmit={submitUserBrowse}>
+<AppShell {activePage} {liveStatus} {liveState} {search} {userBrowse} {searchBusy} onnavigate={navigate} onsearchchange={(value) => (search = value)} onsearchsubmit={(value) => void submit(value)} ondownloadrequest={composeSearchDownload} onuserbrowsechange={changeUserBrowse} onuserbrowsesubmit={submitUserBrowse}>
   {#if activePage === 'jobs' && pendingJobId && jobRouteError}
     <section class="page page-search redesigned-search-page">
       <div class={`resource-state-notice ${liveStatus === 'offline' ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{liveStatus === 'offline' ? 'Daemon unavailable' : 'Job unavailable'}</strong><small>{liveStatus === 'offline' ? 'This resource cannot be loaded while the daemon is offline.' : jobRouteError.message}</small></span>{#if liveStatus !== 'offline'}<button type="button" onclick={() => void openJobFromPath(pendingJobId!, routeLocation())}>Retry</button>{/if}<button type="button" onclick={backToJobs}>Back to jobs</button></div>
     </section>
   {:else if activePage === 'jobs' && showingSearch && pendingJobId && searchState.job?.jobId !== pendingJobId}
     <section class="page page-search redesigned-search-page">
-      <div class="resource-state-notice loading blocking" role="status"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Opening job</strong><small>Loading this job from the daemon.</small></span></div>
+      <LoadingIndicator label="Opening job" blocking />
     </section>
   {:else if activePage === 'jobs' && showingSearch && searchState.draft}
     <SearchResults
@@ -524,6 +558,7 @@
       onloadoptions={() => void searchController.loadMoreAggregateOptions()}
       onchooseoption={(ref, option) => searchController.chooseAggregateOption(ref, option)}
       ontogglealbumfile={(groupRef, fileRef, selected) => searchController.toggleAggregateAlbumFile(groupRef, fileRef, selected)}
+      onviewdownloads={(id) => { jobLists.downloads.filterSubmission(id); jobsTab = 'downloads'; backToJobs(); }}
       onback={backToJobs}
       onsearchagain={() => void rerunActiveSearch()}
     />
@@ -535,11 +570,14 @@
         onback={backToJobs} onopenjob={(job, detail) => void openJob(job, detail)} onarchive={(job) => void archiveOpenedSubmission(job)}
         archivingSubmissions={archivingSubmissionIds} archiveError={mutationError} />
     {:else}
+    {#key jobsTab}
     <JobsList
+      tab={jobsTab} ontabchange={changeJobsTab} position={jobList}
+      submissionId={jobList.submissionId} onclearfilter={() => { jobList.filterSubmission(null); setPath(jobsListPath()); }}
       refreshRevision={jobList.refreshRevision}
       connected={liveStatus === 'connected' && documentVisible}
       {observeJobs}
-      onnew={() => (composingJob = true)}
+      onnew={() => { composerSearch = null; composingJob = true; }}
       jobs={jobList.items}
       loading={jobList.loading || liveStatus === 'connecting'}
       daemonOffline={liveStatus === 'offline'}
@@ -553,6 +591,7 @@
       archivingSubmissions={archivingSubmissionIds}
       onloadmore={() => jobList.loadMore()}
     />
+    {/key}
     {/if}
   {:else if activePage === 'dashboard'}
     <Dashboard liveStatus={liveStatus} terminalTransferCommitRevision={liveState.daemon?.terminalTransferCommitRevision ?? 0} soulseek={liveState.daemon?.soulseekClient} transfers={liveState.transferSummary} {userActions} />
@@ -598,11 +637,11 @@
       onretrysummaries={() => transferTimeline.load('upload', true)}
       {userActions}
     />
-  {:else if activePage === 'users'}
+  {:else if activePage === 'users' || activePage === 'shares'}
     {#if activeUsername}
       <UsersPage username={activeUsername} view={userView} {liveStatus} {liveClient} onviewchange={changeUserView} onmessageuser={userActions.message} />
     {:else}
-      <section class="page user-browser-page"><header class="user-browser-heading"><div><p class="eyebrow">Network</p><h1>User browser</h1></div></header><div class="empty-state"><strong>Choose a Soulseek user</strong><p>Enter an exact username above to view their profile or shared files.</p></div></section>
+      <section class="page user-browser-page"><header class="user-browser-heading"><div><p class="eyebrow">Network</p><h1>{activePage === 'shares' ? 'Shares' : 'Users'}</h1></div></header><div class="empty-state"><strong>Choose a Soulseek user</strong><p>Enter an exact username above to view {activePage === 'shares' ? 'their shared files' : 'their profile'}.</p></div></section>
     {/if}
   {:else if activePage === 'chat'}
     <ChatPage {liveClient} {liveStatus} runtime={liveState.daemon?.chat} {userActions} initialUsername={initialChatUsername} />
@@ -615,10 +654,8 @@
 </AppShell>
 
 {#if activePage === 'jobs' && !showingSearch && !automaticJobId && composingJob}
-  <div class="new-job-modal">
-    <button type="button" class="new-job-modal-backdrop" aria-label="Close new job" disabled={composingJobCommitPending} onclick={() => (composingJob = false)}></button>
-    <div class="new-job-modal-dialog" role="dialog" aria-modal="true" aria-label="New job">
-      <NewJobComposer onclose={() => { if (!composingJobCommitPending) composingJob = false; }} oncommittingchange={(pending) => (composingJobCommitPending = pending)} onstarted={() => { composingJobCommitPending = false; composingJob = false; jobList.refresh(); }} />
-    </div>
-  </div>
+  <Modal title="Create new job" label="New job" closeLabel="Close new job" wide locked={composingJobCommitPending}
+    onclose={() => { composingJob = false; }}>
+    <NewJobComposer initialSearch={composerSearch} oncommittingchange={(pending) => (composingJobCommitPending = pending)} onstarted={() => { composingJobCommitPending = false; composingJob = false; if (jobLists.downloads.submissionId) jobLists.downloads.filterSubmission(null); else jobLists.downloads.refresh(); changeJobsTab('downloads'); }} />
+  </Modal>
 {/if}

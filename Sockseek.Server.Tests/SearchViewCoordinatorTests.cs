@@ -236,6 +236,10 @@ public sealed class SearchViewCoordinatorTests
         }
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
+            // This clock controls the one-shot publication wakeup; housekeeping
+            // uses ordinary periodic timers and must not satisfy TimerArmed.
+            if (period != Timeout.InfiniteTimeSpan)
+                return base.CreateTimer(callback, state, dueTime, period);
             var timer = new ManualTimer(this, callback, state);
             timer.Change(dueTime, period);
             return timer;
@@ -604,6 +608,12 @@ public sealed class SearchViewCoordinatorTests
             var activeFiles = (views.GetFiles(active.ViewId, active.Revision, null, 500, cancellationToken: CancellationToken.None))!.Items;
             CollectionAssert.AreEqual(activeFiles.Select(file => file.Ref).ToArray(), resumedFiles.Select(file => file.Ref).ToArray(),
                 "Evicting a working kernel must preserve this View's workflow-local ranking facts.");
+            clock.Advance(TimeSpan.FromMinutes(16));
+            // A publication behind the timer's queued work is a deterministic
+            // worker barrier. Creation/read requests themselves do no pruning.
+            await CreateAndObserveAsync(views, source.JobId, request);
+            Assert.AreEqual(0, views.Cache.PruneExpired(),
+                "The maintenance tick must release expired Views without another read of them.");
         }
         finally
         {
@@ -620,10 +630,26 @@ public sealed class SearchViewCoordinatorTests
     private sealed class ViewClock : TimeProvider
     {
         private long ticks = DateTimeOffset.UtcNow.UtcTicks;
+        private TickTimer? maintenance;
         public override DateTimeOffset GetUtcNow() => new(Interlocked.Read(ref ticks), TimeSpan.Zero);
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
         public override long GetTimestamp() => Interlocked.Read(ref ticks);
-        public void Advance(TimeSpan interval) => Interlocked.Add(ref ticks, interval.Ticks);
+        public void Advance(TimeSpan interval)
+        {
+            Interlocked.Add(ref ticks, interval.Ticks);
+            maintenance?.Fire();
+        }
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+            => period == Timeout.InfiniteTimeSpan ? base.CreateTimer(callback, state, dueTime, period)
+                : maintenance = new TickTimer(callback, state);
+        private sealed class TickTimer(TimerCallback callback, object? state) : ITimer
+        {
+            private bool disposed;
+            public void Fire() { if (!disposed) callback(state); }
+            public bool Change(TimeSpan dueTime, TimeSpan period) => !disposed;
+            public void Dispose() => disposed = true;
+            public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
+        }
     }
 
     [TestMethod]
@@ -799,7 +825,8 @@ public sealed class SearchViewCoordinatorTests
                 var children = (views.GetDirectoryFiles(view.ViewId, alpha.Representative.Ref.Ref, view.Revision, null, 10, CancellationToken.None))!.Items;
                 Assert.AreEqual(3, children.Count);
                 string Ref(string path) => children.Single(child => child.File.RemoteFilename == path).Ref;
-                var chosen = new Dictionary<string, string> { [alpha.Ref] = alpha.Representative.Ref.Ref, [beta.Ref] = beta.Representative.Ref.Ref };
+                var chosen = new Dictionary<string, string> { [alpha.Ref] = alpha.Representative.Ref.Ref };
+                if (!allExcept) chosen[beta.Ref] = beta.Representative.Ref.Ref;
                 var files = new Dictionary<string, RefSelectionExpressionDto>
                 {
                     [alpha.Ref] = allExcept
@@ -812,7 +839,7 @@ public sealed class SearchViewCoordinatorTests
                 Assert.AreEqual(1L, count.LockedFileCount);
                 Assert.AreEqual(2L, count.SelectedItemCount);
                 var request = new CommitSearchViewSelectionRequestDto(view.Revision, selection, Guid.NewGuid(),
-                    ChosenOptions: chosen, AlbumFileSelections: files);
+                    ChosenOptions: chosen, AlbumFileSelections: files, UseRepresentativeWhenUnchosen: true);
                 var receipt = (await views.Selections.CommitSelectionAsync(view.ViewId, request, CancellationToken.None))!;
                 Assert.AreEqual(2L, receipt.SubmittedCount);
                 Assert.AreEqual(0L, receipt.RejectedCount);
@@ -822,7 +849,12 @@ public sealed class SearchViewCoordinatorTests
                 var root = (JobList)Sockseek.Core.Planning.SubmissionSpecificationCodec.Deserialize(accepted.SpecificationJson).MaterializeJob();
                 var pinned = root.Jobs.OfType<AlbumJob>().Single(album => album.Query.Album == "Album Alpha");
                 Assert.AreEqual(AlbumDirectoryResolutionPolicy.UseSelectedSnapshot, pinned.DirectoryResolutionPolicy);
+                Assert.AreEqual(AlbumValidationRequirement.UserAccepted, pinned.ValidationRequirement);
                 CollectionAssert.AreEqual(new[] { first }, pinned.ResolvedTarget!.Files.Select(file => file.Candidate.Filename).ToArray());
+                var wholeFolder = root.Jobs.OfType<AlbumJob>().Single(album => album.Query.Album == "Album Beta");
+                Assert.AreEqual(AlbumValidationRequirement.UserAccepted, wholeFolder.ValidationRequirement);
+                Assert.AreEqual(AlbumDirectoryResolutionPolicy.CompleteIfNeeded, wholeFolder.DirectoryResolutionPolicy);
+                CollectionAssert.AreEqual(new[] { sibling }, wholeFolder.ResolvedTarget!.Files.Select(file => file.Candidate.Filename).ToArray());
 
                 foreach (string invalid in new[] { "missing-file", beta.Representative.BestChild.Ref })
                 {
@@ -2013,10 +2045,10 @@ public sealed class SearchViewCoordinatorTests
                 CancellationToken.None))!;
             var firstDirectorySubmission = await app.Services.GetRequiredService<PersistenceCoordinator>()
                 .Submissions!.GetSubmissionAsync(firstDirectoryReceipt.SubmissionId!.Value, CancellationToken.None);
-            var firstDirectoryRoot = (Sockseek.Core.Jobs.JobList)Sockseek.Core.Planning.SubmissionSpecificationCodec
+            var firstDirectoryRoot = (Sockseek.Core.Jobs.RemoteDirectoryJob)Sockseek.Core.Planning.SubmissionSpecificationCodec
                 .Deserialize(firstDirectorySubmission!.SpecificationJson).MaterializeJob();
             var firstDirectoryPlan = ((Sockseek.Core.Jobs.RemoteDirectorySource.Resolved)
-                ((Sockseek.Core.Jobs.RemoteDirectoryJob)firstDirectoryRoot.Jobs.Single()).Source).Plan;
+                firstDirectoryRoot.Source).Plan;
             CollectionAssert.AreEqual(new[] { @"Music\Track one.flac" },
                 firstDirectoryPlan.Entries.Select(entry => entry.Target.Filename).ToArray(),
                 "File Search root selection must not browse unprojected Cover.jpg.");
@@ -2183,10 +2215,10 @@ public sealed class SearchViewCoordinatorTests
                 "The caller needs the incompatible setting, not just an invalid-item code.");
             var retainedOnly = await app.Services.GetRequiredService<PersistenceCoordinator>()
                 .Submissions!.GetSubmissionAsync(onlyDirectoryReceipt.SubmissionId!.Value, CancellationToken.None);
-            var onlyRoot = (Sockseek.Core.Jobs.JobList)Sockseek.Core.Planning.SubmissionSpecificationCodec
+            var onlyRoot = (Sockseek.Core.Jobs.RemoteDirectoryJob)Sockseek.Core.Planning.SubmissionSpecificationCodec
                 .Deserialize(retainedOnly!.SpecificationJson).MaterializeJob();
             var onlySource = (Sockseek.Core.Jobs.RemoteDirectorySource.Resolved)
-                ((Sockseek.Core.Jobs.RemoteDirectoryJob)onlyRoot.Jobs.Single()).Source;
+                onlyRoot.Source;
             CollectionAssert.AreEqual(new[] { @"Music\Cover.jpg" },
                 onlySource.Plan.Entries.Select(entry => entry.Target.Filename).ToArray());
             await Assert.ThrowsExactlyAsync<IdempotencyConflictException>(() => views.Selections.CommitSelectionAsync(
@@ -2435,10 +2467,10 @@ public sealed class SearchViewCoordinatorTests
             Assert.AreEqual(1L, receipt.SubmittedCount);
             var retained = await app.Services.GetRequiredService<PersistenceCoordinator>()
                 .Submissions!.GetSubmissionAsync(receipt.SubmissionId!.Value, CancellationToken.None);
-            var jobList = (Sockseek.Core.Jobs.JobList)Sockseek.Core.Planning.SubmissionSpecificationCodec
+            var jobList = (Sockseek.Core.Jobs.RemoteDirectoryJob)Sockseek.Core.Planning.SubmissionSpecificationCodec
                 .Deserialize(retained!.SpecificationJson).MaterializeJob();
             var plan = ((Sockseek.Core.Jobs.RemoteDirectorySource.Resolved)
-                ((Sockseek.Core.Jobs.RemoteDirectoryJob)jobList.Jobs.Single()).Source).Plan;
+                jobList.Source).Plan;
             CollectionAssert.AreEquivalent(new[] { @"Folder\Nested\One.txt", @"Folder\Nested\Two.txt",
                 @"Folder\Nested\Deep\Three.txt" },
                 plan.Entries.Select(entry => entry.Target.Filename).ToArray());
@@ -2454,10 +2486,10 @@ public sealed class SearchViewCoordinatorTests
                     Guid.NewGuid(), DirectoryPathRules: [nestedOff, deepOn]), CancellationToken.None))!;
             var nestedRetained = await app.Services.GetRequiredService<PersistenceCoordinator>()
                 .Submissions!.GetSubmissionAsync(nestedReceipt.SubmissionId!.Value, CancellationToken.None);
-            var nestedJobList = (Sockseek.Core.Jobs.JobList)Sockseek.Core.Planning.SubmissionSpecificationCodec
+            var nestedJobList = (Sockseek.Core.Jobs.RemoteDirectoryJob)Sockseek.Core.Planning.SubmissionSpecificationCodec
                 .Deserialize(nestedRetained!.SpecificationJson).MaterializeJob();
             var nestedPlan = ((Sockseek.Core.Jobs.RemoteDirectorySource.Resolved)
-                ((Sockseek.Core.Jobs.RemoteDirectoryJob)nestedJobList.Jobs.Single()).Source).Plan;
+                nestedJobList.Source).Plan;
             CollectionAssert.AreEquivalent(new[] { @"Folder\Root.txt", @"Folder\Nested\Deep\Three.txt" },
                 nestedPlan.Entries.Select(entry => entry.Target.Filename).ToArray());
 
@@ -2473,10 +2505,10 @@ public sealed class SearchViewCoordinatorTests
                 CancellationToken.None))!;
             var exceptionRetained = await app.Services.GetRequiredService<PersistenceCoordinator>()
                 .Submissions!.GetSubmissionAsync(exceptionReceipt.SubmissionId!.Value, CancellationToken.None);
-            var exceptionJobList = (Sockseek.Core.Jobs.JobList)Sockseek.Core.Planning.SubmissionSpecificationCodec
+            var exceptionJobList = (Sockseek.Core.Jobs.RemoteDirectoryJob)Sockseek.Core.Planning.SubmissionSpecificationCodec
                 .Deserialize(exceptionRetained!.SpecificationJson).MaterializeJob();
             var exceptionPlan = ((Sockseek.Core.Jobs.RemoteDirectorySource.Resolved)
-                ((Sockseek.Core.Jobs.RemoteDirectoryJob)exceptionJobList.Jobs.Single()).Source).Plan;
+                exceptionJobList.Source).Plan;
             CollectionAssert.AreEquivalent(new[] { @"Folder\Nested\One.txt", @"Folder\Nested\Two.txt" },
                 exceptionPlan.Entries.Select(entry => entry.Target.Filename).ToArray());
             var vanishedRule = nested with { DirectoryRef = "directory-from-an-older-view" };

@@ -11,6 +11,20 @@ test('uses filtering and output settings for a direct Start download', async ({ 
   await page.getByRole('button', { name: 'Filtering Defaults', exact: true }).click();
   const filtering = page.locator('#new-job-filtering-options');
   await expect(filtering.getByRole('button', { name: 'FLAC', exact: true })).toBeVisible();
+  for (const format of ['AAC', 'ALAC']) {
+    const button = filtering.getByRole('button', { name: format, exact: true });
+    await expect(button).toHaveClass(/active/);
+    await button.click();
+    await expect(button).toHaveCount(0);
+  }
+  await filtering.getByRole('button', { name: 'custom…', exact: true }).click();
+  await filtering.getByRole('textbox', { name: 'Comma-separated required formats' }).fill('flac, ape, flac');
+  await filtering.getByRole('button', { name: 'buttons', exact: true }).click();
+  await expect(filtering.getByRole('button', { name: 'FLAC', exact: true })).toHaveCount(1);
+  const customFormat = filtering.getByRole('button', { name: 'APE', exact: true });
+  await expect(customFormat).toHaveClass(/active/);
+  await customFormat.click();
+  await expect(customFormat).toHaveCount(0);
   await filtering.getByRole('button', { name: 'Any', exact: true }).click();
   await filtering.getByRole('button', { name: 'FLAC', exact: true }).click();
   await page.getByRole('button', { name: 'Download Defaults', exact: true }).click();
@@ -39,11 +53,58 @@ test('uses filtering and output settings for a direct Start download', async ({ 
     .toEqual([join('direct', 'Fixture song.flac')]);
 });
 
+test('Ctrl+Enter prepares music downloads with the current query and edited search conditions', async ({ page }) => {
+  let searches = 0;
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname.startsWith('/api/jobs/search')) searches++;
+  });
+  for (const mode of ['Album Search', 'Track Search']) {
+    await page.goto('/jobs');
+    await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
+    await page.getByRole('menuitemradio', { name: mode, exact: true }).click();
+    await page.locator('#global-search-simple').fill(mode === 'Album Search' ? 'Fixture artist - Fixture album' : 'Fixture song');
+    await page.getByRole('button', { name: 'Search configuration', exact: true }).click();
+    const panel = page.locator('.search-config-popover');
+    await panel.getByRole('button', { name: 'Any', exact: true }).click();
+    await panel.getByRole('button', { name: 'FLAC', exact: true }).click();
+    const input = page.locator(mode === 'Album Search' ? '#global-search-title' : '#global-search-simple');
+    await input.press('Control+Enter');
+    const dialog = page.getByRole('dialog', { name: 'New job', exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Download jobs', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(dialog.getByPlaceholder(mode === 'Album Search' ? 'Album title…' : 'Song title…')).toHaveValue(mode === 'Album Search' ? 'Fixture album' : 'Fixture song');
+    await expect(dialog.getByPlaceholder('Artist…', { exact: true })).toHaveValue(mode === 'Album Search' ? 'Fixture artist' : '');
+    await dialog.getByRole('button', { name: 'Filtering Defaults', exact: true }).click();
+    const filtering = dialog.locator('#new-job-filtering-options');
+    await expect(filtering.getByRole('button', { name: 'FLAC', exact: true })).toHaveClass(/active/);
+    await expect(filtering.getByRole('button', { name: 'MP3', exact: true })).not.toHaveClass(/active/);
+    // Further edits in the modal must override, not discard or resurrect, the copied settings.
+    if (mode === 'Track Search') await filtering.getByRole('button', { name: 'MP3', exact: true }).click();
+    const request = page.waitForRequest(candidate => candidate.method() === 'POST'
+      && new URL(candidate.url()).pathname === '/api/job-previews');
+    await dialog.getByRole('button', { name: 'Review', exact: true }).click();
+    const preview = (await request).postDataJSON() as Schema<'CreateJobPreviewRequestDto'>;
+    expect(preview.job.kind).toBe(mode === 'Album Search' ? 'album' : 'song');
+    expect(preview.options?.downloadSettings?.search?.necessaryCond?.formats?.replace)
+      .toEqual(mode === 'Album Search' ? ['flac'] : ['flac', 'mp3']);
+    await dialog.getByRole('button', { name: 'Close new job', exact: true }).click();
+  }
+  expect(searches).toBe(0);
+});
+
 test('keeps Review reachable with edited Album settings panels open on narrow screens', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
   const dialog = page.getByRole('dialog', { name: 'New job' });
+  await expect(dialog.locator('.new-job-source-disclosure')).not.toHaveAttribute('open', '');
+  await expect(dialog.getByRole('button', { name: 'Spotify', exact: true })).not.toBeVisible();
+  await page.mouse.click(5, 5);
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'New job', exact: false }).click();
+  await dialog.getByRole('button', { name: 'Close new job', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'New job', exact: false }).click();
   await dialog.getByRole('button', { name: 'Album', exact: true }).click();
   await dialog.getByPlaceholder('Album title…').fill('Fixture Album');
   await dialog.getByRole('button', { name: 'Filtering Defaults', exact: true }).click();
@@ -68,6 +129,7 @@ test('shows a failed source preview and allows correcting the same draft', async
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
+  await page.locator('.new-job-source-disclosure summary').click();
   await page.getByRole('complementary', { name: 'Job type' }).getByRole('button', { name: 'Soulseek', exact: true }).click();
   const source = page.getByPlaceholder('Paste a slsk:// link…');
   await source.fill('slsk://fixture-peer');
@@ -95,7 +157,7 @@ test('shows a failed source preview and allows correcting the same draft', async
 test('edits source settings before upload and rebases them when the artifact arrives', async ({ page }) => {
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
-  await page.getByRole('button', { name: 'CSV file CSV of songs and albums' }).click();
+  await page.getByRole('button', { name: 'CSV file', exact: true }).click();
   const provisional = page.waitForResponse(response => new URL(response.url()).pathname === '/api/jobs/effective-settings'
     && response.request().method() === 'POST' && !response.request().postDataJSON()?.job?.artifactId);
   await page.getByRole('button', { name: 'Filtering Defaults', exact: true }).click();
@@ -183,7 +245,8 @@ test('downloads with corrected output settings after invalidating and repeating 
 test('clears source-specific drafts and disclosures when choosing a job type', async ({ page }) => {
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
-  await page.getByRole('button', { name: 'YouTube Playlist URL' }).click();
+  await page.locator('.new-job-source-disclosure summary').click();
+  await page.getByRole('button', { name: 'YouTube', exact: true }).click();
   await page.getByPlaceholder('Paste a YouTube URL…').fill('https://www.youtube.com/playlist?list=fixture');
   const importDisclosure = page.locator('.new-job-import-options .settings-disclosure-toggle');
   await importDisclosure.click();
@@ -191,19 +254,19 @@ test('clears source-specific drafts and disclosures when choosing a job type', a
   await filteringDisclosure.click();
   await expect(filteringDisclosure).toHaveAttribute('aria-expanded', 'true');
 
-  await page.getByRole('button', { name: 'Bandcamp Track, album, wishlist, or artist URL' }).click();
+  await page.getByRole('button', { name: 'Bandcamp', exact: true }).click();
   await expect(page.getByPlaceholder('Paste a Bandcamp URL…')).toHaveValue('');
   await expect(page.getByRole('button', { name: 'Review', exact: true })).toBeDisabled();
   await expect(importDisclosure).toHaveAttribute('aria-expanded', 'false');
   await expect(filteringDisclosure).toHaveAttribute('aria-expanded', 'false');
   await page.getByPlaceholder('Paste a Bandcamp URL…').fill('https://example.bandcamp.com/album/fixture');
-  await page.getByRole('button', { name: 'Bandcamp Track, album, wishlist, or artist URL' }).click();
+  await page.getByRole('button', { name: 'Bandcamp', exact: true }).click();
   await expect(page.getByPlaceholder('Paste a Bandcamp URL…')).toHaveValue('');
 
-  await page.getByRole('button', { name: 'Spotify Playlist, album, or saved library' }).click();
+  await page.getByRole('button', { name: 'Spotify', exact: true }).click();
   await page.getByRole('button', { name: 'Liked songs' }).click();
-  await page.getByRole('button', { name: 'YouTube Playlist URL' }).click();
-  await page.getByRole('button', { name: 'Spotify Playlist, album, or saved library' }).click();
+  await page.getByRole('button', { name: 'YouTube', exact: true }).click();
+  await page.getByRole('button', { name: 'Spotify', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Playlist / album URL' })).toHaveClass(/active/);
   await expect(page.getByPlaceholder('Paste a Spotify URL…')).toHaveValue('');
 });
@@ -220,7 +283,7 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   });
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
-  await page.getByRole('button', { name: 'CSV file CSV of songs and albums' }).click();
+  await page.getByRole('button', { name: 'CSV file', exact: true }).click();
   await page.locator('input[type=file]').setInputFiles({
     name: 'browser-input.csv', mimeType: 'text/csv',
     buffer: Buffer.from('performer,recording\nFixture Artist,Fixture CSV Song\nFixture Artist,Second CSV Song\n'),
@@ -325,7 +388,7 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
 test('shows a failed List entry without blocking a valid reviewed sibling', async ({ page }) => {
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
-  await page.getByRole('button', { name: 'List file List of nested sources' }).click();
+  await page.getByRole('button', { name: 'List file', exact: true }).click();
   const missing = `missing-${crypto.randomUUID()}.csv`;
   await page.locator('input[type=file]').setInputFiles({
     name: 'partial-sources.txt', mimeType: 'text/plain',
@@ -349,7 +412,7 @@ test('shows a failed List entry without blocking a valid reviewed sibling', asyn
 test('selects a reviewed preview branch with a nested exception and commits exactly one job', async ({ page }) => {
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
-  await page.getByRole('button', { name: 'CSV file CSV of songs and albums' }).click();
+  await page.getByRole('button', { name: 'CSV file', exact: true }).click();
   await page.locator('input[type=file]').setInputFiles({
     name: 'branch-selection.csv', mimeType: 'text/csv',
     buffer: Buffer.from('artist,title\nFixture Artist,First Song\nFixture Artist,Second Song\n'),
@@ -392,7 +455,7 @@ test('selects a reviewed preview branch with a nested exception and commits exac
 test('pages a CSV Review and commits an item beyond the first preview page', async ({ page }) => {
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
-  await page.getByRole('button', { name: 'CSV file CSV of songs and albums' }).click();
+  await page.getByRole('button', { name: 'CSV file', exact: true }).click();
   const rows = Array.from({ length: 101 }, (_, index) => `Fixture Artist,Paged Item ${String(index + 1).padStart(3, '0')}`);
   await page.locator('input[type=file]').setInputFiles({
     name: 'paged-review.csv', mimeType: 'text/csv',

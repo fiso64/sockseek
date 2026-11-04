@@ -79,6 +79,21 @@ export class TransferProjection {
   private orderKeys = new Map<string, string | null>();
   private orderedIds: string[] = [];
   private layouts = new Map<string, TransferEntryLayout>();
+  private readonly folderOrders = new WeakMap<readonly UnifiedTransfer[], number[]>();
+  private readonly names = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+  folderOrder(rows: readonly UnifiedTransfer[]): readonly number[] {
+    let order = this.folderOrders.get(rows);
+    if (!order) {
+      // Sort only when membership changes, never on progress. The timeline's
+      // newest-first card order is independent of filenames inside each folder.
+      order = rows.map((_, index) => index).sort((a, b) =>
+        this.names.compare(rows[a]!.groupRelativePath ?? rows[a]!.path,
+          rows[b]!.groupRelativePath ?? rows[b]!.path));
+      this.folderOrders.set(rows, order);
+    }
+    return order;
+  }
 
   keepLayouts(entries: TransferEntryLayout[]): TransferEntryLayout[] {
     const next = new Map<string, TransferEntryLayout>();
@@ -258,7 +273,7 @@ export function presentTransferEntry(
     kind: 'folder', id: entry.id, peer: row.peer, username: row.username,
     groupRef: row.groupRef!, path: folderPath,
     sizeBytes: groupKnownSize(run, summary),
-    files: run.map(item => projection.folderFile(item, folderPath)),
+    files: projection.folderOrder(entry.rows).map(index => projection.folderFile(run[index]!, folderPath)),
     totalFileCount, filesComplete: Boolean(summary) && run.length === totalFileCount,
     summaryAvailable: Boolean(summary), sourceTransferIds: run.map(item => item.id),
     transfer: summary ? combineGroupSummary(summary, direction, row.createdAt)
@@ -320,6 +335,7 @@ export function liveTransferPresentation(value: TransferStateDto, createdAt?: st
   const direction = value.identity.direction.toLowerCase() === 'upload' ? 'upload' : 'download';
   const percent = total > 0 ? clamp(transferred / total * 100) : undefined;
   return {
+    record: value,
     state: transferTone === 'active' ? activeTransferState(direction)
       : transferState(value.status.state, value.status.terminalOutcome ?? 'None'),
     tone: transferTone,
@@ -329,7 +345,7 @@ export function liveTransferPresentation(value: TransferStateDto, createdAt?: st
       ? 'Complete' : fileProgressText(direction, transferTone, transferred, percent),
     speed: transferTone === 'active' && speed > 0 ? `${formatBytes(speed)}/s` : undefined,
     eta: transferTone === 'active' ? remainingEta(total - transferred, speed) : undefined,
-    detail: value.status.failureMessage ?? undefined,
+    detail: value.status.failureMessage || undefined,
     direction,
     createdAt,
     completedAt: direction === 'download' && transferTone === 'complete' ? completedAt ?? undefined : undefined,
@@ -374,6 +390,7 @@ function combineFolderPresentation(rows: UnifiedTransfer[], direction: 'download
     state: terminal ? failed ? 'Failed' : cancelled ? 'Cancelled' : 'Complete'
       : active ? direction === 'upload' ? 'Uploading' : 'Downloading' : 'Queued',
     tone: toneValue,
+    detail: failed ? [...new Set(values.filter(item => item.tone === 'failed').map(item => item.detail).filter(Boolean))].join('\n') || undefined : undefined,
     cancellable: values.some((item) => item.cancellable),
     progressPercent: totalsKnown && totalBytes > 0 ? clamp(transferred / totalBytes * 100) : undefined,
     direction,
@@ -415,11 +432,13 @@ function combineGroupSummary(
   const eta = toneValue === 'active' && Number(summary.unknownActiveTotalCount) === 0
     ? remainingEta(Number(summary.knownRemainingActiveBytes), speedBytes) : undefined;
   return {
+    group: summary,
     state: toneValue === 'active' ? direction === 'upload' ? 'Uploading' : 'Downloading'
       : toneValue === 'complete' ? 'Complete'
       : toneValue === 'failed' ? 'Failed'
       : toneValue === 'cancelled' ? 'Cancelled' : 'Queued',
     tone: toneValue,
+    detail: failed ? `${failed} ${failed === 1 ? 'file failed' : 'files failed'}. Select a file’s Failed label for its failure details.` : undefined,
     cancellable: active + queued > 0,
     progressPercent: percent,
     progressText: statusParts.join(' · ') || formatBytes(transferred),

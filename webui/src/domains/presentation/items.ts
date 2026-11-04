@@ -61,6 +61,14 @@ export function audioSummary(audio?: AudioAttributes): string {
 }
 
 export interface TransferPresentation {
+  // Keep the canonical facts for on-demand details; do not reformat every row
+  // into a second detail model on each progress update.
+  record?: Readonly<Schema<'TransferStateDto'>>;
+  job?: Readonly<Schema<'JobSummaryDto'>>;
+  file?: Readonly<Schema<'FileDownloadStateDto'>>;
+  directory?: Readonly<Schema<'DirectoryDownloadStateDto'>>;
+  target?: Readonly<Schema<'PeerFileTargetDto'>>;
+  group?: Readonly<Schema<'TransferGroupSummaryDto'>>;
   state: string;
   tone?: 'active' | 'queued' | 'complete' | 'failed' | 'cancelled';
   cancellable?: boolean;
@@ -84,4 +92,20 @@ export interface FolderItemFile {
   readonly sizeUnknown?: boolean;
   readonly audio?: Readonly<AudioAttributes>;
   readonly transfer?: Readonly<TransferPresentation>;
+}
+
+/** Exact containing folders of the available files; display roots describe placement instead. */
+export function folderSources(files: readonly FolderItemFile[], filesComplete: boolean) {
+  const folders = new Set<string>();
+  let peer: string | undefined;
+  let complete = filesComplete;
+  for (const member of files) {
+    const source = member.transfer;
+    peer ??= source?.target?.username ?? source?.record?.identity.username ?? undefined;
+    const remote = source?.target?.filename ?? source?.record?.identity.remotePath ?? member.sourcePath;
+    if (remote == null) { complete = false; continue; }
+    const separator = Math.max(remote.lastIndexOf('\\'), remote.lastIndexOf('/'));
+    folders.add(separator < 0 ? '(peer root)' : remote.slice(0, separator) || remote.slice(0, 1));
+  }
+  return { folders: [...folders], peer, complete };
 }

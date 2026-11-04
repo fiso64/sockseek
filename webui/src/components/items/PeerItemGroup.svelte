@@ -6,7 +6,6 @@
 
   interface Props {
     peer: ItemPeerInfo;
-    itemCount: number;
     itemNoun?: string;
     itemNounPlural?: string;
     userActions: UserLinkActions;
@@ -15,7 +14,6 @@
 
   let {
     peer,
-    itemCount,
     itemNoun = 'result',
     itemNounPlural = `${itemNoun}s`,
     userActions,
@@ -46,6 +44,7 @@
         <span class:available={peer.freeUploadSlot} class="peer-slot"><i></i>{peer.freeUploadSlot ? 'Free slot' : 'No free slot'}</span>
       {/if}
     </span>
+    {#if hasPeerStats}
     <span class="peer-metadata" aria-label={`${peer.username} result metadata`}>
       <span class="peer-stat peer-upload-stat">
         {#if peer.uploadSpeedMbps !== undefined}<b>{peer.uploadSpeedMbps.toFixed(1)} MB/s</b><small>upload</small>{/if}
@@ -53,8 +52,8 @@
       <span class="peer-stat peer-queue-stat">
         {#if peer.queueLength !== undefined}<b>{peer.queueLength}</b><small>queued</small>{/if}
       </span>
-      <span class="peer-result-count">{itemCount} {itemCount === 1 ? itemNoun : itemNounPlural}</span>
     </span>
+    {/if}
   </div>
 
   {#if !collapsed}

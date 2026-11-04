@@ -2,7 +2,7 @@ import { performance } from 'node:perf_hooks';
 import { EventEmitter, once } from 'node:events';
 import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test, expect, measureApi, expectTransferLayoutUnchanged } from './fixtures';
+import { test, expect, measureApi, expectFolderLayoutUnchanged } from './fixtures';
 import type { Schema } from '../src/api/types';
 
 test.use({ trace: 'off', daemonLogMetrics: true });
@@ -35,7 +35,7 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
     }
     function clicked(event: MouseEvent) {
       const button = event.target instanceof Element ? event.target.closest('button') : null;
-      if (button?.textContent?.trim() === 'Load more folder files'
+      if (button?.textContent?.trim() === 'Load more'
         && button.closest('.folder-item-card')?.querySelector('.folder-transfer-name')?.textContent === 'Folder049') report('moreStarted');
     }
     document.addEventListener('click', clicked, true);
@@ -46,7 +46,8 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
       const rows = folder.querySelectorAll('.folder-file-row').length;
       const count = folder.querySelector('.folder-transfer-file-count')?.textContent ?? '';
       if (rows === 500 && count.includes('500/2000')
-        && folder.querySelector('.transfer-state')?.textContent?.trim() === 'Complete') report('initial');
+        && folder.querySelectorAll('.folder-file-state.complete').length === rows
+        && !folder.querySelector('.folder-transfer-footer')) report('initial');
       if (reported.has('moreStarted') && rows === 1000 && count.includes('1000/2000')) report('more');
       const arrival = [...document.querySelectorAll('.file-item-card')]
         .find(card => card.textContent?.includes('New arrival.txt'));
@@ -99,9 +100,9 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
   });
   const expandTimeline = async (limit: number): Promise<{ milliseconds: number; boundaryId: string }> => {
     const ready = once(timelineEvents, `scope-${limit}`, { signal: AbortSignal.timeout(5_000) });
-    await page.getByRole('button', { name: 'Load earlier downloads', exact: true }).click();
+    await page.getByRole('button', { name: 'Load more', exact: true }).click();
     const [result] = await ready;
-    await expect(page.getByRole('button', { name: 'Load earlier downloads', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Load more', exact: true })).toBeEnabled();
     return result;
   };
   const completedRow = async (path: string): Promise<{ row: Schema<'TransferStateDto'>; receivedAt: number }> => {
@@ -118,7 +119,8 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
   });
   await expect(folder.locator('.folder-file-row')).toHaveCount(500);
   await expect(folder.locator('.folder-transfer-file-count')).toContainText('500/2000');
-  await expect(folder.locator('.transfer-state').first()).toHaveText('Complete');
+  await expect(folder.locator('.folder-file-state.complete')).toHaveCount(500);
+  await expect(folder.locator('.folder-transfer-footer')).toHaveCount(0);
   await expect(folder.locator('.folder-transfer-size')).toHaveText('10.00 GB');
   const initialUiMs = Math.round(performance.now() - started);
   const summary = (await (await firstPage).json() as Schema<'TransferTimelineUpdateDto'>).groupSummaries!.items;
@@ -133,7 +135,7 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
   const membersResponse = page.waitForResponse(response => response.ok()
     && new URL(response.url()).pathname === '/api/transfers'
     && new URL(response.url()).searchParams.has('groupRef'));
-  await folder.getByRole('button', { name: 'Load more folder files', exact: true }).click();
+  await folder.getByRole('button', { name: 'Load more', exact: true }).click();
   const members = await (await membersResponse).json() as Schema<'TransferTimelinePageDto'>;
   const bulkLookupIds = new Set(members.items.map(item => item.transferId));
   await waitForDomMark('more');
@@ -167,7 +169,7 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
   await expect(page.locator('.file-item-card').filter({ hasText: 'New arrival.txt' })
     .locator('.transfer-state')).toHaveText('Complete');
   await retainedArrival;
-  await expect(folder.getByRole('button', { name: 'Load more folder files', exact: true })).toBeEnabled();
+  await expect(folder.getByRole('button', { name: 'Load more', exact: true })).toBeEnabled();
   await expect(folder.locator('.folder-file-row')).toHaveCount(1000);
   await expect(folder.locator('.folder-transfer-file-count')).toContainText('1000/2000');
   await expect(folder.locator('.folder-file-path').filter({ hasText: 'Track099001.flac' })).toHaveCount(1);
@@ -196,7 +198,7 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
     const nextMembers = page.waitForResponse(response => response.ok()
       && new URL(response.url()).pathname === '/api/transfers'
       && new URL(response.url()).searchParams.has('groupRef'));
-    await folder.getByRole('button', { name: 'Load more folder files', exact: true }).click();
+    await folder.getByRole('button', { name: 'Load more', exact: true }).click();
     const memberResponse = await nextMembers;
     const memberPage = await memberResponse.json() as Schema<'TransferTimelinePageDto'>;
     for (const item of memberPage.items) bulkLookupIds.add(item.transferId);
@@ -207,7 +209,7 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
     const finalMember = page.waitForResponse(response => response.ok()
       && new URL(response.url()).pathname === '/api/transfers'
       && new URL(response.url()).searchParams.has('groupRef'));
-    await folder.getByRole('button', { name: 'Load more folder files', exact: true }).click();
+    await folder.getByRole('button', { name: 'Load more', exact: true }).click();
     const finalPage = await (await finalMember).json() as Schema<'TransferTimelinePageDto'>;
     expect(finalPage.items).toHaveLength(1);
     folderContinuations++;
@@ -240,7 +242,7 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
   await expect(olderFolder.locator('.folder-transfer-size')).toHaveText('10.00 GB');
   expect(requests.filter(item => item.method === 'POST' && item.path.endsWith('/group-summaries'))).toHaveLength(summaryCallsBeforeBoundary);
   await expect(folder.locator('.folder-transfer-file-count')).toHaveText(/2000\s*files/);
-  await expect(folder.getByRole('button', { name: 'Load more folder files', exact: true })).toHaveCount(0);
+  await expect(folder.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
   await folder.locator('.folder-transfer-name').scrollIntoViewIfNeeded();
   const screenshot = testInfo.outputPath('large-retained-folder.png');
   await page.screenshot({ path: screenshot });
@@ -324,7 +326,7 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
   for (let index = 1; index <= 3; index++)
     await expect(page.locator('.file-item-card').filter({ hasText: `Burst ${index}.txt` })
       .locator('.transfer-state')).toHaveText('Complete');
-  await expect(page.getByRole('button', { name: 'Load earlier downloads', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Load more', exact: true })).toBeEnabled();
   await expect(folder.locator('.folder-file-row')).toHaveCount(2000);
   await expect(folder.locator('.folder-transfer-size')).toHaveText('10.00 GB');
   await expect(olderFolder.locator('.folder-transfer-file-count')).toContainText('496/2000');
@@ -458,7 +460,7 @@ for (const requestedRows of [500, 1000]) test(`downloads 50 folders of 200 tiny 
         || card.querySelector('.item-data-state')?.textContent?.includes('cover loaded files only')
         || ![...card.querySelectorAll('.folder-transfer-file-count strong')].every(count =>
           countPattern.test(count.textContent ?? ''))
-        || ![...card.querySelectorAll('.transfer-state')].every(status => status.textContent?.trim() === 'Complete'))) return;
+        || card.querySelector('.folder-transfer-footer'))) return;
       reported = true;
       void state.__recordDownloadDisplay({ rows: rowsAt, display: lastDomUpdate });
     };
@@ -483,9 +485,9 @@ for (const requestedRows of [500, 1000]) test(`downloads 50 folders of 200 tiny 
     return elapsedMs;
   });
   if (requestedRows > 500) {
-    await expect(page.getByRole('button', { name: 'Load earlier downloads', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Load more', exact: true })).toBeEnabled();
     const expanded = once(observations, `extent-${requestedRows}`, { signal: AbortSignal.timeout(10_000) });
-    await page.getByRole('button', { name: 'Load earlier downloads', exact: true }).click();
+    await page.getByRole('button', { name: 'Load more', exact: true }).click();
     await expanded;
   }
   const backendCompletionMs = await completed;
@@ -500,7 +502,7 @@ for (const requestedRows of [500, 1000]) test(`downloads 50 folders of 200 tiny 
   // Check every current label without freezing a separately sampled card count.
   await expect(folder.locator('.folder-transfer-file-count strong')
     .filter({ hasNotText: /^\s*(?:\d+\/)?200\s*$/ })).toHaveCount(0);
-  await expect(folder.locator('.transfer-state').filter({ hasNotText: /^\s*Complete\s*$/ })).toHaveCount(0);
+  await expect(folder.locator('.folder-transfer-footer')).toHaveCount(0);
   const folderNames = await folder.locator('.folder-transfer-name').allTextContents();
   expect(folderNames.length).toBeGreaterThan(0);
   expect(new Set(folderNames).size, 'A directory run must appear only once, even while totals refresh.').toBe(folderNames.length);
@@ -519,7 +521,7 @@ for (const requestedRows of [500, 1000]) test(`downloads 50 folders of 200 tiny 
       - before.metrics.find(metric => metric.name === name)!.value]));
   for (const width of [390, 900, 1280]) {
     await page.setViewportSize({ width, height: 720 });
-    await expectTransferLayoutUnchanged(page);
+    await expectFolderLayoutUnchanged(page);
   }
   const lastFile = folder.locator('.folder-file-row').last();
   await lastFile.scrollIntoViewIfNeeded();
@@ -532,7 +534,7 @@ for (const requestedRows of [500, 1000]) test(`downloads 50 folders of 200 tiny 
   await expect(lastAction).toHaveCSS('pointer-events', 'auto');
   await page.screenshot({ path: testInfo.outputPath('paged-active-download.png') });
   const expanded = once(observations, `extent-${requestedRows + 500}`, { signal: AbortSignal.timeout(5_000) });
-  await page.getByRole('button', { name: 'Load earlier downloads', exact: true }).click();
+  await page.getByRole('button', { name: 'Load more', exact: true }).click();
   await expect(folder.locator('.folder-file-row')).toHaveCount(requestedRows + 500);
   expect(await folder.count()).toBeLessThanOrEqual(folderCount);
   expect(new Set(await folder.locator('.folder-file-path').allTextContents()).size).toBe(requestedRows + 500);

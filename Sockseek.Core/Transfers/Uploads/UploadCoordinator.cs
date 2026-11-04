@@ -29,6 +29,8 @@ public enum UploadFailureReason
     InvalidOffset,
     Denied,
     InternalFailure,
+    ConnectionFailed,
+    TimedOut,
 }
 
 public enum UploadCancellationSource
@@ -74,7 +76,8 @@ public sealed record UploadTransferSnapshot(
     DateTimeOffset? FinishedAtUtc,
     TransferFileMetadataSnapshot? File = null,
     string? GroupRef = null,
-    string? GroupDisplayPath = null);
+    string? GroupDisplayPath = null,
+    string? FailureMessage = null);
 
 public sealed record UploadCoordinatorAdmission(
     UploadAdmissionResultKind Kind,
@@ -101,7 +104,7 @@ public interface IUploadProtocolInvoker
 }
 
 public sealed class SoulseekUploadProtocolInvoker(
-    Func<ISoulseekClient?> clientProvider) : IUploadProtocolInvoker
+    Func<ISoulseekClient?> clientProvider, ILogger? logger = null) : IUploadProtocolInvoker
 {
     public async Task<UploadProtocolOutcome> UploadAsync(
         string username,
@@ -114,6 +117,11 @@ public sealed class SoulseekUploadProtocolInvoker(
     {
         ISoulseekClient client = clientProvider()
             ?? throw new InvalidOperationException("Soulseek client is unavailable.");
+        // TODO [V4]: Upgrade when Soulseek.NET releases its upload-linger fix
+        // (cf30b1bc + c97972ca). In 10.0.2, MaximumLingerTime does not interrupt
+        // the final read: a peer keeping the connection open can retain this slot
+        // until transfer inactivity timeout or cancellation. Do not force an early
+        // socket close here or infer receiver success merely from bytes written.
         var options = new TransferOptions(
             stateChanged: change =>
             {
@@ -133,14 +141,34 @@ public sealed class SoulseekUploadProtocolInvoker(
             streamFactory,
             options: options,
             cancellationToken: cancellationToken).ConfigureAwait(false);
-        if (transfer.State.HasFlag(TransferStates.Completed)
-            || transfer.State.HasFlag(TransferStates.Succeeded))
+        if (transfer.State.HasFlag(TransferStates.Succeeded))
+        {
+            // The final average is calculated at terminal transition, after the
+            // library's last progress callback (notably for very short files).
+            progress(transfer.BytesTransferred, transfer.AverageSpeed);
+            if (transfer.BytesTransferred > transfer.StartOffset && double.IsFinite(transfer.AverageSpeed)
+                && transfer.AverageSpeed > 0)
+                _ = ReportUploadSpeedAsync(client, (int)Math.Min(int.MaxValue, Math.Ceiling(transfer.AverageSpeed)), cancellationToken);
             return UploadProtocolOutcome.Completed;
+        }
         if (transfer.State.HasFlag(TransferStates.Cancelled)
             || cancellationToken.IsCancellationRequested)
             return UploadProtocolOutcome.Cancelled;
         return UploadProtocolOutcome.Failed;
     }
+
+    private async Task ReportUploadSpeedAsync(ISoulseekClient client, int speed, CancellationToken cancellationToken)
+    {
+        // Reporting a completed transfer's measured speed must not hold its slot
+        // or turn a successful upload into a failure if the server disconnects.
+        try { await client.SendUploadSpeedAsync(speed, cancellationToken).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            if (logger is not null) UploadLogMessages.SpeedReportFailed(logger, exception);
+        }
+    }
+
 }
 
 /// <summary>
@@ -164,6 +192,7 @@ public sealed class UploadCoordinator : IAsyncDisposable
     private string? lastAdmittedGroupRef;
     private readonly ConcurrentDictionary<Guid, Task> activeTasks = [];
     private volatile bool stopping;
+    private int measuredUploadSpeed;
 
     public UploadCoordinator(
         IShareCatalogProvider catalogs,
@@ -173,7 +202,7 @@ public sealed class UploadCoordinator : IAsyncDisposable
         ILogger<UploadCoordinator>? logger = null)
         : this(
             catalogs,
-            new SoulseekUploadProtocolInvoker(clientProvider),
+            new SoulseekUploadProtocolInvoker(clientProvider, logger),
             restrictions,
             scheduler,
             shutdownGrace: null,
@@ -201,6 +230,10 @@ public sealed class UploadCoordinator : IAsyncDisposable
 
     public event Action<UploadTransferSnapshot>? TransferChanged;
     public event Action? QueueChanged;
+
+    // Unknown until this process completes an upload; a configured limit is not
+    // evidence of available bandwidth. No request or persistent cache per search.
+    public int MeasuredUploadSpeed => Volatile.Read(ref measuredUploadSpeed);
 
     public async ValueTask<UploadCoordinatorAdmission> AdmitAsync(
         string username,
@@ -248,7 +281,9 @@ public sealed class UploadCoordinator : IAsyncDisposable
             var request = new UploadAdmissionRequest(
                 TransferIds.New(),
                 exactUsername,
-                resolved.File.RemotePath,
+                // Catalog lookup may fold case; the peer matches the transfer
+                // against the exact filename it requested on the wire.
+                remotePath,
                 pathKey,
                 resolved.File.SizeBytes,
                 DateTimeOffset.UtcNow);
@@ -316,6 +351,11 @@ public sealed class UploadCoordinator : IAsyncDisposable
         {
             return Rejected(UploadAdmissionRejection.Unavailable, peerHash);
         }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            UploadLogMessages.AdmissionFailed(logger, exception, peerHash);
+            return Rejected(UploadAdmissionRejection.Unavailable, peerHash);
+        }
     }
 
     public UploadQueueRuntimeSnapshot GetQueueSnapshot()
@@ -329,8 +369,8 @@ public sealed class UploadCoordinator : IAsyncDisposable
         try
         {
             string exactUsername = PeerUsername.Validate(username);
-            var key = RemotePathKey.Create(remotePath);
-            return scheduler.Estimate(exactUsername, key);
+            _ = RemotePathKey.Create(remotePath);
+            return scheduler.Estimate(exactUsername, remotePath);
         }
         catch (ArgumentException)
         {
@@ -419,7 +459,7 @@ public sealed class UploadCoordinator : IAsyncDisposable
         // Cancellation callbacks are owned by the protocol library. Never run
         // them while holding the coordinator lock: a synchronous callback may
         // re-enter progress or terminal arbitration.
-        item.Cancellation.Cancel();
+        item.RequestCancellation();
 
         UploadSchedulerMutationResult mutation = scheduler.CancelQueued(transferId);
         if (mutation.Removed is not null)
@@ -481,7 +521,7 @@ public sealed class UploadCoordinator : IAsyncDisposable
             }
             if (item is not null)
             {
-                item.Cancellation.Cancel();
+                item.RequestCancellation();
                 Terminalize(
                     item,
                     UploadTransferState.Interrupted,
@@ -581,25 +621,26 @@ public sealed class UploadCoordinator : IAsyncDisposable
                 stopping ? UploadTransferState.Interrupted : UploadTransferState.Cancelled,
                 UploadFailureReason.None);
         }
-        catch (UploadDomainException ex)
-        {
-            Terminalize(item, UploadTransferState.Failed, ex.Reason);
-        }
-        catch (SharedFileOpenException)
-        {
-            Terminalize(
-                item,
-                UploadTransferState.Failed,
-                UploadFailureReason.Unavailable);
-        }
         catch (Exception exception)
         {
-            UploadLogMessages.InternalFailure(
-                logger,
-                exception,
-                item.Request.TransferId,
+            // Soulseek wraps failures from the stream factory. Classify the
+            // original cause and retain its explanation for live/history readers.
+            UploadFailureReason reason = UploadFailureReason.InternalFailure;
+            for (Exception? cause = exception; cause is not null; cause = cause.InnerException)
+            {
+                if (cause is UploadDomainException domain) { reason = domain.Reason; break; }
+                if (cause is SharedFileOpenException) { reason = UploadFailureReason.Unavailable; break; }
+                if (cause is TimeoutException) reason = UploadFailureReason.TimedOut;
+                else if (cause is TransferRejectedException) reason = UploadFailureReason.Denied;
+                else if (reason == UploadFailureReason.InternalFailure
+                    && cause is ConnectionException or UserEndPointException or UserOfflineException
+                        or UserNotFoundException or System.Net.Sockets.SocketException or OperationCanceledException)
+                    reason = UploadFailureReason.ConnectionFailed;
+            }
+            UploadLogMessages.Failed(
+                logger, exception, item.Request.TransferId,
                 LogIdentity.PeerHash(item.Request.Username));
-            Terminalize(item, UploadTransferState.Failed, UploadFailureReason.InternalFailure);
+            Terminalize(item, UploadTransferState.Failed, reason, exception.GetBaseException().Message);
         }
         finally
         {
@@ -631,9 +672,12 @@ public sealed class UploadCoordinator : IAsyncDisposable
         try
         {
             opened.Stream.Position = startOffset;
-            return new ExactLengthReadStream(
-                opened.Stream,
-                item.Request.SizeBytes - startOffset);
+            lock (sync)
+            {
+                if (item.Attempt is not null)
+                    item.Attempt.StartOffset = startOffset;
+            }
+            return new ExactLengthReadStream(opened.Stream, item.Request.SizeBytes);
         }
         catch
         {
@@ -677,34 +721,46 @@ public sealed class UploadCoordinator : IAsyncDisposable
 
     private void SetProgress(Work item, long bytes, double speed)
     {
+        bool publish;
         lock (sync)
         {
             if (IsTerminal(item.State))
                 return;
             item.BytesTransferred = Math.Clamp(bytes, 0, item.Request.SizeBytes);
-            item.BytesPerSecond = Math.Max(0, speed);
+            item.BytesPerSecond = double.IsFinite(speed) ? Math.Max(0, speed) : 0;
             item.LastProgressAtUtc = DateTimeOffset.UtcNow;
             if (item.Attempt is not null)
             {
-                item.Attempt.BytesTransferred = item.BytesTransferred;
+                item.Attempt.BytesTransferred = Math.Max(0, item.BytesTransferred - item.Attempt.StartOffset);
                 item.Attempt.BytesPerSecond = item.BytesPerSecond;
             }
             item.Revision++;
+            long now = Environment.TickCount64;
+            publish = item.LastProgressPublished == long.MinValue
+                || now - item.LastProgressPublished >= 250
+                || item.BytesTransferred == item.Request.SizeBytes;
+            if (publish) item.LastProgressPublished = now;
         }
-        Publish(item);
+        // Track every chunk; publish at human-visible cadence. Terminalization
+        // always publishes the latest byte totals, including partial failures.
+        if (publish) Publish(item);
     }
 
     private bool Terminalize(
         Work item,
         UploadTransferState state,
-        UploadFailureReason failure)
+        UploadFailureReason failure,
+        string? failureMessage = null)
     {
         lock (sync)
         {
             if (IsTerminal(item.State))
                 return false;
             item.State = state;
+            if (state == UploadTransferState.Completed && item.Attempt?.BytesTransferred > 0 && item.BytesPerSecond > 0)
+                Volatile.Write(ref measuredUploadSpeed, (int)Math.Min(int.MaxValue, Math.Ceiling(item.BytesPerSecond)));
             item.FailureReason = failure;
+            item.FailureMessage = failureMessage;
             item.FinishedAtUtc = DateTimeOffset.UtcNow;
             if (item.Attempt is not null)
                 item.Attempt.FinishedAtUtc = item.FinishedAtUtc;
@@ -713,7 +769,7 @@ public sealed class UploadCoordinator : IAsyncDisposable
         Publish(item);
         SharingTelemetry.RecordUploadTerminal(
             state,
-            item.BytesTransferred);
+            item.Attempt?.BytesTransferred ?? 0);
         UploadLogMessages.Terminal(
             logger,
             item.Request.TransferId,
@@ -792,7 +848,8 @@ public sealed class UploadCoordinator : IAsyncDisposable
                 item.FinishedAtUtc,
                 item.File,
                 item.GroupRef,
-                item.GroupDisplayPath);
+                item.GroupDisplayPath,
+                item.FailureMessage);
         }
     }
 
@@ -867,7 +924,7 @@ public sealed class UploadCoordinator : IAsyncDisposable
         {
             lock (sync)
                 item.CancellationSource = UploadCancellationSource.DaemonShutdown;
-            item.Cancellation.Cancel();
+            item.RequestCancellation();
             UploadSchedulerMutationResult mutation =
                 scheduler.CancelQueued(item.Request.TransferId);
             if (mutation.Removed is not null)
@@ -892,7 +949,7 @@ public sealed class UploadCoordinator : IAsyncDisposable
             {
                 lock (sync)
                     item.CancellationSource = UploadCancellationSource.DaemonShutdown;
-                item.Cancellation.Cancel();
+                item.RequestCancellation();
             }
 
             try
@@ -946,8 +1003,17 @@ public sealed class UploadCoordinator : IAsyncDisposable
         public string GroupRef { get; } = groupRef;
         public string GroupDisplayPath { get; } = groupDisplayPath;
         public CancellationTokenSource Cancellation { get; } = new();
+        public long LastProgressPublished { get; set; } = long.MinValue;
+        public void RequestCancellation()
+        {
+            // Cancellation runs outside the coordinator lock. A terminal
+            // persistence acknowledgement can retire and dispose this work first.
+            try { Cancellation.Cancel(); }
+            catch (ObjectDisposedException) { }
+        }
         public UploadTransferState State { get; set; } = UploadTransferState.Queued;
         public UploadFailureReason FailureReason { get; set; }
+        public string? FailureMessage { get; set; }
         public UploadCancellationSource CancellationSource { get; set; }
         public long BytesTransferred { get; set; }
         public double BytesPerSecond { get; set; }
@@ -962,13 +1028,21 @@ public sealed class UploadCoordinator : IAsyncDisposable
         DateTimeOffset startedAtUtc)
     {
         public Guid AttemptId { get; } = attemptId;
+        public long StartOffset { get; set; }
         public DateTimeOffset StartedAtUtc { get; } = startedAtUtc;
         public DateTimeOffset? FinishedAtUtc { get; set; }
         public long BytesTransferred { get; set; }
         public double BytesPerSecond { get; set; }
     }
 
-    private sealed class UploadDomainException(UploadFailureReason reason) : Exception
+    private sealed class UploadDomainException(UploadFailureReason reason) : Exception(reason switch
+    {
+        UploadFailureReason.Denied => "Upload access was denied.",
+        UploadFailureReason.InvalidOffset => "The peer requested an invalid resume offset.",
+        UploadFailureReason.NotShared => "The file is no longer shared.",
+        UploadFailureReason.Unavailable => "The shared file changed or is unavailable.",
+        _ => "The upload failed.",
+    })
     {
         public UploadFailureReason Reason { get; } = reason;
     }
@@ -976,6 +1050,12 @@ public sealed class UploadCoordinator : IAsyncDisposable
 
 internal static partial class UploadLogMessages
 {
+    [LoggerMessage(4316, LogLevel.Debug, "Could not report measured upload speed to the Soulseek server")]
+    public static partial void SpeedReportFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(4315, LogLevel.Error, "Upload admission failed for peer hash {PeerHash}")]
+    public static partial void AdmissionFailed(ILogger logger, Exception exception, string peerHash);
+
     [LoggerMessage(
         EventId = 4310,
         EventName = "upload.accepted",
@@ -1011,9 +1091,9 @@ internal static partial class UploadLogMessages
 
     [LoggerMessage(
         EventId = 4314,
-        EventName = "upload.internal-failure",
+        EventName = "upload.failed",
         Level = LogLevel.Error,
-        Message = "Upload {TransferId} for peer hash {PeerHash} failed internally")]
-    public static partial void InternalFailure(
+        Message = "Upload {TransferId} for peer hash {PeerHash} failed")]
+    public static partial void Failed(
         ILogger logger, Exception exception, Guid transferId, string peerHash);
 }

@@ -4,13 +4,14 @@
   interface Props {
     value: DownloadOptions;
     capabilities: DownloadOptionCapabilities;
+    context?: 'automatic' | 'selection';
     compact?: boolean;
     separators?: boolean;
     mixedFields?: ReadonlySet<keyof DownloadOptions>;
     onfieldchange?: (field: keyof DownloadOptions) => void;
   }
 
-  let { value = $bindable(), capabilities, compact = false, separators = true, mixedFields = new Set(), onfieldchange }: Props = $props();
+  let { value = $bindable(), capabilities, context = 'automatic', compact = false, separators = true, mixedFields = new Set(), onfieldchange }: Props = $props();
 </script>
 
 <div class:compact class:seamless={!separators} class="download-options-panel">
@@ -19,7 +20,7 @@
     <label class="config-check"><input type="checkbox" bind:checked={value.skipExisting} indeterminate={mixedFields.has('skipExisting')} onchange={() => onfieldchange?.('skipExisting')} /> Skip existing downloads{#if mixedFields.has('skipExisting')} <small>(mixed defaults)</small>{/if}</label>
     {#if capabilities.albumFolderEnrichment}
       <label class="config-check"><input type="checkbox" bind:checked={value.loadFullAlbumFolder} indeterminate={mixedFields.has('loadFullAlbumFolder')} onchange={() => onfieldchange?.('loadFullAlbumFolder')} /> Load full album folder before downloading{#if mixedFields.has('loadFullAlbumFolder')} <small>(mixed defaults)</small>{/if}</label>
-      <p class="download-option-note">Loads files the search result may have omitted. Required album verification may still retrieve a folder when necessary.</p>
+      <p class="download-option-note">Loads files the search result may have omitted.{#if context === 'automatic'} Even when disabled, automatic album downloads may retrieve folder contents to verify track-count or strict quality requirements.{/if}</p>
     {/if}
   </section>
 

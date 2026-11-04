@@ -18,6 +18,7 @@
     onnavigate: (page: PageId) => void;
     onsearchchange: (search: SearchDraft) => void;
     onsearchsubmit: (search: SearchDraft) => void;
+    ondownloadrequest: (search: SearchDraft) => void;
     onuserbrowsechange: (browse: UserBrowseDraft) => void;
     onuserbrowsesubmit: (browse: UserBrowseDraft) => void;
     children: Snippet;
@@ -33,6 +34,7 @@
     onnavigate,
     onsearchchange,
     onsearchsubmit,
+    ondownloadrequest,
     onuserbrowsechange,
     onuserbrowsesubmit,
     children,
@@ -43,14 +45,14 @@
   let uploadCount = $derived(liveState.transferSummary.uploads);
   let unreadChats = $derived(Number(liveState.daemon?.chat.unreadPrivateMessageCount ?? 0) + Number(liveState.daemon?.chat.unreadRoomMessageCount ?? 0));
   let soulseek = $derived(soulseekStatusLabel(liveState.daemon?.soulseekClient, daemonReachable));
-  let daemonLabel = $derived(humanizeStateValue(liveStatus));
+  let connectionLabel = $derived(daemonReachable ? soulseek : `Daemon ${liveStatus === 'offline' ? 'disconnected' : humanizeStateValue(liveStatus).toLowerCase()}`);
 </script>
 
 <div class="app-shell">
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-mark" aria-hidden="true">S</div>
-      <div class="brand-copy"><strong>sockseek</strong><span>daemon</span></div>
+      <div class="brand-copy"><strong>sockseek</strong></div>
     </div>
 
     <Sidebar {activePage} {downloadCount} {uploadCount} {unreadChats} {onnavigate} />
@@ -59,13 +61,7 @@
     <div class="connection-status" aria-label="Connection status">
       <div>
         <span class:warning={daemonReachable && !liveState.daemon?.soulseekClient.isReady} class:offline={!daemonReachable} class="status-dot"></span>
-        <span>Soulseek</span>
-        <strong>{soulseek}</strong>
-      </div>
-      <div>
-        <span class:offline={!daemonReachable} class="status-dot"></span>
-        <span>Daemon</span>
-        <strong>{daemonLabel}</strong>
+        <strong>{connectionLabel}</strong>
       </div>
     </div>
 
@@ -75,7 +71,7 @@
   <div class="workspace">
     <header class="topbar">
       <div class="topbar-inner">
-        <GlobalSearch variant={activePage === 'users' ? 'user' : 'content'} value={search} userValue={userBrowse} busy={searchBusy} onchange={onsearchchange} onsubmit={onsearchsubmit} onuserchange={onuserbrowsechange} onusersubmit={onuserbrowsesubmit} />
+        <GlobalSearch variant={activePage === 'users' || activePage === 'shares' ? 'user' : 'content'} value={search} userValue={userBrowse} busy={searchBusy} onchange={onsearchchange} onsubmit={onsearchsubmit} {ondownloadrequest} onuserchange={onuserbrowsechange} onusersubmit={onuserbrowsesubmit} />
       </div>
     </header>
     <main class:chat-content={activePage === 'chat'} class="page-content">

@@ -423,9 +423,12 @@ internal sealed class JobState
 
     public void SetSubmissionArchived(Guid submissionId, bool archived)
     {
-        bool changed = archived ? archivedSubmissionIds.Add(submissionId)
-            : archivedSubmissionIds.Remove(submissionId);
-        if (changed) ListChanged?.Invoke();
+        // History owns archive state after the final live member retires. Keep
+        // only the overlay needed by current records, but invalidate readers for
+        // history-only changes too (including unarchive after daemon restart).
+        if (archived && submissions.ContainsKey(submissionId)) archivedSubmissionIds.Add(submissionId);
+        else archivedSubmissionIds.Remove(submissionId);
+        ListChanged?.Invoke();
     }
 
     internal JobPageCapture CaptureJobPage(JobQuery query, long? afterDisplayId, Guid? afterJobId, int take, StateStreamPositionDto position)
@@ -550,6 +553,7 @@ internal sealed class JobState
                     && IsCurrentExtract(extractId, record.WorkflowId)))
         && (query.WorkflowId is null || record.WorkflowId == query.WorkflowId)
         && (query.Kind is null || record.Kind == query.Kind)
+        && (query.ExcludeKinds is null || !query.ExcludeKinds.Contains(record.Kind))
         && (query.LifecycleState is null || record.LifecycleState == query.LifecycleState)
         && (query.TerminalOutcome is null || record.TerminalOutcome == query.TerminalOutcome)
         && (query.SkipReason is null || record.SkipReason == query.SkipReason)
@@ -643,7 +647,11 @@ internal sealed class JobState
     {
         if (id is not Guid submissionId || !submissions.TryGetValue(submissionId, out var membership)) return;
         membership.JobIds.Remove(jobId);
-        if (membership.JobIds.Count == 0) submissions.Remove(submissionId);
+        if (membership.JobIds.Count == 0)
+        {
+            submissions.Remove(submissionId);
+            archivedSubmissionIds.Remove(submissionId);
+        }
     }
 
     private void PublishJobMembership(Guid? jobId)

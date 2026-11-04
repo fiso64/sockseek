@@ -1,8 +1,6 @@
 import type { JobSummaryDto, Schema, TransferStateDto } from '../../api/types';
 import { audioAttributes, basename, type FolderItemFile } from '../presentation/items';
-import { liveTransferPresentation } from '../transfers/model';
-import { jobStatusLabel, jobTransferTone } from './status';
-import { selectedJobFile } from './selected-file';
+import { selectedJobFile, jobFileTransfer } from './selected-file';
 
 /** A zero known-byte sum is only a total when the owner confirms no unknown sizes. */
 export function directoryKnownSize(directory: Schema<'DirectoryDownloadStateDto'>): number | null {
@@ -28,13 +26,7 @@ export function directoryFileRow({ id, relativePath, target, childId, child, fil
     sizeBytes: Number(target?.size ?? 0),
     sizeUnknown: target?.size == null,
     audio: audioAttributes(target),
-    transfer: live ? liveTransferPresentation(live) : child ? {
-      state: jobStatusLabel(child),
-      tone: jobTransferTone(child),
-      direction: 'download',
-      progressPercent: child.terminalOutcome === 'Skipped' || file?.progressPercent == null
-        ? undefined : Number(file.progressPercent),
-    } : {
+    transfer: live || child ? jobFileTransfer(child, file, target, live) : {
       state: ownerTerminal ? childId ? 'Outcome unavailable' : 'Not started' : 'Pending',
       direction: 'download',
     },

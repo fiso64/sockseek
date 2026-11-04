@@ -34,8 +34,9 @@ it('keeps missing outcomes and unknown sizes distinct from success and empty fil
   expect(directoryFileRow({
     id: 'five', relativePath: 'Existing.jpg', ownerTerminal: true,
     child: { lifecycleState: 'Terminal', terminalOutcome: 'Skipped', skipReason: 'AlreadyExists' },
-    file: { downloadPath: null, bytesTransferred: 0, fileSize: 128, progressPercent: 0 },
-  }).transfer).toMatchObject({ state: 'Skipped', progressPercent: undefined });
+    file: { downloadPath: '/downloads/Existing.jpg', bytesTransferred: 0, fileSize: 128, progressPercent: 0 },
+  }).transfer).toMatchObject({ state: 'Skipped', progressPercent: undefined,
+    job: { skipReason: 'AlreadyExists' }, file: { downloadPath: '/downloads/Existing.jpg' } });
 });
 
 it('shows a directory zero only when its owner confirms every planned size is known', () => {

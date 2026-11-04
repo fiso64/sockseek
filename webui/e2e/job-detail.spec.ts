@@ -73,7 +73,7 @@ test('removes a terminal user root from detail, retaining rejected actions and a
   await expect(page.locator('.job-child-row')).toHaveCount(1);
   rejectArchive = false;
   await remove.click();
-  await expect(page).toHaveURL(/\/jobs$/);
+  await expect(page).toHaveURL(/\/jobs\?tab=downloads$/);
   await expect(page.locator('.search-history-row').filter({ hasText: 'Archive detail fixture' })).toHaveCount(0);
   await page.reload();
   await expect(page.locator('.search-history-row').filter({ hasText: 'Archive detail fixture' })).toHaveCount(0);
@@ -136,6 +136,23 @@ test('navigates a nested job hierarchy using ordered breadcrumbs', async ({ page
   await expect(page.locator('.search-history-open')).toHaveCount(1);
   await expect(page.locator('.search-history-open')).toContainText('Root list');
   await expect(page.locator('.job-type-badge')).toHaveText('Job List');
+  const repeat = await page.request.post('/api/jobs/lists', { data: request });
+  expect(repeat.status()).toBe(202);
+  const repeated = await repeat.json() as Schema<'JobSummaryDto'>;
+  await page.goto(`/jobs/${repeated.jobId}`);
+  await page.locator('.job-child-open').filter({ hasText: 'Nested list' }).click();
+  await page.locator('.job-child-open').filter({ hasText: 'Fixture song.txt' }).click();
+  await page.locator('.file-item-card').getByRole('button', { name: 'Skipped', exact: true }).click();
+  const details = page.getByRole('dialog', { name: 'Transfer details', exact: true });
+  await expect(details.locator('dt').filter({ hasText: /^Skip reason$/ }).locator('+ dd')).toHaveText('Already Exists');
+  const existing = details.locator('dt').filter({ hasText: /^Existing download$/ }).locator('+ dd');
+  await expect(existing).toContainText('Fixture song.txt');
+  expect((await stat((await existing.textContent())!)).size).toBe(128);
+  await details.getByRole('button', { name: 'Close transfer details', exact: true }).click();
+  await page.reload();
+  await page.locator('.file-item-card').getByRole('button', { name: 'Skipped', exact: true }).click();
+  await expect(existing).toContainText('Fixture song.txt');
+
 });
 
 test('retains a child-page failure through active and terminal detail and recovers on retry', async ({ page, daemon }) => {
@@ -162,7 +179,7 @@ test('retains a child-page failure through active and terminal detail and recove
   await expect(alert).toBeVisible();
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('Retry fixture');
   await daemon.command('release-download');
-  await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveText('Complete');
+  await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveCount(0);
   await expect(alert).toBeVisible();
   interrupted = false;
   await alert.getByRole('button', { name: 'Retry', exact: true }).click();
@@ -220,7 +237,7 @@ test('shows the selected song file and its live download', async ({ page, daemon
     await completion;
   } finally { release(); }
   await page.clock.runFor(100); // Render frames, never the one-second fallback.
-  await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveText('Complete');
+  await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveCount(0);
   expect(reads, 'One stale in-flight read and one coalesced reconciliation.').toBe(2);
   await expect(page.locator('.file-item-card')).toContainText('Complete');
   await page.unroute(`**/api/jobs/${job.jobId}`);
@@ -270,7 +287,7 @@ for (const recovery of [false, true]) {
     });
     await page.goto('/dashboard');
     if (recovery)
-      await expect(page.getByLabel('Connection status').locator('strong').last()).toHaveText('Connected');
+      await expect(page.getByLabel('Connection status').locator('strong')).toContainText('Connected');
     else await initialCaptured;
     expect(snapshots).toBe(1);
     dropState = true;
@@ -321,12 +338,12 @@ for (const recovery of [false, true]) {
           .locator('.nav-count')).toHaveText('1');
       } else {
         releaseInitial();
-        await expect(page.getByLabel('Connection status').locator('strong').last()).toHaveText('Connected');
+        await expect(page.getByLabel('Connection status').locator('strong')).toContainText('Connected');
       }
       expect(snapshots).toBe(recovery ? 2 : 1);
     } finally { releaseInitial(); release(); }
     await page.clock.runFor(100); // Paint, without advancing the fallback second.
-    await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveText('Complete');
+    await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveCount(0);
     await expect(page.locator('.job-child-row .search-status-badge')).toHaveText('Complete');
     expect(reads, 'Recovery must reconcile once even when both live maps omit the target.').toBe(2);
     await daemon.command('release-download');

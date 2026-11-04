@@ -5689,7 +5689,7 @@ export interface paths {
          */
         get: {
             parameters: {
-                query?: {
+                query: {
                     lifecycleState?: components["schemas"]["ServerJobLifecycleState"];
                     terminalOutcome?: components["schemas"]["ServerJobTerminalOutcome"];
                     skipReason?: components["schemas"]["ServerJobSkipReason"];
@@ -5702,6 +5702,7 @@ export interface paths {
                     includeAll?: boolean;
                     newestFirst?: boolean;
                     excludeExtractResults?: boolean;
+                    excludeKinds: string[];
                     cursor?: string;
                     limit?: number | string;
                 };
@@ -9715,7 +9716,7 @@ export interface components {
                              * @default None
                              * @enum {unknown}
                              */
-                            failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "Unknown";
+                            failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown";
                             /**
                              * @default None
                              * @enum {unknown}
@@ -9789,7 +9790,7 @@ export interface components {
                          * @default None
                          * @enum {unknown}
                          */
-                        failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "Unknown";
+                        failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown";
                         /**
                          * @default None
                          * @enum {unknown}
@@ -10241,6 +10242,7 @@ export interface components {
             newestFirst: boolean;
             /** @default false */
             excludeExtractResults: boolean;
+            excludeKinds?: null | components["schemas"]["ServerJobKind"][];
         };
         JobRelationshipFieldsDto: {
             /** Format: uuid */
@@ -11603,7 +11605,7 @@ export interface components {
                          * @default None
                          * @enum {unknown}
                          */
-                        failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "Unknown";
+                        failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown";
                         /**
                          * @default None
                          * @enum {unknown}
@@ -11677,7 +11679,7 @@ export interface components {
                      * @default None
                      * @enum {unknown}
                      */
-                    failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "Unknown";
+                    failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown";
                     /**
                      * @default None
                      * @enum {unknown}
@@ -12315,7 +12317,7 @@ export interface components {
                              * @default None
                              * @enum {unknown}
                              */
-                            failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "Unknown";
+                            failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown";
                             /**
                              * @default None
                              * @enum {unknown}
@@ -12389,7 +12391,7 @@ export interface components {
                          * @default None
                          * @enum {unknown}
                          */
-                        failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "Unknown";
+                        failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown";
                         /**
                          * @default None
                          * @enum {unknown}
@@ -12848,7 +12850,7 @@ export interface components {
          * @default None
          * @enum {unknown}
          */
-        TransferFailureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "Unknown";
+        TransferFailureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown";
         TransferGroupKeyDto: {
             direction: components["schemas"]["TransferCommandDirection"];
             username?: null | string;

@@ -49,7 +49,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
   const browseStart = performance.now();
   const initialFiles = page.waitForResponse(response => response.ok()
     && /\/api\/user-browses\/[^/]+\/directories\/\d+\/files$/.test(new URL(response.url()).pathname));
-  await page.goto('/users/large-peer/shares');
+  await page.goto('/shares/large-peer');
   await (await initialFiles).finished();
   await expect(page.locator('.share-tree-row.folder')).toContainText('Library', { timeout: 60_000 });
   await expect(page.locator('.share-tree-folder-meta')).toContainText('100,000 files');
@@ -92,7 +92,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
   await expect(page.locator('.shares-filter-count')).toHaveText('100,000 matching files');
   await expect(page.locator('.share-tree-row.folder')).toHaveCount(1);
   await expect(page.locator('.share-tree-row.file')).toHaveCount(99);
-  await expect(page.getByRole('button', { name: 'Load more shared entries', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Load more', exact: true })).toBeVisible();
   const broadMs = Math.round(performance.now() - broadStart);
   const broadRenderedMs = Math.round(await broadRender.evaluate(observed => observed.ready));
   await broadRender.dispose();
@@ -106,7 +106,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
   const moreResponse = page.waitForResponse(response => response.ok()
     && new URL(response.url()).pathname.endsWith('/search')
     && new URL(response.url()).searchParams.get('cursor') !== null);
-  await page.getByRole('button', { name: 'Load more shared entries', exact: true }).click();
+  await page.getByRole('button', { name: 'Load more', exact: true }).click();
   const nextResponse = await moreResponse;
   const next = await nextResponse.json() as Schema<'BrowseSearchPageDto'>;
   const continuationBytes = (await nextResponse.body()).byteLength;
@@ -165,7 +165,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
 
   // Exercise a complete file-plan page, not just the smaller song/album plans
   // elsewhere. Keep actual 501-file execution in this opt-in Load journey.
-  await page.goto('/users/paged-peer/shares');
+  await page.goto('/shares/paged-peer');
   await expect(page.locator('.share-tree-row.file')).toHaveCount(500);
   await page.getByRole('checkbox', { name: 'Select Library', exact: true }).check();
   await daemon.command('hold-download');
@@ -186,11 +186,10 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
     const accepted = await (await submitted).json() as Schema<'StartUserShareDownloadsResponseDto'>;
     expect(Number(accepted.resolution.totalPublicFiles)).toBe(501);
     await daemon.command('wait-download-started');
-    await page.goto(`/jobs/${accepted.workflow.jobId}`);
-    await expect(page.locator('.job-child-row')).toHaveCount(1);
     const firstManifest = page.waitForResponse(response => response.ok()
       && new URL(response.url()).pathname.endsWith('/directory-files'));
-    await page.locator('.job-child-open').click();
+    await page.goto(`/jobs/${accepted.workflow.jobId}`);
+    await expect(page.locator('.job-child-row')).toHaveCount(0);
     const first = await firstManifest;
     const firstPage = await first.json() as Schema<'DirectoryManifestPageDto'>;
     expect(new URL(first.url()).searchParams.get('limit')).toBe('500');
@@ -198,6 +197,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
     manifestApiMs.push(Math.round(first.request().timing().responseEnd));
     await expect(page.locator('.folder-file-row')).toHaveCount(500);
     directoryJobId = new URL(page.url()).pathname.split('/').at(-1)!;
+    expect(directoryJobId).toBe(accepted.workflow.jobId);
     const rootResponse = await measureApi(daemon.url, `/api/jobs/${directoryJobId}`);
     expect(rootResponse.ok, rootResponse.body).toBe(true);
     expect((JSON.parse(rootResponse.body) as Schema<'JobDetailDto'>).childCount).toBe(501);
@@ -206,7 +206,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
     const nextManifest = page.waitForResponse(response => response.ok()
       && new URL(response.url()).pathname.endsWith('/directory-files')
       && new URL(response.url()).searchParams.get('afterOrdinal') !== '-1');
-    await page.getByRole('button', { name: 'Load more files', exact: true }).click();
+    await page.getByRole('button', { name: 'Load more', exact: true }).click();
     const next = await nextManifest;
     const lastPage = await next.json() as Schema<'DirectoryManifestPageDto'>;
     expect(new URL(next.url()).searchParams.get('limit')).toBe('500');
@@ -216,9 +216,9 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
     expect([...firstPage.items, ...lastPage.items].map(item => item.target!.filename).sort())
       .toEqual(Array.from({ length: 501 }, (_, index) => `Library\\Item ${String(index + 1).padStart(3, '0')}.txt`));
     await expect(page.locator('.folder-file-row')).toHaveCount(501);
-    await expect(page.getByRole('button', { name: 'Load more files', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
   } finally { await daemon.command('release-download'); }
-  await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveText('Complete', { timeout: 15_000 });
+  await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveCount(0, { timeout: 15_000 });
   await expect(page.locator('.folder-file-row').getByLabel('Complete', { exact: true })).toHaveCount(501);
   expect(childReadParents.filter(id => id === directoryJobId)).toHaveLength(0);
   const retainedFiles: Schema<'TransferStateDto'>[] = [];

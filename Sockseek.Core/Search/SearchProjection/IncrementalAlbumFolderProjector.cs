@@ -35,7 +35,8 @@ public sealed class IncrementalAlbumFolderProjector
         SearchSettings search,
         ConcurrentDictionary<string, int>? userSuccessCounts = null,
         bool ignoreStringSortConditions = false,
-        FolderSortMode sortMode = FolderSortMode.AlbumRanked)
+        FolderSortMode sortMode = FolderSortMode.AlbumRanked,
+        bool enforceMinimumTrackCount = true)
     {
         this.sortMode = sortMode;
         rankQualityCoverage = AlbumQualityPolicy.ActiveConditions(search.NecessaryCond).IsActive;
@@ -46,7 +47,8 @@ public sealed class IncrementalAlbumFolderProjector
             search,
             userSuccessCounts,
             ignoreStringSortConditions,
-            sortMode);
+            sortMode,
+            enforceMinimumTrackCount);
     }
 
     public int Count => seen.Count;

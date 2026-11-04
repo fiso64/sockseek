@@ -28,7 +28,9 @@ public static class ApiEnumMapper
             UploadFailureReason.Unavailable => TransferFailureReason.FileUnavailable,
             UploadFailureReason.InvalidOffset => TransferFailureReason.InvalidOffset,
             UploadFailureReason.Denied => TransferFailureReason.Denied,
-            UploadFailureReason.InternalFailure => TransferFailureReason.Unknown,
+            UploadFailureReason.InternalFailure => TransferFailureReason.InternalError,
+            UploadFailureReason.ConnectionFailed => TransferFailureReason.ConnectionFailed,
+            UploadFailureReason.TimedOut => TransferFailureReason.TransferTimedOut,
             _ => TransferFailureReason.None,
         };
 

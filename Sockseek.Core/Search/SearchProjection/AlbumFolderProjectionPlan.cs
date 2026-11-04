@@ -53,6 +53,7 @@ internal readonly struct AlbumFolderProjectionPlan
     private readonly ConditionSatisfactionPolicy.AlbumSearchFilter projectionFilter;
     private readonly FolderSortMode sortMode;
     private readonly bool combineDiscs;
+    private readonly bool enforceMinimumTrackCount;
     private readonly ResultSorter.SortKeyContext aggregateSortKeyContext;
 
     public AlbumFolderProjectionPlan(
@@ -60,11 +61,13 @@ internal readonly struct AlbumFolderProjectionPlan
         SearchSettings search,
         ConcurrentDictionary<string, int>? userSuccessCounts = null,
         bool ignoreStringSortConditions = false,
-        FolderSortMode sortMode = FolderSortMode.AlbumRanked)
+        FolderSortMode sortMode = FolderSortMode.AlbumRanked,
+        bool enforceMinimumTrackCount = true)
     {
         this.query = query;
         this.search = search;
         this.sortMode = sortMode;
+        this.enforceMinimumTrackCount = enforceMinimumTrackCount;
         combineDiscs = SearchResultProjector.CanCombineDiscDirectories(query);
         projectionFilter = ConditionSatisfactionPolicy.CreateAlbumSearchFilter(query, search);
         aggregateSortKeyContext = ResultSorter.CreateSortKeyContext(
@@ -135,5 +138,6 @@ internal readonly struct AlbumFolderProjectionPlan
         IEnumerable<EvaluatedAlbumProjectionInput> evaluatedResults)
         => SearchResultProjector.AlbumFoldersFromResults(
             evaluatedResults, query, search,
-            useAlbumFolderQualityRanking: sortMode == FolderSortMode.AlbumRanked);
+            useAlbumFolderQualityRanking: sortMode == FolderSortMode.AlbumRanked,
+            enforceMinimumTrackCount: enforceMinimumTrackCount);
 }

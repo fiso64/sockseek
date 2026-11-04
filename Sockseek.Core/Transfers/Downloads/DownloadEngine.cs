@@ -484,7 +484,9 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
                 events.Transfers,
                 events.Attempts,
                 events.Gates,
-                events.TerminalTransfers);
+                events.TerminalTransfers,
+                _runtime.Files.ActiveCachedDownloadCount,
+                _sourceMutations.RetainedWorkflowCount);
         }
     }
 
@@ -678,6 +680,8 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         _manualSelections.Retire(registeredIds);
         _jobs.Retire(registeredIds);
         _userSuccesses.RetireWorkflow(workflowId);
+        _runtime.Files.RetireWorkflow(workflowId);
+        _sourceMutations.RetireWorkflow(workflowId);
         if (_jobSettingsResolver is IWorkflowSettingsLifetime settingsLifetime)
             settingsLifetime.RetireWorkflow(workflowId, allJobIds, settingsVersion);
     }
@@ -765,4 +769,6 @@ internal sealed record DownloadEngineRetainedStateCounts(
     int EventTransfers,
     int EventAttempts,
     int EventGates,
-    int EventTerminalTransfers);
+    int EventTerminalTransfers,
+    int ActiveCachedDownloads = 0,
+    int SourceMutationWorkflows = 0);

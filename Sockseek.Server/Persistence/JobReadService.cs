@@ -212,7 +212,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
             cursor, limit, query.LifecycleState?.ToString(), query.TerminalOutcome?.ToString(),
             query.SkipReason?.ToString(), query.Kind?.ToString(), query.WorkflowId, query.IncludeAll,
             query.ParentJobId, query.SubmissionId, query.Role?.ToString(), query.Archived,
-            query.NewestFirst, query.ExcludeExtractResults, capture.OwnedJobIds), cancellationToken).ConfigureAwait(false);
+            query.NewestFirst, query.ExcludeExtractResults, capture.OwnedJobIds, query.ExcludeKinds?.Select(kind => kind.ToString()).ToArray()), cancellationToken).ConfigureAwait(false);
         // Runtime rows and retained rows are disjoint by ownership. Capture and
         // exact-ID reads use this same runtime-first rule, rather than choosing
         // different authorities for detail, status filtering and list paging.

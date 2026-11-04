@@ -26,6 +26,8 @@ internal static partial class PersistenceLogMessages
     [LoggerMessage(4056, LogLevel.Warning, "Input artifact blob storage is unavailable; browser file inputs are disabled")]
     internal static partial void InputArtifactStorageUnavailable(ILogger logger, Exception exception);
 
+    [LoggerMessage(4057, LogLevel.Warning, "Input artifact cleanup could not delete some expired files; the next retention pass will retry")]
+    internal static partial void InputArtifactCleanupFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(4058, LogLevel.Debug, "Persistence checkpoint {CheckpointId} finished: {Outcome}, {CopiedFrames}/{LogFrames} frames, {DurationMilliseconds} ms")]
     internal static partial void CheckpointCompleted(ILogger logger, Guid checkpointId, string outcome,

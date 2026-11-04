@@ -239,37 +239,52 @@ public sealed class InputArtifactStore(
     {
         EnsureInitialized();
         int total = 0;
+        string? after = null;
+        Exception? deletionFailure = null;
         while (true)
         {
-            string[] expired = await WithWriteAsync(async (context, ct) =>
+            // Expired, unowned inputs cannot acquire a new reader. Select through
+            // the writer to order this decision against existing reader releases.
+            string[] expired = await writes.ExecuteAsync(async (context, ct) =>
             {
                 long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
                 string[] active = retained.Keys.ToArray();
-                string[] ids = await context.InputArtifacts
+                return await context.InputArtifacts
                     .Where(artifact => artifact.ExpiresAtUtc <= now
-                        && !active.Contains(artifact.Id))
-                    .OrderBy(artifact => artifact.ExpiresAtUtc)
-                    .ThenBy(artifact => artifact.Id)
+                        && !active.Contains(artifact.Id)
+                        && (after == null || artifact.Id.CompareTo(after) > 0))
+                    .OrderBy(artifact => artifact.Id)
                     .Select(artifact => artifact.Id)
                     .Take(MaintenanceBatchSize)
                     .ToArrayAsync(ct).ConfigureAwait(false);
-                if (ids.Length > 0)
-                {
-                    await context.InputArtifacts
-                        .Where(artifact => ids.Contains(artifact.Id))
-                        .ExecuteDeleteAsync(ct).ConfigureAwait(false);
-                }
-                return ids;
-            }, cancellationToken, background: true).ConfigureAwait(false);
+            }, cancellationToken, background: true, requiresTransaction: false).ConfigureAwait(false);
             if (expired.Length == 0)
-                return total;
-            total += expired.Length;
+                break;
+            after = expired[^1];
+            var deleted = new List<string>(expired.Length);
             foreach (string id in expired)
             {
-                try { File.Delete(BlobPath(id)); }
-                catch (FileNotFoundException) { }
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    File.Delete(BlobPath(id));
+                    deleted.Add(id);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    deletionFailure ??= exception;
+                }
             }
+            // Keep failed unlinks in the normal expiry queue. A crash/cancellation
+            // here leaves only missing files, whose deletion is safely repeatable.
+            if (deleted.Count > 0)
+                total += await WithWriteAsync((context, ct) => context.InputArtifacts
+                    .Where(artifact => deleted.Contains(artifact.Id))
+                    .ExecuteDeleteAsync(ct), cancellationToken, background: true).ConfigureAwait(false);
         }
+        if (deletionFailure is not null)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(deletionFailure).Throw();
+        return total;
     }
 
     private async Task DeleteOrphanBlobsAsync(CancellationToken cancellationToken)

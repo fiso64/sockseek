@@ -1,3 +1,4 @@
+import { randomUUID } from '../../app/uuid';
 import type { Schema, SearchViewSummaryDto } from '../../api/types';
 import { sameWireInteger } from '../../api/types';
 
@@ -53,6 +54,25 @@ export function selectedSearchCount(state: DisplayedSelection): number {
       state.selectionRevision ?? state.summary.revision))
     return Number(state.selectionCounts.selectedItemCount);
   return requestedSearchCount(state);
+}
+
+/** Whole results, including unfetched pages; file/subfolder exclusions remain partial. */
+export function allSearchResultsSelected(state: DisplayedSelection): boolean {
+  if (!hasPublishedProjection(state.summary) || state.selectionNeedsReview) return false;
+  const wholeRoots = state.excludedFiles.size === 0 && state.albumFileSelections.size === 0
+    && !state.directoryPathRules.some(rule => !rule.selected);
+  if (state.selectedAll) return state.selectionRefs.size === 0 && wholeRoots;
+  // Ordinary views can also be fully selected one file at a time. Reuse the
+  // exact counts already requested by the toolbar; aggregate totals include
+  // alternative sources, so their completeness is determined by group choices.
+  if (state.summary.kind !== 'AggregateTracks' && state.summary.kind !== 'AggregateAlbums'
+    && state.selectionCounts && sameWireInteger(state.selectionCounts.revision, state.summary.revision))
+    return BigInt(state.summary.counters.projectedPublicFileCount) > 0n
+      && BigInt(state.selectionCounts.publicFileCount) === BigInt(state.summary.counters.projectedPublicFileCount);
+  // Album refs can name folders or individual files: their number alone cannot
+  // establish that every folder is fully selected before the count arrives.
+  return state.summary.kind !== 'AlbumDirectories' && wholeRoots && selectionScopeSize(state) > 0
+    && state.selectionRefs.size === selectionScopeSize(state);
 }
 
 function requestedSearchCount(state: DisplayedSelection): number {
@@ -532,7 +552,7 @@ export class SearchSelection {
       viewId: this.summary.viewId,
       request: structuredClone({ ...this.input(), options,
         useRepresentativeWhenUnchosen: this.summary.kind === 'AggregateTracks' || this.summary.kind === 'AggregateAlbums',
-        idempotencyKey: crypto.randomUUID() }),
+        idempotencyKey: randomUUID() }),
     };
   }
 

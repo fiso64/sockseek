@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { hasAppliedConditions, visibleFormatPills } from '../src/domains/search/applied-conditions';
 import { readSearchConditions, rebaseSearchConditions, searchConditionsPatch, searchConditionsPatchForFamily, mergeSearchSettings, searchExpectedLength } from '../src/domains/search/config-mapping';
 
 describe('resolved search configuration edits', () => {
@@ -97,4 +98,23 @@ describe('resolved search configuration edits', () => {
     expect(rebased.common.formats).toEqual(['FLAC']);
     expect(rebased.track.strictTitle).toBe(true);
   });
+});
+
+it('hides only the complete built-in music format set, retaining other filters and generic formats', () => {
+  const formats = ['ALAC', 'AAC', 'WAV', 'OPUS', 'M4A', 'OGG', 'FLAC', 'mp3', 'MP3'];
+  const conditions = readSearchConditions({ necessaryCond: { formats: { replace: formats } } });
+  for (const mode of ['track', 'album', 'song-aggregate', 'album-aggregate'] as const) {
+    expect(visibleFormatPills(mode, formats)).toEqual([]);
+    expect(hasAppliedConditions(mode, conditions)).toBe(false);
+  }
+  expect(visibleFormatPills('generic', formats)).toEqual(formats);
+  expect(hasAppliedConditions('generic', conditions)).toBe(true);
+  expect(visibleFormatPills('track', ['FLAC'])).toEqual(['FLAC']);
+  expect(visibleFormatPills('album', formats.slice(1))).toEqual(formats.slice(1));
+  expect(visibleFormatPills('album', [...formats, 'APE'])).toEqual([...formats, 'APE']);
+  conditions.aggregate.minShares = '2';
+  expect(hasAppliedConditions('album-aggregate', conditions)).toBe(true);
+  expect(hasAppliedConditions('track', conditions)).toBe(false);
+  conditions.common.minBitrate = '256';
+  expect(hasAppliedConditions('track', conditions)).toBe(true);
 });

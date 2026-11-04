@@ -81,6 +81,7 @@ test('Jobs uses one server scope for navigation, expansion and authoritative rec
   expect(f.observe).not.toHaveBeenCalled();
   f.controller.setActive(true, 'connected');
   expect(f.observe.mock.lastCall?.[0].limit).toBe(100);
+  expect(f.observe.mock.lastCall?.[0].query.kind).toBe('search');
   f.subscriptions[0]!.next(listSnapshot(listedJob('2', 20), listedJob('1')));
   f.subscriptions[0]!.next({ jobs: [{ jobId: '2', revision: 21,
     lifecycle: { ...listedJob('2').lifecycle, lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' } }],
@@ -120,4 +121,24 @@ test('Jobs archive discards an in-flight snapshot and disconnected reads use the
   expect(f.getJobListSnapshot).toHaveBeenCalledOnce();
   expect(f.controller.items).toEqual([]);
   expect(f.controller.loading).toBe(false);
+});
+
+
+test('Download jobs scopes exclude searches and retrievals before paging and retain their own window', () => {
+  const f = listFixture();
+  const downloads = new JobListController({ getJobListSnapshot: f.getJobListSnapshot }, f.observe, 'downloads');
+  downloads.setActive(true, 'connected');
+  expect(f.observe.mock.lastCall?.[0].query).toMatchObject({ kind: null, excludeKinds: ['search', 'retrieve-folder'] });
+  f.subscriptions[0]!.next(listSnapshot(listedJob('1')));
+  downloads.loadMore();
+  downloads.setActive(false, 'connected');
+  f.controller.setActive(true, 'connected');
+  expect(f.observe.mock.lastCall?.[0]).toMatchObject({ limit: 100, query: { kind: 'search' } });
+  f.controller.setActive(false, 'connected');
+  downloads.setActive(true, 'connected');
+  expect(f.observe.mock.lastCall?.[0].limit).toBe(200);
+  downloads.filterSubmission('request-1');
+  expect(f.observe.mock.lastCall?.[0]).toMatchObject({ limit: 100, query: { submissionId: 'request-1' } });
+  downloads.filterSubmission(null);
+  expect(f.observe.mock.lastCall?.[0].query.submissionId).toBeNull();
 });

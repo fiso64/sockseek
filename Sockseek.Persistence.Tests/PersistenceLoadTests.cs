@@ -259,6 +259,10 @@ public sealed class PersistenceLoadTests
             sourceRoots.Items.Concat(nextSourceRoots.Items).Select(job => job.DisplayId).ToArray());
         var linked = await ReadPage("jobs-related-100", () => jobs.GetJobsByIdsAsync(
             sourceRoots.Items.Select(job => job.ResultJobId!.Value).ToArray()));
+        var missingJobTransfers = await transfers.GetTransfersAsync(new TransferQuery(
+            Limit: 500, JobId: Guid.NewGuid(), Direction: "download"));
+        Assert.AreEqual(0, missingJobTransfers.Items.Count,
+            "A missing job must not scan transfer history to establish that it has no files.");
         readWork.Enabled = false;
         Assert.IsTrue(readWork.Instructions < 100_000,
             $"Import pages and exact linked jobs executed {readWork.Instructions} SQLite instructions; identity lookups must not rescan the workflow.");
@@ -415,8 +419,12 @@ public sealed class PersistenceLoadTests
             ("$workflow", SqlGuid(workflowId))), "IX_transfers_workflow_id_created_at_utc_id");
         StringAssert.Contains(await QueryPlanAsync(database,
             "SELECT id FROM transfers WHERE username = $peer AND archived_at_utc IS NULL "
-            + "AND direction COLLATE NOCASE = 'upload' ORDER BY created_at_utc DESC, id DESC LIMIT 501",
+            + "AND direction = 'Upload' ORDER BY created_at_utc DESC, id DESC LIMIT 501",
             ("$peer", "Raré")), "IX_transfers_username_archived_at_utc_created_at_utc_id");
+        StringAssert.Contains(await QueryPlanAsync(database,
+            "SELECT id FROM transfers WHERE archived_at_utc IS NULL AND direction = 'Upload' "
+            + "ORDER BY created_at_utc DESC,id DESC LIMIT 501"),
+            "IX_transfers_archived_at_utc_direction_created_at_utc_id");
         StringAssert.Contains(await QueryPlanAsync(database,
             "SELECT id FROM transfers WHERE terminal_outcome = 'Succeeded' "
             + "AND completed_at_utc >= $start AND completed_at_utc < 100001",

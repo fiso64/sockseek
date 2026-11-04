@@ -1,4 +1,6 @@
 <script lang="ts">
+  import LoadingIndicator from '../../components/LoadingIndicator.svelte';
+  import { randomUUID } from '../../app/uuid';
   import { onDestroy, untrack } from 'svelte';
   import type { BrowseDirectoryEntryDto, BrowseFileEntryDto, BrowseSearchPageDto, Schema, UserBrowseDto, UserProfileDto } from '../../api/types';
   import type { DaemonLiveClient, LiveConnectionStatus } from '../../api/live';
@@ -27,7 +29,8 @@
 
   interface TreeRowDirectory { kind: 'directory'; entry: BrowseDirectoryEntryDto; depth: number; }
   interface TreeRowFile { kind: 'file'; entry: BrowseFileEntryDto; depth: number; path: string; }
-  type TreeRow = TreeRowDirectory | TreeRowFile;
+  interface TreeRowPage { kind: 'page'; parentKey: string; page: PageState; depth: number; }
+  type TreeRow = TreeRowDirectory | TreeRowFile | TreeRowPage;
 
   interface PageState { directoryCursor: string | null; fileCursor: string | null; loading: boolean; loaded: boolean; error: Error | null; }
 
@@ -325,6 +328,10 @@
         result.push({ kind: 'directory', entry, depth });
         if (expanded.has(id)) append(id, depth + 1);
       }
+      const page = pageStates.get(parentKey);
+      if (page && (page.loading || page.error || page.directoryCursor || page.fileCursor)) {
+        result.push({ kind: 'page', parentKey, page, depth });
+      }
     };
     append('root', 0);
     return result;
@@ -486,7 +493,7 @@
     const selections: Schema<'UserShareSelectionDto'>[] = [...selected].map((key) => key.startsWith('d:')
       ? { kind: 'directory' as const, directoryId: key.slice(2) }
       : { kind: 'file' as const, fileId: key.slice(2) });
-    const requestId = commitKey ??= crypto.randomUUID();
+    const requestId = commitKey ??= randomUUID();
     mutation = { phase: 'pending', label: `Requesting ${downloadableCount} shared file${downloadableCount === 1 ? '' : 's'}…` };
     try {
       const response = await daemonApi.startUserShareDownloads(browseId, requestId, selections, undefined, [...excludedSelection].filter(key => key.startsWith('f:')).map(key => key.slice(2)), [...excludedSelection].filter(key => key.startsWith('d:')).map(key => key.slice(2)));
@@ -546,13 +553,7 @@
       </div>
     {/if}
     {#if profileLoading && !profile && !profileError}
-      <div class="resource-state-notice loading blocking">
-        <span class="resource-state-dot"></span>
-        <span class="resource-state-copy">
-          <strong>Loading profile</strong>
-          <small>Requesting current peer information.</small>
-        </span>
-      </div>
+      <LoadingIndicator label="Loading profile" blocking />
     {/if}
     {#if profile}
       <article class="user-profile-card">
@@ -630,13 +631,17 @@
       </div>
     {/if}
     {#if !browseError && (!browse || browse.state === 'queued' || browse.state === 'running')}
-      <div class="resource-state-notice loading blocking">
-        <span class="resource-state-dot"></span>
-        <span class="resource-state-copy">
-          <strong>{browse?.phase === 'receiving' ? 'Receiving shares' : browse?.phase === 'indexing' ? 'Indexing shares' : 'Browsing user'}</strong>
-          <small>{browse ? `${formatBytes(browse.compressedBytesReceived)} received${browse.compressedBytesExpected ? ` of ${formatBytes(browse.compressedBytesExpected)}` : ''}` : `Requesting ${username}'s shares.`}</small>
-        </span>
-      </div>
+      {#if browse && Number(browse.compressedBytesReceived) > 0}
+        <div class="resource-state-notice loading blocking">
+          <span class="resource-state-dot"></span>
+          <span class="resource-state-copy">
+            <strong>{browse?.phase === 'receiving' ? 'Receiving shares' : browse?.phase === 'indexing' ? 'Indexing shares' : 'Browsing user'}</strong>
+            <small>{browse ? `${formatBytes(browse.compressedBytesReceived)} received${browse.compressedBytesExpected ? ` of ${formatBytes(browse.compressedBytesExpected)}` : ''}` : `Requesting ${username}'s shares.`}</small>
+          </span>
+        </div>
+      {:else}
+        <LoadingIndicator label="Loading shares" blocking />
+      {/if}
     {/if}
     {#if browse?.state === 'complete'}
       <MutationStatus state={mutation}/>
@@ -673,10 +678,7 @@
             </div>
           {/if}
           {#if filterLoading && !filterItems.length}
-            <div class="resource-state-notice loading">
-              <span class="resource-state-dot"></span>
-              <span class="resource-state-copy"><strong>Filtering shares</strong></span>
-            </div>
+            <LoadingIndicator label="Filtering shares" />
           {/if}
           {#if filterItems.length}
             <div class="share-tree" aria-label={`${browse.username} filtered shared files`}>
@@ -711,10 +713,10 @@
           {#if filterPage && !filterLoading && !filterError && !filterItems.length}
             <div class="search-results-empty"><strong>No matching shared files</strong><span>Try a different filter.</span></div>
           {/if}
-          {#if filterPage?.nextCursor}<LoadMoreButton label="Load more shared entries" loading={filterLoading} onclick={() => browse && void loadFilter(browse.browseId, filterText.trim(), filterPage?.nextCursor ?? null, false)}/>{/if}
+          {#if filterPage?.nextCursor}<LoadMoreButton loading={filterLoading} onclick={() => browse && void loadFilter(browse.browseId, filterText.trim(), filterPage?.nextCursor ?? null, false)}/>{/if}
         {:else if treeRows.length}
           <div class="share-tree" aria-label={`${browse.username} shared files`}>
-            {#each treeRows as row (row.kind === 'directory' ? `d:${row.entry.directoryId}` : `f:${row.entry.fileId}`)}
+            {#each treeRows as row (row.kind === 'page' ? `p:${row.parentKey}` : row.kind === 'directory' ? `d:${row.entry.directoryId}` : `f:${row.entry.fileId}`)}
               {#if row.kind === 'directory'}
                 {@const id = String(row.entry.directoryId)}
                 {@const key = `d:${id}`}
@@ -738,6 +740,18 @@
                     <span class="share-tree-folder-meta">{formatCount(count)} {row.entry.totalRecursiveFileCount == null ? 'public ' : ''}{count === 1 ? 'file' : 'files'}</span>
                     <span class="share-tree-size">{formatBytes(row.entry.totalRecursiveFileBytes ?? row.entry.recursiveFileBytes)}</span>
                   </button>
+                </div>
+              {:else if row.kind === 'page'}
+                <div class="share-tree-page" style={`--share-depth:${row.depth}`}>
+                  {#if row.page.error}
+                    <div class="resource-state-notice unavailable" role="alert">
+                      <span class="resource-state-copy"><strong>Folder page unavailable</strong><small>{row.page.error.message}</small></span>
+                      <button type="button" disabled={row.page.loading} onclick={() => void loadChildren(row.parentKey === 'root' ? null : row.parentKey)}>Retry</button>
+                    </div>
+                  {:else}
+                    <LoadMoreButton loading={row.page.loading}
+                      onclick={() => void loadChildren(row.parentKey === 'root' ? null : row.parentKey)}/>
+                  {/if}
                 </div>
               {:else}
                 {@const key = `f:${row.entry.fileId}`}
@@ -764,25 +778,7 @@
             <span>This browse contains no visible entries.</span>
           </div>
         {/if}
-        {#if !filterText.trim()}
-          {#each [...pageStates] as [key, page]}
-            {#if page.error}
-              <div class="resource-state-notice unavailable" role="alert">
-                <span class="resource-state-dot"></span>
-                <span class="resource-state-copy">
-                  <strong>Folder page unavailable</strong>
-                  <small>{page.error.message}</small>
-                </span>
-                <button type="button" disabled={page.loading}
-                  onclick={() => void loadChildren(key === 'root' ? null : key)}>Retry</button>
-              </div>
-            {/if}
-            {#if (page.directoryCursor || page.fileCursor) && (key === 'root' || expanded.has(key))}
-              <LoadMoreButton label="Load more shared entries" loading={page.loading}
-                onclick={() => void loadChildren(key === 'root' ? null : key)}/>
-            {/if}
-          {/each}
-        {/if}
+
       </div>
     {/if}
   {/if}

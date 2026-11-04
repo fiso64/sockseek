@@ -24,22 +24,22 @@ const assembly = fileURLToPath(new URL('./daemon/bin/Release/net10.0/Sockseek.We
 const webRoot = fileURLToPath(new URL('../dist/', import.meta.url));
 
 /** Rendering optimizations must preserve the geometry of every fetched row. */
-export async function expectTransferLayoutUnchanged(page: Page): Promise<void> {
-  const differences = await page.evaluate(() => {
-    const nodes = [...document.querySelectorAll('.transfer-peer-list .folder-file-row, .transfer-peer-list .folder-item-card')];
+export async function expectFolderLayoutUnchanged(page: Page, scope = '.transfer-peer-list'): Promise<void> {
+  const differences = await page.evaluate((scope) => {
+    const nodes = [...document.querySelectorAll(`${scope} .folder-file-row, ${scope} .folder-item-card`)];
     const measure = () => nodes.map(node => {
       const box = node.getBoundingClientRect();
       return [box.x, box.y + scrollY, box.width, box.height];
     });
     const optimized = measure();
     const style = document.createElement('style');
-    style.textContent = '.transfer-peer-list .folder-file-row { content-visibility: visible !important; }';
+    style.textContent = `${scope} .folder-file-row { content-visibility: visible !important; }`;
     document.head.append(style);
     try {
       return measure().flatMap((box, index) => box.some((value, dimension) => Math.abs(value - optimized[index]![dimension]!) > 0.5)
         ? [{ index, optimized: optimized[index], regular: box }] : []);
     } finally { style.remove(); }
-  });
+  }, scope);
   expect(differences, 'Fetched row/card geometry must match ordinary rendering.').toEqual([]);
 }
 
@@ -56,8 +56,8 @@ export async function deferInitialDaemonSnapshot(page: Page): Promise<() => void
 
 type FixtureCommand = `prune-search-results:${string}` | `wait-job-complete:${string}` | 'hold-download' | 'wait-download-started' | 'wait-search-started' | 'release-download' | 'reject-next-download' | 'report-peer-browses' | 'music-search' | 'ordinary-track-search'
   | 'large-search' | 'large-directory-search' | 'large-distributed-search' | 'staged-large-directory-search' | 'large-music-search' | 'large-music-search-100k' | 'large-single-peer-music-search' | 'large-varied-music-search' | 'large-shared-album-search' | 'paced-music-search' | 'large-peer-shares' | 'large-retained-transfers' | 'retained-imports' | 'expire-search-views' | 'expire-job-previews' | 'forget-job-previews' | 'mixed-visibility-search' | 'staged-rich-aggregate-search'
-  | 'staged-search' | 'next-search-batch' | 'finish-search' | 'incoming-chat' | 'directory-selection-search' | 'nested-generic-search' | 'concurrent-retrieval-search' | 'mixed-retrieval-search' | 'hold-directory-browse' | 'release-directory-browse' | 'paged-subfolder-search' | 'aggregate-search' | 'rich-aggregate-search' | 'aggregate-failure-search' | 'aggregate-album-search' | 'staged-aggregate-album-search' | 'rich-aggregate-album-search' | 'paged-aggregate-album-search'
-  | 'request-upload' | 'request-queued-upload' | 'release-upload' | 'incoming-room-chat' | 'seed-chat-history'
+  | 'empty-search' | 'staged-search' | 'next-search-batch' | 'finish-search' | 'incoming-chat' | 'directory-selection-search' | 'nested-generic-search' | 'concurrent-retrieval-search' | 'mixed-retrieval-search' | 'hold-directory-browse' | 'release-directory-browse' | 'paged-subfolder-search' | 'aggregate-search' | 'rich-aggregate-search' | 'aggregate-failure-search' | 'aggregate-album-search' | 'staged-aggregate-album-search' | 'rich-aggregate-album-search' | 'paged-aggregate-album-search'
+  | 'fail-next-upload' | 'request-upload' | 'request-queued-upload' | 'release-upload' | 'incoming-room-chat' | 'seed-chat-history'
   | 'album-art-search' | 'large-album-art-search' | 'nested-album-search' | 'bare-filename-search' | 'hold-art-download' | 'release-art-download' | 'wait-directory-complete' | 'aggregate-album-failure-search' | 'staged-conditioned-music-search' | 'mixed-aggregate-album-search'
   | 'long-song-fallback' | 'report-fallback-downloads' | `report-search-projection:${string}` | 'terminal-transfer-committed';
 
@@ -146,6 +146,11 @@ export const test = base.extend<{
   daemonUrl: string;
 }, { daemonWorker: DaemonWorker }>({
   context: async ({ context }, use, testInfo) => {
+    // Localhost is a secure context even over HTTP. Exercise the API availability
+    // of plain HTTP LAN access in every browser journey, without duplicating them.
+    await context.addInitScript(() => {
+      Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true });
+    });
     const errors: Error[] = [];
     const record = (error: import('@playwright/test').WebError) => { errors.push(error.error()); };
     context.on('weberror', record);

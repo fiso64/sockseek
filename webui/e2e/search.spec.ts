@@ -68,6 +68,14 @@ async function sortWithoutCreatingView(page: Page, value: string, order: Schema<
     const receipt = await (await commit).json() as Schema<'CommitSearchViewSelectionResponseDto'>;
     expect(Number(receipt.submittedCount)).toBe(1);
     expect(Number(receipt.rejectedCount)).toBe(0);
+    await page.locator('.floating-download-options-popover').getByRole('button', { name: 'Close download options', exact: true }).click();
+    await page.getByRole('button', { name: 'View download jobs', exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'Download jobs', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page).toHaveURL(new RegExp(`submission=${receipt.submissionId}`));
+    await expect(page.locator('.search-history-row')).toHaveCount(1);
+    await page.locator('.search-history-open').click();
+    await page.getByRole('button', { name: 'Open source job', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/jobs/${view.sourceJobId}\\?results=generic$`));
     await page.goto('/downloads');
     const file = page.locator('.file-item-card').filter({ hasText: 'Artist - Bare.flac' });
     await expect(file).toHaveCount(1);
@@ -92,10 +100,10 @@ async function sortWithoutCreatingView(page: Page, value: string, order: Schema<
       const directory = jobs.find(job => job.kind === 'remote-directory')!;
       expect(directory.itemName).toBe('Selected files');
       await page.goto(`/jobs/${directory.jobId}`);
-      await expect(page.locator('.folder-transfer-path')).toHaveText('Selected files');
+      await expect(page.locator('.folder-transfer-path')).toHaveText('(peer root)');
       await expect(page.locator('.folder-file-row')).toHaveCount(1);
       await page.reload();
-      await expect(page.locator('.folder-transfer-path')).toHaveText('Selected files');
+      await expect(page.locator('.folder-transfer-path')).toHaveText('(peer root)');
 
   });
 test('pauses hidden search reads and catches up with the selection intact on return', async ({ page, daemon }) => {
@@ -172,13 +180,16 @@ test.describe('generic grouping', () => {
     expect(body.selection.refs).toHaveLength(1);
     await expect(page.locator('.mutation-status')).toContainText('1 download requested');
     await daemon.command('finish-search');
-    await page.getByRole('button', { name: 'Clear selection' }).click();
+    await page.getByRole('button', { name: 'Deselect all' }).click();
     await expect(page.getByText('Selection from earlier results')).toHaveCount(0);
     await page.getByRole('checkbox', { name: 'Select all files in A', exact: true }).check();
     await expect(page.getByRole('button', { name: 'Download 3', exact: true })).toBeVisible();
 
     // A filtered projection can split A into B/C. An excluded ancestor must
     // remain excluded rather than turning into an unrelated stale ref.
+    await expect(page.getByRole('button', { name: 'Select all', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Deselect all', exact: true }).click();
+    await page.locator('.folder-file-row input[type=checkbox]').first().check();
     await page.getByRole('button', { name: 'Select all', exact: true }).click();
     await page.getByRole('checkbox', { name: 'Select all files in A', exact: true }).uncheck();
     const filter = page.getByRole('textbox', { name: 'Filter search results' });
@@ -202,11 +213,12 @@ test.describe('generic grouping', () => {
     expect(commits).toBe(1);
     await page.setViewportSize({ width: 390, height: 900 });
     const notice = page.locator('.resource-state-notice').filter({ hasText: 'Selection needs review' });
-    await expect(notice.getByRole('button', { name: 'Clear selection', exact: true })).toBeVisible();
+    await expect(page.locator('.floating-selection-actions').getByRole('button', { name: 'Deselect all', exact: true })).toBeVisible();
+    await expect(notice.getByRole('button')).toHaveCount(0);
     const bounds = await notice.boundingBox();
     expect(bounds).not.toBeNull();
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
-    await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+    await page.getByRole('button', { name: 'Deselect all', exact: true }).click();
     await expect(page.getByText('Selection needs review', { exact: true })).toHaveCount(0);
     await page.getByRole('checkbox', { name: 'Select all files in C', exact: true }).check();
     await page.getByRole('button', { name: 'Download 1', exact: true }).click();
@@ -216,7 +228,7 @@ test.describe('generic grouping', () => {
     await page.goto('/downloads');
     for (const filename of ['Track one.txt', 'Track two.txt']) {
       const folder = page.locator('.folder-item-card').filter({ hasText: filename });
-      await expect(folder.locator('.transfer-state').first()).toHaveText('Complete');
+      await expect(folder.locator('.folder-file-state.complete')).toHaveCount(1);
     }
     const response = await page.request.get('/api/transfers?direction=download&archived=false&limit=500');
     expect(response.ok()).toBe(true);
@@ -243,15 +255,47 @@ test('keeps case-distinct peers and locked search files visible without download
   await expect(page.getByRole('button', { name: 'Actions for CasePeer', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Actions for casepeer', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Actions for LockedOnly', exact: true })).toBeVisible();
+  const peers = page.locator('.peer-item-group');
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await peers.nth(0).locator('.peer-header-toggle').click();
+    await peers.nth(1).locator('.peer-header-toggle').click();
+    await peers.first().locator('.username-link').click();
+    const menu = page.getByRole('menu');
+    await expect(menu).toBeVisible();
+    for (const item of await menu.getByRole('menuitem').all()) {
+      expect(await item.evaluate(node => {
+        const rect = node.getBoundingClientRect();
+        return node.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+      }), 'Username actions must paint above the following collapsed peer rows.').toBe(true);
+    }
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await peers.nth(0).locator('.peer-header-toggle').click();
+    await peers.nth(1).locator('.peer-header-toggle').click();
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
 
+
+  await expect(page.getByRole('button', { name: 'Select all', exact: true })).toHaveCount(0);
+  await page.locator('.folder-file-row:not(.locked) input[type=checkbox]').first().check();
   const counted = page.waitForResponse(response => response.ok()
     && response.request().method() === 'POST'
-    && /\/api\/search-views\/[^/]+\/selection-counts$/.test(new URL(response.url()).pathname));
+    && /\/api\/search-views\/[^/]+\/selection-counts$/.test(new URL(response.url()).pathname)
+    && response.request().postDataJSON().selection.mode === 'AllExcept');
   await page.getByRole('button', { name: 'Select all', exact: true }).click();
   const counts = await (await counted).json() as Schema<'CountSearchViewSelectionResponseDto'>;
   expect(Number(counts.publicFileCount)).toBe(2);
   expect(Number(counts.lockedFileCount)).toBe(3);
   await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
+  const toolbar = page.locator('.floating-selection-actions');
+  await expect(page.locator('.result-refine-row').getByRole('button', { name: /Select all|Deselect all/ })).toHaveCount(0);
+  await expect(toolbar.getByRole('button', { name: 'Select all', exact: true })).toHaveCount(0);
+  await page.locator('.folder-file-row:not(.locked) input[type=checkbox]').first().uncheck();
+  await expect(toolbar.getByRole('button', { name: 'Select all', exact: true })).toBeVisible();
+  await toolbar.getByRole('button', { name: 'Select all', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
+
 
   const committed = page.waitForResponse(response => response.ok()
     && response.request().method() === 'POST'
@@ -287,7 +331,20 @@ test('keeps previous results usable while a refinement loads and explicitly reco
   await page.locator('#global-search-simple').fill('Fixture');
   await page.locator('#global-search-simple').press('Enter');
   await expect(page.locator('.folder-item-card')).toHaveCount(1);
-  await page.getByRole('checkbox', { name: 'Select all files in Fixture', exact: true }).check();
+  const folderHeader = page.locator('.folder-summary-select-target');
+  const selectFolder = folderHeader.getByRole('checkbox');
+  const header = page.locator('.folder-result-summary');
+  await header.click({ position: { x: 2, y: 2 } });
+  await expect(selectFolder).toBeChecked();
+  const bounds = await header.boundingBox();
+  await header.click({ position: { x: bounds!.width - 2, y: bounds!.height - 2 } });
+  await expect(selectFolder).not.toBeChecked();
+  await folderHeader.locator('.folder-heading-meta').click();
+  await expect(selectFolder).toBeChecked();
+  await folderHeader.locator('.folder-heading-meta').click();
+  await expect(selectFolder).not.toBeChecked();
+  await folderHeader.locator('.folder-heading-path').click();
+  await expect(selectFolder).toBeChecked();
   await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
 
   const pageRoute = '**/api/search-views/*/directories?**';
@@ -308,9 +365,10 @@ test('keeps previous results usable while a refinement loads and explicitly reco
     const filter = page.getByRole('textbox', { name: 'Filter search results' });
     await filter.fill('Unselected');
     await held;
+    await expect(page.locator('.result-refinement-status')).toHaveCount(0);
     await expect(page.locator('.folder-file-row')).toHaveCount(2);
     await expect(page.locator('.search-results-summary')).toContainText('2 files');
-    await expect(page.locator('.resource-state-notice.loading.blocking')).toHaveCount(0);
+    await expect(page.locator('.loading-indicator.blocking')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeDisabled();
     release();
     await handled;
@@ -351,6 +409,7 @@ test('applies projection-only sort and live track conditions through an all-exce
   const panel = page.getByRole('region', { name: 'Result search configuration' });
   await panel.getByRole('button', { name: 'PDF', exact: true }).click();
   await expect(page.locator('.folder-item-card')).toHaveCount(0);
+  await expect(page.locator('.search-results-empty')).toContainText('2 files received, but none match the current result conditions.');
   await page.getByRole('button', { name: 'Remove PDF format' }).click();
   await expect(page.locator('.folder-item-card')).toHaveCount(1);
 
@@ -366,8 +425,15 @@ test('applies projection-only sort and live track conditions through an all-exce
   await page.locator('#global-search-simple').fill('Track');
   await page.locator('#global-search-simple').press('Enter');
   await expect(page.locator('.file-item-card')).toHaveCount(2);
-  await expect(page.locator('.search-results-summary')).not.toContainText('Complete');
+  await expect(page.locator('.search-results-summary .search-status-badge')).toBeVisible();
   await page.getByRole('button', { name: 'Filtering', exact: true }).click();
+  // These are the daemon's resolved defaults, not a fabricated UI settings object.
+  await expect(panel.getByRole('button', { name: 'AAC', exact: true })).toHaveClass(/active/);
+  await expect(page.locator('.result-condition-pills')).toHaveCount(0);
+  await panel.getByRole('button', { name: 'FLAC', exact: true }).click();
+  await expect(page.locator('.result-condition-pills .search-condition-pill')).toHaveCount(7);
+  await panel.getByRole('button', { name: 'FLAC', exact: true }).click();
+  await expect(page.locator('.result-condition-pills')).toHaveCount(0);
   await panel.getByRole('button', { name: 'custom…', exact: true }).click();
   await panel.getByRole('textbox', { name: 'Comma-separated required formats', exact: true }).fill('flac');
   await expect(page.locator('.file-item-card')).toHaveCount(2);
@@ -399,7 +465,8 @@ test('applies projection-only sort and live track conditions through an all-exce
   await page.getByRole('textbox', { name: 'Filter search results', exact: true }).fill('flac');
   const filteredView = await (await filtered).json() as Schema<'SearchViewSummaryDto'>;
   await expect(page.locator('.file-item-card')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Select all', exact: true }).click();
+  await page.locator('.file-item-card input[type=checkbox]').check();
+  await expect(page.getByRole('button', { name: 'Select all', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
 
   await daemon.command('next-search-batch');
@@ -407,13 +474,15 @@ test('applies projection-only sort and live track conditions through an all-exce
   await expect(page.locator('.file-item-card.locked')).toHaveCount(1);
   await expect(page.locator('.file-item-card.locked')).toContainText('03 - Locked - Track.flac');
   await expect(page.locator('.file-item-card.preferred')).toHaveCount(1);
-  await expect(page.locator('.search-results-summary')).not.toContainText('Complete');
+  await expect(page.locator('.search-results-summary .search-status-badge')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+  await page.getByRole('button', { name: 'Deselect all', exact: true }).click();
+  await page.locator('.file-item-card:not(.locked) input[type=checkbox]').first().check();
   await page.getByRole('button', { name: 'Select all', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
   await daemon.command('finish-search');
-  await expect(page.locator('.search-results-summary')).toContainText('Complete');
+  await expect(page.locator('.search-results-summary')).toBeVisible();
+  await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
   expect(trackSubmissions).toBe(1);
   const committed = page.waitForResponse(response => response.ok()
     && response.request().method() === 'POST'
@@ -441,6 +510,27 @@ test('applies projection-only sort and live track conditions through an all-exce
 });
 
 test.describe('live album conditions', () => {
+  test('keeps minimum track counts applied through arrivals and completion of a free-text search', async ({ page, daemon }) => {
+    await daemon.command('staged-conditioned-music-search');
+    await page.goto('/jobs');
+    await page.locator('#global-search-simple').fill('Track');
+    await page.locator('#global-search-simple').press('Enter');
+    await expect(page.locator('.folder-item-card')).toHaveCount(1);
+    await expect(page.locator('.folder-file-row')).toHaveCount(2);
+    await page.getByRole('button', { name: 'Filtering', exact: true }).click();
+    const minimum = page.getByRole('region', { name: 'Result search configuration' }).getByLabel('Min tracks', { exact: true });
+    await minimum.fill('5');
+    await expect(page.locator('.folder-item-card')).toHaveCount(0);
+    await daemon.command('next-search-batch');
+    await daemon.command('finish-search');
+    await expect(page.locator('.search-results-summary')).toBeVisible();
+    await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
+    await expect(page.locator('.folder-item-card')).toHaveCount(0);
+    await minimum.fill('');
+    await expect(page.locator('.folder-item-card')).toHaveCount(2);
+    await expect(page.locator('.folder-file-row')).toHaveCount(6);
+  });
+
   test('refines live album quality without dropping mixed-format members from selected late folders', async ({ page, daemon }) => {
     await daemon.command('staged-conditioned-music-search');
     let searches = 0;
@@ -452,7 +542,7 @@ test.describe('live album conditions', () => {
     await page.locator('#global-search-simple').press('Enter');
     await expect(page.locator('.folder-item-card')).toHaveCount(1);
     await expect(page.locator('.folder-file-row')).toHaveCount(2);
-    await expect(page.locator('.search-results-summary')).not.toContainText('Complete');
+    await expect(page.locator('.search-results-summary .search-status-badge')).toBeVisible();
 
     await page.getByRole('button', { name: 'Filtering', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Result search configuration' });
@@ -476,6 +566,7 @@ test.describe('live album conditions', () => {
     const view = await (await refined).json() as Schema<'SearchViewSummaryDto'>;
     await page.keyboard.press('Escape');
     await expect(page.locator('.result-tier.preferred-tier .folder-item-card')).toHaveCount(1);
+    await page.locator('.folder-file-row input[type=checkbox]').first().check();
     await page.getByRole('button', { name: 'Select all', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
 
@@ -491,7 +582,8 @@ test.describe('live album conditions', () => {
     await expect(page.locator('.result-tier.preferred-tier .folder-item-card')).toHaveCount(1);
     await expect(page.locator('.result-tier:not(.preferred-tier) .folder-item-card')).toHaveCount(1);
     await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
-    await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+    await page.getByRole('button', { name: 'Deselect all', exact: true }).click();
+    await page.locator('.folder-file-row:not(.locked) input[type=checkbox]').first().check();
     await page.getByRole('button', { name: 'Select all', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Download 4', exact: true })).toBeEnabled();
     const selected = await (await lateSelection).json() as Schema<'CountSearchViewSelectionResponseDto'>;
@@ -517,7 +609,8 @@ test.describe('live album conditions', () => {
         expect(box.right <= other.left || other.right <= box.left || box.bottom <= other.top || other.bottom <= box.top).toBe(true);
     }
     await daemon.command('finish-search');
-    await expect(page.locator('.search-results-summary')).toContainText('Complete');
+    await expect(page.locator('.search-results-summary')).toBeVisible();
+    await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
     const completedResponse = await page.request.get(`/api/search-views/${view.viewId}`);
     expect(completedResponse.ok(), await completedResponse.text()).toBe(true);
     const completed = await completedResponse.json() as Schema<'SearchViewSummaryDto'>;
@@ -541,7 +634,7 @@ test.describe('live album conditions', () => {
     expect(receipt.rejectionReasons).toEqual([]);
     await page.goto('/downloads');
     await expect(page.locator('.folder-file-row')).toHaveCount(4);
-    await expect(page.locator('.folder-item-card .transfer-state')).toHaveText(['Complete', 'Complete']);
+    await expect(page.locator('.folder-file-state.complete')).toHaveCount(4);
     const transfersResponse = await page.request.get('/api/transfers?direction=download&archived=false');
     expect(transfersResponse.ok(), await transfersResponse.text()).toBe(true);
     const files = (await transfersResponse.json() as Schema<'TransferTimelinePageDto'>).items;
@@ -581,7 +674,7 @@ test('preserves download defaults and corrects unsupported naming without losing
   expect(body.options).toEqual({ downloadSettings: { skip: { skipExisting: next } } });
   await expect(page.locator('.mutation-status')).toContainText('2 downloads requested');
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Downloads', exact: true }).click();
-  await expect(page.locator('.folder-item-card .transfer-state')).toHaveText('Complete');
+  await expect(page.locator('.folder-file-state.complete')).toHaveCount(2);
   const originalResponse = await page.request.get('/api/transfers?direction=download&limit=500');
   expect(originalResponse.ok(), await originalResponse.text()).toBe(true);
   const originals = (await originalResponse.json() as Schema<'TransferTimelinePageDto'>).items;
@@ -696,7 +789,9 @@ test('keeps a partially selected nested album tree through download and retentio
   const downloaded = page.locator('.folder-item-card');
   await expect(downloaded).toHaveCount(1);
   await expect(downloaded.locator('.folder-file-row')).toHaveCount(1);
-  await expect(downloaded.locator('.transfer-state').first()).toHaveText('Complete');
+  await expect(downloaded.locator('.folder-heading-meta')).toHaveCount(0);
+  await expect(downloaded.locator('.folder-file-state.complete')).toHaveCount(1);
+  await expect(downloaded.locator('.folder-transfer-footer')).toHaveCount(0);
   await expect(downloaded.locator('.folder-file-path')).toContainText('Artwork/cover.jpg');
   const jobsResponse = await page.request.get(`/api/jobs?submissionId=${receipt.submissionId}&includeAll=true&limit=100`);
   expect(jobsResponse.ok(), await jobsResponse.text()).toBe(true);
@@ -719,7 +814,8 @@ test('keeps a partially selected nested album tree through download and retentio
   await page.reload();
   await expect(downloaded.locator('.folder-file-row')).toHaveCount(1);
   await expect(downloaded.locator('.folder-file-path')).toContainText('Artwork/cover.jpg');
-  await expect(downloaded.locator('.transfer-state').first()).toHaveText('Complete');
+  await expect(downloaded.locator('.folder-file-state.complete')).toHaveCount(1);
+  await expect(downloaded.locator('.folder-transfer-footer')).toHaveCount(0);
 });
 
 test('applies the album-folder toggle beside a selected exact file', async ({ page, daemon }) => {
@@ -824,16 +920,16 @@ test(`downloads a chosen ${scenario.mode} source and isolates a failed sibling`,
   const cards = page.locator(scenario.kind === 'song' ? '.file-item-card' : '.folder-item-card');
   await expect(cards).toHaveCount(2);
   await expect(cards.filter({ hasText: scenario.alpha })).toContainText('Failed');
-  await expect(cards.filter({ hasText: scenario.beta })).toContainText('Complete');
+  await expect(cards.filter({ hasText: scenario.beta }).getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   expect((await stat(transfers.find(item => item.status.terminalOutcome === 'Succeeded')!.status.localPath!)).size).toBe(8_000_000);
   const failedPath = transfers.find(item => item.status.terminalOutcome === 'Failed')!.status.localPath!;
   await expect(stat(failedPath)).rejects.toMatchObject({ code: 'ENOENT' });
   await page.reload();
   await expect(cards.filter({ hasText: scenario.alpha })).toContainText('Failed');
-  await expect(cards.filter({ hasText: scenario.beta })).toContainText('Complete');
+  await expect(cards.filter({ hasText: scenario.beta }).getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   if (scenario.kind === 'album') {
-    await expect(cards.locator('.folder-transfer-file-count'))
-      .toHaveText([/^\s*1\s*file\s*$/, /^\s*1\s*file\s*$/]);
+    await expect(cards.locator('.folder-heading-meta')).toHaveCount(0);
+    await expect(cards.locator('.folder-file-row')).toHaveCount(2);
     await expect(cards.locator('.item-data-state')).toHaveCount(0);
   }
 
@@ -889,7 +985,8 @@ test('keeps an aggregate track choice and all-except plan through live group reo
   await expect(beta.getByRole('button', { name: 'Select Fixture Beta', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
   await daemon.command('finish-search');
-  await expect(page.locator('.search-results-summary .search-status-badge')).toHaveText('Complete');
+  await expect(page.locator('.search-results-summary')).toBeVisible();
+  await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
   const committed = page.waitForResponse(response => response.ok()
     && response.request().method() === 'POST'
     && /\/api\/search-views\/[^/]+\/commit$/.test(new URL(response.url()).pathname));
@@ -964,7 +1061,8 @@ test('keeps a chosen aggregate album source, output option and exact file plan t
   await expect(alpha.locator('.folder-file-row')).toHaveCount(1);
   await expect(alpha).not.toContainText('Cover.jpg');
   await daemon.command('finish-search');
-  await expect(page.locator('.search-results-summary')).toContainText('Complete');
+  await expect(page.locator('.search-results-summary')).toBeVisible();
+  await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
 
   const committed = page.waitForResponse(response => response.ok()
     && response.request().method() === 'POST'
@@ -1000,6 +1098,9 @@ test('opens a retained aggregate album from a fresh browser without a result-mod
   await page.locator('#global-search-simple').fill('Fixture Album');
   await page.locator('#global-search-simple').press('Enter');
   await expect(page.locator('.aggregate-results-list > .aggregate-result-group')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Remove minimum sharers filter' })).toBeVisible();
+  await expect(page.locator('.result-condition-pills')).toContainText('≥2 sharers');
+  await expect(page.locator('.result-condition-pills')).not.toContainText('format:');
 
   const fresh = await browser.newContext({ baseURL: daemon.url });
   try {
@@ -1125,7 +1226,7 @@ test('downloads only checked public files from a mixed chosen aggregate album fo
   await page.goto('/downloads');
   await expect(page.locator('.folder-item-card')).toHaveCount(1);
   await expect(page.locator('.folder-file-row')).toHaveCount(1);
-  await expect(page.locator('.folder-item-card .transfer-state')).toHaveText('Complete');
+  await expect(page.locator('.folder-file-state.complete')).toHaveCount(1);
   await expect(page.locator('.folder-item-card')).toContainText('Intro.flac');
   await expect(page.locator('.folder-item-card')).not.toContainText('Finale.flac');
   await expect(page.locator('.folder-item-card')).not.toContainText('Bonus.flac');
@@ -1171,18 +1272,155 @@ test('pages album alternative files without hiding the card picker', async ({ pa
   await page.locator('.aggregate-options-button').click();
   const dialog = page.getByRole('dialog', { name: /Fixture Album.*options/i });
   await expect(dialog.locator('.aggregate-option')).toHaveCount(100);
-  await page.getByRole('button', { name: 'Load more options', exact: true }).click();
+  await page.getByRole('button', { name: 'Load more', exact: true }).click();
   await expect(dialog.locator('.aggregate-option')).toHaveCount(101);
   const alternative = dialog.locator('.aggregate-option').filter({ hasText: 'second-peer' });
-  await expect(alternative.locator('.folder-file-row')).toHaveCount(24);
-  await alternative.getByRole('button', { name: 'Load more matching files' }).click();
   await expect(alternative.locator('.folder-file-row')).toHaveCount(25);
   await alternative.locator('.aggregate-option-card-picker').click();
   await expect(dialog).toHaveCount(0);
   await expect(page.locator('.aggregate-result-group')).toContainText('25 - Track.flac');
 });
 
-test('keeps the prototype split and merge keyboard behavior in global search', async ({ page }) => {
+test('preserves an independent global draft when opening a retained search', async ({ page, daemon }) => {
+  await daemon.command('aggregate-album-search');
+  await page.goto('/jobs');
+  await page.locator('#global-search-simple').fill('Fixture Album');
+  await page.locator('#global-search-simple').press('Enter');
+  await expect(page.locator('.folder-item-card')).toHaveCount(2);
+  // A direct link opens the result without populating the new-search composer.
+  await page.reload();
+  await expect(page.locator('.folder-item-card')).toHaveCount(2);
+  await expect(page.locator('#global-search-simple')).toHaveValue('');
+  await page.getByRole('button', { name: 'Back to jobs', exact: true }).click();
+  await page.getByRole('button', { name: 'split', exact: true }).click();
+  await page.locator('#global-search-artist').fill('Fixture');
+  await expect(page.locator('#global-search-title')).toHaveValue('');
+  await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
+  await page.getByRole('menuitemradio', { name: 'Album Aggregate', exact: true }).click();
+  await page.locator('.search-history-open').filter({ hasText: 'Fixture Album' }).click();
+  await expect(page.locator('.folder-item-card')).toHaveCount(2);
+  await expect(page.locator('#global-search-artist')).toHaveValue('Fixture');
+  await expect(page.locator('#global-search-title')).toHaveValue('');
+  await expect(page.getByRole('button', { name: /Search result mode: Album Aggregate/ })).toBeVisible();
+  const accepted = page.waitForResponse(response => response.ok()
+    && response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/jobs/search/albums');
+  await page.locator('#global-search-artist').press('Enter');
+  const response = await accepted;
+  expect(response.request().postDataJSON().albumQuery).toMatchObject({ artist: 'Fixture', album: null, searchHint: null });
+  const job = await response.json() as Schema<'JobSummaryDto'>;
+  const title = job.itemName ?? job.queryText!;
+  expect(title).toBe('Fixture');
+  await expect(page.locator('.search-results-title h1')).toHaveText(title);
+  await expect(page.locator('.aggregate-results-list > .aggregate-result-group')).not.toHaveCount(0);
+  await expect(page.locator('.search-results-summary')).toContainText(/\d+ groups?/);
+  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Jobs' }).click();
+  await expect(page.locator('.search-history-row').filter({ hasText: title }).getByText(title, { exact: true })).toBeVisible();
+  await expect(page.locator('.search-history-list')).not.toContainText(/groups?/);
+});
+
+test('distinguishes waiting for peers from a completed search with no returned files', async ({ page, daemon }) => {
+  // Delay real live updates during the browser-boundary projection check below.
+  let holdUpdates = false;
+  let releaseUpdates!: () => void;
+  const released = new Promise<void>(resolve => { releaseUpdates = resolve; });
+  await page.routeWebSocket('**/api/events?**', route => {
+    const server = route.connectToServer();
+    server.onMessage(async message => {
+      if (holdUpdates) await released;
+      route.send(message);
+    });
+  });
+  await daemon.command('empty-search');
+  await page.goto('/jobs');
+  await chooseFileSearch(page);
+  await page.locator('#global-search-simple').fill('Empty fixture');
+  await page.locator('#global-search-simple').press('Enter');
+  const loading = page.locator('.loading-indicator.blocking');
+  await expect(loading).toHaveAttribute('aria-label', 'Searching');
+  await expect(loading).toHaveText('');
+  await expect(loading).toHaveCSS('border-style', 'none');
+  await expect(loading.locator('.resource-state-dot')).toBeVisible();
+  await expect(page.locator('.search-results-empty')).toHaveCount(0);
+  await daemon.command('finish-search');
+  await expect(loading).toHaveCount(0);
+  await expect(page.locator('.search-results-empty')).toHaveText('No resultsNo files were returned by peers.');
+  const refined = page.waitForResponse(response => response.ok() && response.request().method() === 'POST'
+    && /\/api\/jobs\/[^/]+\/search-views$/.test(new URL(response.url()).pathname));
+  await page.getByRole('textbox', { name: 'Filter search results' }).fill('No such file');
+  await refined;
+  await expect(page.locator('.search-results-summary')).toBeVisible();
+  await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
+  await expect(page.locator('.search-results-empty')).toHaveText('No resultsNo files were returned by peers.');
+
+  // A finished job can have a fresh projection that has not caught up yet.
+  // Simulate pending projection/count fields, keeping real job state and empty pages.
+  await page.route('**/api/jobs/*/search-views', async route => {
+    const response = await route.fetch();
+    const summary = await response.json() as Schema<'SearchViewSummaryDto'>;
+    await route.fulfill({ response, json: { ...summary, isComplete: false,
+      counters: { ...summary.counters, publicFileCount: 12 } } });
+  });
+  await page.route('**/api/search-views/*/updates?**', async route => {
+    await released;
+    await route.continue();
+  });
+  holdUpdates = true;
+  try {
+    await page.reload();
+    await expect(page.locator('.search-results-summary .search-status-badge')).toHaveText('Updating results');
+    await expect(loading).toHaveAttribute('aria-label', 'Loading search results');
+    await expect(loading).toHaveText('');
+    await expect(page.getByText('Searching', { exact: true })).toHaveCount(0);
+  } finally {
+    holdUpdates = false;
+    releaseUpdates();
+  }
+  await expect(loading).toHaveCount(0);
+  await expect(page.locator('.search-results-empty')).toHaveText('No resultsNo files were returned by peers.');
+});
+
+test('explains search modes in selectable cards without submitting a search', async ({ page }) => {
+  let submissions = 0;
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname.startsWith('/api/jobs/search')) submissions++;
+  });
+  await page.goto('/jobs');
+  await page.locator('#global-search-simple').fill('Fixture');
+  const chooser = page.getByRole('button', { name: /Search result mode:.*Choose mode/ });
+  const help = page.getByRole('dialog', { name: 'Search modes', exact: true });
+  async function openHelp() {
+    await chooser.click();
+    await page.getByRole('menuitem', { name: 'About search modes', exact: true }).click();
+    await expect(help).toBeVisible();
+    await expect(page.getByRole('menu', { name: 'Search result mode', exact: true })).toHaveCount(0);
+  }
+  for (const mode of ['File Search', 'Track Search', 'Album Search', 'Song Aggregate', 'Album Aggregate']) {
+    await openHelp();
+    await expect(help.locator('.search-mode-help-card')).toHaveCount(5);
+    await help.getByRole('button', { name: `Use ${mode}`, exact: true }).click();
+    await expect(help).toHaveCount(0);
+    await expect(chooser).toHaveAttribute('aria-label', `Search result mode: ${mode}. Choose mode.`);
+    await expect(page.locator('#global-search-simple')).toHaveValue('Fixture');
+  }
+  await openHelp();
+  await help.getByRole('button', { name: 'Close search modes', exact: true }).click();
+  await expect(help).toHaveCount(0);
+  await openHelp();
+  await page.mouse.click(5, 5);
+  await expect(help).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openHelp();
+  for (const card of await help.locator('.search-mode-help-card').all()) {
+    expect(await card.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await expect(card.locator('.search-mode-help-icon svg')).toHaveCSS('width', '42px');
+  }
+  await expect(help.getByRole('button', { name: 'Use Album Aggregate', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Escape');
+  await expect(help).toHaveCount(0);
+  expect(submissions).toBe(0);
+});
+
+test('merges empty album and artist fields without losing input or focus', async ({ page }) => {
   await page.goto('/jobs');
   await page.locator('#global-search-simple').fill('Artist - Title');
   await expect(page.locator('#global-search-artist')).toHaveValue('Artist');
@@ -1227,6 +1465,22 @@ test('keeps the prototype split and merge keyboard behavior in global search', a
   await page.keyboard.insertText('Correct artist');
   await expect(page.locator('#global-search-artist')).toHaveValue('Correct artist');
   await expect(page.locator('#global-search-title')).toHaveValue('');
+  await page.locator('#global-search-title').press('Backspace');
+  await expect(input).toHaveValue('Correct artist');
+  await expect(input).toBeFocused();
+  expect(await input.evaluate((element: HTMLInputElement) => element.selectionStart)).toBe('Correct artist'.length);
+  await page.getByRole('button', { name: 'split', exact: true }).click();
+  await page.locator('#global-search-title').fill('Retained album');
+  await page.locator('#global-search-artist').fill('');
+  await page.locator('#global-search-artist').press('Backspace');
+  await expect(input).toHaveValue('Retained album');
+  await expect(input).toBeFocused();
+  await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
+  await page.getByRole('menuitemradio', { name: 'Album Aggregate', exact: true }).click();
+  await page.getByRole('button', { name: 'split', exact: true }).click();
+  await page.locator('#global-search-title').press('Backspace');
+  await expect(input).toHaveValue('Retained album');
+  await expect(input).toBeFocused();
 });
 
 test('cancels the active search and archives it from the result header', async ({ page, daemon }) => {
@@ -1263,16 +1517,16 @@ test('recovers the live connection after a browser network outage', async ({ pag
   await page.goto('/jobs');
   await chooseFileSearch(page);
   const status = page.locator('.connection-status').locator('strong').last();
-  await expect(status).toHaveText('Connected');
+  await expect(status).toContainText('Connected');
   outage = true;
   try {
     await socket!.close({ code: 1012, reason: 'E2E connection interruption' });
-    await expect(status).toContainText('Reconnecting');
+    await expect(status).toHaveText('Daemon reconnecting');
   } finally {
     outage = false;
     restoreConnection();
   }
-  await expect(status).toHaveText('Connected');
+  await expect(status).toContainText('Connected');
   await page.locator('#global-search-simple').fill('Fixture');
   await page.locator('#global-search-simple').press('Enter');
   await expect(page.locator('.folder-file-row')).toContainText('Fixture song.txt');
@@ -1302,7 +1556,7 @@ test('does not expose the previous search while browser history opens another jo
     window.dispatchEvent(new PopStateEvent('popstate'));
   }, `/jobs/${secondJob.jobId}`);
   await requested;
-  await expect(page.getByRole('status').filter({ hasText: 'Opening job' })).toBeVisible();
+  await expect(page.getByRole('status', { name: 'Opening job', exact: true })).toBeVisible();
   await expect(page.locator('.folder-file-row')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^Download \d+$/ })).toHaveCount(0);
   release();
@@ -1342,17 +1596,21 @@ test('searches again from one conditioned child, including after a whole-submiss
     await expect(page).toHaveURL(/\/jobs\/[^/]+\?results=/);
     const originalChildUrl = page.url();
     const originalChildId = new URL(originalChildUrl).pathname.split('/').at(-1)!;
-    await expect(page.locator('.search-results-summary')).toContainText('Complete');
+    await expect(page.locator('.search-results-summary')).toBeVisible();
+    await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
     await expect(page.locator('.folder-file-row')).toHaveCount(0);
     await page.reload();
+    await page.locator('#global-search-simple').fill('Unsubmitted draft');
     const replayResponse = page.waitForResponse(response => response.request().method() === 'POST'
       && new URL(response.url()).pathname === `/api/jobs/${originalChildId}/rerun-search`);
     await page.getByRole('button', { name: 'Search again', exact: true }).click();
     const accepted = await replayResponse;
     expect(accepted.status(), await accepted.text()).toBe(202);
     await expect(page).not.toHaveURL(originalChildUrl);
+    await expect(page.locator('#global-search-simple')).toHaveValue('Unsubmitted draft');
     expect(replayRequests).toContain(`/api/jobs/${originalChildId}/rerun-search`);
-    await expect(page.locator('.search-results-summary')).toContainText('Complete');
+    await expect(page.locator('.search-results-summary')).toBeVisible();
+    await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
     await expect(page.locator('.folder-file-row')).toHaveCount(0);
 
     const replayedJobId = new URL(page.url()).pathname.split('/').at(-1)!;
@@ -1377,7 +1635,8 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   const file = page.locator('.folder-file-row').filter({ hasText: 'Fixture song.txt' });
   await expect(file).toBeVisible();
   await file.getByRole('checkbox').check();
-  await expect(page.locator('.search-results-summary')).toContainText('Complete');
+  await expect(page.locator('.search-results-summary')).toBeVisible();
+  await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
   await expect(page).toHaveURL(/\/jobs\/[^/?]+/);
   const sourceId = new URL(page.url()).pathname.split('/').at(-1)!;
   const commitRoute = '**/api/search-views/*/commit';
@@ -1429,11 +1688,12 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
     .getByRole('button', { name: 'Jobs' }).click();
   const reopened = page.waitForResponse(response => response.request().method() === 'POST'
     && new URL(response.url()).pathname === `/api/jobs/${sourceId}/search-views`);
-  await page.locator('.search-history-row').filter({ hasText: 'Fixture' })
+  await page.locator('.search-history-row:not(.automatic-history-row)').filter({ hasText: 'Fixture' })
     .locator('.search-history-open').click();
   let cached = await (await reopened).json() as Schema<'SearchViewSummaryDto'>;
   await expect(page.locator('.folder-file-row').filter({ hasText: 'Fixture song.txt' })).toBeVisible();
-  await expect(page.locator('.search-results-summary')).toContainText('Complete');
+  await expect(page.locator('.search-results-summary')).toBeVisible();
+  await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
   const filteredAgain = page.waitForResponse(response => response.ok() && response.request().method() === 'POST'
     && new URL(response.url()).pathname === `/api/jobs/${sourceId}/search-views`
     && response.request().postDataJSON().filterText === 'song');
@@ -1458,7 +1718,8 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   await expect(page.getByRole('textbox', { name: 'Filter search results', exact: true })).toHaveValue('song');
   await expect(page.getByLabel('Sort', { exact: true })).toHaveValue('speed');
   await expect(page).toHaveURL(new RegExp(`/jobs/${sourceId}(?:[?]|$)`));
-  await expect(page.locator('.search-results-summary')).toContainText('Complete');
+  await expect(page.locator('.search-results-summary')).toBeVisible();
+  await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
   const cachedSummary = await (await page.request.get(`/api/search-views/${cached.viewId}`)).json() as Schema<'SearchViewSummaryDto'>;
   await daemon.command(`prune-search-results:${sourceId}`);
   // An active read snapshot stays usable when only its raw source is pruned.
@@ -1485,7 +1746,8 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   await page.getByRole('button', { name: 'Search again', exact: true }).click();
   await expect(page).not.toHaveURL(new RegExp(`/jobs/${sourceId}(?:[?]|$)`));
   await expect(file).toBeVisible();
-  await expect(page.locator('.search-results-summary')).toContainText('Complete');
+  await expect(page.locator('.search-results-summary')).toBeVisible();
+  await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
   await page.getByRole('navigation', { name: 'Primary navigation' })
     .getByRole('button', { name: 'Dashboard' }).click();
   await expect(page.locator('.dashboard-metric-card').first()).toContainText('128 B');
@@ -1550,6 +1812,7 @@ test('retrieves complete folder contents with retry while preserving selection',
     if (/\/directories\/[^/]+\/files$/.test(new URL(request.url()).pathname)) childPageRequests += 1;
   });
   await page.goto('/jobs');
+  expect(await page.evaluate(() => typeof crypto.randomUUID)).toBe('undefined');
   await chooseFileSearch(page);
   await page.locator('#global-search-simple').fill('Fixture');
   await page.locator('#global-search-simple').press('Enter');
@@ -1557,6 +1820,9 @@ test('retrieves complete folder contents with retry while preserving selection',
   expect(childPageRequests).toBe(0);
   const selected = page.locator('.folder-file-row').filter({ has: page.getByText('Selected.txt', { exact: true }) }).getByRole('checkbox');
   await selected.check();
+  const jobList = await page.context().newPage();
+  await jobList.goto('/jobs');
+  await expect(jobList.locator('.search-history-row')).toHaveCount(1);
   const route = '**/api/search-views/*/directories/retrieve';
   let acceptedJobId: string | null = null;
   let originalRequest: unknown = null;
@@ -1590,7 +1856,7 @@ test('retrieves complete folder contents with retry while preserving selection',
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeVisible();
   await expect(page.locator('.folder-file-row').filter({ hasText: 'DeepTwo.txt' })).toBeVisible();
   await expect(page.locator('.folder-subfolder-row')).toHaveCount(2);
-  await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+  await page.getByRole('button', { name: 'Deselect all', exact: true }).click();
   await selected.check();
   const nested = page.getByRole('checkbox', { name: 'Select all matching files in Nested', exact: true });
   await nested.check();
@@ -1599,11 +1865,20 @@ test('retrieves complete folder contents with retry while preserving selection',
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeVisible();
   await page.getByRole('checkbox', { name: 'Select all files in Fixture', exact: true }).check();
   await expect(page.getByRole('button', { name: 'Download 5', exact: true })).toBeVisible();
-  // The retrieval is also daemon-owned work with a retained detail, not just
-  // a transient folder-card flag in the issuing search.
+  // Retrieval remains observable directly, but is not a separate main-list task.
+  await expect(jobList.locator('.search-history-row')).toHaveCount(1);
+  await expect(jobList.locator('.search-history-row')).not.toContainText('Retrieve Folder');
+  await jobList.close();
+  await page.goto('/jobs');
+  await expect(page.locator('.search-history-row')).toHaveCount(1);
+  await expect(page.locator('.search-history-row')).not.toContainText('Retrieve Folder');
+  const ordinary = await page.request.get('/api/jobs?excludeKinds=retrieve-folder');
+  expect(await ordinary.json()).toHaveLength(1);
+  const all = await page.request.get('/api/jobs');
+  expect((await all.json()).some((job: Schema<'JobSummaryDto'>) => job.jobId === retrieval.jobId)).toBe(true);
   await page.goto(`/jobs/${retrieval.jobId}`);
   const facts = page.locator('.job-detail-facts');
-  await expect(page.locator('.job-detail-heading-summary .search-status-badge')).toHaveText('Complete');
+  await expect(page.locator('.job-detail-heading-summary .search-status-badge')).toHaveCount(0);
   await expect(page.locator('.job-detail-heading-summary')).toContainText('3 new files');
   await expect(facts.locator('dt')).toHaveText(['User', 'Folder', 'Outcome', 'New files']);
   await expect(facts.locator('dd')).toHaveText(['fixture-peer', 'Fixture', 'Completed', '3']);
@@ -1612,7 +1887,7 @@ test('retrieves complete folder contents with retry while preserving selection',
   await expect(facts.locator('dd')).toHaveText(['fixture-peer', 'Fixture', 'Completed', '3']);
   await facts.getByRole('button', { name: 'Actions for fixture-peer', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Shares', exact: true }).click();
-  await expect(page).toHaveURL(/\/users\/fixture-peer\/shares$/);
+  await expect(page).toHaveURL(/\/shares\/fixture-peer$/);
 });
 
 test('downloads a File Search subfolder with a snapshot-bound path rule and a file exclusion', async ({ page, daemon }) => {
@@ -1695,7 +1970,7 @@ test('downloads a File Search subfolder with a snapshot-bound path rule and a fi
   // The callback is still live: no completion-dependent projection is allowed.
   await daemon.command('next-search-batch');
   await expect(page.locator('.folder-file-row')).toHaveCount(7);
-  await expect(page.locator('.search-results-summary')).not.toContainText('Complete');
+  await expect(page.locator('.search-results-summary .search-status-badge')).toBeVisible();
   await expect(page.getByText('Selection from earlier results', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
   const liveSummaryResponse = await page.request.get(`/api/search-views/${restoredView.viewId}`);
@@ -1723,7 +1998,8 @@ test('downloads a File Search subfolder with a snapshot-bound path rule and a fi
   expect(liveDirectory.initialFiles?.items).toHaveLength(7);
   await expect(page.locator('.search-results-summary')).toContainText('4 files');
   await daemon.command('finish-search');
-  await expect(page.locator('.search-results-summary')).toContainText('Complete');
+  await expect(page.locator('.search-results-summary')).toBeVisible();
+  await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
   await expect(page.locator('.search-results-summary')).toContainText('4 files');
   const completedSummaryResponse = await page.request.get(`/api/search-views/${restoredView.viewId}`);
   expect(completedSummaryResponse.ok()).toBe(true);
@@ -1759,7 +2035,7 @@ test('downloads a File Search subfolder with a snapshot-bound path rule and a fi
   await expect(page.locator('.page')).not.toContainText('LateRoot.txt');
   await expect(page.locator('.page')).not.toContainText('Selected.txt');
   await expect(page.locator('.page')).not.toContainText('Unselected.txt');
-  await expect(page.locator('.folder-transfer-summary .transfer-state')).toHaveText('Complete');
+  await expect(page.locator('.folder-file-state.complete')).toHaveCount(2);
   const transfersResponse = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
   expect(transfersResponse.ok(), await transfersResponse.text()).toBe(true);
   const transfers = (await transfersResponse.json() as Schema<'TransferTimelinePageDto'>).items;
@@ -1777,19 +2053,19 @@ test('selects unseen descendants of a paged File Search subfolder', async ({ pag
   await page.locator('#global-search-simple').fill('Paged');
   await page.locator('#global-search-simple').press('Enter');
   await expect(page.locator('.folder-file-row')).toHaveCount(1);
-  // The daemon has all 25 descendants; keep the browser at its embedded first
+  // The daemon has all 101 descendants; keep the browser at its embedded first
   // child page to prove a path rule does not require downloading page two.
   const childPages = '**/api/search-views/*/directories/*/files?*';
   await page.route(childPages, route => route.abort());
   await page.getByRole('button', { name: 'Load all files in this folder', exact: true }).click();
-  await expect(page.locator('.folder-file-row')).toHaveCount(24);
-  await expect(page.locator('.folder-subfolder-count')).toContainText('24 files loaded');
+  await expect(page.locator('.folder-file-row')).toHaveCount(100);
+  await expect(page.locator('.folder-subfolder-count')).toContainText('100 files loaded');
   await page.getByRole('checkbox', { name: 'Select all matching files in Nested', exact: true }).check();
-  await expect(page.getByRole('button', { name: 'Download 25', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Download 25', exact: true }).click();
-  await expect(page.locator('.mutation-status')).toContainText('25 downloads requested');
+  await expect(page.getByRole('button', { name: 'Download 101', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Download 101', exact: true }).click();
+  await expect(page.locator('.mutation-status')).toContainText('101 downloads requested');
   await page.unroute(childPages);
   await page.goto('/downloads');
-  await expect(page.locator('.page')).toContainText('25.txt');
+  await expect(page.locator('.page')).toContainText('101.txt');
   await expect(page.locator('.page')).not.toContainText('Root.txt');
 });

@@ -647,12 +647,14 @@ public sealed class SearchViewSelections
         // it between queries, discard the assembled result before accepting work.
         // Once assembled, the jobs own their complete targets independently of it.
 
+        // A batch needs a container; one chosen file/folder is already a root.
+        Job acceptedRoot = root.Count == 1 ? root[0] : root;
         long resolutionMs = started.ElapsedMilliseconds;
         var receipt = new CommitSearchViewSelectionResponseDto(
             viewId,
             request.Revision,
             root.Count == 0 ? null : request.IdempotencyKey,
-            root.Count == 0 ? null : root.WorkflowId,
+            root.Count == 0 ? null : acceptedRoot.WorkflowId,
             requested,
             resolved,
             submitted,
@@ -665,7 +667,7 @@ public sealed class SearchViewSelections
         if (root.Count > 0)
         {
             await submissions.AcceptSearchSelectionAsync(
-                root,
+                acceptedRoot,
                 sourceView.SourceJobId,
                 request.IdempotencyKey,
                 commitFingerprint,
@@ -887,11 +889,17 @@ public sealed class SearchViewSelections
             if (folders.Count == 0)
                 return (null, chosenOption == null ? "locked" : "unavailable-option");
             var job = new AlbumJob(query) { Results = folders };
+            if (chosenOption != null || request.UseRepresentativeWhenUnchosen == true)
+            {
+                // An explicit source choice is accepted input, not an automatic
+                // candidate to reject against discovery conditions again.
+                job.ResolvedTarget = folders.Single();
+                job.ValidationRequirement = AlbumValidationRequirement.UserAccepted;
+            }
             if (albumFileSelection != null)
             {
                 // Exact child selection must not be expanded by the album executor's
                 // optional full-folder browse before transfers begin.
-                job.ResolvedTarget = folders.Single();
                 job.DirectoryResolutionPolicy = AlbumDirectoryResolutionPolicy.UseSelectedSnapshot;
             }
             return (job, null);

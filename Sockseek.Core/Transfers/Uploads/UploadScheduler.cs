@@ -102,7 +102,7 @@ public sealed class UploadScheduler
             throw new ArgumentOutOfRangeException(nameof(request), "Upload size cannot be negative.");
 
         string username = PeerUsername.Validate(request.Username);
-        var duplicateKey = new DuplicateKey(username, request.RemotePathKey);
+        var duplicateKey = new DuplicateKey(username, request.RemotePath);
 
         lock (sync)
         {
@@ -250,12 +250,12 @@ public sealed class UploadScheduler
             return EstimateLocked(transferId);
     }
 
-    public UploadQueueEstimate Estimate(string username, RemotePathKey remotePathKey)
+    public UploadQueueEstimate Estimate(string username, string remotePath)
     {
         username = PeerUsername.Validate(username);
         lock (sync)
         {
-            return duplicateIndex.TryGetValue(new DuplicateKey(username, remotePathKey), out Guid transferId)
+            return duplicateIndex.TryGetValue(new DuplicateKey(username, remotePath), out Guid transferId)
                 ? EstimateLocked(transferId)
                 : new UploadQueueEstimate(null, queueRevision);
         }
@@ -466,7 +466,7 @@ public sealed class UploadScheduler
         }
 
         entries.Remove(entry.TransferId);
-        duplicateIndex.Remove(new DuplicateKey(entry.Username, entry.RemotePathKey));
+        duplicateIndex.Remove(new DuplicateKey(entry.Username, entry.RemotePath));
         user.OutstandingFiles--;
 
         if (user.Waiting.Count == 0 && user.ReadyNode is not null)
@@ -547,7 +547,7 @@ public sealed class UploadScheduler
         public AdmissionKey AdmissionKey => new(RequestedAtUtc, TransferId);
     }
 
-    private readonly record struct DuplicateKey(string Username, RemotePathKey RemotePathKey);
+    private readonly record struct DuplicateKey(string Username, string RemotePath);
 
     private readonly record struct AdmissionKey(DateTimeOffset RequestedAtUtc, Guid TransferId);
 

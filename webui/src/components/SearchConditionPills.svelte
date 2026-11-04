@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { visibleFormatPills } from '../domains/search/applied-conditions';
   import type { SearchConditions } from '../domains/search/config-state';
   import type { SearchResultMode } from '../domains/search/model';
   import { isAggregateSearchMode, searchModeFamily } from '../domains/search/model';
@@ -36,7 +37,7 @@
   {/if}
 {/if}
 
-{#each conditions.common.formats as format}
+{#each visibleFormatPills(mode, conditions.common.formats) as format}
   <span class="search-condition-pill">format: {format}<button type="button" aria-label={`Remove ${format} format`} onclick={() => removeFormat(format)}>×</button></span>
 {/each}
 {#if conditions.common.minBitrate}

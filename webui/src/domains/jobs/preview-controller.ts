@@ -1,3 +1,4 @@
+import { randomUUID } from '../../app/uuid';
 import { daemonApi, nestedPageSize, type DaemonApiClient } from '../../api/client';
 import type { Schema } from '../../api/types';
 import { sameWireInteger } from '../../api/types';
@@ -83,7 +84,7 @@ export class PreviewController {
     const request = unchanged ? previous : {
       revision: summary.revision,
       selection: { mode: selection.mode, refs },
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: randomUUID(),
       ...(overrides ? { subtreeOverrides: overrides } : {}),
     };
     this.commitRequest = request;
