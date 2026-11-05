@@ -22,14 +22,22 @@ public sealed record SearchRawResult
     public string Extension => ProjectionInput.Extension;
     public int? UploadSpeed => ProjectionInput.UploadSpeed;
     public bool? HasFreeUploadSlot => ProjectionInput.HasFreeUploadSlot;
+    public int? QueueLength => ProjectionInput.QueueLength;
+    public SearchResultVisibility Visibility => ProjectionInput.Visibility;
     public IReadOnlyList<FileAttributeSnapshot>? Attributes => ProjectionInput.Attributes;
     public DateTimeOffset ObservedAtUtc => ProjectionInput.ObservedAtUtc;
 
-    internal SearchRawResult(long sequence, int revision, SearchResponse response, Soulseek.File file, DateTimeOffset observedAtUtc)
+    internal SearchRawResult(
+        long sequence,
+        int revision,
+        SearchResponse response,
+        Soulseek.File file,
+        DateTimeOffset observedAtUtc,
+        SearchResultVisibility visibility = SearchResultVisibility.Public)
     {
         Response = response;
         File = file;
         ProjectionInput = SearchProjectionInput.FromLive(
-            sequence, revision, response, file, observedAtUtc);
+            sequence, revision, response, file, observedAtUtc, visibility);
     }
 }

@@ -94,13 +94,12 @@ public static class TooManyMegabytesAlbumLogRepro
         var settings = new DownloadSettings();
         settings.Extraction.Input = wishlistPath;
         settings.Extraction.InputType = InputType.List;
-        settings.Transfer.MaxStaleTime = 80_000;
+        settings.Search.MaxStaleTime = 80_000;
         settings.Search.NecessaryCond.Formats = ["flac", "mp3"];
         settings.Search.NecessaryCond.MinBitrate = 200;
         settings.Output.ParentDir = outputDir;
         settings.Output.NameFormat = "{foldername}/{filename}";
         settings.Output.WriteIndex = false;
-        settings.Output.HasConfiguredIndex = true;
 
         var engine = new DownloadEngine(
             engineSettings,

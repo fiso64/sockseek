@@ -111,25 +111,25 @@ namespace Tests.TrackSkipperTests
                 File.Delete(_tempPath);
         }
 
-        private M3uEditor CreateEditorWithSong(SongJob song)
+        private DownloadOutputFile CreateEditorWithSong(SongJob song)
         {
             var slj = new JobList();
-            slj.Jobs.Add(song);
+            slj.Add(song);
             var queue = new JobList();
-            queue.Jobs.Add(slj);
+            queue.Add(slj);
             File.WriteAllText(_tempPath, "");
-            var editor = new M3uEditor(_tempPath, queue, M3uOption.Index, true);
-            editor.Update();
+            var editor = new DownloadOutputFile(_tempPath, queue, OutputFileKind.Index, true);
+            editor.Refresh();
 
             // Load back via fresh editor so previousRunData is populated
             var slj2 = new JobList();
-            slj2.Jobs.Add(new SongJob(new SongQuery { Artist = song.Query.Artist, Title = song.Query.Title }));
+            slj2.Add(new SongJob(new SongQuery { Artist = song.Query.Artist, Title = song.Query.Title }));
             var queue2 = new JobList();
-            queue2.Jobs.Add(slj2);
-            return new M3uEditor(_tempPath, queue2, M3uOption.Index, true);
+            queue2.Add(slj2);
+            return new DownloadOutputFile(_tempPath, queue2, OutputFileKind.Index, true);
         }
 
-        private M3uEditor CreateEditorWithDoneSong(string artist, string title, string downloadPath)
+        private DownloadOutputFile CreateEditorWithDoneSong(string artist, string title, string downloadPath)
         {
             var original = new SongJob(new SongQuery { Artist = artist, Title = title });
             original.SetDone();
@@ -137,23 +137,23 @@ namespace Tests.TrackSkipperTests
             return CreateEditorWithSong(original);
         }
 
-        private M3uEditor CreateEditorWithDoneAlbum(string artist, string album, string downloadPath)
+        private DownloadOutputFile CreateEditorWithDoneAlbum(string artist, string album, string downloadPath)
         {
             var original = new AlbumJob(new AlbumQuery { Artist = artist, Album = album });
             original.SetDone(downloadPath);
             var queue = new JobList("albums", [original]);
             File.WriteAllText(_tempPath, "");
-            var editor = new M3uEditor(_tempPath, queue, M3uOption.Index, true);
+            var editor = new DownloadOutputFile(_tempPath, queue, OutputFileKind.Index, true);
             editor.NotifyJobDownloadPath(original.Id, downloadPath);
-            editor.Update();
+            editor.Refresh();
 
             var query = new AlbumJob(new AlbumQuery { Artist = artist, Album = album });
             var queue2 = new JobList("albums", [query]);
-            return new M3uEditor(_tempPath, queue2, M3uOption.Index, true);
+            return new DownloadOutputFile(_tempPath, queue2, OutputFileKind.Index, true);
         }
 
         private static TrackSkipperContext CreateContext(
-            M3uEditor editor,
+            DownloadOutputFile editor,
             SearchSettings search,
             bool skipCheckCond = false,
             bool skipCheckPrefCond = false)
@@ -211,9 +211,9 @@ namespace Tests.TrackSkipperTests
         {
             var slj = new JobList();
             var queue = new JobList();
-            queue.Jobs.Add(slj);
+            queue.Add(slj);
             File.WriteAllText(_tempPath, "");
-            var editor = new M3uEditor(_tempPath, queue, M3uOption.Index, true);
+            var editor = new DownloadOutputFile(_tempPath, queue, OutputFileKind.Index, true);
 
             var skipper = new IndexSkipper();
             var query = new SongJob(new SongQuery { Artist = "Nobody", Title = "Nothing" });

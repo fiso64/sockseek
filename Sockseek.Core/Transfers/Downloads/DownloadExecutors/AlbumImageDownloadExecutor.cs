@@ -25,7 +25,7 @@ internal sealed class AlbumImageDownloadExecutor
         var config = job.Config;
         long mSize = 0;
         int mCount = 0;
-        var option = config.Output.AlbumArtOption;
+        var option = config.Output.EffectiveAlbumArtOption;
 
         if (chosenFolder != null)
         {
@@ -88,21 +88,6 @@ internal sealed class AlbumImageDownloadExecutor
                 ? mSize == 0 || mSize < ls.Max(af => af.Candidate.Size) - 1024 * 50
                 : true;
 
-        bool SameCandidate(FileCandidate? left, FileCandidate right)
-            => left != null
-                && string.Equals(left.Username, right.Username, StringComparison.Ordinal)
-                && string.Equals(left.Filename, right.Filename, StringComparison.Ordinal);
-
-        SongJob ImageJobFor(AlbumFile file)
-        {
-            var existing = job.TrackJobs.Concat(result)
-                .FirstOrDefault(song => SameCandidate(song.ResolvedTarget, file.Candidate));
-            if (existing != null)
-                return existing;
-
-            return job.AddSupplementalTrackJob(file);
-        }
-
         while (imageFolders.Count > 0)
         {
             var imgs = imageFolders[0];
@@ -111,7 +96,7 @@ internal sealed class AlbumImageDownloadExecutor
                 ? job.BeginAlbumArtTransferAttempt(
                     job.Results.First(folder => imgs.All(folder.Files.Contains)),
                     imgs)
-                : imgs.Select(ImageJobFor).ToList();
+                : job.EnsureSupplementalTrackJobs(imgs);
 
             if (imageJobs.All(af => af.TerminalOutcome == JobTerminalOutcome.Succeeded
                     || (af.TerminalOutcome == JobTerminalOutcome.Skipped && af.SkipReason == JobSkipReason.AlreadyExists))

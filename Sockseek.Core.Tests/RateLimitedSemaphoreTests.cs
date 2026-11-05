@@ -22,7 +22,7 @@ public class RateLimitedSemaphoreTests
         Assert.IsTrue(called, "onWaiting should fire when the semaphore is exhausted.");
 
         cts.Cancel();
-        Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await task).GetAwaiter().GetResult();
+        Assert.ThrowsExactlyAsync<OperationCanceledException>(async () => await task).GetAwaiter().GetResult();
     }
 
     [TestMethod]
@@ -50,8 +50,8 @@ public class RateLimitedSemaphoreTests
         Assert.AreEqual(1, callCount, "onWaiting should only fire once per rate-limit window.");
 
         cts.Cancel();
-        Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await task1).GetAwaiter().GetResult();
-        Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await task2).GetAwaiter().GetResult();
+        Assert.ThrowsExactlyAsync<OperationCanceledException>(async () => await task1).GetAwaiter().GetResult();
+        Assert.ThrowsExactlyAsync<OperationCanceledException>(async () => await task2).GetAwaiter().GetResult();
     }
 
     [TestMethod]
@@ -74,7 +74,7 @@ public class RateLimitedSemaphoreTests
 
         // If the fix works, this will throw an OperationCanceledException immediately,
         // rather than hanging for 10 seconds.
-        var ex = await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await waitTask);
+        var ex = await Assert.ThrowsExactlyAsync<OperationCanceledException>(async () => await waitTask);
         Assert.IsNotNull(ex);
     }
 }

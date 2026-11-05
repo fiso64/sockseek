@@ -103,6 +103,47 @@ public sealed class PersistenceModeBoundaryTests
         }
     }
 
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task LocalPrintJobsUsesPlannerWithoutCreatingPreviewDatabase()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            "sockseek-local-planner-boundary-" + Guid.NewGuid());
+        string input = Path.Combine(root, "input.csv");
+        string dataDirectory = Path.Combine(root, "data");
+        Directory.CreateDirectory(root);
+        await File.WriteAllTextAsync(
+            input,
+            "artist,title\nLocal Artist,Local Title\n");
+        TextWriter originalOut = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            Console.SetOut(output);
+            var exit = await Sockseek.Cli.Program.MainCore([
+                input,
+                "--input-type", "csv",
+                "--print", "jobs",
+                "--no-config",
+                "--data-dir", dataDirectory,
+                "--no-progress",
+            ]);
+
+            Assert.AreEqual(Sockseek.Cli.Program.CliExitCode.Success, exit);
+            StringAssert.Contains(output.ToString(), "Local Artist");
+            StringAssert.Contains(output.ToString(), "Local Title");
+            Assert.IsFalse(Directory.Exists(dataDirectory));
+            Assert.IsFalse(Directory.EnumerateFiles(root, "*.db*", SearchOption.AllDirectories).Any());
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static bool IsPersistenceArtifact(string path)
     {
         string name = Path.GetFileName(path);

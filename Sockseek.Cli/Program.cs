@@ -80,6 +80,8 @@ internal static partial class Program
         CliSettings cliSettings;
         DaemonSettings daemonSettings;
         RemoteSettings remoteSettings;
+        ParsedInvocation invocation;
+        string configPath;
 
         // TODO [ARCHITECTURE]: Replace scattered CLI/server validation exception handling
         // with typed diagnostics carrying severity, exit-code class, output stream, and
@@ -87,10 +89,11 @@ internal static partial class Program
         // validation currently encode that policy in several catch/log branches.
         try
         {
-            (configFile, engineSettings, rootSettings, cliSettings, daemonSettings, remoteSettings) =
-                ConfigManager.LoadAndBindAll(bindArgs);
+            invocation = ConfigManager.ParseInvocation(bindArgs);
+            configPath = ConfigManager.GetConfigPath(invocation);
+            configFile = ConfigManager.Load(configPath);
+            (engineSettings, rootSettings, cliSettings, daemonSettings, remoteSettings) = ConfigManager.BindAll(configFile, invocation);
             ConfigManager.ApplyAutoProfileCliSettings(configFile, rootSettings, cliSettings);
-            ApplyMockFilesDefaults(engineSettings, rootSettings);
         }
         catch (Exception ex) when (ex is ArgumentException || ex.Message.StartsWith("Input error:"))
         {
@@ -98,7 +101,7 @@ internal static partial class Program
             return CliExitCode.UsageError;
         }
 
-        string? profileArg = ConfigManager.ExtractProfileName(bindArgs);
+        string? profileArg = invocation.ProfileName;
         if (profileArg != null)
         {
             var requestedProfiles = profileArg.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
@@ -143,6 +146,7 @@ internal static partial class Program
             }
         }
 
+        output.RouteLogsToError(cliSettings.ProgressJson || remoteSettings.Detach);
         using ILoggerFactory loggerFactory = output.CreateLoggerFactory(
             rootSettings.NonVerbosePrint ? LogLevel.Error : engineSettings.LogLevel,
             engineSettings.LogFilePath,
@@ -154,7 +158,7 @@ internal static partial class Program
         {
             try
             {
-                await RunDaemonAsync(bindArgs, configFile, engineSettings, rootSettings, daemonSettings);
+                await RunDaemonAsync(bindArgs, invocation, configFile, engineSettings, rootSettings, daemonSettings);
             }
             catch (ArgumentException ex)
             {
@@ -175,6 +179,11 @@ internal static partial class Program
             return CliExitCode.Success;
         }
 
+        if (remoteSettings.Detach && (!remoteSettings.IsEnabled || cliSettings.InteractiveMode))
+        {
+            Write(output, LogLevel.Error, "Input error: --detach requires --remote and cannot be used with interactive mode.");
+            return CliExitCode.UsageError;
+        }
         LogCliSessionStart(logger, remoteSettings);
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -218,7 +227,7 @@ internal static partial class Program
             try
             {
                 return await RunRemoteAsync(
-                    bindArgs,
+                    invocation,
                     engineSettings,
                     rootSettings,
                     cliSettings,
@@ -269,12 +278,7 @@ internal static partial class Program
         IJobSettingsResolver jobSettingsResolver;
         try
         {
-            jobSettingsResolver = ConfigManager.CreateJobSettingsResolver(
-                configFile,
-                bindArgs,
-                cliSettings);
-            if (!string.IsNullOrEmpty(engineSettings.MockFilesDir))
-                jobSettingsResolver = new MockFilesJobSettingsResolver(jobSettingsResolver);
+            jobSettingsResolver = ConfigManager.CreateJobSettingsResolver(configFile, invocation, cliSettings, engine: engineSettings);
         }
         catch (Exception ex) when (ex is ArgumentException || ex.Message.StartsWith("Input error:"))
         {
@@ -302,11 +306,11 @@ internal static partial class Program
             localSubmissionOptionsResolver,
             loggerFactory: loggerFactory,
             sensitiveOutput: new CliSensitiveOutput(output));
-        var backend = new LocalCliBackend(
+        await using var backend = new LocalCliBackend(
             engine,
             rootSettings,
             localSubmissionOptionsResolver,
-            ConfigManager.CreateCliDownloadSettingsPatch(bindArgs));
+            DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings));
 
         CliProgressReporter? cliReporter = null;
         if (cliSettings.ProgressJson)
@@ -323,8 +327,8 @@ internal static partial class Program
         backend.ActivityReceived += activity =>
         {
             if (activity.Payload is TrackBatchResolvedActivityDto batch
-                && batch.PrintOption == PrintOption.None
-                && ShouldPrintHumanBatchPreview(batch.PrintOption)
+                && batch.PrintOption == ServerPrintOption.None
+                && ShouldPrintHumanBatchPreview(batch.PrintOption.ToCore())
                 && cliReporter?.UsesLiveRendering != true)
             {
                 PrintCompactTrackBatchResolved(activity, batch, output);
@@ -385,7 +389,9 @@ internal static partial class Program
             {
                 cliReporter?.Stop(printSummary: hasDownloadableJobs);
                 cliReporter = null;
-                PrintOutputRenderer.PrintRequestedOutput(engine.Queue);
+                PrintOutputRenderer.PrintRequestedOutput(
+                    engine.Queue,
+                    engine.GetUserSuccessCounts);
             }
 
             var exitCode = LogCliSessionExit(logger, DetermineLocalExitCode(engine.Queue));
@@ -423,24 +429,9 @@ internal static partial class Program
     internal static bool ArgsRequestProgressJson(IReadOnlyList<string> args)
         => CliOutputController.ArgsRequestProgressJson(args);
 
-    private static void ApplyMockFilesDefaults(EngineSettings engineSettings, DownloadSettings downloadSettings)
-    {
-        if (!string.IsNullOrEmpty(engineSettings.MockFilesDir))
-            downloadSettings.Search.MinSharesAggregate = 1;
-    }
-
-    private sealed class MockFilesJobSettingsResolver(IJobSettingsResolver inner) : IJobSettingsResolver
-    {
-        public DownloadSettings Resolve(DownloadSettings inherited, Job job)
-        {
-            var settings = inner.Resolve(inherited, job);
-            settings.Search.MinSharesAggregate = 1;
-            return settings;
-        }
-    }
 
     private static async Task<CliExitCode> RunRemoteAsync(
-        string[] args,
+        ParsedInvocation invocation,
         EngineSettings engineSettings,
         DownloadSettings rootSettings,
         CliSettings cliSettings,
@@ -449,10 +440,25 @@ internal static partial class Program
         ILogger logger,
         CancellationTokenSource cts)
     {
-        if (string.IsNullOrWhiteSpace(rootSettings.Extraction.Input))
+        var submissionOptions = BuildRemoteSubmissionOptions(invocation, cliSettings);
+        var extractRequest = BuildRemoteExtractRequest(rootSettings, submissionOptions);
+        if (string.IsNullOrWhiteSpace(extractRequest.Input) && submissionOptions.ProfileNames is not { Count: > 0 })
         {
             Write(output, LogLevel.Error, "Remote mode requires an input.");
             return CliExitCode.UsageError;
+        }
+
+        if (remoteSettings.Detach)
+        {
+            using var http = SockseekApiClient.CreateHttpClient(remoteSettings.ServerUrl!);
+            var api = new SockseekApiClient(http);
+            extractRequest = await RemoteCliBackend.PrepareExtractRequestAsync(api, extractRequest, cts.Token);
+            var detached = await api.SubmitExtractJobAsync(extractRequest, cts.Token);
+            if (cliSettings.ProgressJson)
+                new JsonStreamProgressReporter(Console.Out).ReportWorkflowSubmitted(detached.WorkflowId);
+            else
+                Console.WriteLine(detached.WorkflowId);
+            return LogCliSessionExit(logger, CliExitCode.Success, remoteSettings);
         }
 
         await using var backend = new RemoteCliBackend(remoteSettings.ServerUrl!);
@@ -474,8 +480,8 @@ internal static partial class Program
         backend.ActivityReceived += activity =>
         {
             if (activity.Payload is TrackBatchResolvedActivityDto batch
-                && batch.PrintOption == PrintOption.None
-                && ShouldPrintHumanBatchPreview(batch.PrintOption)
+                && batch.PrintOption == ServerPrintOption.None
+                && ShouldPrintHumanBatchPreview(batch.PrintOption.ToCore())
                 && cliReporter?.UsesLiveRendering != true)
             {
                 PrintCompactTrackBatchResolved(activity, batch, output);
@@ -484,15 +490,22 @@ internal static partial class Program
 
         try
         {
+            if (rootSettings.PrintJobs)
+            {
+                CliExitCode previewExit = await PrintRemoteJobPreviewAsync(
+                    backend,
+                    extractRequest,
+                    rootSettings.PrintOption,
+                    cts.Token).ConfigureAwait(false);
+                return LogCliSessionExit(logger, previewExit, remoteSettings);
+            }
+
             Guid workflowId = Guid.NewGuid();
             await backend.SubscribeWorkflowAsync(workflowId, cts.Token);
             using var terminalUpdateObserver = new WorkflowTerminalUpdateObserver(backend, workflowId);
 
-            var options = BuildRemoteSubmissionOptions(args, cliSettings) with { WorkflowId = workflowId };
-            var request = new SubmitExtractJobRequestDto(
-                rootSettings.Extraction.Input,
-                rootSettings.Extraction.InputType.ToString(),
-                Options: options);
+            var options = submissionOptions with { WorkflowId = workflowId };
+            var request = extractRequest with { Options = options };
 
             InteractiveCliCoordinator? interactiveCoordinator = null;
             JobSummaryDto submission;
@@ -584,6 +597,84 @@ internal static partial class Program
             await cts.CancelAsync();
             cliReporter?.Stop();
         }
+    }
+
+    internal static async Task<CliExitCode> PrintRemoteJobPreviewAsync(
+        RemoteCliBackend backend,
+        SubmitExtractJobRequestDto request,
+        PrintOption printOption,
+        CancellationToken ct,
+        TextWriter? output = null)
+    {
+        CreateJobPreviewResponseDto created = await backend.CreateJobPreviewAsync(request, ct)
+            .ConfigureAwait(false);
+        JobPreviewSummaryDto preview = await backend.WaitForJobPreviewAsync(
+            created.Preview.PreviewId,
+            ct).ConfigureAwait(false);
+        if (preview.State is JobPreviewState.Expired or JobPreviewState.Committing
+            or JobPreviewState.Committed)
+        {
+            throw new InvalidOperationException(
+                $"Job Preview entered unexpected state '{preview.State}' before it could be printed.");
+        }
+
+        using var outputScope = output is null ? null : Printing.RedirectOutput(output);
+        JobPrintFormatter.PrintHeader(preview.SelectableNodeCount);
+        int printed = 0;
+        await foreach (JobPreviewNodeDto node in backend.GetJobPreviewNodesAsync(
+            preview.PreviewId,
+            ct).ConfigureAwait(false))
+        {
+            if (!node.IsSelectable || ToPreviewPrintJob(node) is not { } job)
+                continue;
+            JobPrintFormatter.PrintJob(job, printOption, separate: printed > 0);
+            printed++;
+        }
+
+        if (printed != preview.SelectableNodeCount)
+        {
+            throw new InvalidOperationException(
+                "The daemon returned a Job Preview node kind that this CLI cannot render.");
+        }
+        if (preview.FailedNodeCount > 0)
+        {
+            Printing.WriteLine();
+            Printing.WriteLine(
+                $"Preview contains {preview.FailedNodeCount} failed planning "
+                + (preview.FailedNodeCount == 1 ? "entry." : "entries."));
+        }
+        return preview.State == JobPreviewState.Ready
+            ? CliExitCode.Success
+            : CliExitCode.WorkFailed;
+    }
+
+    private static Job? ToPreviewPrintJob(JobPreviewNodeDto node)
+    {
+        Job? job = node.Kind switch
+        {
+            ServerJobKind.Search when node.AlbumQuery != null =>
+                new SearchJob(ToAlbumQuery(node.AlbumQuery)),
+            ServerJobKind.Search when node.SongQuery != null =>
+                new SearchJob(ToSongQuery(node.SongQuery)),
+            ServerJobKind.Search when !string.IsNullOrWhiteSpace(node.QueryText) =>
+                new SearchJob(node.QueryText),
+            ServerJobKind.Song when node.SongQuery != null =>
+                new SongJob(ToSongQuery(node.SongQuery)),
+            ServerJobKind.Album when node.AlbumQuery != null =>
+                new AlbumJob(ToAlbumQuery(node.AlbumQuery)),
+            ServerJobKind.Aggregate when node.SongQuery != null =>
+                new AggregateJob(ToSongQuery(node.SongQuery)),
+            ServerJobKind.AlbumAggregate when node.AlbumQuery != null =>
+                new AlbumAggregateJob(ToAlbumQuery(node.AlbumQuery)),
+            _ => null,
+        };
+        if (job != null)
+        {
+            job.ExtractorInfo = node.ExtractorInfo;
+            if (!string.IsNullOrWhiteSpace(node.ItemName))
+                job.ItemName = node.ItemName;
+        }
+        return job;
     }
 
     private static async Task<CliExitCode> RunRemoteMonitorAsync(
@@ -1277,9 +1368,8 @@ internal static partial class Program
                 => effectiveSettings.PrintResults
                     ? await ToAggregateResultsJobAsync(
                         backend,
+                        detail.Summary.JobId,
                         aggregate,
-                        ChildrenOf(detail, details).Select(child => child.Summary).ToArray(),
-                        details,
                         ct)
                     : ToAggregateJob(aggregate, ChildrenOf(detail, details)),
 
@@ -1287,9 +1377,8 @@ internal static partial class Program
                 => effectiveSettings.PrintResults
                     ? await ToAlbumAggregateResultsJobAsync(
                         backend,
+                        detail.Summary.JobId,
                         albumAggregate,
-                        ChildrenOf(detail, details).Select(child => child.Summary).ToArray(),
-                        details,
                         ct)
                     : ToAlbumAggregateJob(albumAggregate, detail.Summary),
 
@@ -1353,28 +1442,33 @@ internal static partial class Program
         SearchJobPayloadDto search,
         CancellationToken ct)
     {
-        if (search.DefaultFolderProjection != null)
+        if (search.DefaultProjection == ServerSearchDefaultProjectionKind.Album
+            && search.AlbumQuery != null)
         {
             var folders = await backend.GetFolderResultsAsync(
                 searchJobId,
-                search.DefaultFolderProjection with { IncludeFiles = true },
+                new FolderSearchProjectionRequestDto(
+                    search.AlbumQuery,
+                    IncludeFiles: true),
                 ct);
             return folders == null
                 ? null
-                : new AlbumJob(ToAlbumQuery(search.DefaultFolderProjection.AlbumQuery))
+                : new AlbumJob(ToAlbumQuery(search.AlbumQuery))
                 {
-                    Results = folders.Items.Select(ToAlbumFolder).ToList(),
+                    Results = folders.Items.Select(CliSearchProjectionMapper.ToCore).ToList(),
                 };
         }
 
-        var fileProjection = search.DefaultFileProjection
-            ?? new FileSearchProjectionRequestDto(new SongQueryDto(null, search.QueryText, null, null, null, false));
+        var fileProjection = new FileSearchProjectionRequestDto(
+            search.SongQuery
+                ?? new SongQueryDto(null, search.QueryText, null, null, null, false),
+            search.IncludeFullResults);
         var files = await backend.GetFileResultsAsync(searchJobId, fileProjection, ct);
         return files == null
             ? null
             : new SongJob(ToSongQuery(fileProjection.SongQuery ?? new SongQueryDto(null, search.QueryText, null, null, null, false)))
             {
-                Candidates = files.Items.Select(ToFileCandidate).ToList(),
+                Candidates = files.Items.Select(CliSearchProjectionMapper.ToCore).ToList(),
             };
     }
 
@@ -1384,9 +1478,10 @@ internal static partial class Program
         SongJobPayloadDto song,
         CancellationToken ct)
     {
-        var files = await backend.GetFileResultsAsync(songJobId, ct);
+        var files = await backend.GetFileResultsAsync(songJobId,
+            new FileSearchProjectionRequestDto(IncludeFullResults: true), ct);
         var job = ToSongJob(song);
-        job.Candidates = files?.Items.Select(ToFileCandidate).ToList();
+        job.Candidates = files?.Items.Select(CliSearchProjectionMapper.ToCore).ToList();
         return job;
     }
 
@@ -1399,74 +1494,65 @@ internal static partial class Program
     {
         var folders = await backend.GetFolderResultsAsync(albumJobId, includeFiles: true, ct);
         var job = ToAlbumJob(album, summary);
-        job.Results = folders?.Items.Select(ToAlbumFolder).ToList() ?? [];
+        job.Results = folders?.Items.Select(CliSearchProjectionMapper.ToCore).ToList() ?? [];
         return job;
     }
 
     private static async Task<Job?> ToAggregateResultsJobAsync(
         ICliBackend backend,
+        Guid aggregateJobId,
         AggregateJobPayloadDto aggregate,
-        IReadOnlyList<JobSummaryDto> children,
-        IReadOnlyDictionary<Guid, JobDetailDto> details,
         CancellationToken ct)
     {
-        var job = new AggregateJob(ToSongQuery(aggregate.Query));
-        foreach (var summary in children.Where(child => child.Kind == ServerJobKind.Song).OrderBy(child => child.DisplayId))
+        // Print-only discovery does not execute/register child jobs. Read the
+        // same source projection as the UI instead of depending on those jobs.
+        var results = await backend.GetAggregateTrackResultsAsync(
+            aggregateJobId,
+            new AggregateTrackProjectionRequestDto(aggregate.Query, IncludeCandidates: true),
+            ct);
+        return results == null ? null : new AggregateJob(ToSongQuery(aggregate.Query))
         {
-            if (!details.TryGetValue(summary.JobId, out var detail))
-                detail = await backend.GetJobDetailAsync(summary.JobId, ct);
-
-            if (detail?.Payload is not SongJobPayloadDto payload)
-                continue;
-
-            var song = ToSongJob(payload);
-            if (payload.CandidateCount.GetValueOrDefault() > 0)
+            Songs = results.Items.Select(result => new SongJob(ToSongQuery(result.Query))
             {
-                var files = await backend.GetFileResultsAsync(summary.JobId, ct);
-                song.Candidates = files?.Items.Select(ToFileCandidate).ToList();
-            }
-
-            job.Songs.Add(song);
-        }
-
-        return job;
+                ItemName = result.ItemName,
+                Candidates = result.Candidates?.Select(CliSearchProjectionMapper.ToCore).ToList(),
+            }).ToList(),
+        };
     }
 
     private static async Task<Job?> ToAlbumAggregateResultsJobAsync(
         ICliBackend backend,
+        Guid aggregateJobId,
         AlbumAggregateJobPayloadDto aggregate,
-        IReadOnlyList<JobSummaryDto> children,
-        IReadOnlyDictionary<Guid, JobDetailDto> details,
         CancellationToken ct)
     {
-        var job = new AlbumAggregateJob(ToAlbumQuery(aggregate.Query));
-        foreach (var summary in children.Where(child => child.Kind == ServerJobKind.Album).OrderBy(child => child.DisplayId))
+        var results = await backend.GetAggregateAlbumResultsAsync(
+            aggregateJobId,
+            new AggregateAlbumProjectionRequestDto(aggregate.Query, IncludeFolders: true),
+            ct);
+        return results == null ? null : new AlbumAggregateJob(ToAlbumQuery(aggregate.Query))
         {
-            if (!details.TryGetValue(summary.JobId, out var detail))
-                detail = await backend.GetJobDetailAsync(summary.JobId, ct);
-
-            if (detail?.Payload is not AlbumJobPayloadDto payload)
-                continue;
-
-            if (await ToAlbumResultsJobAsync(backend, summary.JobId, payload, summary, ct) is AlbumJob album)
-                job.Albums.Add(album);
-        }
-
-        return job;
+            Albums = results.Items.Select(result => new AlbumJob(ToAlbumQuery(result.Query))
+            {
+                ItemName = result.ItemName,
+                Results = result.Folders?.Select(CliSearchProjectionMapper.ToCore).ToList() ?? [],
+            }).ToList(),
+        };
     }
 
     private static SearchJob ToSearchJob(SearchJobPayloadDto search, JobSummaryDto summary)
     {
         SearchJob job;
-        if (search.DefaultFolderProjection != null)
+        if (search.DefaultProjection == ServerSearchDefaultProjectionKind.Album
+            && search.AlbumQuery != null)
         {
-            job = new SearchJob(ToAlbumQuery(search.DefaultFolderProjection.AlbumQuery));
+            job = new SearchJob(ToAlbumQuery(search.AlbumQuery));
         }
-        else if (search.DefaultFileProjection?.SongQuery != null)
+        else if (search.SongQuery != null)
         {
             job = new SearchJob(
-                ToSongQuery(search.DefaultFileProjection.SongQuery),
-                search.DefaultFileProjection.IncludeFullResults);
+                ToSongQuery(search.SongQuery),
+                search.IncludeFullResults);
         }
         else
         {
@@ -1496,8 +1582,8 @@ internal static partial class Program
     private static DownloadSettings RemotePrintSettings(DownloadSettings inherited, JobSummaryDto summary)
     {
         var settings = SettingsCloner.Clone(inherited);
-        if (summary.PrintOption != PrintOption.None)
-            settings.PrintOption = summary.PrintOption;
+        if (summary.PrintOption != ServerPrintOption.None)
+            settings.PrintOption = summary.PrintOption.ToCore();
         return settings;
     }
 
@@ -1559,15 +1645,29 @@ internal static partial class Program
     internal static SubmissionOptionsDto BuildRemoteSubmissionOptions(
         string[] args,
         CliSettings cliSettings)
+        => BuildRemoteSubmissionOptions(ConfigManager.ParseInvocation(args), cliSettings);
+
+    private static SubmissionOptionsDto BuildRemoteSubmissionOptions(ParsedInvocation invocation, CliSettings cliSettings)
         => new(
-            ProfileNames: SplitProfileNames(ConfigManager.ExtractProfileName(args)),
+            ProfileNames: SplitProfileNames(invocation.ProfileName),
             ProfileContext: new Dictionary<string, bool>
             {
                 ["interactive"] = cliSettings.InteractiveMode,
                 ["progress-json"] = cliSettings.ProgressJson,
                 ["no-progress"] = cliSettings.NoProgress,
             },
-            DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch(args));
+            DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings));
+
+    private static SubmitExtractJobRequestDto BuildRemoteExtractRequest(DownloadSettings rootSettings, SubmissionOptionsDto options)
+    {
+        if (options.ProfileNames is not { Count: > 0 })
+            return new(rootSettings.Extraction.Input, rootSettings.Extraction.InputType.ToString(), Options: options);
+
+        // Named remote profiles are resolved by the daemon. Forward only CLI input overrides.
+        var input = options.DownloadSettings?.Extraction?.Input;
+        var inputType = options.DownloadSettings?.Extraction?.InputType?.ToString();
+        return new(input, inputType, Options: options);
+    }
 
     private static string[]? SplitProfileNames(string? names)
         => string.IsNullOrWhiteSpace(names)
@@ -1593,6 +1693,7 @@ internal static partial class Program
 
     private static async Task RunDaemonAsync(
         string[] args,
+        ParsedInvocation invocation,
         ConfigFile configFile,
         EngineSettings engineSettings,
         DownloadSettings rootSettings,
@@ -1603,8 +1704,10 @@ internal static partial class Program
         var options = new ServerOptions
         {
             Engine = CreateDaemonEngineSettings(engineSettings),
-            DefaultDownload = SettingsCloner.Clone(rootSettings),
-            LaunchDownloadSettings = ConfigManager.CreateCliDownloadSettingsPatch(args),
+            LaunchDownloadSettings = DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings),
+            LaunchProfileNames = invocation.ProfileName?
+                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                ?? [],
             Profiles = ConfigManager.CreateProfileCatalog(configFile),
             ConfigDir = configFile.ConfigDir,
             Persistence = new ServerPersistenceOptions
@@ -1622,6 +1725,8 @@ internal static partial class Program
             },
         };
 
+        // A published CLI carries the WebUI beside the executable. Resolve
+        // static assets there even when launched from a different directory.
         var app = ServerHost.Build(args, options, url);
         var logger = app.Services.GetRequiredService<ILoggerFactory>()
             .CreateLogger("Sockseek.Cli.Daemon");
@@ -1730,7 +1835,7 @@ internal static partial class Program
         else if (!string.IsNullOrWhiteSpace(song.ResolvedUsername)
             && !string.IsNullOrWhiteSpace(song.ResolvedFilename))
         {
-            job.ResolvedTarget = ToFileCandidate(new FileCandidateDto(
+            job.ResolvedTarget = CliSearchProjectionMapper.ToCore(new FileCandidateDto(
                 new FileCandidateRefDto(song.ResolvedUsername, song.ResolvedFilename),
                 song.ResolvedUsername,
                 song.ResolvedFilename,
@@ -1904,23 +2009,6 @@ internal static partial class Program
                 ? coreSource
                 : JobCancellationSource.InternalEngine;
 
-    private static AlbumFolder ToAlbumFolder(AlbumFolderDto folder)
-        => new(
-            folder.Username,
-            folder.FolderPath,
-            folder.Files?.Select(ToAlbumFile).ToList() ?? [])
-        {
-            IsFullyRetrieved = folder.IsFullyRetrieved,
-        };
-
-    private static AlbumFile ToAlbumFile(FileCandidateDto file)
-    {
-        var candidate = ToFileCandidate(file);
-        return AlbumFile.WithLazyQuery(
-            () => Searcher.InferSongQuery(candidate.Filename, new SongQuery()),
-            candidate);
-    }
-
     private static SongQuery ToSongQuery(SongQueryDto query)
         => new()
         {
@@ -1941,23 +2029,6 @@ internal static partial class Program
             URI = query.Uri ?? "",
             ArtistMaybeWrong = query.ArtistMaybeWrong,
         };
-
-    private static FileCandidate ToFileCandidate(FileCandidateDto candidate)
-        => new(
-            new PeerFileTarget(
-                new PeerFileIdentity(candidate.Username, candidate.Filename),
-                candidate.File.Size < 0 ? null : candidate.File.Size,
-                candidate.File.Extension ?? Path.GetExtension(candidate.Filename),
-                candidate.File.BitRate,
-                candidate.File.BitDepth,
-                candidate.File.SampleRate,
-                candidate.File.Length,
-                candidate.File.Attributes?.Select(x => new FileAttributeSnapshot(x.Type, x.Value)).ToList()),
-            new SearchPeerSnapshot(
-                candidate.Username,
-                responseFileCount: 0,
-                candidate.Peer.UploadSpeed,
-                candidate.Peer.HasFreeUploadSlot));
 
     private static void Write(
         CliOutputController output,

@@ -10,8 +10,12 @@ namespace Sockseek.Core.Services;
 public sealed class SearchSession
 {
     private readonly object admissionGate = new();
+    private readonly object publicationGate = new();
+    private readonly Queue<(List<SearchRawResult>? Results, CoreChange? Change)> publications = [];
+    private bool publishing;
     private readonly List<SearchRawResult> rawResults = [];
-    private readonly HashSet<PeerPathKey> resultKeys = [];
+    private readonly HashSet<(PeerPathKey Path, SearchResultVisibility Visibility)> resultKeys = [];
+    private readonly HashSet<string> observedPeers = new(StringComparer.Ordinal);
     private TimeProvider timeProvider;
     private int _revision;
     private int _resultCount;
@@ -22,8 +26,10 @@ public sealed class SearchSession
     public Guid JobId { get; }
     public string QueryText { get; }
     public int ResultCount => Volatile.Read(ref _resultCount);
+    public int PublicFileCount => ResultCount;
     public int Revision => Volatile.Read(ref _revision);
     public int LockedFileCount => Volatile.Read(ref _lockedFileCount);
+    public int ObservedPeerCount { get { lock (admissionGate) return observedPeers.Count; } }
     public bool IsComplete => Volatile.Read(ref _isComplete) != 0;
 
     public event Action<SearchRawResult>? RawResultReceived;
@@ -33,6 +39,7 @@ public sealed class SearchSession
     public event Action<CoreChange>? ChangePublished;
     public event Action? Completed;
     internal event Action<string, Exception>? ObserverFailed;
+    internal event Action<SearchSession>? ResponseAdded;
 
     public SearchSession()
         : this(Guid.Empty)
@@ -60,15 +67,41 @@ public sealed class SearchSession
     internal IReadOnlyCollection<(SearchResponse Response, Soulseek.File File)> Snapshot()
     {
         lock (admissionGate)
-            return rawResults.Select(result => (result.Response, result.File)).ToList();
+            return rawResults
+                .Where(result => result.Visibility == SearchResultVisibility.Public)
+                .Select(result => (result.Response, result.File))
+                .ToList();
     }
 
     public IReadOnlyList<SearchRawResult> RawSnapshot(long afterSequence = 0)
+        => RawSnapshot(afterSequence, int.MaxValue);
+
+    public IReadOnlyList<SearchRawResult> RawSnapshot(long afterSequence, int limit)
     {
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit));
         lock (admissionGate)
-            return rawResults
-                .Where(x => x.Sequence > afterSequence)
-                .ToList();
+        {
+            // Admission appends a contiguous, one-based sequence across both
+            // public and locked files. A tail read need not scan the old prefix.
+            int start = (int)Math.Clamp(afterSequence, 0, rawResults.Count);
+            return rawResults.GetRange(start, Math.Min(limit, rawResults.Count - start));
+        }
+    }
+
+    // Metadata and this bounded prefix are captured under the same admission
+    // lock, so an arriving completion cannot finish a page that missed its rows.
+    public (IReadOnlyList<SearchProjectionInput> Items, int Revision, bool IsComplete) ReadProjectionPage(long afterSequence, int limit)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        lock (admissionGate)
+        {
+            int start = (int)Math.Clamp(afterSequence, 0, rawResults.Count);
+            int count = Math.Min(limit, rawResults.Count - start);
+            var inputs = new SearchProjectionInput[count];
+            for (int i = 0; i < count; i++) inputs[i] = rawResults[start + i].ProjectionInput;
+            return (inputs, _revision, _isComplete != 0 && start + count == rawResults.Count);
+        }
     }
 
     public async IAsyncEnumerable<SearchRawResult> ReadRawResultsAsync(
@@ -130,65 +163,106 @@ public sealed class SearchSession
 
     internal void AddResponse(SearchResponse response)
     {
-        lock (admissionGate)
+        // Serialize result/completion notifications, including slow consumers,
+        // independently of the short lock protecting readable session state.
+        lock (publicationGate)
         {
-            if (_isComplete != 0)
-                return;
-
-            _lockedFileCount += response.LockedFileCount;
-
-            if (response.Files.Count == 0)
-                return;
-
-            var added = new List<SearchResultSnapshot>();
-            int revision = _revision;
-            foreach (var file in response.Files)
+            var added = new List<SearchRawResult>();
+            int revision;
+            lock (admissionGate)
             {
-                if (resultKeys.Add(new PeerPathKey(response.Username, file.Filename)))
-                {
-                    revision = ++_revision;
-                    long sequence = ++_sequence;
-                    var rawResult = new SearchRawResult(sequence, revision, response, file, timeProvider.GetUtcNow());
-                    rawResults.Add(rawResult);
-                    _resultCount++;
-                    added.Add(CoreSnapshotFactory.CreateSearchResult(rawResult));
+                if (_isComplete != 0)
+                    return;
+                if (response.Files.Count == 0 && response.LockedFiles.Count == 0)
+                    return;
 
-                    InvokeObservers(RawResultReceived, rawResult, nameof(RawResultReceived));
-                    InvokeObservers(RawResultAdded, rawResult, nameof(RawResultAdded));
+                revision = _revision;
+                // Use the same millisecond precision in live and retained facts.
+                DateTimeOffset observedAtUtc = DateTimeOffset.FromUnixTimeMilliseconds(timeProvider.GetUtcNow().ToUnixTimeMilliseconds());
+                AddFiles(response.Files, SearchResultVisibility.Public);
+                AddFiles(response.LockedFiles, SearchResultVisibility.Locked);
+
+                void AddFiles(
+                    IReadOnlyCollection<Soulseek.File> files,
+                    SearchResultVisibility visibility)
+                {
+                    foreach (var file in files)
+                    {
+                        if (!resultKeys.Add((new PeerPathKey(response.Username, file.Filename), visibility)))
+                            continue;
+                        revision = ++_revision;
+                        var rawResult = new SearchRawResult(++_sequence, revision, response,
+                            file, observedAtUtc, visibility);
+                        rawResults.Add(rawResult);
+                        added.Add(rawResult);
+                        if (visibility == SearchResultVisibility.Public)
+                            _resultCount++;
+                        else
+                            _lockedFileCount++;
+                        observedPeers.Add(response.Username);
+                    }
                 }
             }
 
-            if (added.Count > 0)
-            {
-                Publish(new SearchResultsAddedChange(
-                    CoreChangeSequencer.Next(),
-                    timeProvider.GetUtcNow(),
-                    JobId,
-                    revision,
-                    SnapshotCollections.Freeze(added)));
-            }
+            SearchResultsAddedChange? change = added.Count > 0
+                ? new SearchResultsAddedChange(
+                    CoreChangeSequencer.Next(), timeProvider.GetUtcNow(), JobId, revision,
+                    SnapshotCollections.Freeze(added.Select(result => result.ProjectionInput)))
+                : null;
+            publications.Enqueue((added, change));
+            PublishPending();
         }
     }
 
     public void Complete()
     {
-        lock (admissionGate)
+        lock (publicationGate)
         {
-            if (_isComplete != 0)
-                return;
-
-            _isComplete = 1;
-            int completionRevision = ++_revision;
-            Publish(new SearchCompletedChange(
-                CoreChangeSequencer.Next(),
-                timeProvider.GetUtcNow(),
-                JobId,
-                completionRevision,
-                QueryText,
-                _resultCount,
-                _lockedFileCount));
-            InvokeObservers(Completed, nameof(Completed));
+            SearchCompletedChange change;
+            lock (admissionGate)
+            {
+                if (_isComplete != 0)
+                    return;
+                _isComplete = 1;
+                change = new SearchCompletedChange(
+                    CoreChangeSequencer.Next(), timeProvider.GetUtcNow(), JobId, ++_revision,
+                    QueryText, _resultCount, _lockedFileCount, observedPeers.Count);
+            }
+            publications.Enqueue((null, change));
+            PublishPending();
         }
+    }
+
+    // publicationGate serializes threads but its monitor is reentrant. An observer
+    // may admit another response or complete the search: queue those notifications
+    // behind the entire current response, including its remaining subscribers.
+    // Otherwise a cursor/completion can overtake files that readers then skip.
+    // Drain inline without tasks or per-file queue entries; readable state still
+    // uses the separate, short admissionGate.
+    private void PublishPending()
+    {
+        if (publishing) return;
+        publishing = true;
+        try
+        {
+            while (publications.TryDequeue(out var publication))
+            {
+                if (publication.Results is { } results)
+                {
+                    foreach (SearchRawResult result in results)
+                    {
+                        InvokeObservers(RawResultReceived, result, nameof(RawResultReceived));
+                        InvokeObservers(RawResultAdded, result, nameof(RawResultAdded));
+                    }
+                }
+                if (publication.Change is { } change) Publish(change);
+                if (publication.Results is not null)
+                    InvokeObservers(ResponseAdded, this, nameof(ResponseAdded));
+                else
+                    InvokeObservers(Completed, nameof(Completed));
+            }
+        }
+        finally { publishing = false; }
     }
 
     private void Publish(CoreChange change)
@@ -211,7 +285,7 @@ public sealed class SearchSession
         if (observers == null)
             return;
 
-        foreach (Action<T> observer in observers.GetInvocationList())
+        foreach (Action<T> observer in Delegate.EnumerateInvocationList(observers))
         {
             try
             {
@@ -229,7 +303,7 @@ public sealed class SearchSession
         if (observers == null)
             return;
 
-        foreach (Action observer in observers.GetInvocationList())
+        foreach (Action observer in Delegate.EnumerateInvocationList(observers))
         {
             try
             {
@@ -247,7 +321,7 @@ public sealed class SearchSession
         if (ObserverFailed is null)
             return;
 
-        foreach (Action<string, Exception> observer in ObserverFailed.GetInvocationList())
+        foreach (Action<string, Exception> observer in Delegate.EnumerateInvocationList(ObserverFailed))
         {
             try { observer(eventName, exception); }
             catch { /* Observer-failure reporting must not affect search domain work. */ }

@@ -7,9 +7,6 @@ namespace Sockseek.Core.Chat;
 public static class ChatLimits
 {
     public const int MaximumFailureReasonLength = 2_048;
-    public const int MaximumPageSize = 200;
-    public const int DefaultPageSize = 100;
-    public const int LiveMessageTailSize = 100;
     public const int MaximumDesiredRooms = 100;
     public const int MaximumRoomMembers = 20_000;
     public const int MaximumRoomOperators = 1_000;
@@ -163,12 +160,19 @@ public static class ChatIdentity
     public static string NormalizeRoom(string roomName)
     {
         ArgumentNullException.ThrowIfNull(roomName);
-        string normalized = roomName.Trim().Normalize(NormalizationForm.FormC);
+        string normalized = roomName.Trim();
         if (normalized.Length == 0)
             throw new ArgumentException("Input error: Room name cannot be empty.", nameof(roomName));
-        if (normalized.Any(char.IsControl))
-            throw new ArgumentException("Input error: Room name cannot contain control characters.", nameof(roomName));
-        EnsureWellFormedUtf16(normalized, nameof(roomName));
+        // Server code 14 rejects these names via a private message rather than
+        // a failed join response. Validate before saving intent or waiting for a
+        // join that cannot succeed. Do not replace characters and join another room.
+        // https://nicotine-plus.org/doc/SLSKPROTOCOL.html#server-code-14
+        if (normalized.Length > 24)
+            throw new ArgumentException("Input error: Soulseek room names cannot exceed 24 characters.", nameof(roomName));
+        if (normalized.Any(c => c < ' ' || c > '~'))
+            throw new ArgumentException("Input error: Soulseek room names must contain only printable ASCII characters.", nameof(roomName));
+        if (normalized.Contains("  ", StringComparison.Ordinal))
+            throw new ArgumentException("Input error: Soulseek room names cannot contain consecutive spaces.", nameof(roomName));
         return normalized;
     }
 
@@ -183,10 +187,22 @@ public static class ChatIdentity
         return body;
     }
 
+    public static string ValidateOutgoingMessage(string body)
+    {
+        ValidateMessage(body);
+        // The Soulseek server rejects outgoing private and room messages with
+        // CR/LF, without a sender-visible failure. Incoming server messages may
+        // contain line breaks, so keep this separate from received-text checks.
+        // https://github.com/nicotine-plus/nicotine-plus/blob/master/pynicotine/privatechat.py
+        if (body.IndexOfAny(['\r', '\n']) >= 0)
+            throw new ArgumentException("Input error: Soulseek messages cannot contain line breaks.", nameof(body));
+        return body;
+    }
+
     public static int ValidatePageSize(int value)
     {
-        if (value is < 1 or > ChatLimits.MaximumPageSize)
-            throw new ArgumentOutOfRangeException(nameof(value), $"Page size must be between 1 and {ChatLimits.MaximumPageSize}.");
+        if (value < 1)
+            throw new ArgumentOutOfRangeException(nameof(value), "Page size must be positive.");
         return value;
     }
 

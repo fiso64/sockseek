@@ -317,15 +317,16 @@ namespace Sockseek.Core.Services
                 return System.IO.File.Create(localFilename);
             }
 
-            return await DownloadAsyncInternal(username, remoteFilename, StreamFactory, size, startOffset, token, options, cancellationToken);
+            return await DownloadAsyncInternal(username, remoteFilename, StreamFactory, size, startOffset, token, options, cancellationToken, ownsOutputStream: true);
         }
 
         public Task<Transfer> DownloadAsync(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions options = null, CancellationToken? cancellationToken = null)
         {
-            return DownloadAsyncInternal(username, remoteFilename, outputStreamFactory, size, startOffset, token, options, cancellationToken);
+            return DownloadAsyncInternal(username, remoteFilename, outputStreamFactory, size, startOffset, token, options, cancellationToken,
+                ownsOutputStream: options?.DisposeOutputStreamOnCompletion ?? true);
         }
 
-        private async Task<Transfer> DownloadAsyncInternal(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions options = null, CancellationToken? cancellationToken = null)
+        private async Task<Transfer> DownloadAsyncInternal(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size, long startOffset, int? token, TransferOptions? options, CancellationToken? cancellationToken, bool ownsOutputStream)
         {
             if (remainingFailedDownloads > 0 && Interlocked.Decrement(ref remainingFailedDownloads) >= 0)
                 throw new SoulseekClientException($"Simulated mock download failure for {username}\\{remoteFilename}");
@@ -417,7 +418,8 @@ namespace Sockseek.Core.Services
                     }
                     FireState(TransferStates.Initializing);
 
-                    using var outputStream = await outputStreamFactory();
+                    var outputStream = await outputStreamFactory();
+                    await using var ownedOutputStream = ownsOutputStream ? outputStream : null;
                     var startTime = DateTime.UtcNow;
                     var bytesTransferred = startOffset;
                     const int chunkSize = 16384;

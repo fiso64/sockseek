@@ -46,7 +46,8 @@ public sealed class SoulseekInboundRequestRouter : ISoulseekInboundRequestRouter
            ?? Task.FromResult(new UserInfo(description: "", uploadSlots: 0, queueLength: 0, hasFreeUploadSlot: false));
 
     public Task EnqueueUploadAsync(string username, IPEndPoint endpoint, string remotePath)
-        => Snapshot()?.EnqueueUploadAsync(username, endpoint, remotePath) ?? Task.CompletedTask;
+        => Snapshot()?.EnqueueUploadAsync(username, endpoint, remotePath)
+           ?? Task.FromException(new DownloadEnqueueException("Pending shutdown."));
 
     public Task<int?> ResolvePlaceInQueueAsync(string username, IPEndPoint endpoint, string remotePath)
         => Snapshot()?.ResolvePlaceInQueueAsync(username, endpoint, remotePath)

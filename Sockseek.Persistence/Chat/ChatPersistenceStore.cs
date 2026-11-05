@@ -41,6 +41,7 @@ public sealed class ChatPersistenceStore(
     PersistenceInbox inbox,
     TimeProvider? timeProvider = null)
 {
+    private const int FilteredRoomReadBatchSize = 500;
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
 
     public async Task<int> ReconcilePendingMessagesAsync(CancellationToken cancellationToken = default)
@@ -533,7 +534,7 @@ public sealed class ChatPersistenceStore(
                 context,
                 query.OrderByDescending(item => item.LastMessageSequence)
                     .ThenByDescending(item => item.Id)
-                    .Take(limit + 1))
+                    .Take(limit == int.MaxValue ? limit : limit + 1))
             .ToListAsync(cancellationToken).ConfigureAwait(false);
         var records = rows.Take(limit)
             .Select(row => MapConversation(row.Entity, row.Unread, row.LastMessage))
@@ -560,7 +561,7 @@ public sealed class ChatPersistenceStore(
         if (before is not null)
             query = query.Where(item => item.Sequence < before.Value);
         var entities = await query.OrderByDescending(item => item.Sequence)
-            .Take(limit + 1).ToListAsync(cancellationToken).ConfigureAwait(false);
+            .Take(limit == int.MaxValue ? limit : limit + 1).ToListAsync(cancellationToken).ConfigureAwait(false);
         var items = entities.Take(limit).Select(MapMessage).Reverse().ToArray();
         string? next = entities.Count > limit && items.Length > 0
             ? EncodeSequenceCursor(items[0].Sequence)
@@ -643,7 +644,7 @@ public sealed class ChatPersistenceStore(
                 context,
                 query.OrderByDescending(item => item.LastMessageSequence)
                     .ThenByDescending(item => item.Id)
-                    .Take(limit + 1))
+                    .Take(limit == int.MaxValue ? limit : limit + 1))
             .ToListAsync(cancellationToken).ConfigureAwait(false);
         var records = rows.Take(limit)
             .Select(row => MapRoom(row.Entity, row.Unread, row.LastMessage))
@@ -663,14 +664,14 @@ public sealed class ChatPersistenceStore(
     {
         ArgumentNullException.ThrowIfNull(predicate);
         limit = ChatIdentity.ValidatePageSize(limit);
-        var matches = new List<RoomSubscriptionRecord>(limit + 1);
+        var matches = new List<RoomSubscriptionRecord>();
         string? next = cursor;
         do
         {
             ChatPage<RoomSubscriptionRecord> page = await GetRoomsAsync(
                 localAccount,
                 next,
-                ChatLimits.MaximumPageSize,
+                FilteredRoomReadBatchSize,
                 cancellationToken).ConfigureAwait(false);
             foreach (RoomSubscriptionRecord room in page.Items)
             {
@@ -843,7 +844,7 @@ public sealed class ChatPersistenceStore(
             query = query.Where(item => item.Sequence < before.Value);
         var rows = await ProjectNotifications(
                 context,
-                query.OrderByDescending(item => item.Sequence).Take(limit + 1))
+                query.OrderByDescending(item => item.Sequence).Take(limit == int.MaxValue ? limit : limit + 1))
             .ToListAsync(cancellationToken).ConfigureAwait(false);
         var records = rows.Take(limit)
             .Select(row => MapNotification(row.Entity, row.Message))
@@ -879,8 +880,6 @@ public sealed class ChatPersistenceStore(
         if (throughSequence < 0)
             throw new ArgumentOutOfRangeException(
                 nameof(throughSequence), "Notification sequence cannot be negative.");
-        if (ids is { Count: > ChatLimits.MaximumPageSize })
-            throw new ArgumentException($"At most {ChatLimits.MaximumPageSize} notification ids may be supplied.");
         await ExecuteAsync(async (context, ct) =>
         {
             IQueryable<NotificationEntity> query = context.Notifications.Where(

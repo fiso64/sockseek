@@ -4,6 +4,18 @@ namespace Sockseek.Core.Services;
 
 internal static partial class SoulseekLogMessages
 {
+    [LoggerMessage(2026, LogLevel.Debug, "Discarded invalid search facts (token {Token}, invalid peer: {InvalidPeer}, files: {FileCount})")]
+    internal static partial void InvalidSearchResponse(ILogger logger, int token, bool invalidPeer, int fileCount);
+
+    [LoggerMessage(2025, LogLevel.Warning, "Soulseek {Operation} response failed for peer hash {PeerHash} (suppressed failures: {SuppressedCount})")]
+    internal static partial void SharingCallbackFailed(ILogger logger, Exception exception, string operation, string peerHash, long suppressedCount);
+
+    [LoggerMessage(2023, LogLevel.Warning, "Soulseek {Source}: {Diagnostic} (suppressed warnings: {SuppressedCount})")]
+    internal static partial void ProtocolWarning(ILogger logger, Exception? exception, string source, string diagnostic, long suppressedCount);
+
+    [LoggerMessage(2024, LogLevel.Debug, "Soulseek {Source}: {Diagnostic}")]
+    internal static partial void ProtocolDiagnostic(ILogger logger, string source, string diagnostic);
+
     [LoggerMessage(2000, LogLevel.Warning, "Soulseek excluded-search-phrase update failed")]
     internal static partial void ExcludedPhrasesFailed(ILogger logger, Exception exception);
 
@@ -69,4 +81,7 @@ internal static partial class SoulseekLogMessages
 
     [LoggerMessage(2021, LogLevel.Information, "Starting Soulseek login (random account: True)")]
     internal static partial void RandomLoginStarting(ILogger logger);
+
+    [LoggerMessage(2022, LogLevel.Debug, "Ignored Soulseek search lock disposal failure after successful completion")]
+    internal static partial void SearchDisposalFailureIgnored(ILogger logger);
 }

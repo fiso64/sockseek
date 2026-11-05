@@ -27,7 +27,7 @@ namespace Sockseek.Core.Services;
     {
         public FileConditions? conditions;
         public FolderConditions? folderConditions;
-        public M3uEditor?      indexEditor;
+        public DownloadOutputFile?      indexEditor;
         public bool            checkFileExists;
         public SearchSettings? searchSettings;
 

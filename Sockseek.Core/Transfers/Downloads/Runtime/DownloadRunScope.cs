@@ -12,7 +12,6 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
     private readonly EngineSettings settings;
     private readonly SoulseekClientManager clientManager;
     private readonly ActiveDownloadTracker activeDownloads;
-    private readonly DownloadedFileCache downloadedFiles;
     private readonly UserSuccessTracker userSuccesses;
     private readonly DownloadEvents events;
     private readonly SearchEvents searchEvents;
@@ -24,6 +23,7 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
     private readonly CancellationTokenSource appCts = new();
     private readonly SemaphoreSlim jobSemaphore;
     private readonly SemaphoreSlim extractorSemaphore;
+    private readonly DownloadFileOperations fileOperations;
     private Searcher? searcher;
     private ExactPeerFileTransferRunner? exactFileTransfers;
     private Task? staleDownloadTask;
@@ -34,7 +34,6 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
         EngineSettings settings,
         SoulseekClientManager clientManager,
         ActiveDownloadTracker activeDownloads,
-        DownloadedFileCache downloadedFiles,
         UserSuccessTracker userSuccesses,
         DownloadEvents events,
         SearchEvents searchEvents,
@@ -46,7 +45,6 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
         this.settings = settings;
         this.clientManager = clientManager;
         this.activeDownloads = activeDownloads;
-        this.downloadedFiles = downloadedFiles;
         this.userSuccesses = userSuccesses;
         this.events = events;
         this.searchEvents = searchEvents;
@@ -58,7 +56,11 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
         logger = this.loggerFactory.CreateLogger<DownloadRunScope>();
         jobSemaphore = new SemaphoreSlim(settings.ConcurrentJobs);
         extractorSemaphore = new SemaphoreSlim(settings.ConcurrentExtractors);
+        fileOperations = new DownloadFileOperations(settings.ConcurrentJobs,
+            this.loggerFactory.CreateLogger<DownloadFileOperations>());
     }
+
+    public DownloadFileOperations Files => fileOperations;
 
     public CancellationToken Token => appCts.Token;
     public bool IsCancellationRequested => appCts.IsCancellationRequested;
@@ -69,10 +71,10 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
     // exceeds ConcurrentJobs; resulting leaf work still acquires jobSemaphore, and
     // Soulseek searches separately obey Searcher's ConcurrentSearches semaphore.
     // TODO [LOW PRIORITY][PERFORMANCE]: The window is per fan-out. Concurrently
-    // extracted nested JobLists can therefore each admit a window of registered or
-    // waiting children, multiplying bookkeeping without exceeding the leaf/search
+    // extracted nested JobLists can therefore each admit a window of execution
+    // callbacks waiting for leaf slots, without exceeding the leaf/search
     // limits. Consider phase-specific scheduling only if load tests show this is
-    // material in practice.
+    // material in practice. Known-member registration is independent of this window.
     public int ConcurrentSchedulingLimit => Math.Max(settings.ConcurrentJobs, settings.ConcurrentExtractors);
 
     public Searcher Searcher => searcher
@@ -120,9 +122,9 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
             client,
             clientManager,
             activeDownloads,
-            downloadedFiles,
             events,
             staleDownloads,
+            fileOperations,
             loggerFactory.CreateLogger<ExactPeerFileTransferRunner>());
 
         if (automaticStaleChecksEnabled)
@@ -209,6 +211,7 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
     private void DisposeManaged()
     {
         searcher?.Dispose();
+        fileOperations.Dispose();
         jobSemaphore.Dispose();
         extractorSemaphore.Dispose();
         appCts.Dispose();

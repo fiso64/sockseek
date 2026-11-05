@@ -13,10 +13,11 @@ internal sealed class DownloadJobQueue
     public void Enqueue(
         Job job,
         DownloadSettings settings,
-        WorkflowLifetimeCoordinator.WorkflowRootLease? lifetime)
+        WorkflowLifetimeCoordinator.WorkflowRootLease? lifetime,
+        bool settingsAreFinal)
     {
         job.EnsureDisplayId();
-        channel.Writer.TryWrite(QueuedDownloadJob.Root(job, settings, lifetime));
+        channel.Writer.TryWrite(QueuedDownloadJob.Root(job, settings, lifetime, settingsAreFinal));
     }
 
     public void Resume(Job job, WorkflowLifetimeCoordinator.WorkflowRootLease? lifetime)
@@ -35,16 +36,18 @@ internal sealed record QueuedDownloadJob(
     Job Job,
     DownloadSettings? Settings,
     bool IsResume,
+    bool SettingsAreFinal,
     WorkflowLifetimeCoordinator.WorkflowRootLease? Lifetime)
 {
     public static QueuedDownloadJob Root(
         Job job,
         DownloadSettings settings,
-        WorkflowLifetimeCoordinator.WorkflowRootLease? lifetime)
-        => new(job, settings, false, lifetime);
+        WorkflowLifetimeCoordinator.WorkflowRootLease? lifetime,
+        bool settingsAreFinal)
+        => new(job, settings, false, settingsAreFinal, lifetime);
 
     public static QueuedDownloadJob Resume(
         Job job,
         WorkflowLifetimeCoordinator.WorkflowRootLease? lifetime)
-        => new(job, null, true, lifetime);
+        => new(job, null, true, false, lifetime);
 }

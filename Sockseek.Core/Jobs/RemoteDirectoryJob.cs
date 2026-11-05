@@ -1,4 +1,5 @@
 using Sockseek.Core.Models;
+using System.Collections.Frozen;
 
 namespace Sockseek.Core.Jobs;
 
@@ -8,13 +9,16 @@ public abstract record RemoteDirectorySource
 
     public sealed record PeerDirectory : RemoteDirectorySource
     {
-        public PeerDirectory(PeerDirectoryIdentity directory)
+        public PeerDirectory(PeerDirectoryIdentity directory, IEnumerable<string>? excludedFilenames = null)
         {
             ArgumentNullException.ThrowIfNull(directory);
+            directory.RequireAdvertisedFolder();
             Directory = directory;
+            ExcludedFilenames = (excludedFilenames ?? []).ToFrozenSet(StringComparer.Ordinal);
         }
 
         public PeerDirectoryIdentity Directory { get; }
+        public IReadOnlySet<string> ExcludedFilenames { get; }
     }
 
     public sealed record Resolved : RemoteDirectorySource
@@ -42,14 +46,23 @@ public sealed class RemoteDirectoryJob : DirectoryDownloadJob
                 ItemName = Path.GetFileName(peer.Directory.FolderPath.Replace('\\', Path.DirectorySeparatorChar));
                 break;
             case RemoteDirectorySource.Resolved resolved:
-                ItemName = resolved.Plan.DisplayRoot;
+                ItemName = resolved.Plan.DisplayRoot.Length == 0 ? "Selected files" : resolved.Plan.DisplayRoot;
                 BeginDirectoryAttempt(resolved.Plan);
                 break;
         }
     }
 
-    public RemoteDirectorySource Source { get; }
+    public RemoteDirectorySource Source { get; private set; }
     public PeerDirectorySnapshot? ResolvedDirectory { get; internal set; }
+
+    public void UseObservedSelection(DirectoryTransferPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        if (Source is not RemoteDirectorySource.PeerDirectory || ActiveAttempt != null)
+            throw new InvalidOperationException("Only an unresolved peer directory can use an observed selection.");
+        Source = new RemoteDirectorySource.Resolved(plan);
+        BeginDirectoryAttempt(plan);
+    }
 
     protected override bool DefaultCanBeSkipped => false;
 

@@ -14,8 +14,6 @@ public static class SharingSettingsValidator
     public const int MaximumRoots = 256;
     public const int MaximumExclusions = 4_096;
     public const int MaximumFilters = 1_024;
-    public const int MaximumBlockedUsernames = 10_000;
-    public const int MaximumBlockedIpAddresses = 10_000;
     public const int MaximumEncodedValueBytes = 4_096;
     public const int MaximumUploadSlots = 1_024;
     public static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(250);
@@ -33,14 +31,6 @@ public static class SharingSettingsValidator
             MaximumExclusions,
             "share exclusions");
         ValidateCount(settings.Sharing.Filters.Count, MaximumFilters, "share filters");
-        ValidateCount(
-            settings.PeerAccess.BlockedUsernames.Count,
-            MaximumBlockedUsernames,
-            "blocked usernames");
-        ValidateCount(
-            settings.PeerAccess.BlockedIpAddresses.Count,
-            MaximumBlockedIpAddresses,
-            "blocked IP addresses");
         NormalizeRoots(settings.Sharing.Roots, pathContext);
         foreach (ShareRootSettings root in settings.Sharing.Roots)
         {
@@ -58,7 +48,7 @@ public static class SharingSettingsValidator
         }
         NormalizeExclusions(settings.Sharing, pathContext);
         NormalizeFilters(settings.Sharing.Filters);
-        ValidatePeerAccess(settings.PeerAccess);
+        ValidatePeerRestrictions(settings.PeerRestrictions);
         ValidateNumericSettings(settings.Sharing, settings.Uploads);
     }
 
@@ -185,31 +175,39 @@ public static class SharingSettingsValidator
         RejectDuplicates(filters, static filter => filter, "share filter");
     }
 
-    private static void ValidatePeerAccess(PeerAccessSettings settings)
+    private static void ValidatePeerRestrictions(PeerRestrictionSettings settings)
     {
-        for (int i = 0; i < settings.BlockedUsernames.Count; i++)
-        {
-            ValidateEncodedValue(settings.BlockedUsernames[i], "Blocked username");
-            settings.BlockedUsernames[i] = PeerUsername.Validate(settings.BlockedUsernames[i]);
-        }
+        NormalizeBlockedUsernames(
+            settings.UploadAccess.BlockedUsernames,
+            "upload-blocked username");
+        NormalizeBlockedUsernames(
+            settings.PrivateMessages.BlockedUsernames,
+            "private-message-blocked username");
 
-        RejectDuplicates(
-            settings.BlockedUsernames,
-            static username => username,
-            "blocked username");
-
-        for (int i = 0; i < settings.BlockedIpAddresses.Count; i++)
+        for (int i = 0; i < settings.UploadAccess.BlockedIpAddresses.Count; i++)
         {
-            ValidateEncodedValue(settings.BlockedIpAddresses[i], "Blocked IP address");
-            settings.BlockedIpAddresses[i] = PeerAccessPolicy
-                .ParseIpAddress(settings.BlockedIpAddresses[i])
+            ValidateEncodedValue(
+                settings.UploadAccess.BlockedIpAddresses[i],
+                "Upload-blocked IP address");
+            settings.UploadAccess.BlockedIpAddresses[i] = PeerRestrictionPolicy
+                .ParseIpAddress(settings.UploadAccess.BlockedIpAddresses[i])
                 .ToString();
         }
 
         RejectDuplicates(
-            settings.BlockedIpAddresses,
+            settings.UploadAccess.BlockedIpAddresses,
             static address => address,
-            "blocked IP address");
+            "upload-blocked IP address");
+    }
+
+    private static void NormalizeBlockedUsernames(List<string> usernames, string description)
+    {
+        for (int i = 0; i < usernames.Count; i++)
+        {
+            ValidateEncodedValue(usernames[i], description);
+            usernames[i] = PeerUsername.Validate(usernames[i]);
+        }
+        RejectDuplicates(usernames, static username => username, description);
     }
 
     private static void ValidateNumericSettings(

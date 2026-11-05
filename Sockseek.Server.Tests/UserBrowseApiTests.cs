@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Core.Settings;
+using Sockseek.Server.Persistence;
 
 namespace Sockseek.Server.Tests;
 
@@ -17,6 +18,7 @@ public sealed class UserBrowseApiTests
         string root = Path.Combine(Path.GetTempPath(), "sockseek-user-browse-api", Guid.NewGuid().ToString("N"));
         string mockFiles = Path.Combine(root, "shares");
         string data = Path.Combine(root, "data");
+        Directory.CreateDirectory(data);
         Directory.CreateDirectory(Path.Combine(mockFiles, "Alpha", "Disc"));
         Directory.CreateDirectory(Path.Combine(mockFiles, "Beta"));
         await File.WriteAllTextAsync(Path.Combine(mockFiles, "Alpha", "Disc", "two.flac"), "22");
@@ -25,7 +27,7 @@ public sealed class UserBrowseApiTests
 
         int port = GetFreeTcpPort();
         string url = $"http://127.0.0.1:{port}";
-        await using var app = ServerHost.Build([], new ServerOptions
+        var serverOptions = new ServerOptions
         {
             Engine = new EngineSettings
             {
@@ -37,14 +39,20 @@ public sealed class UserBrowseApiTests
                 Enabled = true,
                 DataDirectory = data,
             },
-        }, url);
+        };
+        await using var app = global::Tests.TestServerHost.Build([], serverOptions, url);
+        bool stopped = false;
 
         try
         {
             await app.StartAsync();
             using var http = new HttpClient { BaseAddress = new Uri(url) };
             var api = new SockseekApiClient(http);
-            await WaitUntilAsync(() => app.Services.GetRequiredService<EngineSupervisor>().PeerBrowses is not null);
+            // An immediate first request must work; waiting for an internal
+            // service here used to hide a race with BackgroundService startup.
+            var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
+            Assert.IsNotNull(supervisor.Runtime.PeerBrowses);
+            Assert.IsNotNull(supervisor.Runtime.UserProfiles);
 
             UserBrowseDto started = await api.StartUserBrowseAsync("local");
             UserBrowseDto complete = await WaitForCompleteAsync(api, started.BrowseId);
@@ -92,6 +100,38 @@ public sealed class UserBrowseApiTests
             CollectionAssert.AreEqual(
                 new[] { "one.flac", "two.flac" },
                 files1.Items.Concat(files2.Items).Select(item => item.File.Name).ToArray());
+            PageDto<BrowseFileEntryDto> allFiles = await api.GetUserShareFilesAsync(
+                complete.BrowseId, disc.DirectoryId, limit: int.MaxValue);
+            CollectionAssert.AreEqual(
+                new[] { "one.flac", "two.flac" },
+                allFiles.Items.Select(item => item.File.Name).ToArray());
+            Assert.IsNull(allFiles.NextCursor);
+
+            BrowseSearchPageDto searchFirst = await api.SearchUserSharesAsync(
+                complete.BrowseId, "FLAC", limit: 1);
+            var searchRows = new List<BrowseSearchEntryDto>(searchFirst.Items);
+            string? searchCursor = searchFirst.NextCursor;
+            var cursors = new HashSet<string>(StringComparer.Ordinal);
+            while (searchCursor is not null)
+            {
+                Assert.IsTrue(cursors.Add(searchCursor), "Browse search paging must advance, not repeat a cursor.");
+                BrowseSearchPageDto page = await api.SearchUserSharesAsync(
+                    complete.BrowseId, "FLAC", searchCursor, limit: 1);
+                Assert.AreEqual(searchFirst.BrowseRevision, page.BrowseRevision);
+                Assert.AreEqual(searchFirst.PublicMatchingFileCount, page.PublicMatchingFileCount);
+                searchRows.AddRange(page.Items);
+                Assert.AreEqual(searchRows.Count,
+                    searchRows.Select(row => (row.Kind, row.EntryId)).Distinct().Count(),
+                    "Browse search pages must not overlap.");
+                searchCursor = page.NextCursor;
+            }
+            Assert.AreEqual(2, searchFirst.MatchingFileCount);
+            Assert.AreEqual(3, searchFirst.MatchingBytes);
+            Assert.AreEqual(2, searchRows.Count(row => row.Kind == BrowseSearchEntryKind.File));
+            CollectionAssert.AreEqual(
+                new[] { "one.flac", "two.flac" },
+                searchRows.Where(row => row.Kind == BrowseSearchEntryKind.File)
+                    .Select(row => row.Name).Order().ToArray());
 
             BrowseDirectoryEntryDto beta = roots2.Items.Single();
             BrowseFileEntryDto betaFile = (await api.GetUserShareFilesAsync(
@@ -125,6 +165,12 @@ public sealed class UserBrowseApiTests
             Assert.AreEqual(6, submitted.Resolution.TotalPublicBytes);
             Assert.AreEqual(2, submitted.Resolution.RedundantSelectionsRemoved);
             Assert.AreEqual(Path.GetFullPath(output), submitted.Resolution.OutputParent);
+            Assert.AreEqual(requestId, submitted.Workflow.SubmissionId);
+            var accepted = await app.Services.GetRequiredService<PersistenceCoordinator>()
+                .Submissions!.GetSubmissionAsync(requestId);
+            Assert.IsNotNull(accepted);
+            Assert.IsNotNull(accepted.CommitReceiptJson);
+            Assert.IsNotNull(accepted.CommitFingerprint);
             Assert.AreEqual(submitted.Workflow.JobId, repeated.Workflow.JobId);
             Assert.AreEqual(submitted.Resolution, repeated.Resolution);
 
@@ -153,13 +199,25 @@ public sealed class UserBrowseApiTests
                 OutputParentDir: overwriteOutput,
                 DownloadSettings: new DownloadSettingsPatchDto(
                     Skip: new SkipSettingsPatchDto(SkipExisting: false)));
-            await api.StartUserShareDownloadsAsync(
+            var stateStore = app.Services.GetRequiredService<EngineStateStore>();
+            using var overwriteChanged = new global::Tests.TestSignal()
+                .Subscribe<JobSummaryDto>(handler => stateStore.JobUpserted += handler,
+                    handler => stateStore.JobUpserted -= handler);
+            var overwrite = await api.StartUserShareDownloadsAsync(
                 complete.BrowseId,
                 new StartUserShareDownloadsRequestDto(
                     Guid.NewGuid(),
                     [new UserShareFileSelectionDto(betaFile.FileId)],
                     overwriteOptions));
-            await WaitUntilAsync(() => TryReadAllText(overwritePath) == "333");
+            JobDetailDto? overwriteJob = null;
+            await overwriteChanged.WaitUntilAsync(async () =>
+            {
+                overwriteJob = await api.GetJobDetailAsync(overwrite.Workflow.JobId);
+                return overwriteJob?.Summary.LifecycleState == ServerJobLifecycleState.Terminal;
+            }, "The overwrite workflow did not finish.", timeoutMs: 10_000);
+            Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, overwriteJob!.Summary.TerminalOutcome,
+                overwriteJob.Summary.FailureMessage);
+            Assert.AreEqual("333", await File.ReadAllTextAsync(overwritePath));
 
             await WaitUntilAsync(async () =>
             {
@@ -188,10 +246,46 @@ public sealed class UserBrowseApiTests
                         refreshed.BrowseId, cursor: roots1.NextCursor, limit: 1));
             Assert.AreEqual(HttpStatusCode.BadRequest, crossGeneration.StatusCode);
             Assert.AreEqual("invalid-cursor", crossGeneration.Code);
+
+            SockseekApiRequestException crossSearchGeneration =
+                await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
+                    api.SearchUserSharesAsync(
+                        refreshed.BrowseId,
+                        "FLAC",
+                        searchFirst.NextCursor,
+                        limit: 1));
+            Assert.AreEqual(HttpStatusCode.BadRequest, crossSearchGeneration.StatusCode);
+            Assert.AreEqual("invalid-cursor", crossSearchGeneration.Code);
+
+            // Model a lost response followed by restart and removal of temporary
+            // browse artifacts. Only accepted intent/receipt can satisfy this retry.
+            await app.StopAsync();
+            stopped = true;
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(Path.Combine(data, "peer-browses"), recursive: true);
+            await using var restarted = global::Tests.TestServerHost.Build([], serverOptions, url);
+            try
+            {
+                await restarted.StartAsync();
+                using var restartedHttp = new HttpClient { BaseAddress = new Uri(url) };
+                var restartedApi = new SockseekApiClient(restartedHttp);
+                var missing = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
+                    restartedApi.GetUserBrowseAsync(complete.BrowseId));
+                Assert.AreEqual(HttpStatusCode.Gone, missing.StatusCode);
+                var restored = await restartedApi.StartUserShareDownloadsAsync(complete.BrowseId, downloadRequest);
+                Assert.AreEqual(submitted.Workflow.JobId, restored.Workflow.JobId);
+                Assert.AreEqual(submitted.Workflow.SubmissionId, restored.Workflow.SubmissionId);
+                Assert.AreEqual(submitted.Resolution, restored.Resolution);
+                var conflict = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
+                    restartedApi.StartUserShareDownloadsAsync(complete.BrowseId, downloadRequest with { ExcludedFileIds = [betaFile.FileId] }));
+                Assert.AreEqual(HttpStatusCode.Conflict, conflict.StatusCode);
+            }
+            finally { await restarted.StopAsync(); }
+
         }
         finally
         {
-            await app.StopAsync();
+            if (!stopped) await app.StopAsync();
             SqliteConnection.ClearAllPools();
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);

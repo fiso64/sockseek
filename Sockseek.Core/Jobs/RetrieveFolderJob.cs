@@ -13,7 +13,17 @@ namespace Sockseek.Core.Jobs;
     public class RetrieveFolderJob : Job
     {
         public PeerDirectoryIdentity Directory { get; }
-        public PeerDirectorySnapshot? Result { get; set; }
+        private PeerDirectorySnapshot? result;
+        public PeerDirectorySnapshot? Result
+        {
+            get => result;
+            set
+            {
+                if (ReferenceEquals(result, value)) return;
+                result = value;
+                NotifyStructureChanged();
+            }
+        }
         public int NewFilesFoundCount { get; set; }
         public FolderRetrievalOutcome RetrievalOutcome { get; set; } = FolderRetrievalOutcome.None;
         /// <summary>
@@ -21,13 +31,14 @@ namespace Sockseek.Core.Jobs;
         /// terminal snapshot is published. It may return a caller-relative added
         /// count without introducing album/search data into this generic job.
         /// </summary>
-        public Func<PeerDirectorySnapshot, int>? ResultObserver { get; init; }
+        public Func<PeerDirectorySnapshot, CancellationToken, int>? ResultObserver { get; init; }
         public bool RetrievalCompleted => RetrievalOutcome == FolderRetrievalOutcome.Completed;
         public bool RetrievalCancelled => RetrievalOutcome == FolderRetrievalOutcome.Cancelled;
 
         public RetrieveFolderJob(PeerDirectoryIdentity directory)
         {
             ArgumentNullException.ThrowIfNull(directory);
+            directory.RequireAdvertisedFolder();
             Directory = directory;
             ItemName = $"{directory.Username}\\{directory.FolderPath.Replace('/', '\\').TrimStart('\\')}";
         }

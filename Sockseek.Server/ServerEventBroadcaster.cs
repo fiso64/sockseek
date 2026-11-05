@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -13,12 +14,20 @@ public sealed class ServerEventBroadcaster : IDisposable, IAsyncDisposable, IHos
     private readonly IHubContext<ServerEventHub> hubContext;
     private readonly EngineStateStore stateStore;
     private readonly EngineSupervisor supervisor;
-    private readonly StateUpdateCoalescer coalescer;
+    private readonly IAsyncDisposable publication;
     private readonly BoundedStateBatchDispatcher dispatcher;
     private readonly ILogger<ServerEventBroadcaster> logger;
+    private readonly ConcurrentDictionary<string, DaemonStateDetail> daemonReaders = [];
     private int disposeState;
 
+    internal void SetDaemonReader(string connectionId, DaemonStateDetail? detail)
+    {
+        if (detail is { } value) daemonReaders[connectionId] = value;
+        else daemonReaders.TryRemove(connectionId, out _);
+    }
+
     public event Action<StateUpdateBatchDto>? BatchPublished;
+    internal event Action? Flushed;
 
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
@@ -51,38 +60,65 @@ public sealed class ServerEventBroadcaster : IDisposable, IAsyncDisposable, IHos
         dispatcher = new BoundedStateBatchDispatcher(
             SendBatchAsync,
             logger: loggerFactory.CreateLogger<BoundedStateBatchDispatcher>());
-        coalescer = new StateUpdateCoalescer(PublishBatches);
-        stateStore.StateBatchPublished += coalescer.Publish;
+        stateStore.StateBatchPublished += PublishBatch;
+        stateStore.StateUpdatesFlushed += NotifyFlushed;
+        publication = stateStore.StartStatePublication();
         supervisor.EngineCreated += AttachEngine;
     }
 
     private void AttachEngine(DownloadEngine engine)
-        => new EngineActivityDtoAdapter(stateStore, GetSummary)
+        => new EngineActivityDtoAdapter(stateStore)
             .Attach(engine.Events, engine.SearchEvents);
 
-    private void PublishBatches(IReadOnlyList<StateUpdateBatchDto> batches)
+    private void PublishBatch(StateUpdate batch)
     {
-        foreach (var batch in batches)
+        if (BatchPublished is { } handlers)
         {
-            if (BatchPublished is { } handlers)
+            foreach (Action<StateUpdateBatchDto> handler in Delegate.EnumerateInvocationList(handlers))
             {
-                foreach (Action<StateUpdateBatchDto> handler in handlers.GetInvocationList())
+                try { handler(batch.ToDto()); }
+                catch (Exception ex)
                 {
-                    try { handler(batch); }
-                    catch (Exception ex)
-                    {
-                        ServerLogMessages.LiveBatchObserverFailed(logger, ex);
-                    }
+                    ServerLogMessages.LiveBatchObserverFailed(logger, ex);
                 }
             }
-            dispatcher.TryPublish(batch);
+        }
+        dispatcher.TryPublish(batch);
+    }
+
+    private void NotifyFlushed()
+    {
+        if (Flushed is not { } handlers) return;
+        foreach (Action handler in Delegate.EnumerateInvocationList(handlers))
+        {
+            try { handler(); }
+            catch (Exception ex) { ServerLogMessages.LiveBatchObserverFailed(logger, ex); }
         }
     }
 
     private async Task SendBatchAsync(
-        StateUpdateBatchDto batch,
+        StateUpdate batch,
         CancellationToken cancellationToken)
     {
+        if (batch.Scope.Kind == StateStreamScopeKind.Daemon
+            && daemonReaders.Values.Contains(DaemonStateDetail.Overview))
+        {
+            // Keep the same cursor, including empty filtered frames: a summary
+            // subscriber must not interpret omitted transfer detail as a gap.
+            var summary = batch with { State = batch.State with
+            {
+                Jobs = batch.State.Jobs.Where(job => job.Current.ParentJobId is null).ToArray(),
+                Transfers = [], RemovedTransferIds = [],
+            } };
+            await hubContext.Clients.Group(ServerEventHub.SummaryEventsGroup).SendAsync(
+                LiveProtocol.StateUpdateBatchMethod, summary.ToDto(), cancellationToken).ConfigureAwait(false);
+        }
+        // Unwatched child rows must not allocate full wire graphs merely to send
+        // to an empty group. Overview and narrow observations map their own facts.
+        if (batch.Scope.Kind == StateStreamScopeKind.Daemon
+            && !daemonReaders.Values.Contains(DaemonStateDetail.Full)) return;
+        if (batch.Scope is { Kind: StateStreamScopeKind.Workflow, WorkflowId: { } workflowId }
+            && !stateStore.HasWorkflowStreamReaders(workflowId)) return;
         var clients = batch.Scope.Kind switch
         {
             StateStreamScopeKind.Daemon => hubContext.Clients.Group(ServerEventHub.AllEventsGroup),
@@ -95,11 +131,8 @@ public sealed class ServerEventBroadcaster : IDisposable, IAsyncDisposable, IHos
             _ => throw new ArgumentOutOfRangeException(),
         };
         await clients.SendAsync(
-            "stateUpdateBatch", batch, cancellationToken).ConfigureAwait(false);
+            LiveProtocol.StateUpdateBatchMethod, batch.ToDto(), cancellationToken).ConfigureAwait(false);
     }
-
-    private JobSummaryDto GetSummary(JobSnapshot job)
-        => stateStore.GetJobSummary(job.Id) ?? ServerSnapshotMapper.ToJobSummary(job);
 
     public void Dispose()
     {
@@ -110,9 +143,10 @@ public sealed class ServerEventBroadcaster : IDisposable, IAsyncDisposable, IHos
     {
         if (Interlocked.Exchange(ref disposeState, 1) != 0)
             return;
-        stateStore.StateBatchPublished -= coalescer.Publish;
+        await publication.DisposeAsync().ConfigureAwait(false);
+        stateStore.StateBatchPublished -= PublishBatch;
+        stateStore.StateUpdatesFlushed -= NotifyFlushed;
         supervisor.EngineCreated -= AttachEngine;
-        coalescer.Dispose();
         await dispatcher.DisposeAsync().ConfigureAwait(false);
     }
 }

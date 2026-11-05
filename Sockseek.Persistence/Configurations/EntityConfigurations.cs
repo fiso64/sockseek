@@ -33,6 +33,8 @@ internal sealed class JobConfiguration : IEntityTypeConfiguration<JobEntity>
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).HasColumnName("id");
         builder.Property(x => x.WorkflowId).HasColumnName("workflow_id");
+        builder.Property(x => x.SubmissionId).HasColumnName("submission_id");
+        builder.Property(x => x.SemanticRole).HasColumnName("semantic_role").HasMaxLength(32);
         builder.Property(x => x.ParentJobId).HasColumnName("parent_job_id");
         builder.Property(x => x.SourceJobId).HasColumnName("source_job_id");
         builder.Property(x => x.ResultJobId).HasColumnName("result_job_id");
@@ -51,6 +53,7 @@ internal sealed class JobConfiguration : IEntityTypeConfiguration<JobEntity>
         builder.Property(x => x.FailureDetail).HasColumnName("failure_detail");
         builder.Property(x => x.ItemName).HasColumnName("item_name").HasMaxLength(2048);
         builder.Property(x => x.QueryText).HasColumnName("query_text").HasMaxLength(4096);
+        builder.Property(x => x.SourceDetail).HasColumnName("source_detail").HasMaxLength(128);
         builder.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         builder.Property(x => x.StartedAtUtc).HasColumnName("started_at_utc");
         builder.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");
@@ -63,16 +66,60 @@ internal sealed class JobConfiguration : IEntityTypeConfiguration<JobEntity>
         builder.HasOne<JobEntity>().WithMany().HasForeignKey(x => x.ParentJobId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne<JobEntity>().WithMany().HasForeignKey(x => x.SourceJobId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne<JobEntity>().WithMany().HasForeignKey(x => x.ResultJobId).OnDelete(DeleteBehavior.SetNull);
+        // Listing cursors use display IDs; retention and restart reconciliation
+        // use completion/lifecycle and runtime/lifecycle indexes respectively.
         builder.HasIndex(x => x.DisplayId).IsUnique();
-        builder.HasIndex(x => new { x.CreatedAtUtc, x.Id });
-        builder.HasIndex(x => new { x.WorkflowId, x.CreatedAtUtc, x.Id });
         builder.HasIndex(x => new { x.WorkflowId, x.DisplayId, x.Id });
         builder.HasIndex(x => new { x.LastRuntimeId, x.LifecycleState });
         builder.HasIndex(x => new { x.LifecycleState, x.CompletedAtUtc });
-        builder.HasIndex(x => x.ParentJobId);
         builder.HasIndex(x => new { x.ParentJobId, x.DisplayId, x.Id });
         builder.HasIndex(x => x.SourceJobId);
         builder.HasIndex(x => x.ResultJobId);
+        builder.HasIndex(x => new { x.SubmissionId, x.DisplayId, x.Id });
+    }
+}
+
+internal sealed class SubmissionConfiguration : IEntityTypeConfiguration<SubmissionEntity>
+{
+    public void Configure(EntityTypeBuilder<SubmissionEntity> builder)
+    {
+        builder.ToTable("submissions", table =>
+        {
+            table.HasCheckConstraint("ck_submissions_revision", "revision >= 0");
+            table.HasCheckConstraint("ck_submissions_specification_schema", "specification_schema_version > 0");
+        });
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Id).HasColumnName("id");
+        builder.Property(x => x.SubmittedAtUtc).HasColumnName("submitted_at_utc");
+        builder.Property(x => x.SpecificationSchemaVersion).HasColumnName("specification_schema_version");
+        // A submission's identity belongs to this metadata row. Keep its large
+        // immutable payload separate without redirecting self-referencing reruns
+        // to the payload table (as EF entity splitting does).
+        builder.HasOne(x => x.Specification).WithOne()
+            .HasForeignKey<SubmissionSpecificationEntity>(x => x.SubmissionId)
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Property(x => x.RerunOfSubmissionId).HasColumnName("rerun_of_submission_id");
+        builder.Property(x => x.PreviewId).HasColumnName("preview_id");
+        builder.Property(x => x.ArtifactId).HasColumnName("artifact_id").HasMaxLength(256);
+        builder.Property(x => x.CommitFingerprint).HasColumnName("commit_fingerprint").HasMaxLength(64);
+        builder.Property(x => x.CommitReceiptJson).HasColumnName("commit_receipt_json");
+        builder.Property(x => x.Revision).HasColumnName("revision");
+        builder.Property(x => x.ArchivedAtUtc).HasColumnName("archived_at_utc");
+        builder.HasOne<SubmissionEntity>().WithMany().HasForeignKey(x => x.RerunOfSubmissionId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x => new { x.SubmittedAtUtc, x.Id });
+        builder.HasIndex(x => x.RerunOfSubmissionId);
+        builder.HasIndex(x => x.ArchivedAtUtc);
+    }
+}
+
+internal sealed class SubmissionSpecificationConfiguration : IEntityTypeConfiguration<SubmissionSpecificationEntity>
+{
+    public void Configure(EntityTypeBuilder<SubmissionSpecificationEntity> builder)
+    {
+        builder.ToTable("submission_specifications");
+        builder.HasKey(x => x.SubmissionId);
+        builder.Property(x => x.SubmissionId).HasColumnName("submission_id");
+        builder.Property(x => x.Json).HasColumnName("specification_json");
     }
 }
 
@@ -87,6 +134,7 @@ internal sealed class SearchJobConfiguration : IEntityTypeConfiguration<SearchJo
         builder.Property(x => x.Revision).HasColumnName("revision");
         builder.Property(x => x.ResultCount).HasColumnName("result_count");
         builder.Property(x => x.LockedFileCount).HasColumnName("locked_file_count");
+        builder.Property(x => x.ObservedPeerCount).HasColumnName("observed_peer_count");
         builder.Property(x => x.IsComplete).HasColumnName("is_complete");
         builder.Property(x => x.CompletedAtUtc).HasColumnName("completed_at_utc");
         builder.Property(x => x.ResultPersistenceState).HasColumnName("result_persistence_state").HasMaxLength(32);
@@ -100,13 +148,10 @@ internal sealed class SearchResultConfiguration : IEntityTypeConfiguration<Searc
 {
     public void Configure(EntityTypeBuilder<SearchResultEntity> builder)
     {
-        builder.ToTable("search_results", table =>
-        {
-            table.HasCheckConstraint("ck_search_results_sequence", "sequence > 0");
-            table.HasCheckConstraint("ck_search_results_revision", "revision > 0");
-        });
-        builder.HasKey(x => x.Id);
-        builder.Property(x => x.Id).HasColumnName("id");
+        // Read projection over shared facts. Writes and raw-history pruning
+        // go through the persistence owner, never EF entity mutation.
+        builder.ToView("search_results");
+        builder.HasKey(x => new { x.SearchJobId, x.Sequence });
         builder.Property(x => x.SearchJobId).HasColumnName("search_job_id");
         builder.Property(x => x.Sequence).HasColumnName("sequence");
         builder.Property(x => x.Revision).HasColumnName("revision");
@@ -121,12 +166,11 @@ internal sealed class SearchResultConfiguration : IEntityTypeConfiguration<Searc
         builder.Property(x => x.Extension).HasColumnName("extension").HasMaxLength(32);
         builder.Property(x => x.UploadSpeed).HasColumnName("upload_speed");
         builder.Property(x => x.HasFreeUploadSlot).HasColumnName("has_free_upload_slot");
+        builder.Property(x => x.QueueLength).HasColumnName("queue_length");
+        builder.Property(x => x.Visibility).HasColumnName("visibility").HasMaxLength(16);
         builder.Property(x => x.AttributesJson).HasColumnName("attributes_json");
         builder.Property(x => x.ObservedAtUtc).HasColumnName("observed_at_utc");
-        builder.HasOne<SearchJobEntity>().WithMany().HasForeignKey(x => x.SearchJobId).OnDelete(DeleteBehavior.Cascade);
-        builder.HasIndex(x => new { x.SearchJobId, x.Sequence }).IsUnique();
-        builder.HasIndex(x => new { x.SearchJobId, x.Username, x.RemoteFilename }).IsUnique();
-        builder.HasIndex(x => new { x.SearchJobId, x.Username });
+
     }
 }
 
@@ -160,21 +204,38 @@ internal sealed class TransferConfiguration : IEntityTypeConfiguration<TransferE
         builder.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         builder.Property(x => x.StartedAtUtc).HasColumnName("started_at_utc");
         builder.Property(x => x.LastProgressAtUtc).HasColumnName("last_progress_at_utc");
+        builder.Property(x => x.BytesPerSecond).HasColumnName("bytes_per_second");
         builder.Property(x => x.CompletedAtUtc).HasColumnName("completed_at_utc");
         builder.Property(x => x.FailureReason).HasColumnName("failure_reason").HasMaxLength(64);
         builder.Property(x => x.FailureMessage).HasColumnName("failure_message").HasMaxLength(2048);
         builder.Property(x => x.CancellationSource).HasColumnName("cancellation_source").HasMaxLength(32);
+        builder.Property(x => x.FileName).HasColumnName("file_name").HasMaxLength(1024);
+        builder.Property(x => x.FileSizeBytes).HasColumnName("file_size_bytes");
+        builder.Property(x => x.FileExtension).HasColumnName("file_extension").HasMaxLength(32);
+        builder.Property(x => x.FileBitRate).HasColumnName("file_bit_rate");
+        builder.Property(x => x.FileBitDepth).HasColumnName("file_bit_depth");
+        builder.Property(x => x.FileSampleRate).HasColumnName("file_sample_rate");
+        builder.Property(x => x.FileLength).HasColumnName("file_length");
+        builder.Property(x => x.FileAttributesJson).HasColumnName("file_attributes_json");
+        builder.Property(x => x.GroupRef).HasColumnName("group_ref").HasMaxLength(4096);
+        builder.Property(x => x.GroupDisplayPath).HasColumnName("group_display_path").HasMaxLength(4096);
+        builder.Property(x => x.GroupRelativePath).HasColumnName("group_relative_path");
+        builder.Property(x => x.ArchivedAtUtc).HasColumnName("archived_at_utc");
         builder.Property(x => x.Revision).HasColumnName("revision");
         builder.HasOne<JobEntity>().WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne<RuntimeSessionEntity>().WithMany().HasForeignKey(x => x.LastRuntimeId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => x.JobId);
         builder.HasIndex(x => new { x.WorkflowId, x.CreatedAtUtc, x.Id });
-        builder.HasIndex(x => new { x.Direction, x.State, x.CreatedAtUtc });
-        builder.HasIndex(x => new { x.Direction, x.StartedAtUtc, x.Id });
-        builder.HasIndex(x => new { x.Username, x.Direction, x.StartedAtUtc, x.Id });
-        builder.HasIndex(x => new { x.Direction, x.TerminalOutcome, x.CompletedAtUtc });
+        // Timeline cursors use acceptance time, which does not change on start.
+        builder.HasIndex(x => new { x.Username, x.ArchivedAtUtc, x.CreatedAtUtc, x.Id });
+        builder.HasIndex(x => new { x.TerminalOutcome, x.CompletedAtUtc });
         builder.HasIndex(x => new { x.LastRuntimeId, x.TerminalOutcome });
         builder.HasIndex(x => x.CompletedAtUtc);
+        builder.HasIndex(x => new { x.ArchivedAtUtc, x.CreatedAtUtc, x.Id });
+        builder.HasIndex(x => new { x.ArchivedAtUtc, x.Direction, x.CreatedAtUtc, x.Id });
+        builder.HasIndex(x => new { x.GroupRef, x.Username, x.Direction, x.ArchivedAtUtc });
+        builder.HasIndex(x => new { x.Username, x.RemotePath })
+            .HasFilter("direction = 'Upload' AND archived_at_utc IS NULL");
     }
 }
 
@@ -207,8 +268,98 @@ internal sealed class TransferAttemptConfiguration : IEntityTypeConfiguration<Tr
         builder.HasOne<TransferEntity>().WithMany().HasForeignKey(x => x.TransferId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<RuntimeSessionEntity>().WithMany().HasForeignKey(x => x.LastRuntimeId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => new { x.TransferId, x.AttemptNumber }).IsUnique();
-        builder.HasIndex(x => new { x.TransferId, x.StartedAtUtc });
         builder.HasIndex(x => new { x.LastRuntimeId, x.CompletedAtUtc });
+    }
+}
+
+internal sealed class TransferAccountingCheckpointConfiguration : IEntityTypeConfiguration<TransferAccountingCheckpointEntity>
+{
+    public void Configure(EntityTypeBuilder<TransferAccountingCheckpointEntity> builder)
+    {
+        builder.ToTable("transfer_accounting_checkpoints", table =>
+        {
+            table.HasCheckConstraint("ck_transfer_accounting_checkpoint_revision", "revision >= 0");
+            table.HasCheckConstraint("ck_transfer_accounting_checkpoint_bytes", "cumulative_bytes >= 0");
+        });
+        builder.HasKey(x => x.AttemptId);
+        builder.Property(x => x.AttemptId).HasColumnName("attempt_id");
+        builder.Property(x => x.TransferId).HasColumnName("transfer_id");
+        builder.Property(x => x.Revision).HasColumnName("revision");
+        builder.Property(x => x.CumulativeBytes).HasColumnName("cumulative_bytes");
+        builder.Property(x => x.LastObservedAtUtc).HasColumnName("last_observed_at_utc");
+        builder.HasOne<TransferEntity>().WithMany().HasForeignKey(x => x.TransferId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(x => x.TransferId);
+    }
+}
+
+internal sealed class TransferByteBucketConfiguration : IEntityTypeConfiguration<TransferByteBucketEntity>
+{
+    public void Configure(EntityTypeBuilder<TransferByteBucketEntity> builder)
+    {
+        builder.ToTable("transfer_byte_buckets", table =>
+            table.HasCheckConstraint("ck_transfer_byte_bucket_bytes", "bytes >= 0"));
+        builder.HasKey(x => new { x.BucketStartUtc, x.Direction, x.Username });
+        builder.Property(x => x.BucketStartUtc).HasColumnName("bucket_start_utc");
+        builder.Property(x => x.Direction).HasColumnName("direction").HasMaxLength(16);
+        builder.Property(x => x.Username).HasColumnName("username").HasMaxLength(256);
+        builder.Property(x => x.Bytes).HasColumnName("bytes");
+        builder.HasIndex(x => new { x.Direction, x.BucketStartUtc });
+        builder.HasIndex(x => new { x.Username, x.BucketStartUtc });
+    }
+}
+
+internal sealed class TransferAccountingStateConfiguration : IEntityTypeConfiguration<TransferAccountingStateEntity>
+{
+    public void Configure(EntityTypeBuilder<TransferAccountingStateEntity> builder)
+    {
+        builder.ToTable("transfer_accounting_state", table =>
+        {
+            table.HasCheckConstraint("ck_transfer_accounting_state_singleton", "state_id = 1");
+            table.HasCheckConstraint("ck_transfer_accounting_state_coverage", "complete_from_utc >= 0");
+        });
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Id).HasColumnName("state_id").ValueGeneratedNever();
+        builder.Property(x => x.CompleteFromUtc).HasColumnName("complete_from_utc");
+        builder.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");
+    }
+}
+
+internal sealed class PeerRestrictionOverrideConfiguration
+    : IEntityTypeConfiguration<PeerRestrictionOverrideEntity>
+{
+    public void Configure(EntityTypeBuilder<PeerRestrictionOverrideEntity> builder)
+    {
+        builder.ToTable("peer_restriction_overrides");
+        builder.HasKey(x => new { x.RestrictionKind, x.Username });
+        builder.Property(x => x.RestrictionKind)
+            .HasColumnName("restriction_kind")
+            .HasMaxLength(32);
+        builder.Property(x => x.Username)
+            .HasColumnName("username")
+            .HasMaxLength(256)
+            .UseCollation("BINARY");
+        builder.Property(x => x.OverrideState)
+            .HasColumnName("override_state")
+            .HasMaxLength(16);
+        builder.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");
+        builder.HasIndex(x => new { x.Username, x.RestrictionKind });
+    }
+}
+
+internal sealed class InputArtifactConfiguration : IEntityTypeConfiguration<InputArtifactEntity>
+{
+    public void Configure(EntityTypeBuilder<InputArtifactEntity> builder)
+    {
+        builder.ToTable("input_artifacts", table =>
+            table.HasCheckConstraint("ck_input_artifacts_length", "length >= 0"));
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Id).HasColumnName("id").HasMaxLength(32);
+        builder.Property(x => x.Sha256).HasColumnName("sha256").HasMaxLength(64);
+        builder.Property(x => x.Length).HasColumnName("length");
+        builder.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
+        builder.Property(x => x.ExpiresAtUtc).HasColumnName("expires_at_utc");
+        builder.Property(x => x.OriginalName).HasColumnName("original_name").HasMaxLength(255);
+        builder.HasIndex(x => new { x.ExpiresAtUtc, x.Id });
     }
 }
 

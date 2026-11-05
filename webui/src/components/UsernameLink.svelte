@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import type { UserLinkActions } from '../prototype/navigation';
+  import type { UserLinkActions } from '../app/navigation';
   import { anchoredMenu } from '../lib/anchored-menu';
 
   interface Props {
@@ -12,6 +12,7 @@
   let { username, actions, title }: Props = $props();
   let root = $state<HTMLSpanElement | null>(null);
   let open = $state(false);
+
   function toggle(event: MouseEvent): void {
     event.stopPropagation();
     open = !open;
@@ -27,25 +28,12 @@
     if (!open || root?.contains(event.target as Node)) return;
     open = false;
   }
-
-  function handleWindowKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape') open = false;
-  }
 </script>
 
-<svelte:window onpointerdown={handleWindowPointerDown} onkeydown={handleWindowKeydown} onresize={() => (open = false)} />
+<svelte:window onpointerdown={handleWindowPointerDown} onkeydown={(event) => { if (event.key === 'Escape') open = false; }} onresize={() => (open = false)} />
 
 <span class="username-link-control" bind:this={root}>
-  <button
-    type="button"
-    class="username-link"
-    title={title ?? `Actions for ${username}`}
-    aria-label={`Actions for ${username}`}
-    aria-haspopup="menu"
-    aria-expanded={open}
-    onclick={toggle}
-  >{username}</button>
-
+  <button type="button" class="username-link" title={title ?? `Actions for ${username}`} aria-label={`Actions for ${username}`} aria-haspopup="menu" aria-expanded={open} onclick={toggle}>{username}</button>
   {#if open}
     <div class="username-action-menu" role="menu" use:anchoredMenu={{ anchor: root, align: 'start', gap: 5 }}>
       <button type="button" role="menuitem" onclick={(event) => choose('profile', event)}><Icon name="user" /><span>Profile</span></button>

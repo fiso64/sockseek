@@ -11,6 +11,7 @@ using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Extractors;
+using Sockseek.Core.Planning;
 
 namespace Sockseek.Core.Transfers.Downloads.Runtime;
 
@@ -84,7 +85,87 @@ internal sealed class DownloadExecutionContext
 
     public JobContext Ctx(Job job) => Contexts.Get(job);
 
+    public void UpdateOutputs(Job job, JobContext? prepared, bool indexOnly = false)
+    {
+        if (prepared?.IndexEditor is { IsWritable: true } index)
+        {
+            index.Observe(job);
+            Runtime.Files.RequestOutputUpdate(index);
+        }
+        if (!indexOnly && prepared?.PlaylistEditor is { IsWritable: true } playlist)
+        {
+            playlist.Observe(job);
+            Runtime.Files.RequestOutputUpdate(playlist);
+        }
+    }
+
+    public async Task FlushOutputsAsync(Job root)
+    {
+        // Root execution, resume and cancellation all settle here before their
+        // workflow lease can retire. File-operation disposal alone is too late
+        // in a daemon whose engine keeps accepting other workflows.
+        foreach (var document in Contexts.GetOutputFiles(root.WorkflowId))
+        {
+            Exception? failure = await Runtime.Files.FlushOutputAsync(document).ConfigureAwait(false);
+            if (failure is null) continue;
+            DownloadLogMessages.OutputPublicationFailed(LoggerFactory.CreateLogger<DownloadExecutionContext>(), failure,
+                document.OperationId, root.Id);
+            Events.RaiseJobMessage(root, LogLevel.Error, "output-files",
+                document.Kind == OutputFileKind.Playlist ? "The playlist could not be written. Downloaded files remain available."
+                    : "The download index could not be written. Downloaded files remain available.");
+        }
+    }
+
+    public JobList PrepareAggregateChildren(Job owner, IEnumerable<Job> children, JobContext inherited)
+    {
+        var group = new JobList(owner.ItemName, children)
+        {
+            Config = owner.Config,
+            WorkflowId = owner.WorkflowId,
+            DownloadBehaviorPolicy = owner.DownloadBehaviorPolicy,
+        };
+        inherited.IndexEditor?.RegisterChildren(owner);
+        inherited.PlaylistEditor?.RegisterChildren(owner);
+        SubmissionIdentity.AssignExecutionChild(owner, group);
+        Contexts.Set(group, ChildContext());
+        foreach (var child in group.Jobs)
+        {
+            // Bind ownership before storing context or publishing registration.
+            child.WorkflowId = owner.WorkflowId;
+            child.Config = owner.Config;
+            Contexts.Set(child, ChildContext());
+        }
+        return group;
+
+        JobContext ChildContext() => new()
+        {
+            PreparationOwner = inherited.PreparationOwner,
+            IndexEditor = inherited.IndexEditor,
+            PlaylistEditor = inherited.PlaylistEditor,
+            OutputDirSkipper = inherited.OutputDirSkipper,
+            MusicDirSkipper = inherited.MusicDirSkipper,
+            OutputScope = inherited.OutputScope,
+            EnablesIndexByDefault = inherited.EnablesIndexByDefault,
+            PreprocessTracks = false,
+        };
+    }
+
     public void RegisterJob(Job job, Job? parent, Guid? sourceJobId = null) => Jobs.Register(job, parent, sourceJobId);
+
+    // Start an execution generation before publication, so even queued work can
+    // be cancelled. Admission must keep this token rather than replacing it.
+    // The cancellation parent can differ from the displayed parent (extraction
+    // results and aggregate grouping lists have their own hierarchy semantics).
+    public void RegisterForExecution(Job job, CancellationToken parentToken, Job? parent, DirectoryTransferEntry? directoryEntry = null)
+    {
+        job.Cts?.Dispose();
+        job.Cts = CancellationTokenSource.CreateLinkedTokenSource(Runtime.Token, parentToken);
+        // Cancellation may arrive after queue admission but before this token
+        // replaces discovery's token. Preserve the request across that boundary.
+        if (job.CancellationSource != JobCancellationSource.None)
+            job.Cts.Cancel();
+        Jobs.Register(job, parent, directoryEntry: directoryEntry);
+    }
 
     public void ObservePreparedAutoProfiles(Job preparedRoot) => AutoProfiles.ObservePreparedRoot(preparedRoot);
 

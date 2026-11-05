@@ -1,7 +1,7 @@
 # Daemon mode
 
 > [!WARNING]
-> This document is currently fully AI-authored.
+> This document is currently fully AI-authored. It will be rewritten in the future.
 
 Daemon mode keeps Sockseek running in the background so it can accept work from
 other terminals or applications. It also keeps job, search, and transfer history
@@ -21,6 +21,12 @@ The daemon listens on `127.0.0.1:5030` by default:
 ```bash
 sockseek daemon
 ```
+
+Open `http://127.0.0.1:5030/` in a browser to use the WebUI. Published
+Sockseek builds bundle it with the daemon; an ordinary source `dotnet build`
+does not build the frontend (see [`webui/README.md`](../webui/README.md)).
+The WebUI uses the same API and has the same network access implications
+described under [Network security](#network-security).
 
 Leave this terminal open, or run the process through your preferred service
 manager.
@@ -74,6 +80,70 @@ sockseek "Artist - Album" \
 
 The daemon performs the work. Closing the remote CLI does not stop the daemon.
 
+### Planning and `--print jobs`
+
+Direct Start consumes the shared Core planner without creating a preview.
+Local `--print jobs` and `--print jobs-full` run that planner in-process and do
+not require a daemon, database, or configured daemon data directory. In remote
+mode those two print forms are Review operations: the CLI creates an expiring
+Job Preview, exhausts its cursor-paged nodes, prints them, and does not create a
+runtime workflow.
+
+When a remote command names a client-local CSV or explicit List file, the CLI
+streams it to the daemon as an immutable input artifact before either Review or
+direct Start. The daemon therefore never assumes that a client filesystem path
+exists on the server, and CSV/List source-removal behavior never mutates the
+client-owned file.
+
+### Search results in local and remote CLI mode
+
+The local and remote CLI use the same Core search-definition, admission,
+ranking, grouping, condition-fact, and counter logic. Local mode runs that
+kernel directly and needs no daemon or database. Remote mode reads the daemon's
+disk-backed Search View pages, so it can display the same projection while
+results are arriving and after the workflow leaves memory.
+
+Print-only Song, Album and aggregate jobs retain locked observations for display,
+including condition explanations in full results. CLI text marks locked files;
+JSON emits `Visibility: "Locked"` on those files. Automatic/manual download
+candidates and printed download links use public files only. Printing reuses the
+projection's evaluated facts rather than evaluating conditions again.
+
+Legacy user-success downranking remains scoped to the active workflow. Local
+and daemon projection receive the same workflow-local counts, and a published
+Search View retains the resulting sort facts rather than creating a durable or
+shared reputation system. Its longer-lived daemon semantics remain a V4 design
+question.
+
+A Search View advances through immutable revisions. Each revision contains
+consistent rows, ordering, groups, explanations, and summary counters for all
+observations consumed so far. The UI and remote CLI observe the View through the
+`ObserveSearchView` SignalR stream. While observed, it catches up in fair batches
+independently of display refreshes. The stream delivers the first available
+summary immediately, then coalesces updates to at most once per second; completion
+is immediate. Clients
+refetch visible pages and expanded groups at the received revision.
+Closing or hiding the results cancels observation; unobserved arrivals remain
+raw. Reopening resumes from the published prefix, including after restart.
+Creation and ordinary summary/update reads still request one bounded batch.
+Idle working kernels can be released without deleting published revisions.
+Jobs listings must not request projections merely to obtain aggregate group counts.
+
+Displayed Jobs lists use `ObserveJobList` with a query and a fetched extent (100
+roots by default). The first frame replaces that scope; subsequent frames contain
+changed fields and actual membership removals. Increasing the extent loads more
+rows. Reconnect starts a fresh authoritative scope, even when retained revisions
+are lower than the previous runtime revisions. Persistence retirement does not
+remove a displayed job. `/api/jobs/snapshot` supplies the same initial frame over
+HTTP; connected clients need only the observation. Ordinary `/api/jobs` cursor
+paging remains available for traversal without a live display.
+
+Retrieving a directory uses the exact view-issued peer-directory ref and the
+same Core folder-retrieval job for generic and album views. Completion adds a
+new immutable revision with browse-authoritative totals and pageable children;
+the user can select the directory as one unit or select specific public child
+files without server-owned checkbox state.
+
 ## Monitor daemon work
 
 Use `--monitor` to follow every active workflow in the normal live renderer.
@@ -104,11 +174,39 @@ sockseek transfer cancel <id> --remote http://127.0.0.1:5030
 
 `share status` reports the sharing health, published generation, public aliases,
 aggregate catalog counts, recent scan state, and blocked-peer counts
-without exposing local roots or blacklist contents. `transfers` is a paginated
-durable-history query; use `--limit`, `--cursor`, `--state`, `--username`, and
-`--direction` to narrow it. Add `--json` to these commands for typed JSON
-output. Scan and transfer cancellation use the same advertised actions and HTTP
-contracts as other API clients.
+without exposing local roots or blacklist contents. `transfers` pages the same
+newest-first combined timeline used by the WebUI: active downloads/uploads,
+queued uploads, and retained history with live state overlaid by transfer ID.
+Its JSON envelope reports retained coverage explicitly when persistence is
+disabled or degraded. Use `--limit`, `--cursor`, `--state`, `--username`, and
+`--direction` to narrow it. New transfers may appear above an existing cursor;
+status changes do not reorder the traversal. Add `--json` for typed output.
+Scan and individual transfer cancellation use the same advertised actions and
+HTTP contracts as other API clients. The API also provides direction/state
+scoped bulk cancellation and reversible terminal-history archive as distinct
+operator mutations with bounded outcome receipts.
+
+The Dashboard analytics API uses the same transfer persistence lifecycle. It
+checkpoints cumulative bytes per attempt and stores compact five-minute base
+buckets, so retries, resumes, and transfers crossing a selected range are not
+reconstructed from file size or creation time. Dashboard ranges are bounded and
+report a contiguous `completeFromUtc` coverage boundary. A new installation,
+retention, an unclean restart, or unhealthy persistence may therefore make an
+older range explicitly partial or unavailable; transfers continue independently.
+Content rankings use the public shared-directory identity and display path
+captured when an upload is admitted, never the configured local root.
+
+Remote-user share acquisitions are also immutable, expiring SQLite artifacts
+under the daemon data directory. The same artifact owns ordinary directory/file
+navigation, exact download selection, and global share filtering. Global
+filtering uses an artifact-local trigram index with an exact case-insensitive
+substring post-filter; one- and two-character queries use the same semantics via
+a direct artifact scan. It returns bounded flat pages with display-path ancestor
+context and exact public/locked totals rather than recursively embedding a tree
+or issuing one file query per directory. Broad-query temporary work spills to
+disk. A cursor is valid only for its browse generation, revision, and query.
+Older retained artifacts without the index remain ordinarily browsable and can
+be refreshed to enable global filtering.
 
 ### Configure sharing and uploads
 
@@ -127,13 +225,17 @@ share-scan-on-start = true
 upload-slots = 10
 # upload-speed-limit-kib = 2048
 
-peer-blocked-user = + unwanted-user
-peer-blocked-ip = + 192.0.2.10
+upload-blocked-user = + unwanted-user
+upload-blocked-ip = + 192.0.2.10
+private-message-blocked-user = + noisy-user
 ```
 
 The leading `+` appends another value; an unprefixed list value replaces values
-from an earlier configuration layer. Public aliases and relative remote paths
-are visible to peers. Local roots and the contents of peer deny lists are not
+from an earlier configuration layer. Upload blocks deny future inbound search,
+browse, directory, and upload requests. Private-message blocks discard future
+incoming DMs only; room messages and all outbound profile, browse, download, and
+chat actions remain available. Public aliases and relative remote paths are
+visible to peers. Local roots and the contents of restriction lists are not
 returned by ordinary status APIs.
 
 Scans skip Windows `Hidden` or `System` entries, Unix dotfiles and
@@ -246,9 +348,10 @@ Incoming private messages are committed before Sockseek acknowledges them to
 the Soulseek server. A replay is deduplicated. Protocol acknowledgement is not
 the same as the local read watermark: clients explicitly mark visible messages
 or notifications read. Room mentions match the current username as a whole
-token. Blocked usernames apply to private and room chat; an IP-only block cannot
-be evaluated for server-delivered chat events because those events contain no
-peer IP address.
+token. Private-message-blocked usernames have incoming DMs acknowledged and
+discarded; they still appear in room chat and may receive outgoing DMs. Upload-
+access username/IP restrictions are unrelated to chat, and server-delivered chat
+events do not contain a peer IP address.
 
 Messages are plain text and are never interpreted as HTML or Markdown by the
 daemon. Message bodies, conversation lists, and room rosters are absent from
@@ -330,6 +433,14 @@ Sockseek chooses the database filename inside that directory. You do not need to
 configure a database file separately. For a container, mount a persistent
 directory and set `data-dir` to that mount, such as `/data`.
 
+Durable submission history, Search View revisions, transfer accounting,
+peer-restriction overrides, and uploaded-input metadata share this database,
+including its migrations, integrity checks, backups, and retention runs.
+Uploaded input bodies remain immutable files beside it, and Job Preview uses a
+temporary per-daemon spool that is deliberately not restored after restart.
+Share catalogs and completed peer-browse databases are immutable generation
+artifacts rather than parallel history databases.
+
 Keep the database on a local disk. Network shares and cloud-synchronized folders
 are not supported database locations.
 
@@ -347,6 +458,10 @@ their folder permissions. On Unix, Sockseek restricts newly created database and
 backup files to the current user.
 
 Only one daemon or database command can use a database at a time.
+
+The unreleased v4 branch uses a fresh schema baseline. Databases from earlier v4
+development builds are rejected without being replaced. Keep the old database
+with a compatible build, or explicitly choose a fresh database path.
 
 ## Retention
 

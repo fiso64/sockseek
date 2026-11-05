@@ -10,8 +10,6 @@ using SoulseekPresence = Soulseek.UserPresence;
 
 namespace Sockseek.Server.UserProfiles;
 
-public sealed class UserProfileAccessDeniedException : Exception;
-
 public sealed class UserProfileUnavailableException(string message, Exception? inner = null)
     : InvalidOperationException(message, inner);
 
@@ -54,7 +52,6 @@ public sealed class UserProfileService : IAsyncDisposable
     private readonly IUserProfileTransport transport;
     private readonly Func<CancellationToken, Task> ensureSessionStarted;
     private readonly Func<string?> localAccountProvider;
-    private readonly PeerAccessPolicy accessPolicy;
     private readonly Func<DateTimeOffset> utcNow;
     private readonly TimeSpan sectionTimeout;
     private readonly ILogger<UserProfileService> logger;
@@ -65,8 +62,11 @@ public sealed class UserProfileService : IAsyncDisposable
     private readonly CancellationTokenSource lifetime = new();
     private readonly object sessionSync = new();
     private readonly object connectionSync = new();
+    private readonly object presenceSync = new();
     private CancellationTokenSource connectionLifetime = new();
     private Task? sessionStartup;
+    private TaskCompletionSource? presenceDrained;
+    private int activePresenceOperations;
     private int observedLoggedInSession;
     private int disposeState;
 
@@ -74,7 +74,6 @@ public sealed class UserProfileService : IAsyncDisposable
         IUserProfileTransport transport,
         Func<CancellationToken, Task> ensureSessionStarted,
         Func<string?> localAccountProvider,
-        PeerAccessPolicy accessPolicy,
         ILogger<UserProfileService> logger,
         int networkConcurrency = DefaultNetworkConcurrency,
         Func<DateTimeOffset>? utcNow = null,
@@ -83,7 +82,6 @@ public sealed class UserProfileService : IAsyncDisposable
         this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
         this.ensureSessionStarted = ensureSessionStarted ?? throw new ArgumentNullException(nameof(ensureSessionStarted));
         this.localAccountProvider = localAccountProvider ?? throw new ArgumentNullException(nameof(localAccountProvider));
-        this.accessPolicy = accessPolicy ?? throw new ArgumentNullException(nameof(accessPolicy));
         this.utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         this.sectionTimeout = sectionTimeout ?? SectionTimeout;
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -100,6 +98,98 @@ public sealed class UserProfileService : IAsyncDisposable
         bool refresh = false,
         CancellationToken cancellationToken = default)
         => (await GetEntryAsync(username, refresh, cancellationToken).ConfigureAwait(false)).Profile;
+
+    public Task<UserPresenceObservationDto> ObservePresenceAsync(
+        string username,
+        CancellationToken cancellationToken = default)
+    {
+        lock (presenceSync)
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref disposeState) != 0, this);
+            activePresenceOperations++;
+        }
+        return ObservePresenceTrackedAsync(username, cancellationToken);
+    }
+
+    private async Task<UserPresenceObservationDto> ObservePresenceTrackedAsync(
+        string username,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await ObservePresenceCoreAsync(username, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (presenceSync)
+            {
+                activePresenceOperations--;
+                if (activePresenceOperations == 0)
+                    presenceDrained?.TrySetResult();
+            }
+        }
+    }
+
+    private async Task<UserPresenceObservationDto> ObservePresenceCoreAsync(
+        string username,
+        CancellationToken cancellationToken)
+    {
+        username = PeerUsername.Validate(username);
+        string peerHash = LogIdentity.PeerHash(username);
+        using OperationLogScope operationLog = OperationLogScope.Start(
+            logger, "user-presence.observe", peerHash);
+        bool networkAcquired = false;
+        try
+        {
+            await EnsureSessionAsync(cancellationToken).ConfigureAwait(false);
+            _ = PeerUsername.Validate(localAccountProvider()
+                ?? throw new UserProfileUnavailableException("Soulseek is not logged in."));
+            CancellationToken connectionToken;
+            lock (connectionSync)
+                connectionToken = connectionLifetime.Token;
+            using var operation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken, lifetime.Token, connectionToken);
+            await networkGate.WaitAsync(operation.Token).ConfigureAwait(false);
+            networkAcquired = true;
+            SectionResult<UserStatus> status = await CaptureAsync(
+                token => transport.GetStatusAsync(username, token),
+                operation.Token,
+                sectionTimeout,
+                logger,
+                peerHash,
+                "status").ConfigureAwait(false);
+            DateTimeOffset? observedAt = status.Section.State == ResourceSectionState.Available
+                ? utcNow() : null;
+            var observation = new UserPresenceObservationDto(
+                username, Presence(status), status.Section, observedAt);
+            if (observedAt is not null)
+                operationLog.Succeeded("available", itemCount: 1);
+            else
+                operationLog.Degraded(status.Section.State.ToString(), itemCount: 0);
+            return observation;
+        }
+        catch (OperationCanceledException exception)
+            when (!cancellationToken.IsCancellationRequested && !lifetime.IsCancellationRequested)
+        {
+            operationLog.Failed(exception, "connection-lost");
+            throw new UserProfileUnavailableException("Soulseek connection was lost.", exception);
+        }
+        catch (OperationCanceledException)
+        {
+            operationLog.Cancelled();
+            throw;
+        }
+        catch (Exception exception)
+        {
+            operationLog.Failed(exception);
+            throw;
+        }
+        finally
+        {
+            if (networkAcquired)
+                networkGate.Release();
+        }
+    }
 
     public async Task<UserPicture?> GetPictureAsync(
         string username,
@@ -138,9 +228,6 @@ public sealed class UserProfileService : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposeState) != 0, this);
         username = PeerUsername.Validate(username);
-        if (accessPolicy.IsUsernameBlocked(username))
-            throw new UserProfileAccessDeniedException();
-
         string peerHash = LogIdentity.PeerHash(username);
 
         try
@@ -267,6 +354,8 @@ public sealed class UserProfileService : IAsyncDisposable
             DateTimeOffset observedAt = utcNow();
             var profile = new UserProfileDto(
                 key.Username,
+                false,
+                false,
                 Presence(status),
                 status.Section,
                 info.Section,
@@ -481,6 +570,12 @@ public sealed class UserProfileService : IAsyncDisposable
             connectionLifetime = new CancellationTokenSource();
         }
         connection.Cancel();
+        Task? pendingPresence;
+        lock (presenceSync)
+            pendingPresence = activePresenceOperations == 0
+                ? null
+                : (presenceDrained ??= new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously)).Task;
         Task[] pending;
         await gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
@@ -494,6 +589,8 @@ public sealed class UserProfileService : IAsyncDisposable
         }
         try { await Task.WhenAll(pending).ConfigureAwait(false); }
         catch { /* disposal observes and suppresses daemon-lifetime cancellation */ }
+        if (pendingPresence is not null)
+            await pendingPresence.ConfigureAwait(false);
         connection.Dispose();
         connectionLifetime.Dispose();
         lifetime.Dispose();

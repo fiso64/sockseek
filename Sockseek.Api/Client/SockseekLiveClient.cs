@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,6 +25,7 @@ public sealed class SockseekLiveClient : IAsyncDisposable
     private readonly bool ownsHttp;
     private readonly SockseekApiClient api;
     private readonly HubConnection connection;
+    private readonly DaemonStateDetail detail;
     private readonly ConcurrentDictionary<StateStreamScopeDto, ScopeSession> sessions = [];
     private readonly SemaphoreSlim lifecycleGate = new(1, 1);
     private readonly CancellationTokenSource lifetime = new();
@@ -38,25 +40,27 @@ public sealed class SockseekLiveClient : IAsyncDisposable
     public event Action<ActivityEventDto>? ActivityReceived;
     public event Action<StateStreamScopeDto, Exception>? SynchronizationFailed;
 
-    public SockseekLiveClient(string serverUrl, JsonSerializerOptions? jsonOptions = null)
-        : this(SockseekApiClient.CreateHttpClient(serverUrl), ownsHttp: true, jsonOptions)
+    public SockseekLiveClient(string serverUrl, JsonSerializerOptions? jsonOptions = null, DaemonStateDetail detail = DaemonStateDetail.Full)
+        : this(SockseekApiClient.CreateHttpClient(serverUrl), ownsHttp: true, jsonOptions, detail)
     {
     }
 
     public SockseekLiveClient(
         HttpClient http,
         bool ownsHttp = false,
-        JsonSerializerOptions? jsonOptions = null)
+        JsonSerializerOptions? jsonOptions = null,
+        DaemonStateDetail detail = DaemonStateDetail.Full)
     {
         this.http = http;
         this.ownsHttp = ownsHttp;
+        this.detail = detail;
         var options = jsonOptions ?? SockseekApiJson.CreateSerializerOptions();
         api = new SockseekApiClient(http, options);
         var baseUri = http.BaseAddress
             ?? throw new ArgumentException("The HTTP client requires a daemon BaseAddress.", nameof(http));
 
         connection = new HubConnectionBuilder()
-            .WithUrl(new Uri(baseUri, $"api/events?liveProtocol={LiveProtocol.Version}"))
+            .WithUrl(new Uri(baseUri, $"{LiveProtocol.HubPath}?liveProtocol={LiveProtocol.Version}"))
             .AddJsonProtocol(json =>
             {
                 json.PayloadSerializerOptions.PropertyNameCaseInsensitive = true;
@@ -64,7 +68,7 @@ public sealed class SockseekLiveClient : IAsyncDisposable
             })
             .WithAutomaticReconnect()
             .Build();
-        connection.On<StateUpdateBatchDto>("stateUpdateBatch", HandleBatch);
+        connection.On<StateUpdateBatchDto>(LiveProtocol.StateUpdateBatchMethod, HandleBatch);
         connection.Reconnected += _ => RecoverAfterReconnectAsync();
     }
 
@@ -77,8 +81,74 @@ public sealed class SockseekLiveClient : IAsyncDisposable
                 ? LiveSubscriptionMode.DaemonAndChat
                 : LiveSubscriptionMode.Daemon,
             "Cannot mix daemon and workflow subscriptions on one live client.",
-            token => connection.InvokeAsync("SubscribeAll", token),
+            token => connection.InvokeAsync(LiveProtocol.SubscribeAllMethod, detail, token),
             ct);
+
+    /// <summary>Processing demand lasts exactly as long as this enumeration.</summary>
+    public async IAsyncEnumerable<SearchViewSummaryDto> ObserveSearchViewAsync(
+        Guid viewId, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            ThrowIfDisposed();
+            await EnsureConnectedAsync(ct).ConfigureAwait(false);
+        }
+        finally { lifecycleGate.Release(); }
+        await foreach (var summary in connection.StreamAsync<SearchViewSummaryDto>(
+            LiveProtocol.ObserveSearchViewMethod, viewId, ct).ConfigureAwait(false))
+            yield return summary;
+    }
+
+    public async IAsyncEnumerable<JobListUpdateDto> ObserveJobListAsync(
+        JobListScopeDto scope,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        await lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            ThrowIfDisposed();
+            await EnsureConnectedAsync(ct).ConfigureAwait(false);
+        }
+        finally { lifecycleGate.Release(); }
+        await foreach (var update in connection.StreamAsync<JobListUpdateDto>(
+            LiveProtocol.ObserveJobListMethod, scope, ct).ConfigureAwait(false))
+            yield return update;
+    }
+
+    public async IAsyncEnumerable<JobObservationUpdateDto> ObserveJobsAsync(
+        Guid jobId,
+        IReadOnlyList<Guid> jobIds,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(jobIds);
+        await lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            ThrowIfDisposed();
+            await EnsureConnectedAsync(ct).ConfigureAwait(false);
+        }
+        finally { lifecycleGate.Release(); }
+        await foreach (var update in connection.StreamAsync<JobObservationUpdateDto>(
+            LiveProtocol.ObserveJobsMethod, jobId, jobIds, ct).ConfigureAwait(false))
+            yield return update;
+    }
+
+    public async IAsyncEnumerable<TransferTimelineUpdateDto> ObserveTransferTimelineAsync(
+        TransferTimelineScopeDto scope, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            ThrowIfDisposed();
+            await EnsureConnectedAsync(ct).ConfigureAwait(false);
+        }
+        finally { lifecycleGate.Release(); }
+        await foreach (var update in connection.StreamAsync<TransferTimelineUpdateDto>(
+            LiveProtocol.ObserveTransferTimelineMethod, scope, ct).ConfigureAwait(false))
+            yield return update;
+    }
 
     public Task StartWorkflowAsync(Guid workflowId, CancellationToken ct = default)
         => StartScopeAsync(
@@ -87,7 +157,7 @@ public sealed class SockseekLiveClient : IAsyncDisposable
             static _ => false,
             static _ => LiveSubscriptionMode.Workflow,
             "Cannot mix workflow and daemon/chat subscriptions on one live client.",
-            token => connection.InvokeAsync("SubscribeWorkflow", workflowId, token),
+            token => connection.InvokeAsync(LiveProtocol.SubscribeWorkflowMethod, workflowId, token),
             ct);
 
     /// <summary>
@@ -127,7 +197,7 @@ public sealed class SockseekLiveClient : IAsyncDisposable
         => StartAuxiliaryScopeAsync(
             StateStreamScopeDto.UserBrowse(browseId),
             "Cannot mix user-browse and workflow subscriptions on one live client.",
-            token => connection.InvokeAsync("SubscribeUserBrowse", browseId, token),
+            token => connection.InvokeAsync(LiveProtocol.SubscribeUserBrowseMethod, browseId, token),
             ct);
 
     public async Task StopUserBrowseAsync(Guid browseId, CancellationToken ct = default)
@@ -139,7 +209,7 @@ public sealed class SockseekLiveClient : IAsyncDisposable
             if (sessions.TryRemove(scope, out ScopeSession? session))
             {
                 if (connection.State == HubConnectionState.Connected)
-                    await connection.InvokeAsync("UnsubscribeUserBrowse", browseId, ct);
+                    await connection.InvokeAsync(LiveProtocol.UnsubscribeUserBrowseMethod, browseId, ct);
                 session.Dispose();
                 Store.RemoveUserBrowse(browseId);
             }
@@ -155,7 +225,7 @@ public sealed class SockseekLiveClient : IAsyncDisposable
         => StartAuxiliaryScopeAsync(
             scope,
             "Cannot mix chat and workflow subscriptions on one live client.",
-            token => connection.InvokeAsync("SubscribeChat", scope, token),
+            token => connection.InvokeAsync(LiveProtocol.SubscribeChatMethod, scope, token),
             ct);
 
     private Task StartAuxiliaryScopeAsync(
@@ -230,7 +300,7 @@ public sealed class SockseekLiveClient : IAsyncDisposable
             if (sessions.TryRemove(scope, out var session))
             {
                 if (connection.State == HubConnectionState.Connected)
-                    await connection.InvokeAsync("UnsubscribeChat", scope, ct);
+                    await connection.InvokeAsync(LiveProtocol.UnsubscribeChatMethod, scope, ct);
                 session.Dispose();
                 Store.RemoveChatTarget(scope);
             }
@@ -249,27 +319,6 @@ public sealed class SockseekLiveClient : IAsyncDisposable
         {
             lifecycleGate.Release();
         }
-    }
-
-    public async Task<CursorPage<WorkflowSummaryDto>> LoadWorkflowHistoryPageAsync(
-        string? cursor = null,
-        int limit = 100,
-        CancellationToken ct = default)
-    {
-        var page = await api.GetWorkflowsPageAsync(cursor, limit, ct);
-        Store.MergeWorkflowHistory(page.Items);
-        return page;
-    }
-
-    public async Task<CursorPage<JobSummaryDto>> LoadJobHistoryPageAsync(
-        JobQuery query,
-        string? cursor = null,
-        int limit = 100,
-        CancellationToken ct = default)
-    {
-        var page = await api.GetJobsPageAsync(query, cursor, limit, ct);
-        Store.MergeJobHistory(page.Items);
-        return page;
     }
 
     public SharingStateDto? GetSharing()
@@ -303,6 +352,22 @@ public sealed class SockseekLiveClient : IAsyncDisposable
         CancellationToken ct = default)
         => _ = await api.CancelTransferAsync(transferId, ct);
 
+    public Task<TransferCommandReceiptDto> CancelTransfersAsync(
+        BulkCancelTransfersRequestDto request,
+        CancellationToken ct = default)
+        => api.CancelTransfersAsync(request, ct);
+
+    public Task<TransferCommandReceiptDto> SetTransferArchivedAsync(
+        Guid transferId,
+        bool archived = true,
+        CancellationToken ct = default)
+        => api.SetTransferArchivedAsync(transferId, archived, ct);
+
+    public Task<TransferCommandReceiptDto> SetTransfersArchivedAsync(
+        ArchiveTransfersRequestDto request,
+        CancellationToken ct = default)
+        => api.SetTransfersArchivedAsync(request, ct);
+
     public Task<LiveTransferPageDto> LoadLiveTransferPageAsync(
         LiveTransferFilter? filter = null,
         string? cursor = null,
@@ -310,12 +375,17 @@ public sealed class SockseekLiveClient : IAsyncDisposable
         CancellationToken ct = default)
         => api.LoadLiveTransferPageAsync(filter, cursor, limit, ct);
 
-    public Task<CursorPage<TransferHistoryDto>> LoadTransferHistoryPageAsync(
+    public Task<TransferTimelinePageDto> LoadTransferHistoryPageAsync(
         TransferHistoryFilter? filter = null,
         string? cursor = null,
         int limit = 100,
         CancellationToken ct = default)
-        => api.GetTransfersPageAsync(filter, cursor, limit, ct);
+        => api.GetTransfersPageAsync(filter, cursor, limit, ct: ct);
+
+    public Task<DashboardAnalyticsDto> LoadDashboardAnalyticsAsync(
+        string range = "24h",
+        CancellationToken ct = default)
+        => api.GetDashboardAnalyticsAsync(range, ct);
 
     private async Task EnsureConnectedAsync(CancellationToken ct)
     {
@@ -362,18 +432,18 @@ public sealed class SockseekLiveClient : IAsyncDisposable
                 session.BeginBuffering();
 
         if (Mode is LiveSubscriptionMode.Daemon or LiveSubscriptionMode.DaemonAndChat)
-            await connection.InvokeAsync("SubscribeAll");
+            await connection.InvokeAsync(LiveProtocol.SubscribeAllMethod, detail);
         if (Mode == LiveSubscriptionMode.Workflow)
         {
             foreach (var scope in scopes.Where(scope => scope.Kind == StateStreamScopeKind.Workflow))
-                await connection.InvokeAsync("SubscribeWorkflow", scope.WorkflowId!.Value);
+                await connection.InvokeAsync(LiveProtocol.SubscribeWorkflowMethod, scope.WorkflowId!.Value);
         }
         if (Mode is LiveSubscriptionMode.Chat or LiveSubscriptionMode.DaemonAndChat)
         {
             foreach (var scope in scopes.Where(scope => scope.Kind is StateStreamScopeKind.ChatConversation or StateStreamScopeKind.ChatRoom))
-                await connection.InvokeAsync("SubscribeChat", scope);
+                await connection.InvokeAsync(LiveProtocol.SubscribeChatMethod, scope);
             foreach (var scope in scopes.Where(scope => scope.Kind == StateStreamScopeKind.UserBrowse))
-                await connection.InvokeAsync("SubscribeUserBrowse", scope.UserBrowseId!.Value);
+                await connection.InvokeAsync(LiveProtocol.SubscribeUserBrowseMethod, scope.UserBrowseId!.Value);
         }
 
         await Task.WhenAll(scopes.Select(RecoverScopeSafelyAsync));
@@ -443,7 +513,7 @@ public sealed class SockseekLiveClient : IAsyncDisposable
             {
                 var snapshot = scope.Kind switch
                 {
-                    StateStreamScopeKind.Daemon => await api.GetDaemonSnapshotAsync(recoveryToken),
+                    StateStreamScopeKind.Daemon => await api.GetDaemonSnapshotAsync(recoveryToken, detail),
                     StateStreamScopeKind.Workflow => await api.GetWorkflowSnapshotAsync(scope.WorkflowId!.Value, recoveryToken),
                     StateStreamScopeKind.ChatConversation => await api.GetConversationSnapshotAsync(scope.ChatTargetId!.Value, recoveryToken),
                     StateStreamScopeKind.ChatRoom => await api.GetRoomSnapshotAsync(scope.ChatTargetId!.Value, recoveryToken),
@@ -505,13 +575,13 @@ public sealed class SockseekLiveClient : IAsyncDisposable
             try
             {
                 if (scope.Kind == StateStreamScopeKind.Daemon)
-                    await connection.InvokeAsync("UnsubscribeAll");
+                    await connection.InvokeAsync(LiveProtocol.UnsubscribeAllMethod);
                 else if (scope.Kind == StateStreamScopeKind.Workflow)
-                    await connection.InvokeAsync("UnsubscribeWorkflow", scope.WorkflowId!.Value);
+                    await connection.InvokeAsync(LiveProtocol.UnsubscribeWorkflowMethod, scope.WorkflowId!.Value);
                 else if (scope.Kind == StateStreamScopeKind.UserBrowse)
-                    await connection.InvokeAsync("UnsubscribeUserBrowse", scope.UserBrowseId!.Value);
+                    await connection.InvokeAsync(LiveProtocol.UnsubscribeUserBrowseMethod, scope.UserBrowseId!.Value);
                 else
-                    await connection.InvokeAsync("UnsubscribeChat", scope);
+                    await connection.InvokeAsync(LiveProtocol.UnsubscribeChatMethod, scope);
             }
             catch
             {

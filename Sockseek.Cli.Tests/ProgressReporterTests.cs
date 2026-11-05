@@ -113,7 +113,7 @@ public class CliProgressReporterTests
             [],
             [child, completedSearch, album],
             [],
-            []);
+            [], null);
 
         var projection = CliProgressReporter.ProjectState(state);
         var counts = TerminalLiveRenderer.CountRenderState(projection);

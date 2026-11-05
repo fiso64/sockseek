@@ -1,81 +1,133 @@
-name: .NET CI
+name: CI
 
 on:
   workflow_dispatch:
-
+    inputs:
+      full_load:
+        description: Run the full scale/performance qualification suites
+        type: boolean
+        default: false
+  schedule:
+    - cron: '17 3 * * *'
   pull_request:
-    branches:
-      - master
+    branches: [master]
     paths:
       - '**.cs'
       - '**.csproj'
       - '**.sln'
+      - '**.props'
+      - '**.targets'
+      - '**.runsettings'
       - '**/packages.lock.json'
       - '.editorconfig'
       - '**/global.json'
       - '**/nuget.config'
+      - 'docs/openapi.json'
+      - 'webui/**'
       - '.github/workflows/**.yml'
-
   push:
-    branches:
-      - master
+    branches: [master]
     paths:
       - '**.cs'
       - '**.csproj'
       - '**.sln'
+      - '**.props'
+      - '**.targets'
+      - '**.runsettings'
       - '**/packages.lock.json'
       - '.editorconfig'
       - '**/global.json'
       - '**/nuget.config'
+      - 'docs/openapi.json'
+      - 'webui/**'
       - '.github/workflows/**.yml'
 
 jobs:
-  build-and-test:
+  backend:
     runs-on: ubuntu-latest
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.full_load) && 15 || 7 }}
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v7
-
-    - name: Setup .NET SDK
-      uses: actions/setup-dotnet@v6
+    - uses: actions/checkout@v7
+    - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: '10.0.x'
-
-    - name: Cache NuGet packages
-      uses: actions/cache@v6
+        cache: true
+        cache-dependency-path: '**/packages.lock.json'
+    - name: Restore and build
+      run: |
+        dotnet restore --locked-mode
+        dotnet build --no-restore --configuration Release --nologo -m:1 -p:OpenApiGenerateDocuments=false
+    - name: C# tests and PR bulk regressions
+      # Assemblies already parallelize internally. Keep test hosts sequential;
+      # concurrent hosts oversubscribe hosted runners and starve continuations.
+      # Select PR bulk cases in the same invocation instead of starting every
+      # test assembly twice (including CLI, which has no selected bulk cases).
+      env:
+        TEST_FILTER: ${{ (github.event_name == 'schedule' || inputs.full_load) && 'TestCategory!=Load' || 'TestCategory!=Load|TestCategory=CI' }}
+      run: dotnet test --no-build --no-restore --configuration Release --filter "$TEST_FILTER" --maxcpucount:1 --logger trx --results-directory artifacts/tests
+    - name: Full Load qualification
+      if: github.event_name == 'schedule' || inputs.full_load
+      run: dotnet test --no-build --no-restore --configuration Release --filter 'TestCategory=Load' --maxcpucount:1 --logger trx --results-directory artifacts/load
+    - name: Upload failed test results
+      if: failure()
+      uses: actions/upload-artifact@v4
       with:
-        path: ~/.nuget/packages
-        # The cache key invalidates when the lock file changes
-        key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-nuget-
+        name: backend-test-results
+        path: artifacts/
+        if-no-files-found: ignore
+        retention-days: 7
 
-    - name: Restore Dependencies
-      run: dotnet restore
-
-    - name: Build Project
-      run: dotnet build --no-restore --configuration Release
-
-    - name: Test Project
-      # Each assembly already parallelizes internally. Running all four test
-      # hosts concurrently oversubscribes hosted runners and starves async
-      # continuations, producing unrelated five-second timeout failures.
-      run: dotnet test --no-build --configuration Release --verbosity normal --maxcpucount:1
-
-    - name: Run Load Qualifications
-      run: dotnet test --no-build --configuration Release --filter TestCategory=Load --verbosity normal --maxcpucount:1
-
-  format-check:
-    if: false  # disabled: dotnet format has platform-sensitive indentation behavior
+  webui:
     runs-on: ubuntu-latest
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.full_load) && 15 || 7 }}
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v7
-
-    - name: Setup .NET SDK
-      uses: actions/setup-dotnet@v6
+    - uses: actions/checkout@v7
+    - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: '10.0.x'
-
-    - name: Format code
-      run: dotnet format --verify-no-changes
+        cache: true
+        cache-dependency-path: '**/packages.lock.json'
+    - uses: actions/setup-node@v6
+      with:
+        node-version: '24'
+        cache: npm
+        cache-dependency-path: webui/package-lock.json
+    - name: Publish daemon with its production WebUI
+      run: |
+        dotnet restore Sockseek.Cli/Sockseek.Cli.csproj --locked-mode
+        dotnet publish Sockseek.Cli/Sockseek.Cli.csproj --no-restore --configuration Release --output artifacts/ci-publish -m:1 -p:OpenApiGenerateDocuments=false
+        test -s artifacts/ci-publish/wwwroot/index.html
+        test -n "$(find artifacts/ci-publish/wwwroot/assets -maxdepth 1 -name '*.js' -print -quit)"
+    - name: Check WebUI types and unit tests
+      working-directory: webui
+      # Publish installed dependencies, checked the schema and built the SPA.
+      run: |
+        npm run check
+        npm test
+    - name: Build browser test daemon
+      run: |
+        dotnet restore webui/e2e/daemon/Sockseek.WebUi.TestHost.csproj --locked-mode
+        dotnet build webui/e2e/daemon/Sockseek.WebUi.TestHost.csproj --no-restore --configuration Release --nologo -m:1 -p:OpenApiGenerateDocuments=false
+    - name: Install Chromium
+      working-directory: webui
+      run: npx playwright install --with-deps chromium
+    - name: Browser journeys
+      working-directory: webui
+      # Publish already built the SPA; invoke Playwright without rebuilding it.
+      run: npx playwright test
+    - name: Full browser Load qualification
+      if: github.event_name == 'schedule' || inputs.full_load
+      working-directory: webui
+      env:
+        SOCKSEEK_RUN_LOAD: '1'
+      run: npx playwright test --grep '@Load'
+    - name: Upload browser failure artifacts
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: webui-playwright-failure
+        path: |
+          webui/playwright-report/
+          webui/test-results/
+        if-no-files-found: ignore
+        retention-days: 7

@@ -45,6 +45,9 @@ public class FileInfoJson
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public int?   BitDepth   { get; set; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public SearchResultVisibility Visibility { get; set; }
+
     public FileInfoJson() { }
 
     public FileInfoJson(Soulseek.File file)
@@ -65,6 +68,7 @@ public class FileInfoJson
         Bitrate = candidate.BitRate;
         SampleRate = candidate.SampleRate;
         BitDepth = candidate.BitDepth;
+        Visibility = candidate.Visibility;
     }
 }
 

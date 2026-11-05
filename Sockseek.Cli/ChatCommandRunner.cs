@@ -265,11 +265,11 @@ internal static class ChatCommandRunner
     private static int Limit(IReadOnlyList<string> args)
     {
         string? value = Option(args, "--limit");
-        return value is null ? 100
+        return value is null ? ServerProtocol.DefaultPageSize
             : int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int limit)
-              && limit is >= 1 and <= 200
+              && limit >= 1
                 ? limit
-                : throw new ArgumentException("--limit must be between 1 and 200.");
+                : throw new ArgumentException("--limit must be a positive integer.");
     }
 
     private static string? Word(IReadOnlyList<string> args, int index)

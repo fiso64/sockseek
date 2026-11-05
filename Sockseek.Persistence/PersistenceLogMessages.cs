@@ -22,4 +22,17 @@ internal static partial class PersistenceLogMessages
 
     [LoggerMessage(4055, LogLevel.Information, "Persistence writer recovered after reconciling retained mutations")]
     internal static partial void WriterRecovered(ILogger logger);
+
+    [LoggerMessage(4056, LogLevel.Warning, "Input artifact blob storage is unavailable; browser file inputs are disabled")]
+    internal static partial void InputArtifactStorageUnavailable(ILogger logger, Exception exception);
+
+    [LoggerMessage(4057, LogLevel.Warning, "Input artifact cleanup could not delete some expired files; the next retention pass will retry")]
+    internal static partial void InputArtifactCleanupFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(4058, LogLevel.Debug, "Persistence checkpoint {CheckpointId} finished: {Outcome}, {CopiedFrames}/{LogFrames} frames, {DurationMilliseconds} ms")]
+    internal static partial void CheckpointCompleted(ILogger logger, Guid checkpointId, string outcome,
+        int logFrames, int copiedFrames, double durationMilliseconds);
+
+    [LoggerMessage(4059, LogLevel.Warning, "Persistence checkpoint {CheckpointId} failed; durable WAL commits remain available and later writes retry checkpointing")]
+    internal static partial void CheckpointFailed(ILogger logger, Guid checkpointId, Exception exception);
 }

@@ -8,7 +8,7 @@ namespace Sockseek.Core.Transfers.Downloads.SourceMutations;
 
 internal sealed class SourceMutationCoordinator
 {
-    private readonly ConcurrentDictionary<string, byte> appliedSourceMutations = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, byte>> appliedByWorkflow = new();
     private readonly SourceMutationExecutor executor = new();
     private readonly DownloadEvents events;
     private readonly ILogger<SourceMutationCoordinator> logger;
@@ -26,7 +26,9 @@ internal sealed class SourceMutationCoordinator
         if (!config.Extraction.RemoveTracksFromSource) return;
         if (job is SearchJob or RetrieveFolderJob) return;
         if (job.SourceMutation == null) return;
-        if (!appliedSourceMutations.TryAdd(job.SourceMutation.Key, 0)) return;
+        var applied = appliedByWorkflow.GetOrAdd(job.WorkflowId,
+            static _ => new(StringComparer.Ordinal));
+        if (!applied.TryAdd(job.SourceMutation.Key, 0)) return;
 
         DownloadLogMessages.JobDecision(logger, job.Id, "source-mutation", null);
         try { await executor.ApplyAsync(job.SourceMutation, config); }
@@ -44,4 +46,8 @@ internal sealed class SourceMutationCoordinator
                 "download succeeded, but removing it from the source failed");
         }
     }
+
+    // A later workflow may process the same repopulated row/playlist entry.
+    public void RetireWorkflow(Guid workflowId) => appliedByWorkflow.TryRemove(workflowId, out _);
+    internal int RetainedWorkflowCount => appliedByWorkflow.Count;
 }

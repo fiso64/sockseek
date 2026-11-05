@@ -1,4 +1,9 @@
+using System.Text.Json;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore.Storage;
+using Sockseek.Persistence.Planning;
 using Microsoft.EntityFrameworkCore;
+using Sockseek.Persistence.Write;
 
 namespace Sockseek.Persistence.Read;
 
@@ -35,13 +40,16 @@ public sealed record RetentionResult(
     int PrunedTransferAttempts);
 
 public sealed class RetentionService(
-    IDbContextFactory<SockseekDbContext> contextFactory,
+    PersistenceInbox writes,
     PersistenceRetentionOptions options,
     TimeProvider? timeProvider = null)
 {
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
 
-    public async Task<RetentionResult> RunBatchAsync(CancellationToken cancellationToken = default)
+    public Task<RetentionResult> RunBatchAsync(CancellationToken cancellationToken = default)
+        => writes.ExecuteAsync(PruneAsync, cancellationToken, background: true);
+
+    private async Task<RetentionResult> PruneAsync(SockseekDbContext context, CancellationToken cancellationToken)
     {
         options.Validate();
         long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
@@ -49,10 +57,46 @@ public sealed class RetentionService(
         long? unsuccessfulJobCutoff = Cutoff(now, options.UnsuccessfulJobHistoryAge);
         long? searchCutoff = Cutoff(now, options.SearchResultAge);
         long? transferCutoff = Cutoff(now, options.TransferHistoryAge);
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
-        var agedJobs = context.Jobs.AsNoTracking().Where(job => job.LifecycleState == "Terminal");
+        // Raw search-result retention is independent of job-history retention.
+        // Prune eligible raw rows first, then protect every job that still owns
+        // raw rows from both the age policy and the maximum job count.
+        var searchesQuery = context.SearchJobs
+            .Where(search => search.ResultPersistenceState != "Pruned");
+        searchesQuery = searchCutoff.HasValue
+            ? searchesQuery.Where(search => context.Jobs.Any(job => job.Id == search.JobId && job.CompletedAtUtc < searchCutoff))
+            : searchesQuery.Where(_ => false);
+        var searchIdsToPrune = await searchesQuery
+            .AsNoTracking()
+            .OrderBy(search => search.CompletedAtUtc)
+            .Select(search => search.JobId)
+            .Take(options.BatchSize)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        int prunedResults = 0;
+        int searchesMarkedPruned = 0;
+        if (searchIdsToPrune.Count > 0)
+        {
+            string sources = JsonSerializer.Serialize(searchIdsToPrune.Select(id => id.ToString("D").ToUpperInvariant()));
+            prunedResults = await context.SearchResults.Where(result => searchIdsToPrune.Contains(result.SearchJobId))
+                .CountAsync(cancellationToken).ConfigureAwait(false);
+            await context.Database.ExecuteSqlInterpolatedAsync($"""
+                DELETE FROM search_observation_sources
+                WHERE search_job_id IN (SELECT value FROM json_each({sources}));
+                """, cancellationToken).ConfigureAwait(false);
+            searchesMarkedPruned = await context.SearchJobs
+                .Where(search => searchIdsToPrune.Contains(search.JobId))
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(search => search.ResultPersistenceState, "Pruned")
+                        .SetProperty(search => search.ResultsPrunedAtUtc, now),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var agedJobs = context.Jobs.AsNoTracking().Where(job =>
+            job.LifecycleState == "Terminal"
+            && !context.SearchResults.Any(result => result.SearchJobId == job.Id));
         if (completedJobCutoff.HasValue || unsuccessfulJobCutoff.HasValue)
             agedJobs = agedJobs.Where(job =>
                 completedJobCutoff.HasValue && job.TerminalOutcome == "Succeeded" && job.CompletedAtUtc < completedJobCutoff
@@ -70,13 +114,16 @@ public sealed class RetentionService(
         int excess = options.MaximumRetainedJobs.HasValue
             ? Math.Max(0, retainedCount - options.MaximumRetainedJobs.Value)
             : 0;
-        if (agedJobIds.Count < options.BatchSize && excess > 0)
+        int remainingExcess = Math.Max(0, excess - agedJobIds.Count);
+        if (agedJobIds.Count < options.BatchSize && remainingExcess > 0)
         {
             var countIds = await context.Jobs.AsNoTracking()
-                .Where(job => job.LifecycleState == "Terminal" && !agedJobIds.Contains(job.Id))
+                .Where(job => job.LifecycleState == "Terminal"
+                    && !agedJobIds.Contains(job.Id)
+                    && !context.SearchResults.Any(result => result.SearchJobId == job.Id))
                 .OrderBy(job => job.CompletedAtUtc)
                 .Select(job => job.Id)
-                .Take(Math.Min(options.BatchSize - agedJobIds.Count, excess))
+                .Take(Math.Min(options.BatchSize - agedJobIds.Count, remainingExcess))
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
             agedJobIds.AddRange(countIds);
@@ -86,40 +133,23 @@ public sealed class RetentionService(
         if (agedJobIds.Count > 0)
             prunedJobs = await context.Jobs.Where(job => agedJobIds.Contains(job.Id)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
 
-        var searchesQuery = context.SearchJobs
-            .Where(search => search.ResultPersistenceState != "Pruned");
-        searchesQuery = searchCutoff.HasValue
-            ? searchesQuery.Where(search => context.Jobs.Any(job => job.Id == search.JobId && job.CompletedAtUtc < searchCutoff))
-            : searchesQuery.Where(_ => false);
-        var searchIdsToPrune = await searchesQuery
-            .AsNoTracking()
-            .OrderBy(search => search.CompletedAtUtc)
-            .Select(search => search.JobId)
-            .Take(options.BatchSize)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-        int prunedResults = 0;
-        int searchesMarkedPruned = 0;
-        if (searchIdsToPrune.Count > 0)
-        {
-            prunedResults = await context.SearchResults
-                .Where(result => searchIdsToPrune.Contains(result.SearchJobId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-            searchesMarkedPruned = await context.SearchJobs
-                .Where(search => searchIdsToPrune.Contains(search.JobId))
-                .ExecuteUpdateAsync(
-                    setters => setters
-                        .SetProperty(search => search.ResultPersistenceState, "Pruned")
-                        .SetProperty(search => search.ResultsPrunedAtUtc, now),
-                    cancellationToken)
-                .ConfigureAwait(false);
-        }
-
         int prunedAttempts = 0;
         int prunedTransfers = 0;
         if (transferCutoff.HasValue)
         {
+            long accountingCutoff = RoundUp(
+                transferCutoff.Value,
+                Persistence.Write.PersistenceWriter.AccountingBucketMilliseconds);
+            await context.TransferByteBuckets
+                .Where(bucket => bucket.BucketStartUtc < accountingCutoff)
+                .ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+            await context.TransferAccountingStates
+                .Where(state => state.Id == 1 && state.CompleteFromUtc < accountingCutoff)
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(state => state.CompleteFromUtc, accountingCutoff)
+                        .SetProperty(state => state.UpdatedAtUtc, now),
+                    cancellationToken).ConfigureAwait(false);
             var transferIds = await context.Transfers.AsNoTracking()
                 .Where(transfer => transfer.TerminalOutcome != "None" && transfer.CompletedAtUtc < transferCutoff)
                 .OrderBy(transfer => transfer.CompletedAtUtc)
@@ -137,8 +167,6 @@ public sealed class RetentionService(
             }
         }
 
-        await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new RetentionResult(
             prunedJobs,
             prunedResults,
@@ -149,4 +177,10 @@ public sealed class RetentionService(
 
     private static long? Cutoff(long now, TimeSpan? age)
         => age.HasValue ? now - (long)age.Value.TotalMilliseconds : null;
+
+    private static long RoundUp(long value, long interval)
+    {
+        Math.DivRem(value, interval, out long remainder);
+        return remainder == 0 ? value : checked(value + interval - remainder);
+    }
 }

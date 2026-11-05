@@ -760,6 +760,51 @@ namespace Tests.OnCompleteExecutorTests
         }
 
         [TestMethod]
+        public async Task ExecuteAsync_ChainedConditionsAndVariablesSeePriorUpdateIndexOutcome()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "sockseek-oncomplete-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                string markerPath = Path.Combine(tempDir, "marker.txt");
+                string oldPath = Path.Combine(tempDir, "old.flac").Replace('\\', '/');
+                string newPath = Path.Combine(tempDir, "new.mp3").Replace('\\', '/');
+                var settings = new DownloadSettings();
+                settings.Output.ParentDir = tempDir;
+                settings.Output.OnComplete =
+                [
+                    $"when=failure update-index hidden -- {WriteStdoutCommand($"success;{newPath}")}",
+                    $"when=success hidden -- {AppendMarkerCommand(markerPath, "{terminal-outcome}|{path}")}",
+                ];
+                var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
+                {
+                    Config = settings,
+                };
+                var track = new SongJob(new SongQuery { Artist = "Artist", Album = "Album", Title = "Track" })
+                {
+                    Config = settings,
+                    DownloadPath = oldPath,
+                };
+
+                JobOutcome outcome = await OnCompleteExecutor.ExecuteAsync(
+                    album,
+                    track,
+                    new JobContext(),
+                    JobOutcome.Failed(JobFailureReason.AllDownloadsFailed, downloadPath: oldPath));
+
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, outcome.TerminalOutcome);
+                Assert.AreEqual(newPath, outcome.DownloadPath);
+                Assert.AreEqual(
+                    $"Succeeded|{Path.GetFullPath(newPath)}",
+                    File.ReadAllText(markerPath).Trim());
+            }
+            finally
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [TestMethod]
         public async Task ExecuteAsync_UpdateIndexStateAndPath_ReturnsAdjustedAlbumOutcome()
         {
             var tempDir = Path.Combine(Path.GetTempPath(), "sockseek-oncomplete-" + Guid.NewGuid());

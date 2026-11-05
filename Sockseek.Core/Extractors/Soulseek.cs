@@ -14,6 +14,22 @@ namespace Sockseek.Core.Extractors;
 
     public class SoulseekExtractor : IExtractor, IInputMatcher
     {
+        public JobSourceInfo? DescribeSource(ExtractJob source, Job item)
+        {
+            if (ReferenceEquals(source, item)) return new(
+                Detail: source.SourceInputType == InputType.List ? source.Input : "Soulseek import",
+                PreviewTitle: "Soulseek link",
+                NestedPreviewTitle: ClassifyLink(source.Input, source.RequestedModeOverride) == SoulseekLinkInterpretation.RemoteDirectory
+                    ? "Soulseek directory" : "Soulseek link",
+                PreviewDetail: source.Input);
+            return item switch
+            {
+                RemoteFileJob => new(Detail: "Soulseek link", PreviewDetail: "Soulseek link"),
+                RemoteDirectoryJob => new(Detail: "Soulseek directory", PreviewDetail: "Exact remote directory"),
+                _ => null,
+            };
+        }
+
         public static bool InputMatches(string input)
         {
             return input.StartsWith("slsk://", StringComparison.OrdinalIgnoreCase);

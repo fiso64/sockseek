@@ -2,17 +2,27 @@ using Sockseek.Core.Services;
 
 namespace Sockseek.Core.Models;
 
-/// <summary>The exact peer and wire folder path used to retrieve a directory.</summary>
+/// <summary>
+/// The peer and advertised folder path. An empty path groups observed bare
+/// filenames only; it never denotes the peer root or a retrievable directory.
+/// </summary>
 public sealed record PeerDirectoryIdentity
 {
     public PeerDirectoryIdentity(string username, string folderPath)
     {
         Username = PeerIdentityValidator.ValidateUsername(username);
-        FolderPath = PeerIdentityValidator.ValidateRemotePath(folderPath);
+        ArgumentNullException.ThrowIfNull(folderPath);
+        FolderPath = folderPath.Length == 0 ? folderPath : PeerIdentityValidator.ValidateRemotePath(folderPath);
     }
 
     public string Username { get; }
     public string FolderPath { get; }
+
+    public void RequireAdvertisedFolder()
+    {
+        if (FolderPath.Length == 0)
+            throw new ArgumentException("These results did not advertise a folder. Select their observed files instead.");
+    }
 }
 
 /// <summary>An owned, immutable result of retrieving one peer directory subtree.</summary>
@@ -111,17 +121,30 @@ public sealed class AlbumFileMatch
     public static AlbumFileMatch WithLazyQuery(Func<SongQuery> queryFactory, FileCandidate candidate)
         => new(queryFactory, candidate);
 
-    private AlbumFileMatch(Func<SongQuery> queryFactory, FileCandidate candidate)
+    internal static AlbumFileMatch WithProjectionEvidence(
+        Func<SongQuery> queryFactory,
+        ProjectedFileCandidate file)
+        => new(queryFactory, file.Input.ToFileCandidate(file.ConditionFacts), file.ConditionFacts, file.SortKey);
+
+    private AlbumFileMatch(
+        Func<SongQuery> queryFactory,
+        FileCandidate candidate,
+        SearchConditionFacts? conditionFacts = null,
+        SearchProjectionSortKey? sortKey = null)
     {
         ArgumentNullException.ThrowIfNull(queryFactory);
         ArgumentNullException.ThrowIfNull(candidate);
         query = new Lazy<SongQuery>(() => new SongQuery(queryFactory()));
         Candidate = candidate;
+        ConditionFacts = conditionFacts;
+        SortKey = sortKey;
     }
 
     public SongQuery Query => query.Value;
     public FileCandidate Candidate { get; }
     public PeerFileTarget Target => Candidate.Target;
+    internal SearchConditionFacts? ConditionFacts { get; }
+    internal SearchProjectionSortKey? SortKey { get; }
 }
 
 /// <summary>A peer directory composed with the album evidence that selected it.</summary>

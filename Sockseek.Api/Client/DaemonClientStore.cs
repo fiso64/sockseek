@@ -41,19 +41,20 @@ public sealed record WorkflowJobGroupDto(
     IReadOnlyList<JobSummaryDto> Jobs);
 
 /// <summary>
-/// One coherent read of the replicated live partition. Explicitly hydrated
-/// history is intentionally excluded.
+/// One coherent read of replicated current state. Displayed job/transfer scopes
+/// use their server-owned read contracts independently of this live partition.
 /// </summary>
 public sealed record DaemonClientStateView(
     DaemonStateDto? Daemon,
     IReadOnlyList<WorkflowSummaryDto> Workflows,
     IReadOnlyList<JobSummaryDto> Jobs,
     IReadOnlyList<SearchStateDto> Searches,
-    IReadOnlyList<TransferStateDto> Transfers);
+    IReadOnlyList<TransferStateDto> Transfers,
+    LiveTransferSummaryDto? TransferSummary);
 
 /// <summary>
 /// Thread-safe reducer and query store shared by local, remote, and GUI clients.
-/// Live replication and explicitly paged history are separate partitions.
+/// History and displayed scopes are reconciled by server read services, never here.
 /// </summary>
 public sealed class DaemonClientStore
 {
@@ -62,14 +63,13 @@ public sealed class DaemonClientStore
     private readonly Dictionary<Guid, JobStateDto> liveJobs = [];
     private readonly Dictionary<Guid, SearchStateDto> liveSearches = [];
     private readonly Dictionary<Guid, TransferStateDto> liveTransfers = [];
-    private readonly Dictionary<Guid, WorkflowSummaryDto> historyWorkflows = [];
-    private readonly Dictionary<Guid, JobSummaryDto> historyJobs = [];
     private readonly Dictionary<Guid, UserNotificationDto> liveNotifications = [];
     private readonly Dictionary<StateStreamScopeDto, ChatTargetSnapshotDto> liveChatTargets = [];
     private readonly Dictionary<Guid, UserBrowseDto> liveUserBrowses = [];
     private readonly Dictionary<StateStreamScopeDto, StateStreamPositionDto> positions = [];
     private readonly HashSet<StateStreamScopeDto> staleScopes = [];
     private DaemonStateDto? daemon;
+    private LiveTransferSummaryDto? transferSummary;
 
     public DaemonClientUpdate ApplySnapshot(StateSnapshotDto snapshot)
     {
@@ -162,6 +162,12 @@ public sealed class DaemonClientStore
             return daemon;
     }
 
+    /// <summary>Daemon-wide totals, or null before a daemon-scoped snapshot.</summary>
+    public LiveTransferSummaryDto? GetTransferSummary()
+    {
+        lock (gate) return transferSummary;
+    }
+
     public SharingStateDto? GetSharing()
     {
         lock (gate)
@@ -248,14 +254,14 @@ public sealed class DaemonClientStore
                     .ToList(),
                 liveTransfers.Values
                     .OrderBy(transfer => transfer.TransferId)
-                    .ToList());
+                    .ToList(), transferSummary);
         }
     }
 
     public IReadOnlyList<WorkflowSummaryDto> GetWorkflows()
     {
         lock (gate)
-            return CombinedWorkflows().OrderBy(workflow => workflow.Title).ThenBy(workflow => workflow.WorkflowId).ToList();
+            return liveWorkflows.Values.Select(row => row.Summary).OrderBy(workflow => workflow.Title).ThenBy(workflow => workflow.WorkflowId).ToList();
     }
 
     public WorkflowSummaryDto? GetWorkflow(Guid workflowId)
@@ -263,13 +269,13 @@ public sealed class DaemonClientStore
         lock (gate)
             return liveWorkflows.TryGetValue(workflowId, out var live)
                 ? live.Summary
-                : historyWorkflows.GetValueOrDefault(workflowId);
+                : null;
     }
 
     public IReadOnlyList<JobSummaryDto> GetJobs()
     {
         lock (gate)
-            return CombinedJobs().OrderBy(job => job.DisplayId).ThenBy(job => job.JobId).ToList();
+            return liveJobs.Values.Select(row => row.ToSummary()).OrderBy(job => job.DisplayId).ThenBy(job => job.JobId).ToList();
     }
 
     public JobSummaryDto? GetJob(Guid jobId)
@@ -277,13 +283,13 @@ public sealed class DaemonClientStore
         lock (gate)
             return liveJobs.TryGetValue(jobId, out var live)
                 ? live.ToSummary()
-                : historyJobs.GetValueOrDefault(jobId);
+                : null;
     }
 
     public IReadOnlyList<JobSummaryDto> GetWorkflowJobs(Guid workflowId)
     {
         lock (gate)
-            return CombinedJobs()
+            return liveJobs.Values.Select(row => row.ToSummary())
                 .Where(job => job.WorkflowId == workflowId)
                 .OrderBy(job => job.DisplayId)
                 .ThenBy(job => job.JobId)
@@ -294,8 +300,8 @@ public sealed class DaemonClientStore
     {
         lock (gate)
         {
-            var workflows = CombinedWorkflows().ToDictionary(workflow => workflow.WorkflowId);
-            return CombinedJobs()
+            var workflows = liveWorkflows.Values.Select(row => row.Summary).ToDictionary(workflow => workflow.WorkflowId);
+            return liveJobs.Values.Select(row => row.ToSummary())
                 .GroupBy(job => job.WorkflowId)
                 .OrderBy(group => workflows.GetValueOrDefault(group.Key)?.Title)
                 .ThenBy(group => group.Key)
@@ -310,7 +316,7 @@ public sealed class DaemonClientStore
     public IReadOnlyList<JobSummaryDto> GetActiveJobs()
     {
         lock (gate)
-            return CombinedJobs()
+            return liveJobs.Values.Select(row => row.ToSummary())
                 .Where(job => job.LifecycleState != ServerJobLifecycleState.Terminal)
                 .OrderBy(job => job.DisplayId)
                 .ToList();
@@ -319,7 +325,7 @@ public sealed class DaemonClientStore
     public IReadOnlyList<JobSummaryDto> GetTerminalJobs()
     {
         lock (gate)
-            return CombinedJobs()
+            return liveJobs.Values.Select(row => row.ToSummary())
                 .Where(job => job.LifecycleState == ServerJobLifecycleState.Terminal)
                 .OrderBy(job => job.DisplayId)
                 .ToList();
@@ -352,24 +358,6 @@ public sealed class DaemonClientStore
             return liveSearches.GetValueOrDefault(jobId);
     }
 
-    public void MergeWorkflowHistory(IEnumerable<WorkflowSummaryDto> workflows)
-    {
-        lock (gate)
-        {
-            foreach (var workflow in workflows)
-                historyWorkflows[workflow.WorkflowId] = workflow;
-        }
-    }
-
-    public void MergeJobHistory(IEnumerable<JobSummaryDto> jobs)
-    {
-        lock (gate)
-        {
-            foreach (var job in jobs)
-                historyJobs[job.JobId] = job;
-        }
-    }
-
     private DaemonClientUpdate RequireRecovery(
         StateUpdateBatchDto batch,
         DaemonClientRecoveryReason reason)
@@ -399,6 +387,7 @@ public sealed class DaemonClientStore
             // read rows are rehydrated authoritatively through the paged API.
             liveNotifications.Clear();
             daemon = snapshot.Daemon;
+            transferSummary = snapshot.TransferSummary;
         }
         else if (snapshot.Scope.Kind == StateStreamScopeKind.Workflow)
         {
@@ -433,6 +422,7 @@ public sealed class DaemonClientStore
 
     private AppliedState ApplyState(StateDeltaDto state)
     {
+        if (state.TransferSummary is { } summary) transferSummary = summary;
         if (state.Daemon != null && (daemon == null || state.Daemon.Revision > daemon.Revision))
             daemon = state.Daemon;
 
@@ -540,6 +530,7 @@ public sealed class DaemonClientStore
             Lifecycle = delta.Lifecycle ?? current.Lifecycle,
             Discovery = delta.Discovery ?? current.Discovery,
             Relationships = delta.Relationships ?? current.Relationships,
+            Stats = delta.Stats ?? current.Stats,
         };
     }
 
@@ -571,7 +562,7 @@ public sealed class DaemonClientStore
 
     private void ApplyChatTarget(ChatTargetDeltaDto delta)
     {
-        StateStreamScopeDto scope = delta.Kind == Sockseek.Core.Chat.ChatTargetKind.Direct
+        StateStreamScopeDto scope = delta.Kind == ServerChatTargetKind.Direct
             ? StateStreamScopeDto.ChatConversation(delta.TargetId)
             : StateStreamScopeDto.ChatRoom(delta.TargetId);
         if (!liveChatTargets.TryGetValue(scope, out ChatTargetSnapshotDto? current))
@@ -581,10 +572,10 @@ public sealed class DaemonClientStore
             : current.Messages.ToDictionary(message => message.MessageId);
         foreach (ChatMessageDto message in delta.Messages ?? [])
             messages[message.MessageId] = message;
-        bool truncated = messages.Count > Sockseek.Core.Chat.ChatLimits.LiveMessageTailSize;
+        bool truncated = messages.Count > ChatProtocol.LiveMessageTailSize;
         var tail = messages.Values
             .OrderByDescending(message => message.Sequence)
-            .Take(Sockseek.Core.Chat.ChatLimits.LiveMessageTailSize)
+            .Take(ChatProtocol.LiveMessageTailSize)
             .OrderBy(message => message.Sequence)
             .ToArray();
         liveChatTargets[scope] = current with
@@ -597,16 +588,6 @@ public sealed class DaemonClientStore
         };
     }
 
-    private IEnumerable<WorkflowSummaryDto> CombinedWorkflows()
-        => historyWorkflows.Values
-            .Where(workflow => !liveWorkflows.ContainsKey(workflow.WorkflowId))
-            .Concat(liveWorkflows.Values.Select(workflow => workflow.Summary));
-
-    private IEnumerable<JobSummaryDto> CombinedJobs()
-        => historyJobs.Values
-            .Where(job => !liveJobs.ContainsKey(job.JobId))
-            .Concat(liveJobs.Values.Select(job => job.ToSummary()));
-
     private static void RemoveWhere<TKey, TValue>(
         Dictionary<TKey, TValue> dictionary,
         Func<KeyValuePair<TKey, TValue>, bool> predicate)
@@ -618,6 +599,8 @@ public sealed class DaemonClientStore
 
     private static void ValidateSnapshotScope(StateSnapshotDto snapshot)
     {
+        if (snapshot.Scope.Kind != StateStreamScopeKind.Daemon && snapshot.TransferSummary != null)
+            throw new ArgumentException("Transfer totals belong to the daemon scope.");
         if (snapshot.Position.Sequence < 0)
             throw new ArgumentOutOfRangeException(nameof(snapshot), "Snapshot sequence cannot be negative.");
 
@@ -640,8 +623,8 @@ public sealed class DaemonClientStore
         if (snapshot.Scope.Kind is StateStreamScopeKind.ChatConversation or StateStreamScopeKind.ChatRoom)
         {
             var expectedKind = snapshot.Scope.Kind == StateStreamScopeKind.ChatConversation
-                ? Sockseek.Core.Chat.ChatTargetKind.Direct
-                : Sockseek.Core.Chat.ChatTargetKind.Room;
+                ? ServerChatTargetKind.Direct
+                : ServerChatTargetKind.Room;
             if (snapshot.Daemon != null
                 || snapshot.UserBrowse != null
                 || snapshot.Workflows.Count != 0
@@ -651,15 +634,15 @@ public sealed class DaemonClientStore
                 || snapshot.ChatTarget is not { } target
                 || target.TargetId != snapshot.Scope.ChatTargetId
                 || target.Kind != expectedKind
-                || expectedKind == Sockseek.Core.Chat.ChatTargetKind.Direct
+                || expectedKind == ServerChatTargetKind.Direct
                     && (target.Conversation is null || target.Room is not null)
-                || expectedKind == Sockseek.Core.Chat.ChatTargetKind.Room
+                || expectedKind == ServerChatTargetKind.Room
                     && (target.Room is null || target.Conversation is not null)
                 || target.Conversation is { } conversation
-                    && (expectedKind != Sockseek.Core.Chat.ChatTargetKind.Direct
+                    && (expectedKind != ServerChatTargetKind.Direct
                         || conversation.ConversationId != target.TargetId)
                 || target.Room is { } room
-                    && (expectedKind != Sockseek.Core.Chat.ChatTargetKind.Room
+                    && (expectedKind != ServerChatTargetKind.Room
                         || room.RoomId != target.TargetId)
                 || target.Messages.Any(message =>
                     message.TargetId != target.TargetId || message.TargetKind != expectedKind))
@@ -689,6 +672,8 @@ public sealed class DaemonClientStore
 
     private static void ValidateBatch(StateUpdateBatchDto batch)
     {
+        if (batch.Scope.Kind != StateStreamScopeKind.Daemon && batch.State.TransferSummary != null)
+            throw new ArgumentException("Transfer totals belong to the daemon scope.");
         if (batch.PreviousSequence < 0 || batch.Sequence <= batch.PreviousSequence)
             throw new ArgumentException("A stream batch must advance beyond a non-negative previous sequence.");
         if (batch.Activity.Any(item => item.Sequence <= batch.PreviousSequence || item.Sequence > batch.Sequence))
@@ -698,16 +683,16 @@ public sealed class DaemonClientStore
         if (chatScope)
         {
             var expectedKind = batch.Scope.Kind == StateStreamScopeKind.ChatConversation
-                ? Sockseek.Core.Chat.ChatTargetKind.Direct
-                : Sockseek.Core.Chat.ChatTargetKind.Room;
+                ? ServerChatTargetKind.Direct
+                : ServerChatTargetKind.Room;
             if ((batch.State.ChatTargets ?? []).Any(target =>
                     target.TargetId != batch.Scope.ChatTargetId
                     || target.Kind != expectedKind
                     || target.Conversation is { } conversation
-                        && (expectedKind != Sockseek.Core.Chat.ChatTargetKind.Direct
+                        && (expectedKind != ServerChatTargetKind.Direct
                             || conversation.ConversationId != target.TargetId)
                     || target.Room is { } room
-                        && (expectedKind != Sockseek.Core.Chat.ChatTargetKind.Room
+                        && (expectedKind != ServerChatTargetKind.Room
                             || room.RoomId != target.TargetId)
                     || (target.Messages ?? []).Any(message =>
                         message.TargetId != target.TargetId || message.TargetKind != expectedKind)))

@@ -22,7 +22,6 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
     private readonly PeerBrowseArtifactStore store;
     private readonly IPeerBrowseTransport transport;
     private readonly Func<string?> localAccountProvider;
-    private readonly PeerAccessPolicy accessPolicy;
     private readonly ILogger<PeerBrowseService> logger;
     private readonly SemaphoreSlim stateGate = new(1, 1);
     private readonly Dictionary<AcquisitionKey, ActiveBrowse> activeByKey = [];
@@ -39,14 +38,12 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         PeerBrowseArtifactStore store,
         IPeerBrowseTransport transport,
         Func<string?> localAccountProvider,
-        PeerAccessPolicy accessPolicy,
         ILogger<PeerBrowseService> logger,
         int networkConcurrency = DefaultNetworkConcurrency)
     {
         this.store = store ?? throw new ArgumentNullException(nameof(store));
         this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
         this.localAccountProvider = localAccountProvider ?? throw new ArgumentNullException(nameof(localAccountProvider));
-        this.accessPolicy = accessPolicy ?? throw new ArgumentNullException(nameof(accessPolicy));
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
         if (networkConcurrency <= 0)
             throw new ArgumentOutOfRangeException(nameof(networkConcurrency));
@@ -88,8 +85,6 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposeState) != 0, this);
         username = PeerUsername.Validate(username);
-        if (accessPolicy.IsUsernameBlocked(username))
-            throw new PeerBrowseAccessDeniedException();
         string peerHash = LogIdentity.PeerHash(username);
         string? observedLocalAccount = localAccountProvider();
         if (observedLocalAccount is null)
@@ -189,7 +184,6 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         PeerBrowseResource? resource = await store.GetAsync(browseId, cancellationToken).ConfigureAwait(false);
         if (resource is null || !IsCurrentAccount(resource.LocalAccount))
             return null;
-        EnsureAllowed(resource.Username);
         return resource;
     }
 
@@ -201,49 +195,18 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         int limit,
         CancellationToken cancellationToken = default)
     {
-        if (limit is < 1 or > 500)
-            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be between 1 and 500.");
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
         if (username is not null)
-        {
             username = PeerUsername.Validate(username);
-            EnsureAllowed(username);
-        }
-
-        string localAccount = CurrentLocalAccount();
-        if (!accessPolicy.HasBlockedUsernames || username is not null)
-        {
-            return await store.ListAsync(
-                localAccount,
-                username,
-                state,
-                afterCreatedAt,
-                afterBrowseId,
-                limit,
-                cancellationToken).ConfigureAwait(false);
-        }
-
-        var visible = new List<PeerBrowseResource>(limit);
-        DateTimeOffset? cursorCreatedAt = afterCreatedAt;
-        Guid? cursorBrowseId = afterBrowseId;
-        while (visible.Count < limit)
-        {
-            PeerBrowseResourcePage page = await store.ListAsync(
-                localAccount,
-                username: null,
-                state,
-                cursorCreatedAt,
-                cursorBrowseId,
-                limit - visible.Count,
-                cancellationToken).ConfigureAwait(false);
-            visible.AddRange(page.Items.Where(resource =>
-                !accessPolicy.IsUsernameBlocked(resource.Username)));
-            cursorCreatedAt = page.NextCreatedAt;
-            cursorBrowseId = page.NextBrowseId;
-            if (cursorCreatedAt is null || cursorBrowseId is null)
-                break;
-        }
-
-        return new PeerBrowseResourcePage(visible, cursorCreatedAt, cursorBrowseId);
+        return await store.ListAsync(
+            CurrentLocalAccount(),
+            username,
+            state,
+            afterCreatedAt,
+            afterBrowseId,
+            limit,
+            cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PeerBrowseDirectoryEntry?> ReadDirectoryEntryAsync(
@@ -293,18 +256,53 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         return await store.ReadFileEntryAsync(browseId, fileId, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<PeerBrowseSearchPage> SearchAsync(
+        Guid browseId,
+        string query,
+        string? afterSortKey,
+        PeerBrowseSearchEntryKind? afterKind,
+        long? afterId,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        await RequireAccessibleCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
+        return await store.SearchAsync(
+            browseId,
+            query,
+            afterSortKey,
+            afterKind,
+            afterId,
+            limit,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<string?> ReadSearchSortKeyAsync(
+        Guid browseId,
+        PeerBrowseSearchEntryKind kind,
+        long entryId,
+        CancellationToken cancellationToken = default)
+    {
+        await RequireAccessibleCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
+        return await store.ReadSearchSortKeyAsync(
+            browseId, kind, entryId, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<PeerBrowseDownloadResolution> ResolveDownloadSelectionAsync(
         Guid browseId,
         IReadOnlyList<long> directoryIds,
         IReadOnlyList<long> fileIds,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyList<long>? excludedFileIds = null,
+        IReadOnlyList<long>? excludedDirectoryIds = null)
     {
         await RequireAccessibleCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
         return await store.ResolveDownloadSelectionAsync(
             browseId,
             directoryIds,
             fileIds,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            excludedFileIds,
+            excludedDirectoryIds).ConfigureAwait(false);
     }
 
     public async Task<PeerBrowseResource> WaitForCompletionAsync(
@@ -343,6 +341,9 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(directory);
+        directory.RequireAdvertisedFolder();
+        // Keep the full-browse guarantee described by IPeerDirectorySource;
+        // a targeted directory reply may omit descendants without telling us.
         PeerBrowseResource resource = await WaitForCompletionAsync(
             directory.Username,
             refresh: false,
@@ -579,18 +580,12 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
     private bool IsCurrentAccount(string localAccount)
         => string.Equals(localAccount, CurrentLocalAccount(), StringComparison.Ordinal);
 
-    private void EnsureAllowed(string username)
-    {
-        if (accessPolicy.IsUsernameBlocked(username))
-            throw new PeerBrowseAccessDeniedException();
-    }
-
     private void Publish(PeerBrowseResource resource)
     {
         Action<PeerBrowseResource>? handlers = Changed;
         if (handlers is null)
             return;
-        foreach (Action<PeerBrowseResource> handler in handlers.GetInvocationList())
+        foreach (Action<PeerBrowseResource> handler in Delegate.EnumerateInvocationList(handlers))
         {
             try
             {
@@ -608,7 +603,7 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         Action<Guid>? handlers = Removed;
         if (handlers is null)
             return;
-        foreach (Action<Guid> handler in handlers.GetInvocationList())
+        foreach (Action<Guid> handler in Delegate.EnumerateInvocationList(handlers))
         {
             try
             {
@@ -803,9 +798,6 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }
-
-public sealed class PeerBrowseAccessDeniedException()
-    : InvalidOperationException("The requested Soulseek user is not available.");
 
 public sealed class PeerBrowseUnavailableException(string message, Exception? innerException = null)
     : InvalidOperationException(message, innerException);

@@ -33,8 +33,7 @@ internal sealed class DownloadExecutorCoordinator
     {
         var config = job.Config;
 
-        ctx.IndexEditor?.Update();
-        ctx.PlaylistEditor?.Update();
+        context.UpdateOutputs(job, ctx);
 
         try
         {

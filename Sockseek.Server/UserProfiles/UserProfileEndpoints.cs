@@ -1,5 +1,6 @@
 using Sockseek.Api;
 using Sockseek.Core.UserProfiles;
+using Sockseek.Server.PeerRestrictions;
 
 namespace Sockseek.Server.UserProfiles;
 
@@ -13,7 +14,14 @@ internal static class UserProfileEndpoints
             .WithSummary("Gets a composite remote Soulseek user profile.")
             .Produces<UserProfileDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
-            .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
+            .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
+
+        app.MapGet("/api/users/{username}/presence", GetPresenceAsync)
+            .RequireOperator()
+            .WithTags("User Browsing")
+            .WithSummary("Observes a peer's presence without fetching profile details.")
+            .Produces<UserPresenceObservationDto>()
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/users/{username}/picture", GetPictureAsync)
@@ -32,12 +40,13 @@ internal static class UserProfileEndpoints
 
     private static async Task<IResult> GetProfileAsync(
         string username,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
+        PeerRestrictionCoordinator peerRestrictions,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken,
         bool refresh = false)
     {
-        UserProfileService? service = supervisor.UserProfiles;
+        UserProfileService? service = runtime.UserProfiles;
         if (service is null)
         {
             ServerLogMessages.FeatureRequestUnavailable(
@@ -47,10 +56,16 @@ internal static class UserProfileEndpoints
         }
         try
         {
-            return Results.Ok(await service.GetAsync(
+            UserProfileDto profile = await service.GetAsync(
                 username,
                 refresh,
-                cancellationToken).ConfigureAwait(false));
+                cancellationToken).ConfigureAwait(false);
+            UserRestrictionsDto restrictions = peerRestrictions.Get(profile.Username);
+            return Results.Ok(profile with
+            {
+                UploadAccessBlocked = restrictions.UploadAccess.IsBlocked,
+                PrivateMessagesBlocked = restrictions.PrivateMessages.IsBlocked,
+            });
         }
         catch (Exception exception)
         {
@@ -62,11 +77,11 @@ internal static class UserProfileEndpoints
         string username,
         HttpRequest request,
         HttpResponse response,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
-        UserProfileService? service = supervisor.UserProfiles;
+        UserProfileService? service = runtime.UserProfiles;
         if (service is null)
         {
             ServerLogMessages.FeatureRequestUnavailable(
@@ -101,6 +116,31 @@ internal static class UserProfileEndpoints
         }
     }
 
+    private static async Task<IResult> GetPresenceAsync(
+        string username,
+        DaemonRuntime runtime,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        UserProfileService? service = runtime.UserProfiles;
+        if (service is null)
+        {
+            ServerLogMessages.FeatureRequestUnavailable(
+                loggerFactory.CreateLogger("Sockseek.Server.UserProfiles.UserProfileEndpoints"),
+                "user presence");
+            return Unavailable();
+        }
+        try
+        {
+            return Results.Ok(await service.ObservePresenceAsync(
+                username, cancellationToken).ConfigureAwait(false));
+        }
+        catch (Exception exception)
+        {
+            return Failure(exception);
+        }
+    }
+
     private static bool MatchesEtag(
         Microsoft.Extensions.Primitives.StringValues values,
         string etag)
@@ -112,8 +152,6 @@ internal static class UserProfileEndpoints
     private static IResult Failure(Exception exception)
         => exception switch
         {
-            UserProfileAccessDeniedException => Results.NotFound(
-                new ApiErrorDto("The Soulseek user was not found.", "user-not-found")),
             ArgumentException => Results.BadRequest(
                 new ApiErrorDto(exception.Message, "invalid-username")),
             UserProfileUnavailableException or InvalidOperationException => Unavailable(),
@@ -124,4 +162,5 @@ internal static class UserProfileEndpoints
         => Results.Json(
             new ApiErrorDto("Soulseek profiles are unavailable.", "soulseek-unavailable"),
             statusCode: StatusCodes.Status503ServiceUnavailable);
+
 }

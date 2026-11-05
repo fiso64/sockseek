@@ -81,6 +81,38 @@ namespace Tests.Unit
         }
 
         [TestMethod]
+        public void SearchSession_RetainsLockedRowsAndOnePeerObservationWithoutMakingThemDownloadCandidates()
+        {
+            var now = new DateTimeOffset(2034, 1, 2, 3, 4, 5, TimeSpan.Zero);
+            var session = new SearchSession(Guid.NewGuid(), new FixedTimeProvider(now));
+            var publicFile = TestHelpers.CreateSlFile(@"Music\Artist\Public.flac", length: 180);
+            var lockedFile = TestHelpers.CreateSlFile(@"Private\Artist\Locked.flac", length: 181);
+            var response = new SearchResponse(
+                "ExactPeer",
+                1,
+                hasFreeUploadSlot: false,
+                uploadSpeed: 12_345,
+                queueLength: 7,
+                fileList: [publicFile],
+                lockedFileList: [lockedFile]);
+
+            session.AddResponse(response);
+            session.Complete();
+
+            Assert.AreEqual(1, session.PublicFileCount);
+            Assert.AreEqual(1, session.LockedFileCount);
+            Assert.AreEqual(1, session.ObservedPeerCount);
+            SearchRawResult[] rows = session.RawSnapshot().ToArray();
+            Assert.AreEqual(2, rows.Length);
+            Assert.AreEqual(SearchResultVisibility.Public, rows[0].Visibility);
+            Assert.AreEqual(SearchResultVisibility.Locked, rows[1].Visibility);
+            Assert.AreEqual(7, rows[0].QueueLength);
+            Assert.AreEqual(now, rows[0].ObservedAtUtc);
+            Assert.AreEqual(now, rows[1].ObservedAtUtc);
+            Assert.AreEqual(1, session.Snapshot().Count);
+        }
+
+        [TestMethod]
         public void SearchSession_UsesInjectedClock_AndIsolatesObservers()
         {
             var now = new DateTimeOffset(2033, 5, 6, 7, 8, 9, TimeSpan.Zero);
@@ -108,32 +140,179 @@ namespace Tests.Unit
         }
 
         [TestMethod]
+        [DataRow("raw-received")]
+        [DataRow("raw-added")]
+        [DataRow("results-added")]
+        [DataRow("change-published")]
+        public void SearchSession_ObserverCompletion_FollowsEveryAdmittedResult(string notification)
+        {
+            var session = new SearchSession(Guid.NewGuid());
+            var changes = new List<CoreChange>();
+            var observed = new List<string>();
+            SubscribeToResultNotification(session, notification, session.Complete);
+            session.RawResultAdded += result => observed.Add($"file-{result.Sequence}");
+            session.ChangePublished += changes.Add;
+            session.Completed += () => observed.Add("complete");
+
+            session.AddResponse(new SearchResponse("peer", 1, true, 100, 0,
+                [TestHelpers.CreateSlFile(@"Share\One.flac"), TestHelpers.CreateSlFile(@"Share\Two.flac")]));
+
+            Assert.IsTrue(session.IsComplete);
+            CollectionAssert.AreEqual(new[] { "file-1", "file-2", "complete" }, observed);
+            CollectionAssert.AreEqual(new[] { typeof(SearchResultsAddedChange), typeof(SearchCompletedChange) },
+                changes.Select(change => change.GetType()).ToArray(),
+                "A consumer must receive admitted files before the terminal cursor that covers them.");
+            Assert.AreEqual(3, ((SearchCompletedChange)changes[1]).Revision);
+        }
+
+        [TestMethod]
+        [DataRow("raw-received")]
+        [DataRow("raw-added")]
+        [DataRow("results-added")]
+        [DataRow("change-published")]
+        public void SearchSession_ObserverAdmission_PreservesSourceAndEventOrder(string notification)
+        {
+            var session = new SearchSession(Guid.NewGuid());
+            var changes = new List<CoreChange>();
+            var observed = new List<long>();
+            bool admitted = false;
+            SubscribeToResultNotification(session, notification, () =>
+            {
+                if (admitted) return;
+                admitted = true;
+                session.AddResponse(new SearchResponse("second-peer", 2, true, 100, 0,
+                    [TestHelpers.CreateSlFile(@"Share\Three.flac")]));
+            });
+            session.RawResultAdded += result => observed.Add(result.Sequence);
+            session.ChangePublished += changes.Add;
+
+            session.AddResponse(new SearchResponse("peer", 1, true, 100, 0,
+                [TestHelpers.CreateSlFile(@"Share\One.flac"), TestHelpers.CreateSlFile(@"Share\Two.flac")]));
+            session.Complete();
+
+            CollectionAssert.AreEqual(new long[] { 1, 2, 3 }, observed);
+            CollectionAssert.AreEqual(new long[] { 1, 2, 3 }, changes.OfType<SearchResultsAddedChange>()
+                .SelectMany(change => change.Results).Select(result => result.Sequence).ToArray(),
+                "Persistence and incremental readers must never skip a lower sequence delivered later.");
+            CollectionAssert.AreEqual(changes.Select(change => change.Sequence).Order().ToArray(),
+                changes.Select(change => change.Sequence).ToArray());
+            Assert.IsInstanceOfType<SearchCompletedChange>(changes[^1]);
+        }
+
+        private static void SubscribeToResultNotification(SearchSession session, string notification, Action callback)
+        {
+            switch (notification)
+            {
+                case "raw-received": session.RawResultReceived += _ => callback(); break;
+                case "raw-added": session.RawResultAdded += _ => callback(); break;
+                case "results-added": session.ResultsAdded += _ => callback(); break;
+                case "change-published": session.ChangePublished += change =>
+                    { if (change is SearchResultsAddedChange) callback(); }; break;
+                default: throw new ArgumentOutOfRangeException(nameof(notification));
+            }
+        }
+
+        [TestMethod]
         public async Task SearchSession_CompletionBarrier_RejectsConcurrentLateResults()
         {
             var session = new SearchSession(Guid.NewGuid());
-            using var completionPublished = new ManualResetEventSlim();
+            var completionPublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             using var releaseCompletionObserver = new ManualResetEventSlim();
             session.SearchCompleted += _ =>
             {
-                completionPublished.Set();
+                completionPublished.TrySetResult();
                 releaseCompletionObserver.Wait();
             };
-
-            var completeTask = Task.Run(session.Complete);
-            Assert.IsTrue(completionPublished.Wait(TimeSpan.FromSeconds(2)), "Completion publication did not reach the deterministic barrier.");
-
-            var file = TestHelpers.CreateSlFile(@"Music\Artist\Late.flac", length: 180);
-            var response = new SearchResponse("LateUser", 1, true, 100, 3, [file]);
-            var addTask = Task.Run(() => session.AddResponse(response));
-            Assert.IsFalse(addTask.IsCompleted, "Late result admission should wait for the in-flight completion barrier.");
-
-            releaseCompletionObserver.Set();
-            await Task.WhenAll(completeTask, addTask);
-
+            var completeTask = Task.Factory.StartNew(session.Complete,
+                CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            Task? addTask = null;
+            try
+            {
+                await completionPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                var readable = await Task.Run(() => (Rows: session.RawSnapshot().Count,
+                    Peers: session.ObservedPeerCount)).WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.AreEqual((0, 0), readable,
+                    "Completed session facts remain readable while notification is pending.");
+                var file = TestHelpers.CreateSlFile(@"Music\Artist\Late.flac", length: 180);
+                var response = new SearchResponse("LateUser", 1, true, 100, 3, [file]);
+                addTask = Task.Factory.StartNew(() => session.AddResponse(response),
+                    CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            }
+            finally
+            {
+                releaseCompletionObserver.Set();
+                await completeTask.WaitAsync(TimeSpan.FromSeconds(5));
+                if (addTask != null) await addTask.WaitAsync(TimeSpan.FromSeconds(5));
+            }
             Assert.IsTrue(session.IsComplete);
             Assert.AreEqual(0, session.ResultCount);
             Assert.AreEqual(1, session.Revision);
             Assert.AreEqual(0, session.LockedFileCount);
+        }
+
+        [TestMethod]
+        [DataRow(false)]
+        [DataRow(true)]
+        public async Task SearchSession_AdmittedResultsRemainReadableWhileObserversAreBlocked(bool rawObserver)
+        {
+            var session = new SearchSession(Guid.NewGuid());
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var changes = new ConcurrentQueue<CoreChange>();
+            session.ChangePublished += changes.Enqueue;
+            void Hold()
+            {
+                entered.TrySetResult();
+                release.Task.GetAwaiter().GetResult();
+            }
+            if (rawObserver) session.RawResultAdded += _ => Hold();
+            else session.ResultsAdded += _ => Hold();
+            var response = new SearchResponse(" Exact Péér ", 3, true, 100, 0,
+                [TestHelpers.CreateSlFile(@"Share\One.flac"), TestHelpers.CreateSlFile(@"Share\Two.flac")],
+                [TestHelpers.CreateSlFile(@"Share\Locked.flac")]);
+            var producer = Task.Factory.StartNew(() => session.AddResponse(response),
+                CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            Task? completion = null;
+            try
+            {
+                await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                completion = Task.Factory.StartNew(session.Complete,
+                    CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+                var read = Task.Run(() => (Rows: session.RawSnapshot(),
+                    Page: session.RawSnapshot(1, 2), Projection: session.ReadProjectionPage(1, 2), Peers: session.ObservedPeerCount,
+                    Public: session.Snapshot().Count));
+                var snapshot = await read.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.AreEqual(3, snapshot.Rows.Count,
+                    "An admitted response must be readable before its slow observer returns.");
+                CollectionAssert.AreEqual(new long[] { 2, 3 }, snapshot.Page.Select(row => row.Sequence).ToArray());
+                CollectionAssert.AreEqual(new long[] { 2, 3 }, snapshot.Projection.Items.Select(row => row.Sequence).ToArray());
+                Assert.AreEqual(3, snapshot.Projection.Revision);
+                Assert.IsFalse(snapshot.Projection.IsComplete);
+                Assert.AreEqual(snapshot.Rows.Count, session.RawSnapshot(-1, int.MaxValue).Count);
+                Assert.AreEqual(0, session.RawSnapshot(long.MaxValue, 500).Count);
+                Assert.AreEqual(1, snapshot.Peers);
+                Assert.AreEqual(2, snapshot.Public);
+                Assert.IsTrue(snapshot.Rows.All(row => row.Username == " Exact Péér "));
+                Assert.IsFalse(session.IsComplete, "Completion cannot overtake accepted result notifications.");
+                Assert.IsFalse(changes.Any(change => change is SearchCompletedChange));
+            }
+            finally
+            {
+                release.TrySetResult();
+                await producer.WaitAsync(TimeSpan.FromSeconds(5));
+                if (completion != null) await completion.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            Assert.IsTrue(session.IsComplete);
+            CollectionAssert.AreEqual(new[] { typeof(SearchResultsAddedChange), typeof(SearchCompletedChange) },
+                changes.Select(change => change.GetType()).ToArray());
+            Assert.IsTrue(changes.First().Sequence < changes.Last().Sequence);
+            Assert.AreEqual(3, ((SearchResultsAddedChange)changes.First()).Results.Count);
+            Assert.AreEqual(4, session.Revision);
+            Assert.IsFalse(session.ReadProjectionPage(0, 2).IsComplete, "A complete source can still have a continuation page.");
+            var tail = session.ReadProjectionPage(2, 2);
+            Assert.AreEqual(4, tail.Revision);
+            Assert.IsTrue(tail.IsComplete);
+            Assert.AreEqual(3L, tail.Items.Single().Sequence);
         }
 
         private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
@@ -196,13 +375,17 @@ namespace Tests.Unit
             job.Session.AddResponse(response1);
 
             var results = new List<SearchRawResult>();
+            var replayRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var readerTask = Task.Run(async () =>
             {
                 await foreach (var result in job.ReadRawResultsAsync())
+                {
                     results.Add(result);
+                    replayRead.TrySetResult();
+                }
             });
 
-            await Task.Yield();
+            await replayRead.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
             var file2 = TestHelpers.CreateSlFile(@"Music\Artist\Track Alt.mp3", length: 181);
             var response2 = new SearchResponse("User2", 1, true, 100, 0, [file2]);
@@ -275,26 +458,36 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public async Task SearchJob_LazyProjectionAfterTerminal_DoesNotMutateActivity()
+        [DataRow(false)]
+        [DataRow(true)]
+        public async Task SearchJob_RelaxesAConditionAfterCompletionWithoutAnotherNetworkSearch(bool album)
         {
             var index = new List<SearchResponse>
             {
                 new("User1", 1, true, 100, 0,
                 [
-                    TestHelpers.CreateSlFile(@"Music\Artist\Track.mp3", bitrate: 320, length: 180),
+                    TestHelpers.CreateSlFile(@"Music\Artist\Album\Track.mp3", bitrate: 320, length: 180),
                 ]),
             };
             var config = TestHelpers.CreateDefaultSettings().Download;
+            config.Search.NecessaryCond.Formats = ["flac"];
             var registry = TestHelpers.CreateUserSuccessTracker();
-            var searcher = new Searcher(new ClientTests.MockSoulseekClient(index), registry, new DownloadEvents(), 10, 10);
-            var job = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" });
+            var client = new ClientTests.MockSoulseekClient(index);
+            var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
+            var job = album ? new SearchJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
+                : new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" });
 
             await searcher.Search(job, config.Search, new ResponseData(), CancellationToken.None);
             job.SetDone();
 
-            var snapshot = job.GetSortedTrackCandidates(config.Search, new ConcurrentDictionary<string, int>());
-
-            Assert.AreEqual(1, snapshot.Items.Count);
+            int Count(SearchSettings search) => album ? job.GetAlbumFolders(search).Items.Count
+                : job.GetSortedTrackCandidates(search, new ConcurrentDictionary<string, int>()).Items.Count;
+            Assert.AreEqual(1, job.RawSnapshot().Count, "Required conditions must not discard interactive observations.");
+            Assert.AreEqual(0, Count(config.Search));
+            var relaxed = SettingsCloner.Clone(config.Search);
+            relaxed.NecessaryCond.Formats = [];
+            Assert.AreEqual(1, Count(relaxed));
+            Assert.AreEqual(1, client.SearchCallCount);
             Assert.AreEqual(JobLifecycleState.Terminal, job.LifecycleState);
             Assert.AreEqual(JobActivityPhase.None, job.ActivityPhase);
             Assert.AreEqual(JobTerminalOutcome.Succeeded, job.TerminalOutcome);
@@ -347,6 +540,62 @@ namespace Tests.Unit
             Assert.AreEqual(1, updated.Items.Count);
             Assert.AreEqual(2, updated.Items[0].Candidates!.Count);
             Assert.AreNotSame(first, updated);
+        }
+
+        [TestMethod]
+        [DataRow("album")]
+        [DataRow("aggregate")]
+        [DataRow("album-aggregate")]
+        public void SearchJob_ReadOnlyProjectionDoesNotPollutePublicExecutionCache(string mode)
+        {
+            var query = new SongQuery { Artist = "Artist" };
+            var albumQuery = new AlbumQuery { Artist = "Artist", Album = "Album" };
+            var job = new SearchJob(query);
+            var settings = TestHelpers.CreateDefaultSettings().Download.Search;
+            settings.MinSharesAggregate = 1;
+            var reputation = new ConcurrentDictionary<string, int>();
+            List<FileCandidate> Read(bool includeLocked) => mode switch
+            {
+                "album" => job.GetAlbumFolders(new FolderSearchProjection(albumQuery), settings, includeLocked)
+                    .Items.SelectMany(folder => folder.Files).Select(file => file.Candidate).ToList(),
+                "aggregate" => job.GetAggregateTracks(new AggregateTrackProjection(query), settings, reputation, includeLocked)
+                    .Items.SelectMany(song => song.Candidates!).ToList(),
+                "album-aggregate" => job.GetAggregateAlbums(new AggregateAlbumProjection(albumQuery), settings, includeLocked)
+                    .Items.SelectMany(album => album.Results).SelectMany(folder => folder.Files).Select(file => file.Candidate).ToList(),
+                _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+            };
+            job.Session.AddResponse(new SearchResponse("Peer", 1, true, 100, 0,
+                [TestHelpers.CreateSlFile(@"Artist\Album\01 - First.flac", length: 180)],
+                [TestHelpers.CreateSlFile(@"Artist\Album\02 - Second.flac", length: 180)]));
+            Assert.AreEqual(1, Read(false).Count);
+            Assert.AreEqual(2, Read(true).Count);
+            Assert.AreEqual(1, Read(false).Count);
+
+            job.Session.AddResponse(new SearchResponse("Peer", 1, true, 100, 0, [],
+                [TestHelpers.CreateSlFile(@"Artist\Album\03 - Third.flac", length: 180)]));
+            job.Session.Complete();
+            var observed = Read(true);
+            Assert.AreEqual(3, observed.Count);
+            Assert.AreEqual(2, observed.Count(file => file.Visibility == SearchResultVisibility.Locked));
+            Assert.IsTrue(observed.All(file => file.ProjectionFacts != null));
+            var executable = Read(false);
+            Assert.AreEqual(1, executable.Count);
+            Assert.AreEqual(SearchResultVisibility.Public, executable[0].Visibility);
+            if (mode != "aggregate")
+            {
+                job.RecordRetrievedDirectory(new PeerDirectorySnapshot(
+                    new PeerDirectoryIdentity("Peer", @"Artist\Album"),
+                    [executable[0].Target, new PeerFileTarget(
+                        new PeerFileIdentity("Peer", @"Artist\Album\04 - Retrieved.flac"), 100, "flac")],
+                    isComplete: true));
+                Assert.AreEqual(4, Read(true).Count);
+                Assert.AreEqual(2, Read(false).Count);
+                // A different projection cache must reuse the source-owned
+                // retrieval, without depending on a mutated old folder object.
+                settings = SettingsCloner.Clone(settings);
+                Assert.AreEqual(2, Read(false).Count);
+                Assert.AreEqual(4, Read(true).Count);
+            }
         }
 
         [TestMethod]

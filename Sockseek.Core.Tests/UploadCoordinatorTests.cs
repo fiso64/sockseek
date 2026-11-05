@@ -11,6 +11,32 @@ namespace Sockseek.Core.Tests;
 public sealed class UploadCoordinatorTests
 {
     [TestMethod]
+    public async Task AdjacentUploadDirectoryRunsHaveDistinctOpaqueGroupRefs()
+    {
+        await using var fixture = await CatalogFixture.CreateAsync(
+            ("One.bin", "one"), ("Two.bin", "two"), ("Three.bin", "three"));
+        var protocol = new BlockingProtocolInvoker();
+        await using var coordinator = CreateCoordinator(fixture, protocol, slots: 1);
+
+        var first = await coordinator.AdmitAsync("alice", null, @"Public\One.bin");
+        await protocol.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var second = await coordinator.AdmitAsync("alice", null, @"Public\Two.bin");
+        var otherPeer = await coordinator.AdmitAsync("bob", null, @"Public\One.bin");
+        var later = await coordinator.AdmitAsync("alice", null, @"Public\Three.bin");
+
+        var snapshots = coordinator.Snapshot().ToDictionary(snapshot => snapshot.TransferId);
+        string firstRef = snapshots[first.TransferId!.Value].GroupRef!;
+        Assert.IsFalse(string.IsNullOrWhiteSpace(firstRef));
+        Assert.AreEqual(firstRef, snapshots[second.TransferId!.Value].GroupRef);
+        Assert.AreNotEqual(firstRef, snapshots[otherPeer.TransferId!.Value].GroupRef);
+        Assert.AreNotEqual(firstRef, snapshots[later.TransferId!.Value].GroupRef);
+        Assert.IsTrue(snapshots.Values.All(snapshot => snapshot.GroupDisplayPath == @"Public"));
+
+        protocol.Release.TrySetResult();
+        await WaitForStateAsync(coordinator, later.TransferId!.Value, UploadTransferState.Completed);
+    }
+
+    [TestMethod]
     public async Task QueuedCancellation_TerminalizesWithZeroAttempts()
     {
         await using var fixture = await CatalogFixture.CreateAsync(
@@ -45,10 +71,40 @@ public sealed class UploadCoordinatorTests
     }
 
     [TestMethod]
-    public async Task ResumeFactory_ReturnsExactlyRemainingBytesAndCreatesOneAttempt()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task QueuedFileChangesFailOnlyTheAffectedUpload(bool deleted)
+    {
+        await using var fixture = await CatalogFixture.CreateAsync(
+            ("Active.bin", "active"), ("Changed.bin", "changed"), ("Healthy.bin", "healthy"));
+        var protocol = new BlockingProtocolInvoker();
+        await using var coordinator = CreateCoordinator(fixture, protocol, slots: 1);
+        await coordinator.AdmitAsync("alice", null, @"Public\Active.bin");
+        await protocol.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var changed = await coordinator.AdmitAsync("bob", null, @"Public\Changed.bin");
+        var healthy = await coordinator.AdmitAsync("carol", null, @"Public\Healthy.bin");
+        var file = (await fixture.ResolveFileAsync(RemotePathKey.Create(@"Public\Changed.bin")))!;
+        string path = Path.Combine(file.Root.LocalPath, file.File.RelativePath);
+        if (deleted) File.Delete(path);
+        else await File.WriteAllTextAsync(path, "replacement has a different size");
+
+        protocol.Release.TrySetResult();
+        var failed = await WaitForStateAsync(coordinator, changed.TransferId!.Value, UploadTransferState.Failed);
+        await WaitForStateAsync(coordinator, healthy.TransferId!.Value, UploadTransferState.Completed);
+
+        Assert.AreEqual(UploadFailureReason.Unavailable, failed.FailureReason);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(failed.FailureMessage));
+        Assert.AreEqual(0, failed.BytesTransferred);
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(2)]
+    [DataRow(6)]
+    public async Task ResumeFactory_ReturnsExactlyRemainingBytesAndCreatesOneAttempt(int startOffset)
     {
         await using var fixture = await CatalogFixture.CreateAsync(("Track.bin", "abcdef"));
-        var protocol = new ReadingProtocolInvoker(startOffset: 2);
+        var protocol = new ReadingProtocolInvoker(startOffset);
         await using var coordinator = CreateCoordinator(fixture, protocol, slots: 1);
 
         var admission = await coordinator.AdmitAsync(
@@ -60,10 +116,41 @@ public sealed class UploadCoordinatorTests
             admission.TransferId!.Value,
             UploadTransferState.Completed);
 
-        CollectionAssert.AreEqual("cdef"u8.ToArray(), protocol.Bytes);
+        CollectionAssert.AreEqual("abcdef"u8.ToArray()[startOffset..], protocol.Bytes);
+        Assert.AreEqual(@"public\track.BIN", protocol.RemotePath);
+        Assert.AreEqual(protocol.RemotePath, completed.RemotePath);
         Assert.IsNotNull(completed.Attempt);
         Assert.AreEqual(1, completed.Attempt.Number);
-        Assert.AreEqual(4, completed.BytesTransferred);
+        Assert.AreEqual(6, completed.BytesTransferred);
+        Assert.AreEqual(6 - startOffset, completed.Attempt.BytesTransferred);
+        Assert.AreEqual(startOffset < 6 ? 100 : 0, coordinator.MeasuredUploadSpeed,
+            "An EOF-only resume provides no new speed sample.");
+    }
+
+    [TestMethod]
+    [DataRow(UploadFailureReason.Unavailable)]
+    [DataRow(UploadFailureReason.Denied)]
+    [DataRow(UploadFailureReason.ConnectionFailed)]
+    [DataRow(UploadFailureReason.TimedOut)]
+    [DataRow(UploadFailureReason.InternalFailure)]
+    public async Task WrappedFailureRetainsOriginalReasonAndMessage(UploadFailureReason expected)
+    {
+        await using var fixture = await CatalogFixture.CreateAsync(("Track.bin", "abcdef"));
+        Exception cause = expected switch
+        {
+            UploadFailureReason.Unavailable => new SharedFileOpenException(SharedFileOpenFailureReason.MissingOrInaccessible,
+                "The file cannot be opened.", new FileNotFoundException("The shared file was removed.")),
+            UploadFailureReason.Denied => new Soulseek.TransferRejectedException("Transfer rejected: Cancelled"),
+            UploadFailureReason.ConnectionFailed => new Soulseek.ConnectionException("Peer disconnected"),
+            UploadFailureReason.TimedOut => new Soulseek.ConnectionException("Connection failed", new TimeoutException("Peer timed out")),
+            _ => new InvalidOperationException("Unexpected implementation failure"),
+        };
+        var protocol = new ReadingProtocolInvoker(0, new IOException("Protocol upload failed.", cause));
+        await using var coordinator = CreateCoordinator(fixture, protocol, slots: 1);
+        var admission = await coordinator.AdmitAsync("alice", null, @"Public\Track.bin");
+        var failed = await WaitForStateAsync(coordinator, admission.TransferId!.Value, UploadTransferState.Failed);
+        Assert.AreEqual(expected, failed.FailureReason);
+        Assert.AreEqual(cause.GetBaseException().Message, failed.FailureMessage);
     }
 
     [TestMethod]
@@ -102,7 +189,7 @@ public sealed class UploadCoordinatorTests
         var duplicate = await coordinator.AdmitAsync(
             "Alice",
             null,
-            @"public\track.BIN");
+            @"Public\Track.bin");
 
         Assert.AreEqual(UploadAdmissionResultKind.Duplicate, duplicate.Kind);
         Assert.AreEqual(first.TransferId, duplicate.TransferId);
@@ -179,7 +266,7 @@ public sealed class UploadCoordinatorTests
         await using var coordinator = new UploadCoordinator(
             catalogs,
             new ReadingProtocolInvoker(startOffset: 0),
-            new PeerAccessPolicy(new PeerAccessSettings()),
+            new PeerRestrictionPolicy(new PeerRestrictionSettings()),
             new UploadScheduler(new UploadSettings { Slots = 1 }));
         using var cancellation = new CancellationTokenSource();
 
@@ -202,7 +289,7 @@ public sealed class UploadCoordinatorTests
         => new(
             fixture,
             protocol,
-            new PeerAccessPolicy(new PeerAccessSettings()),
+            new PeerRestrictionPolicy(new PeerRestrictionSettings()),
             new UploadScheduler(new UploadSettings { Slots = slots }),
             shutdownGrace);
 
@@ -234,9 +321,10 @@ public sealed class UploadCoordinatorTests
         }
     }
 
-    private sealed class ReadingProtocolInvoker(long startOffset) : IUploadProtocolInvoker
+    private sealed class ReadingProtocolInvoker(long startOffset, Exception? failure = null) : IUploadProtocolInvoker
     {
         public byte[] Bytes { get; private set; } = [];
+        public string? RemotePath { get; private set; }
 
         public async Task<UploadProtocolOutcome> UploadAsync(
             string username,
@@ -247,12 +335,16 @@ public sealed class UploadCoordinatorTests
             Action<long, double> progress,
             CancellationToken cancellationToken)
         {
+            RemotePath = remotePath;
+            if (failure is not null) throw failure;
             await using Stream stream = await streamFactory(startOffset);
             initializingCompleted();
+            progress(startOffset, 0);
             using var output = new MemoryStream();
             await stream.CopyToAsync(output, cancellationToken);
             Bytes = output.ToArray();
-            progress(Bytes.Length, 100);
+            // Match the library's final update, not just bytes read this attempt.
+            progress(stream.Position, 100);
             return UploadProtocolOutcome.Completed;
         }
     }

@@ -17,9 +17,23 @@ public sealed record PeerBrowseWireFile(
 
 public sealed record PeerBrowseWireAttribute(int Type, int Value);
 
+/// <summary>First valid scalar values from ordered Soulseek file attributes.</summary>
+public readonly record struct PeerBrowseFileMetadata(int? BitRate, int? BitDepth, int? SampleRate, int? Length)
+{
+    public PeerBrowseFileMetadata WithAttribute(int type, int value) => type switch
+    {
+        0 when BitRate is null && value > 0 => this with { BitRate = value },
+        1 when Length is null && value >= 0 => this with { Length = value },
+        4 when SampleRate is null && value > 0 => this with { SampleRate = value },
+        5 when BitDepth is null && value > 0 => this with { BitDepth = value },
+        _ => this,
+    };
+}
+
+
 /// <summary>
-/// Receives one materialized browse-response row at a time. Implementations are
-/// expected to retain rows in bounded transactions.
+/// Receives and validates one browse-response row at a time. Implementations own
+/// storage and publication; CompleteAsync publishes only a complete generation.
 /// </summary>
 public interface IPeerBrowseRowSink : IAsyncDisposable
 {
@@ -69,10 +83,16 @@ public sealed class PeerBrowseProtocolException(string message, Exception? inner
     : IOException(message, innerException);
 
 /// <summary>
-/// Resolves one exact peer directory subtree. Daemon execution supplies the
-/// shared, artifact-backed implementation; local and test clients may implement
-/// this seam directly without emulating network framing.
+/// Resolves one exact peer directory subtree. This requires a full peer browse:
+/// despite the protocol documentation, directory-content replies from clients
+/// including slskd and Sockseek contain only the named folder, with no inventory
+/// of child folders. Substituting GetDirectoryContentsAsync would silently omit
+/// descendants. Daemon execution reuses a shared artifact; local execution may
+/// retain only the requested subtree from the same full browse.
 /// </summary>
+// TODO: Investigate complete subtree discovery without a full browse, for example
+// through Soulseek searches targeted to one peer. Any alternative must preserve
+// complete subtree coverage and exact file identities.
 public interface IPeerDirectorySource
 {
     Task<PeerDirectorySnapshot> RetrieveDirectoryAsync(

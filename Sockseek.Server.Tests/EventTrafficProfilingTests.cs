@@ -155,7 +155,7 @@ public class EventTrafficProfilingTests
             string csvPath = Path.Combine(inputDir, "playlist.csv");
             File.WriteAllLines(csvPath, BuildCsvLines(jobCount));
 
-            var root = await supervisor.SubmitExtractJobAsync(
+            var root = await supervisor.Submissions.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(
                     csvPath,
                     InputType: "CSV"),
@@ -233,7 +233,7 @@ public class EventTrafficProfilingTests
             string csvPath = Path.Combine(inputDir, "playlist.csv");
             BuildMatchingTrackLibrary(musicRoot, csvPath, jobCount);
 
-            var root = await supervisor.SubmitExtractJobAsync(
+            var root = await supervisor.Submissions.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(
                     csvPath,
                     InputType: "CSV"),
@@ -304,7 +304,7 @@ public class EventTrafficProfilingTests
             string csvPath = Path.Combine(inputDir, "playlist.csv");
             File.WriteAllLines(csvPath, BuildCsvLines(jobCount));
 
-            var root = await supervisor.SubmitExtractJobAsync(
+            var root = await supervisor.Submissions.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(
                     csvPath,
                     InputType: "CSV"),
@@ -394,54 +394,25 @@ public class EventTrafficProfilingTests
 
     private async Task WaitForWorkflowJobCountAsync(EngineSupervisor supervisor, Guid workflowId, int expectedCount)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
-        int lastCount = 0;
-
-        while (!timeout.IsCancellationRequested)
+        using var signal = new TestSignal()
+            .Subscribe<JobSummaryDto>(handler => supervisor.StateStore.JobUpserted += handler, handler => supervisor.StateStore.JobUpserted -= handler)
+            .Subscribe<WorkflowSummaryDto>(handler => supervisor.StateStore.WorkflowUpserted += handler, handler => supervisor.StateStore.WorkflowUpserted -= handler)
+            .Subscribe<SearchStateDto>(handler => supervisor.StateStore.SearchUpdated += handler, handler => supervisor.StateStore.SearchUpdated -= handler);
+        await signal.WaitUntilAsync(() =>
         {
             var workflow = supervisor.StateStore.GetWorkflowSummary(workflowId);
-            lastCount = (workflow?.ActiveJobCount ?? 0) + (workflow?.CompletedJobCount ?? 0);
-            if (lastCount >= expectedCount)
-                return;
-
-            try
-            {
-                await Task.Delay(25, timeout.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-        }
-
-        Assert.Fail($"Timed out waiting for {expectedCount} registered workflow jobs. Last count: {lastCount}.");
+            return (workflow?.ActiveJobCount ?? 0) + (workflow?.CompletedJobCount ?? 0) >= expectedCount;
+        }, $"Workflow did not register {expectedCount} jobs.", 90_000);
     }
 
     private async Task WaitForWorkflowInactiveAsync(EngineSupervisor supervisor, Guid workflowId)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        WorkflowSummaryDto? lastSummary = null;
-
-        while (!timeout.IsCancellationRequested)
-        {
-            lastSummary = supervisor.StateStore.GetWorkflowSummary(workflowId);
-            if (lastSummary?.ActiveJobCount == 0)
-                return;
-
-            try
-            {
-                await Task.Delay(25, timeout.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-        }
-
-        string last = lastSummary == null
-            ? "<missing>"
-            : $"state={lastSummary.State} active={lastSummary.ActiveJobCount} completed={lastSummary.CompletedJobCount} failed={lastSummary.FailedJobCount}";
-        Assert.Fail($"Timed out waiting for workflow to become inactive. Last summary: {last}.");
+        using var signal = new TestSignal()
+            .Subscribe<JobSummaryDto>(handler => supervisor.StateStore.JobUpserted += handler, handler => supervisor.StateStore.JobUpserted -= handler)
+            .Subscribe<WorkflowSummaryDto>(handler => supervisor.StateStore.WorkflowUpserted += handler, handler => supervisor.StateStore.WorkflowUpserted -= handler)
+            .Subscribe<SearchStateDto>(handler => supervisor.StateStore.SearchUpdated += handler, handler => supervisor.StateStore.SearchUpdated -= handler);
+        await signal.WaitUntilAsync(() => supervisor.StateStore.GetWorkflowSummary(workflowId)?.ActiveJobCount == 0,
+            "Workflow did not become inactive.", 60_000);
     }
 
     private void WriteSnapshot(string label, EventTrafficSnapshot snapshot)
@@ -648,48 +619,4 @@ public class EventTrafficProfilingTests
         public int Count(string type) => ByType.GetValueOrDefault(type);
     }
 
-    private sealed class NoOpHubContext<THub> : IHubContext<THub>
-        where THub : Hub
-    {
-        public IHubClients Clients { get; } = new NoOpHubClients();
-        public IGroupManager Groups { get; } = new NoOpGroupManager();
-    }
-
-    private sealed class NoOpHubClients : IHubClients
-    {
-        private static readonly IClientProxy Proxy = new NoOpClientProxy();
-
-        public IClientProxy All => Proxy;
-
-        public IClientProxy AllExcept(IReadOnlyList<string> excludedConnectionIds) => Proxy;
-
-        public IClientProxy Client(string connectionId) => Proxy;
-
-        public IClientProxy Clients(IReadOnlyList<string> connectionIds) => Proxy;
-
-        public IClientProxy Group(string groupName) => Proxy;
-
-        public IClientProxy GroupExcept(string groupName, IReadOnlyList<string> excludedConnectionIds) => Proxy;
-
-        public IClientProxy Groups(IReadOnlyList<string> groupNames) => Proxy;
-
-        public IClientProxy User(string userId) => Proxy;
-
-        public IClientProxy Users(IReadOnlyList<string> userIds) => Proxy;
-    }
-
-    private sealed class NoOpGroupManager : IGroupManager
-    {
-        public Task AddToGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
-        public Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-    }
-
-    private sealed class NoOpClientProxy : IClientProxy
-    {
-        public Task SendCoreAsync(string method, object?[] args, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-    }
 }

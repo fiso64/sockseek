@@ -10,8 +10,24 @@
     <VSTestTestCaseFilter Condition="'$(VSTestTestCaseFilter)' == ''">TestCategory!=Load</VSTestTestCaseFilter>
   </PropertyGroup>
 
+  <ItemGroup Condition="$([System.String]::Copy('$(MSBuildProjectName)').EndsWith('.Tests'))">
+    <Compile Include="$(MSBuildThisFileDirectory)tests/TestSignal.cs" Link="TestSupport/TestSignal.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'Sockseek.Cli.Tests' Or '$(MSBuildProjectName)' == 'Sockseek.Server.Tests'">
+    <Compile Include="$(MSBuildThisFileDirectory)tests/TestServerHost.cs" Link="TestSupport/TestServerHost.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'Sockseek.Persistence.Tests' Or '$(MSBuildProjectName)' == 'Sockseek.Server.Tests' Or '$(MSBuildProjectName)' == 'Sockseek.Cli.Tests'">
+    <Compile Include="$(MSBuildThisFileDirectory)tests/TestDatabase.cs" Link="TestSupport/TestDatabase.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'Sockseek.Persistence.Tests' Or '$(MSBuildProjectName)' == 'Sockseek.Server.Tests'">
+    <Compile Include="$(MSBuildThisFileDirectory)tests/TestPersistenceWriter.cs" Link="TestSupport/TestPersistenceWriter.cs" />
+  </ItemGroup>
+
   <!-- Redirect the lock file to the ignored 'obj' folder during manual publishes -->
-  <PropertyGroup Condition="'$(RuntimeIdentifier)' != '' Or '$(SelfContained)' == 'true' Or '$(PublishSingleFile)' == 'true' Or '$(PublishTrimmed)' == 'true'">
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != '' Or '$(SelfContained)' == 'true' Or '$(PublishSingleFile)' == 'true'">
     <NuGetLockFilePath>obj/packages.publish.lock.json</NuGetLockFilePath>
   </PropertyGroup>
 </Project>

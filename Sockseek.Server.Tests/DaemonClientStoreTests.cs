@@ -14,7 +14,8 @@ public class DaemonClientStoreTests
         var workflowId = Guid.NewGuid();
         var jobId = Guid.NewGuid();
         var transferId = Guid.NewGuid();
-        var initial = Job(jobId, workflowId, revision: 1, lifecycle: ServerJobLifecycleState.Pending);
+        var initial = Job(jobId, workflowId, revision: 1, lifecycle: ServerJobLifecycleState.Pending)
+            with { Stats = new JobSummaryStatsDto(CandidateCount: 2) };
 
         store.ApplySnapshot(Snapshot(epoch, 5, workflowId, [initial]));
         var terminal = initial.Lifecycle with
@@ -32,7 +33,8 @@ public class DaemonClientStoreTests
             new StateDeltaDto(
                 null,
                 [],
-                [new JobDeltaDto(jobId, 2, Lifecycle: terminal)],
+                [new JobDeltaDto(jobId, 2, Lifecycle: terminal,
+                    Stats: new JobSummaryStatsDto(CandidateCount: null))],
                 [],
                 [new TransferDeltaDto(transferId, 1, Added: transfer)],
                 [],
@@ -43,6 +45,7 @@ public class DaemonClientStoreTests
         Assert.AreEqual(DaemonClientApplyStatus.Applied, update.Status);
         Assert.AreEqual(ServerJobLifecycleState.Terminal, store.GetJob(jobId)?.LifecycleState);
         Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, store.GetJob(jobId)?.TerminalOutcome);
+        Assert.IsNull(store.GetJob(jobId)?.Stats?.CandidateCount);
         Assert.AreEqual(transferId, store.GetJobTransfers(jobId).Single().TransferId);
         Assert.AreEqual(0, update.Activity.Count);
     }
@@ -137,28 +140,7 @@ public class DaemonClientStoreTests
     }
 
     [TestMethod]
-    public void LiveSnapshotReplacementPreservesHydratedHistory()
-    {
-        var store = new DaemonClientStore();
-        var workflowId = Guid.NewGuid();
-        var liveJobId = Guid.NewGuid();
-        var historicalJobId = Guid.NewGuid();
-        var history = Job(historicalJobId, Guid.NewGuid(), 1, ServerJobLifecycleState.Terminal).ToSummary();
-        store.MergeJobHistory([history]);
-
-        store.ApplySnapshot(Snapshot(
-            Guid.NewGuid(),
-            0,
-            workflowId,
-            [Job(liveJobId, workflowId, 1, ServerJobLifecycleState.Running)]));
-        store.ApplySnapshot(Snapshot(Guid.NewGuid(), 0, workflowId, []));
-
-        Assert.AreEqual(history, store.GetJob(historicalJobId));
-        Assert.IsNull(store.GetJob(liveJobId));
-    }
-
-    [TestMethod]
-    public void LiveStateView_IsAtomicAcrossScopesAndExcludesHydratedHistory()
+    public void LiveStateView_IsAtomicAcrossScopes()
     {
         var store = new DaemonClientStore();
         var firstWorkflow = Guid.NewGuid();
@@ -173,13 +155,6 @@ public class DaemonClientStoreTests
             secondWorkflow,
             1,
             ServerJobLifecycleState.Running);
-        var historical = Job(
-            Guid.NewGuid(),
-            Guid.NewGuid(),
-            1,
-            ServerJobLifecycleState.Terminal).ToSummary();
-        store.MergeJobHistory([historical]);
-
         store.ApplySnapshot(Snapshot(
             Guid.NewGuid(),
             0,
@@ -195,7 +170,6 @@ public class DaemonClientStoreTests
         CollectionAssert.AreEquivalent(
             new[] { first.JobId, second.JobId },
             bothScopes.Jobs.Select(job => job.JobId).ToArray());
-        Assert.IsFalse(bothScopes.Jobs.Any(job => job.JobId == historical.JobId));
 
         store.ApplySnapshot(Snapshot(
             Guid.NewGuid(),
@@ -207,7 +181,6 @@ public class DaemonClientStoreTests
         CollectionAssert.AreEqual(
             new[] { second.JobId },
             replacedScope.Jobs.Select(job => job.JobId).ToArray());
-        Assert.AreEqual(historical, store.GetJob(historical.JobId));
     }
 
     [TestMethod]

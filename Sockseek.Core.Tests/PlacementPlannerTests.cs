@@ -9,23 +9,25 @@ namespace Tests.Core;
 public sealed class PlacementPlannerTests
 {
     [TestMethod]
-    public void EmptyFormat_PreservesSelectionTreeBelowOutputParent()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void EmptyFormat_PreservesSelectionTreeBelowOutputParent(bool directlyUnderParent)
     {
         string parent = TestParent();
-        var plan = new DirectoryTransferPlan("Collection", [
+        var plan = new DirectoryTransferPlan(directlyUnderParent ? "" : "Collection", [
             Entry(@"Share\Collection\Disc 2\02.flac", ["Disc 2"]),
             Entry(@"Share\Collection\01.flac", []),
-        ]);
+        ], representsDirectorySelection: !directlyUnderParent);
 
         var placements = new PlacementPlanner().PlanDirectory(
             plan,
             new OutputSettings { ParentDir = parent });
 
         CollectionAssert.AreEqual(
-            new[] { "Collection", "01.flac" },
+            directlyUnderParent ? ["01.flac"] : new[] { "Collection", "01.flac" },
             placements[0].RelativePath.Components.ToArray());
         CollectionAssert.AreEqual(
-            new[] { "Collection", "Disc 2", "02.flac" },
+            directlyUnderParent ? ["Disc 2", "02.flac"] : new[] { "Collection", "Disc 2", "02.flac" },
             placements[1].RelativePath.Components.ToArray());
         Assert.IsTrue(placements.All(item => Utils.IsInDirectory(item.OutputPath, parent, strict: true)));
     }

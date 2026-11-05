@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
+using Sockseek.Core;
 using Sockseek.Core.Services;
 using Sockseek.Core.Models;
 using Sockseek.Core.PeerBrowsing;
 using Soulseek;
+using Soulseek.Diagnostics;
 
 namespace Tests.ClientTests
 {
@@ -21,13 +23,13 @@ namespace Tests.ClientTests
         public SoulseekClientOptions Options => throw new NotImplementedException();
 
         private List<Soulseek.SearchResponse> index;
-        private readonly int searchDelayMs;
         private readonly HashSet<string> failingUsers;
         private readonly HashSet<string> disconnectingUsers = new(StringComparer.Ordinal);
         private int disconnectingSearches;
         private int failingSearches;
 
-        public int SearchesCancelledAfterFirstResponse { get; private set; }
+        public void RaiseDiagnostic(DiagnosticEventArgs args) => DiagnosticGenerated?.Invoke(this, args);
+
         public int ConnectCallCount;
         public int SearchCallCount;
         public int DownloadCallCount;
@@ -37,14 +39,16 @@ namespace Tests.ClientTests
         public Func<string, string, CancellationToken, Task>? BeforeDownloadStartsAsync;
         public Func<string, string, CancellationToken, Task>? BeforeDownloadCompletesAsync;
         public Func<string, string, TransferStates, CancellationToken, Task>? AfterDownloadStateChangedAsync;
-        public Func<SearchQuery, CancellationToken, Task>? BeforeSearchAsync;
-        public Func<CancellationToken, Task>? AfterFirstSearchResponseAsync;
+        public Action<long, long>? AfterDownloadProgress;
+        public Action<Stream>? DownloadStreamOpened;
         public bool BrowseReturnsBasenames { get; set; }
         public BrowseResponse? BrowseResponseOverride { get; set; }
         public long? BrowseProgressSize { get; set; }
         public bool IsDisposed { get; private set; }
         public Exception? ConnectException { get; set; }
         public Action? Connecting { get; set; }
+        public Func<SearchQuery, Action<SearchResponse>, SearchOptions, CancellationToken, Task<Search>>? SearchHandler { get; set; }
+        public Func<SearchQuery, CancellationToken, Task>? BeforeSearchAsync { get; set; }
 
         public void FailNextDownloadWithDisconnect(string username)
             => disconnectingUsers.Add(username);
@@ -76,12 +80,10 @@ namespace Tests.ClientTests
 
         public MockSoulseekClient(
             List<Soulseek.SearchResponse> index,
-            int searchDelayMs = 0,
             IEnumerable<string>? failingUsers = null,
             SoulseekClientStates initialState = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn)
         {
             this.index         = index;
-            this.searchDelayMs = searchDelayMs;
             this.failingUsers  = new HashSet<string>(failingUsers ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
             State = initialState;
         }
@@ -166,6 +168,7 @@ namespace Tests.ClientTests
         {
             Interlocked.Increment(ref ConnectCallCount);
             Connecting?.Invoke();
+            cancellationToken?.ThrowIfCancellationRequested();
 
             if (ConnectException != null)
             {
@@ -242,14 +245,19 @@ namespace Tests.ClientTests
             return SearchAsyncInternal(query, null, scope, token, options, cancellationToken);
         }
 
-        public Task<Search> SearchAsync(SearchQuery query, Action<SearchResponse> responseHandler, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
+        public async Task<Search> SearchAsync(SearchQuery query, Action<SearchResponse> responseHandler, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
         {
-            return SearchAsyncInternal(query, responseHandler, scope, token, options, cancellationToken).ContinueWith(t => t.Result.Search);
+            if (SearchHandler != null)
+                return await SearchHandler(query, responseHandler, options ?? new SearchOptions(), cancellationToken ?? CancellationToken.None);
+
+            return (await SearchAsyncInternal(query, responseHandler, scope, token, options, cancellationToken)).Search;
         }
 
         private async Task<(Search Search, IReadOnlyCollection<SearchResponse> Responses)> SearchAsyncInternal(SearchQuery query, Action<SearchResponse>? responseHandler, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
         {
             Interlocked.Increment(ref SearchCallCount);
+            if (BeforeSearchAsync != null)
+                await BeforeSearchAsync(query, cancellationToken ?? CancellationToken.None);
 
             while (true)
             {
@@ -280,10 +288,13 @@ namespace Tests.ClientTests
             var totalFileCount = 0;
             var totalLockedFileCount = 0;
             var ct = cancellationToken ?? CancellationToken.None;
-            bool firstResponse = true;
 
-            if (BeforeSearchAsync is not null)
-                await BeforeSearchAsync(query, ct);
+            bool Matches(Soulseek.File file)
+            {
+                var path = file.Filename.ToLowerInvariant();
+                return query.Terms.All(term => path.Contains(term.ToLowerInvariant()))
+                    && (options.FileFilter?.Invoke(file) ?? true);
+            }
 
             foreach (var user in index)
             {
@@ -293,16 +304,14 @@ namespace Tests.ClientTests
 
                 foreach (var file in user.Files)
                 {
-                    var path = file.Filename.ToLower();
-                    bool matches = query.Terms.All(term => path.Contains(term.ToLower()));
-
-                    if (matches && (options.FileFilter?.Invoke(file) ?? true))
+                    if (Matches(file))
                     {
                         matchingFiles.Add(file);
                     }
                 }
+                var matchingLockedFiles = user.LockedFiles.Where(Matches).ToArray();
 
-                if (matchingFiles.Count > 0)
+                if (matchingFiles.Count > 0 || matchingLockedFiles.Length > 0)
                 {
                     var response = new SearchResponse(
                         username: user.Username,
@@ -310,7 +319,8 @@ namespace Tests.ClientTests
                         hasFreeUploadSlot: user.HasFreeUploadSlot,
                         uploadSpeed: user.UploadSpeed,
                         queueLength: user.QueueLength,
-                        fileList: matchingFiles
+                        fileList: matchingFiles,
+                        lockedFileList: matchingLockedFiles
                     );
 
                     if (!options.FilterResponses ||
@@ -324,25 +334,6 @@ namespace Tests.ClientTests
                         totalLockedFileCount += response.LockedFileCount;
                         options.ResponseReceived?.Invoke((null, response));
                         responseHandler?.Invoke(response);
-
-                        // After firing the first response, simulate the search still running.
-                        // This lets fast-search tests race the provisional download against the delay.
-                        if (firstResponse && (searchDelayMs > 0 || AfterFirstSearchResponseAsync != null))
-                        {
-                            firstResponse = false;
-                            try
-                            {
-                                if (AfterFirstSearchResponseAsync != null)
-                                    await AfterFirstSearchResponseAsync(ct);
-                                else
-                                    await Task.Delay(searchDelayMs, ct);
-                            }
-                            catch (OperationCanceledException)
-                            {
-                                SearchesCancelledAfterFirstResponse++;
-                                break;
-                            }
-                        }
                     }
 
                     if (responses.Count >= options.ResponseLimit)
@@ -380,15 +371,17 @@ namespace Tests.ClientTests
                 return System.IO.File.Create(localFilename);
             }
 
-            return await DownloadAsyncInternal(username, remoteFilename, StreamFactory, size, startOffset, token, options, cancellationToken);
+            return await DownloadAsyncInternal(username, remoteFilename, StreamFactory, size, startOffset, token, options, cancellationToken,
+                ownsOutputStream: true);
         }
 
         public Task<Transfer> DownloadAsync(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
-            return DownloadAsyncInternal(username, remoteFilename, outputStreamFactory, size, startOffset, token, options, cancellationToken);
+            return DownloadAsyncInternal(username, remoteFilename, outputStreamFactory, size, startOffset, token, options, cancellationToken,
+                ownsOutputStream: options?.DisposeOutputStreamOnCompletion ?? false);
         }
 
-        private async Task<Transfer> DownloadAsyncInternal(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
+        private async Task<Transfer> DownloadAsyncInternal(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null, bool ownsOutputStream = false)
         {
             Interlocked.Increment(ref DownloadCallCount);
             var ct = cancellationToken.GetValueOrDefault(CancellationToken.None);
@@ -470,6 +463,7 @@ namespace Tests.ClientTests
                     {
                         transfer = MakeTransfer(TransferStates.InProgress, bytes, speed, t0);
                         options?.ProgressUpdated?.Invoke((prev, transfer));
+                        AfterDownloadProgress?.Invoke(bytes, prev);
                     }
 
                     // Always fire Queued (R) before acquiring the per-user slot —
@@ -485,7 +479,9 @@ namespace Tests.ClientTests
                     // Initialising — peer has accepted the transfer
                     await FireStateAsync(TransferStates.Initializing);
 
-                    using var outputStream = await outputStreamFactory();
+                    var outputStream = await outputStreamFactory();
+                    await using var ownedOutputStream = ownsOutputStream ? outputStream : null;
+                    DownloadStreamOpened?.Invoke(outputStream);
                     var startTime = DateTime.UtcNow;
                     var bytesTransferred = startOffset;
                     const int chunkSize = 16384;

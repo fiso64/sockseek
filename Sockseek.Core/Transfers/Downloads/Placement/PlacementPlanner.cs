@@ -89,10 +89,9 @@ public sealed class PlacementPlanner
             if (string.IsNullOrWhiteSpace(output.NameFormat))
             {
                 string leaf = RemoteLeaf(entry.Target.Filename);
-                var tree = new List<string>(entry.RelativeDirectoryComponents.Count + 2)
-                {
-                    plan.DisplayRoot,
-                };
+                var tree = new List<string>(entry.RelativeDirectoryComponents.Count + 2);
+                if (plan.DisplayRoot.Length != 0)
+                    tree.Add(plan.DisplayRoot);
                 tree.AddRange(entry.RelativeDirectoryComponents);
                 tree.Add(leaf);
                 components = tree;

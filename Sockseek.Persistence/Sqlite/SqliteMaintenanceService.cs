@@ -59,6 +59,12 @@ public sealed class SqliteMaintenanceService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await context.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        return await CheckpointAsync(context, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task<WalCheckpointResult> CheckpointAsync(
+        SockseekDbContext context, CancellationToken cancellationToken)
+    {
         await using var command = context.Database.GetDbConnection().CreateCommand();
         command.CommandText = "PRAGMA wal_checkpoint(PASSIVE);";
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

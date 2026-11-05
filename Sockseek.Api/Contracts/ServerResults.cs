@@ -52,7 +52,9 @@ public sealed record AlbumFolderRefDto(
 public sealed record PeerInfoDto(
     string Username,
     bool? HasFreeUploadSlot = null,
-    int? UploadSpeed = null);
+    int? UploadSpeed = null,
+    int? QueueLength = null,
+    DateTimeOffset? ObservedAtUtc = null);
 
 /// <summary>
 /// Raw search result row, primarily for diagnostics or advanced clients.
@@ -65,19 +67,10 @@ public sealed record SearchRawResultDto(
     long Size,
     int? BitRate,
     int? SampleRate,
-    int? Length);
-
-/// <summary>
-/// Revisioned search result view. Clients can use search.updated events to decide when to refetch.
-/// </summary>
-/// <param name="Revision">Monotonic revision for this result view.</param>
-/// <param name="IsComplete">True when the underlying search job has finished collecting results.</param>
-public sealed record SearchResultSnapshotDto<T>(
-    int Revision,
-    bool IsComplete,
-    IReadOnlyList<T> Items,
-    string? PersistenceState = null,
-    DateTimeOffset? ResultsPrunedAtUtc = null);
+    int? Length,
+    ServerSearchResultVisibility Visibility = ServerSearchResultVisibility.Public,
+    int? QueueLength = null,
+    DateTimeOffset? ObservedAtUtc = null);
 
 /// <summary>
 /// Presentation-safe facts about a file leaf. This is not a remote identity;
@@ -92,59 +85,6 @@ public sealed record FileMetadataDto(
     int? SampleRate,
     int? Length,
     IReadOnlyList<FileAttributeDto>? Attributes = null);
-
-/// <summary>
-/// Downloadable file candidate shown in track search results.
-/// </summary>
-public sealed record FileCandidateDto(
-    FileCandidateRefDto Ref,
-    string Username,
-    string Filename,
-    PeerInfoDto Peer,
-    FileMetadataDto File);
-
-/// <summary>
-/// Album folder candidate shown in album search results.
-/// </summary>
-/// <param name="FileCount">
-/// Number of files from this folder that appeared in the search results. This may be lower than the folder's real file count;
-/// retrieve the full folder to see authoritative contents.
-/// </param>
-/// <param name="AudioFileCount">
-/// Number of audio files from this folder that appeared in the search results. This may be lower than the folder's real audio-file count;
-/// retrieve the full folder to see authoritative contents.
-/// </param>
-/// <param name="Files">
-/// Optional file list. Present only when requested with includeFiles=true. May be incomplete; retrieve the full folder to see authoritative contents.
-/// </param>
-/// <param name="IsFullyRetrieved">
-/// True after the server has browsed the peer's folder and merged the full contents into this result.
-/// </param>
-public sealed record AlbumFolderDto(
-    AlbumFolderRefDto Ref,
-    string Username,
-    string FolderPath,
-    PeerInfoDto Peer,
-    int FileCount,
-    int AudioFileCount,
-    IReadOnlyList<FileCandidateDto>? Files = null,
-    bool IsFullyRetrieved = false);
-
-/// <summary>
-/// Aggregate track candidate produced by aggregate search result views.
-/// </summary>
-public sealed record AggregateTrackCandidateDto(
-    SongQueryDto Query,
-    string? ItemName,
-    List<FileCandidateDto>? Candidates = null);
-
-/// <summary>
-/// Aggregate album candidate produced by album-aggregate search result views.
-/// </summary>
-public sealed record AggregateAlbumCandidateDto(
-    AlbumQueryDto Query,
-    string? ItemName,
-    List<AlbumFolderDto>? Folders = null);
 
 /// <summary>
 /// Soulseek file attribute pair.

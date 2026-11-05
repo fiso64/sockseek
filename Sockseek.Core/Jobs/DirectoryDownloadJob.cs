@@ -56,10 +56,12 @@ public sealed class DirectoryTransferAttempt
 /// </summary>
 public abstract class DirectoryDownloadJob : Job
 {
+    // Coarse ownership changes, not transport progress. The tracker publishes
+    // these through the existing immutable job-state stream for every client.
     private DirectoryExecutionState directoryState = new DirectoryExecutionState.Unresolved();
     private DirectoryTransferAttempt? activeAttempt;
     private readonly List<FileDownloadJob> fileJobs = [];
-    private readonly List<FileDownloadJob> supplementalFileJobs = [];
+    private readonly DirectoryProgress progress = new();
     private int attemptNumber;
     private string? downloadPath;
 
@@ -71,12 +73,13 @@ public abstract class DirectoryDownloadJob : Job
     /// post-plan work, such as album art selected during music finalization.
     /// </summary>
     public IReadOnlyList<FileDownloadJob> FileJobs => fileJobs;
-    public long BytesTransferred => FileJobs.Sum(file => file.BytesTransferred);
+    public long BytesTransferred => progress.Summary.BytesTransferred;
     public long TotalKnownBytes => (ActiveAttempt?.Plan.TotalKnownBytes ?? 0)
-        + supplementalFileJobs.Sum(file => file.FileSize ?? 0);
-    public double Progress => TotalKnownBytes > 0
-        ? Math.Clamp((double)BytesTransferred / TotalKnownBytes, 0, 1)
-        : 0;
+        + progress.Summary.SupplementalKnownBytes;
+    public int UnknownFileSizeCount => (ActiveAttempt?.Plan.UnknownFileSizeCount ?? 0)
+        + progress.Summary.SupplementalUnknownCount;
+    public double Progress => progress.Summary.GetProgress(ActiveAttempt?.Plan.TotalKnownBytes ?? 0);
+    internal DirectoryProgressSummary ProgressSummary => progress.Summary;
 
     public string? DownloadPath
     {
@@ -110,7 +113,8 @@ public abstract class DirectoryDownloadJob : Job
         activeAttempt = new DirectoryTransferAttempt(checked(++attemptNumber), plan);
         OnPropertyChanged(nameof(ActiveAttempt));
         OnPropertyChanged(nameof(FileJobs));
-        SetDirectoryState(new DirectoryExecutionState.Planned(activeAttempt.AttemptNumber));
+        OnPropertyChanged(nameof(UnknownFileSizeCount));
+        PublishDirectoryStructure(new DirectoryExecutionState.Planned(activeAttempt.AttemptNumber));
         return activeAttempt;
     }
 
@@ -119,9 +123,11 @@ public abstract class DirectoryDownloadJob : Job
         if (activeAttempt is null || directoryState is not DirectoryExecutionState.Planned)
             throw new InvalidOperationException("A planned directory attempt is required before materializing children.");
         activeAttempt.MaterializeChildren(children);
+        progress.EnsureCapacity(activeAttempt.FileJobs.Count);
         foreach (var child in activeAttempt.FileJobs)
             AttachDirectoryChild(child);
         NotifyDirectoryChildrenChanged();
+        NotifyStructureChanged();
     }
 
     public void BeginDirectoryTransfer()
@@ -145,18 +151,28 @@ public abstract class DirectoryDownloadJob : Job
         activeAttempt = null;
         OnPropertyChanged(nameof(ActiveAttempt));
         OnPropertyChanged(nameof(FileJobs));
-        SetDirectoryState(new DirectoryExecutionState.Unresolved());
+        OnPropertyChanged(nameof(UnknownFileSizeCount));
+        PublishDirectoryStructure(new DirectoryExecutionState.Unresolved());
     }
 
     private void ChildPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (sender is not FileDownloadJob child)
+            return;
         if (e.PropertyName is nameof(FileDownloadJob.BytesTransferred)
-            or nameof(FileDownloadJob.FileSize)
-            or nameof(FileDownloadJob.Progress))
+            or nameof(FileDownloadJob.FileSize))
         {
+            progress.Update(child.Id, child.BytesTransferred, child.FileSize, child.StateSnapshot);
             OnPropertyChanged(nameof(BytesTransferred));
             OnPropertyChanged(nameof(TotalKnownBytes));
+            if (e.PropertyName == nameof(FileDownloadJob.FileSize))
+                OnPropertyChanged(nameof(UnknownFileSizeCount));
             OnPropertyChanged(nameof(Progress));
+        }
+        else if (e.PropertyName is nameof(Job.LifecycleState) or nameof(Job.TerminalOutcome) or nameof(Job.SkipReason))
+        {
+            if (progress.Update(child.Id, child.BytesTransferred, child.FileSize, child.StateSnapshot))
+                OnPropertyChanged(nameof(Progress));
         }
     }
 
@@ -164,17 +180,27 @@ public abstract class DirectoryDownloadJob : Job
     /// Registers work deliberately added by a semantic specialization after the
     /// immutable directory plan has been materialized.
     /// </summary>
-    protected void AddSupplementalDirectoryChild(FileDownloadJob child)
+    protected void AddSupplementalDirectoryChildren(IReadOnlyList<FileDownloadJob> children)
     {
-        ArgumentNullException.ThrowIfNull(child);
+        ArgumentNullException.ThrowIfNull(children);
         if (activeAttempt is null || !activeAttempt.ChildrenMaterialized)
             throw new InvalidOperationException("Supplemental directory work requires a materialized active attempt.");
-        if (fileJobs.Contains(child))
-            return;
+        if (children.Any(child => child is null))
+            throw new ArgumentException("Supplemental directory work cannot contain null jobs.", nameof(children));
 
-        supplementalFileJobs.Add(child);
-        AttachDirectoryChild(child);
+        var owned = fileJobs.ToHashSet();
+        int previousCount = fileJobs.Count;
+        foreach (var child in children)
+        {
+            if (!owned.Add(child)) continue;
+            AttachDirectoryChild(child, supplemental: true);
+        }
+        if (fileJobs.Count == previousCount)
+            return;
+        // Admission is one structural change: publishing each new member would
+        // repeatedly snapshot the growing directory graph.
         NotifyDirectoryChildrenChanged();
+        NotifyStructureChanged();
     }
 
     protected void ClearDirectoryChildren()
@@ -188,13 +214,14 @@ public abstract class DirectoryDownloadJob : Job
         foreach (var child in fileJobs)
             child.PropertyChanged -= ChildPropertyChanged;
         fileJobs.Clear();
-        supplementalFileJobs.Clear();
+        progress.Clear();
         NotifyDirectoryChildrenChanged();
     }
 
-    private void AttachDirectoryChild(FileDownloadJob child)
+    private void AttachDirectoryChild(FileDownloadJob child, bool supplemental = false)
     {
         fileJobs.Add(child);
+        progress.Add(child.Id, child.BytesTransferred, child.FileSize, child.StateSnapshot, supplemental);
         child.PropertyChanged += ChildPropertyChanged;
     }
 
@@ -203,6 +230,7 @@ public abstract class DirectoryDownloadJob : Job
         OnPropertyChanged(nameof(FileJobs));
         OnPropertyChanged(nameof(BytesTransferred));
         OnPropertyChanged(nameof(TotalKnownBytes));
+        OnPropertyChanged(nameof(UnknownFileSizeCount));
         OnPropertyChanged(nameof(Progress));
     }
 
@@ -210,6 +238,14 @@ public abstract class DirectoryDownloadJob : Job
     {
         directoryState = value;
         OnPropertyChanged(nameof(DirectoryState));
+        NotifyExecutionChanged();
+    }
+
+    private void PublishDirectoryStructure(DirectoryExecutionState value)
+    {
+        directoryState = value;
+        OnPropertyChanged(nameof(DirectoryState));
+        NotifyStructureChanged();
     }
 
     public override void SetDone()

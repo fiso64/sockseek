@@ -67,7 +67,6 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
 
     <PropertyGroup>
       <SelfContained Condition="'$(SelfContained)' == ''">true</SelfContained>
-      <Trimmed Condition="'$(Trimmed)' == ''">false</Trimmed>
       <PublishLabel Condition="'$(PublishLabel)' == ''">$(RID)</PublishLabel>
       <PublishDir>$(PublishRoot)/$(PublishLabel)</PublishDir>
       <IsWindowsRid>$([System.String]::Copy('$(RID)').StartsWith('win'))</IsWindowsRid>
@@ -81,7 +80,7 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
     <RemoveDir Directories="$(PublishDir)" Condition="Exists('$(PublishDir)')" />
     <MakeDir Directories="$(PublishDir);$(PackageDir)" />
 
-    <Exec Command="dotnet publish &quot;$(CliProject)&quot; -c Release -f $(Framework) -r $(RID) -o &quot;$(PublishDir)&quot; $(VersionProperties) -p:PublishSingleFile=true -p:PublishTrimmed=$(Trimmed) -p:DebugType=embedded -p:DebugSymbols=true -p:IncludeSymbolsInSingleFile=false -p:OpenApiGenerateDocuments=false -p:PathMap=&quot;$(RepoRoot)=/_/&quot; --self-contained=$(SelfContained)" />
+    <Exec Command="dotnet publish &quot;$(CliProject)&quot; -c Release -f $(Framework) -r $(RID) -o &quot;$(PublishDir)&quot; $(VersionProperties) -p:PublishSingleFile=true -p:PublishTrimmed=false -p:DebugType=embedded -p:DebugSymbols=true -p:IncludeSymbolsInSingleFile=false -p:OpenApiGenerateDocuments=false -p:PathMap=&quot;$(RepoRoot)=/_/&quot; --self-contained=$(SelfContained)" />
 
     <Copy SourceFiles="$(RepoRoot)/LICENSE"
           DestinationFolder="$(PublishDir)"

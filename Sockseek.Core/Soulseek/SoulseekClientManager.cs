@@ -1,4 +1,5 @@
 using Soulseek;
+using Soulseek.Diagnostics;
 using System.Security.Cryptography;
 using System.Net.Sockets;
 using Sockseek.Core.Settings;
@@ -40,6 +41,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
     private readonly Func<TimeSpan, CancellationToken, Task> monitorDelay;
     private readonly ILogger<SoulseekClientManager> logger;
     private readonly RepeatedWarningGate reconnectWarningGate = new();
+    private readonly RepeatedWarningGate protocolWarningGate = new();
     private ISoulseekClient? _client;
     private readonly SemaphoreSlim _initializationSemaphore = new SemaphoreSlim(1, 1);
     private readonly SemaphoreSlim connectionStateChanged = new(0, 1);
@@ -130,9 +132,21 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
 
     private void AttachClientEvents(ISoulseekClient client)
     {
+        client.DiagnosticGenerated += OnProtocolDiagnostic;
         client.KickedFromServer += OnKickedFromServer;
         client.StateChanged += OnStateChanged;
         client.ExcludedSearchPhrasesReceived += OnExcludedSearchPhrasesReceived;
+    }
+
+    private void OnProtocolDiagnostic(object? sender, DiagnosticEventArgs diagnostic)
+    {
+        string message = diagnostic.Message;
+        if (message.Length > 2_048) message = message[..2_048] + "…";
+        string source = sender?.GetType().Name ?? "Soulseek";
+        if (diagnostic.Level == DiagnosticLevel.Warning && protocolWarningGate.TryAcquire(out long suppressed))
+            SoulseekLogMessages.ProtocolWarning(logger, diagnostic.Exception, source, message, suppressed);
+        else
+            SoulseekLogMessages.ProtocolDiagnostic(logger, source, message);
     }
 
     private void OnExcludedSearchPhrasesReceived(
@@ -183,7 +197,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         Action<SoulseekClientStates>? handlers = StateChanged;
         if (handlers is null)
             return;
-        foreach (Action<SoulseekClientStates> handler in handlers.GetInvocationList())
+        foreach (Action<SoulseekClientStates> handler in Delegate.EnumerateInvocationList(handlers))
         {
             try
             {
@@ -215,7 +229,8 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         if (HasFatalError) return;
         if (_monitorTask != null) return;
         _monitorCts = new CancellationTokenSource();
-        _monitorTask = Task.Run(() => MonitorConnectionLoopAsync(_monitorCts.Token));
+        var token = _monitorCts.Token;
+        _monitorTask = Task.Run(() => MonitorConnectionLoopAsync(token));
     }
 
     private void MarkFatal(Exception exception)
@@ -335,7 +350,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         Action<ISoulseekClient>? handlers = ClientCreated;
         if (handlers is null)
             return;
-        foreach (Action<ISoulseekClient> handler in handlers.GetInvocationList())
+        foreach (Action<ISoulseekClient> handler in Delegate.EnumerateInvocationList(handlers))
         {
             try { handler(client); }
             catch (Exception ex)
@@ -350,22 +365,24 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         if (IsKickedFromServer(e))
             return _initialSettings.AutoReconnectAfterKickedFromServer;
 
+        bool transient = false;
         while (e != null)
         {
-            if (e is OperationCanceledException) return true;
-            if (e is Soulseek.AddressException || e is System.TimeoutException || e is System.Net.Sockets.SocketException) return true;
-            if (e.GetType().Name.Contains("ConnectionException")) return true;
-            if (e.GetType().Name.Contains("SoulseekClientException")) return true;
+            // Inspect the full chain: a generic connection wrapper must not turn
+            // rejected credentials into an endless background reconnect loop.
+            if (e is LoginRejectedException) return false;
+            transient |= e is OperationCanceledException or SoulseekClientException
+                or TimeoutException or System.Net.Sockets.SocketException;
             e = e.InnerException;
         }
-        return false;
+        return transient;
     }
 
     private static bool IsKickedFromServer(Exception? e)
     {
         while (e != null)
         {
-            if (e is KickedFromServerException || e.GetType().Name == nameof(KickedFromServerException)) return true;
+            if (e is KickedFromServerException) return true;
             e = e.InnerException;
         }
         return false;
@@ -491,9 +508,9 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         Task<UserInfo> userInfoResolver(string username, System.Net.IPEndPoint ip) => Task.FromResult(new UserInfo(
             description: localProfile?.Description
                 ?? UserProfileText.NormalizeDescription(settings.UserDescription),
-            uploadSlots: 1,
+            uploadSlots: 0,
             queueLength: 0,
-            hasFreeUploadSlot: true,
+            hasFreeUploadSlot: false,
             picture: localProfile?.Picture?.Bytes
         ));
 
@@ -589,7 +606,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
             // Protocol events can be raised as ConnectAsync completes. Publish
             // the account first so those callbacks are partitioned correctly,
             // including random-login reconnects.
-            await client.ConnectAsync(user, pass);
+            await client.ConnectAsync(user, pass, cancellationToken);
         }
         catch
         {
@@ -613,6 +630,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         MarkFatal(new ObjectDisposedException(nameof(SoulseekClientManager)));
         if (_client != null)
         {
+            _client.DiagnosticGenerated -= OnProtocolDiagnostic;
             _client.KickedFromServer -= OnKickedFromServer;
             _client.StateChanged -= OnStateChanged;
             _client.ExcludedSearchPhrasesReceived -= OnExcludedSearchPhrasesReceived;

@@ -13,11 +13,15 @@ namespace Tests.Core;
 public sealed class LeafDownloadFailureTests
 {
     [TestMethod]
-    public async Task RemoteFileTransportCancellation_FailsOnlyItsRoot()
+    [DataRow("transport cancellation")]
+    [DataRow("size mismatch")]
+    [DataRow("wrapped missing file")]
+    [DataRow("permission denied")]
+    public async Task PermanentTransferFailureDoesNotRetryAndFailsOnlyItsRoot(string failureKind)
     {
         string output = CreateTempDirectory();
         var failedTarget = Target("cancel-peer", @"Share\Failed.bin");
-        var completedTarget = Target("ok-peer", @"Share\Completed.bin");
+        var completedTarget = new PeerFileTarget(new PeerFileIdentity("ok-peer", @"Share\Completed.bin"), null, ".bin");
         var failed = new RemoteFileJob(failedTarget);
         var completed = new RemoteFileJob(completedTarget);
         var client = new MockSoulseekClient([
@@ -26,18 +30,29 @@ public sealed class LeafDownloadFailureTests
         ]);
         client.BeforeDownloadStartsAsync = (username, _, _) =>
             username == failedTarget.Username
-                ? Task.FromException(new OperationCanceledException("transport ended early"))
+                ? Task.FromException(failureKind switch
+                {
+                    "size mismatch" => new TransferSizeMismatchException(16, 32),
+                    "wrapped missing file" => new SoulseekClientException("cannot open file", new FileNotFoundException()),
+                    "permission denied" => new UnauthorizedAccessException(),
+                    _ => new OperationCanceledException("transport ended early"),
+                })
                 : Task.CompletedTask;
         var engineSettings = new EngineSettings { Username = "test", Password = "test" };
         var settings = new DownloadSettings
         {
             Output = { ParentDir = output, NameFormat = "" },
-            Transfer = { NoIncompleteExt = true, UnknownErrorRetries = 0 },
+            Transfer = { NoIncompleteExt = true, UnknownErrorRetries = 2 },
         };
         await using var engine = new DownloadEngine(
             engineSettings,
             TestHelpers.CreateMockClientManager(client, engineSettings));
 
+        long? reportedSize = null;
+        engine.Events.DownloadProgress += progress =>
+        {
+            if (progress.Transfer.Target?.Username == "ok-peer") reportedSize = progress.TotalBytes;
+        };
         try
         {
             engine.Enqueue(failed, settings);
@@ -50,6 +65,9 @@ public sealed class LeafDownloadFailureTests
             Assert.AreEqual(JobFailureReason.AllDownloadsFailed, failed.FailureReason);
             Assert.AreEqual(JobTerminalOutcome.Succeeded, completed.TerminalOutcome);
             Assert.IsTrue(File.Exists(completed.DownloadPath));
+            Assert.AreEqual(16, completed.FileSize, "Negotiated size must reach the job even when the target size was unknown.");
+            Assert.AreEqual(16, reportedSize);
+            Assert.AreEqual(2, client.DownloadCallCount, "Only one attempt per file; permanent failures must not be retried.");
         }
         finally
         {

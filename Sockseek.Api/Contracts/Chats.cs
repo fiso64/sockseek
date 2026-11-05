@@ -1,25 +1,27 @@
-using System.Globalization;
-using System.Text;
-using Sockseek.Core.Chat;
-
 namespace Sockseek.Api;
+
+public static class ChatProtocol
+{
+    public const int LiveMessageTailSize = 100;
+}
 
 public sealed record ChatMessageDto(
     Guid MessageId,
     long Sequence,
-    ChatTargetKind TargetKind,
+    ServerChatTargetKind TargetKind,
     Guid TargetId,
     string Sender,
-    ChatMessageDirection Direction,
+    ServerChatMessageDirection Direction,
     string Text,
     DateTimeOffset OccurredAtUtc,
     DateTimeOffset RecordedAtUtc,
-    ChatMessageState State,
+    ServerChatMessageState State,
     string? FailureReason);
 
 public sealed record ConversationSummaryDto(
     Guid ConversationId,
     string Username,
+    bool PrivateMessagesBlocked,
     bool Archived,
     int UnreadCount,
     long LastReadSequence,
@@ -37,7 +39,7 @@ public sealed record ChatMessagePageDto(
 public sealed record AvailableRoomDto(
     string Name,
     int UserCount,
-    ChatRoomKind Kind,
+    ServerChatRoomKind Kind,
     bool Owned,
     bool Moderated);
 
@@ -53,10 +55,10 @@ public sealed record ChatRoomSummaryDto(
     bool Configured,
     bool Remembered,
     bool Desired,
-    ChatRoomKind Kind,
+    ServerChatRoomKind Kind,
     bool Owned,
     bool Moderated,
-    ChatRoomJoinPhase Phase,
+    ServerChatRoomJoinPhase Phase,
     string? FailureReason,
     int MemberCount,
     long MemberRevision,
@@ -91,11 +93,11 @@ public sealed record ChatRoomPageDto(
 public sealed record UserNotificationDto(
     Guid NotificationId,
     long Sequence,
-    UserNotificationKind Kind,
+    ServerUserNotificationKind Kind,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? ReadAtUtc,
     string Actor,
-    ChatTargetKind TargetKind,
+    ServerChatTargetKind TargetKind,
     Guid TargetId,
     string TargetName,
     Guid SourceMessageId,
@@ -126,77 +128,3 @@ public sealed record AddRoomMemberRequestDto(string Username);
 public sealed record MarkNotificationsReadRequestDto(
     long? ThroughSequence,
     IReadOnlyList<Guid>? Ids);
-
-public static class ChatDtoMapper
-{
-    public static ChatMessageDto ToDto(ChatMessageRecord value)
-        => new(
-            value.MessageId,
-            value.Sequence,
-            value.TargetKind,
-            value.TargetId,
-            value.DisplaySender,
-            value.Direction,
-            value.Body,
-            value.OccurredAtUtc,
-            value.RecordedAtUtc,
-            value.State,
-            value.FailureReason);
-
-    public static ConversationSummaryDto ToDto(ConversationRecord value)
-        => new(
-            value.ConversationId,
-            value.DisplayUsername,
-            value.ArchivedAtUtc is not null,
-            value.UnreadCount,
-            value.LastReadSequence,
-            value.Revision,
-            value.LastMessage is null ? null : ToDto(value.LastMessage));
-
-    public static UserNotificationDto ToDto(UserNotificationRecord value)
-        => new(
-            value.NotificationId,
-            value.Sequence,
-            value.Kind,
-            value.CreatedAtUtc,
-            value.ReadAtUtc,
-            value.SourceMessage.DisplaySender,
-            value.SourceMessage.TargetKind,
-            value.SourceMessage.TargetId,
-            value.SourceMessage.DisplayTarget,
-            value.SourceMessageId,
-            Preview(value.SourceMessage.Body),
-            value.SourceMessage.TargetKind == ChatTargetKind.Direct
-                ? $"/api/chat/conversations/{value.SourceMessage.TargetId:D}"
-                : $"/api/chat/rooms/{value.SourceMessage.TargetId:D}");
-
-    private static string Preview(string body)
-    {
-        var result = new StringBuilder(ChatLimits.NotificationPreviewCharacters);
-        bool pendingSpace = false;
-        int count = 0;
-        foreach (Rune rune in body.EnumerateRunes())
-        {
-            UnicodeCategory category = Rune.GetUnicodeCategory(rune);
-            if (Rune.IsWhiteSpace(rune)
-                || category is UnicodeCategory.Control or UnicodeCategory.Format)
-            {
-                pendingSpace = result.Length > 0;
-                continue;
-            }
-            if (pendingSpace)
-            {
-                if (count == ChatLimits.NotificationPreviewCharacters)
-                    break;
-                result.Append(' ');
-                pendingSpace = false;
-                count++;
-            }
-            if (count == ChatLimits.NotificationPreviewCharacters)
-                break;
-            result.Append(rune.ToString());
-            count++;
-        }
-        return result.ToString();
-    }
-}

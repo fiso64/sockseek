@@ -20,28 +20,6 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void LoggingDefaults_AreInformationForForegroundAndDebugForDaemon()
-        {
-            Assert.AreEqual(LogLevel.Information, new EngineSettings().LogLevel);
-
-            var foreground = new EngineSettings();
-            EngineSettings daemon = Sockseek.Cli.Program.CreateDaemonEngineSettings(foreground);
-
-            Assert.AreEqual(LogLevel.Information, foreground.LogLevel);
-            Assert.AreEqual(LogLevel.Debug, daemon.LogLevel);
-        }
-
-        [TestMethod]
-        public void DaemonLoggingDefault_PreservesMoreVerboseSelection()
-        {
-            var configured = new EngineSettings { LogLevel = LogLevel.Trace };
-
-            EngineSettings daemon = Sockseek.Cli.Program.CreateDaemonEngineSettings(configured);
-
-            Assert.AreEqual(LogLevel.Trace, daemon.LogLevel);
-        }
-
-        [TestMethod]
         public void Defaults_NecessaryCondFormats_AreSet()
         {
             var config = Cfg();
@@ -170,19 +148,19 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void Number_RejectsNegativeValue()
         {
-            Assert.ThrowsException<Exception>(() => Cfg("--number", "-1", "some input"));
+            Assert.ThrowsExactly<Exception>(() => Cfg("--number", "-1", "some input"));
         }
 
         [TestMethod]
         public void Offset_RejectsNegativeValue()
         {
-            Assert.ThrowsException<Exception>(() => Cfg("--offset", "-1", "some input"));
+            Assert.ThrowsExactly<Exception>(() => Cfg("--offset", "-1", "some input"));
         }
 
         [TestMethod]
         public void TimeFormat_RejectsUnsupportedUnits()
         {
-            Assert.ThrowsException<ArgumentException>(() => Cfg("--time-format", "bogus", "some input"));
+            Assert.ThrowsExactly<ArgumentException>(() => Cfg("--time-format", "bogus", "some input"));
         }
 
         [TestMethod]
@@ -192,9 +170,7 @@ namespace Tests.ConfigParsingTests
             try
             {
                 File.WriteAllText(path, "progress = maybe\n");
-                var file = ConfigManager.Load(path);
-
-                var ex = Assert.ThrowsException<Exception>(() => ConfigManager.Bind(file, ["some input"]));
+                var ex = Assert.ThrowsExactly<Exception>(() => ConfigManager.Load(path));
 
                 StringAssert.Contains(ex.Message, "Input error:");
                 StringAssert.Contains(ex.Message, "--progress");
@@ -211,7 +187,7 @@ namespace Tests.ConfigParsingTests
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--song"]);
             var config = new DownloadSettings();
 
-            DownloadSettingsPatchDtoMapper.ApplyTo(config, patch);
+            patch?.ApplyTo(config);
 
             Assert.AreEqual(ExtractionMode.Song, config.Extraction.RequestedMode);
         }
@@ -222,7 +198,7 @@ namespace Tests.ConfigParsingTests
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--album"]);
             var config = new DownloadSettings();
 
-            DownloadSettingsPatchDtoMapper.ApplyTo(config, patch);
+            patch?.ApplyTo(config);
 
             Assert.AreEqual(ExtractionMode.Album, config.Extraction.RequestedMode);
             Assert.IsFalse(config.Extraction.UpgradeToAlbum);
@@ -234,7 +210,7 @@ namespace Tests.ConfigParsingTests
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--upgrade-to-album"]);
             var config = new DownloadSettings();
 
-            DownloadSettingsPatchDtoMapper.ApplyTo(config, patch);
+            patch?.ApplyTo(config);
 
             Assert.IsTrue(config.Extraction.UpgradeToAlbum);
         }
@@ -245,7 +221,7 @@ namespace Tests.ConfigParsingTests
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--strict-album-quality"]);
             var config = new DownloadSettings();
 
-            DownloadSettingsPatchDtoMapper.ApplyTo(config, patch);
+            patch?.ApplyTo(config);
 
             Assert.IsTrue(config.Search.StrictAlbumQuality);
         }
@@ -256,7 +232,7 @@ namespace Tests.ConfigParsingTests
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--incomplete-album-action", "move:failed-target"]);
             var config = new DownloadSettings();
 
-            DownloadSettingsPatchDtoMapper.ApplyTo(config, patch);
+            patch?.ApplyTo(config);
 
             Assert.AreEqual(IncompleteAlbumActionKind.Move, config.Output.IncompleteAlbumAction.Kind);
             Assert.AreEqual("failed-target", config.Output.IncompleteAlbumAction.Path);
@@ -278,7 +254,7 @@ namespace Tests.ConfigParsingTests
                 },
             };
 
-            DownloadSettingsPatchDtoMapper.ApplyTo(config, patch);
+            patch?.ApplyTo(config);
 
             Assert.AreEqual(IncompleteAlbumActionKind.Move, config.Output.IncompleteAlbumAction.Kind);
             Assert.IsNull(config.Output.IncompleteAlbumAction.Path);
@@ -302,7 +278,7 @@ namespace Tests.ConfigParsingTests
         public void MaxStaleTime_SetsValue()
         {
             var config = Cfg("--max-stale-time", "60000", "some input");
-            Assert.AreEqual(60000, config.Transfer.MaxStaleTime);
+            Assert.AreEqual(60000, config.Search.MaxStaleTime);
         }
 
         [TestMethod]
@@ -365,7 +341,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void OutputDir_ShortAliasWithBareInteger_ReportsLikelyLegacyOffset()
         {
-            var ex = Assert.ThrowsException<Exception>(() => Cfg("-o", "10", "some input"));
+            var ex = Assert.ThrowsExactly<Exception>(() => Cfg("-o", "10", "some input"));
 
             StringAssert.Contains(ex.Message, "'-o 10' looks like the old short form for '--offset 10'");
             StringAssert.Contains(ex.Message, "Use '--offset 10' to skip tracks");
@@ -423,13 +399,13 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void FailedAlbumPath_Flag_IsRemoved()
         {
-            Assert.ThrowsException<Exception>(() => Cfg("--failed-album-path", "failed", "some input"));
+            Assert.ThrowsExactly<Exception>(() => Cfg("--failed-album-path", "failed", "some input"));
         }
 
         [TestMethod]
         public void AlbumFailAction_Flag_IsRemoved()
         {
-            Assert.ThrowsException<Exception>(() => Cfg("--album-fail-action", "move", "some input"));
+            Assert.ThrowsExactly<Exception>(() => Cfg("--album-fail-action", "move", "some input"));
         }
     }
 
@@ -578,27 +554,6 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void DatabaseAndRetentionFlags_BindToDaemonSettings()
-        {
-            string dataDirectory = Path.Combine(Path.GetTempPath(), "sockseek-data");
-            var (_, _, _, daemon, _) = BindAll(
-                "--data-dir", dataDirectory,
-                "--no-retention",
-                "--successful-job-retention-days", "45",
-                "--unsuccessful-job-retention-days", "forever",
-                "--transfer-retention-days", "60",
-                "--search-result-retention-days", "10");
-
-            Assert.AreEqual(Path.GetFullPath(dataDirectory), daemon.DataDirectory);
-            Assert.IsFalse(daemon.RetentionEnabled);
-            Assert.AreEqual(TimeSpan.FromDays(45), daemon.CompletedJobRetention);
-            Assert.IsNull(daemon.UnsuccessfulJobRetention);
-            Assert.AreEqual(TimeSpan.FromDays(10), daemon.SearchResultRetention);
-            Assert.AreEqual(TimeSpan.FromDays(60), daemon.TransferRetention);
-            Assert.IsNull(daemon.MaximumRetainedJobs);
-        }
-
-        [TestMethod]
         public void Enum_SkipMode_ParsedCaseInsensitive()
         {
             var (_, dl, _) = Bind("--skip-mode-output-dir", "name");
@@ -658,11 +613,10 @@ namespace Tests.ConfigParsingTests
                     "skip-music-dir = {configdir}/skip",
                     "incomplete-album-action = move:{configdir}/failed",
                     "log-file = {configdir}/logs/sockseek.log",
-                    "mock-files-dir = {configdir}/mock",
-                    "data-dir = {configdir}/data"));
+                    "mock-files-dir = {configdir}/mock"));
 
                 var file = ConfigManager.Load(configPath);
-                var (engine, download, _, daemon, _) = ConfigManager.BindAll(file, ["input"]);
+                var (engine, download, _) = ConfigManager.Bind(file, ["input"]);
 
                 Assert.AreEqual(tempDir, download.RuntimePathContext.ConfigDir);
                 Assert.AreEqual(Path.GetFullPath(Path.Join(tempDir, "downloads")), download.Output.ParentDir);
@@ -673,7 +627,6 @@ namespace Tests.ConfigParsingTests
                 Assert.AreEqual(Path.GetFullPath(Path.Join(tempDir, "failed")), download.Output.IncompleteAlbumAction.Path);
                 Assert.AreEqual(Path.GetFullPath(Path.Join(tempDir, "logs", "sockseek.log")), engine.LogFilePath);
                 Assert.AreEqual(Path.GetFullPath(Path.Join(tempDir, "mock")), engine.MockFilesDir);
-                Assert.AreEqual(Path.GetFullPath(Path.Join(tempDir, "data")), daemon.DataDirectory);
             }
             finally
             {
@@ -687,7 +640,7 @@ namespace Tests.ConfigParsingTests
         {
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["x", "--skip-existing", "true"]);
             Assert.IsNotNull(patch);
-            Assert.AreEqual(true, patch.Skip?.SkipExisting);
+            Assert.AreEqual(true, patch.Operations.Single(change => change.Path == "Skip.SkipExisting").Value);
         }
 
         [TestMethod]
@@ -695,8 +648,9 @@ namespace Tests.ConfigParsingTests
         {
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["x", "--on-complete", "+ -- second"]);
             Assert.IsNotNull(patch);
-            CollectionAssert.AreEqual(new[] { "-- second" }, patch.Output?.OnComplete?.Append?.ToArray());
-            Assert.IsNull(patch.Output?.OnComplete?.Replace);
+            var change = patch.Operations.Single(change => change.Path == "Output.OnComplete");
+            Assert.AreEqual(SettingOperation.Append, change.Operation);
+            CollectionAssert.AreEqual(new[] { "-- second" }, ((List<string>)change.Value!).ToArray());
         }
 
         // ── Inline = form ─────────────────────────────────────────────────────
@@ -711,7 +665,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void InlineEquals_InvalidBooleanValueThrows()
         {
-            var ex = Assert.ThrowsException<Exception>(() =>
+            var ex = Assert.ThrowsExactly<Exception>(() =>
                 Bind("--strict-artist=111"));
 
             Assert.AreEqual(
@@ -740,7 +694,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void Positional_DuplicateThrows()
         {
-            Assert.ThrowsException<Exception>(() => Bind("url1", "url2"));
+            Assert.ThrowsExactly<Exception>(() => Bind("url1", "url2"));
         }
 
         // ── Special cases ─────────────────────────────────────────────────────
@@ -798,7 +752,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void OnComplete_MissingDelimiter_Throws()
         {
-            Assert.ThrowsException<ArgumentException>(() => Bind("x", "--on-complete", "cmd1"));
+            Assert.ThrowsExactly<ArgumentException>(() => Bind("x", "--on-complete", "cmd1"));
         }
 
         [TestMethod]
@@ -818,25 +772,24 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void AlbumArtOnly_ClearsConditions()
+        public void AlbumArtOnly_PreservesConditions()
         {
             var (_, dl, _) = Bind("x", "--album-art-only");
-            Assert.AreEqual(0, dl.Search.NecessaryCond.Formats?.Length ?? 0);
-            Assert.AreEqual(0, dl.Search.PreferredCond.Formats?.Length ?? 0);
+            CollectionAssert.AreEqual(SearchDefaults.Formats.ToArray(), dl.Search.NecessaryCond.Formats);
+            CollectionAssert.AreEqual(new[] { "mp3" }, dl.Search.PreferredCond.Formats);
         }
 
         [TestMethod]
-        public void WriteIndex_SetsHasConfiguredIndex()
+        public void WriteIndex_EnablesIndexExplicitly()
         {
             var (_, dl, _) = Bind("x", "--write-index");
-            Assert.IsTrue(dl.Output.HasConfiguredIndex);
+            Assert.IsTrue(dl.Output.WriteIndex);
         }
 
         [TestMethod]
-        public void NoWriteIndex_SetsHasConfiguredIndexAndFalse()
+        public void NoWriteIndex_EnablesIndexExplicitlyAndFalse()
         {
             var (_, dl, _) = Bind("x", "--no-write-index");
-            Assert.IsTrue(dl.Output.HasConfiguredIndex);
             Assert.IsFalse(dl.Output.WriteIndex);
         }
 
@@ -857,7 +810,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void DaemonListenUrl_RejectsInvalidServerIp()
         {
-            var ex = Assert.ThrowsException<ArgumentException>(() =>
+            var ex = Assert.ThrowsExactly<ArgumentException>(() =>
                 Sockseek.Cli.Program.BuildDaemonListenUrl(new DaemonSettings { ListenIp = "999.1.1.1", ListenPort = 15082 }));
 
             StringAssert.Contains(ex.Message, "Invalid daemon listen IP");
@@ -890,7 +843,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void ServerPort_RejectsOutOfRangeValue()
         {
-            var ex = Assert.ThrowsException<Exception>(() => BindAll("--server-port", "70000"));
+            var ex = Assert.ThrowsExactly<Exception>(() => BindAll("--server-port", "70000"));
 
             StringAssert.Contains(ex.Message, "must be a TCP port between 1 and 65535");
         }
@@ -903,15 +856,10 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void Monitor_IsIndependentBooleanCliOption()
+        public void Detach_SetsRemoteDetach()
         {
-            var (_, _, cli, _, remote) = BindAll(
-                "--remote",
-                "http://127.0.0.1:5030",
-                "--monitor");
-
-            Assert.IsTrue(cli.Monitor);
-            Assert.IsTrue(remote.IsEnabled);
+            Assert.IsTrue(BindAll("--remote", "http://127.0.0.1:5030", "--detach").remote.Detach);
+            Assert.IsFalse(BindAll("--remote", "http://127.0.0.1:5030").remote.Detach);
         }
 
         [TestMethod]
@@ -1008,7 +956,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void UnknownFlagWithoutParameter_IsReportedAsUnknown()
         {
-            var ex = Assert.ThrowsException<Exception>(() =>
+            var ex = Assert.ThrowsExactly<Exception>(() =>
                 Bind("some input", "--this-flag-does-not-exist"));
 
             Assert.AreEqual(
@@ -1019,7 +967,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void ValueOption_DoesNotConsumeHyphenPrefixedToken()
         {
-            var ex = Assert.ThrowsException<Exception>(() =>
+            var ex = Assert.ThrowsExactly<Exception>(() =>
                 Bind("--name-format", "--test", "some input"));
 
             Assert.AreEqual(
@@ -1040,7 +988,7 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void ValueOption_WithoutFollowingToken_ReportsMissingParameter()
         {
-            var ex = Assert.ThrowsException<Exception>(() => Bind("--name-format"));
+            var ex = Assert.ThrowsExactly<Exception>(() => Bind("--name-format"));
 
             Assert.AreEqual(
                 "Input error: Option '--name-format' requires a parameter",

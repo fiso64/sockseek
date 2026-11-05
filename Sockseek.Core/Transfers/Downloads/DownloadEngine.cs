@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
@@ -20,6 +21,8 @@ using Sockseek.Core.Jobs;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Core.PeerBrowsing;
+using Sockseek.Core.Snapshots;
+using Sockseek.Core.Events;
 
 using Directory = System.IO.Directory;
 using File = System.IO.File;
@@ -55,10 +58,23 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
     private readonly DownloadExecutionContext _executionContext;
     private readonly JobOrchestrator _orchestrator;
     private readonly WorkflowLifetimeCoordinator? _workflowLifetime;
+    private readonly Lock manualCancellationGate = new();
+    private readonly HashSet<Task> manualCancellations = [];
+    private readonly Lock lifetimeGate = new();
+    private Task? runTask;
+    private Task? disposeTask;
 
     public Job? GetJob(Guid id) => _jobs.GetJob(id);
     public Job? GetJob(int displayId) => _jobs.GetJob(displayId);
     public IReadOnlyList<Job> GetJobsByWorkflow(Guid workflowId) => _jobs.GetJobsByWorkflow(workflowId);
+
+    public bool TryCancelTransfer(Guid transferId)
+    {
+        if (!_activeDownloads.TryGet(transferId, out var download))
+            return false;
+        download.Cts.Cancel();
+        return true;
+    }
 
     public bool TryNextCandidate(Guid jobId)
     {
@@ -98,10 +114,10 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
 
     // Session state
     private readonly ActiveDownloadTracker _activeDownloads = new();
-    private readonly DownloadedFileCache _downloadedFiles = new();
     private readonly UserSuccessTracker _userSuccesses = new();
     private readonly OutputFinalizer _outputFinalizer;
-    public ConcurrentDictionary<string, int> UserSuccessCounts => _userSuccesses.UserSuccessCounts;
+    public ConcurrentDictionary<string, int> GetUserSuccessCounts(Guid workflowId)
+        => _userSuccesses.GetCounts(workflowId);
 
     // ── concurrency semaphores ────────────────────────────────────────────────
 
@@ -114,21 +130,34 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
     private readonly DownloadJobQueue _jobQueue = new();
 
     /// <summary>Enqueues a new root job for processing. Call <see cref="CompleteEnqueue"/> when done adding jobs.</summary>
-    public void Enqueue(Job job, DownloadSettings settings, Guid? sourceJobId = null)
+    public void Enqueue(
+        Job job,
+        DownloadSettings settings,
+        Guid? sourceJobId = null,
+        bool settingsAreFinal = false)
     {
         if (sourceJobId is Guid sourceId)
             _jobs.AssociateSource(job.Id, sourceId);
 
-        _jobQueue.Enqueue(job, settings, _workflowLifetime?.QueueRoot(job));
+        _jobQueue.Enqueue(job, settings, _workflowLifetime?.QueueRoot(job), settingsAreFinal);
     }
 
     /// <summary>Resumes an existing job without re-parenting it or replacing its prepared context.</summary>
     public void Resume(Job job)
         => _jobQueue.Resume(job, _workflowLifetime?.QueueRoot(job));
 
+    /// <summary>Applies one manual file choice and its optional settings before resuming.</summary>
+    public bool TryStartManualSongSelection(
+        Guid sourceJobId,
+        FileCandidate candidate,
+        Action<SongJob>? configureSelection,
+        out SongJob? selectedJob)
+        => _manualSelections.TryStartSong(sourceJobId, candidate, configureSelection, out selectedJob);
+
     /// <summary>
     /// Applies a manual album-folder selection to an existing selection job and resumes it
-    /// without creating a follow-up job or rebuilding its prepared context.
+    /// without creating a follow-up job. New selection settings rebuild the
+    /// settings-dependent context before resuming; ordinary choices reuse it.
     /// </summary>
     public bool TryStartManualAlbumSelection(
         Guid sourceJobId,
@@ -136,7 +165,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         AlbumQuery? albumQuery,
         Action<AlbumJob>? configureSelection,
         out AlbumJob? selectedJob)
-        => _manualSelections.TryStart(sourceJobId, selectedFolder, albumQuery, configureSelection, out selectedJob);
+        => _manualSelections.TryStartAlbum(sourceJobId, selectedFolder, albumQuery, configureSelection, out selectedJob);
 
     /// <summary>Completes an AwaitingSelection job through the engine so terminal side effects stay centralized.</summary>
     public async Task<bool> CompleteManualSelectionAsync(Guid jobId)
@@ -174,7 +203,8 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
     {
         foreach (var job in _jobs.Jobs)
             if (!job.IsTerminal)
-                job.MarkCancellationSource(JobCancellationSource.UserRequestedAllJobs);
+                if (!_manualSelections.TryCancel(job.Id, JobCancellationSource.UserRequestedAllJobs))
+                    job.MarkCancellationSource(JobCancellationSource.UserRequestedAllJobs);
 
         _runtime.Cancel();
     }
@@ -190,7 +220,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             if (cts == null || cts.IsCancellationRequested)
                 continue;
 
-            job.Cancel(JobCancellationSource.UserRequestedWorkflow);
+            CancelCommandTarget(job, JobCancellationSource.UserRequestedWorkflow);
             cancelled++;
         }
 
@@ -211,7 +241,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             if (job.IsTerminal || cts == null || cts.IsCancellationRequested)
                 continue;
 
-            job.Cancel(JobCancellationSource.UserRequestedAllJobs);
+            CancelCommandTarget(job, JobCancellationSource.UserRequestedAllJobs);
             cancelled++;
         }
 
@@ -224,13 +254,54 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
     public bool CancelJobByDisplayId(int displayId, Guid? workflowId = null)
         => CancelCommandTarget(_commandTargets.ResolveDisplayId(displayId, workflowId), JobCancellationSource.UserRequestedJob);
 
-    private static bool CancelCommandTarget(Job? job, JobCancellationSource source)
+    private bool CancelCommandTarget(Job? job, JobCancellationSource source)
     {
         if (job == null)
             return false;
 
-        job.Cancel(source);
+        if (!_manualSelections.TryCancel(job.Id, source))
+            job.Cancel(source);
         return true;
+    }
+
+    private void CancelManualSelection(Job job, JobCancellationSource source)
+    {
+        // Reserve both owners before signalling cancellation. Terminal work
+        // must drain with the engine without waiting for a download slot.
+        var lifetime = _workflowLifetime?.QueueRoot(job);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (manualCancellationGate) manualCancellations.Add(completion.Task);
+        _ = FinishManualCancellationAsync(job, source, lifetime, completion);
+    }
+
+    private async Task FinishManualCancellationAsync(Job job, JobCancellationSource source,
+        WorkflowLifetimeCoordinator.WorkflowRootLease? lifetime, TaskCompletionSource completion)
+    {
+        try
+        {
+            try { job.Cancel(source); }
+            finally
+            {
+                // Signal the token immediately; terminal side effects run
+                // asynchronously under the same per-job execution gate, even
+                // if a registered cancellation callback throws.
+                await Task.Yield();
+                await ProcessPreparedRootJob(new PreparedRootJob(job, lifetime, null,
+                    IsResume: false, CompletionOutcome: JobOutcome.Cancelled(source)));
+            }
+        }
+        catch (Exception exception)
+        {
+            DownloadLogMessages.ComponentFailed(logger, exception, "manual-selection-cancellation", job.Id);
+        }
+        finally
+        {
+            lock (manualCancellationGate)
+            {
+                manualCancellations.Remove(completion.Task);
+                completion.TrySetResult();
+            }
+        }
     }
 
     // ── construction ─────────────────────────────────────────────────────────
@@ -253,6 +324,14 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         Events = new DownloadEvents(
             timeProvider,
             this.loggerFactory.CreateLogger<DownloadEvents>());
+        Events.JobRegistered += change => _userSuccesses.StartWorkflow(change.Job.WorkflowId);
+        Events.TransferFailed += change =>
+        {
+            if (change.Transfer.Source == TransferSnapshotSource.SoulseekPeer
+                && (change.Reason is TransferFailureReason.PeerFailure or TransferFailureReason.Stale)
+                && change.Transfer.Username is { } username)
+                _userSuccesses.RecordFailure(change.Job.WorkflowId, username);
+        };
         SearchEvents = new SearchEvents();
         _sourceMutations = new SourceMutationCoordinator(
             Events,
@@ -264,10 +343,6 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             _activeDownloads,
             timeProvider,
             this.loggerFactory.CreateLogger<StaleDownloadCoordinator>());
-        _outputFinalizer = new OutputFinalizer(
-            _downloadedFiles,
-            Events,
-            this.loggerFactory.CreateLogger<OutputFinalizer>());
         _jobs = new DownloadJobTracker(Events);
         _commandTargets = new DownloadCommandTargetResolver(_jobs, _activeDownloads);
         _autoProfiles = new AutoProfileWorkflowReporter(Events);
@@ -282,7 +357,6 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             settings,
             _clientManager,
             _activeDownloads,
-            _downloadedFiles,
             _userSuccesses,
             Events,
             SearchEvents,
@@ -290,6 +364,10 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             timeProvider,
             directorySource,
             this.loggerFactory);
+        _outputFinalizer = new OutputFinalizer(
+            _runtime.Files,
+            Events,
+            this.loggerFactory.CreateLogger<OutputFinalizer>());
         _executionContext = new DownloadExecutionContext(
             engineSettings,
             _clientManager,
@@ -310,15 +388,17 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             sensitiveOutput ?? NullSensitiveOutput.Instance);
         _orchestrator = new JobOrchestrator(
             _executionContext,
-            album => _manualSelections!.TryFinalizeClosedAggregateSelectionForAlbumAsync(album));
+            child => _manualSelections!.TryFinalizeClosedAggregateSelectionForChildAsync(child));
         _manualSelections = new ManualSelectionCoordinator(
             GetJob,
             _contexts,
             _executionContext.RegisterJob,
             _executionContext.ObservePreparedAutoProfiles,
             Resume,
+            CancelManualSelection,
             _orchestrator.FlushManualSelectionTerminalEffectsAsync,
-            JobOrchestrator.IsSuccessfulTerminal);
+            JobOrchestrator.IsSuccessfulTerminal,
+            PrepareManualSelectionSettings);
         if (retireTerminalWorkflows)
         {
             _workflowLifetime = new WorkflowLifetimeCoordinator(
@@ -330,16 +410,56 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         }
     }
 
-    public void Dispose()
+    private void PrepareManualSelectionSettings(Job job)
     {
-        _runtime.Dispose();
-        GC.SuppressFinalize(this);
+        JobContext previous = _contexts.Get(job);
+        // Preserve workflow scoping and reuse editors only when their actual
+        // paths still match. Skippers belong to the old settings and must not
+        // be cached under the newly selected output directory.
+        var inherited = new JobContext
+        {
+            OutputScope = previous.OutputScope,
+            IndexEditor = previous.IndexEditor,
+            PlaylistEditor = previous.PlaylistEditor,
+        };
+        foreach (var (id, context) in JobPreparer.PrepareSubtree(
+            job, job.PlannedSettings!.ReadSettings(), _jobSettingsResolver,
+            explicitOwnerList: previous.PreparationOwner,
+            parentCtx: inherited, rootSettingsAreFinal: true))
+        {
+            context.PreprocessTracks = previous.PreprocessTracks;
+            _contexts.Set(id, job.WorkflowId, context);
+        }
+        _executionContext.ObservePreparedAutoProfiles(job);
     }
 
-    public async ValueTask DisposeAsync()
+    public void Dispose()
     {
-        await _runtime.DisposeAsync();
-        GC.SuppressFinalize(this);
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        lock (lifetimeGate)
+            return new ValueTask(disposeTask ??= DisposeCoreAsync(runTask));
+    }
+
+    private async Task DisposeCoreAsync(Task? running)
+    {
+        try
+        {
+            await _runtime.CancelAsync().ConfigureAwait(false);
+            // The caller of RunAsync owns its outcome. Disposal must join it
+            // even when it failed, without throwing the same failure again.
+            if (running is not null)
+                await running.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            await _runtime.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _userSuccesses.Clear();
+            GC.SuppressFinalize(this);
+        }
     }
 
     internal int RunStaleDownloadCheckForTesting() => _staleDownloadCoordinator.CancelStaleDownloads();
@@ -364,20 +484,45 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
                 events.Transfers,
                 events.Attempts,
                 events.Gates,
-                events.TerminalTransfers);
+                events.TerminalTransfers,
+                _runtime.Files.ActiveCachedDownloadCount,
+                _sourceMutations.RetainedWorkflowCount);
         }
     }
 
     // ── top-level entry point ─────────────────────────────────────────────────
 
-    public async Task RunAsync(CancellationToken ct)
+    public Task RunAsync(CancellationToken ct)
     {
+        lock (lifetimeGate)
+        {
+            ObjectDisposedException.ThrowIf(disposeTask is not null, this);
+            if (runTask is not null)
+                throw new InvalidOperationException("The download engine can only run once.");
+            return runTask = RunCoreAsync(ct);
+        }
+    }
+
+    private async Task RunCoreAsync(CancellationToken ct)
+    {
+        // One lifetime token stops preparation/channel reads as well as active
+        // roots. Cancelling only the input leaves roots running indefinitely.
+        using var cancellation = ct.UnsafeRegister(
+            static state => ((DownloadRunScope)state!).Cancel(), _runtime);
         DownloadLogMessages.EngineStage(logger, engineId, "reading-job-channel");
-        await BoundedAsync.ForEachAsync(
-            ReadPreparedRootJobs(ct),
-            _runtime.ConcurrentSchedulingLimit,
-            ProcessPreparedRootJob,
-            ct);
+        try
+        {
+            await BoundedAsync.ForEachAsync(
+                ReadPreparedRootJobs(_runtime.Token),
+                _runtime.ConcurrentSchedulingLimit,
+                ProcessPreparedRootJob,
+                _runtime.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            await DrainManualCancellationsAsync().ConfigureAwait(false);
+            await _runtime.CancelAsync().ConfigureAwait(false);
+        }
         DownloadLogMessages.EngineStage(logger, engineId, "root-jobs-completed");
 
         CleanupEmptyStagingDirectories();
@@ -386,18 +531,55 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             Events.RaiseEngineCompleted(Queue);
 
         DownloadLogMessages.EngineStage(logger, engineId, "stopped");
-        await _runtime.CancelAsync();
+    }
+
+    private async Task DrainManualCancellationsAsync()
+    {
+        while (true)
+        {
+            Task[] pending;
+            lock (manualCancellationGate)
+            {
+                if (manualCancellations.Count == 0) return;
+                pending = manualCancellations.ToArray();
+                manualCancellations.Clear();
+            }
+            await Task.WhenAll(pending);
+        }
     }
 
     private async Task ProcessPreparedRootJob(PreparedRootJob prepared)
     {
+        var executionGate = prepared.Job.ExecutionGate;
+        await executionGate.WaitAsync();
         try
         {
+            // A resume can wait behind the discovery execution that published
+            // its picker. Check cancellation here, before replacing that run's
+            // token, rather than capturing it when the queue is read.
+            var completion = prepared.CompletionOutcome;
+            if (prepared.IsResume
+                && prepared.Job.CancellationSource != JobCancellationSource.None)
+                completion = JobOutcome.Cancelled(prepared.Job.CancellationSource);
+
             if (prepared.PreparationFailure != null)
             {
                 _executionContext.RegisterJob(prepared.Job, parent: null);
                 FailActiveWorkflowJobs(prepared.Job, prepared.PreparationFailure);
                 Events.RaiseJobExecutionCompleted(prepared.Job);
+            }
+            else if (completion is { } outcome)
+            {
+                if (!prepared.Job.IsTerminal)
+                {
+                    long startedAt = Stopwatch.GetTimestamp();
+                    JobOutcomeCommitter.Commit(prepared.Job, outcome);
+                    await _orchestrator.FlushManualSelectionTerminalEffectsAsync(prepared.Job);
+                    var state = prepared.Job.StateSnapshot;
+                    DownloadLogMessages.RootJobCompleted(logger, prepared.Job.Id,
+                        (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+                        state.LifecycleState, state.TerminalOutcome, state.FailureReason);
+                }
             }
             else
             {
@@ -415,8 +597,13 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         }
         finally
         {
-            if (prepared.Lifetime != null)
-                _workflowLifetime!.RootCompleted(prepared.Lifetime);
+            try { await _executionContext.FlushOutputsAsync(prepared.Job); }
+            finally
+            {
+                executionGate.Release();
+                if (prepared.Lifetime != null)
+                    _workflowLifetime!.RootCompleted(prepared.Lifetime);
+            }
         }
     }
 
@@ -442,7 +629,11 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
                 {
                     Queue.Add(rootJob);
 
-                    foreach (var (id, ctx) in JobPreparer.PrepareSubtree(rootJob, settings!, _jobSettingsResolver))
+                    foreach (var (id, ctx) in JobPreparer.PrepareSubtree(
+                        rootJob,
+                        settings!,
+                        _jobSettingsResolver,
+                        rootSettingsAreFinal: queuedJob.SettingsAreFinal))
                         _contexts.Set(id, rootJob.WorkflowId, ctx);
 
                     _executionContext.ObservePreparedAutoProfiles(rootJob);
@@ -466,7 +657,8 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
                 preparationFailure = ex;
             }
 
-            yield return new PreparedRootJob(rootJob, queuedJob.Lifetime, preparationFailure);
+            yield return new PreparedRootJob(rootJob, queuedJob.Lifetime, preparationFailure,
+                queuedJob.IsResume, CompletionOutcome: null);
         }
 
         DownloadLogMessages.EngineStage(logger, engineId, "waiting-for-root-jobs");
@@ -487,6 +679,9 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         _executionContext.RetireWorkflow(workflowId, allJobIds);
         _manualSelections.Retire(registeredIds);
         _jobs.Retire(registeredIds);
+        _userSuccesses.RetireWorkflow(workflowId);
+        _runtime.Files.RetireWorkflow(workflowId);
+        _sourceMutations.RetireWorkflow(workflowId);
         if (_jobSettingsResolver is IWorkflowSettingsLifetime settingsLifetime)
             settingsLifetime.RetireWorkflow(workflowId, allJobIds, settingsVersion);
     }
@@ -508,7 +703,9 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
     private sealed record PreparedRootJob(
         Job Job,
         WorkflowLifetimeCoordinator.WorkflowRootLease? Lifetime,
-        Exception? PreparationFailure);
+        Exception? PreparationFailure,
+        bool IsResume,
+        JobOutcome? CompletionOutcome);
 
     private void CleanupEmptyStagingDirectories()
     {
@@ -572,4 +769,6 @@ internal sealed record DownloadEngineRetainedStateCounts(
     int EventTransfers,
     int EventAttempts,
     int EventGates,
-    int EventTerminalTransfers);
+    int EventTerminalTransfers,
+    int ActiveCachedDownloads = 0,
+    int SourceMutationWorkflows = 0);

@@ -10,32 +10,6 @@ namespace Tests.Server;
 public class JobRequestMapperTests
 {
     [TestMethod]
-    public void ApplySelectedFolderSnapshot_RejectsFileOutsideRequestedFolder()
-    {
-        var request = new StartFolderDownloadRequestDto(
-            new AlbumFolderRefDto("local", @"Artist\Album"),
-            SelectedFolder: FolderDto(
-                @"Artist\Album",
-                [FileDto(@"Artist\Other\01. Artist - Track.mp3")]));
-
-        Assert.ThrowsExactly<ArgumentException>(() =>
-            JobRequestMapper.ApplySelectedFolderSnapshot(ResolvedFolder(), request));
-    }
-
-    [TestMethod]
-    public void ApplySelectedFolderSnapshot_RejectsFileFromDifferentUser()
-    {
-        var request = new StartFolderDownloadRequestDto(
-            new AlbumFolderRefDto("local", @"Artist\Album"),
-            SelectedFolder: FolderDto(
-                @"Artist\Album",
-                [FileDto(@"Artist\Album\01. Artist - Track.mp3", username: "other")]));
-
-        Assert.ThrowsExactly<ArgumentException>(() =>
-            JobRequestMapper.ApplySelectedFolderSnapshot(ResolvedFolder(), request));
-    }
-
-    [TestMethod]
     public void RemoteDirectoryDraft_RequiresExactlyOneCompleteSourceCase()
     {
         var plan = new DirectoryTransferPlanDto(
@@ -85,32 +59,4 @@ public class JobRequestMapperTests
         Assert.AreEqual(20, source.Plan.TotalKnownBytes);
     }
 
-    private static AlbumFolder ResolvedFolder()
-        => new("local", @"Artist\Album", []);
-
-    private static AlbumFolderDto FolderDto(string folderPath, IReadOnlyList<FileCandidateDto> files)
-        => new(
-            new AlbumFolderRefDto("local", folderPath),
-            "local",
-            folderPath,
-            new PeerInfoDto("local"),
-            files.Count,
-            files.Count,
-            files,
-            IsFullyRetrieved: true);
-
-    private static FileCandidateDto FileDto(string filename, string username = "local")
-        => new(
-            new FileCandidateRefDto(username, filename),
-            username,
-            filename,
-            new PeerInfoDto(username),
-            new FileMetadataDto(
-                Path.GetFileName(filename),
-                Size: 123,
-                Extension: ".mp3",
-                BitRate: null,
-                BitDepth: null,
-                SampleRate: null,
-                Length: null));
 }

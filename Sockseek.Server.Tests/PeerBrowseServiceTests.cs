@@ -192,25 +192,21 @@ public sealed class PeerBrowseServiceTests
     }
 
     [TestMethod]
-    public async Task LearnedArtifactId_IsRecheckedAgainstCurrentPeerPolicy()
+    public async Task LearnedArtifactRemainsAvailableWithoutCouplingOutboundBrowseToRestrictions()
     {
         await using var fixture = await Fixture.CreateAsync();
         PeerBrowseResource completed = await fixture.Service.WaitForCompletionAsync("Peer");
-        await using var denied = new PeerBrowseService(
+        await using var reopened = new PeerBrowseService(
             fixture.Store,
             new FakeTransport(gated: false),
             () => "local",
-            new PeerAccessPolicy(new PeerAccessSettings
-            {
-                BlockedUsernames = ["Peer"],
-            }),
             NullLogger<PeerBrowseService>.Instance);
 
-        await Assert.ThrowsExactlyAsync<PeerBrowseAccessDeniedException>(() =>
-            denied.GetAccessibleAsync(completed.BrowseId));
-        Assert.AreEqual(
-            0,
-            (await denied.ListAsync(null, null, null, null, 20)).Items.Count);
+        PeerBrowseResource? accessible = await reopened.GetAccessibleAsync(completed.BrowseId);
+        Assert.IsNotNull(accessible);
+        Assert.AreEqual(completed.BrowseId, accessible.BrowseId);
+        Assert.AreEqual(1,
+            (await reopened.ListAsync(null, null, null, null, 20)).Items.Count);
     }
 
     [TestMethod]
@@ -272,19 +268,20 @@ public sealed class PeerBrowseServiceTests
         PeerBrowseService service,
         Guid browseId)
     {
-        for (int attempt = 0; attempt < 1_000; attempt++)
+        var completed = new TaskCompletionSource<PeerBrowseResource>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Observe(PeerBrowseResource resource)
         {
-            PeerBrowseResource? resource = await service.GetAsync(browseId);
-            if (resource?.State is PeerBrowseState.Complete
-                or PeerBrowseState.Failed
-                or PeerBrowseState.Cancelled)
-            {
-                return resource;
-            }
-            await Task.Yield();
+            if (resource.BrowseId == browseId && resource.State is
+                (PeerBrowseState.Complete or PeerBrowseState.Failed or PeerBrowseState.Cancelled))
+                completed.TrySetResult(resource);
         }
-        Assert.Fail("Peer browse did not reach a terminal state.");
-        throw new InvalidOperationException();
+        service.Changed += Observe;
+        try
+        {
+            if (await service.GetAsync(browseId) is { } current) Observe(current);
+            return await completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally { service.Changed -= Observe; }
     }
 
     private sealed class Fixture : IAsyncDisposable
@@ -303,7 +300,6 @@ public sealed class PeerBrowseServiceTests
                 Store,
                 Transport,
                 () => LocalAccount,
-                new PeerAccessPolicy(new PeerAccessSettings()),
                 logger ?? NullLogger<PeerBrowseService>.Instance);
         }
 
@@ -330,6 +326,7 @@ public sealed class PeerBrowseServiceTests
         {
             Transport.Release.TrySetResult();
             await Service.DisposeAsync();
+            await Store.DisposeAsync();
             for (int attempt = 0; Directory.Exists(directory); attempt++)
             {
                 try

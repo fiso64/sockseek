@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SEARCH_AUDIO_FORMATS } from '../prototype/search-config-schema';
+  import { SEARCH_AUDIO_FORMATS } from '../domains/search/config-schema';
 
   interface Props {
     values: string[];
@@ -13,6 +13,7 @@
   let { values = $bindable(), label, ariaLabel, idPrefix, suggestions = SEARCH_AUDIO_FORMATS, customPlaceholder = 'flac, mp3, aac, ape…' }: Props = $props();
   let view = $state<'buttons' | 'custom'>('buttons');
   let customFormats = $state('');
+  let buttons = $derived([...new Set([...suggestions, ...values])]);
 
   $effect(() => {
     if (view === 'buttons') customFormats = values.join(', ');
@@ -55,7 +56,7 @@
   <div class="format-control-row">
     <div class="format-buttons">
       <button type="button" class:active={values.length === 0} disabled={values.length === 0} onclick={clearFormats}>Any</button>
-      {#each suggestions as format}
+      {#each buttons as format}
         <button type="button" class:active={values.includes(format)} onclick={() => toggleFormat(format)}>{format}</button>
       {/each}
     </div>

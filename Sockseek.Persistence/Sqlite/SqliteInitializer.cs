@@ -9,17 +9,6 @@ public sealed class SqliteInitializer(
     SockseekSqliteOptions options,
     SqliteDatabaseOwner owner)
 {
-    internal static IReadOnlySet<string> SafeAutomaticMigrations { get; } = new HashSet<string>(StringComparer.Ordinal)
-    {
-        "20260711200436_InitialPersistence",
-        "20260712090000_AddHistoryQueryIndexes",
-        "20260712170220_AddTransferAttemptSourceIdentity",
-        "20260729120000_AddUploadTransferHistory",
-        "20260806204353_AddChatsAndNotifications",
-        "20260806213317_AddChatSequenceAllocator",
-        "20260828100858_AddJobNavigationIndexes",
-    };
-
     public async Task<SqliteInitializationResult> InitializeAsync(CancellationToken cancellationToken = default)
     {
         var databasePath = options.GetFullDatabasePath();
@@ -31,14 +20,19 @@ public sealed class SqliteInitializer(
         PersistenceFilePrivacy.RestrictDirectory(databaseDirectory);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        var pendingMigrations = await context.Database.GetPendingMigrationsAsync(cancellationToken).ConfigureAwait(false);
-        var unapproved = pendingMigrations.Where(migration => !SafeAutomaticMigrations.Contains(migration)).ToArray();
-        if (unapproved.Length > 0)
+        var knownMigrations = context.Database.GetMigrations()
+            .ToHashSet(StringComparer.Ordinal);
+        var appliedMigrations = await context.Database.GetAppliedMigrationsAsync(cancellationToken).ConfigureAwait(false);
+        var unknownApplied = appliedMigrations
+            .Where(migration => !knownMigrations.Contains(migration))
+            .ToArray();
+        if (unknownApplied.Length > 0)
         {
             throw new PersistenceSchemaCompatibilityException(
-                "Automatic migration is blocked because these migrations have no reviewed additive-safety classification: "
-                + string.Join(", ", unapproved)
-                + ". Back up the database and use a release that explicitly supports this schema transition.");
+                "This database uses an unsupported Sockseek schema. " +
+                "The current binary does not recognize applied migrations: " +
+                string.Join(", ", unknownApplied) +
+                ". Use a compatible binary, or explicitly choose a fresh database for this unreleased v4 baseline. The existing database has not been replaced.");
         }
         await context.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
         PersistenceFilePrivacy.RestrictFile(databasePath);

@@ -16,7 +16,9 @@ public sealed record UserShareFileSelectionDto(long FileId)
 public sealed record StartUserShareDownloadsRequestDto(
     Guid RequestId,
     IReadOnlyList<UserShareSelectionDto> Selections,
-    SubmissionOptionsDto? Options = null);
+    SubmissionOptionsDto? Options = null,
+    IReadOnlyList<long>? ExcludedFileIds = null,
+    IReadOnlyList<long>? ExcludedDirectoryIds = null);
 
 public sealed record UserShareResolutionSummaryDto(
     int CanonicalDirectoryRoots,

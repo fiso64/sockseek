@@ -56,7 +56,9 @@ public sealed record PeerBrowseDirectoryEntry(
     long RecursiveFileCount,
     long RecursiveFileBytes,
     long LockedDescendantCount,
-    bool HasChildren);
+    bool HasChildren,
+    long? TotalRecursiveFileCount = null,
+    long? TotalRecursiveFileBytes = null);
 
 public sealed record PeerBrowseFileAttribute(int Type, int Value);
 
@@ -72,6 +74,51 @@ public sealed record PeerBrowseFileEntry(
     int? SampleRate,
     int? Length,
     IReadOnlyList<PeerBrowseFileAttribute>? Attributes);
+
+public enum PeerBrowseSearchEntryKind
+{
+    Directory,
+    File,
+}
+
+/// <summary>
+/// One fixed-size row in the flat search projection of an immutable peer-browse
+/// artifact. Directory rows summarize matching descendant files; file rows
+/// summarize themselves. Exact wire identities remain owned by the artifact and
+/// are addressed through the stable numeric refs.
+/// </summary>
+public sealed record PeerBrowseSearchEntry(
+    PeerBrowseSearchEntryKind Kind,
+    long EntryId,
+    long DirectoryId,
+    long? ParentDirectoryId,
+    string Name,
+    string DisplayPath,
+    PeerBrowseEntryVisibility Visibility,
+    long PublicMatchingFileCount,
+    long PublicMatchingBytes,
+    long LockedMatchingFileCount,
+    long LockedMatchingBytes,
+    long? FileSize,
+    string? Extension,
+    int? BitRate,
+    int? BitDepth,
+    int? SampleRate,
+    int? Length,
+    long? PublicSubtreeFileCount = null,
+    long? PublicSubtreeBytes = null,
+    long? TotalSubtreeFileCount = null,
+    long? TotalSubtreeBytes = null);
+
+public sealed record PeerBrowseSearchPage(
+    IReadOnlyList<PeerBrowseSearchEntry> Items,
+    long PublicMatchingFileCount,
+    long PublicMatchingBytes,
+    long LockedMatchingFileCount,
+    long LockedMatchingBytes,
+    string? NextSortKey,
+    PeerBrowseSearchEntryKind? NextKind,
+    long? NextId);
 
 public sealed record PeerBrowsePage<T>(
     IReadOnlyList<T> Items,

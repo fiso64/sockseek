@@ -151,7 +151,11 @@ public static class OnCompleteExecutor
 
             CommandConfig config = ParseCommand(rawCommand);
 
-            if (!ShouldExecuteCommand(config, outcome, isTrack: song != null, isAlbum: isAlbumOnComplete))
+            onCompleteContext = onCompleteContext with
+            {
+                Variables = ApplyOutcomeToContext(onCompleteContext.Variables, currentOutcome),
+            };
+            if (!ShouldExecuteCommand(config, currentOutcome, isTrack: song != null, isAlbum: isAlbumOnComplete))
                 continue;
 
             string preparedCommand = PrepareCommandString(

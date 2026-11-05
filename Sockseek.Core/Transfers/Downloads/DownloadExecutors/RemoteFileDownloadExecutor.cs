@@ -18,10 +18,6 @@ internal sealed class RemoteFileDownloadExecutor
     {
         var config = job.Config;
         var destination = placement.PlanFile(job.Target, job.OutputPath, config);
-        if (config.Skip.SkipExisting && File.Exists(destination.OutputPath))
-            return JobOutcome.AlreadyExists(destination.OutputPath);
-
-        job.UpdateActivity(JobActivityPhase.Downloading);
 
         var outcome = await context.Runtime.ExactFileTransfers.DownloadFile(
             job.Target,
@@ -29,9 +25,10 @@ internal sealed class RemoteFileDownloadExecutor
             job,
             config.Transfer,
             config.Output.ParentDir,
-            config.Transfer.MaxStaleTime,
+            config.Search.MaxStaleTime,
             ct: job.Cts!.Token,
-            parentJob: parentJob);
+            parentJob: parentJob,
+            allowOverwrite: !config.Skip.SkipExisting);
 
         return outcome.Status switch
         {
@@ -39,6 +36,8 @@ internal sealed class RemoteFileDownloadExecutor
                 => JobOutcome.Done(outcome.Result.OutputPath),
             ExactFileTransferStatus.ManuallySkipped
                 => JobOutcome.Skipped(JobSkipReason.Manual),
+            ExactFileTransferStatus.AlreadyExists
+                => JobOutcome.AlreadyExists(outcome.Result?.OutputPath),
             _ => JobOutcome.Failed(JobFailureReason.Other, "The exact file transfer did not produce a result."),
         };
     }

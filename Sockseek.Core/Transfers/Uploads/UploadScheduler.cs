@@ -102,7 +102,7 @@ public sealed class UploadScheduler
             throw new ArgumentOutOfRangeException(nameof(request), "Upload size cannot be negative.");
 
         string username = PeerUsername.Validate(request.Username);
-        var duplicateKey = new DuplicateKey(username, request.RemotePathKey);
+        var duplicateKey = new DuplicateKey(username, request.RemotePath);
 
         lock (sync)
         {
@@ -250,12 +250,12 @@ public sealed class UploadScheduler
             return EstimateLocked(transferId);
     }
 
-    public UploadQueueEstimate Estimate(string username, RemotePathKey remotePathKey)
+    public UploadQueueEstimate Estimate(string username, string remotePath)
     {
         username = PeerUsername.Validate(username);
         lock (sync)
         {
-            return duplicateIndex.TryGetValue(new DuplicateKey(username, remotePathKey), out Guid transferId)
+            return duplicateIndex.TryGetValue(new DuplicateKey(username, remotePath), out Guid transferId)
                 ? EstimateLocked(transferId)
                 : new UploadQueueEstimate(null, queueRevision);
         }
@@ -302,8 +302,8 @@ public sealed class UploadScheduler
         long? previousQueueRevision = null,
         string? username = null)
     {
-        if (limit is < 1 or > 500)
-            throw new ArgumentOutOfRangeException(nameof(limit), "Page limit must be between 1 and 500.");
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
         if (afterRequestedAtUtc.HasValue != afterTransferId.HasValue)
             throw new ArgumentException("Both live queue cursor fields must be supplied together.");
         if (username is not null)
@@ -311,7 +311,7 @@ public sealed class UploadScheduler
 
         lock (sync)
         {
-            var items = new List<UploadSchedulerEntrySnapshot>(limit);
+            var items = new List<UploadSchedulerEntrySnapshot>();
             AdmissionKey? last = null;
             bool hasMore = false;
             AdmissionKey? after = afterRequestedAtUtc is { } time && afterTransferId is { } id
@@ -349,6 +349,69 @@ public sealed class UploadScheduler
                 previousQueueRevision is not null
                 && previousQueueRevision != queueRevision);
         }
+    }
+
+    public UploadQueuePage GetNewestPage(
+        DateTimeOffset? beforeRequestedAtUtc,
+        Guid? beforeTransferId,
+        int limit,
+        string? username = null,
+        DateTimeOffset? fromUtc = null,
+        DateTimeOffset? toUtc = null)
+    {
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
+        if (beforeRequestedAtUtc.HasValue != beforeTransferId.HasValue)
+            throw new ArgumentException("Both timeline cursor fields must be supplied together.");
+        if (username is not null)
+            username = PeerUsername.Validate(username);
+
+        lock (sync)
+        {
+            var items = new List<UploadSchedulerEntrySnapshot>();
+            AdmissionKey? last = null;
+            bool hasMore = false;
+            AdmissionKey? before = beforeRequestedAtUtc is { } time
+                && beforeTransferId is { } id
+                    ? new AdmissionKey(time, id)
+                    : null;
+
+            foreach (AdmissionKey key in waitingByAdmission.Reverse())
+            {
+                if (before is not null && CompareTimelineKey(key, before.Value) >= 0)
+                    continue;
+                Entry entry = entries[key.TransferId];
+                if (username is not null
+                    && !StringComparer.Ordinal.Equals(entry.Username, username))
+                    continue;
+                if (fromUtc is { } from && key.RequestedAtUtc < from)
+                    break;
+                if (toUtc is { } to && key.RequestedAtUtc > to)
+                    continue;
+
+                if (items.Count == limit)
+                {
+                    hasMore = true;
+                    break;
+                }
+                items.Add(Snapshot(entry));
+                last = key;
+            }
+
+            return new UploadQueuePage(
+                items,
+                hasMore ? last?.RequestedAtUtc : null,
+                hasMore ? last?.TransferId : null,
+                queueRevision,
+                QueueChanged: false);
+        }
+    }
+
+    private static int CompareTimelineKey(AdmissionKey left, AdmissionKey right)
+    {
+        int time = left.RequestedAtUtc.ToUnixTimeMilliseconds()
+            .CompareTo(right.RequestedAtUtc.ToUnixTimeMilliseconds());
+        return time != 0 ? time : left.TransferId.CompareTo(right.TransferId);
     }
 
     private IReadOnlyList<UploadSchedulerGrant> TakeAvailableGrants()
@@ -403,7 +466,7 @@ public sealed class UploadScheduler
         }
 
         entries.Remove(entry.TransferId);
-        duplicateIndex.Remove(new DuplicateKey(entry.Username, entry.RemotePathKey));
+        duplicateIndex.Remove(new DuplicateKey(entry.Username, entry.RemotePath));
         user.OutstandingFiles--;
 
         if (user.Waiting.Count == 0 && user.ReadyNode is not null)
@@ -484,7 +547,7 @@ public sealed class UploadScheduler
         public AdmissionKey AdmissionKey => new(RequestedAtUtc, TransferId);
     }
 
-    private readonly record struct DuplicateKey(string Username, RemotePathKey RemotePathKey);
+    private readonly record struct DuplicateKey(string Username, string RemotePath);
 
     private readonly record struct AdmissionKey(DateTimeOffset RequestedAtUtc, Guid TransferId);
 

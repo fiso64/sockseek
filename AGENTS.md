@@ -3,38 +3,57 @@
 Sockseek is a self-hosted homeserver. Remote peers are untrusted; the operator,
 configured storage, and ordinary local administration are trusted.
 
-- Handle valid work best effort. Do not reject it because of estimated memory,
-  aggregate size, queue depth, or another internal implementation limit.
-- Bound concurrency and representations through streaming, paging, backpressure,
-  compact scheduling, or disk-backed storage.
-- Add hard limits only when derived from a real protocol, representation,
-  security boundary, or explicit operator policy.
-- Isolate failures to the smallest independent entry, request, root, or transfer.
-  Never silently replace authoritative data with an empty or partial result.
-- Do not turn optional functionality into an availability dependency: reject or
-  disable the affected feature with a clear warning, and fail startup only when
-  safe core operation requires it.
-- Preserve exact Soulseek identities and wire spelling unless verified protocol
+* New features should usually be considered against local CLI, remote CLI and the
+  UI. Do not let local vs remote CLI and CLI vs webui implementations diverge.
+* Keep plain user searches to raw collection, deduplication and cheap counters.
+  Run sorting/grouping for requested views or automatic execution, and stop
+  incremental projection work when readers stop requesting it.
+* Handle valid work best effort. Do not reject it because of estimated memory,
+  aggregate size, queue depth, or other internal implementation limits. Bound resource
+  use where it will be clearly desired, do not over-engineer ahead of time.
+  Good example: Introducing pagination for daemon uploads and downloads.
+  Bad example: Introducing pagination for user chats without an obvious need.
+  * Tangentially: Pagination sizes (where pagination is needed at all) should be large
+  and err on the side of fewer clicking than minimizing page sizes and making it awkward.
+* Isolate failures to the smallest independent entry, request, root, or transfer,
+  within reason.
+  Good example: When a transfer fails, other transfers are not failed automatically.
+  Bad example: Obsessively endowing every single feature with a separate lifecycle
+  and developing a million variations of "degraded" daemon states.
+* Preserve exact Soulseek identities and wire spelling unless verified protocol
   semantics require otherwise.
-- Prefer one clear owner, model, and contract. Avoid parallel abstractions,
-  speculative configuration, and unnecessary compatibility layers.
-- Make daemon-owned work observable: log coarse lifecycle and health transitions
-  at the normal log level with a stable correlation ID, outcome, duration, and
-  safe bounded counts. Log terminal failures with the full exception once at the
-  operation owner; never silently discard diagnostic evidence or rely only on
-  metrics or API state.
-- Keep logs useful without spam: use `Information` for operator-relevant
-  lifecycle, `Debug` for decisions, reuse, and routine rejections, rate-limited
-  `Warning` for recoverable degradation, and `Error` for failed operations.
-  Never log per-item untrusted or private content; use IDs or hashes when needed.
-- Test observable behavior and failure isolation, not documentation wording.
-- Keep warm `dotnet test --no-restore` under 15 seconds (it does not matter if the issue is pre-existing). Do not increase the
-  current test-worker counts or remove CI's sequential-host guard: oversubscription
-  caused thread-pool starvation and flaky timeouts. Remove polling and fixed waits,
-  optimize setup, and mark stress tests as `Load`. Delete obsolete, redundant,
-  overly specific, implementation-coupled, or otherwise low-value tests; preserve
-  meaningful behavioral coverage rather than test count.
-- Tests are quiet by default. Capture or disable application logging unless the
-  test asserts it; incidental console logs are test noise, not diagnostics.
+* Prefer one clear owner, model, and contract. Centralize and simplify behavior;
+  avoid parallel abstractions, speculative configuration, unnecessary compatibility
+  layers, and independent persistence lifecycles unless consistency or failure
+  isolation genuinely requires them. Moreover, if it turns out that a feature or
+  bugfix could be implemented more cleanly with a preliminary refactor, that refactor
+  is encouraged (even if large), before rushing to implement the feature or fix the bug.
+* Organize by feature and give human readable and natural names. Avoid file sprawl.
+* For high-volume persistence, assess SQL round trips and write amplification as
+  well as latency. Prefer set-based operations or prepared, batched writes when
+  they preserve ordering, replay and per-entry failure behavior.
+* Make daemon-owned work observable. At the operation owner, log coarse lifecycle
+  and health transitions with a stable correlation ID, outcome, duration, and safe
+  bounded counts; log terminal failures with the full exception once. Use
+  `Information` for operator-relevant lifecycle, `Debug` for routine decisions and
+  rejections, rate-limited `Warning` for recoverable degradation, and `Error` for
+  failed operations. Keep detailed timing breakdowns at `Debug`; `Information`
+  may include total duration.
+* Tests are a maintenance liability as well as an asset. Do not add tests automatically
+  for every change. Prefer extending existing tests over new files. Test observable
+  behavior and failure isolation rather than implementation details
+  or documentation wording. Do not increase test-worker counts or remove CI's
+  sequential-host guard. Avoid polling and fixed waits, optimize setup, mark stress
+  tests as `Load`, and remove low-value or obsolete tests while preserving meaningful
+  behavioral coverage. Tests should suppress application logging unless they assert it.
+  Keep the test suite execution time in check, do not let it bloat. Budget normal
+  TypeScript tests below 30 seconds, C# below 2 minutes (below 3 with PR-selected
+  Load checks), browser journeys below 3 minutes, and the PR pipeline at 5–7 minutes
+  including setup/builds. Run full Load qualification nightly/manually, not on every PR.
+* Do not add scattered legacy support junk code. DB migrations are good, but for any
+  internal logic, just change it cleanly. For the API, prefer a breaking change and
+  document it in BREAKING.md at repo root.
+  Normalize old database representations once in a migration. While persistence is
+  not yet deployed, database-breaking changes are also acceptable.
 
-Archived designs in docs/design/archive provide rationale and context but may contain superseded requirements.
+Archived designs in `docs/design/archive` are context and rationale, not current requirements.

@@ -1,16 +1,20 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import Icon from '../Icon.svelte';
-  import type { AppIconName } from '../../prototype/icons';
-  import type { FolderItemFile, TransferPresentation } from '../../prototype/items';
-  import { audioSummary, basename, formatBytes, formatLength } from '../../prototype/items';
-  import { fileTypeIcon } from '../../prototype/file-types';
+  import LoadMoreButton from '../LoadMoreButton.svelte';
+  import TransferStateLabel from './TransferStateLabel.svelte';
+  import RelativeTime from '../RelativeTime.svelte';
+  import type { AppIconName } from '../../app/icons';
+  import type { FolderItemFile, TransferPresentation } from '../../domains/presentation/items';
+  import { audioSummary, basename, folderSources, formatBytes, formatLength } from '../../domains/presentation/items';
+  import { buildFolderTreeRows, type FolderTreeNode } from '../../domains/presentation/folder-tree';
+  import { fileTypeIcon } from '../../domains/presentation/file-types';
 
   interface Props {
     path: string;
-    sizeBytes: number;
+    sizeBytes: number | null;
     files: FolderItemFile[];
-    totalFileCount?: number;
+    totalFileCount?: number | null;
     filesComplete?: boolean;
     fileLayout?: 'flat' | 'tree';
     dataStateLabel?: string;
@@ -21,7 +25,6 @@
     preferred?: boolean;
     selectable?: boolean;
     keyboardKey?: string;
-    keyboardCurrent?: boolean;
     transfer?: TransferPresentation;
     selectedFileIds?: Set<string>;
     actions?: Snippet;
@@ -29,7 +32,12 @@
     onselectall?: (selected: boolean) => void;
     onselectfile?: (file: FolderItemFile, selected: boolean) => void;
     onselectfiles?: (files: FolderItemFile[], selected: boolean) => void;
+    onselectfolder?: (relativePath: string, selected: boolean) => void;
+    isfolderselected?: (relativePath: string) => boolean;
     onloadfullcontents?: () => void;
+    onloadmorefiles?: () => void;
+    loadingMoreFiles?: boolean;
+    fileLoadError?: string | null;
   }
 
   let {
@@ -47,7 +55,6 @@
     preferred = false,
     selectable = false,
     keyboardKey,
-    keyboardCurrent = false,
     transfer,
     selectedFileIds = new Set<string>(),
     actions,
@@ -55,88 +62,21 @@
     onselectall,
     onselectfile,
     onselectfiles,
+    onselectfolder,
+    isfolderselected,
     onloadfullcontents,
+    onloadmorefiles,
+    loadingMoreFiles = false,
+    fileLoadError = null,
   }: Props = $props();
 
-  interface FolderTreeFile {
-    file: FolderItemFile;
-    name: string;
-  }
-
-  interface FolderTreeNode {
-    name: string;
-    relativePath: string;
-    folders: Map<string, FolderTreeNode>;
-    files: FolderTreeFile[];
-  }
-
-  type FolderDisplayRow =
-    | { kind: 'folder'; key: string; name: string; relativePath: string; depth: number; files: FolderItemFile[]; sizeBytes: number }
-    | { kind: 'file'; key: string; depth: number; displayName: string; file: FolderItemFile };
-
-  const naturalName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-
-  function buildTreeRows(source: FolderItemFile[]): FolderDisplayRow[] {
-    if (fileLayout === 'flat') {
-      return source.map((file) => ({ kind: 'file', key: `file:${file.id}`, depth: 0, displayName: file.relativePath, file }));
-    }
-
-    const root: FolderTreeNode = { name: '', relativePath: '', folders: new Map(), files: [] };
-    for (const file of source) {
-      const parts = file.relativePath.split(/[\\/]+/).filter(Boolean);
-      const filename = parts.pop() ?? file.relativePath;
-      let node = root;
-      for (const part of parts) {
-        const relativePath = node.relativePath ? `${node.relativePath}/${part}` : part;
-        let child = node.folders.get(part);
-        if (!child) {
-          child = { name: part, relativePath, folders: new Map(), files: [] };
-          node.folders.set(part, child);
-        }
-        node = child;
-      }
-      node.files.push({ file, name: filename });
-    }
-
-    const rows: FolderDisplayRow[] = [];
-    const descendants = (node: FolderTreeNode): FolderItemFile[] => [
-      ...node.files.map((entry) => entry.file),
-      ...Array.from(node.folders.values()).flatMap(descendants),
-    ];
-    const append = (node: FolderTreeNode, depth: number): void => {
-      const folders = Array.from(node.folders.values()).sort((a, b) => naturalName.compare(a.name, b.name));
-      const files = [...node.files].sort((a, b) => naturalName.compare(a.name, b.name));
-      for (const folder of folders) {
-        const folderFiles = descendants(folder);
-        rows.push({
-          kind: 'folder',
-          key: `folder:${folder.relativePath}`,
-          name: folder.name,
-          relativePath: folder.relativePath,
-          depth,
-          files: folderFiles,
-          sizeBytes: folderFiles.reduce((total, file) => total + file.sizeBytes, 0),
-        });
-        append(folder, depth + 1);
-      }
-      for (const entry of files) {
-        rows.push({ kind: 'file', key: `file:${entry.file.id}`, depth, displayName: entry.name, file: entry.file });
-      }
+  function selectFolderFiles(node: FolderTreeNode, checked: boolean): void {
+    const folderFiles: FolderItemFile[] = [];
+    const collect = (current: FolderTreeNode): void => {
+      for (const entry of current.files) folderFiles.push(entry.file);
+      for (const child of current.folders.values()) collect(child);
     };
-    append(root, 0);
-    return rows;
-  }
-
-  function folderSelected(folderFiles: FolderItemFile[]): boolean {
-    return folderFiles.length > 0 && folderFiles.every((file) => selectedFileIds.has(file.id));
-  }
-
-  function folderPartial(folderFiles: FolderItemFile[]): boolean {
-    const selectedCount = folderFiles.filter((file) => selectedFileIds.has(file.id)).length;
-    return selectedCount > 0 && selectedCount < folderFiles.length;
-  }
-
-  function selectFolderFiles(folderFiles: FolderItemFile[], checked: boolean): void {
+    collect(node);
     if (onselectfiles) {
       onselectfiles(folderFiles, checked);
       return;
@@ -145,6 +85,9 @@
   }
 
   let transferDirectionClass = $derived(transfer?.direction ? `transfer-${transfer.direction}` : '');
+  let sources = $derived(transfer?.direction === 'download' ? folderSources(files, filesComplete) : null);
+  let headingPaths = $derived(sources?.folders.length ? sources.folders : [path]);
+  let detailPath = $derived(headingPaths.join(' · '));
 
   function indeterminate(node: HTMLInputElement, value: boolean) {
     node.indeterminate = value;
@@ -171,30 +114,46 @@
   }
 
   function fileTransferSecondary(value: TransferPresentation): string {
-    return [value.detail, value.speed, value.eta].filter(Boolean).join(' · ');
+    return [value.tone === 'failed' ? undefined : value.detail, value.speed, value.eta].filter(Boolean).join(' · ');
+  }
+
+  function needsTransferDetail(value?: TransferPresentation): boolean {
+    return Boolean(value && (showsInlineTransferProgress(value)
+      || fileTransferSecondary(value) || !usesCircularTransferState(value)));
   }
 
   function parentPath(value: string): string {
-    const normalized = value.replace(/\\/g, '/');
-    const splitAt = normalized.lastIndexOf('/');
-    return splitAt >= 0 ? normalized.slice(0, splitAt + 1) : '';
+    const splitAt = Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\'));
+    return value.slice(0, splitAt + 1);
+  }
+
+  function subfolderSizeTitle(node: FolderTreeNode): string | undefined {
+    if (!filesComplete) return node.unknownSizeCount > 0
+      ? 'Known size of loaded files; some sizes are unreported and more files may exist.'
+      : 'Known size of loaded files; more files may exist.';
+    return node.unknownSizeCount > 0 ? 'Total known file size; unreported sizes are excluded.' : undefined;
   }
 </script>
 
 
 {#snippet folderIdentity()}
-  <div class="item-path-block result-path-block" title={fileLayout === 'tree' ? path : undefined}>
-    <div class="item-name-line result-name-line">
-      {#if fileLayout === 'tree'}
-        <strong class="tree-root-path"><span>{parentPath(path)}</span><b>{basename(path)}</b></strong>
-      {:else}
-        <strong>{basename(path)}</strong>
-      {/if}
+  <div class="folder-heading-copy">
+    <div class="folder-heading-identity">
+      <strong class="folder-heading-path" class:folder-transfer-path={Boolean(transfer)} title={sources?.complete === false ? `Remote folders of loaded files: ${detailPath}` : detailPath}>
+        <bdi dir="ltr">
+          {#each headingPaths as folder, index}
+            {#if index > 0}<span class="folder-path-separator"> · </span>{/if}<span class="folder-path-ancestors">{parentPath(folder)}</span><b class:folder-transfer-name={Boolean(transfer)}>{basename(folder)}</b>
+          {/each}
+        </bdi>
+      </strong>
       {#if locked}<span class="locked-badge">Locked</span>{/if}
     </div>
-    <small>{path}</small>
-    {#if dataStateLabel}
-      <div class="item-data-state"><span>{dataStateLabel}</span>{#if !filesComplete}<small>{files.length} of {totalFileCount} files loaded</small>{/if}</div>
+    {#if totalFileCount !== 1}
+      <div class="folder-heading-meta">
+        <span class="folder-file-count" class:folder-transfer-file-count={Boolean(transfer)}><strong>{filesComplete ? totalFileCount ?? '—' : `${files.length}/${totalFileCount ?? '?'}`}</strong> files</span>
+        <span class="folder-heading-size" title="Total known file size; unreported sizes are excluded.">{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</span>
+        {#if transfer?.createdAt}<span class="folder-transfer-age"><RelativeTime timestamp={transfer.createdAt} lowercase /></span>{/if}
+      </div>
     {/if}
   </div>
 {/snippet}
@@ -222,51 +181,20 @@
   {/if}
 {/snippet}
 
-{#snippet transferSummary()}
-  <div class="folder-transfer-summary">
-    <div class="folder-transfer-summary-primary">
-      <div class="folder-transfer-identity">
-        <strong class="folder-transfer-name">{basename(path)}</strong>
-        {#if locked}<span class="locked-badge">Locked</span>{/if}
-      </div>
-      <div class="folder-transfer-summary-meta">
-        <span class="folder-transfer-file-count"><strong>{filesComplete ? totalFileCount : `${files.length}/${totalFileCount}`}</strong><span>files</span></span>
-        {@render contentsControl()}
-        <strong class="folder-transfer-size">{formatBytes(sizeBytes)}</strong>
-        <span class={`transfer-state ${transfer?.tone ?? ''} ${transferDirectionClass}`}>{transfer?.state}</span>
-        {#if actions}<span class="item-card-action">{@render actions()}</span>{/if}
-      </div>
-    </div>
-    <div class="folder-transfer-summary-secondary">
-      <small class="folder-transfer-path">{path}</small>
-      {#if transfer?.created}<span class="folder-transfer-age">{transfer.created}</span>{/if}
-    </div>
-  </div>
-{/snippet}
-
 <article
   class="item-card result-card folder-result-block folder-item-card"
   class:locked
   class:selected
   class:partial
   class:preferred
-  class:selectable
-  class:keyboard-current={keyboardCurrent}
-  class:tree-layout={fileLayout === 'tree'}
-  data-keyboard-result-key={keyboardKey}
+  data-keyboard-item={keyboardKey}
   tabindex="-1"
-  aria-current={keyboardCurrent ? 'true' : undefined}
+  class:selectable
+  class:tree-layout={fileLayout === 'tree'}
   class:transfer-card={Boolean(transfer)}
 >
-  <div
-    class="folder-item-summary folder-result-summary"
-    class:transfer-summary={Boolean(transfer)}
-    class:has-contents-control={Boolean(contentsState)}
-    class:has-card-action={Boolean(actions)}
-  >
-    {#if transfer}
-      {@render transferSummary()}
-    {:else}
+  <div class="folder-item-summary folder-result-summary" class:folder-transfer-summary={Boolean(transfer)}>
+    <div class="folder-heading-primary">
       {#if selectable}
         <label class="folder-summary-select-target clickable">
           <input
@@ -283,17 +211,19 @@
           {@render folderIdentity()}
         </div>
       {/if}
-
-      <div class="folder-summary-stat folder-file-count"><strong>{filesComplete ? totalFileCount : `${files.length}/${totalFileCount}`}</strong><small>files</small></div>
-      {@render contentsControl()}
-      <div class="item-detail result-detail item-size-detail"><strong>{formatBytes(sizeBytes)}</strong></div>
-      {#if actions}
-        <div class="item-card-action">{@render actions()}</div>
-      {/if}
+      <div class="folder-heading-actions">
+        {@render contentsControl()}
+        {#if transfer?.job}<TransferStateLabel {transfer} {path} {sizeBytes} {files} {filesComplete} />{/if}
+        {#if actions}<span class="item-card-action">{@render actions()}</span>{/if}
+      </div>
+    </div>
+    {#if dataStateLabel}
+      <div class="item-data-state"><span>{dataStateLabel}</span>{#if !transfer && !filesComplete}<small>{totalFileCount == null ? `${files.length} ${files.length === 1 ? 'file' : 'files'} loaded; total unknown` : `${files.length} of ${totalFileCount} ${totalFileCount === 1 ? 'file' : 'files'} loaded`}</small>{/if}</div>
     {/if}
   </div>
 
   {#if transfer}
+    {#if transfer.tone !== 'complete'}
     <div class={`transfer-card-footer folder-transfer-footer ${transfer.tone ?? ''} ${transferDirectionClass}`}>
       {#if transfer.progressPercent !== undefined}
         <div class="transfer-progress-track" aria-label={`${transfer.progressPercent.toFixed(0)}% complete`}>
@@ -307,13 +237,16 @@
         </div>
       {/if}
     </div>
+    {/if}
   {/if}
 
   <div class="folder-files-table" class:tree-layout={fileLayout === 'tree'}>
-    {#each buildTreeRows(files) as row (row.key)}
+    {#each buildFolderTreeRows(files, selectedFileIds, fileLayout) as row (row.key)}
       {#if row.kind === 'folder'}
-        {@const rowSelected = folderSelected(row.files)}
-        {@const rowPartial = folderPartial(row.files)}
+        {@const rowSelected = isfolderselected
+          ? isfolderselected(row.relativePath) && row.node.selectedCount === row.node.fileCount
+          : row.node.fileCount > 0 && row.node.selectedCount === row.node.fileCount}
+        {@const rowPartial = row.node.selectedCount > 0 && (row.node.selectedCount < row.node.fileCount || !rowSelected)}
         <svelte:element
           this={selectable ? 'label' : 'div'}
           class="folder-subfolder-row"
@@ -324,9 +257,11 @@
             <input
               type="checkbox"
               checked={rowSelected}
-              aria-label={`Select all matching files in ${row.name}`}
+              aria-label={`Select ${onselectfolder || filesComplete ? 'all matching' : 'loaded'} files in ${row.name}`}
               use:indeterminate={rowPartial}
-              onchange={(event) => selectFolderFiles(row.files, (event.currentTarget as HTMLInputElement).checked)}
+              onchange={(event) => onselectfolder
+                ? onselectfolder(row.relativePath, (event.currentTarget as HTMLInputElement).checked)
+                : selectFolderFiles(row.node, (event.currentTarget as HTMLInputElement).checked)}
             />
           {:else}
             <span class="folder-subfolder-icon"><Icon name="folder" /></span>
@@ -335,8 +270,8 @@
             <strong>{row.name}</strong>
             <small>{row.relativePath}</small>
           </span>
-          <span class="folder-subfolder-count">{row.files.length} {row.files.length === 1 ? 'file' : 'files'}</span>
-          <span class="folder-subfolder-size">{formatBytes(row.sizeBytes)}</span>
+          <span class="folder-subfolder-count">{row.node.fileCount} {row.node.fileCount === 1 ? 'file' : 'files'}{filesComplete ? '' : ' loaded'}</span>
+          <span class="folder-subfolder-size" title={subfolderSizeTitle(row.node)}>{row.node.sizeBytes === 0 && row.node.unknownSizeCount > 0 ? '—' : formatBytes(row.node.sizeBytes)}</span>
         </svelte:element>
       {:else}
         {@const file = row.file}
@@ -346,6 +281,8 @@
           this={selectable ? 'label' : 'div'}
           class:locked={file.locked}
           class:has-transfer={Boolean(file.transfer)}
+          class:has-transfer-detail={needsTransferDetail(file.transfer)}
+          class:has-file-action={Boolean(fileActions)}
           class:has-audio={Boolean(file.audio)}
           class:tree-row={fileLayout === 'tree'}
           class="folder-file-row"
@@ -362,17 +299,15 @@
               <Icon name={typeIcon} />
             </span>
           {/if}
-          <span class="folder-file-path" title={file.relativePath}>
-            <span class="folder-file-name-line">
-              <strong>{row.displayName}</strong>
-              {#if file.locked}<small>Locked</small>{/if}
-            </span>
+          <span class="folder-file-path" title={file.sourcePath ?? file.relativePath}>
+            <strong>{row.displayName}</strong>
+            {#if file.locked}<small>Locked</small>{/if}
           </span>
           {#if file.audio}
             <span class="folder-file-audio">{audioSummary(file.audio)}</span>
             <span class="folder-file-length">{formatLength(file.audio.lengthSeconds)}</span>
           {/if}
-          <span class="folder-file-size">{formatBytes(file.sizeBytes)}</span>
+          <span class="folder-file-size" title={file.sizeUnknown ? 'File size is unknown' : undefined}>{file.sizeUnknown ? '—' : formatBytes(file.sizeBytes)}</span>
           {#if file.transfer}
             {@const secondaryTransferText = fileTransferSecondary(file.transfer)}
             {@const showProgress = showsInlineTransferProgress(file.transfer)}
@@ -390,18 +325,13 @@
                 <small class="folder-file-transfer-detail" title={secondaryTransferText}>{secondaryTransferText}</small>
               {/if}
               {#if usesCircularTransferState(file.transfer)}
-                <span
-                  class={`folder-file-state ${fileDirectionClass}`}
-                  class:active={file.transfer.tone === 'active'}
-                  class:queued={file.transfer.tone === 'queued'}
-                  class:complete={file.transfer.tone === 'complete'}
-                  aria-label={file.transfer.state}
-                  title={file.transfer.state}
-                >
+                <TransferStateLabel transfer={file.transfer} path={file.sourcePath ?? file.relativePath}
+                  sizeBytes={file.sizeUnknown ? null : file.sizeBytes} circular>
                   <Icon name={transferIcon(file.transfer)} />
-                </span>
+                </TransferStateLabel>
               {:else}
-                <span class={`transfer-state folder-file-transfer-label ${file.transfer.tone ?? ''}`}>{file.transfer.state}</span>
+                <TransferStateLabel transfer={file.transfer} path={file.sourcePath ?? file.relativePath}
+                  sizeBytes={file.sizeUnknown ? null : file.sizeBytes} class="folder-file-transfer-label" />
               {/if}
             </span>
           {/if}
@@ -412,4 +342,8 @@
       {/if}
     {/each}
   </div>
+  {#if fileLoadError}<div class="item-data-state" role="alert">{fileLoadError}</div>{/if}
+  {#if onloadmorefiles && (!filesComplete || fileLoadError)}
+    <LoadMoreButton label={fileLoadError ? 'Retry loading folder files' : 'Load more'} loading={loadingMoreFiles} onclick={onloadmorefiles} />
+  {/if}
 </article>

@@ -130,14 +130,16 @@ internal sealed class InteractiveCliCoordinator
         if (detail?.Payload is not SearchJobPayloadDto search)
             return;
 
-        if (!interactiveEnabled || search.DefaultFolderProjection == null)
+        if (!interactiveEnabled
+            || search.DefaultProjection != ServerSearchDefaultProjectionKind.Album
+            || search.AlbumQuery == null)
             return;
 
         var projection = await backend.GetFolderResultsAsync(
             searchJobId,
-            search.DefaultFolderProjection with { IncludeFiles = true },
+            new FolderSearchProjectionRequestDto(search.AlbumQuery, IncludeFiles: true),
             ct);
-        var folders = projection?.Items.Select(ToAlbumFolder).ToList() ?? [];
+        var folders = projection?.Items.Select(CliSearchProjectionMapper.ToCore).ToList() ?? [];
         if (folders.Count == 0)
         {
             if (ConsoleInputManager.Reporter != null)
@@ -149,7 +151,7 @@ internal sealed class InteractiveCliCoordinator
         var session = new InteractiveAlbumSession(
             searchJobId,
             promptJob,
-            search.DefaultFolderProjection.AlbumQuery,
+            search.AlbumQuery,
             folders,
             OptionsForWorkflow(detail.Summary.WorkflowId),
             InteractiveAlbumResultKind.Folder);
@@ -170,7 +172,7 @@ internal sealed class InteractiveCliCoordinator
             albumJobId,
             new FolderSearchProjectionRequestDto(album.Query, IncludeFiles: true),
             ct);
-        var folders = projection?.Items.Select(ToAlbumFolder).ToList() ?? [];
+        var folders = projection?.Items.Select(CliSearchProjectionMapper.ToCore).ToList() ?? [];
         var purpose = interactiveAlbumSessions.TryGetValue(albumJobId, out var session)
             ? InteractiveAlbumPromptPurpose.RetryAcceptedAlbumPrompt
             : InteractiveAlbumPromptPurpose.NewAlbumPrompt;
@@ -257,7 +259,7 @@ internal sealed class InteractiveCliCoordinator
 
         foreach (var bucket in buckets)
         {
-            var folders = bucket.Folders!.Select(ToAlbumFolder).ToList();
+            var folders = bucket.Folders!.Select(CliSearchProjectionMapper.ToCore).ToList();
             var session = new InteractiveAlbumSession(
                 albumAggregateJobId,
                 new AlbumJob(ToAlbumQuery(bucket.Query)) { ItemName = bucket.ItemName, Results = folders },
@@ -339,8 +341,7 @@ internal sealed class InteractiveCliCoordinator
                 new AlbumFolderRefDto(selectedFolder.Username, selectedFolder.FolderPath),
                 Options: session.Options,
                 AlbumQuery: session.Query,
-                Selection: selection,
-                SelectedFolder: selectedFolder.IsFullyRetrieved ? ToAlbumFolderDto(selectedFolder) : null),
+                Selection: selection),
             ct);
 
         if (summary == null)
@@ -395,7 +396,7 @@ internal sealed class InteractiveCliCoordinator
             new FolderSearchProjectionRequestDto(session.Query, IncludeFiles: true),
             ct);
         return projection?.Items
-            .Select(ToAlbumFolder)
+            .Select(CliSearchProjectionMapper.ToCore)
             .FirstOrDefault(candidate => FolderKey(candidate).Equals(FolderKey(folder), StringComparison.OrdinalIgnoreCase));
     }
 
@@ -407,7 +408,7 @@ internal sealed class InteractiveCliCoordinator
             ct);
         return projection?.Items
             .SelectMany(album => album.Folders ?? [])
-            .Select(ToAlbumFolder)
+            .Select(CliSearchProjectionMapper.ToCore)
             .FirstOrDefault(candidate => FolderKey(candidate).Equals(FolderKey(folder), StringComparison.OrdinalIgnoreCase));
     }
 
@@ -492,23 +493,24 @@ internal sealed class InteractiveCliCoordinator
 
     private static SearchJob ToSearchJob(SearchJobPayloadDto payload)
     {
-        var job = payload.DefaultFolderProjection != null
+        var job = payload.DefaultProjection == ServerSearchDefaultProjectionKind.Album
+            && payload.AlbumQuery != null
             ? new SearchJob(new AlbumQuery
             {
-                Artist = payload.DefaultFolderProjection.AlbumQuery.Artist ?? "",
-                Album = payload.DefaultFolderProjection.AlbumQuery.Album ?? "",
-                SearchHint = payload.DefaultFolderProjection.AlbumQuery.SearchHint ?? "",
-                URI = payload.DefaultFolderProjection.AlbumQuery.Uri ?? "",
-                ArtistMaybeWrong = payload.DefaultFolderProjection.AlbumQuery.ArtistMaybeWrong,
+                Artist = payload.AlbumQuery.Artist ?? "",
+                Album = payload.AlbumQuery.Album ?? "",
+                SearchHint = payload.AlbumQuery.SearchHint ?? "",
+                URI = payload.AlbumQuery.Uri ?? "",
+                ArtistMaybeWrong = payload.AlbumQuery.ArtistMaybeWrong,
             })
             : new SearchJob(new SongQuery
             {
-                Artist = payload.DefaultFileProjection?.SongQuery?.Artist ?? "",
-                Title = payload.DefaultFileProjection?.SongQuery?.Title ?? payload.QueryText,
-                Album = payload.DefaultFileProjection?.SongQuery?.Album ?? "",
-                URI = payload.DefaultFileProjection?.SongQuery?.Uri ?? "",
-                Length = payload.DefaultFileProjection?.SongQuery?.Length ?? -1,
-                ArtistMaybeWrong = payload.DefaultFileProjection?.SongQuery?.ArtistMaybeWrong ?? false,
+                Artist = payload.SongQuery?.Artist ?? "",
+                Title = payload.SongQuery?.Title ?? payload.QueryText,
+                Album = payload.SongQuery?.Album ?? "",
+                URI = payload.SongQuery?.Uri ?? "",
+                Length = payload.SongQuery?.Length ?? -1,
+                ArtistMaybeWrong = payload.SongQuery?.ArtistMaybeWrong ?? false,
             });
 
         return job;
@@ -526,73 +528,10 @@ internal sealed class InteractiveCliCoordinator
         ArtistMaybeWrong = query.ArtistMaybeWrong,
     };
 
-    internal static AlbumFolder ToAlbumFolder(AlbumFolderDto folder)
-        => new AlbumFolder(
-            folder.Username,
-            folder.FolderPath,
-            () => folder.Files?.Select(ToAlbumFile).ToList() ?? [])
-        {
-            IsFullyRetrieved = folder.IsFullyRetrieved,
-        };
-
-    private static AlbumFolderDto ToAlbumFolderDto(AlbumFolder folder)
-        => new(
-            new AlbumFolderRefDto(folder.Username, folder.FolderPath),
-            folder.Username,
-            folder.FolderPath,
-            new PeerInfoDto(
-                folder.Username,
-                folder.Files.FirstOrDefault()?.Candidate.HasFreeUploadSlot,
-                folder.Files.FirstOrDefault()?.Candidate.UploadSpeed),
-            folder.SearchFileCount,
-            folder.SearchAudioFileCount,
-            folder.Files
-                .Select(file => ToFileCandidateDto(file.Candidate))
-                .ToList(),
-            folder.IsFullyRetrieved);
-
-    private static AlbumFile ToAlbumFile(FileCandidateDto file)
-    {
-        var candidate = new FileCandidate(
-            new PeerFileTarget(
-                new PeerFileIdentity(file.Username, file.Filename),
-                file.File.Size < 0 ? null : file.File.Size,
-                file.File.Extension ?? Path.GetExtension(file.Filename),
-                file.File.BitRate,
-                file.File.BitDepth,
-                file.File.SampleRate,
-                file.File.Length,
-                file.File.Attributes?.Select(x => new FileAttributeSnapshot(x.Type, x.Value)).ToList()),
-            new SearchPeerSnapshot(
-                file.Username,
-                responseFileCount: 0,
-                file.Peer.UploadSpeed,
-                file.Peer.HasFreeUploadSlot));
-        return AlbumFile.WithLazyQuery(
-            () => Searcher.InferSongQuery(candidate.Filename, new SongQuery()),
-            candidate);
-    }
-
-    private static FileCandidateDto ToFileCandidateDto(FileCandidate candidate)
-        => new(
-            new FileCandidateRefDto(candidate.Username, candidate.Filename),
-            candidate.Username,
-            candidate.Filename,
-            new PeerInfoDto(candidate.Username, candidate.HasFreeUploadSlot, candidate.UploadSpeed),
-            new FileMetadataDto(
-                Utils.GetFileNameSlsk(candidate.Filename),
-                candidate.Size,
-                candidate.Extension,
-                candidate.BitRate,
-                candidate.BitDepth,
-                candidate.SampleRate,
-                candidate.Length,
-                candidate.Attributes?.Select(x => new FileAttributeDto(x.Type, x.Value)).ToList()));
-
     private static DownloadBehaviorPolicyDto InteractiveDownloadBehavior(DownloadBehaviorPolicyDto? existing)
         => existing == null
-            ? new DownloadBehaviorPolicyDto(Album: DownloadBehavior.Manual, AlbumAggregate: DownloadBehavior.Manual)
-            : existing with { Album = DownloadBehavior.Manual, AlbumAggregate = DownloadBehavior.Manual };
+            ? new DownloadBehaviorPolicyDto(Album: ServerDownloadBehavior.Manual, AlbumAggregate: ServerDownloadBehavior.Manual)
+            : existing with { Album = ServerDownloadBehavior.Manual, AlbumAggregate = ServerDownloadBehavior.Manual };
 
     private SubmissionOptionsDto OptionsForWorkflow(Guid workflowId)
         => (rootOptions ?? new SubmissionOptionsDto()) with { WorkflowId = workflowId };

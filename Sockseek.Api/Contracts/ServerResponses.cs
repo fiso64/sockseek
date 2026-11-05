@@ -1,5 +1,4 @@
 using System.Text.Json.Serialization;
-using Sockseek.Core;
 
 namespace Sockseek.Api;
 
@@ -35,21 +34,13 @@ public sealed record PersistenceStatusDto(
     DateTimeOffset? LastFailureAtUtc,
     string? LastFailure,
     int CriticalQueueDepth,
-    int CriticalQueueCapacity,
     int OrdinaryQueueDepth,
-    int OrdinaryQueueCapacity,
     int ProgressEntityCount,
     int ProgressEntityCapacity,
     int BufferedSearchResultCount,
-    int BufferedSearchResultCapacity,
-    int DegradedProjectionCount,
-    int DegradedProjectionCapacity,
+    int RetryMutationCount,
     long BusyRetryCount,
-    long DroppedOrdinaryCount,
     long DroppedProgressCount,
-    long DroppedSearchResultCount,
-    long IncompleteSearchCount,
-    long EvictedTerminalProjectionCount,
     long SuccessfulCommitCount,
     long RowsWritten,
     long? DatabaseSizeBytes = null,
@@ -57,9 +48,6 @@ public sealed record PersistenceStatusDto(
     double? LastCommitDurationMilliseconds = null,
     int? LastBatchMutationCount = null,
     long PermanentlyFailedMutationCount = 0,
-    int IncompleteSearchTrackingCount = 0,
-    int IncompleteSearchTrackingCapacity = 0,
-    bool IncompleteSearchTrackingOverflowed = false,
     IReadOnlyList<long>? CommitLatencyHistogram = null,
     IReadOnlyList<long>? BatchSizeHistogram = null,
     int ReconciledUnfinishedRuntimeCount = 0,
@@ -124,6 +112,18 @@ public sealed record ResourceActionDto(
     string Method,
     string Href);
 
+/// <summary>Kind-specific counts for list-row presentation; unavailable or inapplicable values are null.</summary>
+public sealed record JobSummaryStatsDto(
+    int? MemberCount = null,
+    int? CompletedMemberCount = null,
+    int? FailedMemberCount = null,
+    int? CandidateCount = null,
+    int? FolderCount = null,
+    int? FileCount = null,
+    long? KnownBytes = null,
+    int? NewFilesFoundCount = null,
+    double? ProgressPercent = null);
+
 /// <summary>
 /// Lightweight job list item. Fetch JobDetailDto for a selected job's typed payload.
 /// </summary>
@@ -139,6 +139,11 @@ public sealed record ResourceActionDto(
 /// <param name="SourceJobId">Provenance link for independently submitted follow-up jobs, such as downloads started from search results.</param>
 /// <param name="AvailableActions">Actions currently valid for this job.</param>
 /// <param name="PrintOption">Effective print mode for this job, when print-only behavior is active.</param>
+/// <param name="DiscoveryPublicFileCount">Raw public files observed by a search job; null for non-search jobs or unavailable history.</param>
+/// <param name="DiscoveryObservedPeerCount">Distinct exact peer identities that supplied public or locked files. Locked-only peers count.</param>
+/// <param name="SearchDefaultProjection">Accepted default search presentation, when retained; null for other jobs or unavailable definitions.</param>
+/// <param name="SearchAggregatePresentation">Accepted aggregate presentation preference, when retained; null for other jobs or unavailable definitions.</param>
+/// <param name="Stats">Compact per-kind counts from the job owner; absent values must not be inferred from loaded children.</param>
 public sealed record JobSummaryDto(
     Guid JobId,
     int DisplayId,
@@ -162,7 +167,16 @@ public sealed record JobSummaryDto(
     IReadOnlyList<ResourceActionDto> AvailableActions,
     string? FailureDetail = null,
     ServerJobCancellationSource CancellationSource = ServerJobCancellationSource.None,
-    PrintOption PrintOption = PrintOption.None)
+    ServerPrintOption PrintOption = ServerPrintOption.None,
+    Guid? SubmissionId = null,
+    ServerJobRole Role = ServerJobRole.UserRoot,
+    DateTimeOffset? CreatedAtUtc = null,
+    int? DiscoveryPublicFileCount = null,
+    int? DiscoveryObservedPeerCount = null,
+    JobSummaryStatsDto? Stats = null,
+    ServerSearchDefaultProjectionKind? SearchDefaultProjection = null,
+    bool? SearchAggregatePresentation = null,
+    string? SourceDetail = null)
 {
     public JobSummaryDto()
         : this(
@@ -271,6 +285,9 @@ public sealed record WorkflowDetailDto(
 /// <param name="IncludeAll">
 /// When true, includes every matching job as a flat list. Default lists return only execution roots where ParentJobId is null.
 /// </param>
+/// <param name="NewestFirst">Return newest display IDs first; continuation cursors are bound to the selected direction.</param>
+/// <param name="ExcludeExtractResults">Exclude generated jobs represented by their extraction source, before paging.</param>
+/// <param name="ExcludeKinds">Omit these job kinds before paging, including live updates.</param>
 public sealed record JobQuery(
     ServerJobLifecycleState? LifecycleState,
     ServerJobTerminalOutcome? TerminalOutcome,
@@ -278,4 +295,13 @@ public sealed record JobQuery(
     Guid? WorkflowId,
     bool IncludeAll,
     ServerJobSkipReason? SkipReason = null,
-    Guid? ParentJobId = null);
+    Guid? ParentJobId = null,
+    Guid? SubmissionId = null,
+    ServerJobRole? Role = null,
+    bool Archived = false,
+    bool NewestFirst = false,
+    bool ExcludeExtractResults = false,
+    IReadOnlyList<ServerJobKind>? ExcludeKinds = null);
+
+/// <summary>Read compact summaries for linked jobs without hydrating their full details.</summary>
+public sealed record JobLookupRequestDto(IReadOnlyList<Guid> JobIds);

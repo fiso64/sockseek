@@ -16,7 +16,6 @@ internal sealed class AlbumDownloadExecutor
     private readonly JobOrchestrator jobs;
     private readonly SongDownloadExecutor songDownloads;
     private readonly AlbumImageDownloadExecutor imageDownloads;
-    private readonly IncompleteAlbumActionExecutor incompleteAlbums;
 
     public AlbumDownloadExecutor(DownloadExecutionContext context, JobOrchestrator jobs, SongDownloadExecutor songDownloads)
     {
@@ -24,7 +23,6 @@ internal sealed class AlbumDownloadExecutor
         this.jobs = jobs;
         this.songDownloads = songDownloads;
         imageDownloads = new AlbumImageDownloadExecutor(context, songDownloads);
-        incompleteAlbums = new IncompleteAlbumActionExecutor(context);
     }
 
     private static bool SameAlbumFolder(AlbumFolder left, AlbumFolder right)
@@ -32,6 +30,20 @@ internal sealed class AlbumDownloadExecutor
             && string.Equals(left.FolderPath, right.FolderPath, StringComparison.Ordinal);
 
     public async Task<JobOutcome> ProcessAlbumDownload(AlbumJob job, JobContext ctx)
+    {
+        try
+        {
+            return await DownloadAndFinalizeAlbum(job, ctx);
+        }
+        finally
+        {
+            // Files placed by the album owner must publish their current paths,
+            // including retained payloads when album organization fails.
+            await songDownloads.CompleteAlbumTransfersAsync(job.TrackJobs);
+        }
+    }
+
+    private async Task<JobOutcome> DownloadAndFinalizeAlbum(AlbumJob job, JobContext ctx)
     {
         var config = job.Config;
         var organizer = new FileManager(
@@ -47,8 +59,7 @@ internal sealed class AlbumDownloadExecutor
         if (completion.Outcome.LifecycleState == JobLifecycleState.AwaitingSelection)
         {
             JobOutcomeCommitter.Commit(job, completion.Outcome);
-            ctx.IndexEditor?.Update();
-            ctx.PlaylistEditor?.Update();
+            context.UpdateOutputs(job, ctx);
             return completion.Outcome;
         }
 
@@ -59,16 +70,18 @@ internal sealed class AlbumDownloadExecutor
             : completion.Outcome;
         if (!string.IsNullOrEmpty(job.DownloadPath))
             job.UpdateActivity(JobActivityPhase.Organizing);
-        var finalization = context.OutputFinalizer.FinalizeAlbumPlacement(
+        var finalization = await context.OutputFinalizer.FinalizeAlbumPlacementAsync(
             job,
             organizer,
             images.ChosenFiles,
             images.AdditionalImages,
-            outcome);
+            outcome,
+            allowOverwrite: !config.Skip.SkipExisting,
+            allowUnownedReplacement: config.Skip.SkipExisting);
         outcome = finalization.Outcome;
         if (finalization.OrganizationException != null && job.ResolvedTarget != null)
         {
-            HandleIncompleteAlbumIfNeeded(job, job.ResolvedTarget, outcome, config);
+            await HandleIncompleteAlbumIfNeededAsync(job, job.ResolvedTarget, outcome, config);
         }
 
         var postProcessOutcome = DownloadExecutorCoordinator.OutcomeWithCurrentMetadata(job, outcome);
@@ -76,8 +89,7 @@ internal sealed class AlbumDownloadExecutor
 
         var finalOutcome = DownloadExecutorCoordinator.OutcomeWithCurrentMetadata(job, postProcessOutcome);
         JobOutcomeCommitter.Commit(job, finalOutcome);
-        ctx.IndexEditor?.Update();
-        ctx.PlaylistEditor?.Update();
+        context.UpdateOutputs(job, ctx);
         return finalOutcome;
     }
 
@@ -138,7 +150,7 @@ internal sealed class AlbumDownloadExecutor
         List<SongJob>? chosenFiles)
     {
         var config = job.Config;
-        if (!config.Output.AlbumArtOnly && (!audioResult.Succeeded || config.Output.AlbumArtOption == AlbumArtOption.Default))
+        if (!config.Output.AlbumArtOnly && (!audioResult.Succeeded || config.Output.EffectiveAlbumArtOption == AlbumArtOption.Default))
             return new(chosenFiles, null);
 
         Info(job, "downloading additional images");
@@ -246,7 +258,8 @@ internal sealed class AlbumDownloadExecutor
         var config = job.Config;
         var state = new AlbumAudioDownloadState(config.Transfer.AlbumTrackCountMaxRetries);
         var activeQuality = AlbumQualityPolicy.ActiveConditions(config.Search.NecessaryCond);
-        bool verifyStrictAlbumQuality = config.Search.StrictAlbumQuality && activeQuality.IsActive;
+        bool verifyStrictAlbumQuality = job.ValidationRequirement != AlbumValidationRequirement.UserAccepted
+            && config.Search.StrictAlbumQuality && activeQuality.IsActive;
 
         while (job.Results.Count > 0 && !config.Output.AlbumArtOnly)
         {
@@ -279,6 +292,9 @@ internal sealed class AlbumDownloadExecutor
                     : new(false, JobOutcome.Failed(JobFailureReason.AllDownloadsFailed), null, state.LastChosenFolder);
 
             job.ResolvedTarget = null;
+            // Completed files from the discarded candidate still own transfer
+            // histories, even though the next candidate replaces these children.
+            await songDownloads.CompleteAlbumTransfersAsync(job.TrackJobs);
             job.ClearTrackJobs();
             job.Results.RemoveAt(state.Index);
             if (job.Results.Count == 0 && state.FailedDownloadCandidate)
@@ -476,7 +492,7 @@ internal sealed class AlbumDownloadExecutor
             await RunAlbumDownloads(job, config, organizer, chosenFolder, cts);
             if (TryGetInterruptedAlbumOutcome(job, chosenFolder) is { } interruptedOutcome)
             {
-                HandleIncompleteAlbumIfNeeded(job, chosenFolder, interruptedOutcome, config);
+                await HandleIncompleteAlbumIfNeededAsync(job, chosenFolder, interruptedOutcome, config);
                 return new(false, new(false, interruptedOutcome, null, state.LastChosenFolder));
             }
 
@@ -491,7 +507,7 @@ internal sealed class AlbumDownloadExecutor
             MarkUnfinishedAlbumFilesCancelled(job, chosenFolder);
             ReportStaleAlbumCandidateIfNeeded(job, chosenFolder, selection.WasPreselected, willTryNextFolder);
 
-            incompleteAlbums.HandleIncompleteAlbum(job, chosenFolder, config.ResolveIncompleteAlbumAction(), config);
+            await context.OutputFinalizer.HandleIncompleteAlbumAsync(job, chosenFolder, config.ResolveIncompleteAlbumAction(), config);
 
             if (job.Cts != null && job.Cts.IsCancellationRequested)
             {
@@ -555,8 +571,7 @@ internal sealed class AlbumDownloadExecutor
         if (job.Results.Count == 0)
             return new(false, JobOutcome.Failed(finalReason), null, failedFolder ?? state.LastChosenFolder);
 
-        ctx.IndexEditor?.Update();
-        ctx.PlaylistEditor?.Update();
+        context.UpdateOutputs(job, ctx);
         return new(false, JobOutcome.AwaitingSelection(), null, failedFolder ?? state.LastChosenFolder);
     }
 
@@ -613,14 +628,14 @@ internal sealed class AlbumDownloadExecutor
                 failedSong.FailureMessage);
     }
 
-    void HandleIncompleteAlbumIfNeeded(
+    async Task HandleIncompleteAlbumIfNeededAsync(
         AlbumJob job,
         AlbumFolder folder,
         JobOutcome outcome,
         DownloadSettings config)
     {
         if (outcome.TerminalOutcome is JobTerminalOutcome.Failed or JobTerminalOutcome.Cancelled)
-            incompleteAlbums.HandleIncompleteAlbum(job, folder, config.ResolveIncompleteAlbumAction(), config);
+            await context.OutputFinalizer.HandleIncompleteAlbumAsync(job, folder, config.ResolveIncompleteAlbumAction(), config);
     }
 
     void MarkUnfinishedAlbumFilesCancelled(AlbumJob job, AlbumFolder folder)

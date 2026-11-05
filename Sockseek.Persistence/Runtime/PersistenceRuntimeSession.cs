@@ -42,6 +42,12 @@ public sealed class PersistenceRuntimeSession(
             .Select(session => session.Id)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+        string? previousShutdownKind = await context.RuntimeSessions
+            .AsNoTracking()
+            .OrderByDescending(session => session.StartedAtUtc)
+            .Select(session => session.ShutdownKind)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
 
         int interruptedJobs = 0;
         int interruptedTransfers = 0;
@@ -58,13 +64,29 @@ public sealed class PersistenceRuntimeSession(
         });
         await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
+        if (unfinishedIds.Count > 0
+            || previousShutdownKind is not null and not "Clean")
+        {
+            // An unclean stop can lose the last in-memory cumulative
+            // observation even when no retained transfer row was far enough
+            // along to be reconciled. Conservatively restart contiguous
+            // accounting coverage here instead of inventing gap intervals.
+            await context.TransferAccountingStates
+                .Where(state => state.Id == 1)
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(state => state.CompleteFromUtc, now)
+                        .SetProperty(state => state.UpdatedAtUtc, now),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         if (unfinishedIds.Count > 0)
         {
             interruptedSearches = await context.SearchJobs
                 .Where(search => !search.IsComplete && context.Jobs.Any(job =>
                     job.Id == search.JobId
-                    && unfinishedIds.Contains(job.LastRuntimeId)
-                    && job.LifecycleState != "Terminal"))
+                    && unfinishedIds.Contains(job.LastRuntimeId)))
                 .ExecuteUpdateAsync(
                     setters => setters
                         .SetProperty(search => search.IsComplete, true)

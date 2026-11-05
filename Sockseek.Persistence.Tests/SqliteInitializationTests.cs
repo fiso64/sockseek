@@ -1,14 +1,22 @@
+using Sockseek.Persistence.Write;
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Persistence;
 using Sockseek.Persistence.Entities;
 using Sockseek.Persistence.Sqlite;
 using Sockseek.Persistence.Runtime;
 using Sockseek.Persistence.Read;
+using Sockseek.Persistence.Planning;
+using Sockseek.Core.Models;
+using Sockseek.Core.Services;
+using Sockseek.Core.Jobs;
+using Sockseek.Core.Planning;
+using Sockseek.Core.Settings;
 
 namespace Sockseek.Persistence.Tests;
 
@@ -16,16 +24,73 @@ namespace Sockseek.Persistence.Tests;
 public sealed class SqliteInitializationTests
 {
     [TestMethod]
-    public async Task EveryCheckedInMigration_HasAnExplicitAutomaticSafetyClassification()
+    public async Task FeatureReadConnectionsCannotBypassTheWriter()
+    {
+        await using var database = new TemporaryDatabase();
+        await database.Initializer.InitializeAsync();
+        var readers = new SockseekDbContextFactory(SockseekDbContextOptions.CreateReadOnly(database.Options));
+        await using var context = await readers.CreateDbContextAsync();
+        var failure = await Assert.ThrowsExactlyAsync<Microsoft.Data.Sqlite.SqliteException>(
+            () => context.Database.ExecuteSqlRawAsync("DELETE FROM peer_restriction_overrides"));
+        Assert.AreEqual(8, failure.SqliteErrorCode, "SQLite must enforce the read-only boundary.");
+
+        var store = new Sockseek.Persistence.PeerRestrictions.PeerRestrictionOverrideStore(
+            readers, new PersistenceHealth(), database.Writes);
+        await store.SetAsync(Sockseek.Core.Sharing.PeerRestrictionKind.UploadAccess, "ExactPeer",
+            Sockseek.Core.Sharing.PeerUsernameRestrictionOverride.Blocked);
+        Assert.AreEqual("ExactPeer", (await store.ReadAllAsync()).Single().Username,
+            "The same store can still write through the transaction owner's context.");
+    }
+
+    [TestMethod]
+    public async Task RawSearchFactsPreserveExactIdentitiesAndCascadeWithTheirOwner()
     {
         await using var database = new TemporaryDatabase();
         await using var context = await database.Factory.CreateDbContextAsync();
+        await context.Database.MigrateAsync();
+        Guid runtime = Guid.NewGuid(), job = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        context.RuntimeSessions.Add(new RuntimeSessionEntity { Id = runtime, Version = "migration" });
+        context.Jobs.Add(JobRow(job, runtime, 1, "Terminal", now, now, "Search"));
+        context.SearchJobs.Add(new SearchJobEntity { JobId = job, Revision = 2, ResultCount = 1, LockedFileCount = 1 });
+        foreach (int sequence in new[] { 1, 2 })
+            await TestPersistenceWriter.SeedSearchResultAsync(context, new SearchResultEntity
+        {
+            SearchJobId = job, Sequence = sequence, Revision = 2,
+            Username = "Péér", RemoteFilename = @"Share\曲\Track.flac", SizeBytes = long.MaxValue,
+            BitRate = 320, BitDepth = 24, SampleRate = 96000, DurationSeconds = 123,
+            ResponseFileCount = 2, Extension = "flac", UploadSpeed = 1234,
+            HasFreeUploadSlot = false, QueueLength = 7, AttributesJson = "[]",
+            ObservedAtUtc = now.ToUnixTimeMilliseconds(), Visibility = sequence == 1 ? "Public" : "Locked",
+        });
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+        var reader = new SearchHistoryReader(database.Factory);
+        string logicalRows = System.Text.Json.JsonSerializer.Serialize(
+            await context.SearchResults.AsNoTracking().OrderBy(row => row.Sequence).ToArrayAsync());
 
-        var migrations = context.Database.GetMigrations().ToHashSet(StringComparer.Ordinal);
-
-        CollectionAssert.AreEquivalent(
-            migrations.OrderBy(value => value).ToArray(),
-            SqliteInitializer.SafeAutomaticMigrations.OrderBy(value => value).ToArray());
+        var page = (await reader.GetRawResultsAsync(job, 0, 500))!;
+        Assert.AreEqual(2, page.Items.Count);
+        Assert.AreEqual(long.MaxValue, page.Items[0].Size);
+        Assert.AreEqual("Péér", page.Items[0].Username);
+        Assert.AreEqual(@"Share\曲\Track.flac", page.Items[0].Filename);
+        Assert.AreEqual(SearchResultVisibility.Public, page.Items[0].Visibility);
+        Assert.AreEqual(SearchResultVisibility.Locked, page.Items[1].Visibility);
+        Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(page.Items[0]),
+            System.Text.Json.JsonSerializer.Serialize((await reader.GetResultAsync(job, "Péér", @"Share\曲\Track.flac"))!.Result));
+        await Assert.ThrowsExactlyAsync<Microsoft.Data.Sqlite.SqliteException>(() =>
+            context.Database.ExecuteSqlRawAsync("UPDATE search_observations SET source_sequence = 1 WHERE source_sequence = 2;"));
+        await Assert.ThrowsExactlyAsync<Microsoft.Data.Sqlite.SqliteException>(() =>
+            context.Database.ExecuteSqlRawAsync("UPDATE search_observations SET visibility = 'Public' WHERE source_sequence = 2;"));
+        Assert.AreEqual(logicalRows, System.Text.Json.JsonSerializer.Serialize(
+            await context.SearchResults.AsNoTracking().OrderBy(row => row.Sequence).ToArrayAsync()));
+        await context.Database.OpenConnectionAsync();
+        Assert.AreEqual("ok", Scalar(context, "PRAGMA integrity_check;"));
+        Assert.AreEqual(0, QueryStrings(context, "PRAGMA foreign_key_check;").Count);
+        await context.Database.ExecuteSqlRawAsync("DELETE FROM search_jobs;");
+        Assert.AreEqual(0, await context.SearchResults.CountAsync());
+        Assert.AreEqual("0", Scalar(context, "SELECT count(*) FROM search_observations;"));
+        Assert.AreEqual("0", Scalar(context, "SELECT count(*) FROM search_observation_sources;"));
     }
 
     [TestMethod]
@@ -37,56 +102,106 @@ public sealed class SqliteInitializationTests
 
         Assert.AreEqual("wal", result.JournalMode.ToLowerInvariant());
         Assert.AreEqual("2", result.SynchronousMode);
-        StringAssert.Contains(result.SchemaVersion, "AddJobNavigationIndexes");
 
         await using var context = await database.Factory.CreateDbContextAsync();
         await context.Database.OpenConnectionAsync();
+        Assert.AreEqual((await context.Database.GetAppliedMigrationsAsync()).Last(), result.SchemaVersion);
         Assert.AreEqual("1", Scalar(context, "PRAGMA foreign_keys;"));
         Assert.AreEqual("2", Scalar(context, "PRAGMA synchronous;"));
+        Assert.IsFalse(context.Database.HasPendingModelChanges());
+        CollectionAssert.AreEqual(context.Database.GetMigrations().ToArray(),
+            (await context.Database.GetAppliedMigrationsAsync()).ToArray());
+        Assert.AreEqual("0", Scalar(context,
+            "SELECT COUNT(*) FROM sqlite_master WHERE name GLOB 'search_view*' OR name GLOB 'search_directory_observation*';"));
+        Assert.AreEqual("1", Scalar(context,
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_transfers_group_ref_username_direction_archived_at_utc';"));
+        Assert.AreEqual("1", Scalar(context,
+            "SELECT COUNT(*) FROM pragma_table_info('jobs') WHERE name = 'source_detail';"));
 
         var tables = QueryStrings(context,
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;");
         CollectionAssert.IsSubsetOf(
             new[]
             {
-                "runtime_sessions", "jobs", "search_jobs", "search_results", "transfers", "transfer_attempts",
+                "runtime_sessions", "jobs", "search_jobs", "search_observations", "transfers", "transfer_attempts",
                 "chat_conversations", "chat_room_subscriptions", "chat_messages", "notifications", "chat_sequences",
+                "submissions", "submission_specifications",
+                "transfer_accounting_checkpoints", "transfer_byte_buckets", "transfer_accounting_state",
+                "peer_restriction_overrides",
+                "input_artifacts",
+                "search_observation_sources",
+                "directory_manifests", "directory_manifest_entries",
             },
             tables.ToArray());
     }
 
     [TestMethod]
-    public async Task PreviousSchemaFixture_UpgradesInPlace_AndPreservesRows()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SubmissionIdentityAndPayloadHaveTheSameForeignKeysInMigrationAndModel(bool generatedModel)
     {
         await using var database = new TemporaryDatabase();
-        Guid runtimeId = Guid.NewGuid();
-        Guid jobId = Guid.NewGuid();
-        await using (var previous = await database.Factory.CreateDbContextAsync())
+        await using var context = await database.Factory.CreateDbContextAsync();
+        if (generatedModel) await context.Database.EnsureCreatedAsync();
+        else await context.Database.MigrateAsync();
+        await context.Database.OpenConnectionAsync();
+        Assert.AreEqual("submissions:id:RESTRICT", Scalar(context,
+            "SELECT \"table\" || ':' || \"to\" || ':' || on_delete FROM pragma_foreign_key_list('submissions') WHERE \"from\" = 'rerun_of_submission_id';"));
+        Assert.AreEqual("submissions:id:CASCADE", Scalar(context,
+            "SELECT \"table\" || ':' || \"to\" || ':' || on_delete FROM pragma_foreign_key_list('submission_specifications');"));
+
+        Guid original = Guid.NewGuid(), rerun = Guid.NewGuid();
+        context.Submissions.Add(new SubmissionEntity
         {
-            await previous.Database.GetService<IMigrator>()
-                .MigrateAsync("20260711200436_InitialPersistence");
-            Assert.AreEqual(0L, Convert.ToInt64(await previous.Database.SqlQueryRaw<long>(
-                "SELECT COUNT(*) AS Value FROM sqlite_master WHERE type = 'index' AND name = 'IX_jobs_workflow_id_created_at_utc_id'").SingleAsync()));
-            previous.RuntimeSessions.Add(new RuntimeSessionEntity
-            {
-                Id = runtimeId,
-                StartedAtUtc = 1,
-                Version = "previous-schema-fixture",
-            });
-            previous.Jobs.Add(JobRow(jobId, runtimeId, 1, "Terminal", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch));
-            await previous.SaveChangesAsync();
+            Id = original, SpecificationSchemaVersion = 5, Revision = 1,
+            Specification = new() { Json = "{\"input\":\"original\"}" },
+        });
+        await context.SaveChangesAsync();
+        context.Submissions.Add(new SubmissionEntity
+        {
+            Id = rerun, RerunOfSubmissionId = original, SpecificationSchemaVersion = 5, Revision = 1,
+            Specification = new() { Json = "{\"input\":\"rerun\"}" },
+        });
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+        await Assert.ThrowsExactlyAsync<Microsoft.Data.Sqlite.SqliteException>(
+            () => context.Submissions.Where(row => row.Id == original).ExecuteDeleteAsync());
+        Assert.AreEqual(2, await context.Submissions.CountAsync());
+        Assert.AreEqual(2, await context.Set<SubmissionSpecificationEntity>().CountAsync());
+        await context.Submissions.Where(row => row.Id == rerun).ExecuteDeleteAsync();
+        Assert.AreEqual(original, (await context.Set<SubmissionSpecificationEntity>().SingleAsync()).SubmissionId);
+        await context.Submissions.Where(row => row.Id == original).ExecuteDeleteAsync();
+        Assert.AreEqual(0, await context.Set<SubmissionSpecificationEntity>().CountAsync());
+        Assert.HasCount(0, QueryStrings(context, "PRAGMA foreign_key_check;"));
+    }
+
+    [TestMethod]
+    [DataRow("20990101000000_FutureSchema")]
+    [DataRow("20260711200436_InitialPersistence")]
+    [DataRow("20261102011521_InitialPersistence")]
+    public async Task DatabaseWithUnknownAppliedMigration_IsRejectedWithoutReplacingData(string unknownMigration)
+    {
+        await using var database = new TemporaryDatabase();
+        await database.Initializer.InitializeAsync();
+        await using (var context = await database.Factory.CreateDbContextAsync())
+        {
+            await context.Database.ExecuteSqlInterpolatedAsync($"""
+                CREATE TABLE operator_data(value TEXT);
+                INSERT INTO operator_data VALUES ('keep me');
+                INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion)
+                VALUES ({unknownMigration}, '99.0.0');
+                """);
         }
 
-        await using (var upgraded = await database.Factory.CreateDbContextAsync())
-        {
-            await upgraded.Database.MigrateAsync();
-            Assert.AreEqual(1L, Convert.ToInt64(await upgraded.Database.SqlQueryRaw<long>(
-                "SELECT COUNT(*) AS Value FROM sqlite_master WHERE type = 'index' AND name = 'IX_jobs_workflow_id_created_at_utc_id'").SingleAsync()));
-            Assert.IsTrue(await upgraded.Jobs.AnyAsync(job => job.Id == jobId));
-            var applied = await upgraded.Database.GetAppliedMigrationsAsync();
-            CollectionAssert.Contains(applied.ToArray(), "20260712090000_AddHistoryQueryIndexes");
-            CollectionAssert.Contains(applied.ToArray(), "20260712170220_AddTransferAttemptSourceIdentity");
-        }
+        var exception = await Assert.ThrowsExactlyAsync<PersistenceSchemaCompatibilityException>(
+            () => database.Initializer.InitializeAsync());
+
+        StringAssert.Contains(exception.Message, unknownMigration);
+        await using var preserved = await database.Factory.CreateDbContextAsync();
+        await preserved.Database.OpenConnectionAsync();
+        Assert.AreEqual("keep me", Scalar(preserved, "SELECT value FROM operator_data;"));
+        CollectionAssert.AreEquivalent(preserved.Database.GetMigrations().Append(unknownMigration).ToArray(),
+            (await preserved.Database.GetAppliedMigrationsAsync()).ToArray());
     }
 
     [TestMethod]
@@ -116,7 +231,7 @@ public sealed class SqliteInitializationTests
             PayloadSchemaVersion = 1,
         });
 
-        await Assert.ThrowsExceptionAsync<DbUpdateException>(() => context.SaveChangesAsync());
+        await Assert.ThrowsExactlyAsync<DbUpdateException>(() => context.SaveChangesAsync());
     }
 
     [TestMethod]
@@ -124,7 +239,7 @@ public sealed class SqliteInitializationTests
     {
         await using var database = new TemporaryDatabase();
 
-        var exception = Assert.ThrowsException<InvalidOperationException>(
+        var exception = Assert.ThrowsExactly<InvalidOperationException>(
             () => SqliteDatabaseOwner.Acquire(database.Options));
 
         StringAssert.Contains(exception.Message, "already owned");
@@ -150,7 +265,7 @@ public sealed class SqliteInitializationTests
             using var cancellation = new CancellationTokenSource();
             cancellation.Cancel();
 
-            await Assert.ThrowsExceptionAsync<TaskCanceledException>(() =>
+            await Assert.ThrowsExactlyAsync<TaskCanceledException>(() =>
                 host.StopAsync(TimeSpan.FromSeconds(1), cancellation.Token));
 
             Assert.IsFalse(host.IsStarted);
@@ -253,6 +368,7 @@ public sealed class SqliteInitializationTests
             var transfer = await context.Transfers.SingleAsync(x => x.Id == transferId);
             var attempt = await context.TransferAttempts.SingleAsync(x => x.Id == attemptId);
             var priorRuntime = await context.RuntimeSessions.SingleAsync(x => x.Id == first.Runtime.RuntimeId);
+            var accounting = await context.TransferAccountingStates.SingleAsync(x => x.Id == 1);
 
             Assert.AreEqual("Terminal", job.LifecycleState);
             Assert.AreEqual("Interrupted", job.FailureReason);
@@ -263,8 +379,10 @@ public sealed class SqliteInitializationTests
             Assert.AreEqual("Interrupted", transfer.State);
             Assert.AreEqual("Interrupted", attempt.State);
             Assert.AreEqual("Unclean", priorRuntime.ShutdownKind);
+            Assert.AreEqual(clock.GetUtcNow().ToUnixTimeMilliseconds(), accounting.CompleteFromUtc);
         }
 
+        long coverageAfterUncleanRestart = clock.GetUtcNow().ToUnixTimeMilliseconds();
         clock.Advance(TimeSpan.FromMinutes(1));
         await secondRuntime.StopAsync();
         clock.Advance(TimeSpan.FromMinutes(1));
@@ -272,7 +390,60 @@ public sealed class SqliteInitializationTests
         var cleanRestart = await thirdRuntime.StartAsync("test-3");
         Assert.AreEqual(0, cleanRestart.UnfinishedRuntimeCount);
         Assert.AreEqual(0, cleanRestart.InterruptedJobCount);
+        await using (var context = await database.Factory.CreateDbContextAsync())
+        {
+            Assert.AreEqual(
+                coverageAfterUncleanRestart,
+                (await context.TransferAccountingStates.SingleAsync(x => x.Id == 1)).CompleteFromUtc);
+        }
         await thirdRuntime.StopAsync();
+    }
+
+    [TestMethod]
+    public async Task Restart_MarksIncompleteSearchInterruptedEvenWhenItsJobWasAlreadyTerminal()
+    {
+        await using var database = new TemporaryDatabase();
+        await database.Initializer.InitializeAsync();
+        var clock = new MutableTimeProvider(new DateTimeOffset(2035, 2, 1, 0, 0, 0, TimeSpan.Zero));
+        var firstRuntime = new PersistenceRuntimeSession(database.Factory, clock);
+        var first = await firstRuntime.StartAsync("test-1");
+        Guid searchId = Guid.NewGuid();
+
+        await using (var context = await database.Factory.CreateDbContextAsync())
+        {
+            context.Jobs.Add(JobRow(
+                searchId,
+                first.Runtime.RuntimeId,
+                1,
+                "Terminal",
+                clock.GetUtcNow(),
+                clock.GetUtcNow(),
+                "Search"));
+            context.SearchJobs.Add(new SearchJobEntity
+            {
+                JobId = searchId,
+                Query = "partially persisted",
+                Revision = 2,
+                ResultCount = 1,
+                IsComplete = false,
+                ResultPersistenceState = "Incomplete",
+            });
+            await context.SaveChangesAsync();
+        }
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        var secondRuntime = new PersistenceRuntimeSession(database.Factory, clock);
+        StartupReconciliationResult result = await secondRuntime.StartAsync("test-2");
+
+        Assert.AreEqual(0, result.InterruptedJobCount);
+        Assert.AreEqual(1, result.InterruptedSearchCount);
+        await using (var context = await database.Factory.CreateDbContextAsync())
+        {
+            var search = await context.SearchJobs.SingleAsync(row => row.JobId == searchId);
+            Assert.IsTrue(search.IsComplete);
+            Assert.AreEqual("Interrupted", search.ResultPersistenceState);
+        }
+        await secondRuntime.StopAsync();
     }
 
     [TestMethod]
@@ -386,8 +557,12 @@ public sealed class SqliteInitializationTests
             }.ToString());
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'jobs';";
-        Assert.AreEqual(1L, Convert.ToInt64(await command.ExecuteScalarAsync()));
+        command.CommandText = """
+            SELECT COUNT(*) FROM sqlite_master
+            WHERE type = 'table'
+              AND name IN ('jobs', 'input_artifacts', 'search_observations');
+            """;
+        Assert.AreEqual(3L, Convert.ToInt64(await command.ExecuteScalarAsync()));
 
         string restorePath = Path.Combine(Path.GetDirectoryName(database.Options.DatabasePath)!, "restored-app-data", "sockseek.db");
         var restored = await SqliteMaintenanceService.RestoreOfflineAsync(backupPath, restorePath);
@@ -406,8 +581,12 @@ public sealed class SqliteInitializationTests
             }.ToString());
         await restoredConnection.OpenAsync();
         await using var restoredCommand = restoredConnection.CreateCommand();
-        restoredCommand.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'jobs';";
-        Assert.AreEqual(1L, Convert.ToInt64(await restoredCommand.ExecuteScalarAsync()));
+        restoredCommand.CommandText = """
+            SELECT COUNT(*) FROM sqlite_master
+            WHERE type = 'table'
+              AND name IN ('jobs', 'input_artifacts', 'search_observations');
+            """;
+        Assert.AreEqual(3L, Convert.ToInt64(await restoredCommand.ExecuteScalarAsync()));
     }
 
     [TestMethod]
@@ -438,9 +617,8 @@ public sealed class SqliteInitializationTests
                 CompletedAtUtc = now.AddDays(-40).ToUnixTimeMilliseconds(),
                 ResultPersistenceState = "Complete",
             });
-            context.SearchResults.Add(new SearchResultEntity
+            await TestPersistenceWriter.SeedSearchResultAsync(context, new SearchResultEntity
             {
-                Id = Guid.NewGuid(),
                 SearchJobId = searchId,
                 Sequence = 1,
                 Revision = 1,
@@ -491,11 +669,18 @@ public sealed class SqliteInitializationTests
                 CreatedAtUtc = now.AddDays(-100).ToUnixTimeMilliseconds(),
                 Revision = 1,
             });
+            context.TransferByteBuckets.Add(new TransferByteBucketEntity
+            {
+                BucketStartUtc = now.AddDays(-100).ToUnixTimeMilliseconds(),
+                Direction = "Download",
+                Username = "peer",
+                Bytes = 123,
+            });
             await context.SaveChangesAsync();
         }
 
         var retention = new RetentionService(
-            database.Factory,
+            database.Writes,
             new PersistenceRetentionOptions { BatchSize = 10 },
             new FixedTimeProvider(now));
         var result = await retention.RunBatchAsync();
@@ -514,6 +699,10 @@ public sealed class SqliteInitializationTests
             Assert.AreEqual(0, await context.SearchResults.CountAsync());
             Assert.IsFalse(await context.Transfers.AnyAsync(transfer => transfer.Id == oldTransferId));
             Assert.IsTrue(await context.Transfers.AnyAsync(transfer => transfer.Id == activeTransferId));
+            Assert.AreEqual(0, await context.TransferByteBuckets.CountAsync());
+            Assert.AreEqual(
+                now.AddDays(-90).ToUnixTimeMilliseconds(),
+                (await context.TransferAccountingStates.SingleAsync(state => state.Id == 1)).CompleteFromUtc);
         }
     }
 
@@ -544,9 +733,8 @@ public sealed class SqliteInitializationTests
                 CompletedAtUtc = now.ToUnixTimeMilliseconds(),
                 ResultPersistenceState = "Complete",
             });
-            context.SearchResults.Add(new SearchResultEntity
+            await TestPersistenceWriter.SeedSearchResultAsync(context, new SearchResultEntity
             {
-                Id = Guid.NewGuid(),
                 SearchJobId = searchId,
                 Sequence = 1,
                 Revision = 1,
@@ -596,7 +784,7 @@ public sealed class SqliteInitializationTests
             await context.SaveChangesAsync();
         }
 
-        var retention = new RetentionService(database.Factory, new PersistenceRetentionOptions
+        var retention = new RetentionService(database.Writes, new PersistenceRetentionOptions
         {
             CompletedJobHistoryAge = null,
             UnsuccessfulJobHistoryAge = null,
@@ -613,6 +801,125 @@ public sealed class SqliteInitializationTests
         Assert.IsFalse(await verify.Jobs.AnyAsync(job => job.Id == terminalIds[0]));
         Assert.IsFalse(await verify.Jobs.AnyAsync(job => job.Id == terminalIds[1]));
         Assert.AreEqual(4, await verify.Jobs.CountAsync());
+    }
+
+    [TestMethod]
+    public async Task Retention_AgeSelectionReducesTheRemainingMaximumCountDeficit()
+    {
+        await using var database = new TemporaryDatabase();
+        await database.Initializer.InitializeAsync();
+        var now = new DateTimeOffset(2035, 7, 1, 0, 0, 0, TimeSpan.Zero);
+        Guid runtimeId = Guid.NewGuid();
+        var ids = Enumerable.Range(0, 110).Select(_ => Guid.NewGuid()).ToArray();
+        await using (var context = await database.Factory.CreateDbContextAsync())
+        {
+            context.RuntimeSessions.Add(new RuntimeSessionEntity
+            {
+                Id = runtimeId,
+                StartedAtUtc = now.AddDays(-100).ToUnixTimeMilliseconds(),
+                Version = "test",
+            });
+            for (int index = 0; index < ids.Length; index++)
+            {
+                DateTimeOffset completed = index < 10
+                    ? now.AddDays(-100 + index)
+                    : now.AddDays(-10).AddMinutes(index);
+                context.Jobs.Add(JobRow(
+                    ids[index], runtimeId, index + 1, "Terminal", completed, completed));
+            }
+            await context.SaveChangesAsync();
+        }
+
+        var retention = new RetentionService(database.Writes, new PersistenceRetentionOptions
+        {
+            CompletedJobHistoryAge = TimeSpan.FromDays(30),
+            UnsuccessfulJobHistoryAge = TimeSpan.FromDays(30),
+            MaximumRetainedJobs = 100,
+            SearchResultAge = null,
+            TransferHistoryAge = null,
+            BatchSize = 100,
+        }, new FixedTimeProvider(now));
+
+        RetentionResult result = await retention.RunBatchAsync();
+
+        Assert.AreEqual(10, result.PrunedJobs);
+        await using var verify = await database.Factory.CreateDbContextAsync();
+        Assert.AreEqual(100, await verify.Jobs.CountAsync());
+        foreach (Guid id in ids.Take(10))
+            Assert.IsFalse(await verify.Jobs.AnyAsync(job => job.Id == id));
+    }
+
+    [TestMethod]
+    public async Task Retention_PreservesRawSearchResultsUntilTheirIndependentAgeExpires()
+    {
+        await using var database = new TemporaryDatabase();
+        await database.Initializer.InitializeAsync();
+        var now = new DateTimeOffset(2035, 7, 1, 0, 0, 0, TimeSpan.Zero);
+        Guid runtimeId = Guid.NewGuid();
+        Guid searchId = Guid.NewGuid();
+        await using (var context = await database.Factory.CreateDbContextAsync())
+        {
+            context.RuntimeSessions.Add(new RuntimeSessionEntity
+            {
+                Id = runtimeId,
+                StartedAtUtc = now.AddDays(-100).ToUnixTimeMilliseconds(),
+                Version = "test",
+            });
+            DateTimeOffset completed = now.AddDays(-40);
+            context.Jobs.Add(JobRow(searchId, runtimeId, 1, "Terminal", completed, completed, "Search"));
+            context.SearchJobs.Add(new SearchJobEntity
+            {
+                JobId = searchId,
+                Query = "query",
+                Revision = 2,
+                ResultCount = 1,
+                IsComplete = true,
+                CompletedAtUtc = completed.ToUnixTimeMilliseconds(),
+                ResultPersistenceState = "Complete",
+            });
+            await TestPersistenceWriter.SeedSearchResultAsync(context, new SearchResultEntity
+            {
+                SearchJobId = searchId,
+                Sequence = 1,
+                Revision = 1,
+                Username = "peer",
+                RemoteFilename = "file.mp3",
+                SizeBytes = 1,
+                Extension = ".mp3",
+                ObservedAtUtc = completed.ToUnixTimeMilliseconds(),
+            });
+            await context.SaveChangesAsync();
+        }
+
+        var options = new PersistenceRetentionOptions
+        {
+            CompletedJobHistoryAge = TimeSpan.FromDays(30),
+            UnsuccessfulJobHistoryAge = TimeSpan.FromDays(30),
+            MaximumRetainedJobs = null,
+            SearchResultAge = TimeSpan.FromDays(90),
+            TransferHistoryAge = null,
+            BatchSize = 10,
+        };
+        RetentionResult first = await new RetentionService(
+            database.Writes,
+            options,
+            new FixedTimeProvider(now)).RunBatchAsync();
+
+        Assert.AreEqual(0, first.PrunedJobs);
+        await using (var context = await database.Factory.CreateDbContextAsync())
+        {
+            Assert.IsTrue(await context.Jobs.AnyAsync(row => row.Id == searchId));
+            Assert.AreEqual(1, await context.SearchResults.CountAsync(row => row.SearchJobId == searchId));
+        }
+
+        RetentionResult second = await new RetentionService(
+            database.Writes,
+            options,
+            new FixedTimeProvider(now.AddDays(60))).RunBatchAsync();
+        Assert.AreEqual(1, second.PrunedJobs);
+        Assert.AreEqual(1, second.PrunedSearchResults);
+        await using var verify = await database.Factory.CreateDbContextAsync();
+        Assert.IsFalse(await verify.Jobs.AnyAsync(row => row.Id == searchId));
     }
 
     [TestMethod]
@@ -651,9 +958,8 @@ public sealed class SqliteInitializationTests
                     CompletedAtUtc = now.AddDays(-40).ToUnixTimeMilliseconds(),
                     ResultPersistenceState = "Complete",
                 });
-                context.SearchResults.Add(new SearchResultEntity
+                await TestPersistenceWriter.SeedSearchResultAsync(context, new SearchResultEntity
                 {
-                    Id = Guid.NewGuid(),
                     SearchJobId = searchId,
                     Sequence = 1,
                     Revision = 1,
@@ -668,7 +974,7 @@ public sealed class SqliteInitializationTests
         }
 
         database.CommandCounter!.Reset();
-        var retention = new RetentionService(database.Factory, new PersistenceRetentionOptions
+        var retention = new RetentionService(database.Writes, new PersistenceRetentionOptions
         {
             CompletedJobHistoryAge = null,
             UnsuccessfulJobHistoryAge = null,
@@ -762,14 +1068,16 @@ public sealed class SqliteInitializationTests
         public SockseekDbContextFactory Factory { get; }
         public SqliteInitializer Initializer { get; }
         public CountingCommandInterceptor? CommandCounter { get; }
+        private TestPersistenceWriter? writer;
+        public PersistenceInbox Writes => (writer ??= new TestPersistenceWriter(Factory)).Inbox;
 
-        public ValueTask DisposeAsync()
+        public async ValueTask DisposeAsync()
         {
+            if (writer != null) await writer.DisposeAsync();
             Owner.Dispose();
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
-            return ValueTask.CompletedTask;
         }
     }
 

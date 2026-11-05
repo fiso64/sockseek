@@ -17,6 +17,18 @@ namespace Tests.StringUtils
         }
 
         [TestMethod]
+        [DataRow("Human (feat. Echoes) - Aaron Hibell Remix", "Human - Aaron Hibell Remix")]
+        [DataRow("Song feat. Guest - Extended Mix", "Song - Extended Mix")]
+        [DataRow("Song (feat. Guest - Extended Mix)", "Song (Extended Mix)")]
+        [DataRow("Song ( feat. Guest) (Remix)", "Song (Remix)")]
+        [DataRow("Song (feat. First) (ft. Second) - Remix", "Song - Remix")]
+        [DataRow("Beam (Knock2 Remix)", "Beam (Knock2 Remix)")]
+        [DataRow("Taylor Swift.", "Taylor Swift.")]
+        [DataRow("The Gift. (Live)", "The Gift. (Live)")]
+        public void RemoveFt_PreservesVersionsAndArtistNames(string input, string expected)
+            => Assert.AreEqual(expected, input.RemoveFt());
+
+        [TestMethod]
         public void RemoveConsecutiveWs_RemovesExtraWhitespace()
         {
             Assert.AreEqual(" blah blah blah blah ", " blah    blah  blah blah ".RemoveConsecutiveWs());

@@ -104,33 +104,79 @@ internal static class DaemonResourceCommandRunner
         IReadOnlyList<string> args,
         CancellationToken cancellationToken)
     {
-        int limit = ParseLimit(Option(args, "--limit"), 100);
+        string? action = Positional(args, 1);
+        if (Equals(action, "cancel"))
+        {
+            if (!Enum.TryParse(
+                    Option(args, "--direction"),
+                    ignoreCase: true,
+                    out TransferCommandDirection direction))
+            {
+                return Usage("'transfers cancel' requires --direction download|upload.");
+            }
+            TransferCancellationScope scope = Enum.TryParse(
+                (Option(args, "--scope") ?? "All").Replace("-", "", StringComparison.Ordinal),
+                ignoreCase: true,
+                out TransferCancellationScope parsedScope)
+                    ? parsedScope
+                    : throw new ArgumentException(
+                        "Input error: --scope must be all, queued, or in-progress.");
+            TransferCommandReceiptDto receipt = await api.CancelTransfersAsync(
+                new BulkCancelTransfersRequestDto(
+                    direction,
+                    scope,
+                    Username: Option(args, "--username"),
+                    GroupRef: Option(args, "--group-ref")),
+                cancellationToken).ConfigureAwait(false);
+            WriteReceipt(receipt, JsonRequested(args));
+            return Program.CliExitCode.Success;
+        }
+        if (Equals(action, "archive"))
+        {
+            TransferCommandReceiptDto receipt = await api.SetTransfersArchivedAsync(
+                new ArchiveTransfersRequestDto(
+                    Archived: !args.Contains("--restore", StringComparer.OrdinalIgnoreCase),
+                    Direction: Option(args, "--direction"),
+                    TerminalOutcome: Option(args, "--outcome"),
+                    Username: Option(args, "--username"),
+                    GroupRef: Option(args, "--group-ref")),
+                cancellationToken).ConfigureAwait(false);
+            WriteReceipt(receipt, JsonRequested(args));
+            return Program.CliExitCode.Success;
+        }
+        if (action is not null)
+            return Usage("Expected 'transfers', 'transfers cancel', or 'transfers archive'.");
+
+        int limit = ParseLimit(Option(args, "--limit"), ServerProtocol.DefaultPageSize);
         var filter = new TransferHistoryFilter(
             Direction: Option(args, "--direction"),
             State: Option(args, "--state"),
             TerminalOutcome: Option(args, "--outcome"),
-            Username: Option(args, "--username"));
-        CursorPage<TransferHistoryDto> page = await api.GetTransfersPageAsync(
+            Username: Option(args, "--username"),
+            Archived: args.Contains("--archived", StringComparer.OrdinalIgnoreCase));
+        TransferTimelinePageDto page = await api.GetTransfersPageAsync(
             filter,
             Option(args, "--cursor"),
             limit,
-            cancellationToken).ConfigureAwait(false);
+            ct: cancellationToken).ConfigureAwait(false);
 
         if (JsonRequested(args))
         {
-            Write(new { page.Items, page.NextCursor }, json: true);
+            Write(page, json: true);
             return Program.CliExitCode.Success;
         }
 
-        foreach (TransferHistoryDto transfer in page.Items)
+        foreach (TransferStateDto transfer in page.Items)
         {
             Console.WriteLine(
-                $"{transfer.TransferId:D}  {transfer.Direction,-8} "
-                + $"{transfer.State,-12} {transfer.Username ?? "-"}  "
-                + $"{transfer.RemotePath ?? "-"}");
+                $"{transfer.TransferId:D}  {transfer.Identity.Direction,-8} "
+                + $"{transfer.Status.State,-12} {transfer.Identity.Username ?? "-"}  "
+                + $"{transfer.Identity.RemotePath ?? "-"}");
         }
         if (page.Items.Count == 0)
-            Console.WriteLine("No retained transfers matched.");
+            Console.WriteLine("No transfers matched.");
+        if (page.RetainedCoverage.State != TransferRetainedCoverageState.Available)
+            Console.WriteLine($"Retained coverage: {page.RetainedCoverage.State} ({page.RetainedCoverage.Reason ?? "unknown"})");
         if (page.NextCursor is not null)
             Console.WriteLine($"Next cursor: {page.NextCursor}");
         return Program.CliExitCode.Success;
@@ -143,17 +189,47 @@ internal static class DaemonResourceCommandRunner
     {
         string? action = Positional(args, 1);
         string? idValue = Positional(args, 2);
-        if (!Equals(action, "cancel")
+        if ((!Equals(action, "cancel") && !Equals(action, "archive"))
             || !Guid.TryParse(idValue, out Guid transferId))
         {
-            return Usage("Expected 'transfer cancel <transfer-id>'.");
+            return Usage("Expected 'transfer cancel <id>' or 'transfer archive <id>'.");
         }
 
-        TransferStateDto transfer = await api.CancelTransferAsync(
-            transferId,
-            cancellationToken).ConfigureAwait(false);
-        Write(transfer, JsonRequested(args));
+        if (Equals(action, "archive"))
+        {
+            TransferCommandReceiptDto receipt = await api.SetTransferArchivedAsync(
+                transferId,
+                archived: !args.Contains("--restore", StringComparer.OrdinalIgnoreCase),
+                cancellationToken).ConfigureAwait(false);
+            WriteReceipt(receipt, JsonRequested(args));
+        }
+        else
+        {
+            TransferStateDto transfer = await api.CancelTransferAsync(
+                transferId,
+                cancellationToken).ConfigureAwait(false);
+            Write(transfer, JsonRequested(args));
+        }
         return Program.CliExitCode.Success;
+    }
+
+    private static void WriteReceipt(TransferCommandReceiptDto receipt, bool json)
+    {
+        if (json)
+        {
+            Write(receipt, json: true);
+            return;
+        }
+        Console.WriteLine(
+            $"Resolved {receipt.ResolvedCount:N0}; succeeded {receipt.SucceededCount:N0}; "
+            + $"unchanged {receipt.NoOpCount:N0}; rejected {receipt.RejectedCount:N0}; "
+            + $"failed {receipt.FailedCount:N0}.");
+        if (receipt.Reasons.Count > 0)
+        {
+            Console.WriteLine("Reasons: " + string.Join(
+                ", ",
+                receipt.Reasons.Select(reason => $"{reason.Reason}={reason.Count:N0}")));
+        }
     }
 
     private static void WriteSharing(
@@ -178,8 +254,8 @@ internal static class DaemonResourceCommandRunner
             + $"{state.Catalog.FileCount:N0} files, "
             + $"{state.Catalog.TotalBytes:N0} bytes");
         Console.WriteLine(
-            $"Blocked peers: {state.BlockedUsernameCount:N0} usernames, "
-            + $"{state.BlockedIpAddressCount:N0} IP addresses");
+            $"Upload-blocked peers: {state.UploadBlockedUsernameCount:N0} usernames, "
+            + $"{state.UploadBlockedIpAddressCount:N0} IP addresses");
         if (uploads is not null)
         {
             Console.WriteLine(
@@ -238,8 +314,10 @@ internal static class DaemonResourceCommandRunner
            || argument.Equals("--state", StringComparison.OrdinalIgnoreCase)
            || argument.Equals("--outcome", StringComparison.OrdinalIgnoreCase)
            || argument.Equals("--username", StringComparison.OrdinalIgnoreCase)
+           || argument.Equals("--group-ref", StringComparison.OrdinalIgnoreCase)
            || argument.Equals("--cursor", StringComparison.OrdinalIgnoreCase)
-           || argument.Equals("--limit", StringComparison.OrdinalIgnoreCase);
+           || argument.Equals("--limit", StringComparison.OrdinalIgnoreCase)
+           || argument.Equals("--scope", StringComparison.OrdinalIgnoreCase);
 
     private static void ValidateArguments(IReadOnlyList<string> args)
     {
@@ -257,12 +335,16 @@ internal static class DaemonResourceCommandRunner
                         "--state",
                         "--outcome",
                         "--username",
+                        "--group-ref",
                         "--cursor",
                         "--limit",
+                        "--scope",
+                        "--restore",
+                        "--archived",
                     ],
                     StringComparer.OrdinalIgnoreCase)
                 : new HashSet<string>(
-                    ["--json"],
+                    ["--json", "--restore"],
                     StringComparer.OrdinalIgnoreCase);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var positional = new List<string>();
@@ -288,7 +370,7 @@ internal static class DaemonResourceCommandRunner
         bool validPositionals = share
             ? positional.Count is 1 or 2
             : transfers
-                ? positional.Count == 1
+                ? positional.Count is 1 or 2
                 : positional.Count == 3;
         if (!validPositionals)
         {
@@ -296,8 +378,8 @@ internal static class DaemonResourceCommandRunner
                 share
                     ? "Input error: Expected 'share status' or 'share scan'."
                     : transfers
-                        ? "Input error: 'transfers' does not accept positional arguments."
-                        : "Input error: Expected 'transfer cancel <transfer-id>'.");
+                        ? "Input error: Expected 'transfers', 'transfers cancel', or 'transfers archive'."
+                        : "Input error: Expected 'transfer cancel <id>' or 'transfer archive <id>'.");
         }
         if (share
             && seen.Contains("--cancel")
@@ -305,6 +387,26 @@ internal static class DaemonResourceCommandRunner
         {
             throw new ArgumentException(
                 "Input error: --cancel is valid only with 'share scan'.");
+        }
+        if (transfers)
+        {
+            string? action = positional.Count > 1 ? positional[1] : null;
+            if (seen.Contains("--restore") && !Equals(action, "archive"))
+                throw new ArgumentException("Input error: --restore is valid only with 'transfers archive'.");
+            if (seen.Contains("--scope") && !Equals(action, "cancel"))
+                throw new ArgumentException("Input error: --scope is valid only with 'transfers cancel'.");
+            if (seen.Contains("--archived") && action is not null)
+                throw new ArgumentException("Input error: --archived is valid only when listing transfers.");
+            if (seen.Contains("--group-ref") && !Equals(action, "cancel") && !Equals(action, "archive"))
+                throw new ArgumentException("Input error: --group-ref is valid only with 'transfers cancel' or 'transfers archive'.");
+            if (seen.Contains("--group-ref") && (!seen.Contains("--username") || !seen.Contains("--direction")))
+                throw new ArgumentException("Input error: --group-ref requires --username and --direction.");
+        }
+        if (!share && !transfers
+            && seen.Contains("--restore")
+            && !Equals(positional.ElementAtOrDefault(1), "archive"))
+        {
+            throw new ArgumentException("Input error: --restore is valid only with 'transfer archive'.");
         }
     }
 
@@ -322,9 +424,9 @@ internal static class DaemonResourceCommandRunner
         => value is null
             ? fallback
             : int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int parsed)
-              && parsed is >= 1 and <= 200
+              && parsed >= 1
                 ? parsed
-                : throw new ArgumentException("Input error: --limit must be between 1 and 200.");
+                : throw new ArgumentException("Input error: --limit must be a positive integer.");
 
     private static bool JsonRequested(IReadOnlyList<string> args)
         => args.Contains("--json", StringComparer.OrdinalIgnoreCase);
@@ -347,10 +449,16 @@ internal static class DaemonResourceCommandRunner
               sockseek share scan [--remote <url>] [--json]
               sockseek share scan --cancel [--remote <url>] [--json]
               sockseek transfers [--remote <url>] [--direction upload|download] [--state <state>]
-                                     [--username <name>] [--limit 1..200] [--cursor <cursor>] [--json]
+                                     [--username <name>] [--archived] [--limit N] [--cursor <cursor>] [--json]
+              sockseek transfers cancel --direction upload|download [--scope all|queued|in-progress]
+                                       [--username <name>] [--group-ref <ref>]
+              sockseek transfers archive [--direction upload|download] [--outcome <outcome>] [--restore]
+                                        [--username <name>] [--group-ref <ref>]
               sockseek transfer cancel <id> [--remote <url>] [--json]
+              sockseek transfer archive <id> [--restore] [--remote <url>] [--json]
 
             The remote URL can be set as `remote = <url>` in config; --remote overrides it.
+            --group-ref requires both --username and --direction.
             """);
     }
 }

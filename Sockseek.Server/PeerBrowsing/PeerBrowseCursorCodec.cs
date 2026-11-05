@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
-using System.Text.Json;
 using Sockseek.Api;
+using Sockseek.Core.PeerBrowsing;
 
 namespace Sockseek.Server.PeerBrowsing;
 
@@ -11,7 +11,6 @@ namespace Sockseek.Server.PeerBrowsing;
 /// </summary>
 public sealed class PeerBrowseCursorCodec
 {
-    private const int SignatureLength = 32;
     private readonly byte[] key;
 
     public PeerBrowseCursorCodec()
@@ -59,7 +58,9 @@ public sealed class PeerBrowseCursorCodec
             || payload.CreatedAt is not null
             || payload.ResourceId is not null
             || payload.Username is not null
-            || payload.State is not null)
+            || payload.State is not null
+            || payload.BrowseRevision is not null
+            || payload.SearchEntryKind is not null)
         {
             throw InvalidCursor();
         }
@@ -96,55 +97,64 @@ public sealed class PeerBrowseCursorCodec
             || payload.ParentId is not null
             || payload.LastId is not null
             || payload.Query is not null
-            || payload.Recursive)
+            || payload.Recursive
+            || payload.BrowseRevision is not null
+            || payload.SearchEntryKind is not null)
         {
             throw InvalidCursor();
         }
         return new PeerBrowseResourceCursor(payload.CreatedAt.Value, payload.ResourceId.Value);
     }
 
-    private string Encode(CursorPayload payload)
+    public string EncodeSearch(
+        Guid browseId,
+        long browseRevision,
+        string query,
+        PeerBrowseSearchEntryKind kind,
+        long lastId)
+        => Encode(new CursorPayload(
+            1,
+            PeerBrowseCursorKind.Search,
+            BrowseId: browseId,
+            Query: query,
+            LastId: lastId,
+            BrowseRevision: browseRevision,
+            SearchEntryKind: kind));
+
+    public PeerBrowseSearchCursor DecodeSearch(
+        string cursor,
+        Guid expectedBrowseId,
+        long expectedBrowseRevision,
+        string expectedQuery)
     {
-        byte[] body = JsonSerializer.SerializeToUtf8Bytes(payload);
-        byte[] signature = HMACSHA256.HashData(key, body);
-        byte[] signed = new byte[body.Length + signature.Length];
-        body.CopyTo(signed, 0);
-        signature.CopyTo(signed, body.Length);
-        return Base64UrlEncode(signed);
+        CursorPayload payload = Decode(cursor);
+        if (payload.Version != 1
+            || payload.Kind != PeerBrowseCursorKind.Search
+            || payload.BrowseId != expectedBrowseId
+            || payload.BrowseRevision != expectedBrowseRevision
+            || !string.Equals(payload.Query, expectedQuery, StringComparison.Ordinal)
+            || payload.SearchEntryKind is null
+            || payload.LastId is null or <= 0
+            || payload.ParentId is not null
+            || payload.Recursive
+            || payload.Username is not null
+            || payload.State is not null
+            || payload.CreatedAt is not null
+            || payload.ResourceId is not null)
+        {
+            throw InvalidCursor();
+        }
+        return new PeerBrowseSearchCursor(payload.SearchEntryKind.Value, payload.LastId.Value);
     }
+
+    private string Encode(CursorPayload payload)
+        => AuthenticatedCursorCodec.Encode(payload, key);
 
     private CursorPayload Decode(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value) || value.Length > 4_096)
-            throw InvalidCursor();
-        try
-        {
-            byte[] signed = Base64UrlDecode(value);
-            if (signed.Length <= SignatureLength)
-                throw InvalidCursor();
-            ReadOnlySpan<byte> body = signed.AsSpan(0, signed.Length - SignatureLength);
-            ReadOnlySpan<byte> signature = signed.AsSpan(signed.Length - SignatureLength);
-            byte[] expected = HMACSHA256.HashData(key, body);
-            if (!CryptographicOperations.FixedTimeEquals(signature, expected))
-                throw InvalidCursor();
-            return JsonSerializer.Deserialize<CursorPayload>(body)
-                   ?? throw InvalidCursor();
-        }
-        catch (Exception exception) when (exception is FormatException or JsonException)
-        {
-            throw InvalidCursor(exception);
-        }
-    }
-
-    private static string Base64UrlEncode(byte[] value)
-        => Convert.ToBase64String(value).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-
-    private static byte[] Base64UrlDecode(string value)
-    {
-        string padded = value.Replace('-', '+').Replace('_', '/');
-        padded += new string('=', (4 - padded.Length % 4) % 4);
-        return Convert.FromBase64String(padded);
-    }
+        => AuthenticatedCursorCodec.Decode<CursorPayload>(
+            value,
+            key,
+            "peer browse");
 
     private static ArgumentException InvalidCursor(Exception? inner = null)
         => new("The peer browse cursor is invalid.", "cursor", inner);
@@ -160,7 +170,9 @@ public sealed class PeerBrowseCursorCodec
         string? Username = null,
         UserBrowseState? State = null,
         DateTimeOffset? CreatedAt = null,
-        Guid? ResourceId = null);
+        Guid? ResourceId = null,
+        long? BrowseRevision = null,
+        PeerBrowseSearchEntryKind? SearchEntryKind = null);
 }
 
 public enum PeerBrowseCursorKind
@@ -168,6 +180,9 @@ public enum PeerBrowseCursorKind
     Resources,
     Directories,
     Files,
+    Search,
 }
 
 public sealed record PeerBrowseResourceCursor(DateTimeOffset CreatedAt, Guid BrowseId);
+
+public sealed record PeerBrowseSearchCursor(PeerBrowseSearchEntryKind Kind, long EntryId);

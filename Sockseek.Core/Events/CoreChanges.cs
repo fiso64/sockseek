@@ -1,3 +1,4 @@
+using Sockseek.Core.Models;
 using Microsoft.Extensions.Logging;
 using Sockseek.Core;
 using Sockseek.Core.Snapshots;
@@ -32,10 +33,16 @@ public sealed record JobRegisteredChange(
     Guid? SourceJobId)
     : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange;
 
-public sealed record JobStateChangedChange(
+public sealed record JobStructureChangedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
     JobSnapshot Job)
+    : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange;
+
+public sealed record JobStateChangedChange(
+    long Sequence,
+    DateTimeOffset OccurredAtUtc,
+    JobExecutionSnapshot Job)
     : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange, ICoalescibleCoreChange
 {
     public string CoalescingKey => $"job:{Job.Id}:state";
@@ -61,7 +68,7 @@ public sealed record JobStateChangedChange(
 public sealed record JobActivityChangedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Job,
+    JobReferenceSnapshot Job,
     JobActivityPhase Phase,
     DateTimeOffset? UntilUtc)
     : CoreChange(Sequence, OccurredAtUtc), ICoalescibleCoreChange
@@ -73,7 +80,7 @@ public sealed record JobActivityChangedChange(
 public sealed record JobDiscoveryChangedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Job)
+    JobExecutionSnapshot Job)
     : CoreChange(Sequence, OccurredAtUtc), ICoalescibleCoreChange
 {
     public string CoalescingKey => $"job:{Job.Id}:discovery";
@@ -84,7 +91,7 @@ public sealed record JobDiscoveryChangedChange(
 public sealed record JobExecutionCompletedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Job)
+    JobExecutionSnapshot Job)
     : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange;
 
 public sealed record JobResultCreatedChange(
@@ -97,7 +104,7 @@ public sealed record JobResultCreatedChange(
 public sealed record EngineCompletedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Queue)
+    JobReferenceSnapshot Queue)
     : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange;
 
 public sealed record WorkflowRetiredChange(
@@ -109,14 +116,14 @@ public sealed record WorkflowRetiredChange(
 public sealed record JobStatusChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Job,
+    JobReferenceSnapshot Job,
     string Status)
     : CoreChange(Sequence, OccurredAtUtc);
 
 public sealed record JobMessageChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Job,
+    JobReferenceSnapshot Job,
     LogLevel Level,
     string? Source,
     string Message)
@@ -131,22 +138,26 @@ public sealed record WorkflowMessageChange(
     string Message)
     : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange;
 
+// Starting a download captures newly selected execution evidence. Ordinary
+// transfer changes carry only their job reference and exact file progress;
+// lifecycle/semantic snapshots belong to job events, not transport callbacks.
 public sealed record DownloadStartedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Song,
+    JobExecutionSnapshot Job,
     TransferSnapshot Transfer)
     : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange
 {
     public Guid TransferId => Transfer.Id;
-    public PeerFileTargetSnapshot Target => Transfer.Target!;
+    public PeerFileTarget Target => Transfer.Target!;
     public FileCandidateSnapshot? Candidate => Transfer.Candidate;
 }
 
 public sealed record DownloadProgressedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Song,
+    JobReferenceSnapshot Job,
+    FileDownloadStateSnapshot File,
     TransferSnapshot Transfer)
     : CoreChange(Sequence, OccurredAtUtc), ICoalescibleCoreChange
 {
@@ -160,7 +171,8 @@ public sealed record DownloadProgressedChange(
 public sealed record DownloadStateChangedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Song,
+    JobReferenceSnapshot Job,
+    FileDownloadStateSnapshot File,
     TransferSnapshot Transfer)
     : CoreChange(Sequence, OccurredAtUtc), ICoalescibleCoreChange
 {
@@ -175,7 +187,7 @@ public sealed record ExceptionSnapshot(string Type, string Message, string Detai
 public sealed record DownloadAttemptFailedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Song,
+    JobReferenceSnapshot Job,
     TransferSnapshot Transfer,
     string OutputPath,
     int Attempt,
@@ -184,14 +196,14 @@ public sealed record DownloadAttemptFailedChange(
     : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange
 {
     public Guid TransferId => Transfer.Id;
-    public PeerFileTargetSnapshot Target => Transfer.Target!;
+    public PeerFileTarget Target => Transfer.Target!;
     public FileCandidateSnapshot? Candidate => Transfer.Candidate;
 }
 
 public sealed record FallbackTransferStartedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Song,
+    JobReferenceSnapshot Job,
     TransferSnapshot Transfer)
     : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange;
 
@@ -219,7 +231,7 @@ public enum TransferAttemptSource
 public sealed record TransferAttemptStartedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Song,
+    JobReferenceSnapshot Job,
     TransferSnapshot Transfer,
     Guid AttemptId,
     int AttemptNumber,
@@ -231,7 +243,7 @@ public sealed record TransferAttemptStartedChange(
 public sealed record TransferAttemptCompletedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Song,
+    JobReferenceSnapshot Job,
     TransferSnapshot Transfer,
     Guid AttemptId,
     int AttemptNumber,
@@ -241,7 +253,7 @@ public sealed record TransferAttemptCompletedChange(
 public sealed record TransferAttemptFailedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Song,
+    JobReferenceSnapshot Job,
     TransferSnapshot Transfer,
     Guid AttemptId,
     int AttemptNumber,
@@ -252,7 +264,7 @@ public sealed record TransferAttemptFailedChange(
 public sealed record TransferAttemptCancelledChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Song,
+    JobReferenceSnapshot Job,
     TransferSnapshot Transfer,
     Guid AttemptId,
     int AttemptNumber,
@@ -263,15 +275,24 @@ public sealed record TransferAttemptCancelledChange(
 public sealed record TransferCompletedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Song,
+    JobReferenceSnapshot Job,
     TransferSnapshot Transfer,
     string FinalLocalPath)
+    : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange;
+
+// Post-download organization/cleanup can move an already completed payload.
+// This changes its location, not its terminal outcome or accounting lifetime.
+public sealed record TransferOutputChangedChange(
+    long Sequence,
+    DateTimeOffset OccurredAtUtc,
+    JobReferenceSnapshot Job,
+    TransferSnapshot Transfer)
     : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange;
 
 public sealed record TransferFailedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Song,
+    JobReferenceSnapshot Job,
     TransferSnapshot Transfer,
     TransferFailureReason Reason,
     ExceptionSnapshot Exception)
@@ -280,7 +301,7 @@ public sealed record TransferFailedChange(
 public sealed record TransferCancelledChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Song,
+    JobReferenceSnapshot Job,
     TransferSnapshot Transfer,
     TransferCancellationReason Reason)
     : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange;
@@ -290,7 +311,7 @@ public sealed record SearchResultsAddedChange(
     DateTimeOffset OccurredAtUtc,
     Guid JobId,
     int Revision,
-    IReadOnlyList<SearchResultSnapshot> Results)
+    IReadOnlyList<SearchProjectionInput> Results)
     : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange;
 
 public sealed record SearchCompletedChange(
@@ -300,16 +321,17 @@ public sealed record SearchCompletedChange(
     int Revision,
     string QueryText,
     int ResultCount,
-    int LockedFileCount)
+    int LockedFileCount,
+    int ObservedPeerCount = 0)
     : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange;
 
 public sealed record TrackBatchResolvedChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot Owner,
-    IReadOnlyList<JobSnapshot> Pending,
-    IReadOnlyList<JobSnapshot> Existing,
-    IReadOnlyList<JobSnapshot> NotFound)
+    JobReferenceSnapshot Owner,
+    IReadOnlyList<JobReferenceSnapshot> Pending,
+    IReadOnlyList<JobReferenceSnapshot> Existing,
+    IReadOnlyList<JobReferenceSnapshot> NotFound)
     : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange;
 
 public sealed record TrackListReadyChange(
@@ -321,7 +343,7 @@ public sealed record TrackListReadyChange(
 public sealed record ListProgressChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
-    JobSnapshot List,
+    JobReferenceSnapshot List,
     int Done,
     int Failed,
     int Total)

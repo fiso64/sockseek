@@ -249,7 +249,13 @@ public sealed class ProcessExceptionObserver : IDisposable
 
     private static bool IsExpectedSoulseekPeerNetworkException(Exception exception)
     {
-        if (exception is TimeoutException or OperationCanceledException)
+        if (exception is TimeoutException or OperationCanceledException
+            or Services.SoulseekConnectionUnavailableException)
+            return true;
+        // Soulseek.NET creates never-thrown faults for disposed connection
+        // disconnect tasks. Thrown/disposed application objects remain errors.
+        if (exception is ObjectDisposedException
+            { ObjectName: "Connection" or "MessageConnection", StackTrace: null })
             return true;
         if (exception is SocketException socketException)
         {

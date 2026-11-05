@@ -992,7 +992,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
             "magenta" => MagentaStyle,
             "blue" => BlueStyle,
             "grey" => DimStyle,
-            _ => null,
+            _ => (Style?)null,
         };
 
     internal static string SearchingResultAnnotation(string state, int? rawResultCount)
@@ -1326,9 +1326,9 @@ internal sealed class TerminalLiveRenderer : IDisposable
             {
                 if (cell.Text.Length == 0)
                     continue;
-                yield return cell.Style == null
-                    ? new Segment(cell.Text)
-                    : new Segment(cell.Text, cell.Style);
+                yield return cell.Style is { } style
+                    ? new Segment(cell.Text, style)
+                    : new Segment(cell.Text);
             }
         }
 

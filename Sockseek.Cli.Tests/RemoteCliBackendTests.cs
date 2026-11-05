@@ -8,11 +8,11 @@ using Sockseek.Cli;
 using Sockseek.Core;
 using Sockseek.Core.Settings;
 using Sockseek.Server;
+using Tests.ClientTests;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Channels;
-using Tests.ClientTests;
 
 namespace Tests.Cli;
 
@@ -34,6 +34,7 @@ public class RemoteCliBackendTests
         string? url = null,
         bool enablePersistence = true)
     {
+        options.Engine.LogLevel = LogLevel.None;
         options.Persistence.Enabled = enablePersistence;
         if (enablePersistence)
         {
@@ -41,10 +42,11 @@ public class RemoteCliBackendTests
                 Path.GetTempPath(),
                 "sockseek-remote-cli-data",
                 Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dataDirectory);
             options.Persistence.DataDirectory = dataDirectory;
             serverDataDirectories.Add(dataDirectory);
         }
-        return Sockseek.Server.ServerHost.Build([], options, url);
+        return global::Tests.TestServerHost.Build([], options, url);
     }
 
     [TestMethod]
@@ -75,7 +77,7 @@ public class RemoteCliBackendTests
         };
         var client = new SockseekApiClient(http);
 
-        var ex = await Assert.ThrowsExceptionAsync<SockseekApiRequestException>(
+        var ex = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(
             () => client.GetProfilesAsync(CancellationToken.None));
 
         StringAssert.Contains(ex.Message, "Bad request from daemon");
@@ -102,7 +104,7 @@ public class RemoteCliBackendTests
             };
             await using var live = new SockseekLiveClient(http);
 
-            await Assert.ThrowsExceptionAsync<SockseekApiRequestException>(
+            await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(
                 () => live.StartDaemonAsync());
             Assert.AreEqual(LiveSubscriptionMode.None, live.Mode);
 
@@ -118,13 +120,15 @@ public class RemoteCliBackendTests
     }
 
     [TestMethod]
-    public async Task SockseekApiClient_TransferPage_PreservesContinuationHeader()
+    public async Task SockseekApiClient_TransferTimeline_ReadsBodyCursorAndCoverage()
     {
         var response = new HttpResponseMessage(HttpStatusCode.OK)
         {
-            Content = new StringContent("[]"),
+            Content = new StringContent(
+                "{\"items\":[],\"nextCursor\":\"next-transfer-page\","
+                + "\"retainedCoverage\":{\"state\":\"Unavailable\","
+                + "\"reason\":\"PersistenceDisabled\"}}"),
         };
-        response.Headers.Add("X-Next-Cursor", "next-transfer-page");
         var handler = new CapturingResponseHandler(response);
         using var http = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:5030/") };
         var client = new SockseekApiClient(http);
@@ -136,9 +140,61 @@ public class RemoteCliBackendTests
 
         Assert.AreEqual("next-transfer-page", page.NextCursor);
         Assert.AreEqual(0, page.Items.Count);
+        Assert.AreEqual(
+            TransferRetainedCoverageState.Unavailable,
+            page.RetainedCoverage.State);
         StringAssert.Contains(handler.RequestUri!.Query, "username=peer%20name");
         StringAssert.Contains(handler.RequestUri.Query, "cursor=previous-page");
         StringAssert.Contains(handler.RequestUri.Query, "limit=25");
+        StringAssert.Contains(handler.RequestUri.Query, "archived=false");
+    }
+
+    [TestMethod]
+    public async Task SockseekApiClient_DashboardAnalytics_ReadsCoverageAndEscapesRange()
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""
+                {
+                  "accountingVersion": 1,
+                  "range": {
+                    "range": "24h",
+                    "startUtc": "2026-08-30T00:00:00Z",
+                    "endUtc": "2026-08-31T00:00:00Z",
+                    "bucketSeconds": 1800,
+                    "coverage": {
+                      "state": "Available",
+                      "completeFromUtc": "2026-08-01T00:00:00Z",
+                      "isComplete": true
+                    }
+                  },
+                  "bandwidth": [],
+                  "summary": {
+                    "downloadedBytes": 10,
+                    "downloadedFiles": 1,
+                    "uploadedBytes": 20,
+                    "uploadedFiles": 2,
+                    "distinctPeers": 3,
+                    "shareRatio": 2
+                  },
+                  "downloadPeers": [],
+                  "uploadPeers": [],
+                  "content": [],
+                  "errors": [],
+                  "comparison": null
+                }
+                """),
+        };
+        var handler = new CapturingResponseHandler(response);
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:5030/") };
+        var client = new SockseekApiClient(http);
+
+        DashboardAnalyticsDto result = await client.GetDashboardAnalyticsAsync("24h");
+
+        Assert.AreEqual(1, result.AccountingVersion);
+        Assert.IsTrue(result.Range.Coverage.IsComplete);
+        Assert.AreEqual(2d, result.Summary.ShareRatio);
+        Assert.AreEqual("?range=24h", handler.RequestUri!.Query);
     }
 
     [TestMethod]
@@ -157,6 +213,8 @@ public class RemoteCliBackendTests
         Assert.AreEqual(ServerJobTerminalOutcome.Failed, jobs.Single(job => job.DisplayId == 201).TerminalOutcome);
         Assert.AreEqual(2, handler.RequestCount);
         StringAssert.Contains(handler.SecondRequestUri!.Query, "cursor=second-page");
+        var page = await client.GetJobsPageAsync(new JobQuery(null, null, null, workflowId, IncludeAll: true));
+        Assert.AreEqual(new StateStreamPositionDto(workflowId, 9_007_199_254_740_993), page.ReadPosition);
     }
 
     [TestMethod]
@@ -257,8 +315,9 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
-            await DeleteDirectoryIfExistsWithRetryAsync(musicRoot);
-            await DeleteDirectoryIfExistsWithRetryAsync(outputDir);
+            await app.DisposeAsync();
+            if (Directory.Exists(musicRoot)) Directory.Delete(musicRoot, true);
+            if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
         }
     }
 
@@ -320,6 +379,26 @@ public class RemoteCliBackendTests
             Assert.AreEqual(1, folders!.Items.Count);
             Assert.AreEqual(2, folders.Items[0].Files!.Count);
 
+            RetrieveFolderJobPayloadDto? retrieval = await backend.RetrieveFolderAndWaitAsync(
+                searchSummary.JobId,
+                new RetrieveFolderRequestDto(folders.Items[0].Ref, albumQuery));
+            Assert.IsNotNull(retrieval);
+            Assert.AreEqual(
+                ServerFolderRetrievalOutcome.Completed,
+                retrieval.RetrievalOutcome);
+
+            // A daemon restart discards temporary Views. A retained directory
+            // handle must fail explicitly rather than silently recreate a View.
+            app.Services.GetRequiredService<Sockseek.Server.Planning.SearchViewCoordinator>()
+                .Cache.Clear();
+            var expired = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => backend.StartRetrieveFolderAsync(
+                searchSummary.JobId, new RetrieveFolderRequestDto(folders.Items[0].Ref, albumQuery)));
+            StringAssert.Contains(expired.Message, "Request the results again");
+            var reread = await backend.GetFolderResultsAsync(searchSummary.JobId,
+                new FolderSearchProjectionRequestDto(albumQuery, IncludeFiles: true));
+            Assert.IsNotNull(reread);
+            Assert.AreEqual(2, reread.Items[0].Files!.Count);
+
             var downloadSummary = await backend.StartFolderDownloadAsync(
                 searchSummary.JobId,
                 new StartFolderDownloadRequestDto(folders.Items[0].Ref, AlbumQuery: albumQuery));
@@ -338,6 +417,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir))
@@ -389,7 +469,7 @@ public class RemoteCliBackendTests
                     "String",
                     Options: new SubmissionOptionsDto(
                         WorkflowId: workflowId,
-                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch(["-a", "--no-browse-folder"]))));
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch(["-a", "--no-browse-folder"])))));
 
             await WaitForWorkflowStateAsync(backend, summary.WorkflowId, ServerWorkflowState.Completed);
 
@@ -414,6 +494,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir))
@@ -534,7 +615,7 @@ public class RemoteCliBackendTests
                         WorkflowId: workflowId,
                         OutputParentDir: outputDir,
                         ProfileContext: new Dictionary<string, bool> { ["interactive"] = true },
-                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch([inputPath, "--input-type", "list", "--no-browse-folder"]))),
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch([inputPath, "--input-type", "list", "--no-browse-folder"])))),
                 CancellationToken.None);
 
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -554,6 +635,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (File.Exists(inputPath))
                 File.Delete(inputPath);
             if (Directory.Exists(musicRoot))
@@ -632,7 +714,7 @@ public class RemoteCliBackendTests
                     "List",
                     Options: new SubmissionOptionsDto(
                         OutputParentDir: outputDir,
-                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch([inputPath, "--input-type", "list", "--no-browse-folder"]))),
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch([inputPath, "--input-type", "list", "--no-browse-folder"])))),
                 CancellationToken.None);
 
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -645,6 +727,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (File.Exists(inputPath))
                 File.Delete(inputPath);
             if (Directory.Exists(musicRoot))
@@ -727,7 +810,7 @@ public class RemoteCliBackendTests
                     Options: new SubmissionOptionsDto(
                         OutputParentDir: outputDir,
                         ProfileContext: new Dictionary<string, bool> { ["interactive"] = true },
-                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch(["ELO", "--album", "--aggregate", "--min-shares-aggregate", "1", "--no-browse-folder"]))),
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch(["ELO", "--album", "--aggregate", "--min-shares-aggregate", "1", "--no-browse-folder"])))),
                 CancellationToken.None);
 
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -754,6 +837,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir))
@@ -867,6 +951,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir))
@@ -956,6 +1041,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir))
@@ -964,7 +1050,11 @@ public class RemoteCliBackendTests
     }
 
     [TestMethod]
-    public async Task RemoteCliBackend_PrintResults_RendersCompletedSearchPayloadWithoutDownloading()
+    [DataRow("song", "Artist - Track One")]
+    [DataRow("album", "Artist - Album")]
+    [DataRow("aggregate", "Artist")]
+    [DataRow("album-aggregate", "Artist")]
+    public async Task RemoteCliBackend_ResultsFullRendersSharedConditionFactsWithoutDownloading(string mode, string query)
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-remote-print-test-" + Guid.NewGuid());
         string outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-remote-print-out-" + Guid.NewGuid());
@@ -972,6 +1062,17 @@ public class RemoteCliBackendTests
         Directory.CreateDirectory(trackDir);
         Directory.CreateDirectory(outputDir);
         File.WriteAllText(Path.Combine(trackDir, "01. Artist - Track One.mp3"), "a");
+        File.WriteAllText(Path.Combine(trackDir, "01. Artist - Track One.flac"), "b");
+        File.WriteAllText(Path.Combine(trackDir, "02. Artist - Track Two.mp3"), "c");
+        const string lockedName = @"Private\Artist\Album\01. Artist - Track One locked.mp3";
+        var client = new MockSoulseekClient(
+        [
+            new Soulseek.SearchResponse("public", 1, true, 1000, 0,
+                Directory.GetFiles(trackDir).Select(path =>
+                    new Soulseek.File(1, path, 1, Path.GetExtension(path)))),
+            new Soulseek.SearchResponse("private", 2, true, 1000, 0, [],
+                lockedFileList: [new Soulseek.File(1, lockedName, 1, ".mp3")]),
+        ]);
 
         string url = DynamicLoopbackUrl;
         await using var app = BuildServer(new ServerOptions
@@ -981,6 +1082,7 @@ public class RemoteCliBackendTests
                 MockFilesDir = musicRoot,
                 MockFilesReadTags = false,
             },
+            ClientFactory = _ => client,
             DefaultDownload = new DownloadSettings
             {
                 Output =
@@ -988,6 +1090,7 @@ public class RemoteCliBackendTests
                     ParentDir = outputDir,
                     NameFormat = "{filename}",
                 },
+                Search = { PreferredCond = new Sockseek.Core.Models.FileConditions { Formats = ["flac"] } },
             },
             Profiles = ProfileCatalog.Empty,
         }, url);
@@ -1001,7 +1104,7 @@ public class RemoteCliBackendTests
 
             var printSettings = new DownloadSettings
             {
-                PrintOption = PrintOption.Results,
+                PrintOption = PrintOption.Results | PrintOption.Full,
                 Output =
                 {
                     ParentDir = outputDir,
@@ -1009,13 +1112,17 @@ public class RemoteCliBackendTests
                 },
             };
 
+            var args = new List<string> { query, "--print-results-full", "--min-shares-aggregate", "1" };
+            if (mode == "song") args.Add("--song");
+            if (mode is "album" or "album-aggregate") args.Add("--album");
+            if (mode is "aggregate" or "album-aggregate") args.Add("--aggregate");
             var summary = await backend.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(
-                    "Artist - Track One",
+                    query,
                     "String",
                     Options: new SubmissionOptionsDto(
                         OutputParentDir: outputDir,
-                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch(["Artist - Track One", "--song", "--print-results"]))));
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch(args.ToArray())))));
 
             await WaitForWorkflowStateAsync(backend, summary.WorkflowId, ServerWorkflowState.Completed);
 
@@ -1028,14 +1135,29 @@ public class RemoteCliBackendTests
                 output);
 
             string rendered = output.ToString();
-            StringAssert.Contains(rendered, "Results for Artist - Track One");
+            if (mode == "song") StringAssert.Contains(rendered, "Results for Artist - Track One");
             StringAssert.Contains(rendered, "Artist - Track One.mp3");
+            StringAssert.Contains(rendered, "Artist - Track One.flac");
+            StringAssert.Contains(rendered, "Artist - Track One locked.mp3");
+            StringAssert.Contains(rendered, "[locked]");
+            int expectedFiles = mode == "song" ? 3 : 4;
+            Assert.AreEqual(expectedFiles, rendered.Split("(nec:Satisfied", StringSplitOptions.None).Length - 1, rendered);
+            Assert.AreEqual(expectedFiles - 1, rendered.Split("Format fails", StringSplitOptions.None).Length - 1, rendered);
+            if (mode == "song")
+                Assert.IsFalse(rendered.Contains("Track Two", StringComparison.Ordinal), rendered);
+            else
+                StringAssert.Contains(rendered, "Artist - Track Two.mp3");
+            Assert.IsTrue(rendered.IndexOf("Track One.flac", StringComparison.Ordinal)
+                < rendered.IndexOf("Track One.mp3", StringComparison.Ordinal),
+                "Preferred track alternatives must precede fallback formats.");
+            Assert.IsFalse(rendered.Contains("conditions:unavailable", StringComparison.Ordinal));
             Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length,
                 "Remote print-results mode should not download files.");
         }
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir))
@@ -1118,7 +1240,7 @@ public class RemoteCliBackendTests
                     Options: new SubmissionOptionsDto(
                         WorkflowId: summaryWorkflowId,
                         OutputParentDir: outputDir,
-                        DownloadSettings: ConfigManager.CreateCliDownloadSettingsPatch([inputPath, "--input-type", "list", "--print", "jobs"]))));
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch([inputPath, "--input-type", "list", "--print", "jobs"])))));
 
             await WaitForWorkflowStateAsync(backend, summary.WorkflowId, ServerWorkflowState.Completed);
             Guid[] expectedJobIds = await terminalJobs.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1143,10 +1265,70 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (File.Exists(inputPath))
                 File.Delete(inputPath);
             if (Directory.Exists(outputDir))
                 Directory.Delete(outputDir, true);
+        }
+    }
+
+    [TestMethod]
+    public async Task RemotePrintJobs_UsesPagedPreviewAndDoesNotCreateRuntimeJobs()
+    {
+        string inputPath = Path.Combine(
+            Path.GetTempPath(),
+            "Sockseek-remote-preview-" + Guid.NewGuid() + ".csv");
+        await File.WriteAllLinesAsync(
+            inputPath,
+            [
+                "artist,title",
+                .. Enumerable.Range(0, 205).Select(index => $"Artist {index},Track {index}"),
+            ]);
+
+        string url = DynamicLoopbackUrl;
+        await using var app = BuildServer(new ServerOptions
+        {
+            Engine = new EngineSettings { LogLevel = LogLevel.None },
+            DefaultDownload = new DownloadSettings(),
+            Profiles = ProfileCatalog.Empty,
+        }, url);
+
+        try
+        {
+            await app.StartAsync();
+            url = GetBoundUrl(app);
+            await using var backend = new RemoteCliBackend(url);
+            await backend.StartAsync();
+            using var output = new StringWriter();
+
+            Sockseek.Cli.Program.CliExitCode exit = await Sockseek.Cli.Program.PrintRemoteJobPreviewAsync(
+                backend,
+                new SubmitExtractJobRequestDto(
+                    inputPath,
+                    InputType.CSV.ToString(),
+                    Options: new SubmissionOptionsDto(
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch(
+                            [inputPath, "--input-type", "csv", "--print", "jobs-full"])))),
+                PrintOption.Jobs | PrintOption.Full,
+                CancellationToken.None,
+                output);
+
+            Assert.AreEqual(Sockseek.Cli.Program.CliExitCode.Success, exit);
+            string rendered = output.ToString();
+            StringAssert.Contains(rendered, "205 jobs:");
+            StringAssert.Contains(rendered, "Artist:             Artist 0");
+            StringAssert.Contains(rendered, "Title:              Track 204");
+            Assert.HasCount(0, await backend.GetJobsAsync(
+                new JobQuery(null, null, null, null, IncludeAll: true)));
+            Assert.IsTrue(File.Exists(inputPath),
+                "Remote artifacts are immutable and must not mutate the client-owned CSV.");
+        }
+        finally
+        {
+            await app.StopAsync();
+            if (File.Exists(inputPath))
+                File.Delete(inputPath);
         }
     }
 
@@ -1182,7 +1364,7 @@ public class RemoteCliBackendTests
 
             var firstWorkflowId = Guid.NewGuid();
             var secondWorkflowId = Guid.NewGuid();
-            var manual = new DownloadBehaviorPolicyDto(Album: DownloadBehavior.Manual);
+            var manual = new DownloadBehaviorPolicyDto(Album: ServerDownloadBehavior.Manual);
             var first = await monitor.SubmitAlbumJobAsync(new SubmitAlbumJobRequestDto(
                 new AlbumQueryDto("Artist", "Album", "", "", false),
                 new SubmissionOptionsDto(firstWorkflowId),
@@ -1229,7 +1411,7 @@ public class RemoteCliBackendTests
             await using var backend = new RemoteCliBackend(url);
             await backend.SubscribeAllAsync();
 
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(
                 () => backend.SubscribeWorkflowAsync(Guid.NewGuid()));
         }
         finally
@@ -1245,8 +1427,7 @@ public class RemoteCliBackendTests
         string albumDir = Path.Combine(musicRoot, "Artist", "Album");
         Directory.CreateDirectory(albumDir);
         File.WriteAllText(Path.Combine(albumDir, "01. Artist - Track One.mp3"), "a");
-        int port = GetFreeTcpPort();
-        string url = $"http://127.0.0.1:{port}";
+        string url = DynamicLoopbackUrl;
 
         var options = new ServerOptions
         {
@@ -1261,6 +1442,7 @@ public class RemoteCliBackendTests
         };
         var firstApp = BuildServer(options, url, enablePersistence: false);
         await firstApp.StartAsync();
+        url = GetBoundUrl(firstApp);
 
         try
         {
@@ -1281,7 +1463,7 @@ public class RemoteCliBackendTests
                 var submitted = await monitor.SubmitAlbumJobAsync(new SubmitAlbumJobRequestDto(
                     new AlbumQueryDto("Artist", "Album", "", "", false),
                     new SubmissionOptionsDto(workflowId),
-                    new DownloadBehaviorPolicyDto(Album: DownloadBehavior.Manual)));
+                    new DownloadBehaviorPolicyDto(Album: ServerDownloadBehavior.Manual)));
 
                 await WaitForConditionAsync(
                     monitor,
@@ -1315,8 +1497,7 @@ public class RemoteCliBackendTests
     [DoNotParallelize]
     public async Task Program_MonitorWithoutInput_StaysAttachedUntilCancelled()
     {
-        int port = GetFreeTcpPort();
-        string url = $"http://127.0.0.1:{port}";
+        string url = DynamicLoopbackUrl;
         await using var app = BuildServer(new ServerOptions
         {
             Engine = new EngineSettings(),
@@ -1325,6 +1506,7 @@ public class RemoteCliBackendTests
         }, url);
 
         await app.StartAsync();
+        url = GetBoundUrl(app);
         try
         {
             using var cancellation = new CancellationTokenSource();
@@ -1375,8 +1557,7 @@ public class RemoteCliBackendTests
         }
 
         var client = CreateBlockedDownloadClient(musicRoot);
-        int port = GetFreeTcpPort();
-        string url = $"http://127.0.0.1:{port}";
+        string url = DynamicLoopbackUrl;
         await using var app = BuildServer(new ServerOptions
         {
             Engine = new EngineSettings
@@ -1403,6 +1584,7 @@ public class RemoteCliBackendTests
         var originalIn = Console.In;
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         await app.StartAsync();
+        url = GetBoundUrl(app);
         try
         {
             var monitorTask = Sockseek.Cli.Program.MainCore(
@@ -1499,8 +1681,7 @@ public class RemoteCliBackendTests
         Directory.CreateDirectory(outputDir);
         File.WriteAllText(Path.Combine(musicRoot, "Artist", "Artist - Track One.mp3"), "a");
 
-        int port = GetFreeTcpPort();
-        string url = $"http://127.0.0.1:{port}";
+        string url = DynamicLoopbackUrl;
         await using var app = BuildServer(new ServerOptions
         {
             Engine = new EngineSettings
@@ -1521,6 +1702,7 @@ public class RemoteCliBackendTests
 
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         await app.StartAsync();
+        url = GetBoundUrl(app);
         try
         {
             var monitorTask = Sockseek.Cli.Program.MainCore(
@@ -1553,19 +1735,7 @@ public class RemoteCliBackendTests
         }
     }
 
-    private static int GetFreeTcpPort()
-    {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        try
-        {
-            return ((IPEndPoint)listener.LocalEndpoint).Port;
-        }
-        finally
-        {
-            listener.Stop();
-        }
-    }
+
 
     private static string GetBoundUrl(Microsoft.AspNetCore.Builder.WebApplication app)
     {
@@ -1633,6 +1803,7 @@ public class RemoteCliBackendTests
         finally
         {
             await app.StopAsync();
+            await app.DisposeAsync();
             if (Directory.Exists(musicRoot))
                 Directory.Delete(musicRoot, true);
             if (Directory.Exists(outputDir))
@@ -1976,6 +2147,8 @@ public class RemoteCliBackendTests
             };
             if (!secondPage)
                 response.Headers.Add("X-Next-Cursor", "second-page");
+            response.Headers.Add(ServerProtocol.ReadEpochHeader, workflowId.ToString("D"));
+            response.Headers.Add(ServerProtocol.ReadSequenceHeader, "9007199254740993");
             return Task.FromResult(response);
         }
 

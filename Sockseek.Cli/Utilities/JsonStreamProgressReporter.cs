@@ -243,7 +243,7 @@ public class JsonStreamProgressReporter
 
     private void ReportDownloadStart(DownloadStartedChange change)
     {
-        var song = (SongJobSnapshotPayload)change.Song.Payload;
+        var song = (SongJobSnapshotPayload)change.Job.Payload;
         WriteEvent("download_start", new
         {
             artist = song.Query.Artist,
@@ -281,7 +281,7 @@ public class JsonStreamProgressReporter
 
         WriteEvent("download_progress", new
         {
-            jobId = progress.Song.Id,
+            jobId = progress.Job.Id,
             bytesTransferred = progress.BytesTransferred,
             totalBytes = progress.TotalBytes,
             percent = progress.TotalBytes > 0 ? Math.Round((double)progress.BytesTransferred / progress.TotalBytes * 100, 1) : 0,
@@ -314,7 +314,7 @@ public class JsonStreamProgressReporter
         });
     }
 
-    private void ReportStateChanged(JobSnapshot job, SongJobSnapshotPayload song)
+    private void ReportStateChanged(JobSnapshotHeader job, SongJobSnapshotPayload song)
     {
         var chosen = job.TerminalOutcome == JobTerminalOutcome.Succeeded
             || (job.TerminalOutcome == JobTerminalOutcome.Skipped && job.SkipReason == JobSkipReason.AlreadyExists)
@@ -380,6 +380,9 @@ public class JsonStreamProgressReporter
             reason,
         });
     }
+
+    internal void ReportWorkflowSubmitted(Guid workflowId)
+        => WriteEvent("workflow_submitted", new { workflowId });
 
     private void WriteEvent(string type, object data)
     {

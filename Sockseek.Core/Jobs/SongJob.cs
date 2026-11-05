@@ -8,9 +8,6 @@ namespace Sockseek.Core.Jobs;
     {
         public SongQuery Query { get; set; }
 
-        // YouTube-specific display metadata (title + uploader JSON). Not a search hint.
-        public string? Other { get; set; }
-
         public override SongQuery QueryTrack => Query;
         protected override bool  DefaultCanBeSkipped => true;
 
@@ -33,6 +30,25 @@ namespace Sockseek.Core.Jobs;
         {
             get => _resolvedTarget;
             set { if (_resolvedTarget != value) { _resolvedTarget = value; OnPropertyChanged(); OnPropertyChanged(nameof(ResolvedPeerTarget)); } }
+        }
+
+        // Execution-scoped evidence for the current exact-file attempt. This is
+        // not a resolved target: a failed candidate must not change discovery or
+        // the retained outcome, but live transfer snapshots may show its peer.
+        internal FileCandidate? ActiveCandidate { get; set; }
+
+        // Observed execution evidence, never a discovery/preselection input.
+        // Unlike ActiveCandidate it survives failure/cancellation for diagnostics.
+        private FileCandidate? lastAttemptedCandidate;
+        public FileCandidate? LastAttemptedCandidate
+        {
+            get => lastAttemptedCandidate;
+            internal set
+            {
+                if (lastAttemptedCandidate == value) return;
+                lastAttemptedCandidate = value;
+                OnPropertyChanged();
+            }
         }
 
         // Exact preselection without invented search-response evidence. Search-selected

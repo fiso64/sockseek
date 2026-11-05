@@ -57,7 +57,7 @@ internal sealed class DisabledChatIngress : IAsyncDisposable
     {
         try
         {
-            bool discard = soulseek.AccessPolicy.IsUsernameBlocked(args.Username);
+            bool discard = soulseek.Restrictions.IsPrivateMessageBlocked(args.Username);
             if (!discard)
             {
                 ChatIdentity.ValidateUsername(args.Username);

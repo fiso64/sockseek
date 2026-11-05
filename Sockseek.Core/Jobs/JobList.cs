@@ -1,4 +1,5 @@
 using Sockseek.Core.Models;
+using Sockseek.Core.Snapshots;
 
 namespace Sockseek.Core.Jobs;
     // Universal grouping container. Holds any mix of Job subtypes.
@@ -7,18 +8,10 @@ namespace Sockseek.Core.Jobs;
     // State is derived: Done when all children are done, Failed if all failed.
     public class JobList : Job, IUpgradeable
     {
-        private readonly object jobsGate = new();
-        public List<Job> Jobs { get; } = new();
-
-        public int Count
-        {
-            get
-            {
-                lock (jobsGate)
-                    return Jobs.Count;
-            }
-        }
-
+        private readonly JobMembers<Job> members;
+        public IReadOnlyList<Job> Jobs => members.Snapshot;
+        public int Count => members.Count;
+        internal JobOutcomeSummary MemberOutcomes => members.Summary;
         public Job this[int index] => Jobs[index];
 
         protected override bool DefaultCanBeSkipped => false;
@@ -26,28 +19,26 @@ namespace Sockseek.Core.Jobs;
         public JobList(string? name = null, IEnumerable<Job>? jobs = null)
         {
             ItemName = name;
-            if (jobs != null) Jobs.AddRange(jobs);
+            members = new(true, NotifyStructureChanged);
+            if (jobs != null) members.AddRange(jobs);
         }
 
-        public void Add(Job job)
-        {
-            lock (jobsGate)
-                Jobs.Add(job);
-        }
+        public void Add(Job job) => members.Add(job);
+        public void AddRange(IEnumerable<Job> jobs) => members.AddRange(jobs);
+        public void RemoveRange(int index, int count) => members.RemoveRange(index, count);
+        public void Clear() => members.Replace([]);
+        public void ReverseMembers() => members.Reverse();
 
         internal void RemoveJobs(IReadOnlySet<Guid> jobIds)
-        {
-            lock (jobsGate)
-                Jobs.RemoveAll(job => jobIds.Contains(job.Id));
-        }
+            => members.RemoveWhere(job => jobIds.Contains(job.Id));
 
         public void Reverse()
         {
-            Jobs.Reverse();
+            members.Reverse();
             foreach (var job in Jobs)
             {
                 if (job is JobList jl)
-                    jl.Jobs.Reverse();
+                    jl.ReverseMembers();
             }
         }
 
@@ -57,10 +48,7 @@ namespace Sockseek.Core.Jobs;
         // Yields every Job reachable from this list (depth-first), following ExtractJob.Result.
         public IEnumerable<Job> AllJobs()
         {
-            Job[] roots;
-            lock (jobsGate)
-                roots = Jobs.ToArray();
-            foreach (var job in roots)
+            foreach (var job in Jobs)
                 foreach (var j in WalkJob(job))
                     yield return j;
         }
@@ -86,7 +74,7 @@ namespace Sockseek.Core.Jobs;
             foreach (var job in jobs)
             {
                 if (job is JobList jl)
-                    jl.Jobs.Reverse();
+                    jl.ReverseMembers();
             }
         }
 
@@ -170,8 +158,7 @@ namespace Sockseek.Core.Jobs;
                 MergeSongUpgradedAlbum(existing, album);
             }
 
-            list.Jobs.Clear();
-            list.Jobs.AddRange(keep);
+            list.members.Replace(keep);
         }
 
         private static string? AlbumDedupKey(AlbumQuery query)

@@ -1,11 +1,9 @@
 using System.Globalization;
-using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Sockseek.Core;
 using Sockseek.Core.IO;
 using Sockseek.Core.Models;
 using Sockseek.Core.PeerBrowsing;
-using Sockseek.Core.Snapshots;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Sockseek.Persistence;
@@ -13,12 +11,13 @@ using Sockseek.Persistence;
 namespace Sockseek.Persistence.PeerBrowsing;
 
 /// <summary>
-/// Owns short-lived peer-browse resources and one immutable SQLite artifact per
+/// Owns short-lived peer-browse resources and one immutable compressed artifact per
 /// successful generation. It is deliberately separate from Sockseek's domain
 /// history database.
 /// </summary>
-public sealed class PeerBrowseArtifactStore
+public sealed class PeerBrowseArtifactStore : IAsyncDisposable
 {
+    internal const int ArtifactFormatVersion = 11;
     public static readonly TimeSpan DefaultResourceRetention = TimeSpan.FromHours(24);
     public const long DefaultArtifactByteBudget = 2L * 1024 * 1024 * 1024;
     public const int DefaultResourceCountTarget = 4_096;
@@ -37,7 +36,13 @@ public sealed class PeerBrowseArtifactStore
     private readonly HashSet<Guid> evicting = [];
     private long lastCleanupLogTick = long.MinValue;
     private long lastBudgetLogTick = long.MinValue;
+    private const long ArtifactMemoryTarget = 256L * 1024 * 1024;
+    private readonly Dictionary<Guid, (PeerBrowseArtifact Artifact, LinkedListNode<Guid> Node)> loadedArtifacts = [];
+    private readonly LinkedList<Guid> artifactRecency = new();
+    private readonly Dictionary<Guid, Task<PeerBrowseArtifact>> artifactLoads = [];
+    private long loadedArtifactBytes;
     private bool initialized;
+    private bool disposed;
     private readonly ILogger<PeerBrowseArtifactStore> logger;
 
     /// <summary>Raised after a browse resource has been removed from the registry.</summary>
@@ -74,6 +79,7 @@ public sealed class PeerBrowseArtifactStore
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(disposed, this);
         if (Volatile.Read(ref initialized))
             return;
 
@@ -90,6 +96,17 @@ public sealed class PeerBrowseArtifactStore
                              SqliteOpenMode.ReadWriteCreate,
                              cancellationToken).ConfigureAwait(false))
             {
+                // This registry owns disposable artifacts, not accepted jobs or
+                // history. Expire an obsolete format once at startup so every
+                // reader can use the current schema without compatibility probes.
+                await using (var version = connection.CreateCommand())
+                {
+                    version.CommandText = "PRAGMA user_version;";
+                    if (Convert.ToInt32(await version.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+                            CultureInfo.InvariantCulture) != ArtifactFormatVersion)
+                        await ExecuteAsync(connection, "DROP TABLE IF EXISTS browse_resources;", cancellationToken)
+                            .ConfigureAwait(false);
+                }
                 await ExecuteAsync(
                     connection,
                     """
@@ -106,7 +123,6 @@ public sealed class PeerBrowseArtifactStore
                         phase INTEGER NOT NULL,
                         compressed_bytes_received INTEGER NOT NULL,
                         compressed_bytes_expected INTEGER,
-                        decompressed_bytes_read INTEGER NOT NULL DEFAULT 0,
                         directory_count INTEGER NOT NULL,
                         file_count INTEGER NOT NULL,
                         total_file_bytes INTEGER NOT NULL,
@@ -128,20 +144,8 @@ public sealed class PeerBrowseArtifactStore
                     """,
                     cancellationToken).ConfigureAwait(false);
 
-                // Early user-browse builds persisted this now-unused progress
-                // value as NOT NULL without a default. Retain it internally so
-                // both that layout and the short-lived layout that omitted it can
-                // accept new rows. It is deliberately not part of the public DTO.
-                if (!await HasBrowseResourceColumnAsync(
-                        connection,
-                        "decompressed_bytes_read",
-                        cancellationToken).ConfigureAwait(false))
-                {
-                    await ExecuteAsync(
-                        connection,
-                        "ALTER TABLE browse_resources ADD COLUMN decompressed_bytes_read INTEGER NOT NULL DEFAULT 0;",
-                        cancellationToken).ConfigureAwait(false);
-                }
+                await ExecuteAsync(connection, $"PRAGMA user_version={ArtifactFormatVersion};", cancellationToken)
+                    .ConfigureAwait(false);
 
                 DateTimeOffset now = timeProvider.GetUtcNow();
                 await using var interrupted = connection.CreateCommand();
@@ -213,13 +217,13 @@ public sealed class PeerBrowseArtifactStore
             INSERT INTO browse_resources(
                 browse_id, local_account, username, state, phase,
                 compressed_bytes_received, compressed_bytes_expected,
-                decompressed_bytes_read, directory_count, file_count,
+                directory_count, file_count,
                 total_file_bytes, created_at_utc, updated_at_utc,
                 completed_at_utc, expires_at_utc, failure_code,
                 failure_message, artifact_file, artifact_bytes, revision)
             VALUES(
                 $id, $account, $username, $state, $phase,
-                0, NULL, 0, 0, 0, 0, $created, $updated,
+                0, NULL, 0, 0, 0, $created, $updated,
                 NULL, $expires, NULL, NULL, NULL, NULL, 1);
             """;
         Add(command, "$id", resource.BrowseId.ToString("D"));
@@ -334,6 +338,11 @@ public sealed class PeerBrowseArtifactStore
         await using SqliteConnection connection = await OpenRegistryAsync(
             SqliteOpenMode.ReadWrite,
             cancellationToken).ConfigureAwait(false);
+        // A restarted acquisition is failed, never resumed from progress. Keep
+        // these best-effort counters transactional without forcing an fsync for
+        // every display refresh. Acceptance/terminal writes retain FULL durability.
+        await ExecuteAsync(connection, "PRAGMA synchronous=NORMAL;", cancellationToken)
+            .ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
@@ -400,644 +409,151 @@ public sealed class PeerBrowseArtifactStore
             .ConfigureAwait(false);
     }
 
-    public async Task<PeerDirectorySnapshot> ReadDirectoryAsync(
-        Guid browseId,
-        PeerDirectoryIdentity identity,
+    public async Task<PeerDirectorySnapshot> ReadDirectoryAsync(Guid browseId, PeerDirectoryIdentity identity,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(identity);
         PeerBrowseResource resource = await RequireCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
         if (!StringComparer.Ordinal.Equals(resource.Username, identity.Username))
             throw new ArgumentException("The directory peer does not match the browse resource.", nameof(identity));
-
-        await using ArtifactLease lease = await AcquireLeaseAsync(browseId, cancellationToken).ConfigureAwait(false);
-        await using SqliteConnection connection = await OpenArtifactAsync(
-            lease.ArtifactPath,
-            cancellationToken).ConfigureAwait(false);
-        string identityPath = NormalizeIdentityPath(identity.FolderPath);
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            SELECT f.file_id, f.wire_filename, f.size_bytes, f.extension,
-                   f.bit_rate, f.bit_depth, f.sample_rate, f.length_seconds,
-                   a.attribute_type, a.attribute_value
-            FROM files f
-            JOIN directories d ON d.directory_id = f.directory_id
-            LEFT JOIN file_attributes a ON a.file_id = f.file_id
-            WHERE ordinal_same_or_descendant(d.identity_path, $path)
-              AND f.visibility = $public
-            ORDER BY f.file_id, a.attribute_ordinal;
-            """;
-        Add(command, "$path", identityPath);
-        Add(command, "$public", (int)PeerBrowseEntryVisibility.Public);
-
-        var targets = new List<PeerFileTarget>();
-        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        await ReadPeerFileTargetsAsync(
-            reader,
-            identity.Username,
-            attributeTypeOrdinal: 8,
-            attributeValueOrdinal: 9,
-            static _ => false,
-            (target, _) => targets.Add(target),
-            cancellationToken).ConfigureAwait(false);
-        return new PeerDirectorySnapshot(identity, targets, isComplete: true);
+        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false)).ReadDirectory(identity, cancellationToken);
     }
 
-    public async Task<PeerBrowseDirectoryEntry?> ReadDirectoryEntryAsync(
-        Guid browseId,
-        long directoryId,
+    public async Task<PeerBrowseDirectoryEntry?> ReadDirectoryEntryAsync(Guid browseId, long directoryId,
         CancellationToken cancellationToken = default)
     {
         if (directoryId <= 0)
             throw new ArgumentOutOfRangeException(nameof(directoryId));
-        await RequireCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
-        await using ArtifactLease lease = await AcquireLeaseAsync(browseId, cancellationToken).ConfigureAwait(false);
-        await using SqliteConnection connection = await OpenArtifactAsync(lease.ArtifactPath, cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText = DirectorySelect + " WHERE directory_id = $id;";
-        Add(command, "$id", directoryId);
-        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
-            ? ReadDirectoryEntry(reader)
-            : null;
+        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false)).DirectoryEntry(directoryId);
     }
 
-    public async Task<PeerBrowsePage<PeerBrowseDirectoryEntry>> ReadDirectoriesAsync(
-        Guid browseId,
-        long? parentId,
-        string? query,
-        bool recursive,
-        string? afterSortKey,
-        long? afterId,
-        int limit,
-        CancellationToken cancellationToken = default)
+    public async Task<PeerBrowsePage<PeerBrowseDirectoryEntry>> ReadDirectoriesAsync(Guid browseId, long? parentId,
+        string? query, bool recursive, string? afterSortKey, long? afterId, int limit, CancellationToken cancellationToken = default)
     {
         ValidatePage(afterSortKey, afterId, limit);
-        await RequireCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
-        await using ArtifactLease lease = await AcquireLeaseAsync(browseId, cancellationToken).ConfigureAwait(false);
-        await using SqliteConnection connection = await OpenArtifactAsync(lease.ArtifactPath, cancellationToken).ConfigureAwait(false);
-
-        string? parentIdentity = null;
-        if (recursive && parentId is not null)
-        {
-            await using var parent = connection.CreateCommand();
-            parent.CommandText = "SELECT identity_path FROM directories WHERE directory_id = $id;";
-            Add(parent, "$id", parentId.Value);
-            parentIdentity = await parent.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string
-                ?? throw new KeyNotFoundException($"Peer browse directory '{parentId}' does not exist.");
-        }
-
-        var predicates = new List<string>();
-        if (recursive)
-        {
-            if (parentIdentity is not null)
-                predicates.Add("ordinal_descendant(identity_path, $parent_identity)");
-        }
-        else if (parentId is null)
-        {
-            predicates.Add("parent_id IS NULL");
-        }
-        else
-        {
-            predicates.Add("parent_id = $parent_id");
-        }
-        if (!string.IsNullOrEmpty(query))
-            predicates.Add("ordinal_contains(display_path, $query)");
-        if (afterSortKey is not null)
-            predicates.Add("(display_path > $after_key COLLATE BINARY OR (display_path = $after_key COLLATE BINARY AND directory_id > $after_id))");
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = DirectorySelect
-                              + (predicates.Count == 0 ? "" : " WHERE " + string.Join(" AND ", predicates))
-                              + " ORDER BY display_path COLLATE BINARY, directory_id LIMIT $limit;";
-        if (parentId is not null)
-            Add(command, "$parent_id", parentId.Value);
-        Add(command, "$parent_identity", parentIdentity);
-        Add(command, "$query", query);
-        Add(command, "$after_key", afterSortKey);
-        Add(command, "$after_id", afterId);
-        Add(command, "$limit", checked(limit + 1));
-
-        var items = new List<PeerBrowseDirectoryEntry>(limit + 1);
-        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            items.Add(ReadDirectoryEntry(reader));
-        return ToPage(items, limit, static item => item.DisplayPath, static item => item.DirectoryId);
+        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false))
+            .ReadDirectories(parentId, query, recursive, afterSortKey, afterId, limit, cancellationToken);
     }
 
-    public async Task<PeerBrowsePage<PeerBrowseFileEntry>> ReadFilesAsync(
-        Guid browseId,
-        long directoryId,
-        string? query,
-        string? afterSortKey,
-        long? afterId,
-        int limit,
-        CancellationToken cancellationToken = default)
+    public async Task<PeerBrowsePage<PeerBrowseFileEntry>> ReadFilesAsync(Guid browseId, long directoryId, string? query,
+        string? afterSortKey, long? afterId, int limit, CancellationToken cancellationToken = default)
     {
         if (directoryId <= 0)
             throw new ArgumentOutOfRangeException(nameof(directoryId));
         ValidatePage(afterSortKey, afterId, limit);
-        await RequireCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
-        await using ArtifactLease lease = await AcquireLeaseAsync(browseId, cancellationToken).ConfigureAwait(false);
-        await using SqliteConnection connection = await OpenArtifactAsync(lease.ArtifactPath, cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            WITH page AS (
-                SELECT file_id, directory_id, visibility, name, size_bytes, extension,
-                       bit_rate, bit_depth, sample_rate, length_seconds
-                FROM files
-                WHERE directory_id = $directory_id
-                  AND ($query IS NULL OR ordinal_contains(name, $query))
-                  AND ($after_key IS NULL
-                       OR name > $after_key COLLATE BINARY
-                       OR (name = $after_key COLLATE BINARY AND file_id > $after_id))
-                ORDER BY name COLLATE BINARY, file_id
-                LIMIT $limit
-            )
-            SELECT page.file_id, page.directory_id, page.visibility, page.name, page.size_bytes,
-                   page.extension, page.bit_rate, page.bit_depth, page.sample_rate,
-                   page.length_seconds, a.attribute_type, a.attribute_value
-            FROM page
-            LEFT JOIN file_attributes a ON a.file_id = page.file_id
-            ORDER BY page.name COLLATE BINARY, page.file_id, a.attribute_ordinal;
-            """;
-        Add(command, "$directory_id", directoryId);
-        Add(command, "$query", string.IsNullOrEmpty(query) ? null : query);
-        Add(command, "$after_key", afterSortKey);
-        Add(command, "$after_id", afterId);
-        Add(command, "$limit", checked(limit + 1));
-
-        var items = new List<PeerBrowseFileEntry>(limit + 1);
-        long? currentId = null;
-        long currentDirectory = 0;
-        PeerBrowseEntryVisibility visibility = PeerBrowseEntryVisibility.Public;
-        string? name = null;
-        long size = 0;
-        string? extension = null;
-        int? bitRate = null;
-        int? bitDepth = null;
-        int? sampleRate = null;
-        int? length = null;
-        List<PeerBrowseFileAttribute>? attributes = null;
-        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            long fileId = reader.GetInt64(0);
-            if (fileId != currentId)
-            {
-                AddCurrent();
-                currentId = fileId;
-                currentDirectory = reader.GetInt64(1);
-                visibility = (PeerBrowseEntryVisibility)reader.GetInt32(2);
-                name = reader.GetString(3);
-                size = reader.GetInt64(4);
-                extension = reader.IsDBNull(5) ? null : reader.GetString(5);
-                bitRate = NullableInt(reader, 6);
-                bitDepth = NullableInt(reader, 7);
-                sampleRate = NullableInt(reader, 8);
-                length = NullableInt(reader, 9);
-                attributes = null;
-            }
-            if (!reader.IsDBNull(10))
-            {
-                attributes ??= [];
-                attributes.Add(new PeerBrowseFileAttribute(reader.GetInt32(10), reader.GetInt32(11)));
-            }
-        }
-        AddCurrent();
-        return ToPage(items, limit, static item => item.Name, static item => item.FileId);
-
-        void AddCurrent()
-        {
-            if (currentId is null)
-                return;
-            items.Add(new PeerBrowseFileEntry(
-                currentId.Value,
-                currentDirectory,
-                visibility,
-                name!,
-                size,
-                extension,
-                bitRate,
-                bitDepth,
-                sampleRate,
-                length,
-                attributes));
-        }
+        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false))
+            .ReadFiles(directoryId, query, afterSortKey, afterId, limit, cancellationToken);
     }
 
-    public async Task<PeerBrowseFileEntry?> ReadFileEntryAsync(
-        Guid browseId,
-        long fileId,
+    public async Task<PeerBrowseFileEntry?> ReadFileEntryAsync(Guid browseId, long fileId,
         CancellationToken cancellationToken = default)
     {
         if (fileId <= 0)
             throw new ArgumentOutOfRangeException(nameof(fileId));
-        await RequireCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
-        await using ArtifactLease lease = await AcquireLeaseAsync(browseId, cancellationToken).ConfigureAwait(false);
-        await using SqliteConnection connection = await OpenArtifactAsync(lease.ArtifactPath, cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            SELECT f.file_id, f.directory_id, f.visibility, f.name, f.size_bytes, f.extension,
-                   f.bit_rate, f.bit_depth, f.sample_rate, f.length_seconds,
-                   a.attribute_type, a.attribute_value
-            FROM files f
-            LEFT JOIN file_attributes a ON a.file_id = f.file_id
-            WHERE f.file_id = $file_id
-            ORDER BY a.attribute_ordinal;
-            """;
-        Add(command, "$file_id", fileId);
-        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            return null;
-
-        var attributes = new List<PeerBrowseFileAttribute>();
-        long directoryId = reader.GetInt64(1);
-        PeerBrowseEntryVisibility visibility = (PeerBrowseEntryVisibility)reader.GetInt32(2);
-        string name = reader.GetString(3);
-        long size = reader.GetInt64(4);
-        string? extension = reader.IsDBNull(5) ? null : reader.GetString(5);
-        int? bitRate = NullableInt(reader, 6);
-        int? bitDepth = NullableInt(reader, 7);
-        int? sampleRate = NullableInt(reader, 8);
-        int? length = NullableInt(reader, 9);
-        do
-        {
-            if (!reader.IsDBNull(10))
-                attributes.Add(new PeerBrowseFileAttribute(reader.GetInt32(10), reader.GetInt32(11)));
-        }
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false));
-
-        return new PeerBrowseFileEntry(
-            fileId,
-            directoryId,
-            visibility,
-            name,
-            size,
-            extension,
-            bitRate,
-            bitDepth,
-            sampleRate,
-            length,
-            attributes.Count == 0 ? null : attributes);
+        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false)).FileEntry(fileId);
     }
 
-    public async Task<PeerBrowseDownloadResolution> ResolveDownloadSelectionAsync(
-        Guid browseId,
-        IReadOnlyList<long> directoryIds,
-        IReadOnlyList<long> fileIds,
+    public async Task<PeerBrowseSearchPage> SearchAsync(Guid browseId, string query, string? afterSortKey,
+        PeerBrowseSearchEntryKind? afterKind, long? afterId, int limit, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(query);
+        ValidateSearchPage(afterSortKey, afterKind, afterId, limit);
+        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false))
+            .Search(query.Trim(), afterSortKey, afterKind, afterId, limit, cancellationToken);
+    }
+
+    public async Task<string?> ReadSearchSortKeyAsync(Guid browseId, PeerBrowseSearchEntryKind kind, long entryId,
         CancellationToken cancellationToken = default)
+    {
+        if (entryId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(entryId));
+        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false)).SearchSortKey(kind, entryId);
+    }
+
+    public async Task<PeerBrowseDownloadResolution> ResolveDownloadSelectionAsync(Guid browseId,
+        IReadOnlyList<long> directoryIds, IReadOnlyList<long> fileIds, CancellationToken cancellationToken = default,
+        IReadOnlyList<long>? excludedFileIds = null, IReadOnlyList<long>? excludedDirectoryIds = null)
     {
         ArgumentNullException.ThrowIfNull(directoryIds);
         ArgumentNullException.ThrowIfNull(fileIds);
-        if (directoryIds.Count == 0 && fileIds.Count == 0)
-            throw new PeerBrowseSelectionException("At least one directory or file must be selected.");
-        if (directoryIds.Any(id => id <= 0) || fileIds.Any(id => id <= 0))
-            throw new PeerBrowseSelectionException("Selection IDs must be positive.");
-
-        PeerBrowseResource resource = await RequireCompleteAsync(
-            browseId,
-            cancellationToken).ConfigureAwait(false);
-        await using ArtifactLease lease = await AcquireLeaseAsync(
-            browseId,
-            cancellationToken).ConfigureAwait(false);
-        await using SqliteConnection connection = await OpenArtifactAsync(
-            lease.ArtifactPath,
-            cancellationToken).ConfigureAwait(false);
-
-        long[] distinctDirectoryIds = directoryIds.Distinct().ToArray();
-        long[] distinctFileIds = fileIds.Distinct().ToArray();
-        int redundant = checked(
-            directoryIds.Count - distinctDirectoryIds.Length
-            + fileIds.Count - distinctFileIds.Length);
-        await CreateIdTableAsync(
-            connection,
-            "selected_directories",
-            distinctDirectoryIds,
-            cancellationToken).ConfigureAwait(false);
-        await CreateIdTableAsync(
-            connection,
-            "selected_files",
-            distinctFileIds,
-            cancellationToken).ConfigureAwait(false);
-
-        var selectedDirectories = new List<SelectionDirectory>();
-        await using (var command = connection.CreateCommand())
-        {
-            command.CommandText =
-                """
-                SELECT d.directory_id, d.identity_path, d.name, d.display_path,
-                       d.visibility, d.locked_descendant_count
-                FROM directories d
-                JOIN selected_directories s ON s.id = d.directory_id
-                ORDER BY length(d.identity_path), d.identity_path COLLATE BINARY, d.directory_id;
-                """;
-            await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                selectedDirectories.Add(new SelectionDirectory(
-                    reader.GetInt64(0),
-                    reader.GetString(1),
-                    reader.GetString(2),
-                    reader.GetString(3),
-                    (PeerBrowseEntryVisibility)reader.GetInt32(4),
-                    reader.GetInt64(5)));
-            }
-        }
-        if (selectedDirectories.Count != distinctDirectoryIds.Length)
-            throw new PeerBrowseSelectionException("One or more selected directories do not exist in this browse.");
-        if (selectedDirectories.Any(directory => directory.Visibility == PeerBrowseEntryVisibility.Locked))
-            throw new PeerBrowseSelectionException("Locked directories cannot be selected for download.");
-
-        var canonicalDirectories = new List<SelectionDirectory>();
-        var canonicalDirectoryPaths = new HashSet<string>(StringComparer.Ordinal);
-        foreach (SelectionDirectory directory in selectedDirectories)
-        {
-            if (HasSameOrAncestor(canonicalDirectoryPaths, directory.IdentityPath))
-            {
-                redundant = checked(redundant + 1);
-            }
-            else
-            {
-                canonicalDirectories.Add(directory);
-                canonicalDirectoryPaths.Add(directory.IdentityPath);
-            }
-        }
-
-        List<SelectedFile> selectedFiles = await ReadSelectedFilesAsync(
-            connection,
-            resource.Username,
-            cancellationToken).ConfigureAwait(false);
-        if (selectedFiles.Count != distinctFileIds.Length)
-            throw new PeerBrowseSelectionException("One or more selected files do not exist in this browse.");
-        if (selectedFiles.Any(file => file.Visibility != PeerBrowseEntryVisibility.Public))
-            throw new PeerBrowseSelectionException("Locked files cannot be selected for download.");
-
-        var standaloneFiles = new List<SelectedFile>();
-        foreach (SelectedFile file in selectedFiles)
-        {
-            if (HasSameOrAncestor(canonicalDirectoryPaths, file.Directory.IdentityPath))
-            {
-                redundant = checked(redundant + 1);
-            }
-            else
-            {
-                standaloneFiles.Add(file);
-            }
-        }
-
-        var orderedPlans = new List<(string SortKey, DirectoryTransferPlan Plan)>();
-        long totalFiles = 0;
-        long totalBytes = 0;
-        long lockedSkipped = 0;
-        IReadOnlyDictionary<long, DirectoryTransferPlan> directoryPlans = await ReadPlansAsync(
-            connection,
-            resource.Username,
-            canonicalDirectories,
-            cancellationToken).ConfigureAwait(false);
-        foreach (SelectionDirectory directory in canonicalDirectories)
-        {
-            DirectoryTransferPlan plan = directoryPlans[directory.DirectoryId];
-            orderedPlans.Add(("0\0" + directory.DisplayPath, plan));
-            totalFiles = checked(totalFiles + plan.Entries.Count);
-            totalBytes = SaturatingAdd(totalBytes, plan.TotalKnownBytes);
-            lockedSkipped = checked(lockedSkipped + directory.LockedDescendantCount);
-        }
-
-        foreach (IGrouping<long, SelectedFile> group in standaloneFiles
-                     .GroupBy(file => file.Directory.DirectoryId)
-                     .OrderBy(group => group.First().Directory.DisplayPath, StringComparer.Ordinal))
-        {
-            SelectedFile first = group.First();
-            var entries = group
-                .OrderBy(file => file.Target.Filename, StringComparer.Ordinal)
-                .Select(file => new DirectoryTransferEntry(file.Target, []))
-                .ToArray();
-            var plan = new DirectoryTransferPlan(
-                PeerBrowsePath.Leaf(first.Directory.IdentityPath),
-                entries);
-            orderedPlans.Add(("1\0" + first.Directory.DisplayPath, plan));
-            totalFiles = checked(totalFiles + plan.Entries.Count);
-            totalBytes = SaturatingAdd(totalBytes, plan.TotalKnownBytes);
-        }
-
-        return new PeerBrowseDownloadResolution(
-            orderedPlans
-                .OrderBy(item => item.SortKey, StringComparer.Ordinal)
-                .Select(item => item.Plan)
-                .ToArray(),
-            canonicalDirectories.Count,
-            standaloneFiles.Count,
-            totalFiles,
-            totalBytes,
-            redundant,
-            lockedSkipped);
+        var resource = await RequireCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
+        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false))
+            .Resolve(resource.Username, directoryIds, fileIds, excludedFileIds ?? [], excludedDirectoryIds ?? [], cancellationToken);
     }
 
-    private static async Task CreateIdTableAsync(
-        SqliteConnection connection,
-        string tableName,
-        IReadOnlyList<long> ids,
-        CancellationToken cancellationToken)
+    private async Task<PeerBrowseArtifact> ReadArtifactAsync(Guid browseId, CancellationToken cancellationToken)
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            $"CREATE TEMP TABLE {tableName}(id INTEGER PRIMARY KEY); "
-            + $"INSERT INTO {tableName}(id) SELECT CAST(value AS INTEGER) FROM json_each($ids);";
-        command.Parameters.AddWithValue("$ids", JsonSerializer.Serialize(ids));
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static bool HasSameOrAncestor(HashSet<string> candidates, string identityPath)
-    {
-        if (candidates.Contains(identityPath))
-            return true;
-        for (int separator = identityPath.LastIndexOf('\\'); separator > 0;
-             separator = identityPath.LastIndexOf('\\', separator - 1))
+        await RequireCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
+        await using ArtifactLease lease = await AcquireLeaseAsync(browseId, cancellationToken).ConfigureAwait(false);
+        TaskCompletionSource<PeerBrowseArtifact>? producer = null;
+        Task<PeerBrowseArtifact> task;
+        lock (leaseGate)
         {
-            if (candidates.Contains(identityPath[..separator]))
-                return true;
-        }
-        return false;
-    }
-
-    private static async Task<List<SelectedFile>> ReadSelectedFilesAsync(
-        SqliteConnection connection,
-        string username,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            SELECT f.file_id, f.wire_filename, f.size_bytes, f.extension,
-                   f.bit_rate, f.bit_depth, f.sample_rate, f.length_seconds,
-                   d.directory_id, d.identity_path, d.name, d.display_path,
-                   f.visibility, d.visibility, d.locked_descendant_count,
-                   a.attribute_type, a.attribute_value
-            FROM files f
-            JOIN selected_files s ON s.id = f.file_id
-            JOIN directories d ON d.directory_id = f.directory_id
-            LEFT JOIN file_attributes a ON a.file_id = f.file_id
-            ORDER BY f.file_id, a.attribute_ordinal;
-            """;
-        var files = new List<SelectedFile>();
-        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        await ReadPeerFileTargetsAsync(
-            reader,
-            username,
-            attributeTypeOrdinal: 15,
-            attributeValueOrdinal: 16,
-            row => new SelectedFileContext(
-                new SelectionDirectory(
-                    row.GetInt64(8),
-                    row.GetString(9),
-                    row.GetString(10),
-                    row.GetString(11),
-                    (PeerBrowseEntryVisibility)row.GetInt32(13),
-                    row.GetInt64(14)),
-                (PeerBrowseEntryVisibility)row.GetInt32(12)),
-            (target, context) => files.Add(new SelectedFile(
-                target,
-                context.Directory,
-                context.Visibility)),
-            cancellationToken).ConfigureAwait(false);
-        return files;
-    }
-
-    private static async Task<IReadOnlyDictionary<long, DirectoryTransferPlan>> ReadPlansAsync(
-        SqliteConnection connection,
-        string username,
-        IReadOnlyList<SelectionDirectory> roots,
-        CancellationToken cancellationToken)
-    {
-        if (roots.Count == 0)
-            return new Dictionary<long, DirectoryTransferPlan>();
-
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            WITH RECURSIVE selected_subtrees(root_id, directory_id) AS (
-                SELECT CAST(value AS INTEGER), CAST(value AS INTEGER)
-                FROM json_each($root_ids)
-                UNION ALL
-                SELECT selected_subtrees.root_id, child.directory_id
-                FROM selected_subtrees
-                JOIN directories child ON child.parent_id = selected_subtrees.directory_id
-            )
-            SELECT f.file_id, f.wire_filename, f.size_bytes, f.extension,
-                   f.bit_rate, f.bit_depth, f.sample_rate, f.length_seconds,
-                   root.directory_id, root.identity_path, d.identity_path,
-                   a.attribute_type, a.attribute_value
-            FROM selected_subtrees selected
-            JOIN directories root ON root.directory_id = selected.root_id
-            JOIN directories d ON d.directory_id = selected.directory_id
-            JOIN files f ON f.directory_id = d.directory_id
-            LEFT JOIN file_attributes a ON a.file_id = f.file_id
-            WHERE f.visibility = $public
-            ORDER BY root.directory_id, f.file_id, a.attribute_ordinal;
-            """;
-        Add(command, "$root_ids", JsonSerializer.Serialize(roots.Select(root => root.DirectoryId)));
-        Add(command, "$public", (int)PeerBrowseEntryVisibility.Public);
-
-        var entriesByRoot = roots.ToDictionary(
-            root => root.DirectoryId,
-            static _ => new List<DirectoryTransferEntry>());
-        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        await ReadPeerFileTargetsAsync(
-            reader,
-            username,
-            attributeTypeOrdinal: 11,
-            attributeValueOrdinal: 12,
-            static row => new PlanFileContext(row.GetInt64(8), row.GetString(9), row.GetString(10)),
-            (target, context) =>
+            if (loadedArtifacts.TryGetValue(browseId, out var cached))
             {
-                string[] relative = StringComparer.Ordinal.Equals(context.DirectoryPath, context.RootPath)
-                    ? []
-                    : context.DirectoryPath[(context.RootPath.Length + 1)..].Split('\\');
-                entriesByRoot[context.RootId].Add(new DirectoryTransferEntry(target, relative));
-            },
-            cancellationToken).ConfigureAwait(false);
-
-        var plans = new Dictionary<long, DirectoryTransferPlan>(roots.Count);
-        foreach (SelectionDirectory root in roots)
-        {
-            List<DirectoryTransferEntry> entries = entriesByRoot[root.DirectoryId];
-            if (entries.Count == 0)
-                throw new PeerBrowseSelectionException(
-                    $"Selected directory '{root.Name}' contains no downloadable public files.");
-            plans.Add(root.DirectoryId, new DirectoryTransferPlan(PeerBrowsePath.Leaf(root.IdentityPath), entries));
-        }
-        return plans;
-    }
-
-    private static async Task ReadPeerFileTargetsAsync<TContext>(
-        SqliteDataReader reader,
-        string username,
-        int attributeTypeOrdinal,
-        int attributeValueOrdinal,
-        Func<SqliteDataReader, TContext> readContext,
-        Action<PeerFileTarget, TContext> addTarget,
-        CancellationToken cancellationToken)
-    {
-        long? currentId = null;
-        string? filename = null;
-        long size = 0;
-        string? extension = null;
-        int? bitRate = null;
-        int? bitDepth = null;
-        int? sampleRate = null;
-        int? length = null;
-        TContext context = default!;
-        List<FileAttributeSnapshot>? attributes = null;
-
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            long fileId = reader.GetInt64(0);
-            if (currentId != fileId)
-            {
-                AddCurrent();
-                currentId = fileId;
-                filename = reader.GetString(1);
-                size = reader.GetInt64(2);
-                extension = reader.IsDBNull(3) ? null : reader.GetString(3);
-                bitRate = NullableInt(reader, 4);
-                bitDepth = NullableInt(reader, 5);
-                sampleRate = NullableInt(reader, 6);
-                length = NullableInt(reader, 7);
-                context = readContext(reader);
-                attributes = null;
+                artifactRecency.Remove(cached.Node);
+                artifactRecency.AddFirst(cached.Node);
+                return cached.Artifact;
             }
-
-            if (!reader.IsDBNull(attributeTypeOrdinal))
+            if (!artifactLoads.TryGetValue(browseId, out task!))
             {
-                int type = reader.GetInt32(attributeTypeOrdinal);
-                attributes ??= [];
-                attributes.Add(new FileAttributeSnapshot(
-                    type.ToString(CultureInfo.InvariantCulture),
-                    reader.GetInt32(attributeValueOrdinal),
-                    type));
+                producer = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                task = producer.Task;
+                artifactLoads.Add(browseId, task);
             }
         }
-        AddCurrent();
+        if (producer is not null)
+            _ = Task.Run(() => LoadArtifactAsync(browseId, producer));
+        return await task.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
 
-        void AddCurrent()
+    private async Task LoadArtifactAsync(Guid browseId, TaskCompletionSource<PeerBrowseArtifact> completion)
+    {
+        try
         {
-            if (currentId is null)
+            // The load owns a lease and survives an individual cancelled waiter.
+            await using var lease = await AcquireLeaseAsync(browseId).ConfigureAwait(false);
+            var artifact = PeerBrowseArtifact.Read(lease.ArtifactPath, CancellationToken.None);
+            RememberArtifact(browseId, artifact);
+            completion.TrySetResult(artifact);
+        }
+        catch (Exception exception)
+        {
+            completion.TrySetException(exception);
+            _ = completion.Task.Exception; // Observe failure even if every waiter cancelled.
+        }
+        finally
+        {
+            lock (leaseGate)
+                artifactLoads.Remove(browseId);
+        }
+    }
+
+    private void RememberArtifact(Guid browseId, PeerBrowseArtifact artifact)
+    {
+        lock (leaseGate)
+        {
+            if (disposed)
                 return;
-            addTarget(
-                new PeerFileTarget(
-                    new PeerFileIdentity(username, filename!),
-                    size,
-                    extension,
-                    bitRate,
-                    bitDepth,
-                    sampleRate,
-                    length,
-                    attributes),
-                context);
+            ForgetArtifact(browseId);
+            // A working-set target, never an admission limit. Keep one oversized
+            // artifact usable; evict idle cache references, not active readers.
+            while (artifactRecency.Last is { } last && loadedArtifactBytes + artifact.EstimatedBytes > ArtifactMemoryTarget)
+                ForgetArtifact(last.Value);
+            var node = artifactRecency.AddFirst(browseId);
+            loadedArtifacts.Add(browseId, (artifact, node));
+            loadedArtifactBytes += artifact.EstimatedBytes;
+        }
+    }
+
+    private void ForgetArtifact(Guid browseId)
+    {
+        lock (leaseGate)
+        {
+            if (!loadedArtifacts.Remove(browseId, out var old))
+                return;
+            artifactRecency.Remove(old.Node);
+            loadedArtifactBytes -= old.Artifact.EstimatedBytes;
         }
     }
 
@@ -1070,8 +586,8 @@ public sealed class PeerBrowseArtifactStore
         Add(command, "$state", state is null ? null : (int)state.Value);
         Add(command, "$after_created", afterCreatedAt is null ? null : Format(afterCreatedAt.Value));
         Add(command, "$after_browse_id", afterBrowseId?.ToString("D"));
-        Add(command, "$limit", checked(limit + 1));
-        var items = new List<PeerBrowseResource>(limit + 1);
+        Add(command, "$limit", (long)limit + 1);
+        var items = new List<PeerBrowseResource>();
         await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             items.Add(ReadResource(reader));
@@ -1201,6 +717,12 @@ public sealed class PeerBrowseArtifactStore
         await using SqliteConnection connection = await OpenRegistryAsync(
             SqliteOpenMode.ReadWrite,
             cancellationToken).ConfigureAwait(false);
+        // Running phases are progress, not a recovery boundary: startup fails
+        // both queued and running acquisitions. Acceptance and terminal outcomes
+        // remain FULL; losing an intermediate phase cannot change recovery.
+        if (state == PeerBrowseState.Running)
+            await ExecuteAsync(connection, "PRAGMA synchronous=NORMAL;", cancellationToken)
+                .ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
@@ -1233,21 +755,25 @@ public sealed class PeerBrowseArtifactStore
     }
 
     internal string GetStagingPath(Guid browseId)
-        => Path.Combine(stagingDirectory, browseId.ToString("N") + ".sqlite.staging");
+        => Path.Combine(stagingDirectory, browseId.ToString("N") + ".browse.gz.staging");
 
     internal async Task PromoteAsync(
         PeerBrowseResource resource,
         string stagingPath,
         PeerBrowseIndexProgress progress,
+        PeerBrowseArtifact artifact,
         CancellationToken cancellationToken)
     {
-        string fileName = resource.BrowseId.ToString("N") + ".sqlite";
+        string fileName = resource.BrowseId.ToString("N") + ".browse.gz";
         string finalPath = Path.Combine(artifactDirectory, fileName);
         File.Move(stagingPath, finalPath, overwrite: false);
         OwnerOnlyFilePermissions.EnsureFile(finalPath);
         long artifactBytes = new FileInfo(finalPath).Length;
         DateTimeOffset now = timeProvider.GetUtcNow();
 
+        // Readers require Complete, so install the immutable model before the
+        // registry publishes Ready; the first reader must not reload it from disk.
+        RememberArtifact(resource.BrowseId, artifact);
         try
         {
             await using SqliteConnection connection = await OpenRegistryAsync(
@@ -1288,6 +814,7 @@ public sealed class PeerBrowseArtifactStore
         }
         catch
         {
+            ForgetArtifact(resource.BrowseId);
             TryDeleteCleanupFile(finalPath);
             throw;
         }
@@ -1394,10 +921,11 @@ public sealed class PeerBrowseArtifactStore
 
     private void PublishResourceRemoved(Guid browseId)
     {
+        ForgetArtifact(browseId);
         Action<Guid>? handlers = ResourceRemoved;
         if (handlers is null)
             return;
-        foreach (Action<Guid> handler in handlers.GetInvocationList())
+        foreach (Action<Guid> handler in Delegate.EnumerateInvocationList(handlers))
         {
             try
             {
@@ -1431,7 +959,7 @@ public sealed class PeerBrowseArtifactStore
                 retained.Add(reader.GetString(0));
         }
 
-        foreach (string path in Directory.EnumerateFiles(artifactDirectory, "*.sqlite", SearchOption.TopDirectoryOnly))
+        foreach (string path in Directory.EnumerateFiles(artifactDirectory, "*", SearchOption.TopDirectoryOnly))
         {
             if (!retained.Contains(Path.GetFileName(path)))
                 TryDeleteCleanupFile(path);
@@ -1474,52 +1002,55 @@ public sealed class PeerBrowseArtifactStore
     internal void DeleteStagingBestEffort(string path)
         => TryDeleteCleanupFile(path);
 
+    public async ValueTask DisposeAsync()
+    {
+        Task[] pending;
+        lock (leaseGate)
+        {
+            if (disposed)
+                return;
+            disposed = true;
+            pending = artifactLoads.Values.Cast<Task>().ToArray();
+            loadedArtifacts.Clear();
+            artifactRecency.Clear();
+            loadedArtifactBytes = 0;
+        }
+        try
+        {
+            await Task.WhenAll(pending).ConfigureAwait(false);
+        }
+        catch { /* Read failures belong to their waiting requests. */ }
+        foreach (SqliteOpenMode mode in new[]
+                 { SqliteOpenMode.ReadWriteCreate, SqliteOpenMode.ReadWrite, SqliteOpenMode.ReadOnly })
+        {
+            using var connection = new SqliteConnection(RegistryConnectionString(mode));
+            SqliteConnection.ClearPool(connection);
+        }
+    }
+
+    private string RegistryConnectionString(SqliteOpenMode mode)
+        => new SqliteConnectionStringBuilder
+        {
+            DataSource = registryPath,
+            Mode = mode,
+            // Keep the mutable registry's WAL open between operations. Closing
+            // its last connection otherwise checkpoints and recreates the WAL
+            // on subsequent progress writes. Browse artifacts use ordinary files.
+            Pooling = true,
+        }.ToString();
+
     private async ValueTask<SqliteConnection> OpenRegistryAsync(
         SqliteOpenMode mode,
         CancellationToken cancellationToken)
     {
-        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = registryPath,
-            Mode = mode,
-            Pooling = false,
-        }.ToString());
+        ObjectDisposedException.ThrowIf(disposed, this);
+        var connection = new SqliteConnection(RegistryConnectionString(mode));
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var pragma = connection.CreateCommand();
-        pragma.CommandText = "PRAGMA busy_timeout=5000;";
+        // A pooled connection may have last served a best-effort progress write.
+        // Restore the durable default at the owner boundary for every operation.
+        pragma.CommandText = "PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;";
         await pragma.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        return connection;
-    }
-
-    private static async ValueTask<SqliteConnection> OpenArtifactAsync(
-        string path,
-        CancellationToken cancellationToken)
-    {
-        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = path,
-            Mode = SqliteOpenMode.ReadOnly,
-            Pooling = false,
-        }.ToString());
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        connection.CreateFunction<string?, string?, bool>(
-            "ordinal_contains",
-            static (value, query) => value is not null
-                && query is not null
-                && value.Contains(query, StringComparison.OrdinalIgnoreCase),
-            isDeterministic: true);
-        connection.CreateFunction<string?, string?, bool>(
-            "ordinal_same_or_descendant",
-            static (candidate, root) => candidate is not null
-                && root is not null
-                && PeerBrowsePath.IsSameOrDescendant(candidate, root),
-            isDeterministic: true);
-        connection.CreateFunction<string?, string?, bool>(
-            "ordinal_descendant",
-            static (candidate, root) => candidate is not null
-                && root is not null
-                && PeerBrowsePath.IsDescendant(candidate, root),
-            isDeterministic: true);
         return connection;
     }
 
@@ -1572,21 +1103,25 @@ public sealed class PeerBrowseArtifactStore
         FROM browse_resources
         """;
 
-    internal static string NormalizeIdentityPath(string wirePath)
-        => PeerBrowsePath.NormalizeDirectoryIdentity(wirePath);
-
-    internal static string DisplayPath(string identityPath)
-        => PeerBrowsePath.ToDisplayPath(identityPath);
-
-    private static int? NullableInt(SqliteDataReader reader, int ordinal)
-        => reader.IsDBNull(ordinal) ? null : reader.GetInt32(ordinal);
-
     private static void ValidatePage(string? afterSortKey, long? afterId, int limit)
     {
-        if (limit is < 1 or > 500)
-            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be between 1 and 500.");
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
         if ((afterSortKey is null) != (afterId is null))
             throw new ArgumentException("Both cursor sort key and ID must be supplied together.");
+    }
+
+    private static void ValidateSearchPage(
+        string? afterSortKey,
+        PeerBrowseSearchEntryKind? afterKind,
+        long? afterId,
+        int limit)
+    {
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
+        bool hasCursor = afterSortKey is not null || afterKind is not null || afterId is not null;
+        if (hasCursor && (afterSortKey is null || afterKind is null || afterId is null or <= 0))
+            throw new ArgumentException("All mixed-search cursor values must be supplied together.");
     }
 
     private static void ValidateResourcePage(
@@ -1594,90 +1129,10 @@ public sealed class PeerBrowseArtifactStore
         Guid? afterBrowseId,
         int limit)
     {
-        if (limit is < 1 or > 500)
-            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be between 1 and 500.");
+        if (limit < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
         if ((afterCreatedAt is null) != (afterBrowseId is null))
             throw new ArgumentException("Both resource cursor values must be supplied together.");
-    }
-
-    private static PeerBrowsePage<T> ToPage<T>(
-        List<T> items,
-        int limit,
-        Func<T, string> sortKey,
-        Func<T, long> id)
-        where T : class
-    {
-        bool hasMore = items.Count > limit;
-        if (hasMore)
-            items.RemoveAt(items.Count - 1);
-        T? last = hasMore ? items[^1] : default;
-        return new PeerBrowsePage<T>(
-            items,
-            last is null ? null : sortKey(last),
-            last is null ? null : id(last));
-    }
-
-    private static PeerBrowseDirectoryEntry ReadDirectoryEntry(SqliteDataReader reader)
-        => new(
-            reader.GetInt64(0),
-            reader.IsDBNull(1) ? null : reader.GetInt64(1),
-            reader.GetString(2),
-            reader.GetString(3),
-            (PeerBrowseEntryVisibility)reader.GetInt32(4),
-            reader.GetInt32(5) != 0,
-            reader.GetInt64(6),
-            reader.GetInt64(7),
-            reader.GetInt64(8),
-            reader.GetInt64(9),
-            reader.GetInt64(10),
-            reader.GetInt32(11) != 0);
-
-    private const string DirectorySelect =
-        """
-        SELECT directory_id, parent_id, name, display_path, visibility,
-               is_synthetic, direct_directory_count, direct_file_count,
-               recursive_file_count, recursive_file_bytes,
-               locked_descendant_count, has_children
-        FROM directories
-        """;
-
-    private sealed record SelectionDirectory(
-        long DirectoryId,
-        string IdentityPath,
-        string Name,
-        string DisplayPath,
-        PeerBrowseEntryVisibility Visibility,
-        long LockedDescendantCount);
-
-    private sealed record SelectedFile(
-        PeerFileTarget Target,
-        SelectionDirectory Directory,
-        PeerBrowseEntryVisibility Visibility);
-
-    private sealed record SelectedFileContext(
-        SelectionDirectory Directory,
-        PeerBrowseEntryVisibility Visibility);
-
-    private readonly record struct PlanFileContext(
-        long RootId,
-        string RootPath,
-        string DirectoryPath);
-
-    private static async Task<bool> HasBrowseResourceColumnAsync(
-        SqliteConnection connection,
-        string columnName,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA table_info(browse_resources);";
-        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken)
-            .ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            if (string.Equals(reader.GetString(1), columnName, StringComparison.Ordinal))
-                return true;
-        }
-        return false;
     }
 
     private static async Task ExecuteAsync(

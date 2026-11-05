@@ -7,6 +7,14 @@ using System.Globalization;
 namespace Sockseek.Core.Extractors;
     public partial class CsvExtractor : IExtractor, IInputMatcher
     {
+        public JobSourceInfo? DescribeSource(ExtractJob source, Job item)
+        {
+            if (ReferenceEquals(source, item)) return new(Detail: "CSV import", PreviewDetail: "CSV import");
+            string? detail = item is JobList ? "Mixed jobs"
+                : item is SongJob or AlbumJob && item.LineNumber > 0 ? $"CSV row {item.LineNumber}" : null;
+            return detail is null ? null : new(Detail: detail, PreviewDetail: detail);
+        }
+
         [GeneratedRegex(@"\(.*?\)")]
         private static partial Regex ParenthesesRegex();
 
@@ -58,21 +66,18 @@ namespace Sockseek.Core.Extractors;
 
             var csvName = Path.GetFileNameWithoutExtension(csvFilePath);
             var list = new JobList { ItemName = csvName, EnablesIndexByDefault = true };
-            list.Jobs.AddRange(BuildJobs(rows.Skip(offset).Take(maxTracks)));
+            list.AddRange(rows.Skip(offset).Take(maxTracks));
             return list;
         }
 
-        private static IEnumerable<Job> BuildJobs(IEnumerable<object> rows)
-            => rows.OfType<Job>();
-
         // Returns a list of rows — either SongJob (song row) or AlbumJob (album row).
-        async Task<List<object>> ParseCsvRows(string path, string artistCol = "", string trackCol = "",
+        async Task<List<Job>> ParseCsvRows(string path, string artistCol = "", string trackCol = "",
             string lengthCol = "", string albumCol = "", string descCol = "", string ytIdCol = "", string trackCountCol = "",
             string timeUnit = "s", bool ytParse = false, IJobLog? log = null)
         {
             log ??= ExtractorContext.None.Log;
             ValidateTimeFormat(timeUnit);
-            var rows = new List<object>();
+            var rows = new List<Job>();
             using var sr = new StreamReader(path, System.Text.Encoding.UTF8);
             var parser = new SmallestCSV.SmallestCSVParser(sr);
 
@@ -161,7 +166,7 @@ namespace Sockseek.Core.Extractors;
                 if (trackCountIndex >= 0)
                 {
                     string a = values[trackCountIndex].Trim();
-                    if (a == "-1")
+                    if (a.Length == 0 || a == "-1")
                     {
                         minAlbumTrackCount = -1;
                         maxAlbumTrackCount = -1;

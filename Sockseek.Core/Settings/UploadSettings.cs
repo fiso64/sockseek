@@ -5,12 +5,12 @@ namespace Sockseek.Core.Settings;
 /// </summary>
 public sealed class UploadSettings
 {
-    internal UploadSettings ShallowClone() => (UploadSettings)MemberwiseClone();
-
+    [SettingOption("--upload-slots", DefaultProfileOnly = true)]
     public int Slots { get; set; } = 10;
 
     /// <summary>
     /// Null means unlimited. A configured value is an aggregate KiB/s limit.
     /// </summary>
+    [SettingOption("--upload-speed-limit-kib", DefaultProfileOnly = true)]
     public int? SpeedLimitKiBPerSecond { get; set; }
 }

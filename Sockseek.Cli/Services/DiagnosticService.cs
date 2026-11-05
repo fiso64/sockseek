@@ -34,7 +34,7 @@ namespace Sockseek.Cli;
                     return;
                 }
 
-                var index = new M3uEditor(fullPath, new JobList(), M3uOption.Index, true);
+                var index = new DownloadOutputFile(fullPath, new JobList(), OutputFileKind.Index, true, readOnly: true);
                 var data = index.GetPreviousRunData();
 
                 if (printOption.HasFlag(PrintOption.IndexFailed))

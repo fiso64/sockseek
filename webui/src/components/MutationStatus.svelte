@@ -1,6 +1,11 @@
 <script lang="ts">
-  import type { PrototypeMutationState } from '../prototype/state';
-  interface Props { state: PrototypeMutationState; }
+  export interface MutationState {
+    phase: 'idle' | 'pending' | 'succeeded' | 'partially-succeeded' | 'rejected' | 'failed';
+    label?: string;
+    detail?: string;
+  }
+
+  interface Props { state: MutationState; }
   let { state }: Props = $props();
 </script>
 

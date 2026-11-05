@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Sockseek.Core.Jobs;
+using Sockseek.Core.Models;
+using Sockseek.Core.Planning;
 
 namespace Sockseek.Core.Transfers.Downloads.JobTracking;
 
@@ -31,7 +33,7 @@ internal sealed class DownloadJobTracker
     public void AssociateSource(Guid jobId, Guid sourceJobId)
         => sourceJobIds[jobId] = sourceJobId;
 
-    public void Register(Job job, Job? parent, Guid? sourceJobId = null)
+    public void Register(Job job, Job? parent, Guid? sourceJobId = null, DirectoryTransferEntry? directoryEntry = null)
     {
         if (sourceJobId is Guid sourceId)
             AssociateSource(job.Id, sourceId);
@@ -41,25 +43,29 @@ internal sealed class DownloadJobTracker
         jobsByDisplayId[job.DisplayId] = job;
 
         if (!firstRegistration)
-            return;
-
-        Action<Job, JobStateTransition> stateHandler = (_, transition) =>
         {
-            events.RaiseJobStateChanged(job);
-            if (transition.ActivityChanged
-                && transition.After.LifecycleState == JobLifecycleState.Running
-                && transition.After.ActivityPhase != JobActivityPhase.None)
-            {
-                events.RaiseJobActivityChanged(job, job.ActivityPhase, job.ActivityUntilUtc);
-            }
-        };
+            if (directoryEntry is not null)
+                events.UpdateDirectoryGroup(job, parent, directoryEntry);
+            return;
+        }
+
+        // Direct Core execution need not carry a retained submission. Still assign
+        // child roles before publishing registration, preserving extracted result roles.
+        if (parent is not null && job.SemanticRole == JobSemanticRole.UserRoot)
+            SubmissionIdentity.AssignExecutionChild(parent, job);
+
+        Action<Job, JobStateTransition> stateHandler = (_, transition)
+            => events.RaiseJobStateChanged(job, transition);
         stateHandlersByJobId[job.Id] = stateHandler;
         job.StateChanged += stateHandler;
+        job.StructureChanged += OnStructureChanged;
+        job.ExecutionChanged += OnExecutionChanged;
 
         events.RaiseJobRegistered(
             job,
-            parent?.Id,
-            sourceJobIds.TryGetValue(job.Id, out var registeredSourceId) ? registeredSourceId : null);
+            parent,
+            sourceJobIds.TryGetValue(job.Id, out var registeredSourceId) ? registeredSourceId : null,
+            directoryEntry);
     }
 
     public IReadOnlyList<Job> Retire(IReadOnlyCollection<Guid> jobIds)
@@ -75,6 +81,8 @@ internal sealed class DownloadJobTracker
                 new KeyValuePair<int, Job>(job.DisplayId, job));
             if (stateHandlersByJobId.TryRemove(jobId, out var handler))
                 job.StateChanged -= handler;
+            job.StructureChanged -= OnStructureChanged;
+            job.ExecutionChanged -= OnExecutionChanged;
             job.Cts?.Dispose();
             job.Cts = null;
             retired.Add(job);
@@ -83,4 +91,10 @@ internal sealed class DownloadJobTracker
     }
 
     internal int Count => jobsById.Count;
+
+    private void OnStructureChanged(Job job)
+        => events.RaiseJobStructureChanged(job);
+
+    private void OnExecutionChanged(Job job)
+        => events.RaiseJobStateChanged(job);
 }

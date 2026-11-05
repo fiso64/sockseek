@@ -23,7 +23,12 @@ public sealed class OneShotPeerDirectorySourceTests
         Assert.AreEqual(180, first.Length);
         CollectionAssert.AreEqual(
             new[] { "BitRate", "Length" },
-            first.Attributes!.Select(attribute => attribute.Type).ToArray());
+            first.Attributes!.Take(2).Select(attribute => attribute.Type).ToArray());
+        Assert.AreEqual(48_000, first.SampleRate);
+        Assert.AreEqual(24, first.BitDepth);
+        CollectionAssert.AreEqual(new[] { 0, 1, 0, 1, 4, 4, 5, 5, 73 },
+            first.Attributes!.Select(attribute => attribute.StableCode).ToArray());
+        Assert.AreEqual(int.MinValue, first.Attributes![^1].Value);
         Assert.AreEqual("Root/Music/Sub/two.flac", snapshot.Files[1].Filename);
     }
 
@@ -50,9 +55,13 @@ public sealed class OneShotPeerDirectorySourceTests
             await DirectoryAsync("Elsewhere", PeerShareVisibility.Public, "ignored.bin");
 
             await sink.BeginDirectoryAsync(@"Root\Music", PeerShareVisibility.Public, 1, cancellationToken);
-            await sink.BeginFileAsync(new PeerBrowseWireFile(1, "one.mp3", 12, "mp3", 2), cancellationToken);
-            await sink.AddAttributeAsync(new PeerBrowseWireAttribute(0, 320), cancellationToken);
-            await sink.AddAttributeAsync(new PeerBrowseWireAttribute(1, 180), cancellationToken);
+            PeerBrowseWireAttribute[] attributes =
+            [
+                new(0, 320), new(1, 180), new(0, 900), new(1, 400),
+                new(4, 0), new(4, 48_000), new(5, -1), new(5, 24), new(73, int.MinValue),
+            ];
+            await sink.BeginFileAsync(new PeerBrowseWireFile(1, "one.mp3", 12, "mp3", attributes.Length), cancellationToken);
+            foreach (var attribute in attributes) await sink.AddAttributeAsync(attribute, cancellationToken);
             await sink.EndFileAsync(cancellationToken);
 
             await sink.BeginDirectoryAsync("Root/Music/Sub", PeerShareVisibility.Public, 1, cancellationToken);

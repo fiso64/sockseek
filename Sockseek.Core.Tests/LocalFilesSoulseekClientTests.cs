@@ -10,6 +10,21 @@ namespace Tests.Core;
 public class LocalFilesSoulseekClientTests
 {
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task FactoryDownloadsRespectOutputOwnership(bool disposeOutput)
+    {
+        var file = new Soulseek.File(1, @"Shared\Track.bin", 8, ".bin");
+        var client = new LocalFilesSoulseekClient([new SearchResponse("peer", 1, true, 100, 0, [file])]);
+        using var output = new MemoryStream();
+        var transfer = await client.DownloadAsync("peer", file.Filename, () => Task.FromResult<Stream>(output),
+            options: new TransferOptions(disposeOutputStreamOnCompletion: disposeOutput));
+        Assert.AreEqual(TransferStates.Completed, transfer.State);
+        Assert.AreEqual(!disposeOutput, output.CanWrite);
+        CollectionAssert.AreEqual(Enumerable.Range(0, 8).Select(i => (byte)i).ToArray(), output.ToArray());
+    }
+
+    [TestMethod]
     public async Task ResponseHandlerSearch_PropagatesCancellationWithoutAggregateException()
     {
         var indexedFile = new Soulseek.File(
@@ -80,7 +95,7 @@ public class LocalFilesSoulseekClientTests
             var result = await client.SearchAsync(new SearchQuery("Artist Track"));
             var filename = result.Responses.First().Files.First().Filename;
 
-            await Assert.ThrowsExceptionAsync<SoulseekClientException>(async () =>
+            await Assert.ThrowsExactlyAsync<SoulseekClientException>(async () =>
                 await client.DownloadAsync("local", filename, outputPath));
 
             var transfer = await client.DownloadAsync("local", filename, outputPath);

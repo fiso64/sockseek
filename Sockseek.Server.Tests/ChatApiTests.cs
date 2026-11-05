@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Core.Chat;
@@ -27,7 +28,7 @@ public sealed class ChatApiTests
             [new UserData("Alice", UserPresence.Online, 0, 0, 0, 0, "CH")]);
         int port = GetFreeTcpPort();
         string url = $"http://127.0.0.1:{port}";
-        await using var app = ServerHost.Build([], new ServerOptions
+        await using var app = global::Tests.TestServerHost.Build([], new ServerOptions
         {
             Engine = new EngineSettings
             {
@@ -35,6 +36,17 @@ public sealed class ChatApiTests
                 Password = "password",
                 ListenPort = null,
                 LogLevel = Microsoft.Extensions.Logging.LogLevel.None,
+                PeerRestrictions = new PeerRestrictionSettings
+                {
+                    UploadAccess = new UploadAccessSettings
+                    {
+                        BlockedUsernames = ["Configured"],
+                    },
+                    PrivateMessages = new PrivateMessageAccessSettings
+                    {
+                        BlockedUsernames = ["Configured"],
+                    },
+                },
             },
             Persistence = new ServerPersistenceOptions
             {
@@ -58,9 +70,25 @@ public sealed class ChatApiTests
             Guid outgoingId = Guid.NewGuid();
             ChatMessageDto outgoing = await api.SendPrivateMessageAsync(
                 new SendPrivateMessageRequestDto(outgoingId, "Alice", "outbound"));
-            Assert.AreEqual(ChatMessageState.Sent, outgoing.State);
+            Assert.AreEqual(ServerChatMessageState.Sent, outgoing.State);
+            foreach (string newline in new[] { "\n", "\r", "\r\n" })
+            {
+                var invalid = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
+                    api.SendPrivateMessageAsync(new(Guid.NewGuid(), "Alice", $"first{newline}second")));
+                Assert.AreEqual(HttpStatusCode.BadRequest, invalid.StatusCode);
+                StringAssert.Contains(invalid.Message, "cannot contain line breaks");
+            }
+            var invalidConversation = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
+                api.SendConversationMessageAsync(outgoing.TargetId, new(Guid.NewGuid(), "first\nsecond")));
+            Assert.AreEqual(HttpStatusCode.BadRequest, invalidConversation.StatusCode);
+            Assert.AreEqual(1, fake.PrivateSendCount, "Invalid text must not reach the Soulseek client.");
+            ConversationSummaryDto? byPeer = await api.GetConversationByPeerAsync("Alice");
+            Assert.IsNotNull(byPeer);
+            Assert.AreEqual(outgoing.TargetId, byPeer.ConversationId);
+            Assert.IsNull(await api.GetConversationByPeerAsync("alice"));
+            Assert.IsNull(await api.GetConversationByPeerAsync(" Alice "));
             SockseekApiRequestException conflict =
-                await Assert.ThrowsExceptionAsync<SockseekApiRequestException>(() =>
+                await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
                     api.SendPrivateMessageAsync(
                         new SendPrivateMessageRequestDto(outgoingId, "Alice", "different")));
             Assert.AreEqual(HttpStatusCode.Conflict, conflict.StatusCode);
@@ -72,6 +100,73 @@ public sealed class ChatApiTests
 
             ConversationSummaryDto conversation = (await api.GetConversationsAsync())
                 .Items.Single(item => item.Username == "Alice");
+            Assert.IsFalse(conversation.PrivateMessagesBlocked);
+
+            UserRestrictionsDto configured =
+                (await api.GetUserRestrictionsAsync("Configured"))!;
+            Assert.IsTrue(configured.UploadAccess.IsBlocked);
+            Assert.IsTrue(configured.PrivateMessages.IsBlocked);
+            UserRestrictionsDto allowedUpload = await api.SetUserRestrictionAsync(
+                "Configured",
+                new SetUserRestrictionOverrideRequestDto(
+                    UserRestrictionKind.UploadAccess,
+                    UserRestrictionOverrideState.Allowed));
+            Assert.IsFalse(allowedUpload.UploadAccess.IsBlocked);
+            Assert.IsTrue(allowedUpload.PrivateMessages.IsBlocked);
+            Assert.IsTrue((await api.SetUserRestrictionAsync(
+                "Configured",
+                new SetUserRestrictionOverrideRequestDto(
+                    UserRestrictionKind.UploadAccess,
+                    null))).UploadAccess.IsBlocked);
+
+            UserRestrictionsDto blocked = await api.SetUserRestrictionAsync(
+                "Alice",
+                new SetUserRestrictionOverrideRequestDto(
+                    UserRestrictionKind.PrivateMessages,
+                    UserRestrictionOverrideState.Blocked));
+            Assert.IsTrue(blocked.PrivateMessages.IsBlocked);
+            Assert.IsFalse(blocked.UploadAccess.IsBlocked);
+            Assert.IsFalse((await api.GetUserRestrictionsAsync("alice"))!
+                .PrivateMessages.IsBlocked,
+                "Soulseek username restrictions remain exact ordinal.");
+            Assert.IsTrue((await api.GetConversationAsync(
+                conversation.ConversationId))!.PrivateMessagesBlocked);
+            UserProfileDto messageBlockedProfile = await api.GetUserProfileAsync("Alice");
+            Assert.IsTrue(messageBlockedProfile.PrivateMessagesBlocked);
+            Assert.IsFalse(messageBlockedProfile.UploadAccessBlocked);
+            Assert.AreEqual(ResourceSectionState.Available, messageBlockedProfile.Status.State,
+                "Restrictions annotate profiles; they do not hide outbound profile data.");
+
+            UserRestrictionsDto uploadBlocked = await api.SetUserRestrictionAsync(
+                "Alice",
+                new SetUserRestrictionOverrideRequestDto(
+                    UserRestrictionKind.UploadAccess,
+                    UserRestrictionOverrideState.Blocked));
+            Assert.IsTrue(uploadBlocked.UploadAccess.IsBlocked);
+            Assert.IsTrue(uploadBlocked.PrivateMessages.IsBlocked);
+            UserProfileDto fullyBlockedProfile = await api.GetUserProfileAsync("Alice");
+            Assert.IsTrue(fullyBlockedProfile.UploadAccessBlocked);
+            Assert.IsTrue(fullyBlockedProfile.PrivateMessagesBlocked);
+            Assert.AreEqual(ResourceSectionState.Available, fullyBlockedProfile.Status.State);
+
+            await api.SetUserRestrictionAsync(
+                "Alice",
+                new SetUserRestrictionOverrideRequestDto(
+                    UserRestrictionKind.PrivateMessages,
+                    UserRestrictionOverrideState.Allowed));
+            Assert.IsFalse((await api.GetConversationAsync(
+                conversation.ConversationId))!.PrivateMessagesBlocked);
+            Assert.IsTrue((await api.GetUserRestrictionsAsync("Alice"))!
+                .UploadAccess.IsBlocked,
+                "Changing private-message policy must not change upload access.");
+
+            var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
+            var peerRestrictions = app.Services.GetRequiredService<
+                Sockseek.Server.PeerRestrictions.PeerRestrictionCoordinator>();
+            Assert.AreSame(peerRestrictions.Policy, supervisor.Runtime.SoulseekRuntime!.Restrictions);
+            Assert.AreSame(peerRestrictions.Policy, supervisor.Runtime.Sharing!.Restrictions);
+            Assert.AreSame(peerRestrictions.Policy, supervisor.Runtime.Chat!.Restrictions);
+
             ChatMessagePageDto messages = await api.GetConversationMessagesAsync(
                 conversation.ConversationId);
             Assert.AreEqual(2, messages.Items.Count);
@@ -88,20 +183,35 @@ public sealed class ChatApiTests
             await api.ArchiveConversationAsync(conversation.ConversationId);
             Assert.IsTrue((await api.GetConversationAsync(conversation.ConversationId))!.Archived);
 
+            foreach (string invalidRoom in new[] { "caf\u00e9", "two  spaces", new string('a', 25) })
+            {
+                var invalid = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
+                    api.JoinRoomAsync(invalidRoom));
+                Assert.AreEqual(HttpStatusCode.BadRequest, invalid.StatusCode);
+                StringAssert.Contains(invalid.Message, "Soulseek room names");
+            }
             ChatRoomSummaryDto room = await api.JoinRoomAsync("indie");
-            Assert.AreEqual(ChatRoomJoinPhase.Joined, room.Phase);
+            Assert.AreEqual(ServerChatRoomJoinPhase.Joined, room.Phase);
             Assert.IsTrue((await api.GetRoomMembersAsync(room.RoomId)).Complete);
+            foreach (string newline in new[] { "\n", "\r", "\r\n" })
+            {
+                var invalid = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
+                    api.SendRoomMessageAsync(room.RoomId, new(Guid.NewGuid(), $"first{newline}second")));
+                Assert.AreEqual(HttpStatusCode.BadRequest, invalid.StatusCode);
+                StringAssert.Contains(invalid.Message, "cannot contain line breaks");
+            }
+            Assert.AreEqual(0, fake.RoomSendCount);
             ChatMessageDto roomMessage = await api.SendRoomMessageAsync(
                 room.RoomId,
                 new SendChatMessageRequestDto(Guid.NewGuid(), "hello room"));
-            Assert.AreEqual(ChatMessageState.Sent, roomMessage.State);
+            Assert.AreEqual(ServerChatMessageState.Sent, roomMessage.State);
 
             StateSnapshotDto snapshot = await api.GetRoomSnapshotAsync(room.RoomId);
             Assert.AreEqual(StateStreamScopeDto.ChatRoom(room.RoomId), snapshot.Scope);
             Assert.AreEqual(room.RoomId, snapshot.ChatTarget?.TargetId);
 
             SockseekApiRequestException invalidCursor =
-                await Assert.ThrowsExceptionAsync<SockseekApiRequestException>(() =>
+                await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
                     api.GetConversationMessagesAsync(
                         conversation.ConversationId, new string('a', 257)));
             Assert.AreEqual(HttpStatusCode.BadRequest, invalidCursor.StatusCode);

@@ -22,6 +22,9 @@ public sealed class OperatorMutationPolicyTests
             "/api/sharing/scans",
             "/api/sharing/scans/{scanId:guid}/cancel",
             "/api/transfers/{transferId:guid}/cancel",
+            "/api/transfers/cancel",
+            "/api/transfers/{transferId:guid}/archive",
+            "/api/transfers/archive",
         ];
         foreach (string pattern in expected)
         {

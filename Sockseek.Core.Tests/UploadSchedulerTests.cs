@@ -67,9 +67,9 @@ public sealed class UploadSchedulerTests
 
         Assert.AreEqual(
             scheduler.Estimate(queued.Id),
-            scheduler.Estimate("Alice", RemotePathKey.Create(@"Music\queued.flac")));
-        Assert.IsNull(scheduler.Estimate("alice", RemotePathKey.Create(@"Music\queued.flac")).AheadCount);
-        Assert.IsNull(scheduler.Estimate("Alice", RemotePathKey.Create(@"Music\missing.flac")).AheadCount);
+            scheduler.Estimate("Alice", @"Music\queued.flac"));
+        Assert.IsNull(scheduler.Estimate("alice", @"Music\queued.flac").AheadCount);
+        Assert.IsNull(scheduler.Estimate("Alice", @"Music\missing.flac").AheadCount);
     }
 
     [TestMethod]
@@ -108,7 +108,7 @@ public sealed class UploadSchedulerTests
     }
 
     [TestMethod]
-    public void DuplicateAdmission_DoesNotFoldUsernameCase()
+    public void DuplicateAdmission_PreservesPeerAndWirePathIdentity()
     {
         var scheduler = CreateScheduler(slots: 2);
         _ = Admit(scheduler, "Alice", "same");
@@ -117,6 +117,12 @@ public sealed class UploadSchedulerTests
 
         Assert.AreEqual(UploadAdmissionResultKind.Accepted, distinct.Kind);
         Assert.AreEqual("alice", distinct.Entry!.Username);
+        var otherSpelling = scheduler.Admit(Request(Guid.NewGuid(), "Alice", "SAME"));
+        Assert.AreEqual(UploadAdmissionResultKind.Accepted, otherSpelling.Kind);
+        Assert.AreEqual(otherSpelling.Entry!.TransferId,
+            scheduler.Admit(Request(Guid.NewGuid(), "Alice", "SAME")).Entry!.TransferId);
+        Assert.IsNotNull(scheduler.Estimate("Alice", @"Music\SAME.flac").AheadCount);
+        Assert.IsNull(scheduler.Estimate("Alice", @"Music\Same.flac").AheadCount);
     }
 
     [TestMethod]
@@ -195,6 +201,33 @@ public sealed class UploadSchedulerTests
         Assert.IsTrue(continued.ObservedQueueRevision > firstPage.ObservedQueueRevision);
 
         Assert.IsTrue(scheduler.TryGet(active.Id, out _));
+    }
+
+    [TestMethod]
+    public void NewestPage_UsesStableDescendingTimelineBoundary()
+    {
+        var scheduler = CreateScheduler(slots: 1);
+        _ = Admit(scheduler, "Active", "active");
+        var oldest = Admit(scheduler, "A", "one", requestedAt: DateTimeOffset.UnixEpoch.AddSeconds(1));
+        var middle = Admit(scheduler, "B", "two", requestedAt: DateTimeOffset.UnixEpoch.AddSeconds(2));
+        var newest = Admit(scheduler, "C", "three", requestedAt: DateTimeOffset.UnixEpoch.AddSeconds(3));
+
+        UploadQueuePage first = scheduler.GetNewestPage(null, null, 2);
+        CollectionAssert.AreEqual(
+            new[] { newest.Id, middle.Id },
+            first.Items.Select(item => item.TransferId).ToArray());
+        Assert.AreEqual(middle.Id, first.NextTransferId);
+
+        _ = Admit(scheduler, "D", "later", requestedAt: DateTimeOffset.UnixEpoch.AddSeconds(4));
+        UploadQueuePage second = scheduler.GetNewestPage(
+            first.NextRequestedAtUtc,
+            first.NextTransferId,
+            2);
+
+        CollectionAssert.AreEqual(
+            new[] { oldest.Id },
+            second.Items.Select(item => item.TransferId).ToArray());
+        Assert.IsNull(second.NextTransferId);
     }
 
     [TestMethod]

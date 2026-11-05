@@ -3,6 +3,7 @@ using Sockseek.Cli;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
+using Sockseek.Core.Settings;
 using System.Text.Json;
 
 namespace Tests.Cli;
@@ -35,7 +36,7 @@ public class CliExitCodeTests
         Assert.AreEqual(Sockseek.Cli.Program.CliExitCode.UsageError, exitCode);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("share", "status")]
     [DataRow("transfers", null)]
     [DataRow("transfer", "cancel")]
@@ -66,7 +67,33 @@ public class CliExitCodeTests
         }
     }
 
-    [DataTestMethod]
+    [TestMethod]
+    public async Task GroupScopedTransferCommands_RequirePeerAndDirection()
+    {
+        var originalError = Console.Error;
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetError(stderr);
+            foreach (string[] args in new[]
+            {
+                new[] { "transfers", "cancel", "--direction", "download", "--group-ref", "folder" },
+                new[] { "transfers", "archive", "--username", "peer", "--group-ref", "folder" },
+            })
+            {
+                stderr.GetStringBuilder().Clear();
+                var exitCode = await DaemonResourceCommandRunner.RunAsync(args, "http://127.0.0.1:1");
+                Assert.AreEqual(Sockseek.Cli.Program.CliExitCode.UsageError, exitCode);
+                StringAssert.Contains(stderr.ToString(), "--group-ref requires --username and --direction");
+            }
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [TestMethod]
     [DataRow("chat", "status", null)]
     [DataRow("share", "status", null)]
     [DataRow("user", "profile", "Peer")]
@@ -180,7 +207,7 @@ public class CliExitCodeTests
         try
         {
             var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
-            var ex = Assert.ThrowsException<Sockseek.Cli.Program.DaemonEndpointUnavailableException>(() =>
+            var ex = Assert.ThrowsExactly<Sockseek.Cli.Program.DaemonEndpointUnavailableException>(() =>
                 Sockseek.Cli.Program.EnsureDaemonEndpointAvailable(new DaemonSettings
                 {
                     ListenIp = "127.0.0.1",

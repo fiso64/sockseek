@@ -224,7 +224,7 @@ namespace Tests.ExtractorTests2
             Assert.AreEqual("Music\\folder\\track\u001B\n.mp3", remote.Target.Filename);
         }
 
-        [DataTestMethod]
+        [TestMethod]
         [DataRow("slsk:///bad")]
         [DataRow("slsk://local/")]
         [DataRow("slsk://local")]
@@ -233,7 +233,7 @@ namespace Tests.ExtractorTests2
             var extractor = new SoulseekExtractor();
             var config = TestHelpers.CreateDefaultSettings().Download;
 
-            await Assert.ThrowsExceptionAsync<ArgumentException>(() => extractor.GetTracks(uri, config.Extraction));
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => extractor.GetTracks(uri, config.Extraction));
         }
     }
 
@@ -286,10 +286,7 @@ namespace Tests.ExtractorTests2
             var extractor = new CsvExtractor(config.Csv);
 
             var extractTask = Task.Run(() => extractor.GetTracks(_tempCsv, config.Extraction));
-            var completedTask = await Task.WhenAny(extractTask, Task.Delay(TimeSpan.FromSeconds(1)));
-
-            Assert.AreSame(extractTask, completedTask, "Empty CSV extraction should complete instead of waiting forever.");
-            var list = (JobList)await extractTask;
+            var list = (JobList)await extractTask.WaitAsync(TimeSpan.FromSeconds(5));
 
             Assert.AreEqual(0, list.Jobs.Count);
         }
@@ -420,7 +417,28 @@ namespace Tests.ExtractorTests2
             config.Csv.TimeUnit = "bogus";
             var extractor = new CsvExtractor(config.Csv);
 
-            await Assert.ThrowsExceptionAsync<ArgumentException>(() => extractor.GetTracks(_tempCsv, config.Extraction));
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => extractor.GetTracks(_tempCsv, config.Extraction));
+        }
+
+        [TestMethod]
+        public async Task GetTracks_EmptyAlbumTrackCountCell_LeavesRowUnconstrained()
+        {
+            File.WriteAllText(_tempCsv, "artist,album,trackcount\nBand,Album1,10\nBand,Album2,\nBand,Album3,  \n");
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            config.Csv.TrackCountCol = "trackcount";
+            var extractor = new CsvExtractor(config.Csv);
+
+            var result = await extractor.GetTracks(_tempCsv, config.Extraction);
+            var albums = ((JobList)result).Jobs.Cast<AlbumJob>().ToList();
+
+            Assert.AreEqual(3, albums.Count);
+            Assert.AreEqual(10, albums[0].ExtractorFolderCond?.MinTrackCount);
+            Assert.AreEqual(10, albums[0].ExtractorFolderCond?.MaxTrackCount);
+            foreach (var album in albums.Skip(1))
+            {
+                Assert.IsNull(album.ExtractorFolderCond?.MinTrackCount);
+                Assert.IsNull(album.ExtractorFolderCond?.MaxTrackCount);
+            }
         }
 
         [TestMethod]
@@ -473,6 +491,37 @@ namespace Tests.ExtractorTests2
             Assert.AreEqual(Utils.NormalizedPath(_tempCsv), song.SourceMutation?.Source);
             Assert.AreEqual(2, song.SourceMutation?.LineNumber);
             Assert.AreEqual(2, song.SourceMutation?.CsvColumnCount);
+        }
+
+        [TestMethod]
+        public async Task SourceRemovalDeduplicatesWithinWorkflowButAllowsLaterRuns()
+        {
+            var mutations = new Sockseek.Core.Transfers.Downloads.SourceMutations.SourceMutationCoordinator(
+                new DownloadEvents(), Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                    Sockseek.Core.Transfers.Downloads.SourceMutations.SourceMutationCoordinator>.Instance);
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            config.Extraction.RemoveTracksFromSource = true;
+            var first = new SongJob(new SongQuery { Title = "First" })
+            {
+                SourceMutation = SourceMutation.ClearCsvRow(_tempCsv, 2, 1, 2),
+            };
+            var second = new SongJob(new SongQuery { Title = "Later" }) { SourceMutation = first.SourceMutation };
+            File.WriteAllText(_tempCsv, "artist,title\nArtist,First\n");
+            await mutations.ApplyIfNeededAsync(first, config);
+            Assert.AreEqual(",", File.ReadAllLines(_tempCsv)[1]);
+
+            File.WriteAllText(_tempCsv, "artist,title\nArtist,Later\n");
+            await mutations.ApplyIfNeededAsync(first, config);
+            Assert.AreEqual("Artist,Later", File.ReadAllLines(_tempCsv)[1], "Duplicate completion must not mutate the source twice.");
+            await mutations.ApplyIfNeededAsync(second, config);
+            Assert.AreEqual(",", File.ReadAllLines(_tempCsv)[1], "A new workflow must process a repopulated row.");
+            Assert.AreEqual(2, mutations.RetainedWorkflowCount);
+            mutations.RetireWorkflow(first.WorkflowId);
+            mutations.RetireWorkflow(second.WorkflowId);
+            Assert.AreEqual(0, mutations.RetainedWorkflowCount);
+            File.WriteAllText(_tempCsv, "artist,title\nArtist,Successor\n");
+            await mutations.ApplyIfNeededAsync(first, config);
+            Assert.AreEqual(",", File.ReadAllLines(_tempCsv)[1], "A successor generation can reuse a retired workflow identity.");
         }
 
         [TestMethod]
@@ -743,7 +792,7 @@ namespace Tests.ExtractorTests2
         [TestMethod]
         public void GetMatchingExtractor_EmptyInput_Throws()
         {
-            Assert.ThrowsException<ArgumentException>(() =>
+            Assert.ThrowsExactly<ArgumentException>(() =>
                 ExtractorRegistry.GetMatchingExtractor("", InputType.None, _dl));
         }
 

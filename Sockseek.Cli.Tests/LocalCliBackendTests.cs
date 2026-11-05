@@ -59,10 +59,10 @@ public class LocalCliBackendTests
             await Assert.ThrowsExactlyAsync<ArgumentException>(() => backend.SubmitJobListAsync(
                 new SubmitJobListRequestDto(
                     "ordinary",
-                    [new ExtractJobDraftDto(
+                    [new JobListJobDraftDto("nested", [new ExtractJobDraftDto(
                         "slsk://Peer/Share/File.bin",
                         DownloadSettings: new DownloadSettingsPatchDto(
-                            Output: new OutputSettingsPatchDto(WritePlaylist: true)))])));
+                            Output: new OutputSettingsPatchDto(WritePlaylist: true)))])])));
 
             JobSummaryDto accepted = await backend.SubmitJobListAsync(
                 new SubmitJobListRequestDto(
@@ -73,7 +73,7 @@ public class LocalCliBackendTests
                             Output: new OutputSettingsPatchDto(
                                 NameFormat: "{artist}/{title}",
                                 WritePlaylist: true),
-                            Extraction: new ExtractionSettingsPatchDto(RequestedMode: ExtractionMode.Song)))]));
+                            Extraction: new ExtractionSettingsPatchDto(RequestedMode: ServerExtractionMode.Song)))]));
 
             Assert.AreEqual(ServerJobKind.JobList, accepted.Kind);
             Assert.AreNotEqual(Guid.Empty, accepted.WorkflowId);
@@ -141,7 +141,7 @@ public class LocalCliBackendTests
             };
             downloadSettings.Extraction.Input = "test";
             var clientManager = new SoulseekClientManager(engineSettings);
-            var engine = new DownloadEngine(engineSettings, clientManager);
+            await using var engine = new DownloadEngine(engineSettings, clientManager);
             var backend = new LocalCliBackend(engine, downloadSettings);
             var seenUpdates = new ConcurrentBag<DaemonClientUpdate>();
             backend.StateUpdated += update => seenUpdates.Add(update);
@@ -220,7 +220,7 @@ public class LocalCliBackendTests
             var resolver = new SubmissionOptionsJobSettingsResolver(
                 ConfigManager.CreateJobSettingsResolver(new ConfigFile("none", []), args, new CliSettings { InteractiveMode = true, NoProgress = true }),
                 normalize: settings => SettingsNormalizer.NormalizeDownloadPaths(settings, settings.RuntimePathContext));
-            var engine = new DownloadEngine(engineSettings, clientManager, resolver);
+            await using var engine = new DownloadEngine(engineSettings, clientManager, resolver);
             var backend = new LocalCliBackend(engine, downloadSettings, resolver);
             var engineTask = engine.RunAsync(cts.Token);
 
@@ -301,7 +301,7 @@ public class LocalCliBackendTests
             downloadSettings.Search.NecessaryCond.StrictTitle = true;
 
             var clientManager = new SoulseekClientManager(engineSettings);
-            var engine = new DownloadEngine(engineSettings, clientManager);
+            await using var engine = new DownloadEngine(engineSettings, clientManager);
             var backend = new LocalCliBackend(engine);
 
             var searchJob = new SearchJob(new AlbumQuery
@@ -336,6 +336,8 @@ public class LocalCliBackendTests
             var expandedProjection = await backend.GetFolderResultsAsync(searchJob.Id, includeFiles: true, cts.Token);
             Assert.IsNotNull(expandedProjection);
             Assert.AreEqual(2, expandedProjection.Items[0].Files?.Count);
+            Assert.AreEqual(2, expandedProjection.Items[0].FileCount);
+            Assert.AreEqual(2, expandedProjection.Items[0].AudioFileCount);
 
             engine.CompleteEnqueue();
             await runTask;
@@ -377,7 +379,7 @@ public class LocalCliBackendTests
             };
             downloadSettings.Search.NecessaryCond.StrictTitle = true;
 
-            var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
+            await using var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
             var backend = new LocalCliBackend(engine);
 
             var albumJob = new AlbumJob(new AlbumQuery
@@ -417,6 +419,8 @@ public class LocalCliBackendTests
             var expandedProjection = await backend.GetFolderResultsAsync(albumJob.Id, includeFiles: true, cts.Token);
             Assert.IsNotNull(expandedProjection);
             Assert.AreEqual(2, expandedProjection.Items[0].Files?.Count);
+            Assert.AreEqual(2, expandedProjection.Items[0].FileCount);
+            Assert.AreEqual(2, expandedProjection.Items[0].AudioFileCount);
 
             engine.CompleteEnqueue();
             await runTask;
@@ -461,7 +465,7 @@ public class LocalCliBackendTests
             };
             downloadSettings.Search.NecessaryCond.StrictTitle = true;
 
-            var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
+            await using var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
             var backend = new LocalCliBackend(engine);
 
             var searchJob = new SearchJob(new AlbumQuery
@@ -494,13 +498,14 @@ public class LocalCliBackendTests
             Assert.IsNotNull(retrievedFolder);
             Assert.IsTrue(retrievedFolder.IsFullyRetrieved);
             Assert.AreEqual(2, retrievedFolder.Files?.Count);
+            Assert.AreEqual(2, retrievedFolder.FileCount);
+            Assert.AreEqual(2, retrievedFolder.AudioFileCount);
 
             var downloadSummary = await backend.StartFolderDownloadAsync(
                 searchJob.Id,
                 new StartFolderDownloadRequestDto(
                     retrievedFolder.Ref,
-                    AlbumQuery: new AlbumQueryDto("Artist", "Album", "Track One", null, false),
-                    SelectedFolder: retrievedFolder),
+                    AlbumQuery: new AlbumQueryDto("Artist", "Album", "Track One", null, false)),
                 cts.Token);
 
             Assert.IsNotNull(downloadSummary);
@@ -535,8 +540,8 @@ public class LocalCliBackendTests
         finally
         {
             cts.Cancel();
-            await DeleteDirectoryIfExistsWithRetryAsync(musicRoot);
-            await DeleteDirectoryIfExistsWithRetryAsync(outputDir);
+            if (Directory.Exists(musicRoot)) Directory.Delete(musicRoot, true);
+            if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
         }
     }
 
@@ -570,7 +575,7 @@ public class LocalCliBackendTests
             };
 
             var clientManager = new SoulseekClientManager(engineSettings);
-            var engine = new DownloadEngine(engineSettings, clientManager);
+            await using var engine = new DownloadEngine(engineSettings, clientManager);
             var backend = new LocalCliBackend(engine, downloadSettings);
             var updates = new ConcurrentBag<DaemonClientUpdate>();
             var activity = new ConcurrentBag<ActivityEventDto>();
@@ -625,7 +630,7 @@ public class LocalCliBackendTests
                 Search = { MinSharesAggregate = 1 },
             };
 
-            var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
+            await using var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
             var backend = new LocalCliBackend(engine);
 
             var searchJob = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track One" });
@@ -683,7 +688,7 @@ public class LocalCliBackendTests
                 Search = { MinSharesAggregate = 1 },
             };
 
-            var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
+            await using var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
             var backend = new LocalCliBackend(engine);
 
             var searchJob = new SearchJob(new AlbumQuery { Artist = "Artist" });
@@ -728,26 +733,5 @@ public class LocalCliBackendTests
             failureMessage,
             timeoutMs: 10_000);
 
-    private static async Task DeleteDirectoryIfExistsWithRetryAsync(string path)
-    {
-        for (int attempt = 0; attempt < 10; attempt++)
-        {
-            if (!Directory.Exists(path))
-                return;
 
-            try
-            {
-                Directory.Delete(path, true);
-                return;
-            }
-            catch (IOException) when (attempt < 9)
-            {
-                await Task.Delay(50);
-            }
-            catch (UnauthorizedAccessException) when (attempt < 9)
-            {
-                await Task.Delay(50);
-            }
-        }
-    }
 }

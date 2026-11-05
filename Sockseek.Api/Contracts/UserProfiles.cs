@@ -30,6 +30,12 @@ public sealed record UserProfileSectionDto(
     ResourceSectionState State,
     string? Reason);
 
+public sealed record UserPresenceObservationDto(
+    string Username,
+    UserProfilePresence Presence,
+    UserProfileSectionDto Status,
+    DateTimeOffset? ObservedAtUtc);
+
 public sealed record UserPictureRefDto(
     string Url,
     string MediaType,
@@ -38,6 +44,8 @@ public sealed record UserPictureRefDto(
 
 public sealed record UserProfileDto(
     string Username,
+    bool UploadAccessBlocked,
+    bool PrivateMessagesBlocked,
     UserProfilePresence Presence,
     UserProfileSectionDto Status,
     UserProfileSectionDto Info,

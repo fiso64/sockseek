@@ -1,13 +1,12 @@
 using Sockseek.Api;
 using Sockseek.Core.PeerBrowsing;
 using Sockseek.Core.Services;
+using Sockseek.Server.Persistence;
 
 namespace Sockseek.Server.PeerBrowsing;
 
 internal static class UserBrowseEndpoints
 {
-    private const int DefaultPageSize = 100;
-    private const int MaximumPageSize = 500;
     private const int MaximumQueryLength = 256;
 
     public static void Map(WebApplication app)
@@ -93,6 +92,18 @@ internal static class UserBrowseEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status500InternalServerError)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
+        app.MapGet("/api/user-browses/{browseId:guid}/search", SearchAsync)
+            .RequireOperator()
+            .WithTags("User Browsing")
+            .WithSummary("Searches one immutable share artifact as flat directory/file rows.")
+            .Produces<BrowseSearchPageDto>()
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
+            .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
+            .Produces<ApiErrorDto>(StatusCodes.Status409Conflict)
+            .Produces<ApiErrorDto>(StatusCodes.Status410Gone)
+            .Produces<ApiErrorDto>(StatusCodes.Status500InternalServerError)
+            .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
+
         app.MapPost("/api/user-browses/{browseId:guid}/downloads", StartDownloadsAsync)
             .RequireOperator()
             .WithTags("User Browsing")
@@ -109,11 +120,11 @@ internal static class UserBrowseEndpoints
     private static async Task<IResult> StartAsync(
         string username,
         StartUserBrowseRequestDto request,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
         {
             ServerLogMessages.FeatureRequestUnavailable(
@@ -145,16 +156,16 @@ internal static class UserBrowseEndpoints
         string? state,
         string? cursor,
         int? limit,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         PeerBrowseCursorCodec cursors,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
         try
         {
-            int pageSize = PageSize(limit);
+            int pageSize = PageSize(limit, ServerProtocol.DefaultPageSize);
             UserBrowseState? dtoState = ParseState(state);
             PeerBrowseState? coreState = dtoState is null ? null : ToCore(dtoState.Value);
             PeerBrowseResourceCursor? after = cursor is null
@@ -172,10 +183,6 @@ internal static class UserBrowseEndpoints
                 : null;
             return Results.Ok(new PageDto<UserBrowseDto>(page.Items.Select(UserBrowseDtoMapper.ToDto).ToArray(), nextCursor));
         }
-        catch (PeerBrowseAccessDeniedException)
-        {
-            return UserNotFound();
-        }
         catch (ArgumentException exception)
         {
             return exception.ParamName == "cursor"
@@ -190,20 +197,16 @@ internal static class UserBrowseEndpoints
 
     private static async Task<IResult> GetAsync(
         Guid browseId,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
         try
         {
             PeerBrowseResource? resource = await service.GetAccessibleAsync(browseId, cancellationToken).ConfigureAwait(false);
             return resource is null ? Expired() : Results.Ok(UserBrowseDtoMapper.ToDto(resource));
-        }
-        catch (PeerBrowseAccessDeniedException)
-        {
-            return UserNotFound();
         }
         catch (InvalidOperationException)
         {
@@ -213,44 +216,31 @@ internal static class UserBrowseEndpoints
 
     private static async Task<IResult> CancelAsync(
         Guid browseId,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
-        try
-        {
-            PeerBrowseResource? resource = await service.CancelAsync(browseId, cancellationToken).ConfigureAwait(false);
-            return resource is null ? Expired() : Results.Ok(UserBrowseDtoMapper.ToDto(resource));
-        }
-        catch (PeerBrowseAccessDeniedException)
-        {
-            return UserNotFound();
-        }
+        PeerBrowseResource? resource = await service.CancelAsync(
+            browseId, cancellationToken).ConfigureAwait(false);
+        return resource is null ? Expired() : Results.Ok(UserBrowseDtoMapper.ToDto(resource));
     }
 
     private static async Task<IResult> SnapshotAsync(
         Guid browseId,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         EngineStateStore stateStore,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
-        try
-        {
-            PeerBrowseResource? resource = await service.GetAccessibleAsync(
-                browseId, cancellationToken).ConfigureAwait(false);
-            return resource is null
-                ? Expired()
-                : Results.Ok(stateStore.GetUserBrowseSnapshot(UserBrowseDtoMapper.ToDto(resource)));
-        }
-        catch (PeerBrowseAccessDeniedException)
-        {
-            return UserNotFound();
-        }
+        PeerBrowseResource? resource = await service.GetAccessibleAsync(
+            browseId, cancellationToken).ConfigureAwait(false);
+        return resource is null
+            ? Expired()
+            : Results.Ok(stateStore.GetUserBrowseSnapshot(UserBrowseDtoMapper.ToDto(resource)));
     }
 
     private static async Task<IResult> DirectoriesAsync(
@@ -260,17 +250,17 @@ internal static class UserBrowseEndpoints
         bool recursive,
         string? cursor,
         int? limit,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         PeerBrowseCursorCodec cursors,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
         try
         {
             ValidateQuery(query);
-            int pageSize = PageSize(limit);
+            int pageSize = PageSize(limit, ServerProtocol.DefaultNestedPageSize);
             long? afterId = cursor is null
                 ? null
                 : cursors.DecodeRows(
@@ -314,10 +304,10 @@ internal static class UserBrowseEndpoints
     private static async Task<IResult> DirectoryAsync(
         Guid browseId,
         long directoryId,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
         try
@@ -340,17 +330,17 @@ internal static class UserBrowseEndpoints
         string? query,
         string? cursor,
         int? limit,
-        EngineSupervisor supervisor,
+        DaemonRuntime runtime,
         PeerBrowseCursorCodec cursors,
         CancellationToken cancellationToken)
     {
-        PeerBrowseService? service = supervisor.PeerBrowses;
+        PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
         try
         {
             ValidateQuery(query);
-            int pageSize = PageSize(limit);
+            int pageSize = PageSize(limit, ServerProtocol.DefaultPageSize);
             long? afterId = cursor is null
                 ? null
                 : cursors.DecodeRows(
@@ -389,11 +379,87 @@ internal static class UserBrowseEndpoints
         }
     }
 
+    private static async Task<IResult> SearchAsync(
+        Guid browseId,
+        string query,
+        string? cursor,
+        int? limit,
+        DaemonRuntime runtime,
+        PeerBrowseCursorCodec cursors,
+        CancellationToken cancellationToken)
+    {
+        PeerBrowseService? service = runtime.PeerBrowses;
+        if (service is null)
+            return Unavailable();
+        try
+        {
+            string normalizedQuery = NormalizeSearchQuery(query);
+            int pageSize = PageSize(limit, ServerProtocol.DefaultNestedPageSize);
+            PeerBrowseResource? resource = await service.GetAccessibleAsync(
+                browseId, cancellationToken).ConfigureAwait(false);
+            if (resource is null)
+                return Expired();
+            if (resource.State != PeerBrowseState.Complete)
+                throw new PeerBrowseNotReadyException(resource);
+
+            PeerBrowseSearchCursor? after = cursor is null
+                ? null
+                : cursors.DecodeSearch(
+                    cursor,
+                    browseId,
+                    resource.Revision,
+                    normalizedQuery);
+            string? afterSortKey = null;
+            if (after is not null)
+            {
+                afterSortKey = await service.ReadSearchSortKeyAsync(
+                    browseId,
+                    after.Kind,
+                    after.EntryId,
+                    cancellationToken).ConfigureAwait(false);
+                if (afterSortKey is null)
+                    return InvalidCursor();
+            }
+
+            PeerBrowseSearchPage page = await service.SearchAsync(
+                browseId,
+                normalizedQuery,
+                afterSortKey,
+                after?.Kind,
+                after?.EntryId,
+                pageSize,
+                cancellationToken).ConfigureAwait(false);
+            string? nextCursor = page.NextId is { } nextId
+                ? cursors.EncodeSearch(
+                    browseId,
+                    resource.Revision,
+                    normalizedQuery,
+                    page.NextKind!.Value,
+                    nextId)
+                : null;
+            return Results.Ok(new BrowseSearchPageDto(
+                browseId,
+                resource.Revision,
+                normalizedQuery,
+                page.Items.Select(UserBrowseDtoMapper.ToDto).ToArray(),
+                page.PublicMatchingFileCount,
+                page.PublicMatchingBytes,
+                page.LockedMatchingFileCount,
+                page.LockedMatchingBytes,
+                nextCursor));
+        }
+        catch (Exception exception)
+        {
+            return ReadFailure(exception);
+        }
+    }
+
     private static async Task<IResult> StartDownloadsAsync(
         Guid browseId,
         StartUserShareDownloadsRequestDto request,
-        EngineSupervisor supervisor,
-        UserShareSubmissionStore submissions,
+        DaemonRuntime runtime,
+        JobSubmissions submissions,
+        SubmissionCommitCoordinator commits,
         CancellationToken cancellationToken)
     {
         try
@@ -401,30 +467,23 @@ internal static class UserBrowseEndpoints
             ValidateShareOptions(request.Options);
             if (request.RequestId == Guid.Empty)
                 throw new PeerBrowseSelectionException("RequestId cannot be empty.");
-            string fingerprint = UserShareSubmissionStore.Fingerprint(browseId, request);
-            StartUserShareDownloadsResponseDto response = await submissions.ExecuteAsync(
+            string fingerprint = Fingerprint(browseId, request);
+            StartUserShareDownloadsResponseDto response = await commits.ExecuteAsync(
                 request.RequestId,
                 fingerprint,
-                async () =>
+                async operationToken =>
                 {
                     (PeerBrowseResource resource, PeerBrowseDownloadResolution resolution) =
                         await ResolveSelectionAsync(
                             browseId,
                             request.Selections,
-                            supervisor,
-                            CancellationToken.None).ConfigureAwait(false);
-                    string outputParent = supervisor.ResolveUserShareOutputParent(
-                        resource.Username,
-                        resolution,
-                        request.Options);
-                    UserShareResolutionSummaryDto summary = ToSummary(resolution, outputParent);
-                    return new StartUserShareDownloadsResponseDto(
-                        await supervisor.SubmitUserShareDownloadsAsync(
-                            resource.Username,
-                            resolution,
-                            request.Options,
-                            CancellationToken.None).ConfigureAwait(false),
-                        summary);
+                            runtime,
+                            operationToken,
+                            request.ExcludedFileIds,
+                            request.ExcludedDirectoryIds).ConfigureAwait(false);
+                    return await submissions.SubmitUserShareDownloadsAsync(
+                        resource.Username, resolution, request.Options,
+                        request.RequestId, fingerprint, operationToken).ConfigureAwait(false);
                 },
                 cancellationToken).ConfigureAwait(false);
             return Results.Ok(response);
@@ -435,16 +494,31 @@ internal static class UserBrowseEndpoints
         }
     }
 
+    internal static string Fingerprint(Guid browseId, StartUserShareDownloadsRequestDto request)
+        => SubmissionFingerprint.Create("peer-share", new
+        {
+            BrowseId = browseId,
+            Request = request with
+            {
+                RequestId = Guid.Empty,
+                Options = SubmissionFingerprint.Options(request.Options),
+                ExcludedFileIds = request.ExcludedFileIds?.Distinct().Order().ToArray() ?? [],
+                ExcludedDirectoryIds = request.ExcludedDirectoryIds?.Distinct().Order().ToArray() ?? [],
+            },
+        });
+
     private static async Task<(PeerBrowseResource Resource, PeerBrowseDownloadResolution Resolution)>
         ResolveSelectionAsync(
             Guid browseId,
             IReadOnlyList<UserShareSelectionDto> selections,
-            EngineSupervisor supervisor,
-            CancellationToken cancellationToken)
+            DaemonRuntime runtime,
+            CancellationToken cancellationToken,
+            IReadOnlyList<long>? excludedFileIds,
+            IReadOnlyList<long>? excludedDirectoryIds)
     {
         if (selections is null || selections.Count == 0)
             throw new PeerBrowseSelectionException("At least one folder or file must be selected.");
-        PeerBrowseService service = supervisor.PeerBrowses
+        PeerBrowseService service = runtime.PeerBrowses
             ?? throw new InvalidOperationException("Soulseek browsing is unavailable.");
         PeerBrowseResource? resource = await service.GetAccessibleAsync(
             browseId,
@@ -472,7 +546,9 @@ internal static class UserBrowseEndpoints
             browseId,
             directoryIds,
             fileIds,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            excludedFileIds,
+            excludedDirectoryIds).ConfigureAwait(false);
         return (resource, resolution);
     }
 
@@ -501,7 +577,6 @@ internal static class UserBrowseEndpoints
     private static IResult DownloadFailure(Exception exception)
         => exception switch
         {
-            PeerBrowseAccessDeniedException => UserNotFound(),
             PeerBrowseNotReadyException => Results.Conflict(
                 new ApiErrorDto("The peer browse is not complete.", "browse-not-ready")),
             KeyNotFoundException => Expired(),
@@ -521,11 +596,11 @@ internal static class UserBrowseEndpoints
                 statusCode: StatusCodes.Status502BadGateway),
         };
 
-    private static int PageSize(int? limit)
+    private static int PageSize(int? limit, int defaultValue)
     {
-        int value = limit ?? DefaultPageSize;
-        if (value is < 1 or > MaximumPageSize)
-            throw new ArgumentOutOfRangeException(nameof(limit), $"Page size must be between 1 and {MaximumPageSize}.");
+        int value = limit ?? defaultValue;
+        if (value < 1)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
         return value;
     }
 
@@ -533,6 +608,15 @@ internal static class UserBrowseEndpoints
     {
         if (query?.Length > MaximumQueryLength)
             throw new ArgumentException($"The browse query cannot exceed {MaximumQueryLength} characters.", nameof(query));
+    }
+
+    private static string NormalizeSearchQuery(string? query)
+    {
+        ValidateQuery(query);
+        string normalized = query?.Trim() ?? "";
+        if (normalized.Length == 0)
+            throw new ArgumentException("The browse search query cannot be empty.", nameof(query));
+        return normalized;
     }
 
     private static UserBrowseState? ParseState(string? state)
@@ -552,7 +636,6 @@ internal static class UserBrowseEndpoints
     private static IResult StartFailure(Exception exception)
         => exception switch
         {
-            PeerBrowseAccessDeniedException => UserNotFound(),
             ArgumentException => Results.BadRequest(new ApiErrorDto(exception.Message, "invalid-username")),
             InvalidOperationException => Unavailable(),
             _ => Results.Json(
@@ -563,7 +646,6 @@ internal static class UserBrowseEndpoints
     private static IResult ReadFailure(Exception exception)
         => exception switch
         {
-            PeerBrowseAccessDeniedException => UserNotFound(),
             PeerBrowseNotReadyException => Results.Conflict(
                 new ApiErrorDto("The peer browse is not complete.", "browse-not-ready")),
             KeyNotFoundException => Expired(),
@@ -580,9 +662,6 @@ internal static class UserBrowseEndpoints
 
     private static IResult InvalidCursor()
         => Results.BadRequest(new ApiErrorDto("The browse cursor is invalid.", "invalid-cursor"));
-
-    private static IResult UserNotFound()
-        => Results.NotFound(new ApiErrorDto("The Soulseek user was not found.", "user-not-found"));
 
     private static IResult Expired()
         => Results.Json(

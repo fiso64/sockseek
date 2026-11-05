@@ -1,18 +1,19 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import type { AudioAttributes, TransferPresentation } from '../../prototype/items';
-  import { audioSummary, basename, formatBytes, formatLength } from '../../prototype/items';
+  import TransferStateLabel from './TransferStateLabel.svelte';
+  import RelativeTime from '../RelativeTime.svelte';
+  import type { AudioAttributes, TransferPresentation } from '../../domains/presentation/items';
+  import { audioSummary, basename, formatBytes, formatLength } from '../../domains/presentation/items';
 
   interface Props {
     path: string;
-    sizeBytes: number;
+    sizeBytes: number | null;
     audio?: AudioAttributes;
     locked?: boolean;
     selected?: boolean;
     preferred?: boolean;
     selectable?: boolean;
     keyboardKey?: string;
-    keyboardCurrent?: boolean;
     transfer?: TransferPresentation;
     actions?: Snippet;
     onselect?: (selected: boolean) => void;
@@ -27,7 +28,6 @@
     preferred = false,
     selectable = false,
     keyboardKey,
-    keyboardCurrent = false,
     transfer,
     actions,
     onselect,
@@ -36,7 +36,7 @@
   let transferDirectionClass = $derived(transfer?.direction ? `transfer-${transfer.direction}` : '');
 
   function transferFooterDetail(value: TransferPresentation): string {
-    return [value.detail, value.speed, value.eta].filter(Boolean).join(' · ');
+    return [value.tone === 'failed' ? undefined : value.detail, value.speed, value.eta].filter(Boolean).join(' · ');
   }
 </script>
 
@@ -45,12 +45,10 @@
   class:locked
   class:selected
   class:preferred
-  class:selectable
-  class:keyboard-current={keyboardCurrent}
-  class:transfer-card={Boolean(transfer)}
-  data-keyboard-result-key={keyboardKey}
+  data-keyboard-item={keyboardKey}
   tabindex="-1"
-  aria-current={keyboardCurrent ? 'true' : undefined}
+  class:selectable
+  class:transfer-card={Boolean(transfer)}
   class:has-audio={Boolean(audio)}
 >
   {#if transfer}
@@ -66,14 +64,14 @@
               <strong class="file-transfer-audio">{audioSummary(audio)}</strong>
               <strong class="file-transfer-length">{formatLength(audio.lengthSeconds)}</strong>
             {/if}
-            <strong class="file-transfer-size">{formatBytes(sizeBytes)}</strong>
-            <span class={`transfer-state ${transfer.tone ?? ''} ${transferDirectionClass}`}>{transfer.state}</span>
+            <strong class="file-transfer-size">{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</strong>
+            <TransferStateLabel {transfer} {path} {sizeBytes} />
             {#if actions}<span class="item-card-action">{@render actions()}</span>{/if}
           </div>
         </div>
         <div class="file-transfer-summary-secondary">
           <small class="file-transfer-path">{path}</small>
-          {#if transfer.created}<span class="file-transfer-age">{transfer.created}</span>{/if}
+          {#if transfer.createdAt}<span class="file-transfer-age"><RelativeTime timestamp={transfer.createdAt} lowercase /></span>{/if}
         </div>
       </div>
     </div>
@@ -96,7 +94,7 @@
         <small>{path}</small>
       </div>
 
-      <div class="item-detail result-detail item-size-detail"><strong>{formatBytes(sizeBytes)}</strong></div>
+      <div class="item-detail result-detail item-size-detail"><strong>{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</strong></div>
       {#if audio}
         <div class="item-detail result-detail audio-detail"><strong>{audioSummary(audio)}</strong></div>
         <div class="item-detail result-detail item-length-detail"><strong>{formatLength(audio.lengthSeconds)}</strong></div>
@@ -107,7 +105,7 @@
     </svelte:element>
   {/if}
 
-  {#if transfer}
+  {#if transfer && transfer.tone !== 'complete'}
     {@const footerDetail = transferFooterDetail(transfer)}
     <div class={`transfer-card-footer file-transfer-footer ${transfer.tone ?? ''} ${transferDirectionClass}`}>
       {#if transfer.progressPercent !== undefined}
@@ -115,10 +113,10 @@
           <span style={`width:${transfer.progressPercent}%`}></span>
         </div>
       {/if}
-      {#if transfer.progressText || footerDetail}
+      {#if transfer.progressText || footerDetail || transfer.completedAt}
         <div class="transfer-progress-meta">
           <span>{transfer.progressText ?? ''}</span>
-          <span>{footerDetail}</span>
+          <span>{#if transfer.completedAt}<RelativeTime timestamp={transfer.completedAt} lowercase />{#if footerDetail} · {/if}{/if}{footerDetail}</span>
         </div>
       {/if}
     </div>

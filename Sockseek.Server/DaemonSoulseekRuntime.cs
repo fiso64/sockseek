@@ -19,11 +19,12 @@ public sealed class DaemonSoulseekRuntime : IAsyncDisposable
         EngineSettings settings,
         Func<EngineSettings, ISoulseekClient>? clientFactory = null,
         LocalUserProfile? localProfile = null,
-        ILogger<SoulseekClientManager>? logger = null)
+        ILogger<SoulseekClientManager>? logger = null,
+        PeerRestrictionPolicy? restrictions = null)
     {
         this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
         InboundRequests = new SoulseekInboundRequestRouter();
-        AccessPolicy = new PeerAccessPolicy(settings.PeerAccess);
+        Restrictions = restrictions ?? new PeerRestrictionPolicy(settings.PeerRestrictions);
         LocalProfile = localProfile ?? new LocalUserProfile(
             UserProfileText.NormalizeDescription(settings.UserDescription),
             null);
@@ -37,7 +38,7 @@ public sealed class DaemonSoulseekRuntime : IAsyncDisposable
 
     public SoulseekClientManager ClientManager { get; }
     public SoulseekInboundRequestRouter InboundRequests { get; }
-    public PeerAccessPolicy AccessPolicy { get; }
+    public PeerRestrictionPolicy Restrictions { get; }
     public LocalUserProfile LocalProfile { get; }
 
     public Task EnsureStartedAsync(CancellationToken cancellationToken = default)

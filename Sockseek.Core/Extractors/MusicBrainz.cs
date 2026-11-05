@@ -54,10 +54,10 @@ namespace Sockseek.Core.Extractors;
                         var queue = await musicBrainzClient.GetCollectionReleases(mbid, max, off);
                         if (reverse)
                         {
-                            queue.Jobs.Reverse();
-                            queue.Jobs.RemoveRange(0, Math.Min(offset, queue.Jobs.Count));
+                            queue.ReverseMembers();
+                            queue.RemoveRange(0, Math.Min(offset, queue.Jobs.Count));
                             if (queue.Jobs.Count > maxTracks)
-                                queue.Jobs.RemoveRange(maxTracks, queue.Jobs.Count - maxTracks);
+                                queue.RemoveRange(maxTracks, queue.Jobs.Count - maxTracks);
                         }
                         return queue;
                     }
@@ -71,6 +71,9 @@ namespace Sockseek.Core.Extractors;
 
     public class MusicBrainzClient : IDisposable
     {
+        public JobSourceInfo? DescribeSource(ExtractJob source, Job item)
+            => ReferenceEquals(source, item) ? new(Detail: "MusicBrainz import", PreviewDetail: "MusicBrainz import") : null;
+
         private readonly HttpClient _httpClient;
         private readonly IJobLog _log;
 
@@ -112,7 +115,7 @@ namespace Sockseek.Core.Extractors;
                 Album = albumTitle,
             };
 
-            queue.Jobs.Add(new AlbumJob(query)
+            queue.Add(new AlbumJob(query)
             {
                 ExtractorFolderCond = new FolderConditionPatch
                 {
@@ -195,7 +198,7 @@ namespace Sockseek.Core.Extractors;
                         EnablesIndexByDefault = true,
                         ExtractorFolderCond = new FolderConditionPatch { MinTrackCount = trackCount, MaxTrackCount = trackCount },
                     };
-                    queue.Jobs.Add(job);
+                    queue.Add(job);
                     count++;
                 }
 

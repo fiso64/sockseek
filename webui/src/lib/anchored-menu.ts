@@ -7,60 +7,6 @@ export interface AnchoredMenuOptions {
   viewportMargin?: number;
 }
 
-type TopLayerElement = HTMLElement & {
-  showPopover?: () => void;
-  hidePopover?: () => void;
-};
-
-interface TopLayerHandle {
-  show: () => void;
-  destroy: () => void;
-}
-
-/**
- * Anchored overlays stay in their original DOM position so outside-click and
- * ownership logic keep working, but render in the browser top layer whenever
- * the Popover API is available. That lets menus escape local stacking contexts
- * (rows, buttons, cards, sticky regions, etc.) instead of competing with them
- * through page-specific z-index values.
- */
-function topLayer(node: HTMLElement): TopLayerHandle {
-  const element = node as TopLayerElement;
-  const previousPopover = node.getAttribute('popover');
-  const supportsPopover = typeof element.showPopover === 'function' && typeof element.hidePopover === 'function';
-
-  node.classList.add('anchored-overlay-surface');
-  if (supportsPopover) node.setAttribute('popover', 'manual');
-
-  const show = () => {
-    if (!supportsPopover || !node.isConnected) return;
-    try {
-      if (!node.matches(':popover-open')) element.showPopover?.();
-    } catch {
-      // A just-mounted or just-removed node can race a frame. Placement still
-      // works normally; the next scheduled pass will retry while connected.
-    }
-  };
-
-  show();
-
-  return {
-    show,
-    destroy() {
-      if (supportsPopover) {
-        try {
-          if (node.matches(':popover-open')) element.hidePopover?.();
-        } catch {
-          // Ignore teardown races; the element is already leaving the DOM.
-        }
-        if (previousPopover === null) node.removeAttribute('popover');
-        else node.setAttribute('popover', previousPopover);
-      }
-      node.classList.remove('anchored-overlay-surface');
-    },
-  };
-}
-
 function placeMenu(node: HTMLElement, options: AnchoredMenuOptions): void {
   if (typeof window === 'undefined' || !options.anchor) return;
   const gap = options.gap ?? 6;
@@ -90,20 +36,19 @@ function placeMenu(node: HTMLElement, options: AnchoredMenuOptions): void {
 
 /**
  * Positions an anchored popup menu inside the viewport and flips it above the
- * trigger when there is not enough room below. Anchored surfaces render in the
- * browser top layer, so clipping and local stacking contexts cannot cover them.
+ * trigger when there is not enough room below. The browser's popover layer keeps
+ * it above row stacking contexts and outside ancestor clipping. Components still
+ * own open/close state, outside clicks and Escape.
  */
 export function anchoredMenu(node: HTMLElement, initial: AnchoredMenuOptions) {
   let options = initial;
   let frame = 0;
-  const layer = topLayer(node);
+  node.popover = 'manual';
+  node.showPopover();
 
   const schedule = () => {
     cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(() => {
-      layer.show();
-      placeMenu(node, options);
-    });
+    frame = requestAnimationFrame(() => placeMenu(node, options));
   };
 
   const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
@@ -123,9 +68,6 @@ export function anchoredMenu(node: HTMLElement, initial: AnchoredMenuOptions) {
       observer?.disconnect();
       window.removeEventListener('resize', schedule);
       window.removeEventListener('scroll', schedule, true);
-      layer.destroy();
-      node.style.removeProperty('left');
-      node.style.removeProperty('top');
     },
   };
 }
@@ -172,20 +114,17 @@ function placePopover(node: HTMLElement, options: AnchoredPopoverOptions): void 
 
 /**
  * Positions a larger anchored surface (such as a configuration popover) inside
- * the viewport. Like compact menus it uses the shared top-layer contract; the
- * surface then constrains its own height to the available side of the anchor.
+ * the viewport. Unlike compact menus, the surface keeps its preferred side of
+ * the anchor when there is useful room and constrains its own height to the
+ * remaining viewport so its contents scroll instead of crossing a screen edge.
  */
 export function anchoredPopover(node: HTMLElement, initial: AnchoredPopoverOptions) {
   let options = initial;
   let frame = 0;
-  const layer = topLayer(node);
 
   const schedule = () => {
     cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(() => {
-      layer.show();
-      placePopover(node, options);
-    });
+    frame = requestAnimationFrame(() => placePopover(node, options));
   };
 
   const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
@@ -205,7 +144,6 @@ export function anchoredPopover(node: HTMLElement, initial: AnchoredPopoverOptio
       observer?.disconnect();
       window.removeEventListener('resize', schedule);
       window.removeEventListener('scroll', schedule, true);
-      layer.destroy();
       node.style.removeProperty('left');
       node.style.removeProperty('top');
       node.style.removeProperty('max-height');

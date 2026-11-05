@@ -1,5 +1,6 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
+using Sockseek.Core.PeerBrowsing;
 using Sockseek.Server.PeerBrowsing;
 
 namespace Sockseek.Server.Tests;
@@ -40,5 +41,25 @@ public sealed class PeerBrowseCursorCodecTests
         Assert.ThrowsExactly<ArgumentException>(() => new PeerBrowseCursorCodec(
             Enumerable.Repeat((byte)1, 32).ToArray()).DecodeResources(
                 cursor, "Peer", UserBrowseState.Complete));
+    }
+
+    [TestMethod]
+    public void SearchCursor_RoundTripsAndBindsArtifactRevisionAndNormalizedQuery()
+    {
+        var codec = new PeerBrowseCursorCodec(Enumerable.Range(0, 32).Select(x => (byte)x).ToArray());
+        Guid browseId = Guid.NewGuid();
+        string cursor = codec.EncodeSearch(
+            browseId, 7, "track", PeerBrowseSearchEntryKind.File, 123);
+
+        PeerBrowseSearchCursor decoded = codec.DecodeSearch(cursor, browseId, 7, "track");
+
+        Assert.AreEqual(PeerBrowseSearchEntryKind.File, decoded.Kind);
+        Assert.AreEqual(123, decoded.EntryId);
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            codec.DecodeSearch(cursor, browseId, 8, "track"));
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            codec.DecodeSearch(cursor, browseId, 7, "different"));
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            codec.DecodeSearch(cursor, Guid.NewGuid(), 7, "track"));
     }
 }

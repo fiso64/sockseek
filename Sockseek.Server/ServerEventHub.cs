@@ -10,9 +10,45 @@ namespace Sockseek.Server;
 /// </summary>
 public sealed class ServerEventHub(
     IOperatorMutationAuthorizer operatorAuthorizer,
-    EngineStateStore stateStore) : Hub
+    EngineStateStore stateStore,
+    Planning.SearchViewCoordinator searchViews,
+    Persistence.JobReadService jobs,
+    Persistence.TransferReadService transfers,
+    ServerEventBroadcaster events) : Hub
 {
+    public async IAsyncEnumerable<JobListUpdateDto> ObserveJobList(
+        JobListScopeDto scope,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await RequireOperatorAsync();
+        await foreach (var update in jobs.ObserveJobListAsync(scope, events, cancellationToken))
+            yield return update;
+    }
+
+    public async IAsyncEnumerable<JobObservationUpdateDto> ObserveJobs(
+        Guid jobId, IReadOnlyList<Guid> jobIds,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await RequireOperatorAsync();
+        await foreach (var update in jobs.ObserveJobsAsync(jobId, jobIds, events, cancellationToken))
+            yield return update;
+    }
+
+    public async IAsyncEnumerable<TransferTimelineUpdateDto> ObserveTransferTimeline(
+        TransferTimelineScopeDto scope,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await RequireOperatorAsync();
+        await foreach (var update in transfers.ObserveTransferTimelineAsync(scope, events, cancellationToken))
+            yield return update;
+    }
+
+    /// <summary>Observe a projection until complete or the client cancels the stream.</summary>
+    public IAsyncEnumerable<SearchViewSummaryDto> ObserveSearchView(Guid viewId, CancellationToken cancellationToken)
+        => searchViews.ObserveAsync(viewId, cancellationToken);
+
     private const string AllEventsGroupName = "events:all";
+    private const string SummaryEventsGroupName = "events:overview";
     private const string ModeKey = "sockseek:stream-mode";
     private const string DaemonMode = "daemon";
     private const string WorkflowMode = "workflow";
@@ -36,16 +72,22 @@ public sealed class ServerEventHub(
 
     /// <summary>
     /// Subscribes this connection to the daemon-scoped stream containing every live
-    /// workflow change and daemon-global activity edge.
+    /// workflow change and daemon-global activity edge. Overview includes root jobs
+    /// and global totals; displayed children/files use a narrow observation.
     /// </summary>
-    public async Task SubscribeAll()
+    public async Task SubscribeAll(DaemonStateDetail detail)
     {
+        if (!Enum.IsDefined(detail)) throw new HubException("Invalid daemon detail mode.");
         if (Context.Items.TryGetValue(ModeKey, out var mode) && Equals(mode, WorkflowMode))
             throw new HubException("Cannot mix daemon and workflow subscriptions on one connection.");
 
         await RequireOperatorAsync();
         Context.Items[ModeKey] = Equals(mode, ChatMode) ? DaemonChatMode : DaemonMode;
-        await Groups.AddToGroupAsync(Context.ConnectionId, AllEventsGroupName);
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId,
+            detail == DaemonStateDetail.Full ? SummaryEventsGroupName : AllEventsGroupName);
+        await Groups.AddToGroupAsync(Context.ConnectionId,
+            detail == DaemonStateDetail.Full ? AllEventsGroupName : SummaryEventsGroupName);
+        events.SetDaemonReader(Context.ConnectionId, detail);
     }
 
     /// <summary>
@@ -53,7 +95,9 @@ public sealed class ServerEventHub(
     /// </summary>
     public async Task UnsubscribeAll()
     {
+        events.SetDaemonReader(Context.ConnectionId, null);
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, AllEventsGroupName);
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, SummaryEventsGroupName);
         var scopes = ChatScopes();
         bool hasChat;
         lock (scopes)
@@ -122,6 +166,7 @@ public sealed class ServerEventHub(
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
+        events.SetDaemonReader(Context.ConnectionId, null);
         if (Context.Items.TryGetValue(WorkflowScopesKey, out object? value)
             && value is HashSet<Guid> scopes)
         {
@@ -267,4 +312,5 @@ public sealed class ServerEventHub(
         => $"user-browse:{browseId:N}";
 
     internal static string AllEventsGroup => AllEventsGroupName;
+    internal static string SummaryEventsGroup => SummaryEventsGroupName;
 }

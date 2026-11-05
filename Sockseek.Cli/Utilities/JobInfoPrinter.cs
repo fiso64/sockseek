@@ -23,6 +23,8 @@ internal static class JobInfoPrinter
 
         Printing.WriteLine(status.Label, status.Color, force: true);
         PrintSplitState(s);
+        if (!string.IsNullOrEmpty(s.SourceDetail))
+            Field("Source", s.SourceDetail);
 
         switch (detail.Payload)
         {
@@ -289,6 +291,7 @@ internal static class JobInfoPrinter
         {
             foreach (var a in attrs)
             {
+                if (a.Value < 0) continue;
                 var formatted = a.Type switch
                 {
                     "BitRate"    => $"{a.Value} kbps",
@@ -301,9 +304,9 @@ internal static class JobInfoPrinter
             }
         }
 
-        if (sampleRate is int sr && !parts.Exists(p => p.EndsWith("Hz")))
+        if (sampleRate is int sr && sr >= 0 && !parts.Exists(p => p.EndsWith("Hz")))
             parts.Add($"{sr} Hz");
-        if (bitDepth is int bd && !parts.Exists(p => p.EndsWith("-bit")))
+        if (bitDepth is int bd && bd >= 0 && !parts.Exists(p => p.EndsWith("-bit")))
             parts.Add($"{bd}-bit");
 
         return parts.Count > 0 ? string.Join(" · ", parts) : null;

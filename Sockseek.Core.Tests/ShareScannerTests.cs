@@ -51,6 +51,26 @@ public sealed class ShareScannerTests
     }
 
     [TestMethod]
+    public async Task ScanAsync_NestedCatalogFileCanBeOpenedForUpload()
+    {
+        await using var fixture = new ScannerFixture();
+        string relative = Path.Combine("[testing] Artist", "[testing] Album", "01 - [testing] Track.txt");
+        string local = Path.Combine(fixture.RootPath, relative);
+        Directory.CreateDirectory(Path.GetDirectoryName(local)!);
+        await File.WriteAllTextAsync(local, "shared file contents");
+        var writer = new RecordingWriter(fixture.DatabasePath);
+        await new ShareScanner().ScanAsync(fixture.Settings, writer, Guid.NewGuid(), "settings");
+
+        var file = writer.Files.Single();
+        Assert.AreEqual(relative, file.RelativePath);
+        Assert.AreEqual(@"Music\[testing] Artist\[testing] Album\01 - [testing] Track.txt", file.RemotePath);
+        await using var opened = SafeSharedFileOpener.Open(fixture.RootPath, file.RelativePath,
+            new SharedFileFingerprint(file.SizeBytes, file.ModifiedAtUtc));
+        using var reader = new StreamReader(opened.Stream);
+        Assert.AreEqual("shared file contents", await reader.ReadToEndAsync());
+    }
+
+    [TestMethod]
     public async Task ScanAsync_UnavailableRootIsSkippedWithoutLosingValidRoot()
     {
         await using var fixture = new ScannerFixture(createRoot: false);

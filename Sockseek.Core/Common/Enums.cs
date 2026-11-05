@@ -121,6 +121,7 @@ namespace Sockseek.Core;
         List,
         Soulseek,
         MusicBrainz,
+        SoundCloud,
         None = -1,
     }
 
@@ -146,17 +147,6 @@ namespace Sockseek.Core;
         Album = 1,
         Aggregate = 2,
         AlbumAggregate = 3,
-    }
-
-    // TODO: should be removed once the TODO in M3uEditor.cs is done.
-    // Indexes are no longer stored in the M3Us, so it doesn't make sense to model this
-    // as one enum. Use two independent bools instead.
-    public enum M3uOption
-    {
-        None,
-        Index,
-        Playlist,
-        All,
     }
 
     public enum PrintOption

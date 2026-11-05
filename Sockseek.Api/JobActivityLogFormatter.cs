@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using Sockseek.Core;
 
 namespace Sockseek.Api;
 

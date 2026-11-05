@@ -96,6 +96,72 @@ public sealed class DirectoryDownloadLifecycleTests
     }
 
     [TestMethod]
+    public void Progress_TracksLocalSuccessRetriesAndSupplementalSizesWithoutCountingLocalBytes()
+    {
+        var job = new TestDirectoryJob();
+        job.BeginDirectoryAttempt(Plan());
+        var existing = new RemoteFileJob(Target(@"Root\A.bin"));
+        var pending = new RemoteFileJob(Target(@"Root\B.bin"));
+        job.MaterializeDirectoryChildren([existing, pending]);
+        job.BeginDirectoryTransfer();
+        existing.SetAlreadyExists();
+        pending.BytesTransferred = 5;
+        Assert.AreEqual(0.75, job.Progress);
+        Assert.AreEqual(5, job.BytesTransferred);
+
+        var extra = new RemoteFileJob(new PeerFileTarget(new PeerFileIdentity("Peer", "Extra"), null, ""));
+        job.AddSupplemental(extra);
+        Assert.AreEqual(1, job.UnknownFileSizeCount);
+        extra.FileSize = 10;
+        Assert.AreEqual(0, job.UnknownFileSizeCount);
+        Assert.AreEqual(30, job.TotalKnownBytes);
+        Assert.AreEqual(0.5, job.Progress);
+        pending.Fail(JobFailureReason.NoMatchingResults);
+        extra.SetDone();
+        var progress = job.ProgressSummary;
+        Assert.AreEqual(3, progress.TerminalFileCount);
+        Assert.AreEqual(2, progress.SuccessfulFileCount);
+        Assert.AreEqual(1, progress.FailedFileCount);
+        Assert.AreEqual(5, progress.BytesTransferred);
+
+        job.BeginDirectoryAttempt(Plan());
+        Assert.AreEqual(0, job.BytesTransferred);
+        Assert.AreEqual(0, job.Progress);
+        Assert.AreEqual(20, job.TotalKnownBytes);
+        Assert.AreEqual(0, job.ProgressSummary.FileCount);
+        // Detached work cannot change the new attempt's progress.
+        pending.BytesTransferred = 10;
+        extra.FileSize = null;
+        Assert.AreEqual(0, job.BytesTransferred);
+        Assert.AreEqual(0, job.UnknownFileSizeCount);
+    }
+
+    [TestMethod]
+    public void Progress_CombinesConcurrentFileUpdatesAndRetryResets()
+    {
+        var job = new TestDirectoryJob();
+        var files = Enumerable.Range(0, 16)
+            .Select(i => new RemoteFileJob(Target($"Root\\{i}.bin"))).ToArray();
+        job.BeginDirectoryAttempt(new DirectoryTransferPlan("Root",
+            files.Select(file => new DirectoryTransferEntry(file.Target, [])).ToArray()));
+        job.MaterializeDirectoryChildren(files);
+        job.BeginDirectoryTransfer();
+        Parallel.ForEach(files, file =>
+        {
+            file.BytesTransferred = 5;
+            file.BytesTransferred = 0;
+            file.BytesTransferred = 10;
+            file.SetDone();
+        });
+
+        Assert.AreEqual(160, job.BytesTransferred);
+        Assert.AreEqual(1, job.Progress);
+        Assert.AreEqual(16, job.ProgressSummary.SuccessfulFileCount);
+        Assert.AreEqual(16, job.ProgressSummary.TerminalFileCount);
+        Assert.AreEqual(0, job.ProgressSummary.FailedFileCount);
+    }
+
+    [TestMethod]
     public void AlbumAndRemoteDirectoryJobs_AreSiblingDirectoryJobs()
     {
         var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
@@ -122,7 +188,7 @@ public sealed class DirectoryDownloadLifecycleTests
         protected override bool DefaultCanBeSkipped => false;
 
         public void AddSupplemental(FileDownloadJob child)
-            => AddSupplementalDirectoryChild(child);
+            => AddSupplementalDirectoryChildren([child]);
 
         public void ClearChildren()
             => ClearDirectoryChildren();

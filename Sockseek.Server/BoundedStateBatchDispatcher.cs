@@ -13,7 +13,7 @@ namespace Sockseek.Server;
 /// </summary>
 public sealed class BoundedStateBatchDispatcher : IAsyncDisposable
 {
-    private readonly Func<StateUpdateBatchDto, CancellationToken, Task> send;
+    private readonly Func<StateUpdate, CancellationToken, Task> send;
     private readonly int perScopeCapacity;
     private readonly int maximumScopes;
     private readonly TimeSpan sendTimeout;
@@ -28,7 +28,7 @@ public sealed class BoundedStateBatchDispatcher : IAsyncDisposable
     private int disposed;
 
     public BoundedStateBatchDispatcher(
-        Func<StateUpdateBatchDto, CancellationToken, Task> send,
+        Func<StateUpdate, CancellationToken, Task> send,
         int perScopeCapacity = 256,
         int maximumScopes = 2_048,
         TimeSpan? sendTimeout = null,
@@ -56,7 +56,7 @@ public sealed class BoundedStateBatchDispatcher : IAsyncDisposable
     public int ActiveScopeCount => senders.Count;
     public int QueuedBatchCount => senders.Values.Sum(sender => sender.Depth);
 
-    public bool TryPublish(StateUpdateBatchDto batch)
+    public bool TryPublish(StateUpdate batch)
     {
         ArgumentNullException.ThrowIfNull(batch);
         batch.Scope.Validate();
@@ -98,7 +98,7 @@ public sealed class BoundedStateBatchDispatcher : IAsyncDisposable
         return false;
     }
 
-    private async Task SendAsync(StateUpdateBatchDto batch)
+    private async Task SendAsync(StateUpdate batch)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         timeout.CancelAfter(sendTimeout);
@@ -151,7 +151,7 @@ public sealed class BoundedStateBatchDispatcher : IAsyncDisposable
         StateStreamScopeDto scope,
         int capacity)
     {
-        private readonly Queue<StateUpdateBatchDto> queue = [];
+        private readonly Queue<StateUpdate> queue = [];
         private readonly SemaphoreSlim signal = new(0, 1);
         private readonly object gate = new();
         private bool retired;
@@ -164,7 +164,7 @@ public sealed class BoundedStateBatchDispatcher : IAsyncDisposable
         public void Start()
             => worker = Task.Run(RunAsync, CancellationToken.None);
 
-        public EnqueueResult TryEnqueue(StateUpdateBatchDto batch)
+        public EnqueueResult TryEnqueue(StateUpdate batch)
         {
             lock (gate)
             {
@@ -220,7 +220,7 @@ public sealed class BoundedStateBatchDispatcher : IAsyncDisposable
 
                     while (!owner.lifetime.IsCancellationRequested)
                     {
-                        StateUpdateBatchDto? batch;
+                        StateUpdate? batch;
                         lock (gate)
                             batch = queue.Count == 0 ? null : queue.Dequeue();
                         if (batch is null)

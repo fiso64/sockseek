@@ -1,5 +1,12 @@
 namespace Sockseek.Persistence.Entities;
 
+// History mutations accept changes only at a newer revision. Unchanged/replayed
+// rows retain theirs, so the writer need not snapshot every column again.
+internal interface IRevisionedHistoryRow
+{
+    long Revision { get; }
+}
+
 internal sealed class RuntimeSessionEntity
 {
     public Guid Id { get; set; }
@@ -9,10 +16,12 @@ internal sealed class RuntimeSessionEntity
     public string Version { get; set; } = "";
 }
 
-internal sealed class JobEntity
+internal sealed class JobEntity : IRevisionedHistoryRow
 {
     public Guid Id { get; set; }
     public Guid WorkflowId { get; set; }
+    public Guid? SubmissionId { get; set; }
+    public string SemanticRole { get; set; } = "UserRoot";
     public Guid? ParentJobId { get; set; }
     public Guid? SourceJobId { get; set; }
     public Guid? ResultJobId { get; set; }
@@ -31,6 +40,7 @@ internal sealed class JobEntity
     public string? FailureDetail { get; set; }
     public string? ItemName { get; set; }
     public string? QueryText { get; set; }
+    public string? SourceDetail { get; set; }
     public long CreatedAtUtc { get; set; }
     public long? StartedAtUtc { get; set; }
     public long UpdatedAtUtc { get; set; }
@@ -40,6 +50,27 @@ internal sealed class JobEntity
     public string? PayloadJson { get; set; }
 }
 
+internal sealed class SubmissionEntity
+{
+    public Guid Id { get; set; }
+    public long SubmittedAtUtc { get; set; }
+    public int SpecificationSchemaVersion { get; set; }
+    public SubmissionSpecificationEntity Specification { get; set; } = null!;
+    public Guid? RerunOfSubmissionId { get; set; }
+    public Guid? PreviewId { get; set; }
+    public string? ArtifactId { get; set; }
+    public string? CommitFingerprint { get; set; }
+    public string? CommitReceiptJson { get; set; }
+    public long Revision { get; set; }
+    public long? ArchivedAtUtc { get; set; }
+}
+
+internal sealed class SubmissionSpecificationEntity
+{
+    public Guid SubmissionId { get; set; }
+    public string Json { get; set; } = "";
+}
+
 internal sealed class SearchJobEntity
 {
     public Guid JobId { get; set; }
@@ -47,6 +78,7 @@ internal sealed class SearchJobEntity
     public long Revision { get; set; }
     public long ResultCount { get; set; }
     public long LockedFileCount { get; set; }
+    public long ObservedPeerCount { get; set; }
     public bool IsComplete { get; set; }
     public long? CompletedAtUtc { get; set; }
     public string ResultPersistenceState { get; set; } = "NotPersisted";
@@ -55,7 +87,6 @@ internal sealed class SearchJobEntity
 
 internal sealed class SearchResultEntity
 {
-    public Guid Id { get; set; }
     public Guid SearchJobId { get; set; }
     public long Sequence { get; set; }
     public long Revision { get; set; }
@@ -70,11 +101,13 @@ internal sealed class SearchResultEntity
     public string Extension { get; set; } = "";
     public int? UploadSpeed { get; set; }
     public bool? HasFreeUploadSlot { get; set; }
+    public int? QueueLength { get; set; }
+    public string Visibility { get; set; } = "Public";
     public string? AttributesJson { get; set; }
     public long ObservedAtUtc { get; set; }
 }
 
-internal sealed class TransferEntity
+internal sealed class TransferEntity : IRevisionedHistoryRow
 {
     public Guid Id { get; set; }
     public Guid? JobId { get; set; }
@@ -94,14 +127,27 @@ internal sealed class TransferEntity
     public long CreatedAtUtc { get; set; }
     public long? StartedAtUtc { get; set; }
     public long? LastProgressAtUtc { get; set; }
+    public long? BytesPerSecond { get; set; }
     public long? CompletedAtUtc { get; set; }
     public string FailureReason { get; set; } = "";
     public string? FailureMessage { get; set; }
     public string CancellationSource { get; set; } = "None";
+    public string? FileName { get; set; }
+    public long? FileSizeBytes { get; set; }
+    public string? FileExtension { get; set; }
+    public int? FileBitRate { get; set; }
+    public int? FileBitDepth { get; set; }
+    public int? FileSampleRate { get; set; }
+    public int? FileLength { get; set; }
+    public string? FileAttributesJson { get; set; }
+    public string? GroupRef { get; set; }
+    public string? GroupDisplayPath { get; set; }
+    public string? GroupRelativePath { get; set; }
+    public long? ArchivedAtUtc { get; set; }
     public long Revision { get; set; }
 }
 
-internal sealed class TransferAttemptEntity
+internal sealed class TransferAttemptEntity : IRevisionedHistoryRow
 {
     public Guid Id { get; set; }
     public Guid TransferId { get; set; }
@@ -118,6 +164,48 @@ internal sealed class TransferAttemptEntity
     public string FailureReason { get; set; } = "";
     public string? FailureMessage { get; set; }
     public long Revision { get; set; }
+}
+
+internal sealed class TransferAccountingCheckpointEntity : IRevisionedHistoryRow
+{
+    public Guid AttemptId { get; set; }
+    public Guid TransferId { get; set; }
+    public long Revision { get; set; }
+    public long CumulativeBytes { get; set; }
+    public long LastObservedAtUtc { get; set; }
+}
+
+internal sealed class TransferByteBucketEntity
+{
+    public long BucketStartUtc { get; set; }
+    public string Direction { get; set; } = "";
+    public string Username { get; set; } = "";
+    public long Bytes { get; set; }
+}
+
+internal sealed class TransferAccountingStateEntity
+{
+    public int Id { get; set; }
+    public long CompleteFromUtc { get; set; }
+    public long UpdatedAtUtc { get; set; }
+}
+
+internal sealed class PeerRestrictionOverrideEntity
+{
+    public string RestrictionKind { get; set; } = "";
+    public string Username { get; set; } = "";
+    public string OverrideState { get; set; } = "";
+    public long UpdatedAtUtc { get; set; }
+}
+
+internal sealed class InputArtifactEntity
+{
+    public string Id { get; set; } = "";
+    public string Sha256 { get; set; } = "";
+    public long Length { get; set; }
+    public long CreatedAtUtc { get; set; }
+    public long ExpiresAtUtc { get; set; }
+    public string? OriginalName { get; set; }
 }
 
 internal sealed class ChatConversationEntity
