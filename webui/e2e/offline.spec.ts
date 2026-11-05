@@ -2,6 +2,7 @@ import { expect, test } from './fixtures';
 import type { WebSocketRoute } from '@playwright/test';
 
 test('shows offline states and recovers history after daemon startup returns', async ({ page }) => {
+  await page.clock.install();
   let unavailable = true;
   await page.route('**/api/**', (route) => unavailable ? route.abort('failed') : route.continue());
   await page.goto('/downloads');
@@ -21,6 +22,7 @@ test('shows offline states and recovers history after daemon startup returns', a
   await page.getByRole('button', { name: 'Uploads', exact: true }).click();
   await expect(offline).toContainText('Current upload state cannot be loaded while the daemon is offline.');
   unavailable = false;
+  await page.clock.fastForward(2_000);
 
   await expect(daemonStatus).toContainText('Connected', { timeout: 20_000 });
   await expect(offline).toHaveCount(0);
@@ -28,6 +30,7 @@ test('shows offline states and recovers history after daemon startup returns', a
 });
 
 test('reloads an open Jobs page when the daemon first becomes reachable', async ({ page }) => {
+  await page.clock.install();
   let unavailable = true;
   let socket: WebSocketRoute | undefined;
   let outage = false;
@@ -56,6 +59,7 @@ test('reloads an open Jobs page when the daemon first becomes reachable', async 
   const offline = page.locator('.resource-state-notice.offline.blocking');
   await expect(offline).toContainText('Daemon unavailable');
   unavailable = false;
+  await page.clock.fastForward(2_000);
 
   await expect(page.getByLabel('Connection status').locator('strong'))
     .toContainText('Connected', { timeout: 20_000 });
@@ -86,6 +90,7 @@ test('reopens a search deep link after a fresh offline read fails', async ({ pag
   await expect(page.locator('.folder-item-card')).toHaveCount(1);
   await expect(page).toHaveURL(/\/jobs\/[^/]+\?results=generic$/);
 
+  await page.clock.install();
   let unavailable = true;
   await page.route('**/api/**', (route) => unavailable ? route.abort('failed') : route.continue());
   await page.reload();
@@ -94,6 +99,7 @@ test('reopens a search deep link after a fresh offline read fails', async ({ pag
   await expect(offline).toContainText('This resource cannot be loaded while the daemon is offline.');
   await expect(page.locator('.search-results-empty')).toHaveCount(0);
   unavailable = false;
+  await page.clock.fastForward(2_000);
 
   await expect(page.getByLabel('Connection status').locator('strong'))
     .toContainText('Connected', { timeout: 20_000 });
@@ -107,6 +113,7 @@ test('recovers an open Chat list and disables sending during a fresh offline sta
     data: { username: 'Offline Chat Peer', text: 'Retained hello', messageId: crypto.randomUUID() },
   });
   expect(seeded.ok()).toBeTruthy();
+  await page.clock.install();
   let unavailable = true;
   await page.route('**/api/**', (route) => unavailable ? route.abort('failed') : route.continue());
   await page.goto('/chat');
@@ -115,6 +122,7 @@ test('recovers an open Chat list and disables sending during a fresh offline sta
   await expect(page.locator('.composer-state')).toHaveText('Chat disabled · Daemon unavailable');
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeDisabled();
   unavailable = false;
+  await page.clock.fastForward(2_000);
 
   await expect(page.getByLabel('Connection status').locator('strong'))
     .toContainText('Connected', { timeout: 20_000 });

@@ -1608,8 +1608,9 @@ public class CliBackendParityTests
             string musicRoot = CreateTempDir("Sockseek-cli-parity-remote-music-");
             string outputDir = CreateTempDir("Sockseek-cli-parity-remote-out-");
             seedMusic(musicRoot);
+            Directory.CreateDirectory(Path.Combine(outputDir, ".server-data"));
 
-            var app = ServerHost.Build([], new ServerOptions
+            var app = global::Tests.TestServerHost.Build([], new ServerOptions
             {
                 Engine = CreateEngineSettings(musicRoot),
                 DefaultDownload = CreateDownloadSettings(outputDir),

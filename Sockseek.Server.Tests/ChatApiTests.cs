@@ -28,7 +28,7 @@ public sealed class ChatApiTests
             [new UserData("Alice", UserPresence.Online, 0, 0, 0, 0, "CH")]);
         int port = GetFreeTcpPort();
         string url = $"http://127.0.0.1:{port}";
-        await using var app = ServerHost.Build([], new ServerOptions
+        await using var app = global::Tests.TestServerHost.Build([], new ServerOptions
         {
             Engine = new EngineSettings
             {

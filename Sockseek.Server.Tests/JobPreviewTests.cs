@@ -110,7 +110,7 @@ public sealed class JobPreviewTests
         Directory.CreateDirectory(options.Engine.MockFilesDir!);
         try
         {
-            await using var app = ServerHost.Build([], options, "http://127.0.0.1:0");
+            await using var app = global::Tests.TestServerHost.Build([], options, "http://127.0.0.1:0");
             await app.StartAsync();
             try
             {
@@ -367,7 +367,7 @@ public sealed class JobPreviewTests
         };
         try
         {
-            await using var app = ServerHost.Build([], options, "http://127.0.0.1:0");
+            await using var app = global::Tests.TestServerHost.Build([], options, "http://127.0.0.1:0");
             await app.StartAsync();
             try
             {
@@ -495,7 +495,7 @@ public sealed class JobPreviewTests
 
         try
         {
-            await using var app = ServerHost.Build([], options, "http://127.0.0.1:0");
+            await using var app = global::Tests.TestServerHost.Build([], options, "http://127.0.0.1:0");
             await app.StartAsync();
             try
             {

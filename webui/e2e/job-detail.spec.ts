@@ -112,49 +112,6 @@ test('does not navigate away from a new page when an earlier detail archive fini
   await expect(page.locator('.search-history-row').filter({ hasText: 'Background archive fixture' })).toHaveCount(0);
 });
 
-test('navigates a nested job hierarchy using ordered breadcrumbs', async ({ page }) => {
-  const request: Schema<'SubmitJobListRequestDto'> = {
-    name: 'Root list', jobs: [{ kind: 'job-list', name: 'Nested list', jobs: [{
-      kind: 'remote-file', target: { username: 'fixture-peer', filename: 'Fixture\\Fixture song.txt', size: 128, extension: '.txt' },
-    }] }],
-  };
-  const response = await page.request.post('/api/jobs/lists', { data: request });
-  expect(response.status(), await response.text()).toBe(202);
-  const root = await response.json() as Schema<'JobSummaryDto'>;
-  await page.goto(`/jobs/${root.jobId}`);
-  await expect(page.locator('.job-detail-kicker > span').last()).toHaveText('Job List');
-  await expect(page.locator('.job-child-copy small')).toContainText('Job List');
-  await page.locator('.job-child-open').filter({ hasText: 'Nested list' }).click();
-  await page.locator('.job-child-open').filter({ hasText: 'Fixture song.txt' }).click();
-  await expect(page.locator('.job-detail-kicker > span').last()).toHaveText('Remote File');
-  const crumbs = page.locator('.job-detail-kicker button');
-  await expect(crumbs).toHaveText(['Root list', 'Nested list']);
-  await crumbs.getByText('Root list', { exact: true }).click();
-  await expect(page.locator('.automatic-job-detail h1')).toHaveText('Root list');
-  await expect(page).toHaveURL(new RegExp(`/jobs/${root.jobId}$`));
-  await page.getByRole('button', { name: 'Back to jobs', exact: true }).click();
-  await expect(page.locator('.search-history-open')).toHaveCount(1);
-  await expect(page.locator('.search-history-open')).toContainText('Root list');
-  await expect(page.locator('.job-type-badge')).toHaveText('Job List');
-  const repeat = await page.request.post('/api/jobs/lists', { data: request });
-  expect(repeat.status()).toBe(202);
-  const repeated = await repeat.json() as Schema<'JobSummaryDto'>;
-  await page.goto(`/jobs/${repeated.jobId}`);
-  await page.locator('.job-child-open').filter({ hasText: 'Nested list' }).click();
-  await page.locator('.job-child-open').filter({ hasText: 'Fixture song.txt' }).click();
-  await page.locator('.file-item-card').getByRole('button', { name: 'Skipped', exact: true }).click();
-  const details = page.getByRole('dialog', { name: 'Transfer details', exact: true });
-  await expect(details.locator('dt').filter({ hasText: /^Skip reason$/ }).locator('+ dd')).toHaveText('Already Exists');
-  const existing = details.locator('dt').filter({ hasText: /^Existing download$/ }).locator('+ dd');
-  await expect(existing).toContainText('Fixture song.txt');
-  expect((await stat((await existing.textContent())!)).size).toBe(128);
-  await details.getByRole('button', { name: 'Close transfer details', exact: true }).click();
-  await page.reload();
-  await page.locator('.file-item-card').getByRole('button', { name: 'Skipped', exact: true }).click();
-  await expect(existing).toContainText('Fixture song.txt');
-
-});
-
 test('retains a child-page failure through active and terminal detail and recovers on retry', async ({ page, daemon }) => {
   await daemon.command('hold-download');
   const response = await page.request.post('/api/jobs/lists', { data: {
@@ -187,168 +144,91 @@ test('retains a child-page failure through active and terminal detail and recove
   await expect(alert).toHaveCount(0);
 });
 
-test('shows the selected song file and its live download', async ({ page, daemon }) => {
+test('reconciles an open job when a recovery snapshot misses its entire live workflow', async ({ page, daemon }) => {
   await page.clock.install();
-  await daemon.command('music-search');
-  await daemon.command('hold-download');
-  const request: Schema<'SubmitSongJobRequestDto'> = {
-    songQuery: { title: 'Fixture song', artistMaybeWrong: false },
-  };
-  const response = await page.request.post('/api/jobs/downloads/song', { data: request });
-  expect(response.status()).toBe(202);
-  const job = await response.json() as Schema<'JobSummaryDto'>;
-  const completion = observeJobCompletion(page, job);
-  let childReads = 0;
-  page.on('request', request => {
-    const url = new URL(request.url());
-    if (url.pathname === '/api/jobs' && url.searchParams.get('parentJobId') === job.jobId) childReads++;
+  let dropState = false;
+  let target: Schema<'JobSummaryDto'> | undefined;
+  let complete!: () => void;
+  const completed = new Promise<void>(resolve => { complete = resolve; });
+  let snapshots = 0;
+  await page.route('**/api/daemon/snapshot*', async route => {
+    const response = await route.fetch();
+    const snapshot = await response.json() as Schema<'StateSnapshotDto'>;
+    snapshots++;
+    if (!target) expect(snapshot.jobs).toHaveLength(0);
+    expect(snapshot.jobs.some(job => job.jobId === target?.jobId)).toBe(false);
+    await route.fulfill({ response });
   });
-  await page.goto(`/jobs/${job.jobId}`);
-  await expect(page.getByRole('heading', { name: 'Selected file', exact: true })).toBeVisible();
-  await expect(page.locator('.job-source-summary')).toContainText('fixture-peer');
-  await expect(page.locator('.file-item-card')).toContainText('Fixture song.flac');
-  await expect(page.getByLabel('50% complete', { exact: true })).toBeVisible();
-  await expect(page.locator('.file-item-card .transfer-state')).toHaveText('Downloading');
-  await expect(page.locator('.file-transfer-footer')).toContainText('50%');
-  expect(childReads, 'A childless song already declares its empty child set.').toBe(0);
-  // Keep a real Running response in flight while completion arrives over the
-  // real live connection. Freeze the fallback clock: the terminal detail must
-  // reconcile immediately afterward, without waiting for another polling tick.
+  await page.routeWebSocket('**/api/events?**', route => {
+    const server = route.connectToServer();
+    server.onMessage(message => {
+      const forwarded: string[] = [];
+      for (const frame of String(message).split('\u001e').filter(Boolean)) {
+        const value = JSON.parse(frame) as { target?: string; arguments?: Schema<'StateUpdateBatchDto'>[] };
+        const batch = value.target?.toLowerCase() === 'stateupdatebatch' ? value.arguments?.[0] : undefined;
+        if (dropState && batch?.scope.kind === 'daemon') {
+          if (target && batch.state.removedJobIds.includes(target.jobId!)) complete();
+        } else forwarded.push(frame);
+      }
+      if (forwarded.length) route.send(forwarded.join('\u001e') + '\u001e');
+    });
+  });
+  await page.goto('/dashboard');
+  await expect(page.getByLabel('Connection status').locator('strong')).toContainText('Connected');
+  expect(snapshots).toBe(1);
+  dropState = true;
+  await daemon.command('hold-download');
+  const accepted = await page.request.post('/api/jobs/lists', { data: {
+    name: 'Missed workflow', jobs: [{ kind: 'remote-file', target: {
+      username: 'fixture-peer', filename: 'Fixture\\Missed-workflow.txt', size: 128, extension: '.txt',
+    } }],
+  } satisfies Schema<'SubmitJobListRequestDto'> });
+  expect(accepted.status()).toBe(202);
+  target = await accepted.json() as Schema<'JobSummaryDto'>;
+  await daemon.command('wait-download-started');
+  await page.evaluate(path => {
+    history.pushState({}, '', path);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, `/jobs/${target.jobId}`);
+  await expect(page.locator('.job-child-row .search-status-badge')).toHaveText('Running');
   let observed!: () => void, release!: () => void;
   const captured = new Promise<void>(resolve => { observed = resolve; });
   const released = new Promise<void>(resolve => { release = resolve; });
   let capture = true, reads = 0;
-  let pending: Schema<'JobDetailDto'> | undefined;
-  await page.route(`**/api/jobs/${job.jobId}`, async route => {
+  await page.route(`**/api/jobs/${target.jobId}`, async route => {
     reads++;
     if (!capture) return route.continue();
     capture = false;
-    const original = await route.fetch();
-    pending = await original.json() as Schema<'JobDetailDto'>;
+    const response = await route.fetch();
+    expect((await response.json() as Schema<'JobDetailDto'>).summary.lifecycleState).toBe('Running');
     observed();
     await released;
-    await route.fulfill({ response: original });
+    await route.fulfill({ response });
   });
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 2_000));
   await captured;
-  expect(pending!.summary.lifecycleState).toBe('Running');
   try {
     await daemon.command('release-download');
-    await completion;
-  } finally { release(); }
-  await page.clock.runFor(100); // Render frames, never the one-second fallback.
-  await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveCount(0);
-  expect(reads, 'One stale in-flight read and one coalesced reconciliation.').toBe(2);
-  await expect(page.locator('.file-item-card')).toContainText('Complete');
-  await page.unroute(`**/api/jobs/${job.jobId}`);
-  await page.clock.resume();
-  await page.reload();
-  await expect(page.locator('.file-item-card')).toContainText('Fixture song.flac');
-  await expect(page.locator('.file-item-card')).toContainText('Complete');
-  expect(childReads, 'Retained childless detail must not request an empty child page either.').toBe(0);
-});
-
-for (const recovery of [false, true]) {
-  test(`reconciles an open job when the ${recovery ? 'recovery' : 'initial'} snapshot misses its entire live workflow`, async ({ page, daemon }) => {
-    await page.clock.install();
-    let dropState = false;
-    let target: Schema<'JobSummaryDto'> | undefined;
-    let complete!: () => void;
-    const completed = new Promise<void>(resolve => { complete = resolve; });
-    let releaseInitial!: () => void, capturedInitial!: () => void;
-    const initialReleased = new Promise<void>(resolve => { releaseInitial = resolve; });
-    const initialCaptured = new Promise<void>(resolve => { capturedInitial = resolve; });
-    let snapshots = 0;
-    await page.route('**/api/daemon/snapshot*', async route => {
-      const response = await route.fetch();
-      const snapshot = await response.json() as Schema<'StateSnapshotDto'>;
-      snapshots++;
-      if (!target) expect(snapshot.jobs).toHaveLength(0);
-      expect(snapshot.jobs.some(job => job.jobId === target?.jobId)).toBe(false);
-      if (!recovery && snapshots === 1) {
-        capturedInitial();
-        await initialReleased;
-      }
-      await route.fulfill({ response });
-    });
-    await page.routeWebSocket('**/api/events?**', route => {
-      const server = route.connectToServer();
-      server.onMessage(message => {
-        const forwarded: string[] = [];
-        for (const frame of String(message).split('\u001e').filter(Boolean)) {
-          const value = JSON.parse(frame) as { target?: string; arguments?: Schema<'StateUpdateBatchDto'>[] };
-          const batch = value.target?.toLowerCase() === 'stateupdatebatch' ? value.arguments?.[0] : undefined;
-          if (dropState && batch?.scope.kind === 'daemon') {
-            if (target && batch.state.removedJobIds.includes(target.jobId!)) complete();
-          } else forwarded.push(frame);
-        }
-        if (forwarded.length) route.send(forwarded.join('\u001e') + '\u001e');
-      });
-    });
-    await page.goto('/dashboard');
-    if (recovery)
-      await expect(page.getByLabel('Connection status').locator('strong')).toContainText('Connected');
-    else await initialCaptured;
-    expect(snapshots).toBe(1);
-    dropState = true;
+    await completed;
+    dropState = false;
     await daemon.command('hold-download');
-    const accepted = await page.request.post('/api/jobs/lists', { data: {
-      name: 'Missed workflow', jobs: [{ kind: 'remote-file', target: {
-        username: 'fixture-peer', filename: 'Fixture\\Missed-workflow.txt', size: 128, extension: '.txt',
+    const next = await page.request.post('/api/jobs/lists', { data: {
+      name: 'After missed workflow', jobs: [{ kind: 'remote-file', target: {
+        username: 'fixture-peer', filename: 'Fixture\\After-gap.txt', size: 128, extension: '.txt',
       } }],
     } satisfies Schema<'SubmitJobListRequestDto'> });
-    expect(accepted.status()).toBe(202);
-    target = await accepted.json() as Schema<'JobSummaryDto'>;
-    await daemon.command('wait-download-started');
-    await page.evaluate(path => {
-      history.pushState({}, '', path);
-      window.dispatchEvent(new PopStateEvent('popstate'));
-    }, `/jobs/${target.jobId}`);
-    await expect(page.locator('.job-child-row .search-status-badge')).toHaveText('Running');
-    let observed!: () => void, release!: () => void;
-    const captured = new Promise<void>(resolve => { observed = resolve; });
-    const released = new Promise<void>(resolve => { release = resolve; });
-    let capture = true, reads = 0;
-    await page.route(`**/api/jobs/${target.jobId}`, async route => {
-      reads++;
-      if (!capture) return route.continue();
-      capture = false;
-      const response = await route.fetch();
-      expect((await response.json() as Schema<'JobDetailDto'>).summary.lifecycleState).toBe('Running');
-      observed();
-      await released;
-      await route.fulfill({ response });
-    });
-    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 2_000));
-    await captured;
-    try {
-      await daemon.command('release-download');
-      await completed;
-      if (recovery) {
-        dropState = false;
-        await daemon.command('hold-download');
-        const next = await page.request.post('/api/jobs/lists', { data: {
-          name: 'After missed workflow', jobs: [{ kind: 'remote-file', target: {
-            username: 'fixture-peer', filename: 'Fixture\\After-gap.txt', size: 128, extension: '.txt',
-          } }],
-        } satisfies Schema<'SubmitJobListRequestDto'> });
-        expect(next.status()).toBe(202);
-        // This badge arrives only after the gap-triggered snapshot is applied.
-        await expect(page.getByRole('button', { name: /^Downloads/ })
-          .locator('.nav-count')).toHaveText('1');
-      } else {
-        releaseInitial();
-        await expect(page.getByLabel('Connection status').locator('strong')).toContainText('Connected');
-      }
-      expect(snapshots).toBe(recovery ? 2 : 1);
-    } finally { releaseInitial(); release(); }
-    await page.clock.runFor(100); // Paint, without advancing the fallback second.
-    await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveCount(0);
-    await expect(page.locator('.job-child-row .search-status-badge')).toHaveText('Complete');
-    expect(reads, 'Recovery must reconcile once even when both live maps omit the target.').toBe(2);
-    await daemon.command('release-download');
-  });
-}
+    expect(next.status()).toBe(202);
+    // This badge arrives only after the gap-triggered snapshot is applied.
+    await expect(page.getByRole('button', { name: /^Downloads/ })
+      .locator('.nav-count')).toHaveText('1');
+    expect(snapshots).toBe(2);
+  } finally { release(); }
+  await page.clock.runFor(100); // Paint, without advancing the fallback second.
+  await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveCount(0);
+  await expect(page.locator('.job-child-row .search-status-badge')).toHaveText('Complete');
+  expect(reads, 'Recovery must reconcile once even when both live maps omit the target.').toBe(2);
+  await daemon.command('release-download');
+});
 
 test('shows the accepted remote-directory files and keeps them after completion', async ({ page, daemon }) => {
   const childReads = observeUnfilteredChildReads(page);

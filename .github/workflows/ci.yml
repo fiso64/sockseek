@@ -57,13 +57,14 @@ jobs:
       run: |
         dotnet restore --locked-mode
         dotnet build --no-restore --configuration Release --nologo -m:1 -p:OpenApiGenerateDocuments=false
-    - name: Normal C# tests
+    - name: C# tests and PR bulk regressions
       # Assemblies already parallelize internally. Keep test hosts sequential;
       # concurrent hosts oversubscribe hosted runners and starve continuations.
-      run: dotnet test --no-build --no-restore --configuration Release --filter 'TestCategory!=Load' --maxcpucount:1 --logger trx --results-directory artifacts/tests
-    - name: PR bulk regression checks
-      if: github.event_name != 'schedule' && !inputs.full_load
-      run: dotnet test --no-build --no-restore --configuration Release --filter 'TestCategory=Load&TestCategory=CI' --maxcpucount:1 --logger trx --results-directory artifacts/bulk
+      # Select PR bulk cases in the same invocation instead of starting every
+      # test assembly twice (including CLI, which has no selected bulk cases).
+      env:
+        TEST_FILTER: ${{ (github.event_name == 'schedule' || inputs.full_load) && 'TestCategory!=Load' || 'TestCategory!=Load|TestCategory=CI' }}
+      run: dotnet test --no-build --no-restore --configuration Release --filter "$TEST_FILTER" --maxcpucount:1 --logger trx --results-directory artifacts/tests
     - name: Full Load qualification
       if: github.event_name == 'schedule' || inputs.full_load
       run: dotnet test --no-build --no-restore --configuration Release --filter 'TestCategory=Load' --maxcpucount:1 --logger trx --results-directory artifacts/load

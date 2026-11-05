@@ -2,10 +2,9 @@
 
 The suite exercises real daemon planning, uploaded CSV parsing, settings
 overrides, search projections, reopening a search URL, and an individually
-selected file download, and reconnecting a real SignalR socket before another
-search. Search cases also verify intermediate result/count updates before job
+selected file download, and recovering across a real SignalR reconnect. Search cases also verify intermediate result/count updates before job
 completion. New Job cases exercise provisional settings before upload, paged
-preview branch selection, and reviewed/direct submission.
+preview paging, and reviewed/direct submission.
 
 Reconnect tests use Playwright WebSocket routing to close and reconnect the
 actual daemon connection; messages are not fabricated. Chromium offline
@@ -26,15 +25,32 @@ the real daemon's Chat state and live subscription.
 - Use locator assertions and observable API/lifecycle transitions, not sleeps.
 - Keep browser tests here and controller/unit tests in `tests/`.
 - Failure artifacts go to ignored `test-results/` and `playwright-report/`.
-- Normal functional cases retain traces on failure. Opt-in `*.load.spec.ts`
-  probes disable tracing because Playwright's DOM snapshots can dominate
-  large-page interaction timings; they retain explicit request/timing evidence.
-- CI runs this suite sequentially after the .NET tests and load qualifications;
-  it does not add concurrent test hosts. Browser failure artifacts are uploaded
-  for seven days, including the daemon log and Playwright trace.
+- Screenshots, assertion context and daemon logs are retained on failure. Tracing
+  is opt-in (`npx playwright test --grep "journey name" --trace retain-on-failure`)
+  so successful CI actions do not all capture DOM snapshots. Do not trace Load
+  timing probes.
+- Backend and browser CI jobs run independently on separate runners. Within each
+  job, test hosts remain sequential. Failure artifacts are uploaded for seven days.
 - CI uses the Playwright-managed browser installed by
   `npx playwright install --with-deps chromium` on its disposable Linux runner.
   Do not run that dependency-install command on a maintainer's NixOS machine.
+
+## Coverage boundaries
+
+Use the browser for representative complete journeys and UI-specific failures,
+not another copy of every controller/backend permutation. In particular:
+
+- `tests/search-controller.test.ts` owns selection revisions, hidden readers,
+  stale responses, aggregate choices and retry identity; server Search View tests
+  verify actual counting/commit of unseen descendants and failure isolation.
+- `tests/share-selection.test.ts`, `tests/preview-selection.test.ts` and backend
+  planning tests own nested selection combinations. Browser cases still exercise
+  actual checkboxes, paging, Review and downloading selected files.
+- Keep the five search modes, uploads/downloads, chat, offline/reconnect, imports,
+  job tabs, retention and representative failure/retry flows in the browser suite.
+- Seed history with domain batches when transport is not under test; advance the
+  browser clock for retry deadlines and await responses before dependent edits.
+  Focus the tab being exercised: a background tab throttles animation frames.
 
 ## NixOS
 

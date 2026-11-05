@@ -42,10 +42,11 @@ public class RemoteCliBackendTests
                 Path.GetTempPath(),
                 "sockseek-remote-cli-data",
                 Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dataDirectory);
             options.Persistence.DataDirectory = dataDirectory;
             serverDataDirectories.Add(dataDirectory);
         }
-        return Sockseek.Server.ServerHost.Build([], options, url);
+        return global::Tests.TestServerHost.Build([], options, url);
     }
 
     [TestMethod]

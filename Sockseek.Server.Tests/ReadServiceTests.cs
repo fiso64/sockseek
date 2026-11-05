@@ -375,7 +375,9 @@ public sealed class ReadServiceTests
                 requested,
                 persistedId,
                 Revision: 1,
-                PersistenceMutationPriority.Progress,
+                // Seed retained facts immediately. This exercises read/overlay
+                // semantics, not the writer's three-second progress cadence.
+                PersistenceMutationPriority.Structural,
                 JobId: null,
                 WorkflowId: null,
                 Direction: "Upload",

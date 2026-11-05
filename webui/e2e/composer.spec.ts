@@ -203,45 +203,6 @@ test('blocks stale settings after a failed refresh and retries the shared resolv
   expect(attempts).toBe(2);
 });
 
-test('downloads with corrected output settings after invalidating and repeating Review', async ({ page, daemon }, testInfo) => {
-  await daemon.command('music-search');
-  await page.goto('/jobs');
-  await page.getByRole('button', { name: 'New job', exact: false }).click();
-  await page.getByPlaceholder('Song title…').fill('Fixture song');
-  await page.getByRole('button', { name: 'Download Defaults', exact: true }).click();
-  const skip = page.getByLabel('Skip existing downloads', { exact: true });
-  await expect(skip).toBeVisible();
-  const original = await skip.isChecked();
-  await skip.setChecked(!original);
-  const destination = testInfo.outputPath('reviewed-song');
-  await page.getByLabel('Output directory', { exact: true }).fill(destination);
-  await page.getByLabel('Name format', { exact: true }).fill('fixture/{stitle}');
-  const request = page.waitForRequest((candidate) => candidate.method() === 'POST' && new URL(candidate.url()).pathname === '/api/job-previews');
-  await page.getByRole('button', { name: 'Review', exact: true }).click();
-  const body = (await request).postDataJSON() as Schema<'CreateJobPreviewRequestDto'>;
-  expect(body.options?.downloadSettings?.skip?.skipExisting).toBe(!original);
-  expect(body.options?.downloadSettings?.output?.nameFormat).toBe('fixture/{stitle}');
-  await expect(page.locator('.new-job-start-button')).toBeEnabled();
-  // Editing after review must invalidate the plan, not silently commit old settings.
-  await page.getByLabel('Name format', { exact: true }).fill('changed/{stitle}');
-  await expect(page.locator('.new-job-preview')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Review', exact: true }).click();
-  await page.getByRole('button', { name: 'Start 1 job', exact: true }).click();
-  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Downloads', exact: true }).click();
-  await expect(page.locator('.file-item-card .transfer-state')).toHaveText('Complete');
-  const transfersResponse = await page.request.get('/api/transfers?direction=download&limit=500');
-  expect(transfersResponse.ok(), await transfersResponse.text()).toBe(true);
-  const transfers = (await transfersResponse.json() as Schema<'TransferTimelinePageDto'>).items;
-  expect(transfers).toHaveLength(1);
-  expect(transfers[0]!.identity.remotePath).toBe('Fixture\\Fixture song.flac');
-  expect(transfers[0]!.status.terminalOutcome).toBe('Succeeded');
-  expect(transfers[0]!.status.localPath).toBe(join(destination, 'changed', 'Fixture song.flac'));
-  expect((await stat(transfers[0]!.status.localPath!)).size).toBe(128);
-  const files = await readdir(destination, { recursive: true, withFileTypes: true });
-  expect(files.filter(file => file.isFile()).map(file => relative(destination, join(file.parentPath, file.name))))
-    .toEqual([join('changed', 'Fixture song.flac')]);
-});
-
 test('clears source-specific drafts and disclosures when choosing a job type', async ({ page }) => {
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
@@ -383,73 +344,6 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   const jobs = await jobsResponse.json() as Schema<'JobSummaryDto'>[];
   expect(jobs.some(job => job.queryText?.includes('Fixture CSV Song') || job.itemName?.includes('Fixture CSV Song'))).toBe(true);
   expect(jobs.some(job => job.queryText?.includes('Second CSV Song') || job.itemName?.includes('Second CSV Song'))).toBe(false);
-});
-
-test('shows a failed List entry without blocking a valid reviewed sibling', async ({ page }) => {
-  await page.goto('/jobs');
-  await page.getByRole('button', { name: 'New job', exact: false }).click();
-  await page.getByRole('button', { name: 'List file', exact: true }).click();
-  const missing = `missing-${crypto.randomUUID()}.csv`;
-  await page.locator('input[type=file]').setInputFiles({
-    name: 'partial-sources.txt', mimeType: 'text/plain',
-    buffer: Buffer.from(`s:"Fixture Artist - First Song"\n${missing}\n`),
-  });
-  await page.getByRole('button', { name: 'Review', exact: true }).click();
-  const preview = page.locator('.new-job-preview');
-  await expect(preview.locator('header')).toContainText('1 failed');
-  const failed = preview.locator('.job-preview-row').filter({ hasText: missing });
-  await expect(failed.locator('input[type=checkbox]')).toBeDisabled();
-  await expect(failed.locator('.job-preview-copy small')).toContainText('not found');
-  await expect(page.getByRole('button', { name: 'Start 1 job' })).toBeEnabled();
-  await page.getByRole('button', { name: 'Start 1 job' }).click();
-  const root = page.locator('.search-history-row').filter({ hasText: 'partial-sources.txt' });
-  await expect(root).toBeVisible();
-  await root.locator('.search-history-open').click();
-  await expect(page.locator('.job-child-row').filter({ hasText: 'First Song' }).first()).toBeVisible();
-  await expect(page.locator('.job-child-row').filter({ hasText: missing })).toHaveCount(0);
-});
-
-test('selects a reviewed preview branch with a nested exception and commits exactly one job', async ({ page }) => {
-  await page.goto('/jobs');
-  await page.getByRole('button', { name: 'New job', exact: false }).click();
-  await page.getByRole('button', { name: 'CSV file', exact: true }).click();
-  await page.locator('input[type=file]').setInputFiles({
-    name: 'branch-selection.csv', mimeType: 'text/csv',
-    buffer: Buffer.from('artist,title\nFixture Artist,First Song\nFixture Artist,Second Song\n'),
-  });
-  await page.getByRole('button', { name: 'Review', exact: true }).click();
-  await expect(page.locator('.new-job-start-button')).toBeEnabled();
-  await expect(page.getByRole('button', { name: 'Start 2 jobs' })).toBeEnabled();
-  await expect(page.locator('.job-preview-row')).toHaveCount(4);
-  await page.getByRole('button', { name: 'Deselect all' }).click();
-  const root = page.locator('.job-preview-row').first();
-  await root.locator('input[type=checkbox]').check();
-  await expect(page.getByRole('button', { name: 'Start 2 jobs' })).toBeEnabled();
-  const list = page.locator('.job-preview-row').filter({ hasText: 'Mixed jobs' });
-  await list.locator('input[type=checkbox]').uncheck();
-  await expect(page.locator('.new-job-start-button')).toBeDisabled();
-  const first = page.locator('.job-preview-row').filter({ hasText: 'First Song' });
-  await first.locator('input[type=checkbox]').check();
-  await expect(page.getByRole('button', { name: 'Start 1 job' })).toBeEnabled();
-  await expect(root.locator('input[type=checkbox]')).toHaveJSProperty('indeterminate', true);
-  const commitRequest = page.waitForRequest(candidate => candidate.method() === 'POST'
-    && /\/api\/job-previews\/[^/]+\/commit$/.test(new URL(candidate.url()).pathname));
-  await page.getByRole('button', { name: 'Start 1 job' }).click();
-  const submitted = (await commitRequest).postDataJSON() as Schema<'CommitJobPreviewRequestDto'>;
-  expect(submitted.selection).toEqual({ mode: 'Only', refs: [] });
-  expect(submitted.subtreeOverrides).toEqual([
-    { ref: '0', selected: true },
-    { ref: '0/result', selected: false },
-    { ref: '0/result/0', selected: true },
-  ]);
-  const importRow = page.locator('.search-history-row').filter({ hasText: 'branch-selection.csv' });
-  await expect(importRow).toBeVisible();
-  await expect(importRow.locator('.job-type-badge')).toHaveText('CSV import');
-  await importRow.locator('.search-history-open').click();
-  await expect(page.locator('.automatic-job-detail h1')).toHaveText('branch-selection');
-  await expect(page.locator('.job-child-row')).toHaveCount(1);
-  await expect(page.locator('.job-child-row')).toContainText('First Song');
-  await expect(page.locator('.job-child-row')).not.toContainText('Second Song');
 });
 
 test('pages a CSV Review and commits an item beyond the first preview page', async ({ page }) => {

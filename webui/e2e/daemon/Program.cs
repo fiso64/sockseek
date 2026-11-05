@@ -115,7 +115,6 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
         bool aggregateAlbumSearch = false;
         bool mixedAggregateAlbumSearch = false;
         bool pagedAggregateAlbumSearch = false;
-        bool pagedSubfolderSearch = false;
         bool largePeerShares = false;
         bool largeMusicSearch = false;
         int musicSearchPeerCount = 100;
@@ -165,13 +164,6 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             new Soulseek.File(1, "02 - Finale.flac", 128, ".flac", []),
             new Soulseek.File(1, "03 - Bonus.flac", 128, ".flac", []),
         ])])
-            : pagedSubfolderSearch && username == "fixture-peer"
-            ? new Soulseek.BrowseResponse([
-                new Soulseek.Directory("Paged", [new Soulseek.File(1, "Root.txt", 128, ".txt", [])]),
-            new Soulseek.Directory(@"Paged\Nested", Enumerable.Range(1, 101)
-                .Select(index => new Soulseek.File(1, $"{index:D2}.txt", 128, ".txt", []))
-                .ToArray()),
-            ])
             : mixedRetrievalSearch && username == "fixture-peer"
             ? new Soulseek.BrowseResponse([new Soulseek.Directory("Fixture", [
             new Soulseek.File(1, "Selected.txt", 128, ".txt", []),
@@ -269,17 +261,13 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
         bool stagedLargeDirectorySearch = false;
         bool mixedVisibilitySearch = false;
         bool directorySelectionSearch = false;
-        bool nestedGenericSearch = false;
         bool aggregateSearch = false;
         bool richAggregateSearch = false;
-        bool rejectFixtureDownloads = false;
         bool longSongFallback = false;
         var fallbackDownloadTargets = new System.Collections.Concurrent.ConcurrentQueue<string>();
         bool richAggregateAlbumSearch = false;
-        bool stagedAggregateAlbumSearch = false;
         bool albumArtSearch = false;
         int albumArtFileCount = 1;
-        bool nestedAlbumSearch = false;
         bool bareFilenameSearch = false;
         peer.SearchHandler = async (receive, cancellationToken) =>
         {
@@ -421,37 +409,12 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     [new Soulseek.File(1, @"incoming\autechre\gantz graf live.mp3", 13_200_000, ".mp3", audio)]));
                 return;
             }
-            if (nestedAlbumSearch)
-            {
-                static Soulseek.FileAttribute[] Audio(int bitrate, int length) =>
-                [
-                    new(Soulseek.FileAttributeType.BitRate, bitrate),
-                new(Soulseek.FileAttributeType.SampleRate, 44_100),
-                new(Soulseek.FileAttributeType.BitDepth, 16),
-                new(Soulseek.FileAttributeType.Length, length),
-                ];
-                receive(new Soulseek.SearchResponse("nightshift", 1, true, 1_600_000, 0,
-                    [
-                        new Soulseek.File(1, @"Music\Boards of Canada\Geogaddi\01 - Ready Lets Go.flac", 21_800_000, ".flac", Audio(944, 60)),
-                    new Soulseek.File(1, @"Music\Boards of Canada\Geogaddi\02 - Music Is Math.flac", 41_900_000, ".flac", Audio(944, 323)),
-                    new Soulseek.File(1, @"Music\Boards of Canada\Geogaddi\03 - Beware the Friendly Stranger.flac", 13_400_000, ".flac", Audio(932, 37)),
-                    new Soulseek.File(1, @"Music\Boards of Canada\Geogaddi\04 - Gyroscope.flac", 31_700_000, ".flac", Audio(956, 214)),
-                    new Soulseek.File(1, @"Music\Boards of Canada\Geogaddi\Artwork\cover.jpg", 1_400_000, ".jpg", []),
-                    ]));
-                return;
-            }
             if (concurrentRetrievalSearch)
             {
                 receive(new Soulseek.SearchResponse("fixture-peer", 1, true, 1_000_000, 0,
                     [new Soulseek.File(1, @"Fixture\First song.txt", 128, ".txt", [])]));
                 receive(new Soulseek.SearchResponse("second-peer", 2, true, 1_000_000, 0,
                     [new Soulseek.File(1, @"Second\Second song.txt", 128, ".txt", [])]));
-                return;
-            }
-            if (pagedSubfolderSearch)
-            {
-                receive(new Soulseek.SearchResponse("fixture-peer", 1, true, 1_000_000, 0,
-                    [new Soulseek.File(1, @"Paged\Root.txt", 128, ".txt", [])]));
                 return;
             }
             if (mixedRetrievalSearch)
@@ -506,35 +469,6 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                         ? [new Soulseek.File(1, @"Second\Fixture Album\03 - Locked.flac", 256, ".flac", [])] : []));
                 return;
             }
-            if (stagedAggregateAlbumSearch)
-            {
-                static Soulseek.FileAttribute[] Audio(int length) =>
-                [
-                    new(Soulseek.FileAttributeType.BitRate, 320),
-                new(Soulseek.FileAttributeType.Length, length),
-                ];
-                Soulseek.File[] first =
-                [
-                    new Soulseek.File(1, @"Fixture\Fixture Album Alpha\01 - Alpha.flac", 8_000_000, ".flac", Audio(210)),
-                new Soulseek.File(1, @"Fixture\Fixture Album Beta\01 - Beta.flac", 8_000_000, ".flac", Audio(300)),
-                ];
-                if (rejectFixtureDownloads)
-                    first = [.. first,
-                    new Soulseek.File(1, @"Fixture\Fixture Album Alpha\02 - Alpha.flac", 8_000_000, ".flac", Audio(215)),
-                    new Soulseek.File(1, @"Fixture\Fixture Album Beta\02 - Beta.flac", 8_000_000, ".flac", Audio(305))];
-                receive(new Soulseek.SearchResponse("fixture-peer", 1, true,
-                    rejectFixtureDownloads ? 10_000_000 : 1_000_000, 0, first));
-                receive(new Soulseek.SearchResponse("second-peer", 2, true, 1_000_000, 0, first));
-                if (rejectFixtureDownloads)
-                    return;
-                if (nextSearchBatch is { } albumBatch)
-                    await albumBatch.Task.WaitAsync(cancellationToken);
-                receive(new Soulseek.SearchResponse("fixture-peer", 1, true, 1_000_000, 0,
-                    [new Soulseek.File(1, @"Fixture\Fixture Album Alpha\Cover.jpg", 128, ".jpg", [])]));
-                if (finishSearch is { } albumFinish)
-                    await albumFinish.Task.WaitAsync(cancellationToken);
-                return;
-            }
             if (richAggregateAlbumSearch)
             {
                 // Album aggregation groups by track-length profile, so distinct
@@ -574,7 +508,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                 new(Soulseek.FileAttributeType.Length, 210),
                 ];
                 receive(new Soulseek.SearchResponse("fixture-peer", 1, true,
-                    rejectFixtureDownloads ? 10_000_000 : 1_000_000, 0,
+                    1_000_000, 0,
                     [new Soulseek.File(1, @"Fixture\Fixture Alpha.mp3", 8_000_000, ".mp3", audio),
                  new Soulseek.File(1, @"Fixture\Fixture Beta.mp3", 8_000_000, ".mp3", audio),
                  new Soulseek.File(1, @"Fixture\Fixture Gamma.mp3", 8_000_000, ".mp3", audio)]));
@@ -582,7 +516,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     [new Soulseek.File(1, @"Fixture\Fixture Alpha.mp3", 8_000_000, ".mp3", audio),
                  new Soulseek.File(1, @"Fixture\Fixture Beta.mp3", 8_000_000, ".mp3", audio),
                  new Soulseek.File(1, @"Fixture\Fixture Gamma.mp3", 8_000_000, ".mp3", audio)]));
-                if (!rejectFixtureDownloads && nextSearchBatch is { } aggregateBatch)
+                if (nextSearchBatch is { } aggregateBatch)
                 {
                     await aggregateBatch.Task.WaitAsync(cancellationToken);
                     receive(new Soulseek.SearchResponse("late-peer", 3, true, 20_000_000, 0,
@@ -612,17 +546,6 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                 }
                 return;
             }
-            if (nestedGenericSearch)
-            {
-                receive(new Soulseek.SearchResponse("fixture-peer", 1, true, 1_000_000, 0,
-                    [new Soulseek.File(1, @"A\B\Track one.txt", 128, ".txt", []),
-                 new Soulseek.File(1, @"A\C\Track two.txt", 128, ".txt", [])]));
-                if (nextSearchBatch is { } nestedBatch) await nestedBatch.Task.WaitAsync(cancellationToken);
-                receive(new Soulseek.SearchResponse("fixture-peer", 1, true, 1_000_000, 0,
-                    [new Soulseek.File(1, @"A\Track root.pdf", 128, ".pdf", [])]));
-                if (finishSearch is { } nestedFinish) await nestedFinish.Task.WaitAsync(cancellationToken);
-                return;
-            }
             receive(new Soulseek.SearchResponse("fixture-peer", 1, true, 1_000_000, 0,
                 [new Soulseek.File(1, musicSearch ? @"Fixture\Fixture song.flac" : @"Fixture\Fixture song.txt",
                 128, musicSearch ? ".flac" : ".txt", [])]));
@@ -649,8 +572,6 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             }
             if (Interlocked.Exchange(ref rejectNextDownload, 0) != 0)
                 throw new Soulseek.TransferRejectedException("Fixture rejects the first attempt only.");
-            if (rejectFixtureDownloads && username == "fixture-peer")
-                throw new Soulseek.TransferRejectedException("Fixture source no longer shares this file.");
             var streamFactory = (Func<Task<Stream>>)arguments[2]!;
             long size = (long?)arguments[3] ?? 128;
             var options = arguments.OfType<Soulseek.TransferOptions>().Single();
@@ -991,24 +912,16 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     nextSearchBatch = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     finishSearch = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     break;
-                case "aggregate-failure-search": richAggregateSearch = true; rejectFixtureDownloads = true; break;
                 case "long-song-fallback": longSongFallback = true; break;
                 case "report-fallback-downloads":
                     Console.WriteLine("E2E_FALLBACK_DOWNLOADS " + JsonSerializer.Serialize(fallbackDownloadTargets.ToArray()));
                     break;
-                case "aggregate-album-failure-search": stagedAggregateAlbumSearch = true; rejectFixtureDownloads = true; break;
                 case "aggregate-album-search": aggregateAlbumSearch = true; break;
                 case "mixed-aggregate-album-search": aggregateAlbumSearch = true; mixedAggregateAlbumSearch = true; break;
-                case "staged-aggregate-album-search":
-                    stagedAggregateAlbumSearch = true;
-                    nextSearchBatch = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                    finishSearch = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                    break;
                 case "rich-aggregate-album-search": richAggregateAlbumSearch = true; break;
                 case "paged-aggregate-album-search": pagedAggregateAlbumSearch = true; break;
                 case "album-art-search": albumArtSearch = true; break;
                 case "large-album-art-search": albumArtSearch = true; albumArtFileCount = 1001; break;
-                case "nested-album-search": nestedAlbumSearch = true; break;
                 case "bare-filename-search": bareFilenameSearch = true; break;
                 case "hold-art-download": artDownloadGate = new(TaskCreationOptions.RunContinuationsAsynchronously); break;
                 case "release-art-download": artDownloadGate?.TrySetResult(); break;
@@ -1036,12 +949,10 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     break;
                 }
                 case "directory-selection-search": directorySelectionSearch = true; break;
-                case "nested-generic-search": nestedGenericSearch = true; break;
                 case "concurrent-retrieval-search": concurrentRetrievalSearch = true; break;
                 case "mixed-retrieval-search": mixedRetrievalSearch = true; break;
                 case "hold-directory-browse": directoryBrowseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); break;
                 case "release-directory-browse": directoryBrowseGate?.TrySetResult(); directoryBrowseGate = null; break;
-                case "paged-subfolder-search": pagedSubfolderSearch = true; break;
                 case "staged-search":
                     nextSearchBatch = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     finishSearch = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1084,15 +995,18 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                         incomingChatId, DateTime.UtcNow, "Scroll Peer", $"Incoming while reading {incomingChatId}", replayed: false));
                     break;
                 case "seed-chat-history":
+                case "seed-chat-outage":
                 {
                     // Retained-history setup uses the existing domain batch,
                     // rather than hundreds of independently committed HTTP sends.
                     var store = app.Services.GetRequiredService<Sockseek.Server.Persistence.PersistenceCoordinator>().Chat
                         ?? throw new InvalidOperationException("Chat persistence is unavailable.");
+                    bool outage = input.Current == "seed-chat-outage";
                     DateTimeOffset started = DateTimeOffset.UtcNow.AddMinutes(-10);
                     await store.AcceptIncomingMessagesAsync(Enumerable.Range(0, 503)
                         .Select(index => (ChatInboundMessage)new PrivateChatInboundMessage(
-                            "e2e-local", "History Peer", $"History {index:D3}", 20_000 + index, started.AddSeconds(index)))
+                            "e2e-local", outage ? "Reconnect Peer" : "History Peer",
+                            $"{(outage ? "Offline" : "History")} {index:D3}", 20_000 + index, started.AddSeconds(index)))
                         .ToArray());
                     break;
                 }

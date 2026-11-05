@@ -27,7 +27,6 @@ public sealed class PersistenceWriterTests
     public async Task UploadRetrySupersedesOnlyEarlierMatchingTerminalRows(bool oldArrivesLate)
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtime = (await new PersistenceRuntimeSession(database.Factory).StartAsync("upload-retry")).Runtime;
         var requested = DateTimeOffset.UtcNow.AddSeconds(-1);
         var failed = Transfer(runtime.RuntimeId, Guid.NewGuid(), 2) with
@@ -104,7 +103,6 @@ public sealed class PersistenceWriterTests
     public async Task PayloadEncodingSkipsStaleFactsAndKeepsFailuresIndependentWithoutReservingWrites()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("payload-encoding")).Runtime;
         var seeded = Job(runtime.RuntimeId, Guid.NewGuid(), 2, PersistenceMutationPriority.Structural) with
@@ -384,7 +382,6 @@ public sealed class PersistenceWriterTests
     public async Task HistorySnapshots_ReadCommittedDataWhileAWriterRemainsActive(string domain)
     {
         await using var database = new WriterDatabase(defaultTimeoutSeconds: 1, busyTimeoutMilliseconds: 1);
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("concurrent-history-read-test")).Runtime;
         Guid jobId = Guid.NewGuid();
@@ -470,7 +467,6 @@ public sealed class PersistenceWriterTests
     public async Task TransferGroupSnapshot_KeepsTotalsAndOverlapConsistentAcrossWriterCommit()
     {
         await using var database = new WriterDatabase(defaultTimeoutSeconds: 1, busyTimeoutMilliseconds: 1);
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("group-snapshot-test")).Runtime;
         Guid transferId = Guid.NewGuid();
@@ -497,7 +493,6 @@ public sealed class PersistenceWriterTests
     public async Task Analytics_ByteAndPeerTotalsUseOneSnapshotAcrossWriterCommit()
     {
         await using var database = new WriterDatabase(defaultTimeoutSeconds: 1, busyTimeoutMilliseconds: 1);
-        await database.Initializer.InitializeAsync();
         await using var writer = await database.Factory.CreateDbContextAsync();
         writer.TransferByteBuckets.Add(new TransferByteBucketEntity
         {
@@ -529,7 +524,6 @@ public sealed class PersistenceWriterTests
     public async Task Analytics_CoverageCurrentAndComparisonStayCoherentAcrossRetention(bool allHistory)
     {
         await using var database = new WriterDatabase(defaultTimeoutSeconds: 1, busyTimeoutMilliseconds: 1);
-        await database.Initializer.InitializeAsync();
         DateTimeOffset start = DateTimeOffset.Parse("2026-01-01T12:00:00Z");
         DateTimeOffset retainedFrom = start.AddMinutes(-5);
         DateTimeOffset prunedFrom = start.AddMinutes(5);
@@ -572,7 +566,6 @@ public sealed class PersistenceWriterTests
     public async Task DirectoryManifests_CoalescedJobUpdatesRetainEachAcceptedAttempt(string failureStage)
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("directory-attempt-batch-test")).Runtime;
         Guid jobId = Guid.NewGuid();
@@ -625,7 +618,6 @@ public sealed class PersistenceWriterTests
     public async Task DirectoryManifest_PagesSupplementalFilesWithMissingChildrenAndAppendOnlyOrdinals(bool retainTargets)
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("supplemental-manifest-test")).Runtime;
         Guid jobId = Guid.NewGuid();
@@ -687,7 +679,6 @@ public sealed class PersistenceWriterTests
     public async Task DirectoryManifest_PagesAcceptedFilesBeforeChildren_AndAttachesChildIdsWithoutRewritingPlan()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("directory-manifest-test")).Runtime;
         Guid jobId = Guid.NewGuid();
@@ -767,7 +758,6 @@ public sealed class PersistenceWriterTests
         PersistenceMutationPriority priority)
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("progress-load-test")).Runtime;
         var options = new PersistenceWriterOptions { TransferProgressFlushInterval = TimeSpan.FromSeconds(3) };
@@ -1025,7 +1015,6 @@ public sealed class PersistenceWriterTests
     public async Task TerminalMutations_PreserveActualJobAndAttemptStartTimesWhenRowsAreMissing()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("timestamp-test")).Runtime;
         Guid jobId = Guid.NewGuid();
@@ -1092,7 +1081,6 @@ public sealed class PersistenceWriterTests
     public async Task TerminalTransfer_PreservesBufferedStateAccountingAcrossBuckets()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("terminal-accounting-order")).Runtime;
         var options = new PersistenceWriterOptions { MaximumBatchSize = 1 };
@@ -1162,7 +1150,6 @@ public sealed class PersistenceWriterTests
     public async Task UnknownTransferTotal_RoundTripsAsExplicitNullHistoryValue()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("unknown-total-test")).Runtime;
         var options = new PersistenceWriterOptions();
@@ -1189,7 +1176,6 @@ public sealed class PersistenceWriterTests
     public async Task TransferTimelineFields_RoundTripAuthoritativeTimesSpeedMetadataAndGroup()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("transfer-projection-test")).Runtime;
         var options = new PersistenceWriterOptions();
@@ -1280,7 +1266,6 @@ public sealed class PersistenceWriterTests
     public async Task TransferAccounting_ReplaysRetriesAndCounterResetsIdempotently_AndQueriesBoundedSemantics()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("transfer-accounting-test")).Runtime;
         DateTimeOffset start = new(
@@ -1427,7 +1412,6 @@ public sealed class PersistenceWriterTests
     public async Task CompositeTransferTerminal_RollsBackCompletely_ThenRetriesAndReplaysIdempotently()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("composite-terminal-test")).Runtime;
         Guid existingJobId = Guid.NewGuid();
@@ -1494,7 +1478,6 @@ public sealed class PersistenceWriterTests
     public async Task SearchCompletion_RepresentsGenuineZeroResults_AndCannotPromoteIncompleteHistory()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("search-state-test")).Runtime;
         Guid zeroSearchId = Guid.NewGuid();
@@ -1565,7 +1548,6 @@ public sealed class PersistenceWriterTests
     {
         const int resultCount = 20_001;
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("large-search-batch-test")).Runtime;
         Guid searchId = Guid.NewGuid();
@@ -1696,7 +1678,6 @@ public sealed class PersistenceWriterTests
     public async Task SearchPackets_ShareTransactionWithoutSharingFailureOwnership(bool malformedAttributes)
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("search-packet-isolation")).Runtime;
         Guid source = Guid.NewGuid(), other = Guid.NewGuid();
@@ -1739,7 +1720,6 @@ public sealed class PersistenceWriterTests
     public async Task SearchDuplicatePolicy_FirstSequenceAndFirstPeerPathWinConsistently()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("duplicate-search-test")).Runtime;
         Guid searchId = Guid.Parse("d5725228-4563-4fbe-b586-2fa28d99ab95");
@@ -1774,7 +1754,6 @@ public sealed class PersistenceWriterTests
     public async Task SearchDuplicatePolicy_AcrossTransactionsPreservesVisibilityAndNullableMetadata()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("search-duplicate-transactions-test")).Runtime;
         Guid searchId = Guid.NewGuid();
@@ -1828,7 +1807,6 @@ public sealed class PersistenceWriterTests
     public async Task SearchResultInsert_FailingLaterRowRollsBackEarlierRowsInItsBatch(int batchSize, int invalidKind)
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("search-insert-rollback-test")).Runtime;
         Guid searchId = Guid.NewGuid();
@@ -1917,7 +1895,6 @@ public sealed class PersistenceWriterTests
     public async Task Writer_CoalescesByRevision_AndCannotRegressTerminalJobs_WithBoundedBatchReads()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("writer-test")).Runtime;
         var jobs = Enumerable.Range(1, 8).Select(index =>
@@ -2009,7 +1986,6 @@ public sealed class PersistenceWriterTests
     public async Task Checkpoint_DoesNotHoldWriterQueue_AndPreservesPinnedReaders(bool pinReader)
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("checkpoint-test")).Runtime;
         var options = new PersistenceWriterOptions();
@@ -2175,7 +2151,6 @@ public sealed class PersistenceWriterTests
     public async Task SearchCompletion_CommitsPendingResultsAndMetadataInOneBarrier()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("search-writer-test")).Runtime;
         var options = new PersistenceWriterOptions();
@@ -2240,7 +2215,6 @@ public sealed class PersistenceWriterTests
     public async Task JobHistory_UsesStableCursorAndEnforcesLimits()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("reader-test")).Runtime;
         Guid[] ids = [Guid.Parse("00000000-0000-0000-0000-000000000001"), Guid.Parse("00000000-0000-0000-0000-000000000002"), Guid.Parse("00000000-0000-0000-0000-000000000003")];
@@ -2350,7 +2324,6 @@ public sealed class PersistenceWriterTests
     public async Task LargeWorkflow_PagesRootsDirectChildrenAndAllJobsInDisplayOrder()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("large-workflow-reader-test")).Runtime;
         Guid workflowId = Guid.NewGuid();
@@ -2460,7 +2433,6 @@ public sealed class PersistenceWriterTests
     public async Task TransferHistory_PagesTransfersAndAttemptsWithoutLoadingAllRows()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("transfer-reader-test")).Runtime;
         Guid workflowId = Guid.NewGuid();
@@ -2648,7 +2620,6 @@ public sealed class PersistenceWriterTests
     public async Task TransferGroups_PreserveExactKeysAndUnknownSizeAccounting()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("group-accounting-test")).Runtime;
         long sequence = 0;
@@ -2709,7 +2680,6 @@ public sealed class PersistenceWriterTests
     public async Task TransferArchive_IsReversibleAndRejectsNonterminalRows()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("transfer-archive-test")).Runtime;
         Guid terminalId = Guid.NewGuid();
@@ -2868,7 +2838,6 @@ public sealed class PersistenceWriterTests
         await using var database = new WriterDatabase(
             defaultTimeoutSeconds: 1,
             busyTimeoutMilliseconds: 25);
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("busy-recovery-test")).Runtime;
         var options = new PersistenceWriterOptions
@@ -2922,7 +2891,6 @@ public sealed class PersistenceWriterTests
     public async Task Writer_StopsRetryingRecoverableFailure_AfterConfiguredRecoveryLimit()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("bounded-recovery-test")).Runtime;
         var options = new PersistenceWriterOptions
@@ -2964,7 +2932,6 @@ public sealed class PersistenceWriterTests
     public async Task Writer_IsolatesPermanentMutationWithinTheSameBatch(string failureStage)
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await runtimeSession.StartAsync("permanent-failure-test")).Runtime;
         var options = new PersistenceWriterOptions { FailureRetryDelay = TimeSpan.FromMilliseconds(25) };
@@ -3109,7 +3076,6 @@ public sealed class PersistenceWriterTests
     public async Task RejectedJobMutationDoesNotDiscardValidCompositeWithTheSameRevision()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("same-revision-owner-test")).Runtime;
         await RunCompletedWriterAsync(database,
@@ -3148,7 +3114,6 @@ public sealed class PersistenceWriterTests
     public async Task OutputRelocationPreservesCompletionTimeWhenTerminalSnapshotsCoalesce(bool coalesced)
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("moved-output-time-test")).Runtime;
         var completedAt = DateTimeOffset.Parse("2026-10-31T12:00:05Z");
@@ -3203,7 +3168,6 @@ public sealed class PersistenceWriterTests
     public async Task RejectedCompletionIsReportedAfterValidRawSiblingsSettle(int recoverableFailures)
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("search-outcome-order-test")).Runtime;
         Guid searchId = Guid.NewGuid();
@@ -3335,7 +3299,6 @@ public sealed class PersistenceWriterTests
     public async Task Writer_ServesCommandsArrivingDuringEncodingBeforeLoadingComparisonFacts()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("encoding-admission-test")).Runtime;
         var job = Job(runtime.RuntimeId, Guid.NewGuid(), 1, PersistenceMutationPriority.Structural, kind: "Search");
@@ -3406,7 +3369,6 @@ public sealed class PersistenceWriterTests
     public async Task Writer_PrioritizesAcceptanceAfterCurrentBackgroundTransaction()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("late-acceptance-test")).Runtime;
         var options = new PersistenceWriterOptions();
@@ -3461,7 +3423,6 @@ public sealed class PersistenceWriterTests
     public async Task Writer_DrainsAwaitableCommandsBeyondFairnessBurstOnShutdown(bool retryWithinAttempt)
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("command-fairness-test")).Runtime;
         var options = new PersistenceWriterOptions
@@ -3525,7 +3486,6 @@ public sealed class PersistenceWriterTests
     public async Task Writer_CancellationCompletesCommandAndCapacityWaiters(bool background)
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var options = new PersistenceWriterOptions { CommandQueueCapacity = 1, BackgroundCommandQueueCapacity = 1 };
         var health = new PersistenceHealth();
         var inbox = new PersistenceInbox(options, health);
@@ -3571,7 +3531,6 @@ public sealed class PersistenceWriterTests
     public async Task TenThousandEntryManifestPreservesPagedTargetsAndMaterializedChildren()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("manifest-load")).Runtime;
         Guid jobId = Guid.NewGuid();
@@ -3634,7 +3593,6 @@ public sealed class PersistenceWriterTests
     public async Task AccountingBurstPreservesCounterResetsAndReplayWithoutDoubleCounting()
     {
         await using var database = new WriterDatabase();
-        await database.Initializer.InitializeAsync();
         var session = new PersistenceRuntimeSession(database.Factory);
         var runtime = (await session.StartAsync("accounting-load")).Runtime;
         DateTimeOffset start = new(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
@@ -3907,16 +3865,16 @@ public sealed class PersistenceWriterTests
             global::Tests.TestDatabase.Create(sqliteOptions.DatabasePath);
             owner = SqliteDatabaseOwner.Acquire(sqliteOptions);
             Factory = new SockseekDbContextFactory(SockseekDbContextOptions.Create(sqliteOptions));
-            Initializer = new SqliteInitializer(Factory, sqliteOptions, owner);
         }
 
         public SockseekDbContextFactory Factory { get; }
-        public SqliteInitializer Initializer { get; }
 
         public ValueTask DisposeAsync()
         {
             owner.Dispose();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            using var context = Factory.CreateDbContext();
+            Microsoft.Data.Sqlite.SqliteConnection.ClearPool(
+                (Microsoft.Data.Sqlite.SqliteConnection)context.Database.GetDbConnection());
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
             return ValueTask.CompletedTask;
         }

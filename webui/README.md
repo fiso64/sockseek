@@ -71,13 +71,12 @@ so real daemon progress remains consistent even for richer search fixtures.
 
 Tests live in `e2e/` and run with one worker. Synchronize on visible state or
 explicit fixture gates, not fixed sleeps. `npm run test:e2e:ui` opens the interactive
-runner. Failed tests retain screenshots, traces, and daemon logs under
+runner. Failed tests retain screenshots, assertion context, and daemon logs under
 `test-results/`; failures also attach a bounded daemon status snapshot when the
-test daemon remains reachable. CI uploads the HTML report and these artifacts. For example,
-open a retained trace with `npx playwright show-trace <path-to-trace.zip>`.
-Opt-in `*.load.spec.ts` performance probes disable tracing: copying a large DOM
-for each trace action substantially distorts UI latency. Their request/timing
-records and failure screenshots/daemon logs remain available.
+test daemon remains reachable. CI uploads the HTML report and these artifacts.
+Tracing is opt-in: use `npx playwright test --grep "journey name" --trace retain-on-failure`,
+then `npx playwright show-trace <path-to-trace.zip>`. Avoid tracing timing probes;
+copying the DOM at every action distorts UI latency.
 Metrics-enabled journeys also attach `daemon-storage-metrics`: Linux process-attributed
 storage writes (including the final WAL backfill), cancelled writes, retained data,
 downloaded payload bytes and fixture sizes. Counters are `null` where unavailable. Compare write volume
@@ -103,14 +102,17 @@ and Playwright keeps one worker with no retries. Full C# and browser Load suites
 run nightly and through CI's manual **full_load** option.
 
 From the repository root, `dotnet test --maxcpucount:1` excludes Load by default.
-Use `--filter 'TestCategory=Load&TestCategory=CI'` for the PR bulk subset or
+Use `--filter 'TestCategory!=Load|TestCategory=CI'` to match PR CI's combined
+selection in one invocation, `--filter 'TestCategory=Load&TestCategory=CI'` for
+just its bulk subset, or
 `--filter 'TestCategory=Load'` for full C# qualification. From `webui/`, run
 `SOCKSEEK_RUN_LOAD=1 npx playwright test --grep '@Load'` after building the test
 daemon/SPA to run browser Load cases. `Sockseek.Benchmarks` remains explicitly
 invoked with `dotnet run`, outside test discovery and CI.
 
-Budget units below 30s, normal C# below 2m (3m with PR bulk checks), browser
-journeys below 3m, and the complete PR pipeline at 5–7m including setup/builds.
+Keep the summed PR test commands below 3m on the maintainer machine, without
+raising worker counts. This excludes setup/builds; keep the complete hosted PR
+pipeline within 5–7m. Full Load qualification remains nightly/manual.
 
 ### What belongs in this suite
 

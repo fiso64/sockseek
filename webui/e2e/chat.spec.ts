@@ -133,7 +133,7 @@ test('recovers a silently missed chat batch without a connection transition', as
   expect(snapshotReads).toBeGreaterThan(2);
 });
 
-test('preserves reading position and catches up across a multi-page connection outage', async ({ page }) => {
+test('preserves reading position and catches up across a multi-page connection outage', async ({ page, daemon }) => {
   let socket: WebSocketRoute | undefined;
   let outage = false;
   let restoreConnection!: () => void;
@@ -168,15 +168,15 @@ test('preserves reading position and catches up across a multi-page connection o
     await expect(status).toHaveText('Daemon reconnecting');
     // Cross one history page, not a load test. Recovery must not silently skip
     // the first messages received while the browser's live transport was down.
-    for (let i = 0; i < 103; i++) await send(`Offline ${String(i).padStart(3, '0')}`);
+    await daemon.command('seed-chat-outage');
   } finally {
     outage = false;
     restoreConnection();
   }
   await expect(status).toContainText('Connected');
-  await expect(messages.getByText('Offline 102', { exact: true })).toBeAttached();
+  await expect(messages.getByText('Offline 502', { exact: true })).toBeAttached();
   await expect(messages.getByText('Offline 000', { exact: true })).toBeAttached();
-  await expect(messages.locator('[data-message-id]')).toHaveCount(104);
+  await expect(messages.locator('[data-message-id]')).toHaveCount(504);
   await messages.evaluate(() => new Promise(requestAnimationFrame));
   expect(await messages.evaluate(element => element.scrollTop)).toBeLessThanOrEqual(2);
   await expect(messages).toContainText('Reading line 59');
@@ -254,7 +254,7 @@ test('keeps the first visible message anchored when loading an older page', asyn
 });
 
 test('opens an exact peer conversation outside the loaded sidebar page', async ({ page }) => {
-  for (const username of ['Older Peer', 'Newer Peer']) {
+  for (const username of ['Peer', 'peer']) {
     const response = await page.request.post('/api/chat/private-messages', {
       data: { username, text: `Retained for ${username}`, messageId: crypto.randomUUID() },
     });
@@ -276,14 +276,14 @@ test('opens an exact peer conversation outside the loaded sidebar page', async (
     await route.fulfill({ response });
   });
   try {
-    await page.goto('/chat/users/Older%20Peer');
-    await expect(page.locator('.chat-messages')).toContainText('Retained for Older Peer');
-    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveAttribute('placeholder', 'Message Older Peer…');
+    await page.goto('/chat/users/Peer');
+    await expect(page.locator('.chat-messages')).toContainText('Retained for Peer');
+    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveAttribute('placeholder', 'Message Peer…');
     const selected = page.locator('.chat-destination.user.active');
-    await expect(selected.locator('strong')).toHaveText('Older Peer');
+    await expect(selected.locator('strong')).toHaveText('Peer');
     releaseList();
-    await expect(page.getByRole('button', { name: 'Open conversation with Newer Peer', exact: true })).toBeVisible();
-    await expect(selected.locator('strong')).toHaveText('Older Peer');
+    await expect(page.getByRole('button', { name: 'Open conversation with peer', exact: true })).toBeVisible();
+    await expect(selected.locator('strong')).toHaveText('Peer');
     const continuedReads: Request[] = [];
     const recordContinuation = (request: Request) => {
       const path = new URL(request.url()).pathname;
@@ -293,19 +293,19 @@ test('opens an exact peer conversation outside the loaded sidebar page', async (
     await page.getByRole('button', { name: 'Load more', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
     await expect(page.locator('.chat-destination.user')).toHaveCount(2);
-    await expect(page.locator('.chat-messages')).toContainText('Retained for Older Peer');
+    await expect(page.locator('.chat-messages')).toContainText('Retained for Peer');
     page.off('request', recordContinuation);
     expect(continuedReads.map(request => new URL(request.url()).pathname)).toEqual(['/api/chat/conversations']);
     for (const request of continuedReads) await (await request.response())?.finished();
     await page.getByRole('button', { name: 'Chat options', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Delete chat', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Open conversation with Older Peer', exact: true })).toHaveCount(0);
-    await expect(page.locator('.chat-thread-heading')).toContainText('Newer Peer');
-    await expect(page.locator('.chat-messages')).toContainText('Retained for Newer Peer');
+    await expect(page.getByRole('button', { name: 'Open conversation with Peer', exact: true })).toHaveCount(0);
+    await expect(page.locator('.chat-thread-heading')).toContainText('peer');
+    await expect(page.locator('.chat-messages')).toContainText('Retained for peer');
     releaseSnapshot();
     await page.goto('/chat');
-    await expect(page.getByRole('button', { name: 'Open conversation with Older Peer', exact: true })).toHaveCount(0);
-    await expect(page.locator('.chat-messages')).toContainText('Retained for Newer Peer');
+    await expect(page.getByRole('button', { name: 'Open conversation with Peer', exact: true })).toHaveCount(0);
+    await expect(page.locator('.chat-messages')).toContainText('Retained for peer');
   } finally { releaseList(); releaseSnapshot(); }
 });
 
@@ -353,23 +353,6 @@ test('ignores Enter, pastes line breaks as spaces and sends with Ctrl+Enter', as
   const retained = await page.request.get(`/api/chat/conversations/${message.targetId}/messages`);
   expect(retained.ok()).toBeTruthy();
   expect((await retained.json()).items).toEqual(expect.arrayContaining([expect.objectContaining({ text })]));
-});
-
-test('does not merge case-distinct usernames when opening a conversation', async ({ page }) => {
-  for (const username of ['Peer', 'peer']) {
-    const response = await page.request.post('/api/chat/private-messages', { data: { username, text: `Only ${username}`, messageId: crypto.randomUUID() } });
-    expect(response.ok()).toBeTruthy();
-  }
-  await page.goto('/chat');
-  await expect(page.getByRole('button', { name: 'Open conversation with Peer', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Open conversation with peer', exact: true })).toBeVisible();
-  for (const username of ['Peer', 'peer']) {
-    await page.getByRole('button', { name: 'Message user', exact: true }).click();
-    await page.getByRole('textbox', { name: 'Username', exact: true }).fill(username);
-    await page.getByRole('button', { name: 'Open', exact: true }).click();
-    await expect(page.locator('.chat-messages')).toContainText(`Only ${username}`);
-    await expect(page.locator('.chat-messages')).not.toContainText(`Only ${username === 'Peer' ? 'peer' : 'Peer'}`);
-  }
 });
 
 test('keeps a delayed send response in its original conversation', async ({ page }) => {

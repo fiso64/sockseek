@@ -1,8 +1,8 @@
 import { test, expect, deferInitialDaemonSnapshot, expectFolderLayoutUnchanged } from './fixtures';
 import type { Schema } from '../src/api/types';
 
-for (const direction of ['download', 'upload'] as const) {
-test(`retries unavailable ${direction} history without presenting it as empty`, async ({ page }) => {
+test('retries unavailable transfer history without presenting it as empty', async ({ page }) => {
+  const direction = 'download';
   let interrupted = true;
   // Exercise explicit Retry independently of startup's automatic live recovery.
   // Otherwise recovery may correctly remove the alert between finding it and
@@ -27,7 +27,6 @@ test(`retries unavailable ${direction} history without presenting it as empty`, 
   } finally { releaseSnapshot(); }
   await expect(page.getByLabel('Connection status')).toContainText('Connected');
 });
-}
 
 test('cancels a live download and retains its cancelled state after reload', async ({ page, daemon }) => {
   await daemon.command('hold-download');

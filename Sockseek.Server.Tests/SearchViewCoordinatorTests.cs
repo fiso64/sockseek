@@ -35,7 +35,7 @@ public sealed class SearchViewCoordinatorTests
             receive(Response("Peer", Enumerable.Range(1, 3).Select(i => File($@"Music\Track-{i}.flac")).ToArray()));
             await finish.Task.WaitAsync(ct);
         };
-        await using WebApplication app = ServerHost.Build([], Options(directory, client.Client), "http://127.0.0.1:0");
+        await using WebApplication app = global::Tests.TestServerHost.Build([], Options(directory, client.Client), "http://127.0.0.1:0");
         try
         {
             await app.StartAsync();
@@ -76,7 +76,7 @@ public sealed class SearchViewCoordinatorTests
             // second durable source or a promise that every observed row committed.
             command.CommandText = "UPDATE search_jobs SET is_complete=1,result_persistence_state='Incomplete' WHERE job_id=$source;";
             await command.ExecuteNonQueryAsync();
-            await using var restarted = ServerHost.Build([], Options(directory, ControllableSearchClientProxy.Create().Client), "http://127.0.0.1:0");
+            await using var restarted = global::Tests.TestServerHost.Build([], Options(directory, ControllableSearchClientProxy.Create().Client), "http://127.0.0.1:0");
             await restarted.StartAsync();
             try
             {
@@ -270,7 +270,7 @@ public sealed class SearchViewCoordinatorTests
             receive(Response("Peer", [File(@"Music\Track-one.flac"), File(@"Music\Track-two.flac")]));
             await finish.Task.WaitAsync(ct);
         };
-        await using WebApplication app = ServerHost.Build([], Options(directory, client.Client), "http://127.0.0.1:0");
+        await using WebApplication app = global::Tests.TestServerHost.Build([], Options(directory, client.Client), "http://127.0.0.1:0");
         try
         {
             await app.StartAsync();
@@ -474,7 +474,7 @@ public sealed class SearchViewCoordinatorTests
                 [File(@"Music\A\Track three.flac")]));
             return Task.CompletedTask;
         };
-        await using WebApplication app = ServerHost.Build([], Options(directory, client.Client), "http://127.0.0.1:0");
+        await using WebApplication app = global::Tests.TestServerHost.Build([], Options(directory, client.Client), "http://127.0.0.1:0");
         try
         {
             await app.StartAsync();
@@ -1092,7 +1092,7 @@ public sealed class SearchViewCoordinatorTests
         };
         try
         {
-            await using WebApplication app = ServerHost.Build([], Options(directory, client.Client), "http://127.0.0.1:0");
+            await using WebApplication app = global::Tests.TestServerHost.Build([], Options(directory, client.Client), "http://127.0.0.1:0");
             await app.StartAsync();
             try
             {
@@ -1177,7 +1177,7 @@ public sealed class SearchViewCoordinatorTests
         };
         try
         {
-            await using WebApplication app = ServerHost.Build(
+            await using WebApplication app = global::Tests.TestServerHost.Build(
                 [], Options(directory, client.Client), "http://127.0.0.1:0");
             await app.StartAsync();
             EngineSupervisor supervisor = app.Services.GetRequiredService<EngineSupervisor>();
@@ -1249,7 +1249,7 @@ public sealed class SearchViewCoordinatorTests
             }
             await app.StopAsync();
 
-            await using WebApplication restarted = ServerHost.Build(
+            await using WebApplication restarted = global::Tests.TestServerHost.Build(
                 [], Options(directory, ControllableSearchClientProxy.Create().Client),
                 "http://127.0.0.1:0");
             await restarted.StartAsync();
@@ -1325,7 +1325,7 @@ public sealed class SearchViewCoordinatorTests
         };
         try
         {
-            await using WebApplication app = ServerHost.Build(
+            await using WebApplication app = global::Tests.TestServerHost.Build(
                 [], Options(directory, client.Client), "http://127.0.0.1:0");
             await app.StartAsync();
             var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
@@ -1631,7 +1631,7 @@ public sealed class SearchViewCoordinatorTests
                 await releaseSearch.Task.WaitAsync(cancellationToken);
             };
             Guid trackId;
-            await using (WebApplication app = ServerHost.Build(
+            await using (WebApplication app = global::Tests.TestServerHost.Build(
                 [], Options(directory, client.Client), "http://127.0.0.1:0"))
             {
                 await app.StartAsync();
@@ -1665,7 +1665,7 @@ public sealed class SearchViewCoordinatorTests
                 await app.StopAsync();
             }
 
-            await using (WebApplication restarted = ServerHost.Build(
+            await using (WebApplication restarted = global::Tests.TestServerHost.Build(
                 [], Options(directory, ControllableSearchClientProxy.Create().Client), "http://127.0.0.1:0"))
             {
                 await restarted.StartAsync();
@@ -1760,7 +1760,7 @@ public sealed class SearchViewCoordinatorTests
                 searchStarted.TrySetResult(handler);
                 await holdSearch.Task.WaitAsync(cancellationToken);
             };
-            await using (WebApplication first = ServerHost.Build(
+            await using (WebApplication first = global::Tests.TestServerHost.Build(
                 [],
                 Options(directory, firstClient.Client),
                 "http://127.0.0.1:0"))
@@ -1796,7 +1796,7 @@ public sealed class SearchViewCoordinatorTests
             }
 
             var secondClient = ControllableSearchClientProxy.Create();
-            await using (WebApplication second = ServerHost.Build(
+            await using (WebApplication second = global::Tests.TestServerHost.Build(
                 [],
                 Options(directory, secondClient.Client),
                 "http://127.0.0.1:0"))
@@ -1864,7 +1864,7 @@ public sealed class SearchViewCoordinatorTests
                     File("Cover.jpg"),
                 ]),
         ]);
-        await using WebApplication app = ServerHost.Build([], new ServerOptions
+        await using WebApplication app = global::Tests.TestServerHost.Build([], new ServerOptions
         {
             Engine = new EngineSettings
             {
@@ -2424,7 +2424,7 @@ public sealed class SearchViewCoordinatorTests
         ]);
         try
         {
-            await using WebApplication app = ServerHost.Build([], Options(directory, client.Client),
+            await using WebApplication app = global::Tests.TestServerHost.Build([], Options(directory, client.Client),
                 "http://127.0.0.1:0");
             await app.StartAsync();
             EngineSupervisor supervisor = app.Services.GetRequiredService<EngineSupervisor>();

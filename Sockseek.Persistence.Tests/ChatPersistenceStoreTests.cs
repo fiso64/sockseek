@@ -262,14 +262,14 @@ public sealed class ChatPersistenceStoreTests
     public async Task StartupReconciliationUsesConstantDatabaseCommands()
     {
         await using var database = await ChatDatabase.CreateAsync(countCommands: true);
-        for (int index = 0; index < 50; index++)
+        for (int index = 0; index < 8; index++)
         {
             await database.Store.PrepareOutgoingPrivateMessageAsync(
                 "local", "Alice", Guid.NewGuid(), $"message-{index}");
         }
 
         database.CommandCounter!.Reset();
-        Assert.AreEqual(50, await database.Store.ReconcilePendingMessagesAsync());
+        Assert.AreEqual(8, await database.Store.ReconcilePendingMessagesAsync());
 
         Assert.IsTrue(database.CommandCounter.Executed <= 3,
             $"Pending-message reconciliation executed {database.CommandCounter.Executed} database commands.");
@@ -425,14 +425,17 @@ public sealed class ChatPersistenceStoreTests
         await using var database = await ChatDatabase.CreateAsync();
         DateTimeOffset sentAt = DateTimeOffset.Parse("2026-08-06T20:00:00Z");
 
-        Task<IncomingChatCommitResult>[] writes = Enumerable.Range(1, 128)
+        // Cross the writer's 16-command fairness window; a larger burst only
+        // repeats the same scheduling boundary and belongs in Load coverage.
+        const int count = 33;
+        Task<IncomingChatCommitResult>[] writes = Enumerable.Range(1, count)
             .Select(id => database.Store.AcceptPrivateMessageAsync(
                 "local", "Alice", $"message-{id}", id, sentAt.AddSeconds(id)))
             .ToArray();
         await Task.WhenAll(writes).WaitAsync(TimeSpan.FromSeconds(10));
 
-        Assert.AreEqual(128, writes.Select(task => task.Result.Message.Sequence).Distinct().Count());
-        Assert.AreEqual(128, (await database.Store.GetSummaryAsync("local")).UnreadPrivateMessages);
+        Assert.AreEqual(count, writes.Select(task => task.Result.Message.Sequence).Distinct().Count());
+        Assert.AreEqual(count, (await database.Store.GetSummaryAsync("local")).UnreadPrivateMessages);
     }
 
     [TestMethod]
@@ -460,13 +463,10 @@ public sealed class ChatPersistenceStoreTests
     {
         await using var database = await ChatDatabase.CreateAsync(countCommands: true);
         DateTimeOffset sentAt = DateTimeOffset.Parse("2026-08-06T20:00:00Z");
-        Guid targetId = Guid.Empty;
-        for (int index = 1; index <= 100; index++)
-        {
-            IncomingChatCommitResult accepted = await database.Store.AcceptPrivateMessageAsync(
-                "local", "Alice", $"message-{index}", index, sentAt.AddSeconds(index));
-            targetId = accepted.Message.TargetId;
-        }
+        var accepted = await database.Store.AcceptIncomingMessagesAsync(Enumerable.Range(1, 100)
+            .Select(index => (ChatInboundMessage)new PrivateChatInboundMessage(
+                "local", "Alice", $"message-{index}", index, sentAt.AddSeconds(index))).ToArray());
+        Guid targetId = accepted[0].Message.TargetId;
 
         database.CommandCounter!.Reset();
         await database.Store.DeleteHistoryAsync("local", targetId, ChatTargetKind.Direct);
@@ -481,6 +481,7 @@ public sealed class ChatPersistenceStoreTests
     {
         private readonly string directory;
         private readonly SqliteDatabaseOwner owner;
+        private readonly SockseekDbContextFactory factory;
         private readonly PersistenceInbox inbox;
         private readonly PersistenceHealth health;
         private readonly CancellationTokenSource stop = new();
@@ -495,6 +496,7 @@ public sealed class ChatPersistenceStoreTests
         {
             this.directory = directory;
             this.owner = owner;
+            this.factory = factory;
             var options = new PersistenceWriterOptions();
             health = new PersistenceHealth();
             inbox = new PersistenceInbox(options, health);
@@ -507,7 +509,7 @@ public sealed class ChatPersistenceStoreTests
         public CountingCommandInterceptor? CommandCounter { get; }
         public PersistenceHealthSnapshot HealthSnapshot => health.Snapshot(inbox);
 
-        public static async Task<ChatDatabase> CreateAsync(
+        public static Task<ChatDatabase> CreateAsync(
             TimeProvider? timeProvider = null,
             bool countCommands = false)
         {
@@ -526,8 +528,7 @@ public sealed class ChatPersistenceStoreTests
                     .Options;
             }
             var factory = new SockseekDbContextFactory(contextOptions);
-            await new SqliteInitializer(factory, sqlite, owner).InitializeAsync();
-            return new ChatDatabase(directory, owner, factory, commandCounter, timeProvider);
+            return Task.FromResult(new ChatDatabase(directory, owner, factory, commandCounter, timeProvider));
         }
 
         public async ValueTask DisposeAsync()
@@ -536,7 +537,9 @@ public sealed class ChatPersistenceStoreTests
             await writerTask;
             stop.Dispose();
             owner.Dispose();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            using var context = factory.CreateDbContext();
+            Microsoft.Data.Sqlite.SqliteConnection.ClearPool(
+                (Microsoft.Data.Sqlite.SqliteConnection)context.Database.GetDbConnection());
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }

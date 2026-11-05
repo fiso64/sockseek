@@ -9,7 +9,10 @@ export default defineConfig({
   retries: 0,
   reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'list',
   use: {
-    trace: 'retain-on-failure',
+    // DOM snapshots on every successful action are expensive. Failures still
+    // retain screenshots, assertion context and daemon logs; request a trace
+    // with `--trace retain-on-failure` when diagnosing a particular journey.
+    trace: 'off',
     screenshot: 'only-on-failure',
   },
   projects: [{

@@ -18,6 +18,7 @@ public sealed class UserBrowseApiTests
         string root = Path.Combine(Path.GetTempPath(), "sockseek-user-browse-api", Guid.NewGuid().ToString("N"));
         string mockFiles = Path.Combine(root, "shares");
         string data = Path.Combine(root, "data");
+        Directory.CreateDirectory(data);
         Directory.CreateDirectory(Path.Combine(mockFiles, "Alpha", "Disc"));
         Directory.CreateDirectory(Path.Combine(mockFiles, "Beta"));
         await File.WriteAllTextAsync(Path.Combine(mockFiles, "Alpha", "Disc", "two.flac"), "22");
@@ -39,7 +40,7 @@ public sealed class UserBrowseApiTests
                 DataDirectory = data,
             },
         };
-        await using var app = ServerHost.Build([], serverOptions, url);
+        await using var app = global::Tests.TestServerHost.Build([], serverOptions, url);
         bool stopped = false;
 
         try
@@ -262,7 +263,7 @@ public sealed class UserBrowseApiTests
             stopped = true;
             SqliteConnection.ClearAllPools();
             Directory.Delete(Path.Combine(data, "peer-browses"), recursive: true);
-            await using var restarted = ServerHost.Build([], serverOptions, url);
+            await using var restarted = global::Tests.TestServerHost.Build([], serverOptions, url);
             try
             {
                 await restarted.StartAsync();
