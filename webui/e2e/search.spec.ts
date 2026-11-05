@@ -258,7 +258,10 @@ test('applies projection-only sort and live track conditions through an all-exce
   await page.getByRole('textbox', { name: 'Filter search results', exact: true }).fill('flac');
   const filteredView = await (await filtered).json() as Schema<'SearchViewSummaryDto'>;
   await expect(page.locator('.file-item-card')).toHaveCount(1);
-  await page.locator('.file-item-card input[type=checkbox]').check();
+  await page.getByRole('textbox', { name: 'Filter search results', exact: true }).blur();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.file-item-card')).toBeFocused();
+  await page.keyboard.press('Space');
   await expect(page.getByRole('button', { name: 'Select all', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
 
@@ -316,6 +319,12 @@ test.describe('live album conditions', () => {
     await expect(page.locator('.folder-item-card')).toHaveCount(1);
     await expect(page.locator('.folder-file-row')).toHaveCount(2);
     await expect(page.locator('.search-results-summary .search-status-badge')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Filtering', exact: true })).toBeEnabled();
+    await page.locator('.folder-item-card').focus();
+    await page.keyboard.press('Space');
+    await expect(page.locator('.folder-item-card')).toHaveClass(/selected/);
+    await page.keyboard.press('Space');
+    await expect(page.locator('.folder-item-card')).not.toHaveClass(/selected/);
 
     await page.getByRole('button', { name: 'Filtering', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Result search configuration' });
@@ -546,6 +555,11 @@ test('downloads only checked public files from a mixed chosen aggregate album fo
   await expect(dialog).toHaveCount(0);
   const album = page.locator('.aggregate-result-group');
   await expect(album.locator('.folder-file-row')).toHaveCount(3);
+  await album.focus();
+  await page.keyboard.press('Space');
+  await expect(album).not.toHaveClass(/selected/);
+  await page.keyboard.press('Space');
+  await expect(album).toHaveClass(/selected/);
   const intro = album.locator('.folder-file-row').filter({ hasText: 'Intro.flac' }).getByRole('checkbox');
   const finale = album.locator('.folder-file-row').filter({ hasText: 'Finale.flac' }).locator('input[type="checkbox"]');
   const lockedRow = album.locator('.folder-file-row').filter({ hasText: 'Locked.flac' });
@@ -1317,4 +1331,103 @@ test('downloads a File Search subfolder with a snapshot-bound path rule and a fi
     'fixture-peer:Succeeded:Fixture\\Nested\\Nested.txt',
   ].sort());
   for (const transfer of transfers) expect((await stat(transfer.status.localPath!)).size).toBe(128);
+});
+
+test('navigates result pages by keyboard without stealing editing or modal controls', async ({ page, daemon }) => {
+  await daemon.command('rich-aggregate-search');
+  // Exercise real server cursors with a small fixture, rather than creating a
+  // load test merely to cross the production page size.
+  await page.route('**/api/search-views/*/aggregate-tracks?*', route => {
+    const url = new URL(route.request().url());
+    url.searchParams.set('limit', '1');
+    return route.continue({ url: url.toString() });
+  });
+  await page.goto('/');
+  const input = page.locator('#global-search-simple');
+  await input.fill('2');
+  await input.press('ArrowDown');
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  await input.blur();
+  await page.keyboard.press('2');
+  await expect(page.getByRole('heading', { name: 'Jobs', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'New job', exact: false }).click();
+  await page.keyboard.press('1');
+  await expect(page.getByRole('heading', { name: 'Jobs', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
+  await page.getByRole('menuitemradio', { name: 'Song Aggregate', exact: true }).click();
+  await input.fill('Fixture');
+  await page.getByRole('button', { name: 'split', exact: true }).click();
+  await page.locator('#global-search-artist').press('Enter');
+  const groups = page.locator('.aggregate-results-list > .aggregate-result-group');
+  await expect(groups).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Filtering', exact: true })).toBeEnabled();
+  await page.locator('#global-search-artist').blur();
+  await page.keyboard.press('ArrowDown');
+  await expect(groups.first()).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(groups.first()).toHaveClass(/selected/);
+  await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
+  await page.keyboard.press('Tab');
+  await expect(groups.first().locator('.aggregate-header-select-button')).toBeFocused();
+  // Enter on a native button toggles it; it must not submit the download.
+  let commits = 0;
+  page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/commit')) commits++; });
+  await page.keyboard.press('Enter');
+  await expect(groups.first()).not.toHaveClass(/selected/);
+  expect(commits).toBe(0);
+  await page.keyboard.press('ArrowDown');
+  await expect(groups).toHaveCount(2);
+  await expect(groups.nth(1)).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(groups.first()).toBeFocused();
+  await page.getByRole('button', { name: 'Filtering', exact: true }).click();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Space');
+  await expect(groups.first()).not.toHaveClass(/selected/);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Back to jobs', exact: true }).click();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.search-history-open')).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('tab', { name: 'Download jobs', exact: true })).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.getByRole('tab', { name: 'Searches', exact: true })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(groups.first()).toBeVisible();
+});
+
+test('retrieves selected folders with R and downloads only with Ctrl+Enter', async ({ page, daemon }) => {
+  await daemon.command('directory-selection-search');
+  await page.goto('/jobs');
+  await chooseFileSearch(page);
+  await page.locator('#global-search-simple').fill('Fixture');
+  await page.locator('#global-search-simple').press('Enter');
+  const folder = page.locator('.folder-item-card');
+  await expect(folder.locator('.folder-file-row')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Filtering', exact: true })).toBeEnabled();
+  await folder.focus();
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
+  await page.keyboard.press('R');
+  await expect(page.getByLabel('Full folder loaded', { exact: true })).toBeVisible();
+  await expect(folder.locator('.folder-file-row')).toHaveCount(5);
+  // Explicitly select the refreshed snapshot, including the newly retrieved files.
+  await page.getByRole('button', { name: 'Deselect all', exact: true }).click();
+  await folder.focus();
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('button', { name: 'Download 5', exact: true })).toBeEnabled();
+  let commits = 0;
+  page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/commit')) commits++; });
+  await page.keyboard.press('Enter');
+  await expect(folder).toBeFocused();
+  expect(commits).toBe(0);
+  const accepted = page.waitForResponse(response => response.request().method() === 'POST'
+    && new URL(response.url()).pathname.endsWith('/commit'));
+  await page.getByRole('button', { name: 'Download 5', exact: true }).focus();
+  await page.keyboard.press('Control+Enter');
+  expect((await accepted).ok()).toBe(true);
+  await expect(page.getByRole('button', { name: 'View download jobs', exact: true })).toBeVisible();
+  expect(commits).toBe(1);
 });

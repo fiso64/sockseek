@@ -23,6 +23,29 @@ frontend install, checks the generated API types, builds the SPA, and places
 even when launched from another working directory. Ordinary .NET builds do
 not require Node or build the frontend.
 
+## Keyboard shortcuts
+
+| Context | Shortcut | Action |
+| --- | --- | --- |
+| Anywhere outside text fields and dialogs | 1–8 | Open Dashboard, Jobs, Downloads, Uploads, Users, Shares, Chat, Settings |
+| Anywhere | / | Focus the global search |
+| Search results, Jobs, Shares | ↑ / ↓ | Move between visible items; Down loads the next page at its boundary |
+| Search results, Shares | Space | Select/deselect the current item |
+| Search results, Shares | Tab | Focus controls within the current item |
+| Search results | R | Retrieve full contents of fully selected, loaded folder results |
+| Search results, Shares | Ctrl+Enter | Download the selection |
+| Jobs | ← / → | Switch Searches / Download jobs tabs |
+| Jobs | Enter | Open the focused job |
+| Shares | → | Expand/collapse the current folder (outside filtering) |
+| New Job dialog | Ctrl+Enter | Start the job or accept the reviewed selection |
+
+Search navigation visits top-level files, folders or aggregate groups, not nested
+files inside a result. The keyboard cursor is distinct from download selection.
+Text editing, native control activation and open dialogs/popovers take priority;
+New Job explicitly accepts Ctrl+Enter inside its fields. Disabled actions remain
+disabled. Plain Enter does not act as a global download shortcut; focused buttons retain
+their normal Enter activation.
+
 ## Browser tests
 
 Use Node.js (see `engines` in `package.json`), npm, and the repository's .NET SDK.

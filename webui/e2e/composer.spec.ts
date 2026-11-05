@@ -7,6 +7,9 @@ test('uses filtering and output settings for a direct Start download', async ({ 
   await daemon.command('music-search');
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
+  await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeDisabled();
+  await page.getByPlaceholder('Song title…').press('Control+Enter');
+  await expect(page.getByRole('dialog', { name: 'New job' })).toBeVisible();
   await page.getByPlaceholder('Song title…').fill('Fixture song');
   await page.getByRole('button', { name: 'Filtering Defaults', exact: true }).click();
   const filtering = page.locator('#new-job-filtering-options');
@@ -33,7 +36,8 @@ test('uses filtering and output settings for a direct Start download', async ({ 
   await page.getByLabel('Name format', { exact: true }).fill('direct/{stitle}');
   const request = page.waitForRequest(candidate => candidate.method() === 'POST'
     && new URL(candidate.url()).pathname === '/api/job-previews');
-  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled();
+  await page.getByLabel('Name format', { exact: true }).press('Control+Enter');
   const started = (await request).postDataJSON() as Schema<'CreateJobPreviewRequestDto'>;
   expect(started.options?.downloadSettings?.search?.necessaryCond?.formats?.replace).toEqual(['flac']);
   expect(started.options?.downloadSettings?.output?.nameFormat).toBe('direct/{stitle}');
@@ -306,7 +310,8 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   await daemon.command('forget-job-previews');
   const missing = page.waitForResponse(reply => new URL(reply.url()).pathname
     === `/api/job-previews/${next.preview.previewId}/commit`);
-  await page.getByRole('button', { name: 'Start 2 jobs', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start 2 jobs', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Start 2 jobs', exact: true }).press('Control+Enter');
   expect((await missing).status()).toBe(404);
   await expect(page.getByRole('alert')).toContainText('not found');
   await expect(page.locator('.new-job-start-button')).toBeDisabled();
@@ -325,7 +330,7 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   await firstSong.locator('input[type=checkbox]').check();
   const committed = page.waitForResponse(reply => new URL(reply.url()).pathname
     === `/api/job-previews/${finalPreview.preview.previewId}/commit`);
-  await page.getByRole('button', { name: 'Start 1 job', exact: true }).click();
+  await page.getByRole('button', { name: 'Start 1 job', exact: true }).press('Control+Enter');
   const accepted = await committed;
   expect(accepted.status()).toBe(202);
   const receipt = await accepted.json() as Schema<'CommitJobPreviewResponseDto'>;

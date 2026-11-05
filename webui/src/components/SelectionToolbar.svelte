@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keyboardShortcutsBlocked } from '../lib/keyboard';
   interface Props {
     selectedCount: number;
     visible?: boolean;
@@ -28,7 +29,15 @@
     onoptions,
     onaction = () => {},
   }: Props = $props();
+  function downloadByKey(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' || !event.ctrlKey || event.repeat || !visible || actionDisabled
+      || keyboardShortcutsBlocked(event, true)) return;
+    event.preventDefault();
+    onaction();
+  }
 </script>
+
+<svelte:window onkeydown={downloadByKey} />
 
 {#if visible}
   <div class="floating-selection-actions" aria-label="Selection actions">
@@ -50,9 +59,9 @@
         {#if optionsCustomized}<i aria-hidden="true"></i>{/if}
       </button>
     {/if}
-    <button type="button" class="floating-download-action" aria-label={floatingLabel} disabled={actionDisabled} onclick={onaction}>
+    <button type="button" class="floating-download-action" aria-keyshortcuts="Control+Enter" aria-label={floatingLabel} disabled={actionDisabled} onclick={onaction}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9M6.5 8.5L10 12l3.5-3.5M4 15.5h12" /></svg>
-      <span>{floatingLabel}</span>
+      <span>{floatingLabel}</span><kbd aria-hidden="true">Ctrl+↵</kbd>
     </button>
   </div>
 {/if}

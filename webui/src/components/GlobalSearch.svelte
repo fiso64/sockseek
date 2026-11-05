@@ -253,7 +253,7 @@
     {/if}
   </div>
   {#if variant === 'content' && settingsMounted}
-    <section class="search-config-popover" aria-label="Search configuration" style="top: 62px; max-height: calc(100dvh - 87px)" style:display={settingsOpen ? undefined : 'none'}>
+    <section data-shortcuts-blocked={settingsOpen} class="search-config-popover" aria-label="Search configuration" style="top: 62px; max-height: calc(100dvh - 87px)" style:display={settingsOpen ? undefined : 'none'}>
       <SearchConfiguration draft={value} active={settingsOpen} bind:resolved={conditionsResolved} {onchange} onvalidation={(message, pending) => { configurationError = message; configurationPending = pending; }} onclose={() => settingsOpen = false} />
     </section>
   {/if}

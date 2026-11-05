@@ -345,13 +345,13 @@
           <span class="new-job-footer-status">{selectedCount} selected</span>
           <div class="new-job-footer-actions">
             {#if needsReview}<button type="button" class="new-job-review-button" disabled={!valid || busy} onclick={() => plan(false)}>Review again</button>{/if}
-            <button type="button" class="new-job-start-button" disabled={!committable || !selectedCount || busy} onclick={() => void controller.commit({ mode: all ? 'AllExcept' : 'Only', refs: [] }, selectionRules)}>{preview.committing ? 'Starting…' : `Start ${selectedCount || ''} ${selectedCount === 1 ? 'job' : 'jobs'}`}</button>
+            <button type="button" class="new-job-start-button" aria-keyshortcuts="Control+Enter" title="Start (Ctrl+Enter)" disabled={!committable || !selectedCount || busy} onclick={() => void controller.commit({ mode: all ? 'AllExcept' : 'Only', refs: [] }, selectionRules)}>{preview.committing ? 'Starting…' : `Start ${selectedCount || ''} ${selectedCount === 1 ? 'job' : 'jobs'}`}</button>
           </div>
         {:else}
           <span class="new-job-footer-status" role="status">{preview.loading ? 'Planning…' : ''}</span>
           <div class="new-job-footer-actions">
             <button type="button" class="new-job-review-button" disabled={!valid || busy} onclick={() => plan(false)}>Review</button>
-            <button type="button" class="new-job-start-button" disabled={!valid || busy} onclick={() => plan(true)}>Start</button>
+            <button type="button" class="new-job-start-button" aria-keyshortcuts="Control+Enter" title="Start (Ctrl+Enter)" disabled={!valid || busy} onclick={() => plan(true)}>Start</button>
           </div>
         {/if}
       </footer>

@@ -20,10 +20,22 @@
     return event.clientX < bounds.left || event.clientX > bounds.right
       || event.clientY < bounds.top || event.clientY > bounds.bottom;
   }
+  // Opt in through the primary button's shortcut so its existing click handler
+  // and disabled state remain the single acceptance path, including inside inputs.
+  function acceptByKey(event: KeyboardEvent): void {
+    if (event.defaultPrevented || event.repeat || !event.ctrlKey || event.altKey || event.metaKey
+      || event.key !== 'Enter' || locked) return;
+    if (!(event.target instanceof Element) || event.target.closest('dialog') !== dialog) return;
+    const primary = dialog.querySelector<HTMLButtonElement>('button[aria-keyshortcuts="Control+Enter"]');
+    if (!primary) return;
+    event.preventDefault();
+    if (!primary.disabled) primary.click();
+  }
+
   function dismiss(): void { if (!locked) dialog.close(); }
 </script>
 
-<dialog bind:this={dialog} class:wide aria-label={label} onclose={onclose}
+<dialog bind:this={dialog} class:wide aria-label={label} onclose={onclose} onkeydown={acceptByKey}
   oncancel={(event) => { event.preventDefault(); dismiss(); }}
   onpointerdown={(event) => { pressedOutside = event.target === dialog && outside(event); }}
   onclick={(event) => { if (pressedOutside && event.target === dialog && outside(event)) dismiss(); }}>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keyboardList } from '../../lib/keyboard';
   import type { JobsTab } from './job-list.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { onMount, untrack, tick } from 'svelte';
@@ -148,7 +149,15 @@
 
 </script>
 
-<section bind:this={section} class="page page-search redesigned-search-page">
+<section bind:this={section} class="page page-search redesigned-search-page" use:keyboardList={{
+  scope: `${tab}:${submissionId}`, revision: [ordered, loading],
+  horizontal: direction => {
+    const next = direction > 0 ? 'downloads' : 'searches';
+    if (next !== tab) ontabchange(next);
+    void tick().then(() => document.getElementById(`jobs-tab-${next}`)?.focus());
+  },
+  loadPage: onloadmore,
+}}>
   <header class="page-heading search-list-heading jobs-list-heading">
     <div><p class="eyebrow">Work</p><h1>Jobs</h1></div>
     <button type="button" class="new-job-button" onclick={onnew}><span>+</span> New job</button>
@@ -183,8 +192,8 @@
         {@const automaticStats = job.kind === 'search' ? [] : automaticJobListStats(job)}
         {@const searchMode = searchJobMode(job)}
         {@const statusLabel = unavailable ? entryError ? 'Result unavailable' : 'Loading result' : status(job)}
-        <div class="search-history-row" class:automatic-history-row={job.kind !== 'search'}>
-          <button type="button" class="search-history-open" class:automatic-history-open={job.kind !== 'search'} onclick={() => onopen(job)}>
+        <div data-keyboard-item={entry.root.jobId} tabindex="-1" class="search-history-row" class:automatic-history-row={job.kind !== 'search'}>
+          <button type="button" data-keyboard-focus class="search-history-open" class:automatic-history-open={job.kind !== 'search'} onclick={() => onopen(job)}>
             <span class="search-history-query">{title(entry.root)}</span>
             {#if statusLabel !== 'Complete'}
               <span class={`search-status-badge ${unavailable ? 'pending' : statusClass(job)}`}><i></i>{statusLabel}</span>
@@ -217,7 +226,7 @@
         {#if entryError}<div class="resource-state-notice unavailable" role="alert"><span>Import unavailable: {entryError.message}</span><button type="button" onclick={() => retry(entry)}>Retry</button></div>{/if}
       {/each}
     </div>
-    {#if hasMore && onloadmore}<LoadMoreButton loadingLabel="Loading jobs…" {loading} onclick={onloadmore} />{/if}
+    {#if hasMore && onloadmore}<div data-keyboard-page="jobs" data-loading={loading} data-failed={Boolean(error)}><LoadMoreButton loadingLabel="Loading jobs…" {loading} onclick={onloadmore} /></div>{/if}
   {/if}
   </div>
 </section>

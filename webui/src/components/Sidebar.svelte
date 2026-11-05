@@ -35,6 +35,7 @@
     <button
       type="button"
       aria-label={item.label}
+      aria-keyshortcuts={String(navigationItems.findIndex(candidate => candidate.id === item.id) + 1)}
       class:active={item.id === activePage}
       aria-current={item.id === activePage ? 'page' : undefined}
       onclick={() => onnavigate(item.id)}

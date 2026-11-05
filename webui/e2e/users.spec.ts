@@ -249,20 +249,41 @@ test('filters Unicode share names without changing the selected download identit
 });
 
 test('excludes an unloaded subfolder and restores a deeper branch with a file exception', async ({ page }) => {
+  await page.route('**/api/user-browses/*/directories/*/files?*', route => {
+    const url = new URL(route.request().url());
+    url.searchParams.set('limit', '1');
+    return route.continue({ url: url.toString() });
+  });
   await page.goto('/shares/fixture-peer');
   await expect(page.getByText('Selected.txt', { exact: true })).toBeVisible();
-  await page.getByRole('checkbox', { name: 'Select Fixture', exact: true }).check();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.share-tree-row').first()).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.share-tree-row.file').first()).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.share-tree-row.folder').filter({ hasText: 'Nested' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.share-tree-row.file').filter({ hasText: 'Unselected.txt' })).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('checkbox', { name: 'Select Fixture', exact: true })).toBeChecked();
   const nested = page.locator('.share-tree-row.folder').filter({ has: page.getByText('Nested', { exact: true }) }).getByRole('checkbox');
   await nested.uncheck();
   await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: 'Expand Nested', exact: true }).click();
+  await page.locator('.share-tree-row.folder').filter({ has: page.getByText('Nested', { exact: true }) }).focus();
+  await page.keyboard.press('ArrowRight');
   const deep = page.locator('.share-tree-row.folder').filter({ has: page.getByText('Deep', { exact: true }) }).getByRole('checkbox');
   await deep.check();
   await expect(page.getByRole('button', { name: 'Download 4', exact: true })).toBeEnabled();
   await expect(nested).toHaveJSProperty('indeterminate', true);
   await page.getByRole('button', { name: 'Expand Deep', exact: true }).click();
   await page.locator('.share-tree-row.file').filter({ has: page.getByText('DeepOne.txt', { exact: true }) }).getByRole('checkbox').uncheck();
-  await page.getByRole('button', { name: 'Download 3', exact: true }).click();
+  await page.locator('.share-tree-row.file').filter({ has: page.getByText('DeepOne.txt', { exact: true }) }).getByRole('checkbox').focus();
+  await expect(page.getByRole('button', { name: 'Download 3', exact: true })).toBeEnabled();
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('3 downloads requested', { exact: true })).toHaveCount(0);
+  await page.keyboard.press('Control+Enter');
   await expect(page.getByText('3 downloads requested', { exact: true })).toBeVisible();
   await page.goto('/downloads');
   await expect(page.locator('.folder-item-card')).toHaveCount(1);

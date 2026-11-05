@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keyboardList } from '../../lib/keyboard';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { randomUUID } from '../../app/uuid';
   import { onDestroy, untrack } from 'svelte';
@@ -524,7 +525,22 @@
   if (event.key === 'Escape') profilePictureOpen = false;
 }} />
 
-<section class="page user-browser-page">
+<section class="page user-browser-page" use:keyboardList={{
+  scope: `${username}:${view}:${browse?.browseId}:${filterText.trim()}`,
+  enabled: view === 'shares' && browse?.state === 'complete',
+  revision: [treeRows, filteredRows, filterLoading],
+  toggle: key => toggleSelection(key, !isSelectionChecked(key)),
+  horizontal: (direction, key) => {
+    if (direction !== 1 || !key?.startsWith('d:') || filterText.trim()) return;
+    const directory = directories.get(key.slice(2));
+    if (directory) void toggleDirectory(directory);
+  },
+  loadPage: key => {
+    if (filterText.trim()) {
+      if (browse) void loadFilter(browse.browseId, filterText.trim(), filterPage?.nextCursor ?? null, false);
+    } else void loadChildren(key === 'root' ? null : key);
+  },
+}}>
   <header class="user-browser-heading">
     <div><p class="eyebrow">Network</p><h1>User browser</h1></div>
     <nav class="user-view-tabs" aria-label="User browser views">
@@ -686,7 +702,7 @@
                 {@const key = `${item.kind === 'directory' ? 'd' : 'f'}:${item.entryId}`}
                 {#if item.kind === 'directory'}
                   {@const count = Number(item.totalSubtreeFileCount ?? item.publicSubtreeFileCount ?? 0)}
-                  <div class="share-tree-row folder" style={`--share-depth:${depth}`} title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
+                  <div data-keyboard-item={key} tabindex="-1" class="share-tree-row folder" style={`--share-depth:${depth}`} title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
                     <input type="checkbox" use:indeterminate={isFolderPartial(key)} aria-label={`Select ${item.displayPath}`} checked={isSelectionChecked(key)}  onchange={(event) => toggleSelection(key, (event.currentTarget as HTMLInputElement).checked)}/>
                     <button type="button" class="share-tree-folder-button" aria-label={`Collapse ${item.name}`} aria-expanded={true} disabled>
                       <span class="share-tree-toggle expanded" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg></span>
@@ -698,7 +714,7 @@
                     </button>
                   </div>
                 {:else}
-                  <label class="share-tree-row file" style={`--share-depth:${depth}`} title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
+                  <label data-keyboard-item={key} tabindex="-1" class="share-tree-row file" style={`--share-depth:${depth}`} title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
                     <input type="checkbox" checked={isSelectionChecked(key)}  onchange={(event) => toggleSelection(key, (event.currentTarget as HTMLInputElement).checked)}/>
                     <span class="share-tree-toggle-spacer"></span>
                     <span class="share-tree-icon"><Icon name={fileTypeIcon({ extension: item.extension, filename: item.name })}/></span>
@@ -713,7 +729,7 @@
           {#if filterPage && !filterLoading && !filterError && !filterItems.length}
             <div class="search-results-empty"><strong>No matching shared files</strong><span>Try a different filter.</span></div>
           {/if}
-          {#if filterPage?.nextCursor}<LoadMoreButton loading={filterLoading} onclick={() => browse && void loadFilter(browse.browseId, filterText.trim(), filterPage?.nextCursor ?? null, false)}/>{/if}
+          {#if filterPage?.nextCursor}<div data-keyboard-page="filter" data-loading={filterLoading} data-failed={Boolean(filterError)}><LoadMoreButton loading={filterLoading} onclick={() => browse && void loadFilter(browse.browseId, filterText.trim(), filterPage?.nextCursor ?? null, false)}/></div>{/if}
         {:else if treeRows.length}
           <div class="share-tree" aria-label={`${browse.username} shared files`}>
             {#each treeRows as row (row.kind === 'page' ? `p:${row.parentKey}` : row.kind === 'directory' ? `d:${row.entry.directoryId}` : `f:${row.entry.fileId}`)}
@@ -721,7 +737,7 @@
                 {@const id = String(row.entry.directoryId)}
                 {@const key = `d:${id}`}
                 {@const count = Number(row.entry.totalRecursiveFileCount ?? row.entry.recursiveFileCount)}
-                <div class="share-tree-row folder" style={`--share-depth:${row.depth}`}
+                <div data-keyboard-item={key} tabindex="-1" class="share-tree-row folder" style={`--share-depth:${row.depth}`}
                   title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
                   <input type="checkbox" use:indeterminate={isFolderPartial(key)}
                     checked={isSelectionChecked(key)} aria-label={`Select ${row.entry.displayPath}`}
@@ -742,7 +758,7 @@
                   </button>
                 </div>
               {:else if row.kind === 'page'}
-                <div class="share-tree-page" style={`--share-depth:${row.depth}`}>
+                <div data-keyboard-page={row.parentKey} data-loading={row.page.loading} data-failed={Boolean(row.page.error)} class="share-tree-page" style={`--share-depth:${row.depth}`}>
                   {#if row.page.error}
                     <div class="resource-state-notice unavailable" role="alert">
                       <span class="resource-state-copy"><strong>Folder page unavailable</strong><small>{row.page.error.message}</small></span>
@@ -755,7 +771,7 @@
                 </div>
               {:else}
                 {@const key = `f:${row.entry.fileId}`}
-                <label class="share-tree-row file" style={`--share-depth:${row.depth}`}
+                <label data-keyboard-item={key} tabindex="-1" class="share-tree-row file" style={`--share-depth:${row.depth}`}
                   title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
                   <input type="checkbox" checked={isSelectionChecked(key)}
                     onchange={(event) => toggleSelection(key, (event.currentTarget as HTMLInputElement).checked)}/>

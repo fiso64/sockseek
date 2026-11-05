@@ -13,6 +13,7 @@
     selected?: boolean;
     preferred?: boolean;
     selectable?: boolean;
+    keyboardKey?: string;
     transfer?: TransferPresentation;
     actions?: Snippet;
     onselect?: (selected: boolean) => void;
@@ -26,6 +27,7 @@
     selected = false,
     preferred = false,
     selectable = false,
+    keyboardKey,
     transfer,
     actions,
     onselect,
@@ -43,6 +45,8 @@
   class:locked
   class:selected
   class:preferred
+  data-keyboard-item={keyboardKey}
+  tabindex="-1"
   class:selectable
   class:transfer-card={Boolean(transfer)}
   class:has-audio={Boolean(audio)}

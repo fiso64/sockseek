@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import type { PageId } from '../app/navigation';
+  import { navigationItems, type PageId } from '../app/navigation';
   import type { LiveConnectionStatus, ReplicatedDaemonState } from '../api/live';
   import type { SearchDraft } from '../domains/search/model';
   import { humanizeStateValue, soulseekStatusLabel } from '../app/format';
   import GlobalSearch from './GlobalSearch.svelte';
   import type { UserBrowseDraft } from './GlobalSearch.svelte';
+  import { keyboardShortcutsBlocked } from '../lib/keyboard';
   import Sidebar from './Sidebar.svelte';
 
   interface Props {
@@ -46,7 +47,14 @@
   let unreadChats = $derived(Number(liveState.daemon?.chat.unreadPrivateMessageCount ?? 0) + Number(liveState.daemon?.chat.unreadRoomMessageCount ?? 0));
   let soulseek = $derived(soulseekStatusLabel(liveState.daemon?.soulseekClient, daemonReachable));
   let connectionLabel = $derived(daemonReachable ? soulseek : `Daemon ${liveStatus === 'offline' ? 'disconnected' : humanizeStateValue(liveStatus).toLowerCase()}`);
+  function navigateByKey(event: KeyboardEvent): void {
+    if (event.repeat || keyboardShortcutsBlocked(event) || !/^[1-9]$/.test(event.key)) return;
+    const item = navigationItems[Number(event.key) - 1];
+    if (item) { event.preventDefault(); onnavigate(item.id); }
+  }
 </script>
+
+<svelte:window onkeydown={navigateByKey} />
 
 <div class="app-shell">
   <aside class="sidebar">

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { keyboardList } from '../../lib/keyboard';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import type { JobStateDto, Schema } from '../../api/types';
   import { searchViewUnavailable } from './controller';
@@ -294,6 +295,37 @@
     if (genericMode) sizeDirection = next === 'name' ? 'asc' : 'desc';
   }
 
+  function rowFullySelected(row: SearchRow): boolean {
+    if (row.kind === 'aggregate-album') return albumFull(row.ref);
+    if (row.kind !== 'directory') return isselected(row.ref);
+    const children = viewState.directoryFiles.get(row.ref);
+    const files = children ? children.items.map(child => child.file) : [row.value.bestChild];
+    return ordinaryDirectorySelection(row.ref, files.length,
+      files.filter(file => isselected(file.ref, row.ref)).length).selected;
+  }
+
+  function toggleKeyboardResult(ref: string): void {
+    if (selectionReadOnly || viewState.committing || refinementPending) return;
+    const row = viewState.rows.find(row => row.ref === ref);
+    if (row) ontoggle(ref, !rowFullySelected(row));
+  }
+
+  function retrieveSelectedFolders(): void {
+    if (selectionReadOnly || viewState.committing || refinementPending) return;
+    for (const row of viewState.rows) {
+      if (!rowFullySelected(row)) continue;
+      let directory: Schema<'SearchViewDirectoryDto'>;
+      if (row.kind === 'directory') directory = row.value;
+      else if (row.kind === 'aggregate-album' && (!viewState.chosenOptions.has(row.ref) || choiceIsCurrent(row.ref))) {
+        const chosen = viewState.chosenOptions.get(row.ref);
+        directory = chosen?.kind === 'album' ? chosen.value : row.value.representative;
+      } else continue;
+      directory = viewState.directoryFiles.get(directory.ref.ref)?.directorySummary ?? directory;
+      if (directory.ref.folderPath && directory.retrievalState !== 'Complete'
+        && !viewState.retrievals.get(directory.ref.ref)?.loading) onretrievedirectory(directory.ref.ref);
+    }
+  }
+
   function windowKeydown(event: KeyboardEvent): void {
     if (event.key !== 'Escape') return;
     if (viewState.aggregateOptions) oncloseoptions();
@@ -516,7 +548,7 @@
 {#snippet aggregateGroupCard(row: Extract<SearchRow, { kind: 'aggregate-track' | 'aggregate-album' }>)}
   {#if row.kind === 'aggregate-track'}
     {@const representative = trackRepresentative(row.ref, row.value.representative)}
-    <section class:selected={isselected(row.ref)} class="aggregate-result-group">
+    <section class:selected={isselected(row.ref)} class="aggregate-result-group" data-keyboard-item={row.ref} tabindex="-1">
       <header class="aggregate-result-header">
         <button type="button" class="aggregate-header-select-button" disabled={selectionReadOnly} aria-label={`${isselected(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.title ?? 'track'}`} aria-pressed={isselected(row.ref)} onclick={() => ontoggle(row.ref, !isselected(row.ref))}></button>
         <div class="aggregate-result-identity"><strong>{row.value.query.title ?? 'Untitled track'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
@@ -543,7 +575,7 @@
     {@const files = children ? children.items.map((child) => folderFile(child.file, child.relativePath)) : [folderFile(directory.bestChild)]}
     {@const totals = directoryTotals(directory)}
     {@const retrieval = viewState.retrievals.get(directory.ref.ref)}
-    <section class:selected={albumFull(row.ref)} class:partial={albumPartial(row.ref)} class="aggregate-result-group">
+    <section class:selected={albumFull(row.ref)} class:partial={albumPartial(row.ref)} class="aggregate-result-group" data-keyboard-item={row.ref} tabindex="-1">
       <header class="aggregate-result-header">
         <button type="button" class="aggregate-header-select-button" disabled={selectionReadOnly} aria-label={`${albumFull(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.album ?? 'album'}`} aria-pressed={albumFull(row.ref)} onclick={() => ontoggle(row.ref, !albumFull(row.ref))}></button>
         <div class="aggregate-result-identity"><strong>{row.value.query.album ?? 'Untitled album'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
@@ -585,7 +617,13 @@
   {/if}
 {/snippet}
 
-<section class="page page-search redesigned-search-page">
+<section class="page page-search redesigned-search-page" use:keyboardList={{
+  scope: `${viewState.job?.jobId}:${viewState.summary?.viewId}:${viewState.sortOrder}`,
+  revision: [viewState.rows, viewState.loadingMore],
+  enabled: viewState.phase === 'ready' && !refinementPending,
+  toggle: toggleKeyboardResult, retrieve: retrieveSelectedFolders,
+  loadPage: onloadmore,
+}}>
   <header class="search-results-heading">
     <button type="button" class="icon-button back-button" aria-label="Back to jobs" onclick={onback}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5M7.5 10H16" /></svg>
@@ -698,7 +736,7 @@
       <div class="result-condition-pills"><SearchConditionPills mode={viewState.draft.resultMode} bind:conditions /></div>
     {/if}
     {#if conditionsOpen && viewState.draft}
-      <section bind:this={conditionsPopover} class="search-config-popover results-config-popover" aria-label="Result search configuration" use:anchoredPopover={{ anchor: conditionsButton, align: 'start', gap: 8, viewportMargin: 16, minHeight: 240 }}>
+      <section data-shortcuts-blocked="true" bind:this={conditionsPopover} class="search-config-popover results-config-popover" aria-label="Result search configuration" use:anchoredPopover={{ anchor: conditionsButton, align: 'start', gap: 8, viewportMargin: 16, minHeight: 240 }}>
         <SearchConfigPanel mode={viewState.draft.resultMode} bind:conditions title="Search configuration" initialTab="conditions" onclose={() => (conditionsOpen = false)} />
       </section>
     {/if}
@@ -739,7 +777,7 @@
 
   {#if selectedCount && downloadOptionsOpen}
     <button type="button" class="floating-options-backdrop" aria-label="Close download options" onclick={() => (downloadOptionsOpen = false)}></button>
-    <section class="floating-download-options-popover" aria-label="Download options">
+    <section data-shortcuts-blocked="true" class="floating-download-options-popover" aria-label="Download options">
       <header><strong>Download options</strong><button type="button" aria-label="Close download options" onclick={() => (downloadOptionsOpen = false)}>×</button></header>
       {#if downloadOptionsLoading}
         <LoadingIndicator label="Loading effective defaults" />
@@ -821,6 +859,7 @@
                 {#each group.rows as row (row.ref)}
                   {#if row.kind === 'file'}
                     <FileItemCard
+                      keyboardKey={row.ref}
                       path={row.value.remoteFilename}
                       sizeBytes={Number(row.value.file.size)}
                       audio={audio(row.value.file)}
@@ -838,6 +877,7 @@
                     {@const totals = directoryTotals(row.value)}
                     {@const retrieval = viewState.retrievals.get(row.ref)}
                     <FolderItemCard
+                      keyboardKey={row.ref}
                       contentsState={!row.value.ref.folderPath ? undefined : retrieval?.loading ? 'retrieving' : retrieval?.error ? 'failed' : row.value.retrievalState === 'Complete' ? 'complete' : 'partial'}
                       onloadfullcontents={() => onretrievedirectory(row.ref)}
                       path={row.value.ref.folderPath || 'Files without a folder'}
@@ -870,7 +910,7 @@
     {/each}
   {/if}
 
-  {#if viewState.nextCursor}<LoadMoreButton loading={viewState.loadingMore} disabled={viewState.refining} onclick={onloadmore}/>{/if}
+  {#if viewState.nextCursor}<div data-keyboard-page="results" data-loading={viewState.loadingMore} data-failed={Boolean(viewState.error)}><LoadMoreButton loading={viewState.loadingMore} disabled={viewState.refining} onclick={onloadmore}/></div>{/if}
   {/if}
 </section>
 
