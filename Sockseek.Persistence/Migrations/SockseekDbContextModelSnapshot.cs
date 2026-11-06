@@ -1107,8 +1107,12 @@ namespace Sockseek.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("group_display_path");
 
+                    b.Property<string>("GroupKind")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("group_kind");
+
                     b.Property<string>("GroupRef")
-                        .HasMaxLength(4096)
                         .HasColumnType("TEXT")
                         .HasColumnName("group_ref");
 

@@ -97,6 +97,19 @@ export function searchViewKind(mode: SearchResultMode): Schema<'ServerSearchView
   return kinds[mode];
 }
 
+export function searchDelimiter(input: string): { index: number; length: number } | null {
+  return [' — ', ' - '].map(value => ({ index: input.indexOf(value), length: value.length }))
+    .filter(item => item.index >= 0).sort((a, b) => a.index - b.index)[0] ?? null;
+}
+
+// Merging two aggregate fields keeps their meaning when submitted again.
+function aggregateInput(query: string): { artist: string | null; title: string | null } {
+  const delimiter = searchDelimiter(query);
+  return delimiter
+    ? { artist: query.slice(0, delimiter.index).trim() || null, title: query.slice(delimiter.index + delimiter.length).trim() || null }
+    : { artist: query.trim() || null, title: null };
+}
+
 export function songQuery(draft: SearchDraft): Schema<'SongQueryDto'> {
   if (draft.mode === 'split') {
     return {
@@ -108,9 +121,10 @@ export function songQuery(draft: SearchDraft): Schema<'SongQueryDto'> {
       artistMaybeWrong: draft.artistMaybeWrong ?? false,
     };
   }
+  const aggregate = draft.resultMode === 'song-aggregate' ? aggregateInput(draft.query) : null;
   return {
-    artist: null,
-    title: draft.query.trim() || null,
+    artist: aggregate?.artist ?? null,
+    title: aggregate ? aggregate.title : draft.query.trim() || null,
     album: draft.albumContext ?? null,
     uri: draft.sourceUri ?? null,
     length: draft.expectedLength ?? null,
@@ -128,10 +142,11 @@ export function albumQuery(draft: SearchDraft): Schema<'AlbumQueryDto'> {
       artistMaybeWrong: draft.artistMaybeWrong ?? false,
     };
   }
+  const aggregate = draft.resultMode === 'album-aggregate' ? aggregateInput(draft.query) : null;
   return {
-    artist: null,
-    album: null,
-    searchHint: draft.query.trim() || null,
+    artist: aggregate?.artist ?? null,
+    album: aggregate ? aggregate.title : draft.query.trim() || null,
+    searchHint: draft.albumSearchHint ?? null,
     uri: draft.sourceUri ?? null,
     artistMaybeWrong: draft.artistMaybeWrong ?? false,
   };

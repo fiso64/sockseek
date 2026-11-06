@@ -19,7 +19,10 @@ public sealed record TransferLookupRequestDto(
     IReadOnlyList<Guid> TransferIds,
     string? Direction = null);
 
-/// <summary>An exact directory-transfer group identity; GroupRef is opaque.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<TransferGroupKind>))]
+public enum TransferGroupKind { Directory, Files }
+
+/// <summary>An exact transfer presentation group identity; GroupRef is opaque.</summary>
 public sealed record TransferGroupKeyDto(
     TransferCommandDirection Direction,
     string? Username,
@@ -29,7 +32,7 @@ public sealed record TransferGroupSummariesRequestDto(
     IReadOnlyList<TransferGroupKeyDto> Groups);
 
 /// <summary>
-/// Moving aggregate over all unarchived members of one directory-transfer group.
+/// Moving aggregate over all unarchived members of one transfer presentation group.
 /// Counts and bytes include members outside the current transfer timeline page.
 /// </summary>
 public sealed record TransferGroupSummaryDto(

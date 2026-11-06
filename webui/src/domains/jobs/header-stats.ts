@@ -7,22 +7,22 @@ export function jobHeaderStats(payload: Schema<'JobPayloadDto'> | null | undefin
   switch (payload?.kind) {
     case 'song': return Number(payload.candidateCount) > 0 ? [formatCountWithNoun(payload.candidateCount, 'candidate')] : [];
     case 'album': return [
-      ...(Number(payload.resultCount) > 0 ? [`${formatCount(payload.resultCount)} folders`] : []),
-      ...(Number(payload.directory.fileCount) > 0 ? [`${formatCount(payload.directory.fileCount)} files`] : []),
+      ...(Number(payload.resultCount) > 0 ? [formatCountWithNoun(payload.resultCount, 'folder')] : []),
+      ...(Number(payload.directory.fileCount) > 0 ? [formatCountWithNoun(payload.directory.fileCount, 'file')] : []),
     ];
     case 'aggregate': return [
-      `${formatCount(payload.songCount)} songs`,
+      formatCountWithNoun(payload.songCount, 'song'),
       `${formatCount(payload.succeededSongCount)} complete`,
       ...(Number(payload.failedSongCount) > 0 ? [`${formatCount(payload.failedSongCount)} failed`] : []),
     ];
     case 'album-aggregate': return [
-      `${formatCount(payload.resultCount)} albums`,
+      formatCountWithNoun(payload.resultCount, 'album'),
       `${formatCount(payload.succeededAlbumCount)} complete`,
       ...(Number(payload.failedAlbumCount) > 0 ? [`${formatCount(payload.failedAlbumCount)} failed`] : []),
     ];
     case 'extract': return payload.inputType ? [extractSourceLabel(payload.inputType)] : [];
     case 'job-list': return [
-      `${formatCount(payload.count)} jobs`,
+      formatCountWithNoun(payload.count, 'job'),
       `${formatCount(payload.succeededJobCount)} complete`,
       ...(Number(payload.failedJobCount) > 0 ? [`${formatCount(payload.failedJobCount)} failed`] : []),
     ];
@@ -31,8 +31,8 @@ export function jobHeaderStats(payload: Schema<'JobPayloadDto'> | null | undefin
       return size == null ? [] : [formatBytes(Number(size))];
     }
     case 'remote-directory': return payload.directory.attemptNumber == null && Number(payload.directory.fileCount) === 0
-      ? [] : [`${formatCount(payload.directory.fileCount)} files`];
-    case 'retrieve-folder': return [`${formatCount(payload.newFilesFoundCount)} new files`];
+      ? [] : [formatCountWithNoun(payload.directory.fileCount, 'file')];
+    case 'retrieve-folder': return [formatCountWithNoun(payload.newFilesFoundCount, 'new file')];
     default: return [];
   }
 }

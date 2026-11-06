@@ -158,7 +158,7 @@
   loadPage: onloadmore,
 }}>
   <header class="page-heading search-list-heading jobs-list-heading">
-    <div><p class="eyebrow">Work</p><h1>Jobs</h1></div>
+    <div><h1>Jobs</h1></div>
     <button type="button" class="new-job-button" onclick={onnew}><span>+</span> New job</button>
   </header>
 

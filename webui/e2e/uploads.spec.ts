@@ -91,7 +91,7 @@ test('cancels queued uploads within a mixed folder without cancelling active fil
   const remaining = page.locator('.file-item-card').filter({ hasText: 'Uploaded.txt' });
   await expect(remaining.getByLabel('50% complete', { exact: true })).toBeVisible();
   await daemon.command('release-upload');
-  await expect(remaining.locator('.transfer-state')).toHaveText('Complete');
+  await expect(remaining.getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
 });
 
 test('serves a peer upload through live progress and retained history', async ({ page, daemon }) => {
@@ -124,12 +124,12 @@ test('serves a peer upload through live progress and retained history', async ({
   await page.getByRole('button', { name: 'Actions for upload-peer', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: 'Shares', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(card.getByText('Complete', { exact: true })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   await expect(card.locator('.file-transfer-footer')).toHaveCount(0);
   historyReads = 0;
   await page.reload();
   await expect(page.getByLabel('Connection status')).toContainText('Connected');
-  await expect(card.getByText('Complete', { exact: true })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   await expect(card.locator('.file-transfer-footer')).toHaveCount(0);
   expect(historyReads).toBe(1);
   await card.getByRole('button', { name: 'Complete', exact: true }).click();
@@ -216,7 +216,7 @@ test('explains a failed upload and supersedes it when the peer retries', async (
   await page.reload();
   await expect(card.getByLabel('50% complete', { exact: true })).toBeVisible();
   await daemon.command('release-upload');
-  await expect(card.locator('.transfer-state')).toHaveText('Complete');
+  await expect(card.getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
   const archived = await page.request.get('/api/transfers?direction=upload&archived=true');
   const history = await archived.json() as Schema<'TransferTimelinePageDto'>;
   expect(history.items).toHaveLength(1);

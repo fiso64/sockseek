@@ -199,7 +199,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
     if (!allExcept) {
       await page.goto('/downloads');
       await expect(page.locator('.file-item-card')).toHaveCount(1);
-      await expect(page.locator('.file-item-card .transfer-state')).toHaveText('Complete');
+      await expect(page.locator('.file-item-card').getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
       const response = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
       const transfers = (await response.json() as Schema<'TransferTimelinePageDto'>).items;
       expect(transfers).toHaveLength(1);

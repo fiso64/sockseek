@@ -43,15 +43,9 @@
     </span>
     {#if hasPeerStats}
     <span class="peer-metadata" aria-label={`${peer.username} result metadata`}>
-      <span class="peer-stat peer-upload-stat">
-        {#if peer.uploadSpeedMbps !== undefined}<b>{peer.uploadSpeedMbps.toFixed(1)} MB/s</b><small>upload</small>{/if}
-      </span>
-      <span class="peer-stat peer-queue-stat">
-        {#if peer.queueLength !== undefined}<b>{peer.queueLength}</b><small>queued</small>{/if}
-      </span>
-      <span class="peer-stat peer-slot">
-        {#if peer.freeUploadSlot !== undefined}<b class:available={peer.freeUploadSlot} class:unavailable={!peer.freeUploadSlot}>{peer.freeUploadSlot ? 'Yes' : 'No'}</b><small>free slot</small>{/if}
-      </span>
+      {#if peer.uploadSpeedMbps !== undefined}<span class="peer-stat peer-upload-stat" title="Upload speed"><b>{peer.uploadSpeedMbps.toFixed(1)} MB/s</b></span>{/if}
+      {#if peer.queueLength !== undefined}<span class="peer-stat peer-queue-stat">Queue: <b>{peer.queueLength}</b></span>{/if}
+      {#if peer.freeUploadSlot !== undefined}<span class="peer-stat peer-slot" class:available={peer.freeUploadSlot} class:unavailable={!peer.freeUploadSlot}><i aria-hidden="true"></i>{peer.freeUploadSlot ? 'Free slot' : 'No slot'}</span>{/if}
     </span>
     {/if}
   </div>

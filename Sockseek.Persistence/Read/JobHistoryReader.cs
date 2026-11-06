@@ -92,6 +92,8 @@ public interface IJobHistoryReader
 {
     Task<PersistedJobPage> GetJobsAsync(JobHistoryQuery query, CancellationToken cancellationToken = default);
     Task<PersistedJob?> GetJobAsync(Guid jobId, CancellationToken cancellationToken = default);
+    /// <summary>True for an unarchived job, false for an archived job, null if absent.</summary>
+    Task<bool?> GetJobAvailabilityAsync(Guid jobId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PersistedJob>> GetJobsByIdsAsync(IReadOnlyCollection<Guid> jobIds, CancellationToken cancellationToken = default);
     Task<PersistedDirectoryManifestPage?> GetDirectoryManifestAsync(
         Guid jobId, int? attemptNumber, int afterOrdinal, int limit,
@@ -304,6 +306,17 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         var rows = await ReadRowsAsync(context, "FROM jobs job", "WHERE job.id=$id",
             [new SqliteParameter("$id", jobId)], cancellationToken).ConfigureAwait(false);
+        return rows.SingleOrDefault();
+    }
+
+    public async Task<bool?> GetJobAvailabilityAsync(Guid jobId, CancellationToken cancellationToken = default)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        var rows = await SqliteReadQuery.ReadAsync(context, """
+            SELECT submission.archived_at_utc
+            FROM jobs job LEFT JOIN submissions submission ON submission.id = job.submission_id
+            WHERE job.id = $id
+            """, [new SqliteParameter("$id", jobId)], row => (bool?)row.IsDBNull(0), cancellationToken).ConfigureAwait(false);
         return rows.SingleOrDefault();
     }
 

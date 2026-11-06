@@ -54,7 +54,7 @@ internal static class TransferReadModel
                 transfer.GroupDisplayPath,
                 transfer.Candidate?.Peer.UploadSpeed,
                 transfer.Candidate?.Peer.HasFreeUploadSlot,
-                transfer.GroupRelativePath),
+                transfer.GroupRelativePath, (Sockseek.Api.TransferGroupKind)transfer.GroupKind),
             previous is not null && (fields & TransferFields.Status) == 0 ? previous.Status : new TransferStatusFieldsDto(
                 transfer.State ?? "",
                 transfer.LocalPath,
@@ -107,7 +107,7 @@ internal static class TransferReadModel
                 transfer.RemotePath,
                 null,
                 transfer.GroupRef,
-                transfer.GroupDisplayPath),
+                transfer.GroupDisplayPath, GroupKind: Sockseek.Api.TransferGroupKind.Files),
             previous is not null && (fields & TransferFields.Status) == 0 ? previous.Status : new TransferStatusFieldsDto(
                 transfer.State.ToString(),
                 null,
@@ -166,7 +166,7 @@ internal static class TransferReadModel
         return new(transfer.Id, transfer.Revision,
             new(transfer.JobId, transfer.WorkflowId, transfer.Direction, transfer.Source,
                 transfer.Username, transfer.RemotePath, null, transfer.GroupRef,
-                transfer.GroupDisplayPath, GroupRelativePath: transfer.GroupRelativePath),
+                transfer.GroupDisplayPath, GroupRelativePath: transfer.GroupRelativePath, GroupKind: Enum.Parse<Sockseek.Api.TransferGroupKind>(transfer.GroupKind)),
             new(transfer.State, transfer.LocalPath, transfer.AttemptCount, outcome != TransferTerminalOutcome.None,
                 outcome, failure, PublicCancellationSource(transfer.CancellationSource), [],
                 transfer.CompletedAtUtc, transfer.FailureMessage, transfer.ArchivedAtUtc),
@@ -225,6 +225,7 @@ internal static class TransferReadModel
                 GroupRef = current.Identity.GroupRef ?? retained.Identity.GroupRef,
                 GroupDisplayPath = current.Identity.GroupDisplayPath ?? retained.Identity.GroupDisplayPath,
                 GroupRelativePath = current.Identity.GroupRelativePath ?? retained.Identity.GroupRelativePath,
+                GroupKind = current.Identity.GroupRef is null ? retained.Identity.GroupKind : current.Identity.GroupKind,
             },
             Progress = current.Progress with { LastProgressAtUtc = current.Progress.LastProgressAtUtc ?? retained.Progress.LastProgressAtUtc },
             Status = current.Status with
@@ -313,6 +314,7 @@ public sealed class TransferReadSnapshot
     internal string? GroupRef => download?.GroupRef ?? upload?.GroupRef;
     internal string? GroupDisplayPath => download?.GroupDisplayPath ?? upload?.GroupDisplayPath;
     internal string? GroupRelativePath => download?.GroupRelativePath;
+    internal Sockseek.Core.Snapshots.TransferGroupKind GroupKind => download?.GroupKind ?? Sockseek.Core.Snapshots.TransferGroupKind.Files;
     private int? PeerUploadSpeed => download?.Candidate?.Peer.UploadSpeed;
     private bool? PeerHasFreeUploadSlot => download?.Candidate?.Peer.HasFreeUploadSlot;
     internal TransferFileMetadataSnapshot? File => download?.File ?? upload?.File;
@@ -366,7 +368,7 @@ public sealed class TransferReadSnapshot
             || Direction != previous.Direction || Source != previous.Source
             || Username != previous.Username || RemotePath != previous.RemotePath
             || CandidateKey != previous.CandidateKey || GroupRef != previous.GroupRef
-            || GroupDisplayPath != previous.GroupDisplayPath || GroupRelativePath != previous.GroupRelativePath
+            || GroupDisplayPath != previous.GroupDisplayPath || GroupRelativePath != previous.GroupRelativePath || GroupKind != previous.GroupKind
             || PeerUploadSpeed != previous.PeerUploadSpeed || PeerHasFreeUploadSlot != previous.PeerHasFreeUploadSlot
             || !SameFile(File, previous.File);
 

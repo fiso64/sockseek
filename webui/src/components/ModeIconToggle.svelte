@@ -85,6 +85,7 @@
         </button>
       {/each}
       {#if onhelp}
+        <div class="mode-menu-separator" role="separator"></div>
         <button type="button" role="menuitem" class="mode-menu-help" onclick={() => { setMenuOpen(false); onhelp?.(); }}>
           <span class="mode-menu-check" aria-hidden="true"></span>
           <span class="mode-menu-icon" aria-hidden="true"><Icon name="help" /></span>

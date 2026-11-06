@@ -28,6 +28,15 @@ public class EngineStateStoreTests
         store.SetSubmissionArchived(archived, true);
         store.SetSubmissionArchived(archived, false);
         Assert.AreEqual(3, invalidations);
+
+        var job = new SearchJob("Source") { SubmissionId = Guid.NewGuid() };
+        Register(store, job);
+        Assert.IsTrue(store.IsJobAvailable(job.Id));
+        store.SetSubmissionArchived(job.SubmissionId.Value, true);
+        Assert.IsFalse(store.IsJobAvailable(job.Id));
+        store.SetSubmissionArchived(job.SubmissionId.Value, false);
+        Assert.IsTrue(store.IsJobAvailable(job.Id));
+        Assert.IsFalse(store.IsJobAvailable(Guid.NewGuid()));
     }
 
     [TestMethod]

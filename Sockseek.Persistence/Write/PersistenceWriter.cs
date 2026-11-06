@@ -912,7 +912,8 @@ public sealed class PersistenceWriter(
                 : JsonSerializer.Serialize(file.Attributes);
         }
         if (mutation.GroupRef is not null)
-            entity.GroupRef = Limit(mutation.GroupRef, 4096);
+            entity.GroupRef = mutation.GroupRef;
+        entity.GroupKind = mutation.GroupKind.ToString();
         if (mutation.GroupDisplayPath is not null)
             entity.GroupDisplayPath = Limit(mutation.GroupDisplayPath, 4096);
         if (mutation.GroupRelativePath is not null)

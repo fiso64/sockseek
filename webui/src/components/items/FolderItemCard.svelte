@@ -166,7 +166,7 @@
             ? 'Folder retrieval failed. Try again.'
             : 'Load all files in this folder in case the search omitted any.'}
           onclick={() => onloadfullcontents?.()}
-        >+</button>
+        ><Icon name="search" /></button>
       {:else if contentsState === 'retrieving'}
         <span class="folder-contents-state retrieving" aria-label="Loading all files in this folder" title="Loading all files in this folder…"><i></i></span>
       {:else}

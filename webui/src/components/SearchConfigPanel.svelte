@@ -27,7 +27,7 @@
     embedded?: boolean;
     onclose?: () => void;
     configurationFamily?: SearchModeFamily | 'mixed';
-    expectedLengthEditable?: boolean;
+    singleItem?: boolean;
   }
 
   let {
@@ -39,7 +39,7 @@
     embedded = false,
     onclose,
     configurationFamily,
-    expectedLengthEditable = true,
+    singleItem = true,
   }: Props = $props();
 
   let family = $derived(configurationFamily ?? searchModeFamily(mode));
@@ -52,8 +52,14 @@
   function clearActiveTab(): void {
     if (activeTab === 'conditions') {
       const ranking = conditions.ranking;
+      const requiredTrackTitles = conditions.album.requiredTrackTitles;
+      const expectedLength = conditions.track.expectedLength;
       Object.assign(conditions, createEmptySearchConditions());
       conditions.ranking = ranking;
+      if (!singleItem) {
+        conditions.album.requiredTrackTitles = requiredTrackTitles;
+        conditions.track.expectedLength = expectedLength;
+      }
       requiredTrackTitle = '';
     } else if (activeTab === 'ranking') {
       conditions.ranking = createEmptySearchRanking();
@@ -160,11 +166,13 @@
             {#if family === 'track' || family === 'mixed'}
               {#if family === 'mixed'}<div class="config-subgroup-label">Songs</div>{/if}
               <label class="config-check"><input type="checkbox" bind:checked={conditions.track.strictTitle} /> {searchConfigLabel('strictTitle', 'conditions')}</label>
-              <div class="config-grid config-grid-spaced">
-                <label>
-                  <span>Expected length <small>sec</small></span>
-                  <input type="number" min="0" bind:value={conditions.track.expectedLength} placeholder="Any" disabled={!expectedLengthEditable} title={!expectedLengthEditable ? 'Expected length is determined per extracted song.' : undefined} />
-                </label>
+              <div class:single-config-field={!singleItem} class="config-grid config-grid-spaced">
+                {#if singleItem}
+                  <label>
+                    <span>Expected length <small>sec</small></span>
+                    <input type="number" min="0" bind:value={conditions.track.expectedLength} placeholder="Any" />
+                  </label>
+                {/if}
                 <label>
                   <span>{searchConfigLabel('lengthTolerance', 'conditions')} <small>sec</small></span>
                   <input type="number" min="0" bind:value={conditions.track.lengthTolerance} />
@@ -187,6 +195,7 @@
               <label><span>{searchConfigLabel('maxTrackCount', 'conditions')}</span><input type="number" min="0" bind:value={conditions.album.maxTrackCount} placeholder="Any" /></label>
             </div>
 
+            {#if singleItem}
             <div class="config-label config-label-spaced">{searchConfigLabel('requiredTrackTitle', 'conditions')}</div>
             <div class="required-track-row">
               <input
@@ -208,6 +217,7 @@
                   <button type="button" onclick={() => removeRequiredTrackTitle(trackTitle)}>{trackTitle} ×</button>
                 {/each}
               </div>
+            {/if}
             {/if}
           </section>
         {/if}

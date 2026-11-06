@@ -22,7 +22,7 @@ internal sealed class TransferPersistence(
             row.RequestedAtUtc, row.StartedAtUtc, row.LastProgressAtUtc, row.BytesPerSecond, row.File,
             GroupRef: row.GroupRef, GroupDisplayPath: row.GroupDisplayPath,
             AccountingObservations: accounting, GroupRelativePath: row.GroupRelativePath,
-            CompletedAtUtc: row.CompletedAtUtc);
+            CompletedAtUtc: row.CompletedAtUtc, GroupKind: row.GroupKind);
         if (!row.IsTerminal)
         {
             sink.TryEnqueue(mutation);

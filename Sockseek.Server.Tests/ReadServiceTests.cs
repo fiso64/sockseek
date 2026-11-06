@@ -84,6 +84,58 @@ public sealed class ReadServiceTests
     }
 
     [TestMethod]
+    public async Task SourceAvailabilityUpdatesWhenRetentionRemovesTheSource()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "sockseek-source-retention-" + Guid.NewGuid().ToString("N"));
+        var options = Options.Create(new ServerOptions { Persistence = new()
+        {
+            Enabled = true, DataDirectory = directory, RetentionEnabled = false,
+            CompletedJobHistoryAge = TimeSpan.FromDays(30), UnsuccessfulJobHistoryAge = null,
+            SearchResultAge = null, TransferHistoryAge = null, MaximumRetainedJobs = null,
+        } });
+        var persistence = new PersistenceCoordinator(options);
+        await persistence.StartAsync(CancellationToken.None);
+        using var supervisor = new EngineSupervisor(options);
+        await using var events = new ServerEventBroadcaster(supervisor.StateStore, supervisor,
+            new global::Tests.Server.NoOpHubContext<ServerEventHub>());
+        try
+        {
+            Guid source = Guid.NewGuid(), root = Guid.NewGuid(), workflow = Guid.NewGuid();
+            Guid runtime = persistence.Runtime!.RuntimeId;
+            JobPersistenceMutation Row(Guid id, int sequence, DateTimeOffset created, Guid? sourceId) => new(
+                runtime, sequence, created, id, 1, PersistenceMutationPriority.Terminal, workflow,
+                null, sourceId, null, sequence, "Song", "Terminal", "None", null, "Succeeded", "None", "None",
+                "None", null, null, null, "Test", 1, null);
+            Assert.IsTrue(persistence.MutationSink!.TryEnqueue(Row(source, 1, DateTimeOffset.UtcNow.AddDays(-60), null)));
+            Assert.IsTrue(persistence.MutationSink.TryEnqueue(Row(root, 2, DateTimeOffset.UtcNow, source)));
+            await WaitForVisibleAsync(persistence, async () => await persistence.JobHistory!.GetJobAsync(root) != null);
+            var service = new JobReadService(supervisor.StateStore, supervisor, persistence);
+            var detail = await service.GetJobAsync(root);
+            Assert.IsNotNull(detail);
+            Assert.AreEqual(true, detail.SourceJobAvailable);
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await using var updates = service.ObserveJobsAsync(root, [], events, deadline.Token).GetAsyncEnumerator();
+            Assert.IsTrue(await updates.MoveNextAsync());
+            Assert.AreEqual(source, updates.Current.SourceJobId);
+            Assert.AreEqual(true, updates.Current.SourceJobAvailable);
+            Assert.AreEqual(1, (await persistence.RunRetentionAsync(deadline.Token)).PrunedJobs);
+            Assert.IsTrue(await updates.MoveNextAsync());
+            Assert.AreEqual(source, updates.Current.SourceJobId);
+            Assert.AreEqual(false, updates.Current.SourceJobAvailable);
+            var retained = await service.GetJobAsync(root);
+            Assert.IsNotNull(retained);
+            Assert.IsNull(retained.Summary.SourceJobId);
+            Assert.AreEqual(false, retained.SourceJobAvailable);
+        }
+        finally
+        {
+            await persistence.StopAsync(CancellationToken.None);
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task TransferHistoryRemainsReadableAndExplicitlyDegradedAfterAnIsolatedMutationLoss()
     {
         string directory = Path.Combine(Path.GetTempPath(), "sockseek-isolated-history-" + Guid.NewGuid().ToString("N"));

@@ -167,7 +167,6 @@
 <section class="page dashboard-page">
   <div class="dashboard-heading">
     <div class="page-heading dashboard-title">
-      <p class="eyebrow">Overview</p>
       <h1>Dashboard</h1>
     </div>
     <div class="dashboard-range-control" aria-label="Dashboard history range">

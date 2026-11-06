@@ -43,7 +43,7 @@ test('uses filtering and output settings for a direct Start download', async ({ 
   expect(started.options?.downloadSettings?.output?.nameFormat).toBe('direct/{stitle}');
   await expect(page.locator('.search-history-open').filter({ hasText: 'Fixture song' })).toBeVisible();
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Downloads', exact: true }).click();
-  await expect(page.locator('.file-item-card .transfer-state')).toHaveText('Complete');
+  await expect(page.locator('.file-item-card').getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
   const transfersResponse = await page.request.get('/api/transfers?direction=download&limit=500');
   expect(transfersResponse.ok(), await transfersResponse.text()).toBe(true);
   const transfers = (await transfersResponse.json() as Schema<'TransferTimelinePageDto'>).items;
@@ -135,6 +135,8 @@ test('shows a failed source preview and allows correcting the same draft', async
   await page.getByRole('button', { name: 'New job', exact: false }).click();
   await page.locator('.new-job-source-disclosure summary').click();
   await page.getByRole('complementary', { name: 'Job type' }).getByRole('button', { name: 'Soulseek', exact: true }).click();
+  await expect(page.getByRole('button', { name: /^(Filtering|Ranking) (Defaults|Custom)$/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Download Defaults', exact: true })).toBeVisible();
   const source = page.getByPlaceholder('Paste a slsk:// link…');
   await source.fill('slsk://fixture-peer');
   await page.getByRole('button', { name: 'Review', exact: true }).click();
@@ -167,6 +169,10 @@ test('edits source settings before upload and rebases them when the artifact arr
   await page.getByRole('button', { name: 'Filtering Defaults', exact: true }).click();
   const filtering = page.locator('#new-job-filtering-options');
   await expect(filtering.getByLabel('Require track title in filename')).toBeVisible();
+  await expect(filtering.getByText('Expected length', { exact: false })).toHaveCount(0);
+  await expect(filtering.getByText('Required track title', { exact: true })).toHaveCount(0);
+  await expect(filtering.getByLabel('Min tracks')).toBeVisible();
+  await expect(filtering.getByLabel('Max tracks')).toBeVisible();
   const provisionalResponse = await provisional;
   expect(provisionalResponse.ok()).toBeTruthy();
   expect((await provisionalResponse.json()).isProvisional).toBe(true);

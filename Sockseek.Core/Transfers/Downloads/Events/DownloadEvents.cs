@@ -110,7 +110,7 @@ public class DownloadEvents
     {
         if (job is FileDownloadJob && parent is DirectoryDownloadJob directory
             && directory.ActiveAttempt?.Plan.RepresentsDirectorySelection == true)
-            JobState(job).DirectoryGroup = new DirectoryTransferGroup(
+            JobState(job).DirectoryGroup = new DownloadTransferGroup(
                 directory.Id.ToString("D"),
                 // The transfer path is remote, so its group root must use the
                 // same namespace to retain nested member paths in every client.
@@ -613,6 +613,15 @@ public class DownloadEvents
             || metadata.JobId != song.Id || metadata.WorkflowId != song.WorkflowId)
         {
             facts.Target = candidate;
+            // Exact peer and folder spelling are preserved. The group key also
+            // contains the peer; submission scope prevents unrelated downloads
+            // of the same directory from merging. Core-only runs use workflow.
+            int separator = Math.Max(candidate.Filename.LastIndexOf('\\'), candidate.Filename.LastIndexOf('/'));
+            facts.FileGroup = separator > 0
+                ? new DownloadTransferGroup(
+                    $"files:{song.SubmissionId ?? song.WorkflowId:D}:{candidate.Filename[..separator]}",
+                    candidate.Filename[..separator], candidate.Filename[(separator + 1)..], TransferGroupKind.Files)
+                : null;
             facts.Candidate = evidence;
             facts.Metadata = CoreSnapshotFactory.CreateDownloadTransfer(
                 transferId, song, candidate, outputPath, revision, state, bytesTransferred, totalBytes, attemptCount, evidence);
@@ -643,6 +652,7 @@ public class DownloadEvents
             || metadata.RemotePath != sourceReference)
         {
             facts.Target = null;
+            facts.FileGroup = null;
             facts.Candidate = null;
             facts.Metadata = CoreSnapshotFactory.CreateFallbackTransfer(
                 transferId, song, sourceReference, outputPath, revision, state, bytesTransferred, totalBytes, attemptCount);
@@ -702,7 +712,7 @@ public class DownloadEvents
         }
 
         var metadata = facts.Metadata!;
-        var group = jobs.GetValueOrDefault(metadata.JobId!.Value)?.DirectoryGroup;
+        var group = jobs.GetValueOrDefault(metadata.JobId!.Value)?.DirectoryGroup ?? facts.FileGroup;
         // PeerFileTarget and FileCandidate are immutable. Capture their metadata
         // once at this transfer owner; each event then creates only its current
         // scalar state. A new target/evidence reference replaces that baseline.
@@ -725,6 +735,7 @@ public class DownloadEvents
             FailureReason = facts.FailureReason,
             CancellationReason = facts.CancellationReason,
             GroupRef = group?.Ref,
+            GroupKind = group?.Kind ?? TransferGroupKind.Directory,
             GroupDisplayPath = group?.DisplayPath,
             GroupRelativePath = group?.RelativePath,
         };
@@ -775,7 +786,7 @@ public class DownloadEvents
         // The small event gate protects workflow metadata. Job owns its coherent
         // lifecycle/revision capture; neither gate is held while notifying observers.
         public Guid WorkflowId = workflowId;
-        public volatile DirectoryTransferGroup? DirectoryGroup;
+        public volatile DownloadTransferGroup? DirectoryGroup;
         public Guid? LastTransferId;
     }
 
@@ -786,6 +797,7 @@ public class DownloadEvents
         public long Revision;
         public bool IsTerminal;
         public Dictionary<Guid, long>? AttemptRevisions;
+        public DownloadTransferGroup? FileGroup;
         public PeerFileTarget? Target { get; set; }
         public FileCandidate? Candidate { get; set; }
         // Retirement reads only this immutable publication, without entering
@@ -924,7 +936,8 @@ public class DownloadEvents
             transferFacts.Count, transferFacts.Values.Count(facts => facts.IsTerminal),
             jobs.Values.Count(state => state.DirectoryGroup is not null));
 
-    private sealed record DirectoryTransferGroup(string Ref, string? DisplayPath, string? RelativePath);
+    private sealed record DownloadTransferGroup(string Ref, string? DisplayPath, string? RelativePath,
+        TransferGroupKind Kind = TransferGroupKind.Directory);
 
     private void InvokeObservers<T>(Action<T>? observers, T value, string eventName)
     {

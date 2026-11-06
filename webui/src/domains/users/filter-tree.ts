@@ -6,7 +6,7 @@ type Row = { entry: Entry; depth: number };
 /** Loaded hierarchy in prototype order: folder, direct files, then subfolders.
  * Exact parent IDs are authoritative, not parsed display paths.
  */
-export function filteredTreeRows(items: readonly Entry[]): Row[] {
+export function filteredTreeRows(items: readonly Entry[], collapsed: ReadonlySet<string> = new Set()): Row[] {
   const directories = new Set(items.filter(item => item.kind === 'directory').map(item => String(item.entryId)));
   const children = new Map<string, { files: Entry[]; directories: Entry[] }>();
   const roots: Entry[] = [];
@@ -24,20 +24,23 @@ export function filteredTreeRows(items: readonly Entry[]): Row[] {
   const result: Row[] = [];
   const visited = new Set<string>();
   function append(entries: readonly Entry[]): void {
-    const pending: Row[] = entries.map(entry => ({ entry, depth: 0 })).reverse();
+    const pending: (Row & { hidden: boolean })[] = entries.map(entry => ({ entry, depth: 0, hidden: false })).reverse();
     while (pending.length) {
       const row = pending.pop()!;
       const key = `${row.entry.kind}:${row.entry.entryId}`;
       if (visited.has(key)) continue;
       visited.add(key);
-      result.push(row);
+      if (!row.hidden) result.push({ entry: row.entry, depth: row.depth });
       if (row.entry.kind !== 'directory') continue;
       const bucket = children.get(String(row.entry.entryId));
       if (!bucket) continue;
+      // Visit hidden descendants too, so the orphan/cycle recovery below does
+      // not mistake collapsed children for roots.
+      const hidden = row.hidden || collapsed.has(String(row.entry.entryId));
       // Reverse stack order avoids recursion on deeply nested shares.
       for (const entries of [bucket.directories, bucket.files]) {
         for (let index = entries.length - 1; index >= 0; index--) {
-          pending.push({ entry: entries[index]!, depth: row.depth + 1 });
+          pending.push({ entry: entries[index]!, depth: row.depth + 1, hidden });
         }
       }
     }

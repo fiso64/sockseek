@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import type { SearchDraft, SearchResultMode } from '../domains/search/model';
-  import { editableSearchDraft, searchModeFamily as family } from '../domains/search/model';
+  import { editableSearchDraft, searchDelimiter, searchModeFamily as family } from '../domains/search/model';
   import ModeIconToggle from './ModeIconToggle.svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
@@ -75,23 +75,31 @@
   }
 
   const modes = [
-    { value: 'generic', label: 'File Search', icon: 'generic' as const, description: 'Search for any file type, organized by peer and folder. No music filters are applied by default.' },
-    { value: 'track', label: 'Track Search', icon: 'track' as const, description: 'Search for individual songs by artist and title. Uses your music format and quality conditions; each peer’s copy appears separately.' },
-    { value: 'album', label: 'Album Search', icon: 'album' as const, description: 'Search by artist and album, with each peer’s album folder shown separately. Applies music and album conditions, such as track count. Select whole folders or individual files.' },
-    { value: 'song-aggregate', label: 'Song Aggregate', icon: 'song-aggregate' as const, description: 'Like Track Search, but combines matching copies from different peers into one result per song. Choose a copy within each result. By default, only songs shared by at least two peers are shown.' },
-    { value: 'album-aggregate', label: 'Album Aggregate', icon: 'album-aggregate' as const, description: 'Like Album Search, but combines matching album folders from different peers into one result per album. Choose a folder within each result. By default, only albums shared by at least two peers are shown.' },
+    { 
+      value: 'generic', label: 'File Search', icon: 'generic' as const, description: 
+      'Standard Soulseek file search. No music filters or ranking is applied by default.'
+    },
+    { 
+      value: 'track', label: 'Track Search', icon: 'track' as const, description: 
+      'Shows results as individual tracks. Uses music-oriented default filters and ranking.'
+    },
+    { 
+      value: 'album', label: 'Album Search', icon: 'album' as const, description: 
+      'Shows results as albums. Uses music-oriented default filters and ranking.' 
+    },
+    { 
+      value: 'song-aggregate', label: 'Song Aggregate', icon: 'song-aggregate' as const, description: 
+      'Like Track Search, but combines matching copies from different peers into one result per song. Choose a copy within each result. Supports artist-only searches to show all distinct songs by an artist from Soulseek.' 
+    },
+    { 
+      value: 'album-aggregate', label: 'Album Aggregate', icon: 'album-aggregate' as const, description: 
+      'Like Album Search, but combines matching album folders from different peers into one result per album. Choose a folder within each result. Supports artist-only searches to show all distinct songs by an artist from Soulseek.' 
+    },
   ];
   const userModes = [
     { value: 'user', label: 'User', icon: 'user' as const },
     { value: 'shares', label: 'Shares', icon: 'folder' as const },
   ];
-
-  function findDelimiter(input: string): { index: number; length: number } | null {
-    return [' — ', ' - ']
-      .map((delimiter) => ({ index: input.indexOf(delimiter), length: delimiter.length }))
-      .filter((candidate) => candidate.index >= 0)
-      .sort((left, right) => left.index - right.index)[0] ?? null;
-  }
 
   function setSimple(query: string): void {
     onchange({ ...editableSearchDraft(value), mode: 'simple', query, artist: '', title: '' });
@@ -125,15 +133,15 @@
       generic: 'Search files…',
       track: 'Search songs…',
       album: 'Search albums…',
-      'song-aggregate': 'Search song aggregates…',
-      'album-aggregate': 'Search album aggregates…',
+      'song-aggregate': 'Search songs by artist…',
+      'album-aggregate': 'Search albums by artist…',
     }[value.resultMode];
   }
 
   function handleInput(event: Event): void {
     const query = (event.currentTarget as HTMLInputElement).value;
     if (value.resultMode === 'generic') return setSimple(query);
-    const delimiter = findDelimiter(query);
+    const delimiter = searchDelimiter(query);
     if (!delimiter || suppressAutoSplit) {
       if (!delimiter) suppressAutoSplit = false;
       return setSimple(query);
@@ -149,12 +157,16 @@
   }
 
   function split(): void {
-    const delimiter = findDelimiter(value.query);
+    const delimiter = searchDelimiter(value.query);
     setSplit(delimiter ? value.query.slice(0, delimiter.index) : value.query, delimiter ? value.query.slice(delimiter.index + delimiter.length) : '');
     focusTitleAfterUpdate();
   }
 
+  let canMerge = $derived(!((value.resultMode === 'song-aggregate' || value.resultMode === 'album-aggregate')
+    && !value.artist.trim() && value.title.trim()));
+
   function merge(): void {
+    if (!canMerge) return;
     const combined = value.artist && value.title ? `${value.artist} - ${value.title}` : value.artist || value.title;
     suppressAutoSplit = true;
     setSimple(combined);
@@ -200,8 +212,7 @@
   function splitKeydown(event: KeyboardEvent, field: 'artist' | 'title'): void {
     if (event.key === 'Backspace' && !value[field]) {
       event.preventDefault();
-      if (field === 'artist' || family(value.resultMode) === 'album') merge();
-      else searchRoot?.querySelector<HTMLInputElement>('#global-search-artist')?.focus();
+      merge();
       return;
     }
     keydown(event);
@@ -249,20 +260,20 @@
     {:else}
     <div class="search-entry">
       <ModeIconToggle value={value.resultMode} options={modes} ariaLabel="Search result mode" onchange={setMode} onhelp={() => { settingsOpen = false; modeHelpOpen = true; }} onopenchange={(open) => modeMenuOpen = open} />
-      {#if value.mode === 'simple'}
-        <div class="search-bar simple has-mode-picker">
+      <div class="search-bar has-mode-picker" class:simple={value.mode === 'simple'} class:split={value.mode === 'split'}>
+        {#if value.mode === 'simple'}
           <input id="global-search-simple" value={value.query} disabled={busy} placeholder={placeholder()} autocomplete="off" spellcheck="false" aria-label={placeholder().replace('…', '')} oninput={handleInput} onkeydown={keydown} />
           <span class="search-shortcut" aria-hidden="true">/</span>
-          {#if value.resultMode !== 'generic'}<button type="button" class="search-mode-button" onclick={split}>split</button>{/if}
-        </div>
-      {:else}
-        <div class="search-bar split has-mode-picker">
+          {#if value.resultMode !== 'generic'}<button type="button" class="search-mode-button" aria-label="split" title="Split search fields" onclick={split}><Icon name="search-split" /></button>{/if}
+        {:else}
           <label class="search-field"><span>artist</span><input id="global-search-artist" value={value.artist} placeholder="artist…" autocomplete="off" spellcheck="false" oninput={(event) => setSplit((event.currentTarget as HTMLInputElement).value, value.title)} onkeydown={(event) => splitKeydown(event, 'artist')} /></label>
           <span class="search-divider" aria-hidden="true"></span>
           <label class="search-field"><span>{family(value.resultMode) === 'album' ? 'album' : 'track'}</span><input id="global-search-title" value={value.title} placeholder={family(value.resultMode) === 'album' ? 'album…' : 'track…'} autocomplete="off" spellcheck="false" oninput={(event) => setSplit(value.artist, (event.currentTarget as HTMLInputElement).value)} onkeydown={(event) => splitKeydown(event, 'title')} /></label>
-          <button type="button" class="search-mode-button" onclick={merge}>merge</button>
-        </div>
-      {/if}
+          <button type="button" class="search-mode-button" aria-label="merge"
+            disabled={!canMerge}
+            title={canMerge ? 'Merge search fields' : 'Enter an artist to merge these fields'} onclick={merge}><Icon name="search-merge" /></button>
+        {/if}
+      </div>
 
     </div>
     <button type="button" class:active={settingsOpen} class="search-settings-button" aria-label="Search configuration" aria-expanded={settingsOpen} onclick={() => { settingsMounted = true; settingsOpen = !settingsOpen; }}><Icon name="sliders" /></button>
@@ -292,5 +303,9 @@
         </button>
       {/each}
     </div>
+    <section class="search-mode-help-notes" aria-labelledby="search-mode-notes-title">
+      <h3 id="search-mode-notes-title">Notes</h3>
+      <p>Artist and song or album title affect how results are filtered, ranked, and grouped. Separate them with a hyphen, for example Casiopea - Mint Jams.</p>
+    </section>
   </Modal>
 {/if}

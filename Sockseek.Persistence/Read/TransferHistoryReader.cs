@@ -35,7 +35,8 @@ public sealed record PersistedTransfer(
     string? GroupRef = null,
     string? GroupDisplayPath = null,
     DateTimeOffset? ArchivedAtUtc = null,
-    string? GroupRelativePath = null);
+    string? GroupRelativePath = null,
+    string GroupKind = "Directory");
 
 public sealed record PersistedTransferAttempt(
     Guid Id,
@@ -535,7 +536,7 @@ public sealed class TransferHistoryReader(
             transfer.GroupRef,
             transfer.GroupDisplayPath,
             FromUnix(transfer.ArchivedAtUtc),
-            transfer.GroupRelativePath);
+            transfer.GroupRelativePath, transfer.GroupKind);
 
     private static TransferFileMetadataSnapshot? MapFile(
         Entities.TransferEntity transfer)

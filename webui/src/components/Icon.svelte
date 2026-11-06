@@ -10,7 +10,10 @@
 </script>
 
 <svg class={`app-icon ${className}`} viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  {#if name === 'help'}
+  {#if name === 'search-split' || name === 'search-merge'}
+    <rect x="3.5" y="6.5" width="17" height="11" rx="2" />
+    {#if name === 'search-split'}<path d="M12 6.5v11" />{/if}
+  {:else if name === 'help'}
     <circle cx="12" cy="12" r="9" />
     <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.8-2.5 2-2.5 4" />
     <path d="M12 16.5h.01" />

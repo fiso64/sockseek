@@ -96,7 +96,8 @@ public sealed record TransferPersistenceMutation(
     string? GroupDisplayPath = null,
     IReadOnlyList<TransferAccountingObservation>? AccountingObservations = null,
     string? GroupRelativePath = null,
-    DateTimeOffset? CompletedAtUtc = null)
+    DateTimeOffset? CompletedAtUtc = null,
+    TransferGroupKind GroupKind = TransferGroupKind.Directory)
     : PersistenceMutation(RuntimeId, Sequence, OccurredAtUtc, TransferId, Revision, Priority);
 
 /// <summary>

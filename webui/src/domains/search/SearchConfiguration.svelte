@@ -22,9 +22,11 @@
   let retry = $state(0);
   let loadedKey: string | null = null;
   let validationKey: string | null = null;
-  // Settings edits do not restart resolution. Query/mode changes do, because
-  // auto-profiles and the baseline can depend on the actual search intent.
-  let queryKey = $derived(JSON.stringify([draft.resultMode, draft.mode, draft.query, draft.artist, draft.title]));
+  // Split and merged fields share a key; edits to the text or search mode still
+  // resolve again because auto-profiles can depend on the search intent.
+  let queryKey = $derived(JSON.stringify([draft.resultMode, draft.mode === 'split'
+    ? (draft.artist && draft.title ? `${draft.artist} - ${draft.title}` : draft.artist || draft.title)
+    : draft.query.replace(' — ', ' - ')]));
 
   $effect(() => {
     const key = queryKey;

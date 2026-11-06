@@ -13283,6 +13283,10 @@
               "string"
             ],
             "format": "int32"
+          },
+          "sourceJobAvailable": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -15803,6 +15807,13 @@
                                 "null",
                                 "string"
                               ]
+                            },
+                            "groupKind": {
+                              "enum": [
+                                "Directory",
+                                "Files"
+                              ],
+                              "default": "Directory"
                             }
                           }
                         },
@@ -16887,6 +16898,19 @@
               "string"
             ],
             "format": "int32"
+          },
+          "sourceJobAvailable": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "sourceJobId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -23782,6 +23806,13 @@
                             "null",
                             "string"
                           ]
+                        },
+                        "groupKind": {
+                          "enum": [
+                            "Directory",
+                            "Files"
+                          ],
+                          "default": "Directory"
                         }
                       }
                     },
@@ -26765,6 +26796,13 @@
                                 "null",
                                 "string"
                               ]
+                            },
+                            "groupKind": {
+                              "enum": [
+                                "Directory",
+                                "Files"
+                              ],
+                              "default": "Directory"
                             }
                           }
                         },
@@ -29070,6 +29108,13 @@
           }
         }
       },
+      "TransferGroupKind": {
+        "enum": [
+          "Directory",
+          "Files"
+        ],
+        "default": "Directory"
+      },
       "TransferGroupSummariesRequestDto": {
         "required": [
           "groups"
@@ -29317,6 +29362,9 @@
               "null",
               "string"
             ]
+          },
+          "groupKind": {
+            "$ref": "#/components/schemas/TransferGroupKind"
           }
         }
       },

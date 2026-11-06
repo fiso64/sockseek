@@ -49,6 +49,7 @@ interface UnifiedTransfer {
   username: string | null;
   path: string;
   groupRef: string | null;
+  groupKind: Schema<'TransferGroupKind'>;
   groupDisplayPath: string | null;
   groupRelativePath: string | null;
   sizeBytes: number | null;
@@ -217,11 +218,11 @@ function arrangeRows(
     const run = groupedRows.get(key)!;
     renderedGroups.add(key);
     const summary = summaryByKey.get(key);
-    // Whole-group totals, rather than the fetched page, prove a one-file upload.
-    const singleUpload = direction === 'upload' && summary && Number(summary.fileCount) === 1 && run.length === 1;
+    // Whole-group totals, rather than the fetched page, prove a one-file group.
+    const singleFile = row.groupKind === 'Files' && summary && Number(summary.fileCount) === 1 && run.length === 1;
     entries.push({
-      kind: singleUpload ? 'file' : 'folder',
-      id: singleUpload ? row.id : key,
+      kind: singleFile ? 'file' : 'folder',
+      id: singleFile ? row.id : key,
       rows: run, summary, direction,
     });
   }
@@ -314,6 +315,7 @@ function fromTransfer(value: TransferStateDto): UnifiedTransfer {
     username: value.identity.username ?? null,
     path,
     groupRef: value.identity.groupRef ?? null,
+    groupKind: value.identity.groupKind ?? 'Directory',
     groupDisplayPath: value.identity.groupDisplayPath ?? null,
     groupRelativePath: value.identity.groupRelativePath ?? null,
     sizeBytes: knownNumber(value.file?.size) ?? knownNumber(value.progress.totalBytes),

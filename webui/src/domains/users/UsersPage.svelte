@@ -17,12 +17,12 @@
   import { filteredTreeRows } from './filter-tree';
   import { inheritedSelection, projectSelection } from './selection';
 
-  export type UserBrowseView = 'user' | 'shares';
+  import type { PageState, UserBrowserSession, UserBrowseView } from './session';
 
   const sharePageSize = 1_000;
 
   interface Props {
-    username: string;
+    session: UserBrowserSession;
     view: UserBrowseView;
     liveStatus: LiveConnectionStatus;
     liveClient: DaemonLiveClient;
@@ -35,37 +35,40 @@
   interface TreeRowPage { kind: 'page'; parentKey: string; page: PageState; depth: number; }
   type TreeRow = TreeRowDirectory | TreeRowFile | TreeRowPage;
 
-  interface PageState { directoryCursor: string | null; fileCursor: string | null; loading: boolean; loaded: boolean; error: Error | null; }
-
-  let { username, view, liveStatus, liveClient, onviewchange, onmessageuser }: Props = $props();
-  let profile = $state<UserProfileDto | null>(null);
+  let { session, view, liveStatus, liveClient, onviewchange, onmessageuser }: Props = $props();
+  // App keys this component by session. A new user starts a fresh lifetime;
+  // ordinary navigation restores the saved view without keeping its DOM alive.
+  const username = untrack(() => session.username);
+  const saved = untrack(() => session.snapshot);
+  let profile = $state<UserProfileDto | null>(saved?.profile ?? null);
   let profileLoading = $state(false);
   let profileError = $state<Error | null>(null);
   let profilePictureOpen = $state(false);
-  let browse = $state<UserBrowseDto | null>(null);
+  let browse = $state<UserBrowseDto | null>(saved?.browse ?? null);
   let browseError = $state<Error | null>(null);
-  let directories = $state<Map<string, BrowseDirectoryEntryDto>>(new Map());
-  let childDirectoryIds = $state<Map<string, string[]>>(new Map());
-  let filesByDirectory = $state<Map<string, BrowseFileEntryDto[]>>(new Map());
-  let pageStates = $state<Map<string, PageState>>(new Map());
-  let expanded = $state<Set<string>>(new Set());
-  let filterText = $state('');
-  let filterPage = $state<BrowseSearchPageDto | null>(null);
-  let filterItems = $state<BrowseSearchPageDto['items']>([]);
+  let directories = $state<Map<string, BrowseDirectoryEntryDto>>(saved?.directories ?? new Map());
+  let childDirectoryIds = $state<Map<string, string[]>>(saved?.childDirectoryIds ?? new Map());
+  let filesByDirectory = $state<Map<string, BrowseFileEntryDto[]>>(saved?.filesByDirectory ?? new Map());
+  let pageStates = $state<Map<string, PageState>>(saved?.pageStates ?? new Map());
+  let expanded = $state<Set<string>>(saved?.expanded ?? new Set());
+  let filterText = $state(saved?.filterText ?? '');
+  let filterPage = $state<BrowseSearchPageDto | null>(saved?.filterPage ?? null);
+  let filterItems = $state<BrowseSearchPageDto['items']>(saved?.filterItems ?? []);
   let filterLoading = $state(false);
   let filterError = $state<Error | null>(null);
   let filterRevision = 0;
   let filterRequest: AbortController | null = null;
-  let selected = $state<Set<string>>(new Set());
-  let excludedSelection = $state<Set<string>>(new Set());
+  let selected = $state<Set<string>>(saved?.selected ?? new Set());
+  let excludedSelection = $state<Set<string>>(saved?.excludedSelection ?? new Set());
   // Retain only selected entries and their ancestors across filtered page changes.
-  let selectedParents = $state<Map<string, string | null>>(new Map());
-  let selectedDirectoryCounts = $state<Map<string, number>>(new Map());
-  let selectedDirectoryTotals = $state<Map<string, number>>(new Map());
-  let selectedFileIsPublic = $state<Map<string, boolean>>(new Map());
+  let selectedParents = $state<Map<string, string | null>>(saved?.selectedParents ?? new Map());
+  let selectedDirectoryCounts = $state<Map<string, number>>(saved?.selectedDirectoryCounts ?? new Map());
+  let selectedDirectoryTotals = $state<Map<string, number>>(saved?.selectedDirectoryTotals ?? new Map());
+  let selectedFileIsPublic = $state<Map<string, boolean>>(saved?.selectedFileIsPublic ?? new Map());
   let mutation = $state<MutationState>({ phase: 'idle' });
   let commitKey: string | null = null;
-  let loadedUsername = '';
+  let filterKey = saved?.filterKey ?? '';
+  let collapsedFiltered = $state<Set<string>>(saved?.collapsedFiltered ?? new Set());
   let lifetime = new AbortController();
   let browseTimer: ReturnType<typeof setTimeout> | null = null;
   let browsePollAttempts = 0;
@@ -75,7 +78,7 @@
     && (browse.state === 'queued' || browse.state === 'running') ? browse.browseId : null);
 
   let treeRows = $derived(flattenTree());
-  let filteredRows = $derived(filteredTreeRows(filterItems));
+  let filteredRows = $derived(filteredTreeRows(filterItems, collapsedFiltered));
   let filteredEntries = $derived(new Map(filterItems.map(item => [`${item.kind === 'directory' ? 'd' : 'f'}:${item.entryId}`, item])));
   let loadedFiles = $derived.by(() => {
     const entries = new Map<string, { directoryId: string; isPublic: boolean }>();
@@ -94,14 +97,9 @@
   let pictureUrl = $derived(profile?.picture?.url ? absoluteApiPath(profile.picture.url) : null);
 
   $effect(() => {
-    const currentUsername = username;
     const currentView = view;
     untrack(() => {
-      if (currentUsername !== loadedUsername) {
-        loadedUsername = currentUsername;
-        resetForUser();
-      }
-      if (currentView === 'user' && !profile && !profileLoading) void loadProfile(currentUsername);
+      if (currentView === 'user' && !profile && !profileLoading) void loadProfile(username);
     });
   });
 
@@ -161,6 +159,10 @@
   $effect(() => {
     const query = filterText.trim();
     const browseId = browse?.state === 'complete' ? browse.browseId : null;
+    const key = JSON.stringify([browseId, query]);
+    if (untrack(() => key === filterKey && filterPage !== null)) return;
+    if (key !== filterKey) collapsedFiltered = new Set();
+    filterKey = key;
     filterRequest = null;
     filterRevision++;
     filterPage = null;
@@ -183,6 +185,12 @@
   onDestroy(() => {
     lifetime.abort();
     if (browseTimer) clearTimeout(browseTimer);
+    session.snapshot = {
+      profile, browse, directories, childDirectoryIds, filesByDirectory,
+      pageStates: new Map([...pageStates].map(([key, page]) => [key, { ...page, loading: false }])),
+      expanded, filterText, filterKey, filterPage, filterItems, collapsedFiltered,
+      selected, excludedSelection, selectedParents, selectedDirectoryCounts, selectedDirectoryTotals, selectedFileIsPublic,
+    };
   });
 
   function clearSelection(): void {
@@ -194,28 +202,6 @@
     selectedFileIsPublic = new Map();
     mutation = { phase: 'idle' };
     commitKey = null;
-  }
-
-  function resetForUser(): void {
-    lifetime.abort();
-    lifetime = new AbortController();
-    if (browseTimer) clearTimeout(browseTimer);
-    browseTimer = null;
-    browsePollAttempts = 0;
-    profile = null;
-    profileLoading = false;
-    profileError = null;
-    browse = null;
-    browseError = null;
-    directories = new Map();
-    childDirectoryIds = new Map();
-    filesByDirectory = new Map();
-    pageStates = new Map();
-    expanded = new Set();
-    filterText = '';
-    filterPage = null;
-    filterItems = [];
-    clearSelection();
   }
 
   async function loadProfile(value: string, refresh = false): Promise<void> {
@@ -251,6 +237,7 @@
     if (!browse || view !== 'shares' || lifetime.signal.aborted) return;
     if (browse.state === 'complete') {
       if (!pageStates.get('root')?.loaded) await loadChildren(null, true);
+      for (const id of expanded) if (!pageStates.get(id)?.loaded) void loadChildren(id);
       return;
     }
     if (browse.state === 'failed' || browse.state === 'cancelled') {
@@ -314,6 +301,12 @@
     if (next.has(id)) next.delete(id); else next.add(id);
     expanded = next;
     if (next.has(id)) await loadChildren(entry.directoryId);
+  }
+
+  function toggleFilteredDirectory(id: string, open = collapsedFiltered.has(id)): void {
+    const next = new Set(collapsedFiltered);
+    if (open) next.delete(id); else next.add(id);
+    collapsedFiltered = next;
   }
 
   function flattenTree(): TreeRow[] {
@@ -533,9 +526,13 @@
   revision: [treeRows, filteredRows, filterLoading],
   toggle: key => toggleSelection(key, !isSelectionChecked(key)),
   horizontal: (direction, key) => {
-    if (direction !== 1 || !key?.startsWith('d:') || filterText.trim()) return;
-    const directory = directories.get(key.slice(2));
-    if (directory) void toggleDirectory(directory);
+    if (!key?.startsWith('d:')) return;
+    const id = key.slice(2);
+    if (filterText.trim()) toggleFilteredDirectory(id, direction === 1);
+    else {
+      const directory = directories.get(id);
+      if (directory && expanded.has(id) !== (direction === 1)) void toggleDirectory(directory);
+    }
   },
   loadPage: key => {
     if (filterText.trim()) {
@@ -544,7 +541,7 @@
   },
 }}>
   <header class="user-browser-heading">
-    <div><p class="eyebrow">Network</p><h1>User browser</h1></div>
+    <div><h1>User browser</h1></div>
     <nav class="user-view-tabs" aria-label="User browser views">
       <button type="button" class:active={view === 'user'}
         aria-current={view === 'user' ? 'page' : undefined}
@@ -701,8 +698,8 @@
                   {@const count = Number(item.totalSubtreeFileCount ?? item.publicSubtreeFileCount ?? 0)}
                   <div data-keyboard-item={key} tabindex="-1" class="share-tree-row folder" style={`--share-depth:${depth}`} title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
                     <input type="checkbox" use:indeterminate={isFolderPartial(key)} aria-label={`Select ${item.displayPath}`} checked={isSelectionChecked(key)}  onchange={(event) => toggleSelection(key, (event.currentTarget as HTMLInputElement).checked)}/>
-                    <button type="button" class="share-tree-folder-button" aria-label={`Collapse ${item.name}`} aria-expanded={true} disabled>
-                      <span class="share-tree-toggle expanded" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg></span>
+                    <button type="button" class="share-tree-folder-button" aria-label={`${collapsedFiltered.has(String(item.entryId)) ? 'Expand' : 'Collapse'} ${item.name}`} aria-expanded={!collapsedFiltered.has(String(item.entryId))} onclick={() => toggleFilteredDirectory(String(item.entryId))}>
+                      <span class="share-tree-toggle" class:expanded={!collapsedFiltered.has(String(item.entryId))} aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg></span>
                       <span class="share-tree-icon"><Icon name="folder"/></span>
                       <strong class="share-tree-name" title={item.displayPath}>{item.name}</strong>
                       {#if item.visibility !== 'public'}<span class={`share-visibility ${item.visibility}`}>{item.visibility === 'locked' ? 'Locked' : 'Mixed'}</span>{/if}

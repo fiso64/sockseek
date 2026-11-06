@@ -655,7 +655,7 @@ describe('Search View request isolation', () => {
       override async getJob() {
         jobReads += 1;
         return { summary: { jobId: 'retrieval-job', lifecycleState: terminal ? 'Terminal' : 'Running',
-          terminalOutcome: terminal ? 'Succeeded' : null }, payload: null, childCount: 0 } as Schema<'JobDetailDto'>;
+          terminalOutcome: terminal ? 'Succeeded' : null }, payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string) { return { summary: summary(id), hasNewRevision: false }; }
       override async createSearchView() { return summary('new-view'); }
@@ -693,7 +693,7 @@ describe('Search View request isolation', () => {
       override async getJob() {
         jobReads += 1;
         return { summary: { jobId: 'retrieval-job', lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' },
-          payload: null, childCount: 0 } as Schema<'JobDetailDto'>;
+          payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string) { return { summary: summary(id), hasNewRevision: false }; }
       override async createSearchView() { return summary('new-view'); }
@@ -728,7 +728,7 @@ describe('Search View request isolation', () => {
       }
       override async getJob() {
         return { summary: { jobId: 'retrieval-job', lifecycleState: 'Running' },
-          payload: null, childCount: 0 } as Schema<'JobDetailDto'>;
+          payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string) {
         return { summary: summary(id), hasNewRevision: false };
@@ -760,7 +760,7 @@ describe('Search View request isolation', () => {
       }
       override async getJob() {
         return { summary: { jobId: 'retrieval-job', lifecycleState: 'Running' },
-          payload: null, childCount: 0 } as Schema<'JobDetailDto'>;
+          payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string) {
         return { summary: summary(id), hasNewRevision: false };
@@ -794,7 +794,7 @@ describe('Search View request isolation', () => {
       }
       override async getJob() {
         return { summary: { jobId: 'retrieval-job', lifecycleState: 'Running' },
-          payload: null, childCount: 0 } as Schema<'JobDetailDto'>;
+          payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string) {
         return { summary: summary(id), hasNewRevision: false };
@@ -832,7 +832,7 @@ describe('Search View request isolation', () => {
       override async getJob() {
         jobReads += 1;
         return { summary: { jobId: 'new-retrieval', lifecycleState: 'Running' },
-          payload: null, childCount: 0 } as Schema<'JobDetailDto'>;
+          payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string) {
         return { summary: summary(id), hasNewRevision: false };
@@ -1526,7 +1526,7 @@ describe('Search View request isolation', () => {
       override async retrieveSearchViewDirectory(_id: string, _revision: number | string, directory: Schema<'PeerDirectoryRefDto'>) { return { jobId: directory.ref }; }
       override async getJob(id: string): Promise<Schema<'JobDetailDto'>> {
         if (id === 'first' && failFirst) throw new Error('First status unavailable');
-        return { summary: { jobId: id, lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' }, payload: null, childCount: 0 };
+        return { summary: { jobId: id, lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' }, payload: null, childCount: 0, sourceJobAvailable: false };
       }
       override async getSearchViewUpdate(id: string) { return { summary: summary(id), hasNewRevision: false }; }
       override async getSearchViewDirectoryFiles(id: string, ref: string) {
@@ -1562,7 +1562,7 @@ describe('Search View request isolation', () => {
         return { jobId: 'original-retrieval' } as Schema<'JobSummaryDto'>;
       }
       override async getJob() {
-        return { summary: { jobId: 'original-retrieval', lifecycleState: 'Running' }, payload: null, childCount: 0 } as Schema<'JobDetailDto'>;
+        return { summary: { jobId: 'original-retrieval', lifecycleState: 'Running' }, payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string) { return { summary: summary(id), hasNewRevision: false }; }
     }
@@ -1601,7 +1601,7 @@ describe('Search View request isolation', () => {
       override async getJob(id: string) {
         return { summary: { jobId: id, lifecycleState: id === 'second-job' ? 'Terminal' : 'Running',
           terminalOutcome: id === 'second-job' ? 'Succeeded' : null },
-          payload: null, childCount: 0 } as Schema<'JobDetailDto'>;
+          payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string, requestedRevision: number | string) {
         return { summary: summary(id, revision), hasNewRevision: Number(requestedRevision) !== revision };

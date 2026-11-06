@@ -38,10 +38,12 @@ test('removes a terminal user root from detail, retaining rejected actions and a
   const root = await response.json() as Schema<'JobSummaryDto'>;
   expect(root.submissionId).toBeTruthy();
   await page.goto(`/jobs/${root.jobId}`);
-  const remove = page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Remove', exact: true });
+  const remove = page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Delete', exact: true });
   await expect(remove).toBeVisible();
   await page.locator('.job-child-open').click();
-  await expect(page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Remove', exact: true })).toBeVisible();
+  await expect(page.locator('.job-content-section .job-source-summary')).toContainText('From: fixture-peer');
+  await expect(page.locator('.job-detail-meta')).not.toContainText('fixture-peer');
+  await expect(page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Back to Archive detail fixture', exact: true }).click();
 
   let rejectArchive = true;
@@ -100,7 +102,7 @@ test('does not navigate away from a new page when an earlier detail archive fini
   const archivePath = `/api/submissions/${root.submissionId}/archive`;
   await page.route(`**${archivePath}`, async (route) => { admitted(); await released; await route.continue(); });
   const archived = page.waitForResponse((reply) => new URL(reply.url()).pathname === archivePath && reply.ok());
-  await page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Remove', exact: true }).click();
+  await page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Delete', exact: true }).click();
   await admission;
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
@@ -248,9 +250,9 @@ test('shows the accepted remote-directory files and keeps them after completion'
   await expect(page.locator('.job-child-row .job-child-stat')).toHaveText('0/2 complete');
   await expect(page.locator('.job-child-row .job-child-progress')).toHaveAttribute('aria-label', /\d+% complete/);
   await page.locator('.job-child-open').filter({ hasText: 'Fixture' }).click();
-  await expect(page.getByRole('heading', { name: 'Remote directory', exact: true })).toBeVisible();
-  await expect(page.locator('.job-detail-title')).toContainText('Soulseek directory');
-  await expect(page.locator('.job-detail-context-line')).toContainText('fixture-peer');
+  await expect(page.locator('.job-detail-meta')).toContainText('Remote Directory');
+  await expect(page.locator('.job-detail-meta')).not.toContainText('fixture-peer');
+  await expect(page.locator('.job-content-section .job-source-summary')).toContainText('From: fixture-peer');
   await expect(page.locator('.job-related-section')).toHaveCount(0);
   const folder = page.locator('.folder-item-card');
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
@@ -305,7 +307,7 @@ test('shows the accepted remote-directory files and keeps them after completion'
     : manifestRead === 'missing' ? route.fulfill({ status: 404, contentType: 'application/json',
       body: JSON.stringify({ message: 'Accepted plan not retained' }) }) : route.continue());
   await page.reload();
-  await expect(page.locator('.job-detail-context-line')).toContainText('fixture-peer');
+  await expect(page.locator('.job-content-section .job-source-summary')).toContainText('From: fixture-peer');
   const manifestAlert = page.getByRole('alert').filter({ hasText: 'Directory files unavailable' });
   await expect(manifestAlert).toBeVisible();
   await expect(folder.locator('.transfer-state').first()).toHaveText('Complete');
@@ -326,7 +328,7 @@ test('shows the accepted remote-directory files and keeps them after completion'
   await page.reload();
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
   await page.setViewportSize({ width: 390, height: 900 });
-  await expect(page.locator('.job-detail-heading-summary > span:not(.search-status-badge):not(.job-detail-age)')).toBeHidden();
+  await expect(page.locator('.job-content-section .job-source-summary')).toContainText('From: fixture-peer');
   await expect(page.locator('.job-detail-age time')).toBeVisible();
   expect(childReads.filter(id => id === jobId), 'Folder files already carry their child state in the manifest.').toHaveLength(0);
 });
@@ -380,6 +382,7 @@ test('retains named album outputs and pages appended artwork through missing his
   expect(response.status(), await response.text()).toBe(202);
   const job = await response.json() as Schema<'JobSummaryDto'>;
   await page.goto(`/jobs/${job.jobId}`);
+  await expect(page.locator('.job-content-section .job-source-summary')).toContainText('From: fixture-peer');
   const folder = page.locator('.folder-item-card');
   await expect(folder.locator('.folder-file-row')).toHaveCount(3);
   const art = folder.locator('.folder-file-row').filter({ hasText: 'Cover.jpg' });

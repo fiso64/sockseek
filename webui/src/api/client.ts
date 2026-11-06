@@ -493,7 +493,10 @@ function searchDraftFromDetail(
   const payload = detail.payload?.kind === 'search' ? detail.payload : null;
   const song = payload?.songQuery;
   const album = payload?.albumQuery;
-  const split = Boolean(song?.artist || album?.artist || album?.album);
+  const aggregate = kind === 'AggregateTracks' || kind === 'AggregateAlbums';
+  const split = aggregate
+    ? Boolean(song?.title || album?.album || album?.searchHint)
+    : Boolean(song?.artist || album?.artist || (album?.album && album?.searchHint));
   const modes: Record<SearchViewSummaryDto['kind'], SearchResultMode> = {
     Files: 'track',
     GenericDirectories: 'generic',
@@ -504,7 +507,7 @@ function searchDraftFromDetail(
   return {
     mode: split ? 'split' : 'simple',
     resultMode: modes[kind],
-    query: split ? '' : song?.title ?? album?.searchHint ?? payload?.queryText ?? detail.summary.queryText ?? detail.summary.itemName ?? '',
+    query: split ? '' : (aggregate ? song?.artist ?? album?.artist : song?.title ?? album?.album ?? album?.searchHint) ?? payload?.queryText ?? detail.summary.queryText ?? detail.summary.itemName ?? '',
     artist: song?.artist ?? album?.artist ?? '',
     title: song?.title ?? album?.album ?? '',
     expectedLength: song?.length != null && Number(song.length) >= 0 ? Number(song.length) : undefined,

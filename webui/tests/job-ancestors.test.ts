@@ -16,7 +16,7 @@ it('stops before fetching more ancestors after navigation aborts', async () => {
   const controller = new AbortController();
   const fetch = vi.fn(async () => {
     controller.abort();
-    return { summary: { jobId: 'parent', parentJobId: 'root' }, payload: null, childCount: 1 };
+    return { summary: { jobId: 'parent', parentJobId: 'root' }, payload: null, childCount: 1, sourceJobAvailable: false };
   });
   await expect(loadJobAncestors('parent', fetch, controller.signal)).rejects.toThrow();
   expect(fetch).toHaveBeenCalledTimes(1);

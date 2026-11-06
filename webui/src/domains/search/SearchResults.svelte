@@ -117,6 +117,11 @@
   let configurationLoading = $state(false);
   let configurationError = $state<Error | null>(null);
   let conditionsOpen = $state(false);
+  let preferredHelpOpen = $state(false);
+  let preferredHelpPinned = false;
+  let preferredHelpHovered = false;
+  let preferredHelpButton = $state<HTMLButtonElement>();
+  let preferredHelpPanel = $state<HTMLElement>();
   let conditionsButton = $state<HTMLButtonElement>();
   let conditionsPopover = $state<HTMLElement>();
   let lastRequestedFingerprint = $state<string | null>(null);
@@ -328,14 +333,23 @@
 
   function windowKeydown(event: KeyboardEvent): void {
     if (event.key !== 'Escape') return;
-    if (viewState.aggregateOptions) oncloseoptions();
+    if (preferredHelpOpen) {
+      preferredHelpOpen = false;
+      preferredHelpPinned = false;
+      preferredHelpButton?.blur();
+      event.preventDefault();
+    } else if (viewState.aggregateOptions) oncloseoptions();
     else if (downloadOptionsOpen) downloadOptionsOpen = false;
     else if (conditionsOpen) conditionsOpen = false;
   }
 
   function windowPointerDown(event: PointerEvent): void {
-    if (!conditionsOpen || !(event.target instanceof Node)) return;
-    if (conditionsButton?.contains(event.target) || conditionsPopover?.contains(event.target)) return;
+    if (!(event.target instanceof Node)) return;
+    if (!preferredHelpButton?.contains(event.target) && !preferredHelpPanel?.contains(event.target)) {
+      preferredHelpOpen = false;
+      preferredHelpPinned = false;
+    }
+    if (!conditionsOpen || conditionsButton?.contains(event.target) || conditionsPopover?.contains(event.target)) return;
     conditionsOpen = false;
   }
   let downloadOptionsOpen = $state(false);
@@ -728,11 +742,11 @@
   {#if viewState.phase !== 'failed'}
   <div class="result-refine-wrap">
     <div class="result-refine-row">
-      <ResultFilterControl bind:value={() => filterText, changeFilter} placeholder={genericMode ? 'Filter files or directories…' : 'Filter results…'} ariaLabel="Filter search results" />
-      <button bind:this={conditionsButton} type="button" class:active={conditionsOpen} class="edit-conditions-button" aria-expanded={conditionsOpen} disabled={configurationLoading || !baseline} onclick={() => (conditionsOpen = !conditionsOpen)}>
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h12"/><circle cx="8" cy="5" r="1.6"/><circle cx="13" cy="10" r="1.6"/><circle cx="7" cy="15" r="1.6"/></svg>
-        Filtering
-      </button>
+      <ResultFilterControl bind:value={() => filterText, changeFilter} placeholder={genericMode ? 'Filter files or directories…' : 'Filter results…'} ariaLabel="Filter search results">
+        <button bind:this={conditionsButton} type="button" class:active={conditionsOpen} class="edit-conditions-button" aria-label="Filtering" title="Filtering" aria-expanded={conditionsOpen} disabled={configurationLoading || !baseline} onclick={() => (conditionsOpen = !conditionsOpen)}>
+          <Icon name="sliders" />
+        </button>
+      </ResultFilterControl>
       {#if !aggregateMode}
         <div class="result-sort-control">
           <label for="result-sort">Sort</label>
@@ -858,7 +872,28 @@
     </div>
   {:else}
     {#each groupedTiers as { tier, count, groups } (tier)}
-        {#if tier !== 'All'}<div class:preferred={tier === 'Preferred'} class="result-tier-heading"><span>{tier === 'Preferred' ? 'Preferred matches' : 'Other matches'}</span><small>{count}</small></div>{/if}
+        {#if tier !== 'All' && (tier !== 'Other' || groupedTiers.some(group => group.tier === 'Preferred'))}
+          <div class:preferred={tier === 'Preferred'} class="result-tier-heading">
+            <span>{tier === 'Preferred' ? 'Preferred matches' : 'Other matches'}</span><small>{count}</small>
+            {#if tier === 'Preferred'}
+              <span class="preferred-help" role="group" aria-label="Preferred match information" onpointerenter={(event) => { if (event.pointerType !== 'touch') { preferredHelpHovered = true; preferredHelpOpen = true; } }}
+                onpointerleave={() => { preferredHelpHovered = false; if (!preferredHelpPinned && document.activeElement !== preferredHelpButton) preferredHelpOpen = false; }}>
+                <button bind:this={preferredHelpButton} type="button" class="preferred-help-button" aria-label="About preferred matches"
+                  aria-expanded={preferredHelpOpen} aria-describedby={preferredHelpOpen ? 'preferred-matches-help' : undefined}
+                  onfocus={() => preferredHelpOpen = true}
+                  onblur={() => { if (!preferredHelpPinned && !preferredHelpHovered) preferredHelpOpen = false; }}
+                  onclick={() => { preferredHelpPinned = !preferredHelpPinned; preferredHelpOpen = preferredHelpPinned; }}><Icon name="help" /></button>
+                {#if preferredHelpOpen}
+                  <span bind:this={preferredHelpPanel} id="preferred-matches-help" role="tooltip" class="preferred-help-panel"
+                    use:anchoredPopover={{ anchor: preferredHelpButton, align: 'start', gap: 0, viewportMargin: 12, minHeight: 100 }}>
+                    <strong>Preferred matches</strong>
+                    <span>These results meet your preferences in Search configuration → Ranking, such as preferred formats and audio quality. Results that do not meet those preferences appear below under Other matches.</span>
+                  </span>
+                {/if}
+              </span>
+            {/if}
+          </div>
+        {/if}
         <div class:preferred-tier={tier === 'Preferred'} class="result-tier">
           {#each groups as group (group.key)}
             {@const first = group.rows[0]}

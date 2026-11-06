@@ -142,6 +142,10 @@ public sealed record TransferFileMetadataSnapshot(
     int? Length,
     IReadOnlyList<FileAttributeSnapshot>? Attributes = null);
 
+// Directory selections remain folder cards even with one member. Files groups
+// collect independent transfers and may be presented as a single file.
+public enum TransferGroupKind { Directory, Files }
+
 public sealed record TransferSnapshot(
     Guid Id,
     TransferSnapshotDirection Direction,
@@ -170,7 +174,8 @@ public sealed record TransferSnapshot(
     string? GroupRef = null,
     string? GroupDisplayPath = null,
     string? GroupRelativePath = null,
-    DateTimeOffset? CompletedAtUtc = null);
+    DateTimeOffset? CompletedAtUtc = null,
+    TransferGroupKind GroupKind = TransferGroupKind.Directory);
 
 public sealed record FileSearchProjectionSnapshot(SongQuerySnapshot Query, bool IncludeFullResults);
 

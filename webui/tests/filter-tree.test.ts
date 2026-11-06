@@ -43,3 +43,16 @@ test('isolates cyclic hierarchy components without losing valid roots or looping
   const valid = directory('3', null);
   expect(filteredTreeRows([first, second, valid]).map(({ entry }) => entry.entryId)).toEqual(['3', '1', '2']);
 });
+
+
+test('collapsing filtered folders hides descendants without turning them into orphan roots', () => {
+  const root = directory('1', null);
+  const child = directory('2', '1');
+  const sibling = directory('3', null);
+  const direct: Entry = { ...root, kind: 'file', entryId: '4' };
+  const nested: Entry = { ...child, kind: 'file', entryId: '5' };
+  const items = [root, child, sibling, direct, nested];
+  expect(filteredTreeRows(items, new Set(['1'])).map(({ entry }) => entry.entryId)).toEqual(['1', '3']);
+  expect(filteredTreeRows(items, new Set(['2'])).map(({ entry }) => entry.entryId)).toEqual(['1', '4', '2', '3']);
+  expect(filteredTreeRows(items).map(({ entry }) => entry.entryId)).toEqual(['1', '4', '2', '5', '3']);
+});

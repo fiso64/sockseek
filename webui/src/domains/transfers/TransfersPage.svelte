@@ -441,7 +441,7 @@
 
 <section class={`page ${direction}s-page`}>
   <header class="page-heading transfers-heading">
-    <div><p class="eyebrow">Transfers</p><h1>{direction === 'download' ? 'Downloads' : 'Uploads'}</h1></div>
+    <div><h1>{direction === 'download' ? 'Downloads' : 'Uploads'}</h1></div>
     <TransferBulkActions
       mode={bulkCancelMode}
       canCancel={canBulkCancel}
@@ -491,7 +491,7 @@
                   </FileItemCard>
                 {:else}
                   {@const memberPage = activeMemberPages[groupPageKey(entry.username, entry.groupRef)]}
-                  <FolderItemCard path={entry.path} sizeBytes={entry.sizeBytes} files={entry.files} totalFileCount={entry.summaryAvailable ? entry.totalFileCount : null} filesComplete={entry.filesComplete} dataStateLabel={entry.summaryAvailable ? entry.filesComplete ? undefined : 'Showing loaded files; folder totals and actions cover the entire directory.' : 'Size, progress and status cover loaded files only. Folder actions apply to the entire directory.'} transfer={entry.transfer} onloadmorefiles={entry.summaryAvailable && (!entry.filesComplete || memberPage?.error) ? () => void loadGroupMembers(entry) : undefined} loadingMoreFiles={Boolean(memberPage?.loading || summaryCoverage === null)} fileLoadError={memberPage?.error ?? null}>
+                  <FolderItemCard path={entry.path} sizeBytes={entry.sizeBytes} files={entry.files} totalFileCount={entry.summaryAvailable ? entry.totalFileCount : null} filesComplete={entry.filesComplete} dataStateLabel={entry.summaryAvailable ? entry.filesComplete ? undefined : 'Showing loaded files; folder totals and actions cover the entire group.' : 'Size, progress and status cover loaded files only. Folder actions apply to the entire group.'} transfer={entry.transfer} onloadmorefiles={entry.summaryAvailable && (!entry.filesComplete || memberPage?.error) ? () => void loadGroupMembers(entry) : undefined} loadingMoreFiles={Boolean(memberPage?.loading || summaryCoverage === null)} fileLoadError={memberPage?.error ?? null}>
                     {#snippet actions()}
                       {#if entry.transfer.cancellable}<TransferItemActionButton label={`Cancel ${basename(entry.path)}`} disabled={mutation.phase === 'pending'} onclick={() => cancelEntry(entry)} />
                       {:else if isTerminalTransfer(entry.transfer)}<TransferItemActionButton kind="remove" label={`Remove ${basename(entry.path)}`} disabled={mutation.phase === 'pending'} onclick={() => archiveEntry(entry)} />{/if}

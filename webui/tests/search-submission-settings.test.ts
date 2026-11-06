@@ -23,6 +23,52 @@ it('restores album context and search hints independently on reopening', async (
   expect(albumQuery(opened.draft)).toEqual(query);
 });
 
+
+it.each<SearchResultMode>(['album'])(
+  'submits unsplit %s input as an album and restores it when reopened', async (resultMode) => {
+    const http = new DaemonHttpClient();
+    const post = vi.spyOn(http, 'post').mockResolvedValueOnce({ jobId: 'job' })
+      .mockResolvedValueOnce({ viewId: 'view' })
+      .mockResolvedValueOnce({ kind: resultMode === 'album' ? 'AlbumDirectories' : 'AggregateAlbums' });
+    const client = new DaemonApiClient(http);
+    await client.submitSearch({ ...emptySearchDraft, mode: 'simple', resultMode, query: '  Mint Jams  ' });
+    const expected = { artist: null, album: 'Mint Jams', searchHint: null };
+    expect(post.mock.calls[0]?.[1]).toMatchObject({ albumQuery: expected });
+    expect(post.mock.calls[1]?.[1]).toMatchObject({ albumQuery: expected });
+    vi.spyOn(http, 'get').mockResolvedValue({ summary: { jobId: 'job' }, payload: {
+      kind: 'search', defaultProjection: 'Album', aggregatePresentation: resultMode === 'album-aggregate',
+      albumQuery: expected,
+    } });
+    const opened = await client.openSearchJob({ jobId: 'job' });
+    expect(opened.draft).toMatchObject({ mode: 'simple', query: 'Mint Jams', resultMode });
+    expect(albumQuery(opened.draft)).toMatchObject(expected);
+  },
+);
+
+it.each<SearchResultMode>(['song-aggregate', 'album-aggregate'])(
+  'submits unsplit %s as an artist and restores it on reopen', async resultMode => {
+    const http = new DaemonHttpClient();
+    const kind = resultMode === 'song-aggregate' ? 'AggregateTracks' : 'AggregateAlbums';
+    const field = resultMode === 'song-aggregate' ? 'songQuery' : 'albumQuery';
+    const post = vi.spyOn(http, 'post').mockResolvedValueOnce({ jobId: 'job' })
+      .mockResolvedValueOnce({ viewId: 'view' }).mockResolvedValueOnce({ kind });
+    const client = new DaemonApiClient(http);
+    await client.submitSearch({ ...emptySearchDraft, mode: 'simple', resultMode, query: '  Casiopea  ' });
+    const query = resultMode === 'song-aggregate' ? { artist: 'Casiopea', title: null } : { artist: 'Casiopea', album: null, searchHint: null };
+    expect(post.mock.calls[0]?.[1]).toMatchObject({ [field]: query });
+    expect(post.mock.calls[1]?.[1]).toMatchObject({ [field]: query });
+    vi.spyOn(http, 'get').mockResolvedValue({ summary: { jobId: 'job' }, payload: {
+      kind: 'search', defaultProjection: resultMode === 'song-aggregate' ? 'Track' : 'Album',
+      aggregatePresentation: true, [field]: query,
+    } });
+    const opened = await client.openSearchJob({ jobId: 'job' });
+    expect(opened.draft).toMatchObject({ mode: 'simple', query: 'Casiopea', resultMode });
+    const merged = { ...opened.draft, query: 'Casiopea - Take Me' };
+    expect(resultMode === 'song-aggregate' ? songQuery(merged) : albumQuery(merged))
+      .toMatchObject(resultMode === 'song-aggregate' ? { artist: 'Casiopea', title: 'Take Me' } : { artist: 'Casiopea', album: 'Take Me' });
+  },
+);
+
 it('keeps expected length in the song query for both input layouts', () => {
   const draft = { ...emptySearchDraft, query: 'Track', expectedLength: 180 };
   expect(songQuery(draft).length).toBe(180);

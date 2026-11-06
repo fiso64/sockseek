@@ -10,7 +10,7 @@ test('a cancelled list snapshot cannot resurrect an archived submission', async 
   expect(response.status(), await response.text()).toBe(202);
   const root = await response.json() as Schema<'JobSummaryDto'>;
   await page.goto(`/jobs/${root.jobId}`);
-  const remove = page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Remove', exact: true });
+  const remove = page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Delete', exact: true });
   await expect(remove).toBeVisible();
 
   let oldCaptured!: () => void, freshCaptured!: () => void;

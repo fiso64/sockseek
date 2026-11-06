@@ -9160,6 +9160,8 @@ export interface components {
             payload?: null | components["schemas"]["JobPayloadDto"];
             /** Format: int32 */
             childCount: number | string;
+            /** @default false */
+            sourceJobAvailable: boolean;
         };
         JobDiscoveryFieldsDto: {
             /** Format: int32 */
@@ -9700,6 +9702,11 @@ export interface components {
                             peerUploadSpeed?: null | number | string;
                             peerHasFreeUploadSlot?: null | boolean;
                             groupRelativePath?: null | string;
+                            /**
+                             * @default Directory
+                             * @enum {unknown}
+                             */
+                            groupKind: "Directory" | "Files";
                         };
                         status: {
                             state: string;
@@ -9984,6 +9991,9 @@ export interface components {
             childCount?: null | number | string;
             /** Format: int32 */
             retrievalChildCount?: null | number | string;
+            sourceJobAvailable?: null | boolean;
+            /** Format: uuid */
+            sourceJobId?: null | string;
         };
         JobPayloadDto: components["schemas"]["JobPayloadDtoExtractJobPayloadDto"] | components["schemas"]["JobPayloadDtoSearchJobPayloadDto"] | components["schemas"]["JobPayloadDtoSongJobPayloadDto"] | components["schemas"]["JobPayloadDtoAlbumJobPayloadDto"] | components["schemas"]["JobPayloadDtoAggregateJobPayloadDto"] | components["schemas"]["JobPayloadDtoAlbumAggregateJobPayloadDto"] | components["schemas"]["JobPayloadDtoJobListPayloadDto"] | components["schemas"]["JobPayloadDtoRetrieveFolderJobPayloadDto"] | components["schemas"]["JobPayloadDtoRemoteFileJobPayloadDto"] | components["schemas"]["JobPayloadDtoRemoteDirectoryJobPayloadDto"] | components["schemas"]["JobPayloadDtoGenericJobPayloadDto"];
         JobPayloadDtoAggregateJobPayloadDto: {
@@ -11589,6 +11599,11 @@ export interface components {
                         peerUploadSpeed?: null | number | string;
                         peerHasFreeUploadSlot?: null | boolean;
                         groupRelativePath?: null | string;
+                        /**
+                         * @default Directory
+                         * @enum {unknown}
+                         */
+                        groupKind: "Directory" | "Files";
                     };
                     status: {
                         state: string;
@@ -12301,6 +12316,11 @@ export interface components {
                             peerUploadSpeed?: null | number | string;
                             peerHasFreeUploadSlot?: null | boolean;
                             groupRelativePath?: null | string;
+                            /**
+                             * @default Directory
+                             * @enum {unknown}
+                             */
+                            groupKind: "Directory" | "Files";
                         };
                         status: {
                             state: string;
@@ -12856,6 +12876,11 @@ export interface components {
             username?: null | string;
             groupRef: string;
         };
+        /**
+         * @default Directory
+         * @enum {unknown}
+         */
+        TransferGroupKind: "Directory" | "Files";
         TransferGroupSummariesRequestDto: {
             groups: components["schemas"]["TransferGroupKeyDto"][];
         };
@@ -12909,6 +12934,7 @@ export interface components {
             peerUploadSpeed?: null | number | string;
             peerHasFreeUploadSlot?: null | boolean;
             groupRelativePath?: null | string;
+            groupKind?: components["schemas"]["TransferGroupKind"];
         };
         TransferLookupRequestDto: {
             transferIds: string[];

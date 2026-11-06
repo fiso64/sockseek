@@ -250,6 +250,9 @@ internal sealed class JobState
         return (jobIds, searchJobIds);
     }
 
+    public bool IsJobAvailable(Guid jobId)
+        => records.TryGetValue(jobId, out var record) && MatchesJobArchive(record.Current, archived: false);
+
     public JobSummaryDto? GetJobSummary(Guid jobId)
     {
         return records.TryGetValue(jobId, out var record)

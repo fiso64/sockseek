@@ -37,6 +37,21 @@ test('renders populated and partial peer profiles without inventing missing fact
   expect(profileReads).toEqual(['/api/users/fixture-peer/profile']);
   expect(browseRequests).toEqual([]);
 
+  // Neither top-level navigation nor the search-mode picker follows the
+  // profile's user into an as-yet unopened Shares tab.
+  await navigation.getByRole('button', { name: 'Shares', exact: true }).click();
+  await expect(page).toHaveURL(/\/shares$/);
+  await expect(page.getByText('No shares to display', { exact: true })).toBeVisible();
+  expect(browseRequests).toEqual([]);
+  await navigation.getByRole('button', { name: 'Users', exact: true }).click();
+  await page.getByRole('button', { name: 'User browse mode: User. Choose mode.', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Shares', exact: true }).click();
+  await expect(page.getByText('No shares to display', { exact: true })).toBeVisible();
+  expect(browseRequests).toEqual([]);
+  await navigation.getByRole('button', { name: 'Users', exact: true }).click();
+  await expect(card).toBeVisible();
+  expect(profileReads).toEqual(['/api/users/fixture-peer/profile']);
+
   await expect(card.locator('.user-profile-description')).toContainText('A small shared library.');
   await expect(card.locator('.user-profile-description')).toHaveCSS('white-space', 'pre-wrap');
   expect(await card.locator('.user-profile-description').textContent()).toContain('library.\n\nMore');
@@ -62,6 +77,7 @@ test('renders populated and partial peer profiles without inventing missing fact
   await expect(navigation.getByRole('button', { name: 'Shares', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page).toHaveURL(/\/shares\/fixture-peer$/);
   await expect(card).toHaveCount(0);
+  await expect(page.locator('.shares-username')).toHaveText('fixture-peer');
   await page.locator('.user-view-tabs').getByRole('button', { name: 'User', exact: true }).click();
   await expect(navigation.getByRole('button', { name: 'Users', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(card).toBeVisible();
@@ -69,7 +85,8 @@ test('renders populated and partial peer profiles without inventing missing fact
   // Actual peer-section failures, not fabricated HTTP DTOs. A successful zero
   // must remain zero/false, whereas an omitted unknown must not become either.
   const infoResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/users/info-unavailable-peer/profile');
-  await page.goto('/users/info-unavailable-peer');
+  await input.fill('info-unavailable-peer');
+  await input.press('Enter');
   const info = await (await infoResponse).json();
   expect(info).not.toHaveProperty('hasFreeUploadSlot');
   expect(info.statistics.state).toBe('available');
@@ -77,6 +94,16 @@ test('renders populated and partial peer profiles without inventing missing fact
   await expect(card.locator('.user-capacity-inline strong')).toHaveText(['—', '—']);
   await expect(card.locator('.user-profile-stats strong')).toHaveText(['0', '0', '—', '0']);
   await expect(card.getByLabel('Profile section availability')).toContainText('Info unavailable');
+
+  // The two tabs remember different users. Sidebar navigation restores the
+  // shares already opened through the explicit page toggle.
+  const previousBrowseRequests = browseRequests.length;
+  await navigation.getByRole('button', { name: 'Shares', exact: true }).click();
+  await expect(page).toHaveURL(/\/shares\/fixture-peer$/);
+  await expect(page.locator('.shares-username')).toHaveText('fixture-peer');
+  expect(browseRequests).toHaveLength(previousBrowseRequests);
+  await navigation.getByRole('button', { name: 'Users', exact: true }).click();
+  await expect(card.getByRole('heading', { name: 'info-unavailable-peer' })).toBeVisible();
 
   const statisticsResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/users/statistics-unavailable-peer/profile');
   await page.goto('/users/statistics-unavailable-peer');
@@ -167,7 +194,7 @@ test('filters shared files through the daemon and restores the tree when cleared
   await expect(page.getByText('Unselected.txt', { exact: true })).toBeVisible();
   await expect(page.getByText('Selected.txt', { exact: true })).toHaveCount(0);
   const folderRow = page.locator('.share-tree-row.folder').filter({ has: page.getByText('Fixture', { exact: true }) });
-  await expect(folderRow.getByRole('button', { name: 'Collapse Fixture', exact: true })).toBeDisabled();
+  await expect(folderRow.getByRole('button', { name: 'Collapse Fixture', exact: true })).toBeEnabled();
   await expect(folderRow.getByRole('button')).toHaveAttribute('aria-expanded', 'true');
   await expect(folderRow.locator('.share-tree-folder-meta')).toHaveText('5 files');
   await expect(folderRow.locator('.share-tree-size')).toHaveText('640 B');
@@ -175,6 +202,28 @@ test('filters shared files through the daemon and restores the tree when cleared
   const folderIndent = await folderRow.evaluate((element) => getComputedStyle(element).paddingLeft);
   const fileIndent = await fileRow.evaluate((element) => getComputedStyle(element).paddingLeft);
   expect(parseFloat(fileIndent)).toBeGreaterThan(parseFloat(folderIndent));
+  await folderRow.getByRole('button', { name: 'Collapse Fixture', exact: true }).click();
+  await expect(fileRow).toHaveCount(0);
+  await expect(folderRow.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+  const previousQueries = [...filterQueries];
+  await navigation.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await navigation.getByRole('button', { name: 'Shares', exact: true }).click();
+  await expect(filter).toHaveValue('Unselected');
+  await expect(folderRow.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+  await expect(fileRow).toHaveCount(0);
+  await navigation.getByRole('button', { name: 'Users', exact: true }).click();
+  await expect(page.getByText('No user to display', { exact: true })).toBeVisible();
+  await navigation.getByRole('button', { name: 'Shares', exact: true }).click();
+  await expect(filter).toHaveValue('Unselected');
+  await folderRow.getByRole('button', { name: 'Expand Fixture', exact: true }).click();
+  await expect(fileRow).toHaveCount(1);
+  await folderRow.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(fileRow).toHaveCount(0);
+  await page.keyboard.press('ArrowRight');
+  await expect(fileRow).toHaveCount(1);
+  expect(filterQueries).toEqual(previousQueries);
+  expect(browseSnapshots).toHaveLength(1);
   await page.locator('.share-tree-row.file').getByRole('checkbox').check();
   await filter.fill('NoMatchingFilename');
   await expect(page.locator('.shares-filter-count')).toHaveText('0 matching files');
@@ -240,7 +289,7 @@ test('filters Unicode share names without changing the selected download identit
   await page.goto('/downloads');
   const file = page.locator('.file-item-card');
   await expect(file).toHaveCount(1);
-  await expect(file.locator('.transfer-state')).toHaveText('Complete');
+  await expect(file.getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
   await expect(file).toContainText('Აbc.txt');
   const response = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
   expect(response.ok(), await response.text()).toBe(true);

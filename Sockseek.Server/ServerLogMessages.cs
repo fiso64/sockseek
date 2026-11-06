@@ -184,4 +184,7 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4576, LogLevel.Debug, "Submission {SourceSubmissionId} rerun as {SubmissionId} timing: read={ReadMs} ms, materialize={MaterializeMs} ms, admission={AdmissionMs} ms")]
     internal static partial void SubmissionRerunTiming(ILogger logger, Guid sourceSubmissionId, Guid submissionId, long readMs, long materializeMs, long admissionMs);
 
+    [LoggerMessage(4577, LogLevel.Warning, "Could not determine source job availability; source links are hidden. Suppressed {SuppressedCount} similar warnings.")]
+    internal static partial void SourceJobAvailabilityFailed(ILogger logger, Exception exception, long suppressedCount);
+
 }

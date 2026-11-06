@@ -2,6 +2,7 @@
   import type { Snippet } from 'svelte';
   import TransferStateLabel from './TransferStateLabel.svelte';
   import RelativeTime from '../RelativeTime.svelte';
+  import Icon from '../Icon.svelte';
   import type { AudioAttributes, TransferPresentation } from '../../domains/presentation/items';
   import { audioSummary, basename, formatBytes, formatLength, parentPath } from '../../domains/presentation/items';
 
@@ -52,26 +53,29 @@
   class:has-audio={Boolean(audio)}
 >
   {#if transfer}
-    <div class="file-item-main file-result-row transfer-summary nonselectable">
-      <div class="file-transfer-summary">
-        <div class="file-transfer-summary-primary">
-          <div class="file-transfer-identity">
-            <strong class="file-transfer-name">{basename(path)}</strong>
-            {#if locked}<span class="locked-badge">Locked</span>{/if}
-          </div>
-          <div class="file-transfer-summary-meta">
-            {#if audio}
-              <strong class="file-transfer-audio">{audioSummary(audio)}</strong>
-              <strong class="file-transfer-length">{formatLength(audio.lengthSeconds)}</strong>
-            {/if}
-            <strong class="file-transfer-size">{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</strong>
-            <TransferStateLabel {transfer} {path} {sizeBytes} />
-            {#if actions}<span class="item-card-action">{@render actions()}</span>{/if}
+    <div class="file-item-main folder-result-summary file-transfer-summary">
+      <div class="folder-heading-primary">
+        <div class="folder-summary-select-target nonselectable">
+          <div class="folder-heading-copy">
+            <div class="folder-heading-identity">
+              <strong class="folder-heading-path file-transfer-path" title={path}><bdi dir="ltr"><span class="folder-path-ancestors">{parentPath(path)}</span><b class="file-transfer-name">{basename(path)}</b></bdi></strong>
+              {#if locked}<span class="locked-badge">Locked</span>{/if}
+            </div>
+            <div class="folder-heading-meta file-transfer-meta">
+              {#if audio}
+                <span class="file-transfer-audio">{audioSummary(audio)}</span>
+                <span class="file-transfer-length">{formatLength(audio.lengthSeconds)}</span>
+              {/if}
+              <span class="file-transfer-size">{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</span>
+              {#if transfer.createdAt}<span class="file-transfer-age"><RelativeTime timestamp={transfer.createdAt} lowercase /></span>{/if}
+            </div>
           </div>
         </div>
-        <div class="file-transfer-summary-secondary">
-          <small class="file-transfer-path">{path}</small>
-          {#if transfer.createdAt}<span class="file-transfer-age"><RelativeTime timestamp={transfer.createdAt} lowercase /></span>{/if}
+        <div class="folder-heading-actions">
+          <TransferStateLabel {transfer} {path} {sizeBytes} circular={transfer.tone === 'complete'}>
+            {#if transfer.tone === 'complete'}<Icon name="check" />{:else}{transfer.state}{/if}
+          </TransferStateLabel>
+          {#if actions}<span class="item-card-action">{@render actions()}</span>{/if}
         </div>
       </div>
     </div>

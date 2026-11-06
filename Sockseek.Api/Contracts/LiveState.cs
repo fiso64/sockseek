@@ -30,11 +30,15 @@ public enum DaemonStateDetail { Full, Overview }
 /// Displayed job facts/file progress and direct counts for the open root. The first
 /// frame replaces the scope's rows; later frames are revision-ordered deltas.
 /// Retained revisions in a fresh scope need not exceed a prior live generation.
+/// SourceJobAvailable is present on the first frame and when source availability
+/// changes; SourceJobId identifies the source to which it applies.
 /// </summary>
 public sealed record JobObservationUpdateDto(
     StateDeltaDto State,
     int? ChildCount = null,
-    int? RetrievalChildCount = null);
+    int? RetrievalChildCount = null,
+    bool? SourceJobAvailable = null,
+    Guid? SourceJobId = null);
 
 /// <summary>
 /// Displayed prefix of one job query. Increasing Limit expands the fetched extent;
@@ -420,7 +424,8 @@ public sealed record TransferIdentityFieldsDto(
     // transfer's measured throughput. Absent for target-only transfers.
     int? PeerUploadSpeed = null,
     bool? PeerHasFreeUploadSlot = null,
-    string? GroupRelativePath = null);
+    string? GroupRelativePath = null,
+    TransferGroupKind GroupKind = TransferGroupKind.Directory);
 
 [JsonConverter(typeof(JsonStringEnumConverter<TransferTerminalOutcome>))]
 public enum TransferTerminalOutcome

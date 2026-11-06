@@ -375,6 +375,11 @@ public sealed class EngineStateStore
         events.TransferCancelled -= OnTransferCancelled;
     }
 
+    internal bool IsJobAvailable(Guid jobId)
+    {
+        using (LockJobReads()) return jobState.IsJobAvailable(jobId);
+    }
+
     public JobSummaryDto? GetJobSummary(Guid jobId)
     {
         using (LockJobReads()) return jobState.GetJobSummary(jobId);

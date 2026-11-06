@@ -24,6 +24,59 @@ namespace Sockseek.Persistence.Tests;
 public sealed class SqliteInitializationTests
 {
     [TestMethod]
+    public async Task DownloadGroupingMigrationPreservesSelectionBoundariesAndOutputPaths()
+    {
+        await using var database = new TemporaryDatabase();
+        await using var context = await database.Factory.CreateDbContextAsync();
+        await context.Database.MigrateAsync();
+        Guid runtime = Guid.NewGuid(), submission = Guid.NewGuid(), workflow = Guid.NewGuid();
+        context.RuntimeSessions.Add(new RuntimeSessionEntity { Id = runtime, Version = "migration" });
+        context.Submissions.Add(new SubmissionEntity { Id = submission, SpecificationSchemaVersion = 5, Revision = 1,
+            Specification = new() { Json = "{}" } });
+        var job = JobRow(Guid.NewGuid(), runtime, 1, "Terminal", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        job.SubmissionId = submission;
+        job.WorkflowId = workflow;
+        context.Jobs.Add(job);
+        TransferEntity Row(string path, Guid? scopeJob = null, string? group = null, string direction = "Download") => new()
+        {
+            Id = Guid.NewGuid(), JobId = scopeJob, WorkflowId = workflow, LastRuntimeId = runtime,
+            LastSequence = 1, Revision = 1, Direction = direction, Source = "SoulseekPeer", Username = "Péér",
+            RemotePath = path, LocalPath = "/unchanged/" + path, State = "Completed", TerminalOutcome = "Succeeded", CompletedAtUtc = 1,
+            GroupRef = group, GroupDisplayPath = group is null ? null : "Original root",
+            GroupRelativePath = group is null ? null : "Original relative path",
+        };
+        var rows = new[] {
+            Row(@"Shares\曲\one.bin", job.Id), Row(@"Shares\曲\two.bin", job.Id),
+            Row(@"Shares\曲\other-submission.bin"), Row(@"shares\曲\case.bin", job.Id),
+            Row("Shares/曲/slash.bin", job.Id), Row("root.bin", job.Id),
+            Row(@"Shares\曲\directory.bin", job.Id, "explicit-directory"),
+            Row(@"Shares\曲\upload.bin", group: "upload-run", direction: "Upload"),
+        };
+        context.Transfers.AddRange(rows);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+        // Exercise the actual upgrade of existing history, not just a fresh schema.
+        await context.GetService<IMigrator>().MigrateAsync("20261105183312_TransferDirectionTimeline");
+        await context.Database.MigrateAsync();
+        var migrated = await context.Transfers.ToDictionaryAsync(row => row.Id);
+        string expected = $"files:{submission:D}:Shares\\曲";
+        Assert.AreEqual(expected, migrated[rows[0].Id].GroupRef);
+        Assert.AreEqual(expected, migrated[rows[1].Id].GroupRef);
+        foreach (int index in new[] { 2, 3, 4 }) Assert.AreNotEqual(expected, migrated[rows[index].Id].GroupRef);
+        Assert.AreEqual($"files:{workflow:D}:Shares\\曲", migrated[rows[2].Id].GroupRef);
+        Assert.AreEqual("Files", migrated[rows[0].Id].GroupKind);
+        Assert.AreEqual(@"Shares\曲", migrated[rows[0].Id].GroupDisplayPath);
+        Assert.AreEqual("one.bin", migrated[rows[0].Id].GroupRelativePath);
+        Assert.IsNull(migrated[rows[5].Id].GroupRef);
+        Assert.AreEqual("explicit-directory", migrated[rows[6].Id].GroupRef);
+        Assert.AreEqual("Directory", migrated[rows[6].Id].GroupKind);
+        Assert.AreEqual("Original relative path", migrated[rows[6].Id].GroupRelativePath);
+        Assert.AreEqual("upload-run", migrated[rows[7].Id].GroupRef);
+        Assert.AreEqual("Files", migrated[rows[7].Id].GroupKind);
+        foreach (var row in rows) Assert.AreEqual(row.LocalPath, migrated[row.Id].LocalPath);
+    }
+
+    [TestMethod]
     public async Task FeatureReadConnectionsCannotBypassTheWriter()
     {
         await using var database = new TemporaryDatabase();

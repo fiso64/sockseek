@@ -255,11 +255,13 @@ public sealed record JobSummaryDto(
 
 /// <summary>
 /// Fixed-size selected-job snapshot. Direct children are listed through the jobs collection.
+/// SourceJobAvailable indicates whether its source is still present and unarchived.
 /// </summary>
 public sealed record JobDetailDto(
     JobSummaryDto Summary,
     JobPayloadDto? Payload,
-    int ChildCount);
+    int ChildCount,
+    bool SourceJobAvailable = false);
 
 /// <summary>
 /// Workflow list item summarizing related jobs submitted under one workflow id.

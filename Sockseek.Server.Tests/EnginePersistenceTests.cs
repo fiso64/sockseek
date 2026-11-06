@@ -679,7 +679,7 @@ public sealed class EnginePersistenceTests
     }
 
     [TestMethod]
-    public void IndependentlySelectedFilePlanDoesNotCreateFolderTransferGroup()
+    public void IndependentlySelectedFilePlanPersistsFileGroupWithoutDirectoryOwnership()
     {
         var events = new DownloadEvents();
         var sink = new CapturingSink();
@@ -697,10 +697,16 @@ public sealed class EnginePersistenceTests
         Invoke(events, "RaiseDownloadStarted", transferId, file, target, "C:/downloads/Root/Selected.bin");
         Invoke(events, "RaiseTransferCompleted", transferId, file, target, "C:/downloads/Root/Selected.bin", 12L, 1);
 
-        Assert.IsNull(sink.Mutations.OfType<TransferPersistenceMutation>()
-            .Single(mutation => mutation.State == "Started").GroupRef);
-        Assert.IsNull(sink.Mutations.OfType<TransferTerminalPersistenceMutation>()
-            .Single().Transfer.GroupRef);
+        var started = sink.Mutations.OfType<TransferPersistenceMutation>()
+            .Single(mutation => mutation.State == "Started");
+        var completed = sink.Mutations.OfType<TransferTerminalPersistenceMutation>().Single().Transfer;
+        Assert.AreEqual($"files:{directory.WorkflowId:D}:Root", started.GroupRef);
+        Assert.AreEqual(started.GroupRef, completed.GroupRef);
+        Assert.AreEqual(Sockseek.Core.Snapshots.TransferGroupKind.Files, started.GroupKind);
+        Assert.AreEqual(started.GroupKind, completed.GroupKind);
+        Assert.AreEqual("Root", completed.GroupDisplayPath);
+        Assert.AreEqual("Selected.bin", completed.GroupRelativePath);
+        Assert.AreEqual("C:/downloads/Root/Selected.bin", completed.LocalPath);
     }
 
     [TestMethod]

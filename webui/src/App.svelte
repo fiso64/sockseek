@@ -14,7 +14,8 @@
   import TransfersPage from './domains/transfers/TransfersPage.svelte';
   import { TransferTimelineController } from './domains/transfers/controller.svelte';
   import Dashboard from './domains/dashboard/Dashboard.svelte';
-  import UsersPage, { type UserBrowseView } from './domains/users/UsersPage.svelte';
+  import UsersPage from './domains/users/UsersPage.svelte';
+  import { userBrowserSession, type UserBrowseView } from './domains/users/session';
   import ChatPage from './domains/chat/ChatPage.svelte';
   import { DaemonLiveClient, type LiveConnectionStatus } from './api/live';
   import { jobStateSummary } from './api/job-summary';
@@ -64,8 +65,9 @@
   const searchModeByJob = new Map<string, SearchResultMode>();
   let search = $state<SearchDraft>({ ...emptySearchDraft });
   let userBrowse = $state<{ query: string; mode: UserBrowseView }>({ query: '', mode: 'user' });
-  let activeUsername = $state('');
+  let userBrowsers = $state({ user: userBrowserSession(), shares: userBrowserSession() });
   let userView = $derived<UserBrowseView>(activePage === 'shares' ? 'shares' : 'user');
+  let activeUsername = $derived(userBrowsers[userView].username);
   let initialChatUsername = $state<string | null>(null);
   let searchBusy = $state(false);
   let rerunningSearch = $state(false);
@@ -179,8 +181,9 @@
     }
     if (root === 'users' || root === 'shares') {
       activePage = root;
-      activeUsername = parts[1] ? decodeSegment(parts[1]) : activeUsername;
-      userBrowse = { query: activeUsername, mode: root === 'shares' ? 'shares' : 'user' };
+      const mode = root === 'shares' ? 'shares' : 'user';
+      if (parts[1]) selectBrowseUser(mode, decodeSegment(parts[1]));
+      userBrowse = { query: userBrowsers[mode].username, mode };
       return;
     }
     if (root === 'chat') {
@@ -287,7 +290,7 @@
     }
     activePage = page;
     if (page === 'chat') initialChatUsername = null;
-    if (page === 'users' || page === 'shares') userBrowse = { ...userBrowse, mode: page === 'shares' ? 'shares' : 'user' };
+    if (page === 'users' || page === 'shares') userBrowse = { query: activeUsername || userBrowse.query, mode: userView };
     setPath((page === 'users' || page === 'shares') && activeUsername
       ? `/${page}/${encodeURIComponent(activeUsername)}` : `/${page}`);
     if (page === 'downloads') void transferTimeline.load('download', true);
@@ -479,21 +482,20 @@
     transferTimeline.stop();
   });
 
-  function openUser(username: string): void {
-    activeUsername = username;
-    userBrowse = { query: username, mode: 'user' };
-    activePage = 'users';
-    setPath(`/users/${encodeURIComponent(username)}`);
+  function selectBrowseUser(mode: UserBrowseView, username: string): void {
+    if (userBrowsers[mode].username !== username) userBrowsers[mode] = userBrowserSession(username);
+  }
+
+  function openUserView(mode: UserBrowseView, username: string): void {
+    selectBrowseUser(mode, username);
+    activePage = mode === 'shares' ? 'shares' : 'users';
+    userBrowse = { query: username, mode };
+    setPath(`/${activePage}/${encodeURIComponent(username)}`);
   }
 
   const userActions: UserLinkActions = {
-    profile: openUser,
-    shares: (username) => {
-      activeUsername = username;
-      userBrowse = { query: username, mode: 'shares' };
-      activePage = 'shares';
-      setPath(`/shares/${encodeURIComponent(username)}`);
-    },
+    profile: username => openUserView('user', username),
+    shares: username => openUserView('shares', username),
     message: (username) => {
       initialChatUsername = username;
       activePage = 'chat';
@@ -503,22 +505,18 @@
 
   function submitUserBrowse(value: { query: string; mode: UserBrowseView }): void {
     const username = value.query.trim();
-    if (!username) return;
-    activeUsername = username;
-    userBrowse = { ...value, query: username };
-    activePage = value.mode === 'shares' ? 'shares' : 'users';
-    setPath(`/${activePage}/${encodeURIComponent(username)}`);
+    if (username) openUserView(value.mode, username);
   }
 
+  // The page's User/Shares toggle explicitly follows the displayed user.
+  // Sidebar and search-mode navigation only restore that tab's own session.
   function changeUserView(value: UserBrowseView): void {
-    activePage = value === 'shares' ? 'shares' : 'users';
-    userBrowse = { ...userBrowse, mode: value };
-    setPath(activeUsername ? `/${activePage}/${encodeURIComponent(activeUsername)}` : `/${activePage}`);
+    if (activeUsername) openUserView(value, activeUsername);
   }
 
   function changeUserBrowse(value: { query: string; mode: UserBrowseView }): void {
     userBrowse = value;
-    if (value.mode !== userView) changeUserView(value.mode);
+    if (value.mode !== userView) navigate(value.mode === 'shares' ? 'shares' : 'users');
   }
 
   function backToJobs(): void {
@@ -665,15 +663,17 @@
     />
   {:else if activePage === 'users' || activePage === 'shares'}
     {#if activeUsername}
-      <UsersPage username={activeUsername} view={userView} {liveStatus} {liveClient} onviewchange={changeUserView} onmessageuser={userActions.message} />
+      {#key userBrowsers[userView]}
+        <UsersPage session={userBrowsers[userView]} view={userView} {liveStatus} {liveClient} onviewchange={changeUserView} onmessageuser={userActions.message} />
+      {/key}
     {:else}
-      <section class="page user-browser-page"><header class="user-browser-heading"><div><p class="eyebrow">Network</p><h1>{activePage === 'shares' ? 'Shares' : 'Users'}</h1></div></header><div class="resource-state-notice empty blocking" role="status"><span class="resource-state-dot" aria-hidden="true"></span><span class="resource-state-copy"><strong>{activePage === 'shares' ? 'No shares to display' : 'No user to display'}</strong></span></div></section>
+      <section class="page user-browser-page"><header class="user-browser-heading"><div><h1>{activePage === 'shares' ? 'Shares' : 'Users'}</h1></div></header><div class="resource-state-notice empty blocking" role="status"><span class="resource-state-dot" aria-hidden="true"></span><span class="resource-state-copy"><strong>{activePage === 'shares' ? 'No shares to display' : 'No user to display'}</strong></span></div></section>
     {/if}
   {:else if activePage === 'chat'}
     <ChatPage {liveClient} {liveStatus} runtime={liveState.daemon?.chat} {userActions} initialUsername={initialChatUsername} />
   {:else}
     <section class="page settings-page">
-      <header class="page-heading"><p class="eyebrow">Configuration</p><h1>Settings</h1></header>
+      <header class="page-heading settings-heading"><h1>Settings</h1></header>
       <div class="empty-state settings-empty-state"><strong>Not implemented yet</strong><p>Settings are not implemented in this prototype.</p></div>
     </section>
   {/if}

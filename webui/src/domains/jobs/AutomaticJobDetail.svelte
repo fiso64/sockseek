@@ -42,6 +42,7 @@
     archiveError?: Error | null;
   } = $props();
   let detail = $state.raw<Schema<'JobDetailDto'> | null>(null);
+  let observedSource = $state<{ jobId: string; sourceId: string | null; available: boolean } | null>(null);
   let payload = $derived(detail?.payload);
   let ancestors = $state<JobSummaryDto[]>([]);
   let parent = $derived(ancestors.at(-1) ?? null);
@@ -128,6 +129,8 @@
       // A new observation is authoritative, including retained revisions after
       // reconnect. Core history revisions need not exceed the old live cursor.
       if (initializing) { observedJobs.clear(); initializing = false; }
+      if (update.sourceJobAvailable != null)
+        observedSource = { jobId: rootId, sourceId: update.sourceJobId ?? null, available: update.sourceJobAvailable };
       if (update.childCount != null) observedChildCount = Number(update.childCount);
       if (update.retrievalChildCount != null) observedRetrievalCount = Number(update.retrievalChildCount);
       // The server owns final rows through durability handoff. Keep the keyed
@@ -150,6 +153,8 @@
   let loadedChildCount = $state<number | string | null>(null);
   let lifetime: AbortController;
   let job = $derived(detail?.summary);
+  let sourceJobAvailable = $derived(observedSource?.jobId === jobId && observedSource.sourceId === job?.sourceJobId
+    ? observedSource.available : detail?.sourceJobAvailable === true);
   let parentJobId = $derived(job?.parentJobId);
   $effect(() => {
     const id = parentJobId;
@@ -569,30 +574,33 @@
 </script>
 
 <section class="page page-search redesigned-search-page automatic-job-detail">
-  {#if job?.sourceJobId && job.role === 'user-root' && !job.parentJobId}<button type="button" class="text-button" onclick={() => onopenjob({ jobId: job!.sourceJobId! })}>Open source job</button>{/if}
   <header class="job-detail-heading">
     <button type="button" class="icon-button back-button" aria-label={job?.parentJobId ? `Back to ${parentTitle}` : 'Back to jobs'} onclick={() => job?.parentJobId ? onopenjob(parent ?? { jobId: job.parentJobId }) : onback()}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5M7.5 10H16" /></svg>
     </button>
     <div class="job-detail-title">
-      <div class="job-detail-kicker">{#each ancestors as ancestor (ancestor.jobId)}<button type="button" onclick={() => onopenjob(ancestor)}>{ancestor.itemName ?? ancestor.queryText ?? 'Parent job'}</button><span>/</span>{/each}<span>{jobKindLabel(job?.kind)}</span></div>
+      {#if job}
+        <div class="job-detail-meta">
+          <span class="job-detail-kicker">{#each ancestors as ancestor (ancestor.jobId)}<button type="button" onclick={() => onopenjob(ancestor)}>{ancestor.itemName ?? ancestor.queryText ?? 'Parent job'}</button><span>/</span>{/each}<span>{jobKindLabel(job.kind)}</span></span>
+          {#if job.sourceDetail}<span>{job.sourceDetail}</span>{/if}
+          {#if payload?.kind === 'song' && payload.query.album}<span>Album: <strong>{payload.query.album}</strong></span>{/if}
+          {#if job.sourceJobId && sourceJobAvailable && job.role === 'user-root' && !job.parentJobId}<span><button type="button" class="job-detail-source-link" aria-label="Open source job" onclick={() => onopenjob({ jobId: job!.sourceJobId! })}>Source job ↗</button></span>{/if}
+        </div>
+      {/if}
       <h1>{detail ? title : 'Job'}</h1>
-      {#if job?.sourceDetail}<small>{job.sourceDetail}</small>{/if}
-      {#if !job?.sourceDetail && payload?.kind === 'remote-directory'}<small>Soulseek directory</small>{/if}
-      {#if !job?.sourceDetail && payload?.kind === 'remote-file'}<small>Soulseek link</small>{/if}
     </div>
     {#if job}
       {@const statusLabel = jobStatusLabel(job)}
       <div class="job-detail-heading-summary">
+        {#each jobHeaderStats(payload) as stat}<span class="job-detail-header-fact">{stat}</span>{/each}
+        {#if job.createdAtUtc}<span class="job-detail-header-fact job-detail-age"><RelativeTime timestamp={job.createdAtUtc} /></span>{/if}
         {#if statusLabel !== 'Complete'}
           <span class={`search-status-badge ${jobStatusClass(job)}`}><i></i>{statusLabel}</span>
         {/if}
-        {#each jobHeaderStats(payload) as stat}<span>{stat}</span>{/each}
-        {#if job.createdAtUtc}<span class="job-detail-age"><RelativeTime timestamp={job.createdAtUtc} /></span>{/if}
         {#if job.availableActions?.some((action) => action.kind === 'cancel')}
-          <button type="button" class="job-detail-lifecycle-action" onclick={() => void cancel()}><Icon name="x" /><span>Cancel</span></button>
+          <button type="button" class="delete-search-button quiet-cancel" onclick={() => void cancel()}><Icon name="x" /><span>Cancel</span></button>
         {:else if canArchiveSubmission(job)}
-          <button type="button" class="job-detail-lifecycle-action" title="Remove submission from history (reversible archive)" disabled={archivingSubmissions.has(job.submissionId!)} onclick={() => onarchive(job)}><Icon name="x" /><span>Remove</span></button>
+          <button type="button" class="delete-search-button" title="Delete submission from history (reversible archive)" disabled={archivingSubmissions.has(job.submissionId!)} onclick={() => onarchive(job)}><Icon name="trash" /><span>Delete</span></button>
         {/if}
       </div>
     {/if}
@@ -625,7 +633,7 @@
     <dl class="job-detail-facts"><div><dt>Detail</dt><dd>{payload.text}</dd></div></dl>
   {:else if payload?.kind === 'retrieve-folder'}
     <dl class="job-detail-facts">
-      <div><dt>User</dt><dd><UsernameLink username={payload.username} actions={userActions} /></dd></div>
+      <div><dt>From</dt><dd><UsernameLink username={payload.username} actions={userActions} /></dd></div>
       <div><dt>Folder</dt><dd title={payload.folderPath}>{payload.folderPath}</dd></div>
       <div><dt>Outcome</dt><dd>{humanizeStateValue(payload.retrievalOutcome)}</dd></div>
       <div><dt>New files</dt><dd>{formatCount(payload.newFilesFoundCount)}</dd></div>
@@ -633,27 +641,21 @@
   {:else if selectedFile}
     {@const target = selectedFile.target}
     {@const file = selectedFile.file}
-    {#if payload?.kind === 'remote-file'}
-      <div class="job-detail-context-line"><span>User</span><strong><UsernameLink username={target.username} actions={userActions} /></strong></div>
-    {:else if payload?.kind === 'song' && payload.query.album}
-      <div class="job-detail-context-line"><span>Album</span><strong>{payload.query.album}</strong></div>
-    {/if}
     <section class="job-content-section">
-      <header class="job-section-heading"><h2>{payload?.kind === 'song' ? 'Selected file' : 'Remote file'}</h2>
-        {#if payload?.kind === 'song'}
-          <div class="job-source-summary">
-            <UsernameLink username={target.username} actions={userActions} />
+      <div class="job-source-heading">
+        <div class="job-source-summary">
+          <span class="job-source-identity">From: <UsernameLink username={target.username} actions={userActions} /></span>
+          {#if payload?.kind === 'song'}
             {#if selectedPeerUploadSpeed != null}<span>{(Number(selectedPeerUploadSpeed) / 1_000_000).toFixed(1)} MB/s</span>{/if}
             {#if selectedPeerHasFreeUploadSlot != null}<span class:available={selectedPeerHasFreeUploadSlot}>{selectedPeerHasFreeUploadSlot ? 'Free slot' : 'No free slot'}</span>{/if}
-          </div>
-        {/if}
-      </header>
+          {/if}
+        </div>
+      </div>
       <FileItemCard path={target.filename} sizeBytes={file.fileSize == null && target.size == null ? null : Number(file.fileSize ?? target.size)}
         audio={audioAttributes(target)}
         transfer={jobFileTransfer(job, file, target, activeFileTransfer)} />
     </section>
   {:else if payload?.kind === 'song'}
-    {#if payload.query.album}<div class="job-detail-context-line"><span>Album</span><strong>{payload.query.album}</strong></div>{/if}
     {#if job?.lifecycleState === 'Terminal'}
       <div class="job-detail-empty"><strong>{job.terminalOutcome === 'Failed' ? 'No matching file' : 'No selected file'}</strong><span>{job.terminalOutcome === 'Failed' ? 'No candidate satisfied this job.' : job.skipReason && job.skipReason !== 'None' ? humanizeStateValue(job.skipReason) : jobStatusLabel(job)}</span></div>
     {:else}
@@ -663,7 +665,7 @@
   {:else if payload?.kind === 'album'}
     {#if payload.resolvedFolderPath || manifest}
       <section class="job-content-section">
-        <header class="job-section-heading"><h2>Selected folder</h2>{#if payload.resolvedFolderUsername}<div class="job-source-summary"><UsernameLink username={payload.resolvedFolderUsername} actions={userActions} /></div>{/if}</header>
+        {#if payload.resolvedFolderUsername}<div class="job-source-heading"><div class="job-source-summary"><span class="job-source-identity">From: <UsernameLink username={payload.resolvedFolderUsername} actions={userActions} /></span></div></div>{/if}
         <FolderItemCard path={(payload.resolvedFolderPath ?? manifest?.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} />
         {#if moreFolderFiles}<button type="button" class="job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
       </section>
@@ -675,9 +677,8 @@
       {/if}
     {/if}
   {:else if payload?.kind === 'remote-directory'}
-    {#if payload.sourceUsername}<div class="job-detail-context-line"><span>User</span><strong><UsernameLink username={payload.sourceUsername} actions={userActions} /></strong></div>{/if}
     <section class="job-content-section">
-      <header class="job-section-heading"><h2>Remote directory</h2></header>
+      {#if payload.sourceUsername}<div class="job-source-heading"><div class="job-source-summary"><span class="job-source-identity">From: <UsernameLink username={payload.sourceUsername} actions={userActions} /></span></div></div>{/if}
       <FolderItemCard path={(payload.sourceFolderPath ?? manifest?.displayRoot ?? payload.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} />
       {#if moreFolderFiles}<button type="button" class="job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
     </section>

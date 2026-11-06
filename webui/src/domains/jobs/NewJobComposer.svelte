@@ -250,7 +250,7 @@
     if (busy) return;
     try {
       const settings: Schema<'DownloadSettingsPatchDto'> = { ...downloadPatch.downloadSettings, search: carriedSearchSettings };
-      if (conditionSession) {
+      if (conditionSession && draft.choice !== 'soulseek') {
         const searchEdits = searchConditionsPatchForFamily(family, conditionSession.baseline, conditionSession.values);
         if (Object.keys(searchEdits).length) settings.search = mergeSearchSettings(settings.search ?? undefined, searchEdits);
         if (family === 'mixed' && conditionSession.values.track.expectedLength !== conditionSession.baseline.track.expectedLength) {
@@ -295,11 +295,12 @@
           {#if draft.choice === 'csv'}<CsvMapping value={csvMapping} bind:open={csvMappingOpen} onchange={(value) => { change({ ...draft }); csvMapping = value; }} />{/if}
           {#if hasImportOptions}<ImportOptionsPanel value={importOptions} bind:open={importOptionsOpen} onchange={(value) => { change({ ...draft }); importOptions = value; }} />{/if}
           <section class="new-job-job-settings" aria-label="Job settings">
+            {#if draft.choice !== 'soulseek'}
             <ExpandableSettingsPanel title="Filtering" summary={filteringCustomized ? 'Custom' : 'Defaults'} customized={filteringCustomized} bind:open={filteringOpen} bodyId="new-job-filtering-options">
               {#if settingsLoading}<LoadingIndicator label="Loading effective settings" />
               {:else if settingsError}<p role="alert">{settingsError.message}</p><button type="button" onclick={() => settingsRetry++}>Retry settings</button>
               {:else if conditionSession}
-                <SearchConfigPanel mode={family === 'album' ? 'album' : 'track'} configurationFamily={family} bind:conditions={conditionSession.values} section="conditions" embedded expectedLengthEditable={draft.choice === 'song'} />
+                <SearchConfigPanel mode={family === 'album' ? 'album' : 'track'} configurationFamily={family} bind:conditions={conditionSession.values} section="conditions" embedded singleItem={family !== 'mixed'} />
               {/if}
             </ExpandableSettingsPanel>
             <ExpandableSettingsPanel title="Ranking" summary={rankingCustomized ? 'Custom' : 'Defaults'} customized={rankingCustomized} bind:open={rankingOpen} bodyId="new-job-ranking-options">
@@ -309,6 +310,7 @@
                 <SearchConfigPanel mode={family === 'album' ? 'album' : 'track'} configurationFamily={family} bind:conditions={conditionSession.values} section="ranking" embedded />
               {/if}
             </ExpandableSettingsPanel>
+            {/if}
             <ExpandableSettingsPanel title="Download" summary={downloadCustomized ? 'Custom' : 'Defaults'} customized={downloadCustomized} bind:open={downloadOpen} bodyId="new-job-download-options">
               {#if settingsLoading}<LoadingIndicator label="Loading effective settings" />
               {:else if settingsError}<p role="alert">{settingsError.message}</p><button type="button" onclick={() => settingsRetry++}>Retry settings</button>

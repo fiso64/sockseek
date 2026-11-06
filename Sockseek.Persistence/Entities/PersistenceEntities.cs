@@ -143,6 +143,7 @@ internal sealed class TransferEntity : IRevisionedHistoryRow
     public string? GroupRef { get; set; }
     public string? GroupDisplayPath { get; set; }
     public string? GroupRelativePath { get; set; }
+    public string GroupKind { get; set; } = "Directory";
     public long? ArchivedAtUtc { get; set; }
     public long Revision { get; set; }
 }

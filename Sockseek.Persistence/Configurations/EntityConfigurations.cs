@@ -217,7 +217,8 @@ internal sealed class TransferConfiguration : IEntityTypeConfiguration<TransferE
         builder.Property(x => x.FileSampleRate).HasColumnName("file_sample_rate");
         builder.Property(x => x.FileLength).HasColumnName("file_length");
         builder.Property(x => x.FileAttributesJson).HasColumnName("file_attributes_json");
-        builder.Property(x => x.GroupRef).HasColumnName("group_ref").HasMaxLength(4096);
+        builder.Property(x => x.GroupRef).HasColumnName("group_ref");
+        builder.Property(x => x.GroupKind).HasColumnName("group_kind");
         builder.Property(x => x.GroupDisplayPath).HasColumnName("group_display_path").HasMaxLength(4096);
         builder.Property(x => x.GroupRelativePath).HasColumnName("group_relative_path");
         builder.Property(x => x.ArchivedAtUtc).HasColumnName("archived_at_utc");

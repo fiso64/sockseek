@@ -27,6 +27,36 @@ namespace Tests.Eventing
         }
 
         [TestMethod]
+        public void IndependentFilesGroupBySubmissionPeerAndExactRemoteDirectory()
+        {
+            var events = new DownloadEvents();
+            Guid submission = Guid.NewGuid(), otherSubmission = Guid.NewGuid();
+            var captured = new List<TransferSnapshot>();
+            events.DownloadStarted += change => captured.Add(change.Transfer);
+            void Start(Guid scope, string peer, string path)
+            {
+                var job = new RemoteFileJob(new PeerFileTarget(new(peer, path), 1, ".bin")) { SubmissionId = scope };
+                events.RaiseJobRegistered(job, null, null);
+                events.RaiseDownloadStarted(Guid.NewGuid(), job, job.Target, "/unchanged/output.bin");
+            }
+            Start(submission, "Peer", @"Shares\曲\one.bin");
+            Start(submission, "Other", @"Shares\曲\other.bin");
+            Start(otherSubmission, "Peer", @"Shares\曲\later.bin");
+            Start(submission, "Peer", @"Shares\曲\two.bin");
+            Start(submission, "Peer", @"shares\曲\case.bin");
+            Start(submission, "Peer", "Shares/曲/slash.bin");
+            Start(submission, "Peer", "root.bin");
+            Assert.AreEqual(captured[0].GroupRef, captured[3].GroupRef);
+            Assert.AreNotEqual((captured[0].Username, captured[0].GroupRef), (captured[1].Username, captured[1].GroupRef));
+            foreach (int index in new[] { 2, 4, 5 }) Assert.AreNotEqual(captured[0].GroupRef, captured[index].GroupRef);
+            Assert.AreEqual(TransferGroupKind.Files, captured[0].GroupKind);
+            Assert.AreEqual(@"Shares\曲", captured[0].GroupDisplayPath);
+            Assert.AreEqual("one.bin", captured[0].GroupRelativePath);
+            Assert.AreEqual("/unchanged/output.bin", captured[0].LocalPath);
+            Assert.IsNull(captured[6].GroupRef);
+        }
+
+        [TestMethod]
         public async Task IndependentWorkflowsCanRetireFromConcurrentTerminalObservers()
         {
             var events = new DownloadEvents();
@@ -181,8 +211,9 @@ namespace Tests.Eventing
             events.DownloadProgress += change => observed = change.Transfer;
             events.UpdateDirectoryGroup(child, null, null);
             events.RaiseDownloadProgress(first.Id, child, target, "/moved/cover.jpg", 5, 10);
-            Assert.IsNull(observed.GroupRef, "Removed grouping must not survive through reused file metadata.");
-            Assert.IsNull(observed.GroupRelativePath);
+            Assert.AreNotEqual(first.GroupRef, observed.GroupRef, "Removed directory ownership must fall back to file grouping.");
+            Assert.AreEqual(TransferGroupKind.Files, observed.GroupKind);
+            Assert.AreEqual("cover.jpg", observed.GroupRelativePath);
             Assert.AreEqual("/moved/cover.jpg", observed.LocalPath);
             Assert.AreEqual(parent.Id, Guid.Parse(first.GroupRef!));
             Assert.AreEqual("Artwork/cover.jpg", first.GroupRelativePath);

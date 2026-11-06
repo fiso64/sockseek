@@ -6,7 +6,7 @@ import { searchJobMode } from '../src/domains/jobs/kind';
 
 const imported = { jobId: 'import', kind: 'extract', lifecycleState: 'Terminal', terminalOutcome: 'Succeeded', resultJobId: 'result' } satisfies JobSummaryDto;
 const result = { jobId: 'result', kind: 'job-list', lifecycleState: 'Running' } satisfies JobSummaryDto;
-const detail = (summary: JobSummaryDto): Schema<'JobDetailDto'> => ({ summary, payload: null, childCount: 0 });
+const detail = (summary: JobSummaryDto): Schema<'JobDetailDto'> => ({ summary, payload: null, childCount: 0, sourceJobAvailable: false });
 
 afterEach(() => vi.useRealTimers());
 

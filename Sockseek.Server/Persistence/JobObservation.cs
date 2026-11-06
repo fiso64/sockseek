@@ -29,6 +29,12 @@ public sealed partial class JobReadService
         Dictionary<Guid, TransferStateDto> observedTransfers = [];
         Dictionary<Guid, JobReadState> observedJobs = [];
         JobReadChange? pendingMembership = null;
+        bool sourceDirty = false;
+        void InvalidateSource()
+        {
+            lock (gate) sourceDirty = true;
+            changed.Writer.TryWrite(true);
+        }
         void JobChanged(JobReadChange change)
         {
             bool rowChanged = change.Current is not null && requested.Contains(change.JobId);
@@ -55,6 +61,8 @@ public sealed partial class JobReadService
         }
         live.JobReadChanged += JobChanged;
         live.TransferReadChanged += TransferChanged;
+        live.JobListChanged += InvalidateSource;
+        persistence.JobsPruned += InvalidateSource;
         events.Flushed += Flush;
         try
         {
@@ -67,6 +75,8 @@ public sealed partial class JobReadService
             var transfers = live.GetJobTransferSnapshot(requested).Select(row => row.ToDto()).ToArray();
             observedTransfers = transfers.ToDictionary(row => row.TransferId);
             int? childCount = initial.ChildCount, retrievalCount = initial.RetrievalChildCount;
+            var sourceId = observedJobs.GetValueOrDefault(jobId)?.SourceJobId;
+            bool sourceAvailable = await IsSourceJobAvailableAsync(sourceId, cancellationToken).ConfigureAwait(false);
             // Discard only pulses covered by an actual initial count. Retirement
             // can remove the root between subscribing and taking this snapshot.
             long membershipSequence = initial.ChildCount is null ? 0 : initial.Sequence;
@@ -74,18 +84,20 @@ public sealed partial class JobReadService
             {
                 Jobs = observedJobs.Values.Select(row => new JobDeltaDto(row.JobId, row.Revision, Added: row.ToDto())).ToArray(),
                 Transfers = transfers.Select(row => new TransferDeltaDto(row.TransferId, row.Revision, Added: row)).ToArray(),
-            }, childCount, retrievalCount);
+            }, childCount, retrievalCount, sourceAvailable, sourceId);
             while (await changed.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 changed.Reader.TryRead(out _);
                 Dictionary<Guid, TransferReadSnapshot?> transferChanges;
                 Dictionary<Guid, JobReadState> jobChanges;
                 JobReadChange? membership;
+                bool refreshSource;
                 lock (gate)
                 {
                     transferChanges = pendingTransfers; pendingTransfers = [];
                     jobChanges = pendingJobs; pendingJobs = [];
                     membership = pendingMembership; pendingMembership = null;
+                    refreshSource = sourceDirty; sourceDirty = false;
                 }
                 var jobs = new List<JobDeltaDto>();
                 foreach (var (id, row) in jobChanges)
@@ -94,6 +106,16 @@ public sealed partial class JobReadService
                     if (previous is not null && row.Revision <= previous.Revision) continue;
                     observedJobs[id] = row;
                     jobs.Add(new JobChange(row, previous is null, previous?.Difference(row) ?? JobFields.All).ToDto());
+                }
+                var nextSourceId = observedJobs.GetValueOrDefault(jobId)?.SourceJobId;
+                bool sourceChanged = nextSourceId != sourceId;
+                bool? availabilityUpdate = null;
+                if (refreshSource || sourceChanged)
+                {
+                    bool available = await IsSourceJobAvailableAsync(nextSourceId, cancellationToken).ConfigureAwait(false);
+                    if (available != sourceAvailable || sourceChanged) availabilityUpdate = available;
+                    sourceId = nextSourceId;
+                    sourceAvailable = available;
                 }
                 var rows = new List<TransferDeltaDto>();
                 var removed = new List<Guid>();
@@ -118,15 +140,17 @@ public sealed partial class JobReadService
                     childCount = counts.ChildCount; retrievalCount = counts.RetrievalChildCount;
                     membershipSequence = counts.Sequence;
                 }
-                if (jobs.Count > 0 || rows.Count > 0 || removed.Count > 0 || countsChanged)
+                if (jobs.Count > 0 || rows.Count > 0 || removed.Count > 0 || countsChanged || availabilityUpdate is not null)
                     yield return new(StateDeltaDto.Empty with { Jobs = jobs, Transfers = rows, RemovedTransferIds = removed },
-                        childCount, retrievalCount);
+                        childCount, retrievalCount, availabilityUpdate, availabilityUpdate is null ? null : sourceId);
             }
         }
         finally
         {
             live.JobReadChanged -= JobChanged;
             live.TransferReadChanged -= TransferChanged;
+            live.JobListChanged -= InvalidateSource;
+            persistence.JobsPruned -= InvalidateSource;
             events.Flushed -= Flush;
             changed.Writer.TryComplete();
         }

@@ -160,26 +160,29 @@ it('does not merge an unknown peer with a literal peer named Unknown peer', () =
   expect(groups.map((group) => group.username)).toEqual([null, 'Unknown peer']);
 });
 
-it('uses whole-group totals to distinguish one-file uploads from partially fetched folders', () => {
+it.each(['download', 'upload'] as const)('uses whole-group totals for single-file %s groups', (direction) => {
+  const wireDirection = direction === 'download' ? 'Download' : 'Upload';
   const uploaded = { revision: 1,
     transferId: 'single',
     createdAtUtc: '2026-09-10T00:00:00Z',
-    identity: { source: 'SoulseekPeer', direction: 'Upload', username: 'Peer', remotePath: 'Shared\\Solo.txt', groupRef: 'shared-folder', groupDisplayPath: 'Shared' },
+    identity: { source: 'SoulseekPeer', direction: wireDirection, username: 'Peer', remotePath: 'Shared\\Solo.txt', groupKind: 'Files', groupRef: 'shared-folder', groupDisplayPath: 'Shared' },
     status: { attemptCount: 0, availableActions: [], state: 'InProgress', terminalOutcome: 'None', isTerminal: false },
     progress: { totalBytes: 100, bytesTransferred: 50 }
   } as TransferStateDto;
   const summary = (fileCount: number) => ({
-    key: { direction: 'Upload' as const, username: 'Peer', groupRef: 'shared-folder' },
+    key: { direction: wireDirection, username: 'Peer', groupRef: 'shared-folder' },
     fileCount, knownTotalBytes: fileCount * 100, transferredBytes: 50, speedBytesPerSecond: 0,
     unknownTotalCount: 0, knownRemainingActiveBytes: 50, unknownActiveTotalCount: 0,
     queuedCount: fileCount - 1, inProgressCount: 1, succeededCount: 0, failedCount: 0,
     cancelledCount: 0, interruptedCount: 0,
   } satisfies Schema<'TransferGroupSummaryDto'>);
-  const single = buildTransferGroups([uploaded], [], 'upload', [summary(1)])[0]!.items[0]!;
+  const single = buildTransferGroups([uploaded], [], direction, [summary(1)])[0]!.items[0]!;
+  const explicitDirectory = { ...uploaded, identity: { ...uploaded.identity, groupKind: 'Directory' as const } };
+  expect(buildTransferGroups([explicitDirectory], [], direction, [summary(1)])[0]!.items[0]!.kind).toBe('folder');
   expect(single.kind).toBe('file');
   expect(single.sourceTransferIds).toEqual(['single']);
-  expect(buildTransferGroups([uploaded], [], 'upload', [summary(2)])[0]!.items[0]!.kind).toBe('folder');
-  expect(buildTransferGroups([uploaded], [], 'upload')[0]!.items[0]!.kind).toBe('folder');
+  expect(buildTransferGroups([uploaded], [], direction, [summary(2)])[0]!.items[0]!.kind).toBe('folder');
+  expect(buildTransferGroups([uploaded], [], direction)[0]!.items[0]!.kind).toBe('folder');
 });
 
 it('shows transfer speed only while a file is active, even if a terminal snapshot retains its last sample', () => {

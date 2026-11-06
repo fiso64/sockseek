@@ -11,8 +11,34 @@ public sealed record CombinedSubmissionPage(IReadOnlyList<SubmissionSummaryDto> 
 
 /// <summary>Canonical current/retained job, workflow and submission reads.</summary>
 public sealed partial class JobReadService(EngineStateStore live, EngineSupervisor supervisor,
-    PersistenceCoordinator persistence)
+    PersistenceCoordinator persistence, ILogger<JobReadService>? logger = null)
 {
+    private readonly Sockseek.Core.Diagnostics.RepeatedWarningGate sourceReadWarnings = new();
+
+    private async Task<bool> IsSourceJobAvailableAsync(Guid? sourceId, CancellationToken cancellationToken)
+    {
+        if (sourceId is not Guid id) return false;
+        try
+        {
+            if (persistence.JobHistory is { } history)
+            {
+                await persistence.WaitForJobHandoffAsync(id, cancellationToken, includeSearchResults: false).ConfigureAwait(false);
+                var retained = await history.GetJobAvailabilityAsync(id, cancellationToken).ConfigureAwait(false);
+                if (retained is bool available) return available;
+            }
+            return live.IsJobAvailable(id);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            if (logger != null && sourceReadWarnings.TryAcquire(out long suppressed))
+                ServerLogMessages.SourceJobAvailabilityFailed(logger, ex, suppressed);
+            return false;
+        }
+    }
+
+    private async Task<JobDetailDto> WithSourceAvailabilityAsync(JobDetailDto detail, CancellationToken cancellationToken)
+        => detail with { SourceJobAvailable = await IsSourceJobAvailableAsync(detail.Summary.SourceJobId, cancellationToken).ConfigureAwait(false) };
+
     public async Task<SubmissionArchiveResponseDto> SetSubmissionArchivedAsync(
         Guid submissionId,
         bool archived,
@@ -175,7 +201,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
     {
         var liveDetail = live.GetJobDetailByDisplayId(workflowId, displayId);
         if (liveDetail != null)
-            return liveDetail;
+            return await WithSourceAvailabilityAsync(liveDetail, cancellationToken).ConfigureAwait(false);
         await persistence.WaitForWorkflowHandoffAsync(workflowId, cancellationToken, includeSearchResults: false)
             .ConfigureAwait(false);
         if (persistence.JobHistory == null)
@@ -184,7 +210,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         if (job == null)
             return null;
         int childCount = await persistence.JobHistory.GetChildCountAsync(job.Id, cancellationToken).ConfigureAwait(false);
-        return HistoricalJobDtoMapper.ToDetail(job, childCount);
+        return await WithSourceAvailabilityAsync(HistoricalJobDtoMapper.ToDetail(job, childCount), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<CombinedJobPage> GetJobsAsync(
@@ -247,7 +273,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
     {
         var liveDetail = live.GetJobDetail(jobId);
         if (liveDetail != null)
-            return liveDetail;
+            return await WithSourceAvailabilityAsync(liveDetail, cancellationToken).ConfigureAwait(false);
         await persistence.WaitForJobHandoffAsync(jobId, cancellationToken, includeSearchResults: false)
             .ConfigureAwait(false);
         if (persistence.JobHistory == null)
@@ -257,7 +283,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         if (job == null)
             return null;
         int childCount = await persistence.JobHistory.GetChildCountAsync(jobId, cancellationToken).ConfigureAwait(false);
-        return HistoricalJobDtoMapper.ToDetail(job, childCount);
+        return await WithSourceAvailabilityAsync(HistoricalJobDtoMapper.ToDetail(job, childCount), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<DirectoryManifestPageDto?> GetDirectoryManifestAsync(
