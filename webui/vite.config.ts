@@ -9,7 +9,8 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: daemonTarget,
-        changeOrigin: true,
+        // Preserve the browser's Host so the daemon can enforce same-origin requests.
+        changeOrigin: false,
         ws: true,
       },
     },

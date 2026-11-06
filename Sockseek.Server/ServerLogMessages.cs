@@ -184,4 +184,28 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4576, LogLevel.Debug, "Submission {SourceSubmissionId} rerun as {SubmissionId} timing: read={ReadMs} ms, materialize={MaterializeMs} ms, admission={AdmissionMs} ms")]
     internal static partial void SubmissionRerunTiming(ILogger logger, Guid sourceSubmissionId, Guid submissionId, long readMs, long materializeMs, long admissionMs);
 
+    [LoggerMessage(4577, LogLevel.Warning, "API/WebUI authentication is disabled; all reachable clients have operator access")]
+    internal static partial void AuthenticationDisabled(ILogger logger);
+
+    [LoggerMessage(4578, LogLevel.Information, "API/WebUI authentication enabled for operator {Username}")]
+    internal static partial void AuthenticationEnabled(ILogger logger, string username);
+
+    [LoggerMessage(4579, LogLevel.Warning, "Unencrypted HTTP authentication is explicitly enabled")]
+    internal static partial void HttpAuthenticationAllowed(ILogger logger);
+
+    [LoggerMessage(4580, LogLevel.Information, "API key {KeyId} created")]
+    internal static partial void ApiKeyCreated(ILogger logger, Guid keyId);
+
+    [LoggerMessage(4581, LogLevel.Information, "API key {KeyId} revoked")]
+    internal static partial void ApiKeyRevoked(ILogger logger, Guid keyId);
+
+    [LoggerMessage(4582, LogLevel.Debug, "WebUI login rejected from {Address}")]
+    internal static partial void LoginRejected(ILogger logger, System.Net.IPAddress? address);
+
+    [LoggerMessage(4583, LogLevel.Information, "WebUI login accepted from {Address}")]
+    internal static partial void LoginAccepted(ILogger logger, System.Net.IPAddress? address);
+
+    [LoggerMessage(4584, LogLevel.Information, "WebUI logout from {Address}")]
+    internal static partial void Logout(ILogger logger, System.Net.IPAddress? address);
+
 }

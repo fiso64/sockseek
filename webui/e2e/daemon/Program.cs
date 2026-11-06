@@ -9,6 +9,7 @@ using Sockseek.Persistence;
 using Sockseek.Persistence.Chat;
 using Sockseek.Persistence.Sqlite;
 using Sockseek.Server;
+using Sockseek.Server.Authentication;
 using Tests.Server;
 
 if (args.Length != 1 || !File.Exists(Path.Combine(args[0], "index.html")))
@@ -612,6 +613,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             ["--webroot", webRoot],
             new ServerOptions
             {
+                Authentication = new() { PasswordHash = "AQAAAAIAAYagAAAAEXNvY2tzZWVrLWZpeHR1cmUhLYKb2YbUDRN/4hvcRClorEeUEsqeimyd/peWr4DCr5Q=", AllowHttp = true },
                 Engine = new EngineSettings
                 {
                     Username = "e2e-local",
@@ -677,7 +679,9 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
         }
         string address = app.Services.GetRequiredService<IServer>()
             .Features.Get<IServerAddressesFeature>()!.Addresses.Single();
-        Console.WriteLine("E2E_READY " + JsonSerializer.Serialize(new { url = address }));
+        var probeKey = await app.Services.GetRequiredService<OperatorAuthentication>()
+            .CreateKeyAsync("Fixture diagnostics", CancellationToken.None);
+        Console.WriteLine("E2E_READY " + JsonSerializer.Serialize(new { url = address, apiKey = probeKey.Secret }));
         // Out-of-band fixture controls never become production HTTP endpoints.
         int incomingChatId = 500;
         while (await input.MoveNextAsync() && input.Current is { Length: > 0 } command)

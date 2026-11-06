@@ -81,6 +81,11 @@ public static partial class ConfigManager
             daemon.DataDirectory = Utils.GetFullPath(Utils.ExpandVariables(
                 daemon.DataDirectory, new PathVariableContext(ConfigDir: file.ConfigDir)));
 
+        if (daemon.WebPasswordFile is not null) daemon.WebPasswordFile = ResolveSecretPath(daemon.WebPasswordFile);
+        if (remote.ApiKeyFile is not null) remote.ApiKeyFile = ResolveSecretPath(remote.ApiKeyFile);
+        string ResolveSecretPath(string path) => Utils.GetFullPath(Utils.ExpandVariables(
+            path, new PathVariableContext(ConfigDir: file.ConfigDir)));
+
         return (engine, dl, cli, daemon, remote);
     }
 

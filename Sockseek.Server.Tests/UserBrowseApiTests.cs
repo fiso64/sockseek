@@ -46,7 +46,7 @@ public sealed class UserBrowseApiTests
         try
         {
             await app.StartAsync();
-            using var http = new HttpClient { BaseAddress = new Uri(url) };
+            using var http = await global::Tests.TestServerHost.CreateHttpClientAsync(app);
             var api = new SockseekApiClient(http);
             // An immediate first request must work; waiting for an internal
             // service here used to hide a race with BackgroundService startup.
@@ -62,7 +62,7 @@ public sealed class UserBrowseApiTests
             Assert.AreEqual(complete.BrowseId, reused.BrowseId);
             Assert.AreEqual(UserBrowseState.Complete, reused.State);
 
-            await using (var live = new SockseekLiveClient(url))
+            await using (var live = new SockseekLiveClient(http))
             {
                 await live.StartUserBrowseAsync(complete.BrowseId);
                 Assert.AreEqual(complete, live.Store.GetUserBrowse(complete.BrowseId));
@@ -267,7 +267,7 @@ public sealed class UserBrowseApiTests
             try
             {
                 await restarted.StartAsync();
-                using var restartedHttp = new HttpClient { BaseAddress = new Uri(url) };
+                using var restartedHttp = await global::Tests.TestServerHost.CreateHttpClientAsync(restarted);
                 var restartedApi = new SockseekApiClient(restartedHttp);
                 var missing = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
                     restartedApi.GetUserBrowseAsync(complete.BrowseId));

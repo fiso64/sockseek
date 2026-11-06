@@ -36,7 +36,7 @@ public class RemoteCliBackendTests
     {
         options.Engine.LogLevel = LogLevel.None;
         options.Persistence.Enabled = enablePersistence;
-        if (enablePersistence)
+        if (enablePersistence && options.Persistence.DataDirectory is null)
         {
             string dataDirectory = Path.Combine(
                 Path.GetTempPath(),
@@ -63,6 +63,10 @@ public class RemoteCliBackendTests
         Assert.AreEqual(
             "http://127.0.0.1:6123/",
             SockseekApiClient.NormalizeServerUrl("http://127.0.0.1:6123").ToString());
+        Assert.AreEqual(443, SockseekApiClient.NormalizeServerUrl("https://sockseek.example").Port);
+        Assert.AreEqual(80, SockseekApiClient.NormalizeServerUrl("sockseek.example:80").Port);
+        Assert.AreEqual(5030, SockseekApiClient.NormalizeServerUrl("[::1]").Port);
+        Assert.AreEqual(80, SockseekApiClient.NormalizeServerUrl("[::1]:80").Port);
     }
 
     [TestMethod]
@@ -102,6 +106,7 @@ public class RemoteCliBackendTests
             {
                 BaseAddress = new Uri(url),
             };
+            http.DefaultRequestHeaders.Add("X-API-Key", await TestServerHost.GetApiKeyAsync(app));
             await using var live = new SockseekLiveClient(http);
 
             await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(
@@ -268,7 +273,7 @@ public class RemoteCliBackendTests
         {
             await app.StartAsync();
             url = GetBoundUrl(app);
-            await using var backend = new RemoteCliBackend(url);
+            await using var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             var seenUpdates = new ConcurrentBag<DaemonClientUpdate>();
             backend.StateUpdated += update => seenUpdates.Add(update);
             await backend.StartAsync();
@@ -359,7 +364,7 @@ public class RemoteCliBackendTests
         {
             await app.StartAsync();
             url = GetBoundUrl(app);
-            await using var backend = new RemoteCliBackend(url);
+            await using var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             await backend.StartAsync();
 
             var searchSummary = await backend.SubmitSearchJobAsync(new SubmitSearchJobRequestDto("Artist Album"));
@@ -459,7 +464,7 @@ public class RemoteCliBackendTests
         {
             await app.StartAsync();
             url = GetBoundUrl(app);
-            await using var backend = new RemoteCliBackend(url);
+            await using var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             await backend.StartAsync();
 
             var workflowId = Guid.NewGuid();
@@ -555,7 +560,7 @@ public class RemoteCliBackendTests
         {
             await app.StartAsync();
             url = GetBoundUrl(app);
-            await using var backend = new RemoteCliBackend(url);
+            await using var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             await backend.StartAsync();
 
             int activePickers = 0;
@@ -685,7 +690,7 @@ public class RemoteCliBackendTests
         {
             await app.StartAsync();
             url = GetBoundUrl(app);
-            await using var backend = new RemoteCliBackend(url);
+            await using var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             await backend.StartAsync();
 
             int pickerCalls = 0;
@@ -782,7 +787,7 @@ public class RemoteCliBackendTests
         {
             await app.StartAsync();
             url = GetBoundUrl(app);
-            await using var backend = new RemoteCliBackend(url);
+            await using var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             await backend.StartAsync();
 
             var promptedBuckets = new List<string>();
@@ -886,7 +891,7 @@ public class RemoteCliBackendTests
         {
             await app.StartAsync();
             url = GetBoundUrl(app);
-            await using var backend = new RemoteCliBackend(url);
+            await using var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             await backend.StartAsync();
 
             var searchSummary = await backend.SubmitAlbumSearchJobAsync(
@@ -1005,7 +1010,7 @@ public class RemoteCliBackendTests
         {
             await app.StartAsync();
             url = GetBoundUrl(app);
-            await using var backend = new RemoteCliBackend(url);
+            await using var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             await backend.StartAsync();
 
             var firstSearch = await StartAlbumSearchAsync(backend, "Artist One", "Album One");
@@ -1099,7 +1104,7 @@ public class RemoteCliBackendTests
         {
             await app.StartAsync();
             url = GetBoundUrl(app);
-            await using var backend = new RemoteCliBackend(url);
+            await using var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             await backend.StartAsync();
 
             var printSettings = new DownloadSettings
@@ -1203,7 +1208,7 @@ public class RemoteCliBackendTests
         {
             await app.StartAsync();
             url = GetBoundUrl(app);
-            await using var backend = new RemoteCliBackend(url);
+            await using var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             await backend.StartAsync();
 
             var printSettings = new DownloadSettings
@@ -1298,7 +1303,7 @@ public class RemoteCliBackendTests
         {
             await app.StartAsync();
             url = GetBoundUrl(app);
-            await using var backend = new RemoteCliBackend(url);
+            await using var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             await backend.StartAsync();
             using var output = new StringWriter();
 
@@ -1357,7 +1362,7 @@ public class RemoteCliBackendTests
         {
             await app.StartAsync();
             url = GetBoundUrl(app);
-            await using var monitor = new RemoteCliBackend(url);
+            await using var monitor = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             var scopes = new ConcurrentBag<StateStreamScopeDto>();
             monitor.StateUpdated += update => scopes.Add(update.Scope);
             await monitor.SubscribeAllAsync();
@@ -1408,7 +1413,7 @@ public class RemoteCliBackendTests
         url = GetBoundUrl(app);
         try
         {
-            await using var backend = new RemoteCliBackend(url);
+            await using var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             await backend.SubscribeAllAsync();
 
             await Assert.ThrowsExactlyAsync<InvalidOperationException>(
@@ -1440,13 +1445,13 @@ public class RemoteCliBackendTests
             DefaultDownload = new DownloadSettings(),
             Profiles = ProfileCatalog.Empty,
         };
-        var firstApp = BuildServer(options, url, enablePersistence: false);
+        var firstApp = BuildServer(options, url);
         await firstApp.StartAsync();
         url = GetBoundUrl(firstApp);
 
         try
         {
-            await using var monitor = new RemoteCliBackend(url);
+            await using var monitor = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(firstApp));
             await monitor.SubscribeAllAsync();
             var firstPosition = monitor.ClientStore.GetPosition(StateStreamScopeDto.Daemon);
             Assert.IsNotNull(firstPosition);
@@ -1455,7 +1460,7 @@ public class RemoteCliBackendTests
             // run the disconnect callback during this deliberate daemon restart.
             await firstApp.StopAsync();
 
-            await using var secondApp = BuildServer(options, url, enablePersistence: false);
+            await using var secondApp = BuildServer(options, url);
             await secondApp.StartAsync();
             try
             {
@@ -1511,7 +1516,7 @@ public class RemoteCliBackendTests
         {
             using var cancellation = new CancellationTokenSource();
             var monitorTask = Sockseek.Cli.Program.MainCore(
-                ["--no-config", "--remote", url, "--monitor", "--no-progress"],
+                ["--no-config", "--remote", url, "--remote-api-key", await TestServerHost.GetApiKeyAsync(app), "--monitor", "--no-progress"],
                 cancellation.Token);
 
             await WaitForConsoleHandlersAsync(
@@ -1588,7 +1593,7 @@ public class RemoteCliBackendTests
         try
         {
             var monitorTask = Sockseek.Cli.Program.MainCore(
-                ["--no-config", "--remote", url, "--monitor", "--no-progress"],
+                ["--no-config", "--remote", url, "--remote-api-key", await TestServerHost.GetApiKeyAsync(app), "--monitor", "--no-progress"],
                 cancellation.Token);
 
             await WaitForConsoleHandlersAsync(
@@ -1598,7 +1603,7 @@ public class RemoteCliBackendTests
                     && ConsoleInputManager.OnInfoRequested != null,
                 "Monitor mode did not install the normal console controls.");
 
-            await using var controller = new RemoteCliBackend(url);
+            await using var controller = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             var firstSearch = await StartAlbumSearchAsync(
                 controller,
                 "Artist One",
@@ -1711,6 +1716,7 @@ public class RemoteCliBackendTests
                     "--song",
                     "--no-config",
                     "--remote", url,
+                    "--remote-api-key", await TestServerHost.GetApiKeyAsync(app),
                     "--monitor",
                     "--no-progress",
                     "--output-dir", outputDir,
@@ -1781,7 +1787,7 @@ public class RemoteCliBackendTests
         {
             await app.StartAsync();
             url = GetBoundUrl(app);
-            await using var backend = new RemoteCliBackend(url);
+            await using var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             await backend.StartAsync();
 
             var summary = await backend.SubmitJobListAsync(
@@ -1831,7 +1837,7 @@ public class RemoteCliBackendTests
         try
         {
             await app.StartAsync();
-            await using var backend = new RemoteCliBackend(GetBoundUrl(app));
+            await using var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             Guid workflowId = Guid.NewGuid();
             var observed = new ConcurrentBag<JobSummaryDto>();
             backend.StateUpdated += update =>

@@ -55,6 +55,12 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); co
 button, input, select { font: inherit; }
 button { color: inherit; }
 button, select { cursor: pointer; }
+.auth-button { min-height: 36px; padding: 7px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text); font-size: .78rem; font-weight: 600; }
+.auth-button:not(.primary):hover:not(:disabled) { background: var(--surface-subtle); }
+.auth-button.primary { background: color-mix(in srgb, var(--accent) 80%, #000); border-color: transparent; color: white; }
+.auth-button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 72%, #000); }
+.auth-button:disabled { opacity: .45; cursor: default; }
+.auth-input { border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface-subtle); color: var(--text); }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
@@ -667,8 +673,8 @@ input[type="checkbox"]:indeterminate {
 @media (max-width: 760px) {
   :root { --sidebar-width: 58px; }
   .sidebar { padding-inline: 7px; }
-  .brand { justify-content: center; padding-inline: 0; }
-  .brand-copy, .nav-label, .nav-count:not(.unread), .prototype-tools, .connection-status { display: none; }
+  .sidebar .brand { justify-content: center; padding-inline: 0; }
+  .sidebar .brand-copy, .nav-label, .nav-count:not(.unread), .prototype-tools, .connection-status { display: none; }
   .sidebar-nav button { justify-content: center; padding-inline: 0; }
   .nav-icon { width: auto; flex-basis: auto; }
   .nav-count.unread { position: absolute; margin: -20px 0 0 19px; }

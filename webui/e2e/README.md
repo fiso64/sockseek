@@ -6,6 +6,11 @@ selected file download, and recovering across a real SignalR reconnect. Search c
 completion. New Job cases exercise provisional settings before upload, paged
 preview paging, and reviewed/direct submission.
 
+Authentication stays enabled: shared fixtures sign in through the real API and
+share cookies/antiforgery with the browser. The login/Settings journey starts
+anonymous. Node diagnostics use a separate fixture API key; browser requests never
+receive that key. HTTP is explicitly allowed for these isolated local fixtures.
+
 Reconnect tests use Playwright WebSocket routing to close and reconnect the
 actual daemon connection; messages are not fabricated. Chromium offline
 emulation alone did not close an already-established WebSocket in this setup.

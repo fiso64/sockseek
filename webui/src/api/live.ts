@@ -6,6 +6,7 @@ import {
 } from '@microsoft/signalr';
 import { DaemonApiClient, daemonApi } from './client';
 import { DaemonApiError } from './http';
+import { browserSession } from './session.svelte';
 import type { Schema } from './types';
 import type {
   ChatTargetSnapshotDto,
@@ -251,6 +252,7 @@ export class DaemonLiveClient {
     });
     connection.onreconnecting((error) => {
       if (this.stopped || this.connection !== connection) return;
+      if (browserSession.data?.authenticationEnabled) void browserSession.refresh().catch(() => {});
       this.resetRecovery();
       this.emitStatus('reconnecting', error ?? null);
     });
@@ -271,6 +273,7 @@ export class DaemonLiveClient {
     });
     connection.onclose((error) => {
       if (this.connection !== connection) return;
+      if (browserSession.data?.authenticationEnabled) void browserSession.refresh().catch(() => {});
       this.resetRecovery();
       this.connection = null;
       if (!this.stopped) {

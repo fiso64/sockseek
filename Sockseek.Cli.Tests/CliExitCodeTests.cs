@@ -82,7 +82,7 @@ public class CliExitCodeTests
             })
             {
                 stderr.GetStringBuilder().Clear();
-                var exitCode = await DaemonResourceCommandRunner.RunAsync(args, "http://127.0.0.1:1");
+                var exitCode = await DaemonResourceCommandRunner.RunAsync(args, new RemoteSettings { ServerUrl = "http://127.0.0.1:1" });
                 Assert.AreEqual(Sockseek.Cli.Program.CliExitCode.UsageError, exitCode);
                 StringAssert.Contains(stderr.ToString(), "--group-ref requires --username and --direction");
             }

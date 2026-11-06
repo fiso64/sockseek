@@ -7,14 +7,12 @@ internal static class PeerRestrictionEndpoints
     public static void Map(WebApplication app)
     {
         app.MapGet("/api/users/{username}/restrictions", Get)
-            .RequireOperator()
             .WithTags("User Restrictions")
             .WithSummary("Gets independent upload-access and private-message restrictions for one exact username.")
             .Produces<UserRestrictionsDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
         app.MapPut("/api/users/{username}/restrictions", SetAsync)
-            .RequireOperator()
             .WithTags("User Restrictions")
             .WithSummary("Sets or removes one durable exact-username restriction override.")
             .WithDescription("Upload-access blocking denies future search, browse, directory, and upload admissions from the peer. Private-message blocking discards future incoming DMs only. Allowed supersedes that kind's configured username block. Null removes only that override. Configured upload IP denial remains independent.")

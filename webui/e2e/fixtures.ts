@@ -4,9 +4,13 @@ import { createInterface } from 'node:readline';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
+const probeKeys = new Map<string, string>();
+
 /** Backend probes bypass Playwright's dispatcher; UI timings use browser DOM marks. */
 export async function measureApi(baseUrl: string, path: string, init?: RequestInit) {
   const headers = new Headers(init?.headers);
+  const key = probeKeys.get(new URL(baseUrl).origin);
+  if (key) headers.set('X-API-Key', key);
   if (!headers.has('Accept-Encoding')) headers.set('Accept-Encoding', 'gzip, deflate, br');
   const target = new URL(path, baseUrl);
   const started = performance.now();
@@ -64,7 +68,7 @@ type FixtureCommand = `prune-search-results:${string}` | `wait-job-complete:${st
 function startDaemonWorker() {
   const child = spawn('dotnet', [assembly, webRoot], { stdio: ['pipe', 'pipe', 'pipe'] });
   const logs: string[] = [];
-  const record = (line: string) => { logs.push(line); if (logs.length > 500) logs.shift(); };
+  const record = (line: string) => { logs.push(line.startsWith('E2E_READY ') ? 'E2E_READY [credentials omitted]' : line); if (logs.length > 500) logs.shift(); };
   const stdout = createInterface({ input: child.stdout });
   const stderr = createInterface({ input: child.stderr });
   stdout.on('line', record);
@@ -114,7 +118,9 @@ function startDaemonWorker() {
     async start(uploads: boolean, metrics: boolean, applicationLogs: boolean): Promise<string> {
       logs.length = 0;
       const ready = await request(JSON.stringify({ Uploads: uploads, Metrics: metrics, ApplicationLogs: applicationLogs }), 'E2E_READY ', 30_000);
-      return (JSON.parse(ready.slice('E2E_READY '.length)) as { url: string }).url;
+      const { url, apiKey } = JSON.parse(ready.slice('E2E_READY '.length)) as { url: string; apiKey: string };
+      probeKeys.set(new URL(url).origin, apiKey);
+      return url;
     },
     async command(command: FixtureCommand): Promise<void> {
       await request(command, `E2E_ACK ${command}`, command === 'large-retained-transfers' ? 60_000 : command === 'wait-directory-complete' || command.startsWith('wait-job-complete:') ? 125_000 : command === 'wait-download-started' ? 35_000 : 5_000);
@@ -138,6 +144,7 @@ function startDaemonWorker() {
 type DaemonWorker = ReturnType<typeof startDaemonWorker>;
 
 export const test = base.extend<{
+  authenticated: boolean;
   uploadShares: boolean;
   daemonLogMetrics: boolean;
   daemonAssertFastReads: boolean;
@@ -145,7 +152,18 @@ export const test = base.extend<{
   daemon: { url: string; command: (command: FixtureCommand) => Promise<void>; logs: () => string[] };
   daemonUrl: string;
 }, { daemonWorker: DaemonWorker }>({
-  context: async ({ context }, use, testInfo) => {
+  context: async ({ context, daemon, authenticated }, use, testInfo) => {
+    if (authenticated) {
+      const bootstrap = await context.request.get(`${daemon.url}/api/auth/session`);
+      const { antiforgeryToken } = await bootstrap.json() as { antiforgeryToken: string };
+      const login = await context.request.post(`${daemon.url}/api/auth/login`, {
+        data: { username: 'admin', password: 'test-only-password' },
+        headers: { 'X-CSRF-Token': antiforgeryToken },
+      });
+      expect(login.status()).toBe(204);
+      const session = await (await context.request.get(`${daemon.url}/api/auth/session`)).json() as { antiforgeryToken: string };
+      await context.setExtraHTTPHeaders({ 'X-CSRF-Token': session.antiforgeryToken });
+    }
     // Localhost is a secure context even over HTTP. Exercise the API availability
     // of plain HTTP LAN access in every browser journey, without duplicating them.
     await context.addInitScript(() => {
@@ -170,6 +188,7 @@ export const test = base.extend<{
     const worker = startDaemonWorker();
     try { await use(worker); } finally { await worker.close(); }
   }, { scope: 'worker' }],
+  authenticated: [true, { option: true }],
   uploadShares: [false, { option: true }],
   daemonLogMetrics: [false, { option: true }],
   // For flows whose measured reads are bounded daemon queries. Peer requests
@@ -198,6 +217,7 @@ export const test = base.extend<{
         try {
           const response = await fetch(`${runningUrl}/api/server/status`, {
             signal: AbortSignal.timeout(2_000),
+            headers: { 'X-API-Key': probeKeys.get(new URL(runningUrl).origin)! },
           });
           await testInfo.attach('daemon-status', {
             body: (await response.text()).slice(0, 20_000),
@@ -210,6 +230,7 @@ export const test = base.extend<{
       let stopError: unknown;
       let memory: { workingSetBytes: number; managedBytes: number } | undefined;
       try { memory = await daemonWorker.stop(); } catch (error) { stopError = error; }
+      if (runningUrl) probeKeys.delete(new URL(runningUrl).origin);
       if (collectMetrics && !stopError) {
         const summary = daemonWorker.logs().reverse().find(line => line.startsWith('E2E_READ_SUMMARY '))?.slice('E2E_READ_SUMMARY '.length);
         if (summary) {

@@ -6,6 +6,36 @@ namespace Sockseek.Cli;
 /// Settings consumed by the CLI launcher when hosting `Sockseek daemon`.
 public class DaemonSettings
 {
+    [SettingOption("--web-username", DefaultProfileOnly = true)]
+    public string WebUsername { get; set; } = "admin";
+    [SettingOption("--web-password-file", DefaultProfileOnly = true)]
+    public string? WebPasswordFile { get; set; }
+    [SettingOption("--web-password-hash", DefaultProfileOnly = true)]
+    public string? WebPasswordHash { get; set; }
+    [SettingOption("--web-session-lifetime", Parser = nameof(ParseSessionLifetime), DefaultProfileOnly = true)]
+    public TimeSpan WebSessionLifetime { get; set; } = TimeSpan.FromDays(7);
+    [SettingOption("--trusted-proxies", DefaultProfileOnly = true)]
+    public string[] TrustedProxies { get; set; } = ["127.0.0.1", "::1"];
+    [SettingOption("--no-auth", Negate = true, DefaultProfileOnly = true)]
+    public bool AuthenticationEnabled { get; set; } = true;
+    [SettingOption("--allow-http-auth", DefaultProfileOnly = true)]
+    public bool AllowHttpAuthentication { get; set; }
+
+    public Server.Authentication.AuthenticationOptions CreateAuthenticationOptions() => new()
+    {
+        Enabled = AuthenticationEnabled, Username = WebUsername,
+        PasswordFile = WebPasswordFile, PasswordHash = WebPasswordHash,
+        SessionLifetime = WebSessionLifetime, TrustedProxies = TrustedProxies,
+        AllowHttp = AllowHttpAuthentication,
+    };
+
+    private static TimeSpan ParseSessionLifetime(string value, string flag)
+    {
+        if (TimeSpan.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out var duration)
+            && duration > TimeSpan.Zero && duration <= TimeSpan.FromDays(365)) return duration;
+        throw new ArgumentException($"{flag} must be a positive TimeSpan no longer than 365 days (default 7.00:00:00).");
+    }
+
     /// IP/interface used by `Sockseek daemon` for the HTTP/SignalR API.
     [SettingOption("--server-ip", "--daemon-ip", "--api-ip")]
     public string ListenIp { get; set; } = "127.0.0.1";

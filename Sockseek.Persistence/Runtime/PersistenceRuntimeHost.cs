@@ -93,6 +93,7 @@ public sealed class PersistenceRuntimeHost
     public ChatPersistenceStore? Chat { get; private set; }
     public PeerRestrictionOverrideStore? PeerRestrictions { get; private set; }
     public InputArtifactStore? InputArtifacts { get; private set; }
+    public Authentication.ApiKeyStore? ApiKeys { get; private set; }
     public long? DatabaseSizeBytes => FileSize(sqliteOptions.DatabasePath);
     public long? WalSizeBytes => FileSize(sqliteOptions.DatabasePath + "-wal");
     public PersistenceQueueSnapshot Queue => SnapshotQueue();
@@ -145,6 +146,7 @@ public sealed class PersistenceRuntimeHost
             Chat = new ChatPersistenceStore(readers, inbox);
             await Chat.ReconcilePendingMessagesAsync(cancellationToken).ConfigureAwait(false);
             PeerRestrictions = new PeerRestrictionOverrideStore(readers, Health, inbox);
+            ApiKeys = new Authentication.ApiKeyStore(readers, inbox);
             var inputArtifacts = new InputArtifactStore(
                 Path.Combine(
                     Path.GetDirectoryName(sqliteOptions.GetFullDatabasePath())!,

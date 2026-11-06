@@ -16,13 +16,22 @@ Use daemon mode when you want to:
 
 ## Start the daemon
 
-The daemon listens on `127.0.0.1:5030` by default:
+Configure a WebUI password (separate from your Soulseek password) before starting.
+For normal network access, put HTTPS in front of the default `127.0.0.1:5030`
+listener; see [Network security](#network-security). In `sockseek.conf`:
+
+```ini
+web-username = admin
+web-password-file = /run/secrets/sockseek-web-password
+```
+
+Then start the daemon:
 
 ```bash
 sockseek daemon
 ```
 
-Open `http://127.0.0.1:5030/` in a browser to use the WebUI. Published
+Open your HTTPS address in a browser and sign in to use the WebUI. Published
 Sockseek builds bundle it with the daemon; an ordinary source `dotnet build`
 does not build the frontend (see [`webui/README.md`](../webui/README.md)).
 The WebUI uses the same API and has the same network access implications
@@ -55,10 +64,12 @@ sockseek --help
 
 ## Submit work remotely
 
-Set the daemon URL once in the default configuration:
+Create a named key in **Settings → API keys**, save its one-time secret in a
+private file, then configure the remote client:
 
 ```ini
-remote = http://127.0.0.1:5030
+remote = https://sockseek.example.net
+remote-api-key-file = /home/operator/.config/sockseek/server.key
 ```
 
 Normal downloads and the dedicated sharing, transfer, chat, room, and
@@ -66,14 +77,14 @@ notification commands then use that daemon automatically. `--remote` overrides
 the configured URL for one invocation:
 
 ```bash
-sockseek "Artist - Title" --remote http://127.0.0.1:5030
+sockseek "Artist - Title" --remote https://sockseek.example.net
 ```
 
 Most download options can be used in the same command:
 
 ```bash
 sockseek "Artist - Album" \
-  --remote http://127.0.0.1:5030 \
+  --remote https://sockseek.example.net \
   --album \
   --format flac
 ```
@@ -151,8 +162,8 @@ Input is optional; when supplied, its workflow appears alongside other daemon
 work:
 
 ```bash
-sockseek --remote http://127.0.0.1:5030 --monitor
-sockseek "Artist - Title" --remote http://127.0.0.1:5030 --monitor
+sockseek --remote https://sockseek.example.net --monitor
+sockseek "Artist - Title" --remote https://sockseek.example.net --monitor
 ```
 
 The normal `c`, `t`, and `i` shortcuts work daemon-wide by display ID. Choosing
@@ -165,11 +176,11 @@ a remote URL from configuration or `--remote`; they never start a temporary
 local daemon:
 
 ```bash
-sockseek share status --remote http://127.0.0.1:5030
-sockseek share scan --remote http://127.0.0.1:5030
-sockseek share scan --cancel --remote http://127.0.0.1:5030
-sockseek transfers --direction upload --remote http://127.0.0.1:5030
-sockseek transfer cancel <id> --remote http://127.0.0.1:5030
+sockseek share status --remote https://sockseek.example.net
+sockseek share scan --remote https://sockseek.example.net
+sockseek share scan --cancel --remote https://sockseek.example.net
+sockseek transfers --direction upload --remote https://sockseek.example.net
+sockseek transfer cancel <id> --remote https://sockseek.example.net
 ```
 
 `share status` reports the sharing health, published generation, public aliases,
@@ -310,24 +321,24 @@ chat UI. The examples show explicit `--remote`, but it may be omitted when
 `remote` is configured:
 
 ```bash
-sockseek chat status --remote http://127.0.0.1:5030
-sockseek chat conversations --unread --remote http://127.0.0.1:5030
-sockseek chat messages alice --remote http://127.0.0.1:5030
-sockseek chat send alice "hello" --remote http://127.0.0.1:5030
-sockseek chat read alice --remote http://127.0.0.1:5030
-sockseek chat archive alice --remote http://127.0.0.1:5030
+sockseek chat status --remote https://sockseek.example.net
+sockseek chat conversations --unread --remote https://sockseek.example.net
+sockseek chat messages alice --remote https://sockseek.example.net
+sockseek chat send alice "hello" --remote https://sockseek.example.net
+sockseek chat read alice --remote https://sockseek.example.net
+sockseek chat archive alice --remote https://sockseek.example.net
 
-sockseek room available --remote http://127.0.0.1:5030
-sockseek room joined --remote http://127.0.0.1:5030
-sockseek room join indie --remote http://127.0.0.1:5030
-sockseek room messages indie --remote http://127.0.0.1:5030
-sockseek room send indie "hello room" --remote http://127.0.0.1:5030
-sockseek room members indie --remote http://127.0.0.1:5030
-sockseek room member add secret-room friend --remote http://127.0.0.1:5030
-sockseek room leave indie --remote http://127.0.0.1:5030
+sockseek room available --remote https://sockseek.example.net
+sockseek room joined --remote https://sockseek.example.net
+sockseek room join indie --remote https://sockseek.example.net
+sockseek room messages indie --remote https://sockseek.example.net
+sockseek room send indie "hello room" --remote https://sockseek.example.net
+sockseek room members indie --remote https://sockseek.example.net
+sockseek room member add secret-room friend --remote https://sockseek.example.net
+sockseek room leave indie --remote https://sockseek.example.net
 
-sockseek notifications --unread --remote http://127.0.0.1:5030
-sockseek notification read all --remote http://127.0.0.1:5030
+sockseek notifications --unread --remote https://sockseek.example.net
+sockseek notification read all --remote https://sockseek.example.net
 ```
 
 Add `--json` for typed JSON and `--limit 1..200` for bounded list commands.
@@ -372,18 +383,81 @@ the stalled scope.
 
 ## Network security
 
-The daemon API does not currently provide authentication.
+Authentication is enabled by default for all API reads, mutations and SignalR.
+One operator login and named API keys grant full access; there are no roles or
+per-user files. The WebUI uses an HttpOnly cookie, not a browser-stored API key.
+A session lasts seven days from login (`web-session-lifetime = 7.00:00:00`), even
+across browser closure. Activity does not extend it. Logout, expiry or daemon
+restart ends the session and its live connections; accepted jobs keep running.
 
-The default `127.0.0.1` address accepts connections only from the same computer.
-Binding to `0.0.0.0`, `::`, or another network address makes the API reachable
-from that network. Only do this on a trusted network or when access is protected
-by a VPN, firewall, or authenticated reverse proxy.
+Choose exactly one `web-password-file` or `web-password-hash`. To generate a hash,
+run `sockseek auth hash-password` and enter the password without echo. It also
+accepts redirected stdin or `--web-password-file <path>`. Hashes use the framework
+password hasher. Secret files allow one trailing LF/CRLF; other whitespace is
+preserved. Credential changes require restart; editing a password file alone does
+not log out existing sessions. There is no default password or anonymous setup.
 
-Anyone who can reach the API can use its current pass-through operator trust
-domain: they may view history, submit work, start/cancel share scans, and cancel
-eligible jobs or uploads using the daemon's configured credentials. The
-`Sockseek.Operator` endpoint marker is an integration seam for the planned v4
-authentication work; it is not access control today.
+### API keys and recovery
+
+Settings lets you create named keys, copy each secret once, list keys and revoke
+individual clients. Keys survive restarts and do not expire automatically. Only
+hashes are stored in the daemon database; lost keys must be replaced. Revocation
+ends that key's live connections and rejects future requests, without cancelling jobs.
+
+For headless bootstrap, stop the daemon and use its data directory:
+
+```bash
+umask 077
+sockseek auth keys create "Laptop CLI" --data-dir /srv/sockseek > server.key
+sockseek auth keys list --data-dir /srv/sockseek
+sockseek auth keys revoke <id> --data-dir /srv/sockseek
+```
+
+With the daemon running, add `--remote <url> --remote-api-key-file <path>` to these
+commands; they use the same authenticated API as Settings. Offline commands refuse
+to compete with a running daemon for its database. If all credentials are lost,
+stop it and replace the password configuration or create a new key locally.
+Password sessions can work without persistence; key management requires it.
+
+Remote commands use `--remote-api-key-file` or `--remote-api-key`, not WebUI passwords.
+Prefer files to avoid exposing keys in shell history or process listings. HTTP and
+SignalR both use `X-API-Key`; credentials are never forwarded to another origin.
+Explicit HTTP(S) URLs use their standard ports unless specified; bare hosts use 5030.
+
+### HTTPS and reverse proxies
+
+Use Kestrel HTTPS or a TLS reverse proxy. For nginx on the same machine, keep the
+daemon on loopback and include these directives in the HTTPS server's location:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:5030;
+    proxy_http_version 1.1;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+```
+
+Only exact loopback proxy addresses are trusted by default, for one forwarding hop.
+For a proxy on another machine/container, set `trusted-proxies` to its IP address
+(comma-separated for several). The list replaces configured addresses; use
+`--trusted-proxies ""` to trust none. Forwarding trust
+allows the daemon to recognize HTTPS and the client address; it never bypasses login.
+Keep the external Host intact for browser-origin validation. Direct HTTPS through
+the standalone server uses ordinary ASP.NET/Kestrel certificate configuration.
+
+`--allow-http-auth` explicitly permits unencrypted HTTP and non-Secure cookies for
+development/private-network use. Passwords, keys and cookies can then be intercepted;
+it is unsuitable for untrusted networks. `--no-auth` is a separate, explicit bypass:
+anyone who can reach the service has full access, although browser-origin protections
+remain. Missing credentials, localhost and database failures never enable this mode.
+
+All options have matching config keys without `--` (for example `no-auth=true`).
+Daemon authentication options belong in the default profile, not job/auto-profiles.
+Bind to `0.0.0.0` or `::` only when the intended network access and TLS are configured.
 
 ## History and restarts
 

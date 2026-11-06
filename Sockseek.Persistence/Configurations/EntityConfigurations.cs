@@ -4,6 +4,19 @@ using Sockseek.Persistence.Entities;
 
 namespace Sockseek.Persistence.Configurations;
 
+internal sealed class ApiKeyConfiguration : IEntityTypeConfiguration<ApiKeyEntity>
+{
+    public void Configure(EntityTypeBuilder<ApiKeyEntity> builder)
+    {
+        builder.ToTable("api_keys");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Id).HasColumnName("id");
+        builder.Property(x => x.Name).HasColumnName("name").HasMaxLength(200);
+        builder.Property(x => x.Hash).HasColumnName("hash");
+        builder.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
+    }
+}
+
 internal sealed class RuntimeSessionConfiguration : IEntityTypeConfiguration<RuntimeSessionEntity>
 {
     public void Configure(EntityTypeBuilder<RuntimeSessionEntity> builder)

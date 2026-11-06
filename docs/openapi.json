@@ -60,8 +60,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/users/{username}/presence": {
@@ -110,8 +124,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/users/{username}/picture": {
@@ -192,8 +220,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/users/{username}/restrictions": {
@@ -232,8 +274,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       },
       "put": {
         "tags": [
@@ -291,8 +347,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/users/{username}/browses": {
@@ -371,8 +441,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/user-browses": {
@@ -456,8 +540,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/user-browses/{browseId}": {
@@ -517,8 +615,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/user-browses/{browseId}/snapshot": {
@@ -578,8 +690,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/user-browses/{browseId}/cancel": {
@@ -639,8 +765,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/user-browses/{browseId}/directories": {
@@ -776,8 +916,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/user-browses/{browseId}/directories/{directoryId}": {
@@ -867,8 +1021,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/user-browses/{browseId}/directories/{directoryId}/files": {
@@ -994,8 +1162,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/user-browses/{browseId}/search": {
@@ -1112,8 +1294,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/user-browses/{browseId}/downloads": {
@@ -1213,8 +1409,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/input-artifacts": {
@@ -1276,8 +1486,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/input-artifacts/{artifactId}": {
@@ -1336,8 +1560,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/job-previews": {
@@ -1387,8 +1625,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/job-previews/{previewId}": {
@@ -1447,8 +1699,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/job-previews/{previewId}/nodes": {
@@ -1538,8 +1804,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/job-previews/{previewId}/commit": {
@@ -1609,8 +1889,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/{jobId}/search-views": {
@@ -1681,8 +1975,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/search-views/{viewId}": {
@@ -1732,8 +2040,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/search-views/{viewId}/definition": {
@@ -1783,8 +2105,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/search-views/{viewId}/files": {
@@ -1884,8 +2220,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/search-views/{viewId}/directories": {
@@ -1985,8 +2335,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/search-views/{viewId}/directories/{directoryRef}/files": {
@@ -2086,8 +2450,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/search-views/{viewId}/directories/retrieve": {
@@ -2158,8 +2536,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/search-views/{viewId}/aggregate-tracks": {
@@ -2251,8 +2643,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/search-views/{viewId}/aggregate-tracks/{groupRef}/alternatives": {
@@ -2352,8 +2758,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/search-views/{viewId}/aggregate-albums": {
@@ -2445,8 +2865,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/search-views/{viewId}/aggregate-albums/{groupRef}/alternatives": {
@@ -2546,8 +2980,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/search-views/{viewId}/chosen-options/resolve": {
@@ -2618,8 +3066,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/search-views/{viewId}/updates": {
@@ -2700,8 +3162,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/search-views/{viewId}/commit": {
@@ -2772,8 +3248,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/search-views/{viewId}/selection-settings": {
@@ -2843,8 +3333,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/search-views/{viewId}/selection-counts": {
@@ -2914,8 +3418,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/server/info": {
@@ -2934,8 +3452,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/server/status": {
@@ -2954,8 +3486,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/daemon/snapshot": {
@@ -2984,8 +3530,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/persistence/integrity": {
@@ -3014,8 +3574,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/persistence/backup": {
@@ -3054,8 +3628,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/persistence/checkpoint": {
@@ -3084,8 +3672,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/persistence/retention": {
@@ -3114,8 +3716,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/conversations/{conversationId}/snapshot": {
@@ -3205,8 +3821,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/rooms/{roomId}/snapshot": {
@@ -3296,8 +3923,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat": {
@@ -3376,8 +4014,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/conversations": {
@@ -3491,8 +4140,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/private-messages": {
@@ -3581,8 +4241,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/conversations/by-peer": {
@@ -3671,8 +4342,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/conversations/{conversationId}": {
@@ -3762,8 +4444,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/conversations/{conversationId}/messages": {
@@ -3872,8 +4565,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -3971,8 +4675,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/conversations/{conversationId}/read": {
@@ -4072,8 +4787,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/conversations/{conversationId}/archive": {
@@ -4173,8 +4899,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/conversations/{conversationId}/history": {
@@ -4257,8 +4994,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/rooms/available": {
@@ -4372,8 +5120,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/rooms": {
@@ -4480,8 +5239,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -4568,8 +5338,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/rooms/{roomId}": {
@@ -4659,8 +5440,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       },
       "delete": {
         "tags": [
@@ -4748,8 +5540,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/rooms/{roomId}/messages": {
@@ -4858,8 +5661,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -4957,8 +5771,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/rooms/{roomId}/read": {
@@ -5058,8 +5883,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/rooms/{roomId}/members": {
@@ -5180,8 +6016,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -5279,8 +6126,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/rooms/{roomId}/history": {
@@ -5363,8 +6221,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/notifications": {
@@ -5478,8 +6347,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/notifications/{notificationId}": {
@@ -5569,8 +6449,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/notifications/{notificationId}/read": {
@@ -5660,8 +6551,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/notifications/read": {
@@ -5750,8 +6652,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/workflows/{workflowId}/snapshot": {
@@ -5781,8 +6694,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/profiles": {
@@ -5804,8 +6731,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/submissions": {
@@ -5859,8 +6800,22 @@
           },
           "503": {
             "description": "Service Unavailable"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/submissions/{submissionId}": {
@@ -5896,8 +6851,22 @@
           },
           "503": {
             "description": "Service Unavailable"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/submissions/{submissionId}/archive": {
@@ -5941,8 +6910,22 @@
           },
           "503": {
             "description": "Service Unavailable"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/submissions/{submissionId}/rerun": {
@@ -5979,8 +6962,22 @@
           },
           "503": {
             "description": "Service Unavailable"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/{jobId}/rerun-search": {
@@ -6027,8 +7024,22 @@
           },
           "503": {
             "description": "Service Unavailable"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs": {
@@ -6203,8 +7214,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/snapshot": {
@@ -6233,8 +7258,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/lookup": {
@@ -6277,8 +7316,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/{jobId}": {
@@ -6311,8 +7364,22 @@
           },
           "404": {
             "description": "Not Found"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/{jobId}/directory-files": {
@@ -6381,8 +7448,22 @@
           },
           "404": {
             "description": "Not Found"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/workflows/{workflowId}/jobs/display/{displayId}": {
@@ -6425,8 +7506,22 @@
           },
           "404": {
             "description": "Not Found"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/{jobId}/raw": {
@@ -6495,8 +7590,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/{jobId}/retrieve-folder": {
@@ -6550,8 +7659,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/{jobId}/downloads/files": {
@@ -6608,8 +7731,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/{jobId}/downloads/folder": {
@@ -6663,8 +7800,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/{jobId}/manual/complete": {
@@ -6691,8 +7842,22 @@
           },
           "404": {
             "description": "Not Found"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/{jobId}/manual/skip": {
@@ -6719,8 +7884,22 @@
           },
           "404": {
             "description": "Not Found"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/{jobId}/cancel": {
@@ -6746,8 +7925,22 @@
           },
           "404": {
             "description": "Not Found"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/cancel-all": {
@@ -6767,8 +7960,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/workflows/{workflowId}/jobs/display/{displayId}/cancel": {
@@ -6805,8 +8012,22 @@
           },
           "404": {
             "description": "Not Found"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/{jobId}/next-candidate": {
@@ -6832,8 +8053,22 @@
           },
           "404": {
             "description": "Not Found"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/workflows/{workflowId}/jobs/display/{displayId}/next-candidate": {
@@ -6869,8 +8104,22 @@
           },
           "404": {
             "description": "Not Found"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/extract": {
@@ -6909,8 +8158,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/effective-settings": {
@@ -6960,8 +8223,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/search": {
@@ -7001,8 +8278,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/search/tracks": {
@@ -7042,8 +8333,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/search/albums": {
@@ -7083,8 +8388,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/downloads/song": {
@@ -7124,8 +8443,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/downloads/album": {
@@ -7165,8 +8498,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/aggregate/tracks": {
@@ -7206,8 +8553,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/aggregate/albums": {
@@ -7247,8 +8608,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/jobs/lists": {
@@ -7288,8 +8663,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/workflows": {
@@ -7332,8 +8721,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/workflows/{workflowId}": {
@@ -7367,8 +8770,22 @@
           },
           "404": {
             "description": "Not Found"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/workflows/{workflowId}/cancel": {
@@ -7401,8 +8818,22 @@
           },
           "404": {
             "description": "Not Found"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/transfers": {
@@ -7534,8 +8965,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/dashboard/analytics": {
@@ -7574,8 +9019,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/transfers/live": {
@@ -7656,8 +9115,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/transfers/lookup": {
@@ -7697,8 +9170,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/transfers/timeline": {
@@ -7738,8 +9225,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/transfers/group-summaries": {
@@ -7779,8 +9280,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/transfers/{transferId}": {
@@ -7830,8 +9345,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/transfers/{transferId}/cancel": {
@@ -7891,8 +9420,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/transfers/cancel": {
@@ -7922,8 +9465,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/transfers/{transferId}/archive": {
@@ -7967,8 +9524,22 @@
           },
           "503": {
             "description": "Service Unavailable"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/transfers/archive": {
@@ -8001,8 +9572,22 @@
           },
           "503": {
             "description": "Service Unavailable"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/transfers/{transferId}/attempts": {
@@ -8073,8 +9658,22 @@
           },
           "404": {
             "description": "Not Found"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/sharing": {
@@ -8103,8 +9702,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/sharing/scans": {
@@ -8143,8 +9756,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/sharing/scans/{scanId}": {
@@ -8184,8 +9811,22 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/sharing/scans/{scanId}/cancel": {
@@ -8245,8 +9886,272 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
           }
-        }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
+      }
+    },
+    "/api/auth/session": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [ ]
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "description": "First GET /api/auth/session for the antiforgery cookie and token; send that token in X-CSRF-Token. After login, GET the session again to refresh the token.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests"
+          }
+        },
+        "security": [ ]
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
+      }
+    },
+    "/api/auth/keys": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApiKeyDto"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiKeyRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedApiKeyDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
+      }
+    },
+    "/api/auth/keys/{id}": {
+      "delete": {
+        "tags": [
+          "Authentication"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     }
   },
@@ -9266,6 +11171,27 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "ApiKeyDto": {
+        "required": [
+          "id",
+          "name",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -11258,6 +13184,32 @@
               "string"
             ],
             "format": "int64"
+          }
+        }
+      },
+      "CreateApiKeyRequestDto": {
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CreatedApiKeyDto": {
+        "required": [
+          "key",
+          "secret"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/ApiKeyDto"
+          },
+          "secret": {
+            "type": "string"
           }
         }
       },
@@ -18608,6 +20560,21 @@
           }
         }
       },
+      "LoginRequestDto": {
+        "required": [
+          "username",
+          "password"
+        ],
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
       "MarkChatReadRequestDto": {
         "required": [
           "throughMessageId"
@@ -21426,6 +23393,38 @@
           "failed",
           "completed"
         ]
+      },
+      "SessionDto": {
+        "required": [
+          "authenticationEnabled",
+          "authenticated",
+          "antiforgeryToken"
+        ],
+        "type": "object",
+        "properties": {
+          "authenticationEnabled": {
+            "type": "boolean"
+          },
+          "authenticated": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "antiforgeryToken": {
+            "type": "string"
+          }
+        }
       },
       "SetSubmissionArchivedRequestDto": {
         "type": "object",
@@ -30596,6 +32595,20 @@
           }
         }
       }
+    },
+    "securitySchemes": {
+      "ApiKey": {
+        "type": "apiKey",
+        "description": "A named operator API key. Explicit invalid keys never fall back to cookies.",
+        "name": "X-API-Key",
+        "in": "header"
+      },
+      "Browser": {
+        "type": "apiKey",
+        "description": "WebUI session; mutations additionally require X-CSRF-Token from /api/auth/session.",
+        "name": "sockseek-session",
+        "in": "cookie"
+      }
     }
   },
   "tags": [
@@ -30661,6 +32674,9 @@
     },
     {
       "name": "Sharing"
+    },
+    {
+      "name": "Authentication"
     }
   ]
 }

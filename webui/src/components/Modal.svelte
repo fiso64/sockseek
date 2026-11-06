@@ -2,11 +2,12 @@
   import { onMount, type Snippet } from 'svelte';
   import Icon from './Icon.svelte';
 
-  let { title, label = title, closeLabel = 'Close dialog', wide = false, locked = false, onclose, children }: {
+  let { title, label = title, closeLabel = 'Close dialog', wide = false, compact = false, locked = false, onclose, children }: {
     title: string;
     label?: string;
     closeLabel?: string;
     wide?: boolean;
+    compact?: boolean;
     locked?: boolean;
     onclose: () => void;
     children: Snippet;
@@ -35,7 +36,7 @@
   function dismiss(): void { if (!locked) dialog.close(); }
 </script>
 
-<dialog bind:this={dialog} class:wide aria-label={label} onclose={onclose} onkeydown={acceptByKey}
+<dialog bind:this={dialog} class:wide class:compact aria-label={label} onclose={onclose} onkeydown={acceptByKey}
   oncancel={(event) => { event.preventDefault(); dismiss(); }}
   onpointerdown={(event) => { pressedOutside = event.target === dialog && outside(event); }}
   onclick={(event) => { if (pressedOutside && event.target === dialog && outside(event)) dismiss(); }}>
@@ -50,6 +51,7 @@
   dialog { width: min(40rem, calc(100vw - 48px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--border-strong); border-radius: 13px; background: var(--surface); color: var(--text); box-shadow: 0 22px 60px #0005; overflow: hidden; }
   dialog[open] { display: flex; flex-direction: column; }
   dialog.wide { width: min(900px, calc(100vw - 48px)); height: min(720px, calc(100dvh - 48px)); }
+  dialog.compact { width: min(28rem, calc(100vw - 32px)); }
   dialog::backdrop { background: color-mix(in srgb, var(--bg) 74%, transparent); backdrop-filter: blur(3px); }
   header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
   h2 { margin: 0; font-size: 1.08rem; font-weight: 650; }

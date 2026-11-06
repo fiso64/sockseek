@@ -54,7 +54,6 @@ internal static class SharingEndpoints
                 ? Results.Json(response, statusCode: StatusCodes.Status202Accepted)
                 : Results.Ok(response);
         })
-            .RequireOperatorMutation()
             .WithTags("Sharing")
             .WithSummary("Starts a share scan or returns the currently active scan.")
             .Produces<StartShareScanResponseDto>(StatusCodes.Status202Accepted)
@@ -98,7 +97,6 @@ internal static class SharingEndpoints
             }
             return Results.Ok(sharing.GetScan(scanId) ?? scan);
         })
-            .RequireOperatorMutation()
             .WithTags("Sharing")
             .WithSummary("Cancels an active share scan.")
             .Produces<ShareScanStateDto>()

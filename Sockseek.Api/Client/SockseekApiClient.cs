@@ -5,6 +5,18 @@ using System.Text.Json;
 
 namespace Sockseek.Api;
 
+/// <summary>Keep credentialed HTTP and SignalR negotiation requests on the configured server.</summary>
+internal sealed class ServerOriginHandler(Uri origin, HttpMessageHandler inner) : DelegatingHandler(inner)
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        if (request.RequestUri is not { } target || target.Scheme != origin.Scheme
+            || target.IdnHost != origin.IdnHost || target.Port != origin.Port || target.UserInfo.Length != 0)
+            throw new InvalidOperationException("The daemon client cannot send credentials to another origin.");
+        return base.SendAsync(request, ct);
+    }
+}
+
 public sealed record CursorPage<T>(
     IReadOnlyList<T> Items, string? NextCursor, StateStreamPositionDto? ReadPosition = null);
 public sealed record SequencePage<T>(IReadOnlyList<T> Items, long? NextSequence);
@@ -88,12 +100,22 @@ public sealed class SockseekApiClient
     public static Uri NormalizeServerUrl(string serverUrl)
     {
         var value = serverUrl.Trim();
-        if (!value.Contains("://", StringComparison.Ordinal))
+        bool explicitScheme = value.Contains("://", StringComparison.Ordinal);
+        if (!explicitScheme)
             value = "http://" + value;
 
         var builder = new UriBuilder(value);
-        if (builder.Uri.IsDefaultPort)
-            builder.Port = 5030;
+        if (!explicitScheme)
+        {
+            var authority = value["http://".Length..].Split('/', 2)[0];
+            // A colon after the closing IPv6 bracket (or in a plain host) specifies a port.
+            if (authority.LastIndexOf(':') <= authority.LastIndexOf(']')) builder.Port = 5030;
+        }
+
+        if (builder.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(builder.UserName)
+            || !string.IsNullOrEmpty(builder.Password) || !string.IsNullOrEmpty(builder.Query)
+            || !string.IsNullOrEmpty(builder.Fragment))
+            throw new ArgumentException("Use an HTTP(S) server URL without credentials, query or fragment.");
 
         if (!builder.Path.EndsWith('/'))
             builder.Path += "/";
@@ -102,8 +124,32 @@ public sealed class SockseekApiClient
     }
 
     /// <summary>Creates an <see cref="HttpClient"/> with a normalized daemon base address.</summary>
-    public static HttpClient CreateHttpClient(string serverUrl)
-        => new() { BaseAddress = NormalizeServerUrl(serverUrl) };
+    public static HttpClient CreateHttpClient(string serverUrl, string? apiKey = null)
+    {
+        // Never forward a credential to a redirect target. The operator supplies the canonical URL.
+        var origin = NormalizeServerUrl(serverUrl);
+        var http = new HttpClient(new ServerOriginHandler(origin, new HttpClientHandler { AllowAutoRedirect = false }))
+            { BaseAddress = origin };
+        if (apiKey is not null)
+        {
+            if (string.IsNullOrWhiteSpace(apiKey) || apiKey.Any(char.IsControl))
+            {
+                http.Dispose();
+                throw new ArgumentException("The remote API key is empty or contains invalid characters.");
+            }
+            http.DefaultRequestHeaders.Add("X-API-Key", apiKey);
+        }
+        return http;
+    }
+
+    public Task<IReadOnlyList<ApiKeyDto>> GetApiKeysAsync(CancellationToken ct = default)
+        => GetRequiredAsync<IReadOnlyList<ApiKeyDto>>("api/auth/keys", ct);
+
+    public Task<CreatedApiKeyDto> CreateApiKeyAsync(string name, CancellationToken ct = default)
+        => PostRequiredAsync<CreatedApiKeyDto, CreateApiKeyRequestDto>("api/auth/keys", new(name), ct);
+
+    public Task RevokeApiKeyAsync(Guid id, CancellationToken ct = default)
+        => DeleteRequiredAsync($"api/auth/keys/{id}", ct);
 
     public Task<ServerInfoDto> GetServerInfoAsync(CancellationToken ct = default)
         => GetRequiredAsync<ServerInfoDto>("api/server/info", ct);

@@ -2,6 +2,13 @@ using System.Text.Json.Serialization;
 
 namespace Sockseek.Api;
 
+[JsonSerializable(typeof(LoginRequestDto))]
+[JsonSerializable(typeof(SessionDto))]
+[JsonSerializable(typeof(ApiKeyDto))]
+[JsonSerializable(typeof(IReadOnlyList<ApiKeyDto>))]
+[JsonSerializable(typeof(CreateApiKeyRequestDto))]
+[JsonSerializable(typeof(CreatedApiKeyDto))]
+
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
