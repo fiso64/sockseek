@@ -125,8 +125,7 @@ input[type="checkbox"]:indeterminate {
 
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 18px; }
 .brand-mark {
-  width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center;
-  border-radius: 9px; background: var(--accent); color: white; font-weight: 700;
+  width: 40px; height: 40px; flex: 0 0 auto; display: block; object-fit: contain;
 }
 .brand-copy { min-width: 0; display: grid; gap: 1px; }
 .brand-copy strong { font-size: 0.96rem; font-weight: 650; letter-spacing: -0.01em; }

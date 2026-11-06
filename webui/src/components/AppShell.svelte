@@ -59,7 +59,7 @@
 <div class="app-shell">
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark" aria-hidden="true">S</div>
+      <img class="brand-mark" src="/sockseek-logo.svg" alt="" />
       <div class="brand-copy"><strong>sockseek</strong></div>
     </div>
 
