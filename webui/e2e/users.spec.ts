@@ -41,13 +41,17 @@ test('renders populated and partial peer profiles without inventing missing fact
   await expect(card.locator('.user-profile-description')).toHaveCSS('white-space', 'pre-wrap');
   expect(await card.locator('.user-profile-description').textContent()).toContain('library.\n\nMore');
   await expect(card.locator('.user-profile-description a')).toHaveAttribute('href', 'https://example.org/fixture');
-  await expect(card.locator('.user-capacity-card')).toContainText('Free slot');
+  await expect(card.locator('.user-profile-name-line .user-capacity-inline')).toContainText('Free slot');
+  await expect(card.locator('.user-capacity-inline')).toContainText('slots');
+  await expect(card.locator('.user-capacity-inline')).toContainText('queued');
   await expect(card.locator('.user-profile-stats > div').nth(0).locator('strong')).toHaveText('5');
   await expect(card.locator('.user-profile-stats > div').nth(1).locator('strong')).toHaveText('3');
   await expect(card.locator('.user-profile-stats > div').nth(2).locator('strong')).toHaveText('8.45 MB/s');
   await expect(card.locator('.user-profile-stats > div').nth(3).locator('strong')).toHaveText('48,231');
   const picture = card.getByRole('button', { name: "View fixture-peer's profile picture" });
   await expect(picture).toBeVisible();
+  await expect(picture.locator('img')).toHaveCSS('object-fit', 'contain');
+  await expect(picture).toHaveCSS('width', '190px');
   await expect.poll(() => picture.locator('img').evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
   await picture.click();
   await expect(page.getByRole('dialog', { name: 'fixture-peer profile picture' })).toBeVisible();
@@ -69,8 +73,8 @@ test('renders populated and partial peer profiles without inventing missing fact
   const info = await (await infoResponse).json();
   expect(info).not.toHaveProperty('hasFreeUploadSlot');
   expect(info.statistics.state).toBe('available');
-  await expect(card.locator('.slot-state')).toHaveText('Unknown');
-  await expect(card.locator('.user-capacity-values strong')).toHaveText(['—', '—']);
+  await expect(card.locator('.slot-state')).toHaveText('Slot unknown');
+  await expect(card.locator('.user-capacity-inline strong')).toHaveText(['—', '—']);
   await expect(card.locator('.user-profile-stats strong')).toHaveText(['0', '0', '—', '0']);
   await expect(card.getByLabel('Profile section availability')).toContainText('Info unavailable');
 
@@ -80,7 +84,7 @@ test('renders populated and partial peer profiles without inventing missing fact
   expect(statistics).not.toHaveProperty('sharedFileCount');
   expect(statistics.info.state).toBe('available');
   await expect(card.locator('.slot-state')).toHaveText('No free slot');
-  await expect(card.locator('.user-capacity-values strong')).toHaveText(['0', '0']);
+  await expect(card.locator('.user-capacity-inline strong')).toHaveText(['0', '0']);
   await expect(card.locator('.user-profile-stats strong')).toHaveText(['—', '—', '—', '—']);
   await expect(card.getByLabel('Profile section availability')).toContainText('Statistics unavailable');
   expect(profileReads).toEqual([
@@ -256,6 +260,14 @@ test('excludes an unloaded subfolder and restores a deeper branch with a file ex
   });
   await page.goto('/shares/fixture-peer');
   await expect(page.getByText('Selected.txt', { exact: true })).toBeVisible();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.share-tree-row').first()).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.share-tree-row.keyboard-current')).toHaveCount(0);
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.share-tree-row').first()).toBeFocused();
+  await page.getByRole('heading', { name: 'User browser' }).click();
+  await expect(page.locator('.share-tree-row.keyboard-current')).toHaveCount(0);
   await page.keyboard.press('ArrowDown');
   await expect(page.locator('.share-tree-row').first()).toBeFocused();
   await page.keyboard.press('ArrowDown');

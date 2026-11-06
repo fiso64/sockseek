@@ -28,9 +28,21 @@
     if (!open || root?.contains(event.target as Node)) return;
     open = false;
   }
-</script>
 
-<svelte:window onpointerdown={handleWindowPointerDown} onkeydown={(event) => { if (event.key === 'Escape') open = false; }} onresize={() => (open = false)} />
+  $effect(() => {
+    if (!open) return;
+    const keydown = (event: KeyboardEvent) => { if (event.key === 'Escape') open = false; };
+    const resize = () => { open = false; };
+    window.addEventListener('pointerdown', handleWindowPointerDown);
+    window.addEventListener('keydown', keydown);
+    window.addEventListener('resize', resize);
+    return () => {
+      window.removeEventListener('pointerdown', handleWindowPointerDown);
+      window.removeEventListener('keydown', keydown);
+      window.removeEventListener('resize', resize);
+    };
+  });
+</script>
 
 <span class="username-link-control" bind:this={root}>
   <button type="button" class="username-link" title={title ?? `Actions for ${username}`} aria-label={`Actions for ${username}`} aria-haspopup="menu" aria-expanded={open} onclick={toggle}>{username}</button>

@@ -430,14 +430,20 @@
     ? status.lifecycleState !== 'Terminal'
     : Boolean(viewState.job && viewState.job.lifecycleState !== 'Terminal' && !viewState.summary?.isComplete)));
 
+  const folderFileCache = new WeakMap<Schema<'SearchViewFileDto'>, FolderItemFile>();
   function folderFile(file: Schema<'SearchViewFileDto'>, relativePath?: string): FolderItemFile {
-    return {
+    const path = relativePath ?? file.file.name;
+    const cached = folderFileCache.get(file);
+    if (cached?.relativePath === path) return cached;
+    const result: FolderItemFile = {
       id: file.ref,
-      relativePath: relativePath ?? file.file.name,
+      relativePath: path,
       locked: file.visibility === 'Locked',
       sizeBytes: Number(file.file.size),
       audio: audio(file.file),
     };
+    folderFileCache.set(file, result);
+    return result;
   }
 
   function trackRepresentative(groupRef: string, fallback: Schema<'SearchViewFileDto'>): Schema<'SearchViewFileDto'> {
@@ -506,16 +512,6 @@
       ? humanizeStateValue(summary.retentionState) : 'Complete';
   }
 
-  function tierRows(tier: Schema<'ServerSearchPreferenceTier'> | 'All'): OrdinaryRow[] {
-    return viewState.rows.filter((row): row is OrdinaryRow =>
-      (row.kind === 'file' || row.kind === 'directory') && (tier === 'All' || preference(row) === tier));
-  }
-
-  function visibleTiers(): ('Preferred' | 'Other' | 'All')[] {
-    return viewState.sortOrder === 'Relevance' && !genericMode
-      ? ['Preferred', 'Other'] : ['All'];
-  }
-
   function samePeerGroups(rows: OrdinaryRow[]): { key: string; username: string; rows: [OrdinaryRow, ...OrdinaryRow[]] }[] {
     const groups: { key: string; username: string; rows: [OrdinaryRow, ...OrdinaryRow[]] }[] = [];
     const peerRuns = new Map<string, number>();
@@ -533,6 +529,31 @@
     }
     return groups;
   }
+
+  function groupRows(rows: SearchRow[], byPreference: boolean) {
+    const tiers: ('Preferred' | 'Other' | 'All')[] = byPreference ? ['Preferred', 'Other'] : ['All'];
+    const rowsByTier = new Map(tiers.map(tier => [tier, [] as OrdinaryRow[]]));
+    for (const row of rows) {
+      if (row.kind !== 'file' && row.kind !== 'directory') continue;
+      rowsByTier.get(tiers[0] === 'All' ? 'All' : preference(row))?.push(row);
+    }
+    return tiers.map(tier => ({ tier, rows: rowsByTier.get(tier)! }))
+      .filter(({ rows }) => rows.length > 0)
+      .map(({ tier, rows }) => ({ tier, count: rows.length, groups: samePeerGroups(rows) }));
+  }
+  let groupedRows: SearchRow[] | null = null;
+  let groupedByPreference = false;
+  let cachedGroups: ReturnType<typeof groupRows> = [];
+  let groupedTiers = $derived.by(() => {
+    const rows = viewState.rows;
+    const byPreference = viewState.sortOrder === 'Relevance' && !genericMode;
+    if (rows !== groupedRows || byPreference !== groupedByPreference) {
+      groupedRows = rows;
+      groupedByPreference = byPreference;
+      cachedGroups = groupRows(rows, byPreference);
+    }
+    return cachedGroups;
+  });
 </script>
 
 <svelte:window onkeydown={windowKeydown} onpointerdown={windowPointerDown} />
@@ -541,7 +562,7 @@
   <div class="aggregate-peer-summary">
     <span class="aggregate-peer-username"><UsernameLink username={peer.username} actions={userActions} /></span>
     {#if peer.uploadSpeed != null}<span class="aggregate-peer-speed"><strong>{(Number(peer.uploadSpeed) / 1_000_000).toFixed(1)} MB/s</strong></span>{/if}
-    <span class:available={peer.hasFreeUploadSlot === true} class="aggregate-peer-slot"><i></i>{peer.hasFreeUploadSlot == null ? 'Slot unknown' : peer.hasFreeUploadSlot ? 'Free slot' : 'No free slot'}</span>
+    <span class="aggregate-peer-slot"><strong class:available={peer.hasFreeUploadSlot === true} class:unavailable={peer.hasFreeUploadSlot === false}>{peer.hasFreeUploadSlot == null ? '—' : peer.hasFreeUploadSlot ? 'Yes' : 'No'}</strong><small>free slot</small></span>
   </div>
 {/snippet}
 
@@ -836,12 +857,10 @@
       {/each}
     </div>
   {:else}
-    {#each visibleTiers() as tier}
-      {@const rows = tierRows(tier)}
-      {#if rows.length}
-        {#if tier !== 'All'}<div class:preferred={tier === 'Preferred'} class="result-tier-heading"><span>{tier === 'Preferred' ? 'Preferred matches' : 'Other matches'}</span><small>{rows.length}</small></div>{/if}
+    {#each groupedTiers as { tier, count, groups } (tier)}
+        {#if tier !== 'All'}<div class:preferred={tier === 'Preferred'} class="result-tier-heading"><span>{tier === 'Preferred' ? 'Preferred matches' : 'Other matches'}</span><small>{count}</small></div>{/if}
         <div class:preferred-tier={tier === 'Preferred'} class="result-tier">
-          {#each samePeerGroups(rows) as group (group.key)}
+          {#each groups as group (group.key)}
             {@const first = group.rows[0]}
             {@const peer = first.value.peer}
             {@const noun = genericMode ? (group.rows.some(row => row.kind === 'directory' && !row.value.ref.folderPath) ? 'group' : 'directory') : 'result'}
@@ -906,7 +925,6 @@
             </PeerItemGroup>
           {/each}
         </div>
-      {/if}
     {/each}
   {/if}
 

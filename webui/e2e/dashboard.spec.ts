@@ -91,14 +91,14 @@ test('retries analytics and never labels previous-range data as the selected ran
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.locator('.chart-x-labels span').first()).toHaveText(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$/);
   const ranking = page.getByRole('tablist', { name: 'Dashboard ranking' });
-  await ranking.getByRole('button', { name: 'Uploads', exact: true }).click();
-  await expect(page.locator('.dashboard-ranking-row.heading')).toContainText('Uploaded');
+  await expect(page.locator('.peers-table').first().locator('.heading')).toContainText('Downloaded');
+  await expect(page.locator('.peers-table').last().locator('.heading')).toContainText('Uploaded');
   await ranking.getByRole('button', { name: 'Content', exact: true }).click();
   await expect(page.locator('.dashboard-ranking-row.heading')).toContainText('Folder');
   await ranking.getByRole('button', { name: 'Errors', exact: true }).click();
   await expect(page.locator('.dashboard-ranking-row.heading')).toContainText('Last seen');
-  await ranking.getByRole('button', { name: 'Downloads', exact: true }).click();
-  await expect(page.locator('.dashboard-ranking-row.heading')).toContainText('Downloaded');
+  await ranking.getByRole('button', { name: 'Transfers', exact: true }).click();
+  await expect(page.locator('.peers-table').first().locator('.heading')).toContainText('Downloaded');
   await page.getByRole('button', { name: '90d', exact: true }).click();
   await expect(page.locator('.chart-x-labels span').first()).toHaveText(/^[A-Z][a-z]{2}$/);
   await expect(page.locator('.chart-x-labels span').last()).toHaveText(/^(Late )?[A-Z][a-z]{2}$/);
@@ -203,7 +203,7 @@ test('refreshes retained analytics after the terminal transfer commit', async ({
   // Content ranks folders downloaded from our shares by remote peers, not
   // files we downloaded from them.
   await expect(ranking.locator('.content-table .dashboard-ranking-row')).toHaveCount(1);
-  await ranking.getByRole('button', { name: 'Downloads', exact: true }).click();
+  await ranking.getByRole('button', { name: 'Transfers', exact: true }).click();
   await ranking.getByRole('button', { name: 'Actions for fixture-peer', exact: true }).click();
   await ranking.getByRole('menuitem', { name: 'Profile' }).click();
   await expect(page).toHaveURL(/\/users\/fixture-peer$/);

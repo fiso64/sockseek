@@ -34,6 +34,11 @@ export function basename(path: string): string {
   return path.split(/[\\/]/).at(-1) ?? path;
 }
 
+export function parentPath(path: string): string {
+  const splitAt = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return path.slice(0, splitAt + 1);
+}
+
 
 export function formatBytes(bytes: number): string {
   if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(2)} GB`;

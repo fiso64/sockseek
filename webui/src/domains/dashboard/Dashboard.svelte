@@ -7,6 +7,7 @@
   import { daemonApi } from '../../api/client';
   import { formatBytes as formatKnownBytes, formatCount as formatKnownCount, formatCountWithNoun, humanizeStateValue, soulseekStatusLabel } from '../../app/format';
   import UsernameLink from '../../components/UsernameLink.svelte';
+  import Icon from '../../components/Icon.svelte';
   import { availableDashboardSummary, dashboardByteAxis, dashboardChartLabels, dashboardTransferRate, shareRatioDelta } from './presentation';
 
   const rangeIds = ['24h', '7d', '30d', '90d', '1y', 'all'] as const;
@@ -27,7 +28,7 @@
 
   let { liveStatus, terminalTransferCommitRevision, soulseek = null, transfers, userActions }: Props = $props();
   let range = $state<RangeId>('30d');
-  let rankingTab = $state<'downloads' | 'uploads' | 'content' | 'errors'>('downloads');
+  let rankingTab = $state<'transfers' | 'content' | 'errors'>('transfers');
   let data = $state<DashboardAnalyticsDto | null>(null);
   let loading = $state(true);
   let error = $state<Error | null>(null);
@@ -296,24 +297,28 @@
   <div class="dashboard-lower-area">
     <section class="dashboard-panel ranking-panel">
       <div class="ranking-tabs" role="tablist" aria-label="Dashboard ranking">
-        <button type="button" class:active={rankingTab === 'downloads'} onclick={() => (rankingTab = 'downloads')}>Downloads</button>
-        <button type="button" class:active={rankingTab === 'uploads'} onclick={() => (rankingTab = 'uploads')}>Uploads</button>
+        <button type="button" class:active={rankingTab === 'transfers'} onclick={() => (rankingTab = 'transfers')}>Transfers</button>
         <button type="button" class:active={rankingTab === 'content'} onclick={() => (rankingTab = 'content')}>Content</button>
         <button type="button" class:active={rankingTab === 'errors'} onclick={() => (rankingTab = 'errors')}>Errors</button>
         <span>{rangeContext[range]}</span>
       </div>
-      {#if rankingTab === 'downloads' || rankingTab === 'uploads'}
-        {@const rows = rankingTab === 'downloads' ? data?.downloadPeers ?? [] : data?.uploadPeers ?? []}
-        <div class="dashboard-ranking-table peers-table">
-          <div class="dashboard-ranking-row heading">
-            <span>#</span><span>User</span><span>{rankingTab === 'downloads' ? 'Downloaded' : 'Uploaded'}</span><span>Files</span>
-          </div>
-          {#each rows as peer, index}
-            <div class="dashboard-ranking-row">
-              <span>{index + 1}</span>
-              <span class="dashboard-peer-name"><UsernameLink username={peer.username} actions={userActions}/></span>
-              <span>{formatBytes(peer.transferredBytes)}</span>
-              <span>{formatCount(peer.successfulFileCount)}</span>
+      {#if rankingTab === 'transfers'}
+        <div class="dashboard-peer-rankings">
+          {#each ['downloads', 'uploads'] as direction}
+            {@const rows = direction === 'downloads' ? data?.downloadPeers ?? [] : data?.uploadPeers ?? []}
+            <div class="dashboard-ranking-table peers-table" aria-label={direction === 'downloads' ? 'Downloads' : 'Uploads'}>
+              <h3 class="dashboard-peer-heading"><Icon name={direction === 'downloads' ? 'download' : 'upload'}/>{direction === 'downloads' ? 'Downloads' : 'Uploads'}</h3>
+              <div class="dashboard-ranking-row heading">
+                <span>#</span><span>User</span><span>{direction === 'downloads' ? 'Downloaded' : 'Uploaded'}</span><span>Files</span>
+              </div>
+              {#each rows as peer, index}
+                <div class="dashboard-ranking-row">
+                  <span>{index + 1}</span>
+                  <span class="dashboard-peer-name"><UsernameLink username={peer.username} actions={userActions}/></span>
+                  <span>{formatBytes(peer.transferredBytes)}</span>
+                  <span>{formatCount(peer.successfulFileCount)}</span>
+                </div>
+              {/each}
             </div>
           {/each}
         </div>

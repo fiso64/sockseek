@@ -13,7 +13,6 @@
   import { jobStatusLabel as status, jobStatusClass as statusClass } from './status';
   import { jobKindIcon, jobKindLabel, searchJobMode } from './kind';
   import { searchModeLabel } from '../search/model';
-  import RelativeTime from '../../components/RelativeTime.svelte';
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
   import { canArchiveRoot } from './archive';
   import { searchJobStats } from './search-stats';
@@ -191,17 +190,15 @@
         {@const searchStats = job.kind === 'search' ? searchJobStats(job) : []}
         {@const automaticStats = job.kind === 'search' ? [] : automaticJobListStats(job)}
         {@const searchMode = searchJobMode(job)}
+        {@const typeLabel = entry.root.kind === 'extract' ? importContext(entry) : searchMode ? searchModeLabel(searchMode) : jobKindLabel(job.kind)}
         {@const statusLabel = unavailable ? entryError ? 'Result unavailable' : 'Loading result' : status(job)}
         <div data-keyboard-item={entry.root.jobId} tabindex="-1" class="search-history-row" class:automatic-history-row={job.kind !== 'search'}>
           <button type="button" data-keyboard-focus class="search-history-open" class:automatic-history-open={job.kind !== 'search'} onclick={() => onopen(job)}>
+            <span class="search-history-icon" role="img" aria-label={typeLabel} title={typeLabel}><Icon name={searchMode ?? jobKindIcon(job.kind)} /></span>
             <span class="search-history-query">{title(entry.root)}</span>
             {#if statusLabel !== 'Complete'}
               <span class={`search-status-badge ${unavailable ? 'pending' : statusClass(job)}`}><i></i>{statusLabel}</span>
             {/if}
-            <span class="search-history-context">
-              <span class={`job-type-badge ${entry.root.kind === 'extract' ? 'import' : job.kind === 'search' ? 'search' : 'automatic'}`}><Icon name={searchMode ?? jobKindIcon(job.kind)} /><span>{entry.root.kind === 'extract' ? importContext(entry) : searchMode ? searchModeLabel(searchMode) : jobKindLabel(job.kind)}</span></span>
-              {#if entry.root.createdAtUtc}<span class="stat-separator">·</span><RelativeTime timestamp={entry.root.createdAtUtc} />{/if}
-            </span>
             {#if searchStats.length || automaticStats.length}
               <span class="search-history-stats">
                 {#each searchStats as stat, index}

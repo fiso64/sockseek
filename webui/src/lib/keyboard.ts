@@ -36,6 +36,7 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
   let options = initial;
   let current: HTMLElement | null = null;
   let pending: { item: HTMLElement; page: string; known: Set<string> } | null = null;
+  let pointerDown = false;
   let disposed = false;
 
   function mark(item: HTMLElement | null): void {
@@ -64,12 +65,31 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
     const item = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-keyboard-item]') : null;
     // Moving focus elsewhere while a page loads must not let its response steal focus.
     if (pending && item !== pending.item) pending = null;
-    if (item && root.contains(item)) mark(item);
+    if (!pointerDown && item && root.contains(item)) mark(item);
+    else if (current && !current.contains(event.target as Node)) mark(null);
+  }
+
+  function pointerdown(event: PointerEvent): void {
+    pointerDown = true;
+    if (current && event.target instanceof Node && !current.contains(event.target)) {
+      pending = null;
+      if (document.activeElement instanceof HTMLElement && current.contains(document.activeElement)) document.activeElement.blur();
+      mark(null);
+    }
+  }
+
+  function pointerup(): void {
+    pointerDown = false;
   }
 
   function keydown(event: KeyboardEvent): void {
     if (options.enabled === false || keyboardShortcutsBlocked(event)) return;
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    if (event.key === 'Escape' && current && !document.querySelector('[role="menu"]')) {
+      event.preventDefault();
+      pending = null;
+      if (document.activeElement instanceof HTMLElement && current.contains(document.activeElement)) document.activeElement.blur();
+      mark(null);
+    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       const rows = entries();
       const direction = event.key === 'ArrowDown' ? 1 : -1;
       const index = current ? rows.indexOf(current) : -1;
@@ -107,6 +127,9 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
 
   window.addEventListener('keydown', keydown);
   window.addEventListener('focusin', focusIn);
+  window.addEventListener('pointerdown', pointerdown);
+  window.addEventListener('pointerup', pointerup);
+  window.addEventListener('pointercancel', pointerup);
   return {
     update(next: KeyboardListOptions) {
       if (next.scope !== options.scope || next.enabled === false) { pending = null; mark(null); }
@@ -136,6 +159,9 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
       disposed = true;
       window.removeEventListener('keydown', keydown);
       window.removeEventListener('focusin', focusIn);
+      window.removeEventListener('pointerdown', pointerdown);
+      window.removeEventListener('pointerup', pointerup);
+      window.removeEventListener('pointercancel', pointerup);
     },
   };
 }

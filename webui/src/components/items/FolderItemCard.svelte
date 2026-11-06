@@ -6,7 +6,7 @@
   import RelativeTime from '../RelativeTime.svelte';
   import type { AppIconName } from '../../app/icons';
   import type { FolderItemFile, TransferPresentation } from '../../domains/presentation/items';
-  import { audioSummary, basename, folderSources, formatBytes, formatLength } from '../../domains/presentation/items';
+  import { audioSummary, basename, folderSources, formatBytes, formatLength, parentPath } from '../../domains/presentation/items';
   import { buildFolderTreeRows, type FolderTreeNode } from '../../domains/presentation/folder-tree';
   import { fileTypeIcon } from '../../domains/presentation/file-types';
 
@@ -120,11 +120,6 @@
   function needsTransferDetail(value?: TransferPresentation): boolean {
     return Boolean(value && (showsInlineTransferProgress(value)
       || fileTransferSecondary(value) || !usesCircularTransferState(value)));
-  }
-
-  function parentPath(value: string): string {
-    const splitAt = Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\'));
-    return value.slice(0, splitAt + 1);
   }
 
   function subfolderSizeTitle(node: FolderTreeNode): string | undefined {

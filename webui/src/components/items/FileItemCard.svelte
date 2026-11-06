@@ -3,7 +3,7 @@
   import TransferStateLabel from './TransferStateLabel.svelte';
   import RelativeTime from '../RelativeTime.svelte';
   import type { AudioAttributes, TransferPresentation } from '../../domains/presentation/items';
-  import { audioSummary, basename, formatBytes, formatLength } from '../../domains/presentation/items';
+  import { audioSummary, basename, formatBytes, formatLength, parentPath } from '../../domains/presentation/items';
 
   interface Props {
     path: string;
@@ -88,10 +88,9 @@
 
       <div class="item-path-block result-path-block">
         <div class="item-name-line result-name-line">
-          <strong>{basename(path)}</strong>
+          <strong class="folder-heading-path" title={path}><bdi dir="ltr"><span class="folder-path-ancestors">{parentPath(path)}</span><b>{basename(path)}</b></bdi></strong>
           {#if locked}<span class="locked-badge">Locked</span>{/if}
         </div>
-        <small>{path}</small>
       </div>
 
       <div class="item-detail result-detail item-size-detail"><strong>{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</strong></div>

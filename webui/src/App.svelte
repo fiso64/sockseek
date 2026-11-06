@@ -76,6 +76,26 @@
   const liveState = liveClient.reducer.state;
   let searchState = $state<SearchViewState>(searchController.current());
   let archivingSubmissionIds = $state(new Set<string>());
+  let deferSearchRender = $state(false);
+  let searchRenderFrame: number | null = null;
+
+  function cancelDeferredSearchRender(): void {
+    if (searchRenderFrame !== null) cancelAnimationFrame(searchRenderFrame);
+    searchRenderFrame = null;
+    deferSearchRender = false;
+  }
+
+  function renderCachedSearchAfterPaint(): void {
+    deferSearchRender = true;
+    // The first frame paints the selected navigation item before mounting the
+    // cached result cards in the next frame. Do not delay direct job opens.
+    searchRenderFrame = requestAnimationFrame(() => {
+      searchRenderFrame = requestAnimationFrame(() => {
+        searchRenderFrame = null;
+        deferSearchRender = false;
+      });
+    });
+  }
 
   $effect(() => {
     const active = documentVisible && jobsListVisible();
@@ -135,6 +155,7 @@
   }
 
   function applyPath(pathname: string): void {
+    cancelDeferredSearchRender();
     automaticJobId = null;
     jobRouteError = null;
     const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean);
@@ -226,6 +247,7 @@
     if (activePage === 'uploads') startup.push(transferTimeline.load('upload', true));
     void Promise.allSettled(startup);
     return () => {
+      cancelDeferredSearchRender();
       transferTimeline.stop();
       for (const list of Object.values(jobLists)) list.stop();
       statusSubscription();
@@ -241,6 +263,7 @@
 
   function navigate(page: PageId): void {
     if (composingJob && composingJobCommitPending) return;
+    cancelDeferredSearchRender();
     const wasOnJobs = activePage === 'jobs';
     routeRequest?.abort();
     jobRouteError = null;
@@ -255,6 +278,7 @@
         pendingJobId = null;
       } else if (showingSearch && searchState.job?.jobId && searchState.draft) {
         pendingJobId = searchState.job.jobId;
+        renderCachedSearchAfterPaint();
         setPath(searchJobPath(pendingJobId, searchState.draft.resultMode));
         return;
       }
@@ -526,6 +550,7 @@
       <LoadingIndicator label="Opening job" blocking />
     </section>
   {:else if activePage === 'jobs' && showingSearch && searchState.draft}
+    {#if !deferSearchRender}
     <SearchResults
       {userActions}
       daemonOffline={liveStatus === 'offline'}
@@ -562,6 +587,7 @@
       onback={backToJobs}
       onsearchagain={() => void rerunActiveSearch()}
     />
+    {/if}
   {:else if activePage === 'jobs'}
     {#if automaticJobId}
       <AutomaticJobDetail jobId={automaticJobId} initialDetail={automaticInitialDetail} {userActions}
@@ -641,7 +667,7 @@
     {#if activeUsername}
       <UsersPage username={activeUsername} view={userView} {liveStatus} {liveClient} onviewchange={changeUserView} onmessageuser={userActions.message} />
     {:else}
-      <section class="page user-browser-page"><header class="user-browser-heading"><div><p class="eyebrow">Network</p><h1>{activePage === 'shares' ? 'Shares' : 'Users'}</h1></div></header><div class="empty-state"><strong>Choose a Soulseek user</strong><p>Enter an exact username above to view {activePage === 'shares' ? 'their shared files' : 'their profile'}.</p></div></section>
+      <section class="page user-browser-page"><header class="user-browser-heading"><div><p class="eyebrow">Network</p><h1>{activePage === 'shares' ? 'Shares' : 'Users'}</h1></div></header><div class="resource-state-notice empty blocking" role="status"><span class="resource-state-dot" aria-hidden="true"></span><span class="resource-state-copy"><strong>{activePage === 'shares' ? 'No shares to display' : 'No user to display'}</strong></span></div></section>
     {/if}
   {:else if activePage === 'chat'}
     <ChatPage {liveClient} {liveStatus} runtime={liveState.daemon?.chat} {userActions} initialUsername={initialChatUsername} />

@@ -5,7 +5,7 @@
   import { onDestroy, untrack } from 'svelte';
   import type { BrowseDirectoryEntryDto, BrowseFileEntryDto, BrowseSearchPageDto, Schema, UserBrowseDto, UserProfileDto } from '../../api/types';
   import type { DaemonLiveClient, LiveConnectionStatus } from '../../api/live';
-  import { daemonApi, defaultPageSize, nestedPageSize } from '../../api/client';
+  import { daemonApi } from '../../api/client';
   import { formatBytes, formatCount, formatSpeed, userInitials } from '../../app/format';
   import Icon from '../../components/Icon.svelte';
   import LinkifiedText from '../../components/LinkifiedText.svelte';
@@ -18,6 +18,8 @@
   import { inheritedSelection, projectSelection } from './selection';
 
   export type UserBrowseView = 'user' | 'shares';
+
+  const sharePageSize = 1_000;
 
   interface Props {
     username: string;
@@ -283,10 +285,10 @@
       const [directoryPage, filePage] = await Promise.all([
         current.loaded && !reset && !current.directoryCursor
           ? Promise.resolve({ items: [] as BrowseDirectoryEntryDto[], nextCursor: null })
-          : daemonApi.getUserShareDirectories(browse.browseId, parentId, reset ? null : current.directoryCursor, nestedPageSize, signal),
+          : daemonApi.getUserShareDirectories(browse.browseId, parentId, reset ? null : current.directoryCursor, sharePageSize, signal),
         parentId === null || (current.loaded && !reset && !current.fileCursor)
           ? Promise.resolve({ items: [] as BrowseFileEntryDto[], nextCursor: null })
-          : daemonApi.getUserShareFiles(browse.browseId, parentId, reset ? null : current.fileCursor, defaultPageSize, signal),
+          : daemonApi.getUserShareFiles(browse.browseId, parentId, reset ? null : current.fileCursor, sharePageSize, signal),
       ]);
       if (signal.aborted) return;
       const nextDirectories = new Map(directories);
@@ -344,7 +346,7 @@
     filterLoading = true;
     filterError = null;
     try {
-      const page = await daemonApi.searchUserShares(browseId, query, cursor, nestedPageSize, signal);
+      const page = await daemonApi.searchUserShares(browseId, query, cursor, sharePageSize, signal);
       if (!isCurrent()) return;
       filterPage = page;
       filterItems = reset ? page.items : [...filterItems, ...page.items];
@@ -589,6 +591,12 @@
             <div class="user-profile-name-line">
               <h2>{profile.username}</h2>
               <span class={`user-presence ${profile.presence}`}><i></i>{profile.presence[0]!.toUpperCase() + profile.presence.slice(1)}</span>
+              <span class="user-capacity-inline" aria-label="Upload capacity">
+                <span class:available={profile.hasFreeUploadSlot === true}
+                  class:unknown={profile.hasFreeUploadSlot == null} class="slot-state"><i></i>{profile.hasFreeUploadSlot == null ? 'Slot unknown' : profile.hasFreeUploadSlot ? 'Free slot' : 'No free slot'}</span>
+                <span><strong>{profile.uploadSlots ?? '—'}</strong> slots</span>
+                <span><strong>{profile.queueLength ?? '—'}</strong> queued</span>
+              </span>
             </div>
             {#if profile.description}
               <p class="user-profile-description"><LinkifiedText text={profile.description}/></p>
@@ -600,17 +608,6 @@
                 <Icon name="chat"/>
                 <span>{profile.privateMessagesBlocked ? 'Messages blocked' : 'Message'}</span>
               </button>
-            </div>
-          </div>
-          <div class="user-capacity-card">
-            <div class="user-capacity-heading">
-              <span>Upload capacity</span>
-              <span class:available={profile.hasFreeUploadSlot === true}
-                class:unknown={profile.hasFreeUploadSlot == null} class="slot-state"><i></i>{profile.hasFreeUploadSlot == null ? 'Unknown' : profile.hasFreeUploadSlot ? 'Free slot' : 'No free slot'}</span>
-            </div>
-            <div class="user-capacity-values">
-              <div><strong>{profile.uploadSlots ?? '—'}</strong><span>slots</span></div>
-              <div><strong>{profile.queueLength ?? '—'}</strong><span>queued</span></div>
             </div>
           </div>
         </div>

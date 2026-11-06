@@ -33,20 +33,22 @@ test('separates search and download tabs with narrow rows, retained jobs and bro
       return ((await snapshot.json()) as Schema<'StateSnapshotDto'>).jobs.length === 0;
     }).toBe(true);
     releaseSnapshot();
-    const searchRow = page.locator('.search-history-row').filter({ hasText: 'Fixture' }).filter({ has: page.locator('.job-type-badge.search') });
-    await expect(searchRow.locator('.job-type-badge')).toHaveText('File Search');
+    const searchRow = page.locator('.search-history-row').filter({ hasText: 'Fixture' }).filter({ has: page.getByRole('img', { name: 'File Search' }) });
+    await expect(searchRow.getByRole('img', { name: 'File Search' })).toHaveAttribute('title', 'File Search');
     await expect(searchRow.locator('.search-history-stats')).toContainText('1 file');
     await expect(searchRow.locator('.search-history-stats')).toContainText('1 peer');
     await expect(page.locator('.search-history-row')).toHaveCount(1);
     expect(historyReads).toBe(0);
     const layout = await page.locator('.search-history-row').evaluateAll((rows) => rows.map((row) => {
-      const context = row.querySelector('.search-history-context')!.getBoundingClientRect();
+      const name = row.querySelector('.search-history-query')!.getBoundingClientRect();
       const stats = row.querySelector('.search-history-stats')!.getBoundingClientRect();
+      const icon = row.querySelector('.search-history-icon')!.getBoundingClientRect();
+      const action = row.querySelector('.search-history-remove')!.getBoundingClientRect();
       const bounds = row.getBoundingClientRect();
-      return { verticalGap: stats.top - context.bottom, rightOverflow: stats.right - bounds.right };
+      return { centerDifference: Math.max(...[stats, icon, action].map(rect => Math.abs((rect.top + rect.bottom - name.top - name.bottom) / 2))), rightOverflow: stats.right - bounds.right };
     }));
     for (const row of layout) {
-      expect(row.verticalGap).toBeGreaterThanOrEqual(0);
+      expect(row.centerDifference).toBeLessThanOrEqual(1);
       expect(row.rightOverflow).toBeLessThanOrEqual(0);
     }
     await page.getByRole('tab', { name: 'Download jobs', exact: true }).click();
@@ -175,7 +177,7 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
   await expect(page.locator('.search-history-query')).toHaveText(
     Array.from({ length: 100 }, (_, index) => `Paging parent ${101 - index}`));
   await expect(page.locator('.search-history-row .search-status-badge')).toHaveCount(0);
-  await expect(page.locator('.job-type-badge.import')).toHaveText(Array(99).fill('Text import'));
+  await expect(page.getByRole('img', { name: 'Text import' })).toHaveCount(99);
   const initialListingMs = Math.round(performance.now() - listingStarted);
   expect(lookups).toEqual([99]);
   expect(detailReads).toEqual([]);
@@ -189,7 +191,7 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
   expect(observedLimits).toEqual([100, 200]);
   expect(historyReads).toBe(0);
   await expect(earlier).toHaveCount(0);
-  await expect(page.locator('.job-type-badge.import')).toHaveText(Array(100).fill('Text import'));
+  await expect(page.getByRole('img', { name: 'Text import' })).toHaveCount(100);
   await expect(page.locator('.search-history-row .search-status-badge')).toHaveCount(0);
   expect(lookups).toEqual([99, 1]);
   expect(detailReads).toEqual([]);

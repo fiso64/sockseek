@@ -40,9 +40,6 @@
     <svg class:collapsed class="peer-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5l6 5-6 5" /></svg>
     <span class="peer-identity">
       <UsernameLink username={peer.username} actions={userActions} />
-      {#if peer.freeUploadSlot !== undefined}
-        <span class:available={peer.freeUploadSlot} class="peer-slot"><i></i>{peer.freeUploadSlot ? 'Free slot' : 'No free slot'}</span>
-      {/if}
     </span>
     {#if hasPeerStats}
     <span class="peer-metadata" aria-label={`${peer.username} result metadata`}>
@@ -51,6 +48,9 @@
       </span>
       <span class="peer-stat peer-queue-stat">
         {#if peer.queueLength !== undefined}<b>{peer.queueLength}</b><small>queued</small>{/if}
+      </span>
+      <span class="peer-stat peer-slot">
+        {#if peer.freeUploadSlot !== undefined}<b class:available={peer.freeUploadSlot} class:unavailable={!peer.freeUploadSlot}>{peer.freeUploadSlot ? 'Yes' : 'No'}</b><small>free slot</small>{/if}
       </span>
     </span>
     {/if}

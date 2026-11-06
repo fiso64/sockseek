@@ -53,7 +53,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
   await (await initialFiles).finished();
   await expect(page.locator('.share-tree-row.folder')).toContainText('Library', { timeout: 60_000 });
   await expect(page.locator('.share-tree-folder-meta')).toContainText('100,000 files');
-  await expect(page.locator('.share-tree-row.file')).toHaveCount(500);
+  await expect(page.locator('.share-tree-row.file')).toHaveCount(1000);
   const browseMs = Math.round(performance.now() - browseStart);
   expect(requests.filter(item => item.path.includes('/search?'))).toHaveLength(0);
   expect(requests.filter(item => item.path.includes('/directories?'))).toHaveLength(2);
@@ -78,7 +78,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
   const selectiveRenderedMs = Math.round(await selectiveRender.evaluate(observed => observed.ready));
   await selectiveRender.dispose();
 
-  const broadRender = await observeFilterRender(page, 'flac', '100,000 matching files', 99);
+  const broadRender = await observeFilterRender(page, 'flac', '100,000 matching files', 999);
   const broadStart = performance.now();
   const broadResponse = page.waitForResponse(response => response.ok()
     && new URL(response.url()).pathname.endsWith('/search')
@@ -91,7 +91,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
   const broadResponseMs = Math.round(performance.now() - broadStart);
   await expect(page.locator('.shares-filter-count')).toHaveText('100,000 matching files');
   await expect(page.locator('.share-tree-row.folder')).toHaveCount(1);
-  await expect(page.locator('.share-tree-row.file')).toHaveCount(99);
+  await expect(page.locator('.share-tree-row.file')).toHaveCount(999);
   await expect(page.getByRole('button', { name: 'Load more', exact: true })).toBeVisible();
   const broadMs = Math.round(performance.now() - broadStart);
   const broadRenderedMs = Math.round(await broadRender.evaluate(observed => observed.ready));
@@ -110,11 +110,11 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
   const nextResponse = await moreResponse;
   const next = await nextResponse.json() as Schema<'BrowseSearchPageDto'>;
   const continuationBytes = (await nextResponse.body()).byteLength;
-  await expect(page.locator('.share-tree-row.file')).toHaveCount(199);
+  await expect(page.locator('.share-tree-row.file')).toHaveCount(1999);
   const moreMs = Math.round(performance.now() - moreStart);
   expect(next.publicMatchingFileCount).toBe(first.publicMatchingFileCount);
   expect(next.publicMatchingBytes).toBe(first.publicMatchingBytes);
-  expect(new Set([...first.items, ...next.items].map(item => `${item.kind}:${item.entryId}`)).size).toBe(200);
+  expect(new Set([...first.items, ...next.items].map(item => `${item.kind}:${item.entryId}`)).size).toBe(2000);
   expect(requests.filter(item => item.path.includes('/search?'))).toHaveLength(3);
   const shortStart = performance.now();
   const shortResponse = page.waitForResponse(response => response.ok()
@@ -122,7 +122,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
     && new URL(response.url()).searchParams.get('query') === 'fl');
   await filter.fill('fl');
   const short = await (await shortResponse).json() as Schema<'BrowseSearchPageDto'>;
-  await expect(page.locator('.share-tree-row.file')).toHaveCount(99);
+  await expect(page.locator('.share-tree-row.file')).toHaveCount(999);
   await expect(page.locator('.shares-filter-count')).toHaveText('100,000 matching files');
   const shortMs = Math.round(performance.now() - shortStart);
   expect(short.publicMatchingFileCount).toBe(first.publicMatchingFileCount);
@@ -160,13 +160,13 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
     broadMs, broadResponseMs, broadRenderedMs, broadPostResponseMs: broadMs - broadResponseMs, moreMs, shortMs,
     warmSelectiveMs, warmSelectiveApiMs,
     firstPageBytes, continuationBytes, lifecycleReadsAfterStreaming, profileReads,
-    initialFileRows: 500, broadFilteredFileRows: 99, warmFilteredFileRows: 1, requests,
+    initialFileRows: 1000, broadFilteredFileRows: 999, warmFilteredFileRows: 1, requests,
     backendReads: daemon.logs().filter(line => line.startsWith('E2E_METRIC read path=/api/user-browses/')) }));
 
   // Exercise a complete file-plan page, not just the smaller song/album plans
   // elsewhere. Keep actual 501-file execution in this opt-in Load journey.
   await page.goto('/shares/paged-peer');
-  await expect(page.locator('.share-tree-row.file')).toHaveCount(500);
+  await expect(page.locator('.share-tree-row.file')).toHaveCount(501);
   await page.getByRole('checkbox', { name: 'Select Library', exact: true }).check();
   await daemon.command('hold-download');
   let rootApiMs = 0;

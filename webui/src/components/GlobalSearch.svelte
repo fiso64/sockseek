@@ -172,6 +172,17 @@
   }
 
   function keydown(event: KeyboardEvent): void {
+    if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      event.preventDefault();
+      const index = modes.findIndex((mode) => mode.value === value.resultMode);
+      const next = (index + (event.key === 'ArrowDown' ? 1 : -1) + modes.length) % modes.length;
+      const wasSplit = value.mode === 'split';
+      setMode(modes[next]!.value);
+      if (wasSplit && modes[next]!.value === 'generic') {
+        void tick().then(() => searchRoot?.querySelector<HTMLInputElement>('#global-search-simple')?.focus());
+      }
+      return;
+    }
     if (event.key === 'Enter') {
       event.preventDefault();
       if (busy) return;
@@ -197,6 +208,11 @@
   }
 
   function userKeydown(event: KeyboardEvent): void {
+    if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      event.preventDefault();
+      onuserchange({ ...userValue, mode: userValue.mode === 'user' ? 'shares' : 'user' });
+      return;
+    }
     if (event.key !== 'Enter') return;
     event.preventDefault();
     onusersubmit(userValue);

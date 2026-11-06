@@ -41,7 +41,7 @@ test('folds a running text extraction into one source-labelled root and opens it
   const row = page.locator('.search-history-row').filter({ hasText: 'Fixture song' });
   await expect(page.locator('.search-history-row')).toHaveCount(1);
   await expect(row.locator('.search-status-badge')).toHaveText('Running');
-  await expect(row.locator('.job-type-badge')).toHaveText('Text import');
+  await expect(row.getByRole('img', { name: 'Text import' })).toHaveAttribute('title', 'Text import');
   await expect(row.getByRole('button', { name: 'Cancel Fixture song', exact: true })).toBeVisible();
   await expect(row.getByRole('button', { name: 'Remove Fixture song', exact: true })).toHaveCount(0);
   expect(detailReads.filter(path => path === `/api/jobs/${submitted.jobId}`),

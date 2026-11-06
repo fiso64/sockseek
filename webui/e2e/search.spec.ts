@@ -114,6 +114,18 @@ test('keeps previous results usable while a refinement loads and explicitly reco
   await page.locator('#global-search-simple').fill('Fixture');
   await page.locator('#global-search-simple').press('Enter');
   await expect(page.locator('.folder-item-card')).toHaveCount(1);
+  const peerGroup = page.locator('.peer-item-group').first();
+  const peerHeader = peerGroup.locator('.result-peer-header');
+  const toggle = peerHeader.locator('.peer-header-toggle');
+  const groupBounds = (await peerGroup.boundingBox())!;
+  const headerBounds = (await peerHeader.boundingBox())!;
+  expect(headerBounds.width).toBeLessThan(groupBounds.width);
+  await page.mouse.click(groupBounds.x + groupBounds.width - 2, headerBounds.y + headerBounds.height / 2);
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await toggle.click({ position: { x: 3, y: 3 } });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await page.mouse.click(headerBounds.x + 3, headerBounds.y + 3);
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   const folderHeader = page.locator('.folder-summary-select-target');
   const selectFolder = folderHeader.getByRole('checkbox');
   const header = page.locator('.folder-result-summary');
@@ -797,6 +809,34 @@ test('explains search modes in selectable cards without submitting a search', as
   expect(submissions).toBe(0);
 });
 
+test('cycles search modes from focused inputs', async ({ page }) => {
+  await page.goto('/jobs');
+  await chooseFileSearch(page);
+  const simple = page.locator('#global-search-simple');
+  const mode = page.getByRole('button', { name: /Search result mode:.*Choose mode/ });
+  await simple.focus();
+  await simple.press('ArrowUp');
+  await expect(mode).toHaveAttribute('aria-label', /Album Aggregate/);
+  await simple.press('ArrowDown');
+  await expect(mode).toHaveAttribute('aria-label', /File Search/);
+  await simple.press('ArrowDown');
+  await expect(mode).toHaveAttribute('aria-label', /Track Search/);
+  await simple.fill('Artist - Title');
+  const title = page.locator('#global-search-title');
+  await expect(title).toBeFocused();
+  await title.press('ArrowUp');
+  await expect(mode).toHaveAttribute('aria-label', /File Search/);
+  await expect(simple).toBeFocused();
+  await expect(simple).toHaveValue('Artist Title');
+  await page.goto('/users');
+  const user = page.locator('#global-user-search');
+  await user.focus();
+  await user.press('ArrowDown');
+  await expect(page.getByRole('button', { name: /User browse mode: Shares/ })).toBeVisible();
+  await user.press('ArrowUp');
+  await expect(page.getByRole('button', { name: /User browse mode: User/ })).toBeVisible();
+});
+
 test('merges empty album and artist fields without losing input or focus', async ({ page }) => {
   await page.goto('/jobs');
   await page.locator('#global-search-simple').fill('Artist - Title');
@@ -1333,6 +1373,57 @@ test('downloads a File Search subfolder with a snapshot-bound path rule and a fi
   for (const transfer of transfers) expect((await stat(transfer.status.localPath!)).size).toBe(128);
 });
 
+test('paints the Jobs tab before remounting cached search results and cancels on navigation', async ({ page, daemon }) => {
+  await daemon.command('directory-selection-search');
+  await page.goto('/jobs');
+  await chooseFileSearch(page);
+  await page.locator('#global-search-simple').fill('Fixture');
+  await page.locator('#global-search-simple').press('Enter');
+  await expect(page.locator('.folder-item-card')).toHaveCount(1);
+  const navigation = page.getByRole('navigation', { name: 'Primary navigation' });
+  await navigation.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+
+  await page.evaluate(() => {
+    const originalRequest = window.requestAnimationFrame;
+    const originalCancel = window.cancelAnimationFrame;
+    const callbacks = new Map<number, FrameRequestCallback>();
+    let next = 0;
+    window.requestAnimationFrame = callback => { callbacks.set(++next, callback); return next; };
+    window.cancelAnimationFrame = id => { callbacks.delete(id); };
+    Object.assign(window, {
+      advanceSearchFrame: () => {
+        const queued = [...callbacks.values()];
+        callbacks.clear();
+        for (const callback of queued) callback(performance.now());
+      },
+      restoreSearchFrames: () => { window.requestAnimationFrame = originalRequest; window.cancelAnimationFrame = originalCancel; },
+    });
+  });
+  const clickNav = (label: string) => page.evaluate(name => {
+    document.querySelector<HTMLButtonElement>(`nav[aria-label="Primary navigation"] button[aria-label="${name}"]`)!.click();
+  }, label);
+  const advance = () => page.evaluate(() => (window as unknown as { advanceSearchFrame: () => void }).advanceSearchFrame());
+  try {
+    await clickNav('Jobs');
+    await expect(navigation.getByRole('button', { name: 'Jobs', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(page.locator('.folder-item-card')).toHaveCount(0);
+    await advance();
+    await expect(page.locator('.folder-item-card')).toHaveCount(0);
+    await clickNav('Dashboard');
+    await advance();
+    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+    await expect(page.locator('.folder-item-card')).toHaveCount(0);
+    await clickNav('Jobs');
+    await advance();
+    await expect(page.locator('.folder-item-card')).toHaveCount(0);
+    await advance();
+    await expect(page.locator('.folder-item-card')).toHaveCount(1);
+  } finally {
+    await page.evaluate(() => (window as unknown as { restoreSearchFrames: () => void }).restoreSearchFrames());
+  }
+});
+
 test('navigates result pages by keyboard without stealing editing or modal controls', async ({ page, daemon }) => {
   await daemon.command('rich-aggregate-search');
   // Exercise real server cursors with a small fixture, rather than creating a
@@ -1368,6 +1459,15 @@ test('navigates result pages by keyboard without stealing editing or modal contr
   await page.keyboard.press('Space');
   await expect(groups.first()).toHaveClass(/selected/);
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await expect(groups.first()).not.toHaveClass(/keyboard-current/);
+  await expect(groups.first()).toHaveClass(/selected/);
+  await page.keyboard.press('ArrowDown');
+  await expect(groups.first()).toHaveClass(/keyboard-current/);
+  await page.locator('.search-results-heading h1').click();
+  await expect(groups.first()).not.toHaveClass(/keyboard-current/);
+  await expect(groups.first()).toHaveClass(/selected/);
+  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Tab');
   await expect(groups.first().locator('.aggregate-header-select-button')).toBeFocused();
   // Enter on a native button toggles it; it must not submit the download.
@@ -1387,8 +1487,13 @@ test('navigates result pages by keyboard without stealing editing or modal contr
   await expect(groups.first()).not.toHaveClass(/selected/);
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Back to jobs', exact: true }).click();
+  await expect(page.locator('.search-history-open')).toBeVisible();
   await page.keyboard.press('ArrowDown');
   await expect(page.locator('.search-history-open')).toBeFocused();
+  await expect(page.locator('.search-history-open')).toHaveCSS('outline-style', 'none');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.search-history-row.keyboard-current')).toHaveCount(0);
+  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowRight');
   await expect(page.getByRole('tab', { name: 'Download jobs', exact: true })).toBeFocused();
   await page.keyboard.press('ArrowLeft');
