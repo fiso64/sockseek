@@ -1177,7 +1177,7 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   await expect(page.locator('.page')).toContainText('Fixture song.txt');
   await expect(page.getByLabel('50% complete', { exact: true })).toBeVisible();
   await daemon.command('release-download');
-  await expect(page.locator('.page')).toContainText('Complete');
+  await expect(page.getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   const timelineResponse = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
   expect(timelineResponse.ok(), await timelineResponse.text()).toBe(true);
   const timeline = await timelineResponse.json() as Schema<'TransferTimelinePageDto'>;
@@ -1188,10 +1188,10 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   const bytes = await readFile(completed!.status.localPath!);
   expect(bytes).toHaveLength(128);
   expect(bytes.every((byte) => byte === 0)).toBe(true);
-  await expect(page.locator('.page')).toContainText('Complete');
+  await expect(page.getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   await page.reload();
   await expect(page.locator('.page')).toContainText('Fixture song.txt');
-  await expect(page.locator('.page')).toContainText('Complete');
+  await expect(page.getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   await page.getByRole('navigation', { name: 'Primary navigation' })
     .getByRole('button', { name: 'Jobs' }).click();
   const reopened = page.waitForResponse(response => response.request().method() === 'POST'
