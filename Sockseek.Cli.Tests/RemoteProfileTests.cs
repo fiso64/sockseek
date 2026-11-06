@@ -201,9 +201,9 @@ public class RemoteProfileTests
                     + "write-index = false\nskip-existing = true\nreverse = false\nmax-retries = 99\nno-progress = true\n"
                     + (detach ? "detach = true\n" : "")
                 : "");
-            using var http = SockseekApiClient.CreateHttpClient(url);
+            using var http = await TestServerHost.CreateHttpClientAsync(app);
             var api = new SockseekApiClient(http);
-            List<string> args = ["--config", configPath, "--profile", "wishlist"];
+            List<string> args = ["--config", configPath, "--profile", "wishlist", "--remote-api-key", await TestServerHost.GetApiKeyAsync(app)];
             if (!clientProfile) args.AddRange(["--remote", url]);
             if (detach && !clientProfile) args.Add("--detach");
             if (explicitInput) args.AddRange([overrideInput, "--input-type", "list"]);

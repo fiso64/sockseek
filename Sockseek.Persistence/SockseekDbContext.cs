@@ -5,6 +5,7 @@ namespace Sockseek.Persistence;
 
 public sealed class SockseekDbContext(DbContextOptions<SockseekDbContext> options) : DbContext(options)
 {
+    internal DbSet<ApiKeyEntity> ApiKeys => Set<ApiKeyEntity>();
     internal DbSet<RuntimeSessionEntity> RuntimeSessions => Set<RuntimeSessionEntity>();
     internal DbSet<JobEntity> Jobs => Set<JobEntity>();
     internal DbSet<SubmissionEntity> Submissions => Set<SubmissionEntity>();

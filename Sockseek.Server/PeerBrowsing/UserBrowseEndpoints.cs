@@ -12,7 +12,6 @@ internal static class UserBrowseEndpoints
     public static void Map(WebApplication app)
     {
         app.MapPost("/api/users/{username}/browses", StartAsync)
-            .RequireOperator()
             .WithTags("User Browsing")
             .WithSummary("Starts, joins, or reuses a remote user's share browse.")
             .Produces<UserBrowseDto>(StatusCodes.Status200OK)
@@ -22,7 +21,6 @@ internal static class UserBrowseEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/user-browses", ListAsync)
-            .RequireOperator()
             .WithTags("User Browsing")
             .WithSummary("Lists recent remote-user browse resources.")
             .Produces<PageDto<UserBrowseDto>>()
@@ -31,7 +29,6 @@ internal static class UserBrowseEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/user-browses/{browseId:guid}", GetAsync)
-            .RequireOperator()
             .WithTags("User Browsing")
             .WithSummary("Gets one remote-user browse resource.")
             .Produces<UserBrowseDto>()
@@ -40,7 +37,6 @@ internal static class UserBrowseEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/user-browses/{browseId:guid}/snapshot", SnapshotAsync)
-            .RequireOperator()
             .WithTags("Live State")
             .WithSummary("Gets one user-browse replication snapshot and stream position.")
             .Produces<StateSnapshotDto>()
@@ -49,7 +45,6 @@ internal static class UserBrowseEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapPost("/api/user-browses/{browseId:guid}/cancel", CancelAsync)
-            .RequireOperator()
             .WithTags("User Browsing")
             .WithSummary("Globally cancels a shared browse acquisition.")
             .Produces<UserBrowseDto>()
@@ -58,7 +53,6 @@ internal static class UserBrowseEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/user-browses/{browseId:guid}/directories", DirectoriesAsync)
-            .RequireOperator()
             .WithTags("User Browsing")
             .WithSummary("Gets a stable page of share directories.")
             .Produces<PageDto<BrowseDirectoryEntryDto>>()
@@ -70,7 +64,6 @@ internal static class UserBrowseEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/user-browses/{browseId:guid}/directories/{directoryId:long}", DirectoryAsync)
-            .RequireOperator()
             .WithTags("User Browsing")
             .WithSummary("Gets one share directory.")
             .Produces<BrowseDirectoryEntryDto>()
@@ -81,7 +74,6 @@ internal static class UserBrowseEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/user-browses/{browseId:guid}/directories/{directoryId:long}/files", FilesAsync)
-            .RequireOperator()
             .WithTags("User Browsing")
             .WithSummary("Gets a stable page of files in one share directory.")
             .Produces<PageDto<BrowseFileEntryDto>>()
@@ -93,7 +85,6 @@ internal static class UserBrowseEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/user-browses/{browseId:guid}/search", SearchAsync)
-            .RequireOperator()
             .WithTags("User Browsing")
             .WithSummary("Searches one immutable share artifact as flat directory/file rows.")
             .Produces<BrowseSearchPageDto>()
@@ -105,7 +96,6 @@ internal static class UserBrowseEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapPost("/api/user-browses/{browseId:guid}/downloads", StartDownloadsAsync)
-            .RequireOperator()
             .WithTags("User Browsing")
             .WithSummary("Starts ordinary remote downloads from a browse selection.")
             .Produces<StartUserShareDownloadsResponseDto>()

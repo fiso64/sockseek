@@ -160,7 +160,6 @@ internal static class TransferEndpoints
             }
             catch (Exception ex) when (IsInvalidRequest(ex)) { return BadRequest(ex); }
         })
-            .RequireOperator()
             .WithTags("Transfers")
             .WithSummary("Snapshots a timeline extent, expanded files and requested folder totals.")
             .WithDescription("Uses the same scoped read as ObserveTransferTimeline. Window membership and boundary describe the moving prefix independently of explicitly requested additional files.")
@@ -257,7 +256,6 @@ internal static class TransferEndpoints
             }
             return Results.Ok(supervisor.StateStore.GetLiveTransfer(transferId));
         })
-            .RequireOperatorMutation()
             .WithTags("Transfers")
             .WithSummary("Cancels a queued or active download or upload transfer.")
             .Produces<TransferStateDto>()
@@ -269,7 +267,6 @@ internal static class TransferEndpoints
             BulkCancelTransfersRequestDto request,
             EngineSupervisor supervisor) =>
             Results.Ok(supervisor.CancelTransfers(request)))
-            .RequireOperatorMutation()
             .WithTags("Transfers")
             .WithSummary("Cancels a snapshot of transfers by direction, queue state, and optional exact peer/group.")
             .WithDescription("Targets are resolved once, then cancelled independently. Races and per-transfer failures are reported in a fixed-size receipt.")
@@ -293,7 +290,6 @@ internal static class TransferEndpoints
                 return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
             }
         })
-            .RequireOperatorMutation()
             .WithTags("Transfers")
             .WithSummary("Archives or restores one terminal retained transfer.")
             .WithDescription("Archive is reversible and separate from cancellation; a nonterminal transfer is rejected.")
@@ -323,7 +319,6 @@ internal static class TransferEndpoints
                 return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
             }
         })
-            .RequireOperatorMutation()
             .WithTags("Transfers")
             .WithSummary("Archives or restores terminal transfer history, optionally scoped to an exact peer/group.")
             .WithDescription("The command is reversible, excludes active transfers, and returns bounded outcome counts.")

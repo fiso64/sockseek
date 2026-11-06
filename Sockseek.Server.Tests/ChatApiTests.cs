@@ -59,7 +59,7 @@ public sealed class ChatApiTests
         try
         {
             await app.StartAsync();
-            using var http = new HttpClient { BaseAddress = new Uri(url) };
+            using var http = await global::Tests.TestServerHost.CreateHttpClientAsync(app);
             var api = new SockseekApiClient(http);
             await WaitUntilAsync(async () =>
             {

@@ -1624,7 +1624,7 @@ public class CliBackendParityTests
 
             await app.StartAsync();
             string url = GetBoundUrl(app);
-            var backend = new RemoteCliBackend(url);
+            var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             await backend.StartAsync();
 
             return new ParityBackendContext(
@@ -1665,7 +1665,7 @@ public class CliBackendParityTests
 
             await app.StartAsync();
             string url = GetBoundUrl(app);
-            var backend = new RemoteCliBackend(url);
+            var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             await backend.StartAsync();
 
             return new ParityBackendContext(

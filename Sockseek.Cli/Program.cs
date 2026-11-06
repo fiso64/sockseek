@@ -111,7 +111,7 @@ internal static partial class Program
                 {
                     try
                     {
-                        using var http = SockseekApiClient.CreateHttpClient(remoteSettings.ServerUrl!);
+                        using var http = remoteSettings.CreateHttpClient();
                         var api = new SockseekApiClient(http, RemoteCliBackend.CreateJsonOptions());
                         var profiles = await api.GetProfilesAsync();
 
@@ -450,7 +450,7 @@ internal static partial class Program
 
         if (remoteSettings.Detach)
         {
-            using var http = SockseekApiClient.CreateHttpClient(remoteSettings.ServerUrl!);
+            using var http = remoteSettings.CreateHttpClient();
             var api = new SockseekApiClient(http);
             extractRequest = await RemoteCliBackend.PrepareExtractRequestAsync(api, extractRequest, cts.Token);
             var detached = await api.SubmitExtractJobAsync(extractRequest, cts.Token);
@@ -461,7 +461,7 @@ internal static partial class Program
             return LogCliSessionExit(logger, CliExitCode.Success, remoteSettings);
         }
 
-        await using var backend = new RemoteCliBackend(remoteSettings.ServerUrl!);
+        await using var backend = new RemoteCliBackend(remoteSettings.CreateHttpClient());
         await backend.StartAsync(cts.Token);
 
         CliProgressReporter? cliReporter = null;
@@ -532,9 +532,9 @@ internal static partial class Program
                 cts);
 
             if (interactiveCoordinator != null)
-                await interactiveCoordinator.RunUntilCompleteAsync(submission.WorkflowId, cts.Token);
+                await backend.AwaitLiveAsync(interactiveCoordinator.RunUntilCompleteAsync(submission.WorkflowId, cts.Token));
 
-            await terminalUpdateObserver.WaitForTerminalUpdateAsync(cts.Token);
+            await backend.AwaitLiveAsync(terminalUpdateObserver.WaitForTerminalUpdateAsync(cts.Token));
             var observedCompletion = terminalUpdateObserver.Completion
                 ?? throw new InvalidOperationException("The terminal workflow update did not contain a completion snapshot.");
 
@@ -687,7 +687,7 @@ internal static partial class Program
         ILogger logger,
         CancellationTokenSource cts)
     {
-        await using var backend = new RemoteCliBackend(remoteSettings.ServerUrl!);
+        await using var backend = new RemoteCliBackend(remoteSettings.CreateHttpClient());
         CliProgressReporter? reporter = null;
         if (cliSettings.ProgressJson)
             new JsonStreamProgressReporter(Console.Out).Attach(backend);
@@ -735,7 +735,7 @@ internal static partial class Program
                         Options: options),
                     cts.Token);
             }
-            await Task.Delay(Timeout.InfiniteTimeSpan, cts.Token);
+            await backend.AwaitLiveAsync(Task.Delay(Timeout.InfiniteTimeSpan, cts.Token));
             return CliExitCode.Success;
         }
         finally
@@ -1703,6 +1703,7 @@ internal static partial class Program
         EnsureDaemonEndpointAvailable(daemonSettings);
         var options = new ServerOptions
         {
+            Authentication = daemonSettings.CreateAuthenticationOptions(),
             Engine = CreateDaemonEngineSettings(engineSettings),
             LaunchDownloadSettings = DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings),
             LaunchProfileNames = invocation.ProfileName?

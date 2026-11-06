@@ -1,10 +1,14 @@
 import { expect, test } from './fixtures';
 import type { WebSocketRoute } from '@playwright/test';
 
+// Authenticate normally, then exercise unavailable application reads/streams.
+// A failed initial session check is covered by the authentication journey.
+
 test('shows offline states and recovers history after daemon startup returns', async ({ page }) => {
   await page.clock.install();
   let unavailable = true;
-  await page.route('**/api/**', (route) => unavailable ? route.abort('failed') : route.continue());
+  await page.route('**/api/**', (route) => unavailable && new URL(route.request().url()).pathname !== '/api/auth/session'
+    ? route.abort('failed') : route.continue());
   await page.goto('/downloads');
 
   const daemonStatus = page.getByLabel('Connection status').locator('strong');
@@ -46,7 +50,8 @@ test('reloads an open Jobs page when the daemon first becomes reachable', async 
   page.on('request', request => {
     if (request.method() === 'GET' && new URL(request.url()).pathname === '/api/jobs') historyReads++;
   });
-  await page.route('**/api/**', (route) => unavailable ? route.abort('failed') : route.continue());
+  await page.route('**/api/**', (route) => unavailable && new URL(route.request().url()).pathname !== '/api/auth/session'
+    ? route.abort('failed') : route.continue());
   await page.route('**/api/events/negotiate?**', async route => {
     if (outage) await restored;
     await route.fallback();
@@ -92,7 +97,8 @@ test('reopens a search deep link after a fresh offline read fails', async ({ pag
 
   await page.clock.install();
   let unavailable = true;
-  await page.route('**/api/**', (route) => unavailable ? route.abort('failed') : route.continue());
+  await page.route('**/api/**', (route) => unavailable && new URL(route.request().url()).pathname !== '/api/auth/session'
+    ? route.abort('failed') : route.continue());
   await page.reload();
   const offline = page.locator('.resource-state-notice.offline.blocking');
   await expect(offline).toContainText('Daemon unavailable');
@@ -115,7 +121,8 @@ test('recovers an open Chat list and disables sending during a fresh offline sta
   expect(seeded.ok()).toBeTruthy();
   await page.clock.install();
   let unavailable = true;
-  await page.route('**/api/**', (route) => unavailable ? route.abort('failed') : route.continue());
+  await page.route('**/api/**', (route) => unavailable && new URL(route.request().url()).pathname !== '/api/auth/session'
+    ? route.abort('failed') : route.continue());
   await page.goto('/chat');
   const offline = page.locator('.chat-resource-state .resource-state-notice.offline');
   await expect(offline).toContainText('Daemon unavailable');

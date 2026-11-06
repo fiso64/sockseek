@@ -10,6 +10,7 @@ internal enum ConfiguredCommandOptions
     None = 0,
     Remote = 1,
     DataDirectory = 2,
+    Authentication = 4,
 }
 
 /// <summary>
@@ -30,6 +31,10 @@ internal static class ConfiguredCommandDispatcher
         string command = args[0].ToLowerInvariant();
         try
         {
+            if (command == "auth")
+                return await AuthenticationCommandRunner.RunAsync(ConfiguredCommandInvocation.Create(args,
+                    ConfiguredCommandOptions.Remote | ConfiguredCommandOptions.DataDirectory
+                    | ConfiguredCommandOptions.Authentication), cancellationToken).ConfigureAwait(false);
             if (command is "chat" or "room" or "notifications" or "notification")
             {
                 if (HasHelp(args))
@@ -39,7 +44,7 @@ internal static class ConfiguredCommandDispatcher
                     args, ConfiguredCommandOptions.Remote);
                 return await ChatCommandRunner.RunAsync(
                     invocation.CommandArguments,
-                    invocation.Remote.ServerUrl,
+                    invocation.Remote,
                     cancellationToken).ConfigureAwait(false);
             }
 
@@ -52,7 +57,7 @@ internal static class ConfiguredCommandDispatcher
                     args, ConfiguredCommandOptions.Remote);
                 return await DaemonResourceCommandRunner.RunAsync(
                     invocation.CommandArguments,
-                    invocation.Remote.ServerUrl,
+                    invocation.Remote,
                     cancellationToken).ConfigureAwait(false);
             }
 
@@ -66,7 +71,7 @@ internal static class ConfiguredCommandDispatcher
                     args, ConfiguredCommandOptions.Remote);
                 return await UserCommandRunner.RunAsync(
                     invocation.CommandArguments,
-                    invocation.Remote.ServerUrl,
+                    invocation.Remote,
                     invocation.ProfileName,
                     cancellationToken).ConfigureAwait(false);
             }
@@ -131,9 +136,11 @@ internal sealed record ConfiguredCommandInvocation(
             bool standard = option is "-c" or "--config" or "--profile"
                 || valueless
                 || options.HasFlag(ConfiguredCommandOptions.Remote)
-                    && option is "--remote" or "--server-url"
+                    && option is "--remote" or "--server-url" or "--remote-api-key" or "--remote-api-key-file"
                 || options.HasFlag(ConfiguredCommandOptions.DataDirectory)
-                    && option == "--data-dir";
+                    && option == "--data-dir"
+                || options.HasFlag(ConfiguredCommandOptions.Authentication)
+                    && option == "--web-password-file";
             if (!standard)
             {
                 commandArguments.Add(original);

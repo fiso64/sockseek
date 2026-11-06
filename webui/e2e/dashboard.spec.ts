@@ -3,7 +3,7 @@ import type { Schema } from '../src/api/types';
 
 test.use({ timezoneId: 'UTC' });
 
-test('serves the WebUI at the daemon root without replacing API routes', async ({ page, request }) => {
+test('serves the WebUI at the daemon root without replacing API routes', async ({ page }) => {
   let jobReads = 0, observations = 0;
   page.on('request', request => {
     if (['/api/jobs', '/api/jobs/snapshot'].includes(new URL(request.url()).pathname)) jobReads++;
@@ -21,13 +21,13 @@ test('serves the WebUI at the daemon root without replacing API routes', async (
   await expect(page.getByText('History range', { exact: true })).toHaveCount(0);
   const scriptPath = await page.locator('script[type="module"][src]').getAttribute('src');
   expect(scriptPath).toMatch(/^\/assets\/index-[^/]+\.js$/);
-  const asset = await request.get(scriptPath!);
+  const asset = await page.request.get(scriptPath!);
   expect(asset.ok()).toBe(true);
   expect(asset.headers()['cache-control']).toContain('immutable');
-  const info = await request.get('/api/server/info');
+  const info = await page.request.get('/api/server/info');
   expect(info.ok()).toBe(true);
   expect(info.headers()['content-type']).toContain('application/json');
-  expect((await request.get('/api/not-a-webui-route')).status()).toBe(404);
+  expect((await page.request.get('/api/not-a-webui-route')).status()).toBe(404);
   let analyticsReads = 0;
   page.on('request', request => {
     if (new URL(request.url()).pathname === '/api/dashboard/analytics') analyticsReads++;

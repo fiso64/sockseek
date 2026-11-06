@@ -28,7 +28,7 @@ public sealed class UserProfileApiTests
             return connected.Task;
         };
         string url = $"http://127.0.0.1:{GetFreeTcpPort()}";
-        await using var app = ServerHost.Build([], new ServerOptions
+        await using var app = global::Tests.TestServerHost.Build([], new ServerOptions
         {
             Engine = new EngineSettings
             {
@@ -47,7 +47,7 @@ public sealed class UserProfileApiTests
             var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
             Assert.IsNotNull(supervisor.Runtime.PeerBrowses);
             Assert.IsNotNull(supervisor.Runtime.UserProfiles);
-            using var http = new HttpClient { BaseAddress = new Uri(url) };
+            using var http = await global::Tests.TestServerHost.CreateHttpClientAsync(app);
             var api = new SockseekApiClient(http);
             await api.GetServerInfoAsync();
             UserBrowseDto browse = await api.StartUserBrowseAsync("Peer");
@@ -77,7 +77,7 @@ public sealed class UserProfileApiTests
         fake.ProfileStatistics = new UserStatistics("Peer", 400, 12, 30, 4);
         int port = GetFreeTcpPort();
         string url = $"http://127.0.0.1:{port}";
-        await using var app = ServerHost.Build([], new ServerOptions
+        await using var app = global::Tests.TestServerHost.Build([], new ServerOptions
         {
             Engine = new EngineSettings
             {
@@ -97,7 +97,7 @@ public sealed class UserProfileApiTests
         try
         {
             await app.StartAsync();
-            using var http = new HttpClient { BaseAddress = new Uri(url) };
+            using var http = await global::Tests.TestServerHost.CreateHttpClientAsync(app);
             var api = new SockseekApiClient(http);
 
             UserPresenceObservationDto presence = await api.GetUserPresenceAsync("Peer");

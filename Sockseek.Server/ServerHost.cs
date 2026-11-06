@@ -17,6 +17,7 @@ using Sockseek.Server.PeerBrowsing;
 using Sockseek.Server.UserProfiles;
 using Sockseek.Server.Planning;
 using Sockseek.Server.PeerRestrictions;
+using Sockseek.Server.Authentication;
 
 namespace Sockseek.Server;
 
@@ -24,9 +25,10 @@ public static class ServerHost
 {
     public static WebApplication Build(string[] args, ServerOptions? options = null, string? url = null, bool logToConsole = true)
     {
+        var serverArguments = AuthenticationOptions.MapArguments(args, out var trustedProxies);
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
-            Args = args,
+            Args = serverArguments,
             ContentRootPath = AppContext.BaseDirectory,
         });
         string entryAssemblyName = Assembly.GetEntryAssembly()?.GetName().Name ?? "";
@@ -69,6 +71,13 @@ public static class ServerHost
         else
         {
             builder.Services.Configure<ServerOptions>(builder.Configuration.GetSection("SockseekServer"));
+            builder.Services.PostConfigure<ServerOptions>(configured =>
+            {
+                var proxies = trustedProxies
+                    ?? builder.Configuration.GetSection("SockseekServer:Authentication:TrustedProxies").Get<string[]>();
+                if (proxies is not null)
+                    configured.Authentication.TrustedProxies = proxies;
+            });
             if (!isOpenApiGeneration && builder.Configuration["SockseekServer:Persistence:Enabled"] == null)
                 builder.Services.PostConfigure<ServerOptions>(configured => configured.Persistence.Enabled = true);
         }
@@ -112,6 +121,7 @@ public static class ServerHost
                 hub.PayloadSerializerOptions = http.Value.SerializerOptions);
         builder.Services.AddOpenApi(options =>
         {
+            options.AddAuthenticationContract();
             options.AddOperationTransformer(async (operation, context, cancellationToken) =>
             {
                 if (context.Description.RelativePath == "api/jobs"
@@ -298,6 +308,7 @@ public static class ServerHost
         });
         builder.Services.AddSingleton<PersistenceCoordinator>();
         builder.Services.AddHostedService<PersistenceRuntimeHostedService>();
+        builder.Services.AddOperatorAuthentication(isOpenApiGeneration);
         builder.Services.AddHostedService<PersistenceMaintenanceHostedService>();
         builder.Services.AddSingleton<InputArtifactCoordinator>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<InputArtifactCoordinator>());
@@ -318,8 +329,6 @@ public static class ServerHost
         builder.Services.AddHostedService(sp => sp.GetRequiredService<JobPreviewCoordinator>());
         builder.Services.AddSingleton<SearchViewCursorCodec>();
         builder.Services.AddSingleton<SearchViewCoordinator>();
-        builder.Services.AddSingleton<IOperatorMutationAuthorizer,
-            CurrentTrustDomainOperatorAuthorizer>();
         builder.Services.AddSingleton<ServerEventBroadcaster>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<ServerEventBroadcaster>());
         builder.Services.AddHostedService<EngineRuntimeHostedService>();
@@ -373,14 +382,18 @@ public static class ServerHost
             app.UseStaticFiles(webUiStaticFiles);
         }
 
+        // The public SPA shell/assets must load before the authenticated API boundary.
+        app.UseOperatorAuthentication();
         app.MapOpenApi("/api/openapi.json");
+        AuthenticationEndpoints.Map(app);
         MapEndpoints(app);
         if (!hasWebUi)
             app.MapGet("/", () => Results.Redirect("/api/server/info"))
+                .AllowAnonymous()
                 .ExcludeFromDescription();
         app.Map("/api/{**unmatched}", () => Results.NotFound());
         if (hasWebUi)
-            app.MapFallbackToFile("index.html", webUiStaticFiles);
+            app.MapFallbackToFile("index.html", webUiStaticFiles).AllowAnonymous();
         return app;
     }
 

@@ -43,6 +43,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Service Unavailable */
                 503: {
                     headers: {
@@ -98,6 +112,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Service Unavailable */
                 503: {
@@ -165,6 +193,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -230,6 +272,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         /**
@@ -268,6 +324,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Service Unavailable */
                 503: {
@@ -339,6 +409,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -405,6 +489,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -460,6 +558,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["UserBrowseDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -525,6 +637,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["StateSnapshotDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -592,6 +718,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["UserBrowseDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -670,6 +810,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -754,6 +908,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["BrowseDirectoryEntryDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -852,6 +1020,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -947,6 +1129,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -1046,6 +1242,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -1138,6 +1348,20 @@ export interface paths {
                         "application/json": components["schemas"]["InputArtifactDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Service Unavailable */
                 503: {
                     headers: {
@@ -1191,6 +1415,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -1264,6 +1502,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Service Unavailable */
                 503: {
                     headers: {
@@ -1313,6 +1565,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["JobPreviewSummaryDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -1383,6 +1649,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -1444,6 +1724,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["CommitJobPreviewResponseDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -1526,6 +1820,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -1579,6 +1887,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["SearchViewSummaryDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -1635,6 +1957,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["SearchViewDefinitionDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -1709,6 +2045,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -1782,6 +2132,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -1851,6 +2215,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -1926,6 +2304,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -1992,6 +2384,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -2063,6 +2469,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -2131,6 +2551,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -2201,6 +2635,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -2276,6 +2724,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -2344,6 +2806,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -2419,6 +2895,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -2487,6 +2977,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -2557,6 +3061,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -2609,6 +3127,20 @@ export interface paths {
                         "application/json": components["schemas"]["ServerInfoDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         put?: never;
@@ -2644,6 +3176,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ServerStatusDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -2685,6 +3231,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["StateSnapshotDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -2732,6 +3292,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -2782,6 +3356,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         delete?: never;
@@ -2826,6 +3414,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -2872,6 +3474,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         delete?: never;
@@ -2916,6 +3532,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Forbidden */
                 403: {
@@ -3009,6 +3632,13 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Forbidden */
                 403: {
                     headers: {
@@ -3098,6 +3728,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Forbidden */
                 403: {
@@ -3193,6 +3830,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Forbidden */
                 403: {
@@ -3290,6 +3934,13 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Forbidden */
                 403: {
                     headers: {
@@ -3379,6 +4030,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Forbidden */
                 403: {
@@ -3471,6 +4129,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Forbidden */
                 403: {
@@ -3567,6 +4232,13 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Forbidden */
                 403: {
                     headers: {
@@ -3648,6 +4320,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Forbidden */
                 403: {
@@ -3745,6 +4424,13 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Forbidden */
                 403: {
                     headers: {
@@ -3841,6 +4527,13 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Forbidden */
                 403: {
                     headers: {
@@ -3931,6 +4624,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Forbidden */
                 403: {
@@ -4023,6 +4723,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Forbidden */
                 403: {
@@ -4118,6 +4825,13 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Forbidden */
                 403: {
                     headers: {
@@ -4197,6 +4911,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Forbidden */
                 403: {
@@ -4288,6 +5009,13 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Forbidden */
                 403: {
                     headers: {
@@ -4366,6 +5094,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Forbidden */
                 403: {
@@ -4459,6 +5194,13 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Forbidden */
                 403: {
                     headers: {
@@ -4540,6 +5282,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Forbidden */
                 403: {
@@ -4637,6 +5386,13 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Forbidden */
                 403: {
                     headers: {
@@ -4731,6 +5487,13 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Forbidden */
                 403: {
                     headers: {
@@ -4812,6 +5575,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Forbidden */
                 403: {
@@ -4903,6 +5673,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Forbidden */
                 403: {
@@ -4996,6 +5773,13 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Forbidden */
                 403: {
                     headers: {
@@ -5087,6 +5871,13 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Forbidden */
                 403: {
@@ -5182,6 +5973,13 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Forbidden */
                 403: {
                     headers: {
@@ -5276,6 +6074,13 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Forbidden */
                 403: {
                     headers: {
@@ -5357,6 +6162,20 @@ export interface paths {
                         "application/json": components["schemas"]["StateSnapshotDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         put?: never;
@@ -5392,6 +6211,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ProfileSummaryDto"][];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -5435,6 +6268,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["SubmissionSummaryDto"][];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Service Unavailable */
                 503: {
@@ -5480,6 +6327,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["SubmissionDetailDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -5542,6 +6403,20 @@ export interface paths {
                         "application/json": components["schemas"]["SubmissionArchiveResponseDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Service Unavailable */
                 503: {
                     headers: {
@@ -5589,6 +6464,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["JobSummaryDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -5653,6 +6542,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -5725,6 +6628,20 @@ export interface paths {
                         "application/json": components["schemas"]["JobSummaryDto"][];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         put?: never;
@@ -5766,6 +6683,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["JobListUpdateDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -5819,6 +6750,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         delete?: never;
@@ -5854,6 +6799,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["JobDetailDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -5904,6 +6863,20 @@ export interface paths {
                         "application/json": components["schemas"]["DirectoryManifestPageDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -5949,6 +6922,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["JobDetailDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -6000,6 +6987,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["SearchRawResultDto"][];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -6066,6 +7067,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -6126,6 +7141,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -6188,6 +7217,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -6229,6 +7272,20 @@ export interface paths {
             responses: {
                 /** @description Accepted */
                 202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -6280,6 +7337,20 @@ export interface paths {
                     };
                     content?: never;
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -6318,6 +7389,20 @@ export interface paths {
             responses: {
                 /** @description Accepted */
                 202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -6369,6 +7454,20 @@ export interface paths {
                         "application/json": components["schemas"]["CancelJobsResponseDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         delete?: never;
@@ -6404,6 +7503,20 @@ export interface paths {
             responses: {
                 /** @description Accepted */
                 202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -6452,6 +7565,20 @@ export interface paths {
                     };
                     content?: never;
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -6491,6 +7618,20 @@ export interface paths {
             responses: {
                 /** @description Accepted */
                 202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -6552,6 +7693,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         delete?: never;
@@ -6603,6 +7758,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Service Unavailable */
                 503: {
@@ -6665,6 +7834,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         delete?: never;
@@ -6716,6 +7899,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -6769,6 +7966,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         delete?: never;
@@ -6820,6 +8031,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -6873,6 +8098,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         delete?: never;
@@ -6924,6 +8163,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -6977,6 +8230,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         delete?: never;
@@ -7029,6 +8296,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         delete?: never;
@@ -7065,6 +8346,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["WorkflowSummaryDto"][];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -7106,6 +8401,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["WorkflowDetailDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -7153,6 +8462,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["CancelWorkflowResponseDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -7221,6 +8544,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         put?: never;
@@ -7270,6 +8607,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -7321,6 +8672,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Service Unavailable */
                 503: {
@@ -7385,6 +8750,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         delete?: never;
@@ -7436,6 +8815,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -7489,6 +8882,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         delete?: never;
@@ -7533,6 +8940,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -7582,6 +9003,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["TransferStateDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -7653,6 +9088,20 @@ export interface paths {
                         "application/json": components["schemas"]["TransferCommandReceiptDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         delete?: never;
@@ -7697,6 +9146,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["TransferCommandReceiptDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Service Unavailable */
                 503: {
@@ -7747,6 +9210,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["TransferCommandReceiptDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Service Unavailable */
                 503: {
@@ -7803,6 +9280,20 @@ export interface paths {
                         "application/json": components["schemas"]["ApiErrorDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -7845,6 +9336,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["SharingStateDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Service Unavailable */
                 503: {
@@ -7902,6 +9407,20 @@ export interface paths {
                         "application/json": components["schemas"]["StartShareScanResponseDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Service Unavailable */
                 503: {
                     headers: {
@@ -7946,6 +9465,20 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["ShareScanStateDto"];
                     };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
                 /** @description Not Found */
                 404: {
@@ -7996,6 +9529,20 @@ export interface paths {
                         "application/json": components["schemas"]["ShareScanStateDto"];
                     };
                 };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
                 /** @description Not Found */
                 404: {
                     headers: {
@@ -8026,6 +9573,329 @@ export interface paths {
             };
         };
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description First GET /api/auth/session for the antiforgery cookie and token; send that token in X-CSRF-Token. After login, GET the session again to refresh the token. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["LoginRequestDto"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiKeyDto"][];
+                    };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateApiKeyRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CreatedApiKeyDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/keys/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -8266,6 +10136,13 @@ export interface components {
         ApiErrorDto: {
             error: string;
             code?: null | string;
+        };
+        ApiKeyDto: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: date-time */
+            createdAt: string;
         };
         ArchiveConversationRequestDto: {
             /** @default true */
@@ -8742,6 +10619,13 @@ export interface components {
             lockedFileCount: number | string;
             /** Format: int64 */
             selectedItemCount: number | string;
+        };
+        CreateApiKeyRequestDto: {
+            name: string;
+        };
+        CreatedApiKeyDto: {
+            key: components["schemas"]["ApiKeyDto"];
+            secret: string;
         };
         CreateJobPreviewRequestDto: {
             job: components["schemas"]["JobDraftDto"];
@@ -10369,6 +12253,10 @@ export interface components {
             /** Format: int64 */
             uploadRate: number | string;
         };
+        LoginRequestDto: {
+            username: string;
+            password: string;
+        };
         MarkChatReadRequestDto: {
             /** Format: uuid */
             throughMessageId: string;
@@ -11054,6 +12942,14 @@ export interface components {
         ServerUserNotificationKind: "PrivateMessage" | "RoomMention";
         /** @enum {unknown} */
         ServerWorkflowState: "active" | "failed" | "completed";
+        SessionDto: {
+            authenticationEnabled: boolean;
+            authenticated: boolean;
+            username?: null | string;
+            /** Format: date-time */
+            expiresAt?: null | string;
+            antiforgeryToken: string;
+        };
         SetSubmissionArchivedRequestDto: {
             /** @default true */
             archived: boolean;

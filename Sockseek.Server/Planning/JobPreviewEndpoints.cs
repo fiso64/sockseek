@@ -7,7 +7,6 @@ internal static class JobPreviewEndpoints
     public static void Map(WebApplication app)
     {
         app.MapPost("/api/job-previews", CreateAsync)
-            .RequireOperator()
             .WithTags("Job Preview")
             .WithSummary("Creates an asynchronous preview from the shared Core planner.")
             .WithDescription("Returns the Planning resource immediately. Wait for completion through its summary, then page the reviewed nodes.")
@@ -16,7 +15,6 @@ internal static class JobPreviewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/job-previews/{previewId:guid}", GetAsync)
-            .RequireOperator()
             .WithTags("Job Preview")
             .WithSummary("Gets the fixed-size preview summary and current revision.")
             .WithDescription("With waitForCompletion=true, waits up to 30 seconds while Planning. Returns immediately on completion; request cancellation stops waiting without cancelling planning.")
@@ -25,7 +23,6 @@ internal static class JobPreviewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/job-previews/{previewId:guid}/nodes", GetNodesAsync)
-            .RequireOperator()
             .WithTags("Job Preview")
             .WithSummary("Pages preview roots or the direct children of one stable planner ref.")
             .Produces<IReadOnlyList<JobPreviewNodeDto>>()
@@ -34,7 +31,6 @@ internal static class JobPreviewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapPost("/api/job-previews/{previewId:guid}/commit", CommitAsync)
-            .RequireOperator()
             .WithTags("Job Preview")
             .WithSummary("Commits a client-owned revision-bound selection without replanning or rereading its source.")
             .Produces<CommitJobPreviewResponseDto>(StatusCodes.Status202Accepted)

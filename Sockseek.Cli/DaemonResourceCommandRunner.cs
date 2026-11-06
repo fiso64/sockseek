@@ -9,7 +9,7 @@ internal static class DaemonResourceCommandRunner
 {
     public static async Task<Program.CliExitCode> RunAsync(
         IReadOnlyList<string> args,
-        string? remote,
+        RemoteSettings? remote,
         CancellationToken cancellationToken = default)
     {
         if (args.Any(arg => arg is "-h" or "--help"))
@@ -18,7 +18,7 @@ internal static class DaemonResourceCommandRunner
             return Program.CliExitCode.Success;
         }
 
-        if (string.IsNullOrWhiteSpace(remote))
+        if (remote?.IsEnabled != true)
         {
             Console.Error.WriteLine(
                 "Input error: This command requires a configured remote URL "
@@ -29,7 +29,7 @@ internal static class DaemonResourceCommandRunner
         try
         {
             ValidateArguments(args);
-            using HttpClient http = SockseekApiClient.CreateHttpClient(remote);
+            using HttpClient http = remote.CreateHttpClient();
             var api = new SockseekApiClient(http);
             if (Equals(args[0], "share"))
                 return await RunShareAsync(api, args, cancellationToken).ConfigureAwait(false);

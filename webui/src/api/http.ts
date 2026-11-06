@@ -1,4 +1,5 @@
 import type { ApiErrorDto, Schema } from './types';
+import { browserSession } from './session.svelte';
 
 export class DaemonApiError extends Error {
   constructor(
@@ -81,7 +82,13 @@ export class DaemonHttpClient {
   }
 
   private async send(path: string, init: RequestInit): Promise<Response> {
-    const response = await fetch(`${this.basePath}${path}`, init);
+    const sessionSignal = browserSession.requests.signal;
+    const response = await fetch(`${this.basePath}${path}`, {
+      ...init, credentials: 'same-origin',
+      headers: browserSession.headers(init.headers, init.method),
+      signal: init.signal ? AbortSignal.any([init.signal, sessionSignal]) : sessionSignal,
+    });
+    if (response.status === 401 && !sessionSignal.aborted && browserSession.data?.authenticated) browserSession.invalidate();
     if (!response.ok) {
       let error: Partial<ApiErrorDto> | null = null;
       if (isJson(response)) {

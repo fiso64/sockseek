@@ -21,7 +21,12 @@ for ordered live-state deltas and compact activity.
 .NET consumers should use `Sockseek.Api.SockseekApiClient` for HTTP queries and
 `Sockseek.Api.SockseekLiveClient` for live monitoring. The live client supports
 daemon-wide and resource-scoped subscriptions, handles snapshot hydration and
-recovery, and exposes current state through `DaemonClientStore`.
+recovery, and exposes current state through `DaemonClientStore`. Create the shared
+HTTP client with `SockseekApiClient.CreateHttpClient(serverUrl, apiKey)` and pass it
+to both clients. All API/hub access requires authentication by default; see
+[credentials and deployment](daemon.md#network-security). Browser clients use
+`/api/auth/session`, `/api/auth/login` and `/api/auth/logout`, with cookies and the
+bootstrap `X-CSRF-Token` for mutations. Refresh the token after login/logout.
 
 For a UI, use `includeTransferDetails: false` and observe the fetched transfer
 timeline or displayed job IDs separately. Global transfer totals remain available.
@@ -40,7 +45,7 @@ For client development, start from mock files instead of a real Soulseek account
 ```bash
 python scripts/create_mock_music_library.py -o /tmp/sockseek-fixture
 
-sockseek daemon \
+sockseek daemon --web-password-file /path/to/test-password --allow-http-auth \
   --mock-files-dir /tmp/sockseek-fixture/mock-library \
   --mock-files-no-read-tags \
   --mock-files-slow \

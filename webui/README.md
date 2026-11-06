@@ -14,7 +14,10 @@ npm run dev
 ```
 
 Set `SOCKSEEK_DAEMON_URL` when the development daemon is not listening on
-`http://127.0.0.1:5030`. Production requests use same-origin `/api` routes.
+`http://127.0.0.1:5030`. Configure its WebUI password and explicitly enable
+`--allow-http-auth` for an HTTP development server. Vite preserves the browser Host
+for origin checks. Production uses same-origin `/api` routes and HTTPS; see
+[authentication and proxy setup](../docs/daemon.md#network-security).
 
 Publish the distributed CLI/daemon from the repository root with
 `dotnet publish Sockseek.Cli/Sockseek.Cli.csproj -c Release`. This runs a clean
