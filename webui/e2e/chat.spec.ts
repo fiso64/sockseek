@@ -237,16 +237,23 @@ test('keeps the first visible message anchored when loading an older page', asyn
   await page.goto('/chat/users/History%20Peer');
   const messages = page.locator('.chat-messages');
   await expect(messages).toContainText('History 502');
+  // History renders before initial live-subscription setup finishes. Wait for
+  // the paging action to be ready, then drain its queued initial scroll before
+  // choosing the reading position; visibility alone does not mean on-screen.
+  const loadMore = page.getByRole('button', { name: 'Load more', exact: true });
+  await expect(page.getByLabel('Connection status')).toContainText('Connected');
+  await expect(loadMore).toBeEnabled();
   await messages.evaluate(async element => {
     await new Promise(requestAnimationFrame);
     element.scrollTop = 0;
   });
   const anchor = messages.getByText('History 003', { exact: true });
-  await expect(anchor).toBeVisible();
+  await expect(anchor).toBeInViewport();
   const before = await anchor.boundingBox();
-  await page.getByRole('button', { name: 'Load more', exact: true }).click();
+  await loadMore.click();
   await expect(messages.getByText('History 000', { exact: true })).toBeAttached();
   await messages.evaluate(() => new Promise(requestAnimationFrame));
+  await expect(anchor).toBeInViewport();
   const after = await anchor.boundingBox();
   expect(before).not.toBeNull();
   expect(after).not.toBeNull();
