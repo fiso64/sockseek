@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Sockseek.Api\Sockseek.Api.csproj" />
+    <ProjectReference Include="..\Sockseek.Persistence\Sockseek.Persistence.csproj" />
     <ProjectReference Include="..\\Sockseek.Server\\Sockseek.Server.csproj" />
   </ItemGroup>
 

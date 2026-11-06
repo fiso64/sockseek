@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- Match the distributed CLI-hosted daemon, rather than the Web SDK default. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../Sockseek.Server/Sockseek.Server.csproj" />
+    <Compile Include="../../../Sockseek.Server.Tests/SoulseekClientProxy.cs" Link="SoulseekClientProxy.cs" />
+    <Compile Include="../../../tests/TestDatabase.cs" Link="TestDatabase.cs" />
+  </ItemGroup>
+</Project>

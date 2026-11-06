@@ -4,25 +4,31 @@ namespace Sockseek.Core.Models;
 // executable per-file download jobs are materialized on AlbumJob.TrackJobs.
 public sealed class AlbumFile
 {
-    public SongQuery Query => query.Value;
-    public FileCandidate Candidate { get; }
+    private readonly AlbumFileMatch match;
 
+    public SongQuery Query => match.Query;
+    public FileCandidate Candidate => match.Candidate;
     public string Filename => Candidate.Filename;
     public bool IsNotAudio => !Utils.IsMusicFile(Filename);
 
-    private readonly Lazy<SongQuery> query;
-
     public AlbumFile(SongQuery query, FileCandidate candidate)
-        : this(() => query, candidate)
+        : this(new AlbumFileMatch(query, candidate))
     {
     }
 
     public static AlbumFile WithLazyQuery(Func<SongQuery> queryFactory, FileCandidate candidate)
-        => new(queryFactory, candidate);
+        => new(AlbumFileMatch.WithLazyQuery(queryFactory, candidate));
 
-    private AlbumFile(Func<SongQuery> queryFactory, FileCandidate candidate)
+    internal static AlbumFile WithProjectionEvidence(
+        Func<SongQuery> queryFactory,
+        Services.ProjectedFileCandidate file)
+        => new(AlbumFileMatch.WithProjectionEvidence(queryFactory, file));
+
+    internal AlbumFile(AlbumFileMatch match)
     {
-        query = new Lazy<SongQuery>(() => new SongQuery(queryFactory()));
-        Candidate = candidate;
+        ArgumentNullException.ThrowIfNull(match);
+        this.match = match;
     }
+
+    internal AlbumFileMatch Match => match;
 }

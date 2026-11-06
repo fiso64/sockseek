@@ -1,10 +1,22 @@
 using System.Reflection;
+using System.IO.Compression;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.OpenApi;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Http.Json;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.OpenApi;
 using Sockseek.Api;
+using Sockseek.Core.Diagnostics;
+using Sockseek.Core.Settings;
+using Sockseek.Server.Persistence;
+using Sockseek.Server.PeerBrowsing;
+using Sockseek.Server.UserProfiles;
+using Sockseek.Server.Planning;
+using Sockseek.Server.PeerRestrictions;
 
 namespace Sockseek.Server;
 
@@ -17,15 +29,36 @@ public static class ServerHost
             Args = args,
             ContentRootPath = AppContext.BaseDirectory,
         });
-        builder.Logging.ClearProviders();
-        if (logToConsole)
+        string entryAssemblyName = Assembly.GetEntryAssembly()?.GetName().Name ?? "";
+        bool isOpenApiGeneration = entryAssemblyName.Contains(
+            "getdocument",
+            StringComparison.OrdinalIgnoreCase);
+        EngineSettings loggingSettings;
+        if (options is not null)
         {
-            builder.Logging.AddSimpleConsole(consoleOptions =>
-            {
-                consoleOptions.SingleLine = false;
-                consoleOptions.TimestampFormat = "yyyy-MM-dd HH:mm:ss ";
-            });
+            loggingSettings = options.Engine;
         }
+        else
+        {
+            loggingSettings = new EngineSettings { LogLevel = LogLevel.Debug };
+            builder.Configuration.GetSection("SockseekServer:Engine").Bind(loggingSettings);
+        }
+        builder.Logging.ClearProviders();
+        // Keep the factory permissive so each provider can enforce its own
+        // level. In particular, the Debug file must remain independent of the
+        // configured console level.
+        builder.Logging.SetMinimumLevel(LogLevel.Trace);
+        builder.Logging.AddProvider(new CompactTextLoggerProvider(
+            record => Console.WriteLine(CompactLogFormatter.Format(
+                record,
+                includeTimestamp: true,
+                includeInformationLevel: true,
+                includeSource: loggingSettings.LogLevel <= LogLevel.Debug)),
+            isOpenApiGeneration || !logToConsole ? LogLevel.None : loggingSettings.LogLevel));
+        if (!isOpenApiGeneration && !string.IsNullOrWhiteSpace(loggingSettings.LogFilePath))
+            builder.Logging.AddProvider(new CompactFileLoggerProvider(
+                loggingSettings.LogFilePath,
+                LogLevel.Debug));
         builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
 
         if (!string.IsNullOrWhiteSpace(url))
@@ -34,23 +67,165 @@ public static class ServerHost
         if (options != null)
             builder.Services.AddSingleton<IOptions<ServerOptions>>(Options.Create(options));
         else
+        {
             builder.Services.Configure<ServerOptions>(builder.Configuration.GetSection("SockseekServer"));
+            if (!isOpenApiGeneration && builder.Configuration["SockseekServer:Persistence:Enabled"] == null)
+                builder.Services.PostConfigure<ServerOptions>(configured => configured.Persistence.Enabled = true);
+        }
+
+        builder.Services.AddOptions<HostOptions>()
+            .Configure<IOptions<ServerOptions>>((host, server) =>
+            {
+                if (server.Value.ShutdownTimeout <= TimeSpan.Zero)
+                    throw new ArgumentOutOfRangeException(
+                        nameof(ServerOptions.ShutdownTimeout));
+                host.ShutdownTimeout = server.Value.ShutdownTimeout;
+            });
 
         builder.Services.Configure<JsonOptions>(jsonOptions =>
         {
             jsonOptions.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
             SockseekApiJson.ConfigureSerializerOptions(jsonOptions.SerializerOptions);
         });
+        // Search View pages can contain many repeated directory/file fields.
+        // Compress public JSON on the wire without changing the paged contract.
+        builder.Services.AddResponseCompression(compression =>
+        {
+            compression.EnableForHttps = true;
+            compression.MimeTypes = ["application/json"];
+            compression.Providers.Add<BrotliCompressionProvider>();
+            compression.Providers.Add<GzipCompressionProvider>();
+        });
+        builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+            options.Level = CompressionLevel.Fastest);
+        builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+            options.Level = CompressionLevel.Fastest);
 
-        builder.Services.AddSignalR()
-            .AddJsonProtocol(jsonOptions =>
-            {
-                jsonOptions.PayloadSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-                SockseekApiJson.ConfigureSerializerOptions(jsonOptions.PayloadSerializerOptions);
-            });
+        builder.Services.AddSignalR(options =>
+            // A legitimate fetched extent can contain thousands of row IDs
+            // and revisions. Response work is scoped by the requested extent.
+            options.MaximumReceiveMessageSize = null)
+            .AddJsonProtocol();
+        // Both transports use the public HTTP JSON rules and one metadata cache.
+        builder.Services.AddOptions<JsonHubProtocolOptions>()
+            .Configure<IOptions<JsonOptions>>((hub, http) =>
+                hub.PayloadSerializerOptions = http.Value.SerializerOptions);
         builder.Services.AddOpenApi(options =>
         {
-            options.AddDocumentTransformer((document, context, cancellationToken) =>
+            options.AddOperationTransformer(async (operation, context, cancellationToken) =>
+            {
+                if (context.Description.RelativePath == "api/jobs"
+                    && context.Description.HttpMethod == "GET")
+                {
+                    // Minimal API string binding permits public hyphenated enum
+                    // spellings; keep the generated query contract enum-typed.
+                    (string Name, Type Type)[] filters =
+                    [
+                        ("kind", typeof(ServerJobKind)),
+                        ("role", typeof(ServerJobRole)),
+                    ];
+                    foreach (var (name, type) in filters)
+                    {
+                        if (operation.Parameters?.FirstOrDefault(parameter => parameter.Name == name) is OpenApiParameter parameter)
+                            parameter.Schema = await context.GetOrCreateSchemaAsync(type, null, cancellationToken);
+                    }
+                    if (operation.Responses?.TryGetValue("200", out var response) == true
+                        && response is OpenApiResponse jobResponse)
+                    {
+                        jobResponse.Headers ??= new Dictionary<string, IOpenApiHeader>();
+                        jobResponse.Headers[ServerProtocol.ReadEpochHeader] = new OpenApiHeader
+                        {
+                            Description = "Daemon epoch captured before reading live and retained jobs.",
+                            Schema = new OpenApiSchema { Type = JsonSchemaType.String, Format = "uuid" },
+                        };
+                        jobResponse.Headers[ServerProtocol.ReadSequenceHeader] = new OpenApiHeader
+                        {
+                            Description = "Daemon sequence at that read position, encoded as a decimal Int64 string.",
+                            Schema = new OpenApiSchema { Type = JsonSchemaType.String, Pattern = "^[0-9]+$" },
+                        };
+                    }
+                }
+            });
+            // With this generator version, reference extraction collapses these
+            // nested target/plan schemas to empty components despite populated
+            // serializer metadata. Inline their uses and emit explicit canonical
+            // components below; both still derive from the DTOs, not hand-written
+            // property lists. OpenApiContractTests guards the emitted properties.
+            options.CreateSchemaReferenceId = type =>
+                type.Type == typeof(PeerFileTargetDto) || type.Type == typeof(DirectoryTransferPlanDto)
+                    ? null
+                    : Microsoft.AspNetCore.OpenApi.OpenApiOptions.CreateDefaultSchemaReferenceId(type);
+            options.AddSchemaTransformer(async (schema, context, cancellationToken) =>
+            {
+                // Constructor parameters are not necessarily present on the wire:
+                // the shared serializer omits nulls. Derive optionality from the
+                // same metadata instead of maintaining per-DTO field lists.
+                foreach (var property in context.JsonTypeInfo.Properties)
+                {
+                    JsonIgnoreCondition condition = property.AttributeProvider?
+                        .GetCustomAttributes(typeof(JsonIgnoreAttribute), inherit: true)
+                        .OfType<JsonIgnoreAttribute>().FirstOrDefault()?.Condition
+                        ?? context.JsonTypeInfo.Options.DefaultIgnoreCondition;
+                    if (!property.IsRequired
+                        && condition is JsonIgnoreCondition.WhenWritingNull or JsonIgnoreCondition.WhenWritingDefault
+                        && (Nullable.GetUnderlyingType(property.PropertyType) is not null || property.IsGetNullable))
+                        schema.Required?.Remove(property.Name);
+                }
+                if (context.JsonTypeInfo.Type == typeof(PeerFileTargetDto)
+                    && schema.Properties is { } targetProperties)
+                {
+                    var attributes = await context.GetOrCreateSchemaAsync(
+                        typeof(IReadOnlyList<FileAttributeDto>), null, cancellationToken);
+                    targetProperties["attributes"] = new OpenApiSchema
+                    {
+                        AnyOf = [attributes, new OpenApiSchema { Type = JsonSchemaType.Null }],
+                    };
+                }
+                if ((context.JsonTypeInfo.Type == typeof(TransferStatusFieldsDto)
+                     || context.JsonTypeInfo.Type == typeof(JobLifecycleFieldsDto))
+                    && schema.Properties is { } statusProperties)
+                {
+                    // Repeated inline delta generation otherwise loses action
+                    // items on some transports. Derive them from the same DTO.
+                    var actions = await context.GetOrCreateSchemaAsync(
+                        typeof(IReadOnlyList<ResourceActionDto>), null, cancellationToken);
+                    statusProperties["availableActions"] = context.JsonTypeInfo.Type == typeof(JobLifecycleFieldsDto)
+                        ? actions : new OpenApiSchema
+                        {
+                            AnyOf = [actions, new OpenApiSchema { Type = JsonSchemaType.Null }],
+                        };
+                }
+                if (context.JsonTypeInfo.Type == typeof(StateDeltaDto))
+                {
+                    schema.Required?.Remove("daemon");
+                    if (schema.Properties?.TryGetValue("daemon", out IOpenApiSchema? daemon) == true
+                        && daemon is OpenApiSchema daemonSchema)
+                    {
+                        daemonSchema.Type = (daemonSchema.Type ?? JsonSchemaType.Object)
+                            | JsonSchemaType.Null;
+                    }
+                    // Reuse the canonical resource schema: generating it inline
+                    // here loses nested nullable/omitted failure metadata.
+                    schema.Required?.Remove("userBrowse");
+                    if (schema.Properties is { } properties)
+                    {
+                        properties["userBrowse"] = new OpenApiSchema
+                        {
+                            AnyOf = [new OpenApiSchemaReference(nameof(UserBrowseDto)),
+                                new OpenApiSchema { Type = JsonSchemaType.Null }],
+                        };
+                    }
+                }
+                else if (context.JsonTypeInfo.Type == typeof(LiveProtocolContractVersion))
+                {
+                    schema.Enum = [JsonValue.Create(LiveProtocol.Version)];
+                }
+                else if (context.JsonTypeInfo.Type == typeof(ChatLiveMessageTailSize))
+                {
+                    schema.Enum = [JsonValue.Create(ChatProtocol.LiveMessageTailSize)];
+                }
+            });
+            options.AddDocumentTransformer(async (document, context, cancellationToken) =>
             {
                 document.Info = new()
                 {
@@ -59,23 +234,153 @@ public static class ServerHost
                     Description = "HTTP API for the Sockseek daemon."
                 };
 
-                return Task.CompletedTask;
+                Type[] supplementalContractTypes =
+                [
+                    typeof(PeerFileTargetDto),
+                    typeof(DirectoryTransferPlanDto),
+                    typeof(LiveProtocolContractVersion),
+                    typeof(ChatLiveMessageTailSize),
+                    typeof(LiveClientInvocation),
+                    typeof(LiveServerMessage),
+                    typeof(StateUpdateBatchDto),
+                    typeof(StateDeltaDto),
+                    typeof(UserBrowseDto),
+                    typeof(JobDeltaDto),
+                    typeof(TransferDeltaDto),
+                    typeof(TransferTimelineUpdateDto),
+                    typeof(TransferTimelineScopeDto),
+                    typeof(JobObservationUpdateDto),
+                    typeof(ChatTargetDeltaDto),
+                    typeof(ActivityEventDto),
+                    typeof(ActivityPayloadDto),
+                    typeof(JobStatusActivityDto),
+                    typeof(JobMessageActivityDto),
+                    typeof(WorkflowMessageActivityDto),
+                    typeof(DiagnosticActivityDto),
+                    typeof(ExtractionStartedActivityDto),
+                    typeof(DownloadAttemptFailedActivityDto),
+                    typeof(TrackBatchResolvedActivityDto),
+                ];
+                foreach (Type contractType in supplementalContractTypes)
+                {
+                    var schema = await context.GetOrCreateSchemaAsync(
+                        contractType,
+                        parameterDescription: null,
+                        cancellationToken);
+                    document.AddComponent(contractType.Name, schema);
+                }
+
+                // The .NET OpenAPI generator names polymorphic derived schemas in
+                // discriminator mappings as <base><derived>. These SignalR-only
+                // types are not otherwise reachable from HTTP endpoints, so add
+                // the mapped component names explicitly as well.
+                Type[] activityPayloadTypes =
+                [
+                    typeof(JobStatusActivityDto),
+                    typeof(JobMessageActivityDto),
+                    typeof(WorkflowMessageActivityDto),
+                    typeof(DiagnosticActivityDto),
+                    typeof(ExtractionStartedActivityDto),
+                    typeof(DownloadAttemptFailedActivityDto),
+                    typeof(TrackBatchResolvedActivityDto),
+                ];
+                foreach (Type payloadType in activityPayloadTypes)
+                {
+                    var schema = await context.GetOrCreateSchemaAsync(
+                        payloadType,
+                        parameterDescription: null,
+                        cancellationToken);
+                    document.AddComponent(
+                        $"{nameof(ActivityPayloadDto)}{payloadType.Name}",
+                        schema);
+                }
             });
         });
+        builder.Services.AddSingleton<PersistenceCoordinator>();
+        builder.Services.AddHostedService<PersistenceRuntimeHostedService>();
+        builder.Services.AddHostedService<PersistenceMaintenanceHostedService>();
+        builder.Services.AddSingleton<InputArtifactCoordinator>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<InputArtifactCoordinator>());
+        builder.Services.AddSingleton<PeerRestrictionCoordinator>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<PeerRestrictionCoordinator>());
         builder.Services.AddSingleton<EngineSupervisor>();
         builder.Services.AddSingleton(sp => sp.GetRequiredService<EngineSupervisor>().StateStore);
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<EngineSupervisor>().Runtime);
+        builder.Services.AddSingleton(sp => sp.GetRequiredService<EngineSupervisor>().Submissions);
+        builder.Services.AddSingleton<JobReadService>();
+        builder.Services.AddSingleton<TransferReadService>();
+        builder.Services.AddSingleton<DashboardAnalyticsFacade>();
+        builder.Services.AddSingleton<LiveTransferCursorCodec>();
+        builder.Services.AddSingleton<PeerBrowseCursorCodec>();
+        builder.Services.AddSingleton<JobPreviewCursorCodec>();
+        builder.Services.AddSingleton<SubmissionCommitCoordinator>();
+        builder.Services.AddSingleton<JobPreviewCoordinator>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<JobPreviewCoordinator>());
+        builder.Services.AddSingleton<SearchViewCursorCodec>();
+        builder.Services.AddSingleton<SearchViewCoordinator>();
+        builder.Services.AddSingleton<IOperatorMutationAuthorizer,
+            CurrentTrustDomainOperatorAuthorizer>();
         builder.Services.AddSingleton<ServerEventBroadcaster>();
-        builder.Services.AddSingleton<ServerActivityLogReporter>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<ServerEventBroadcaster>());
         builder.Services.AddHostedService<EngineRuntimeHostedService>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<SearchViewCoordinator>());
 
         var app = builder.Build();
-        if (logToConsole)
-            CoreLoggerBridge.Configure(app.Services, (options ?? app.Services.GetRequiredService<IOptions<ServerOptions>>().Value).Engine.LogLevel);
-        _ = app.Services.GetRequiredService<ServerEventBroadcaster>();
-        _ = app.Services.GetRequiredService<ServerActivityLogReporter>();
+
+        // Resolve the live contract before accepting requests. Lazy configuration
+        // of these broad graphs otherwise blocks unrelated first responses on
+        // System.Text.Json's shared metadata lock. This is startup work, not a
+        // serialization shortcut: retain full metadata and normal async streaming.
+        var wireJson = app.Services.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
+        wireJson.MakeReadOnly();
+        foreach (Type response in new[] { typeof(StateSnapshotDto), typeof(StateUpdateBatchDto), typeof(TransferTimelineUpdateDto) })
+            wireJson.GetTypeInfo(response);
+
+        app.UseResponseCompression();
+
+        app.Use(async (context, next) =>
+        {
+            try
+            {
+                await next(context);
+            }
+            catch (PersistenceHandoffException exception)
+            {
+                context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                await context.Response.WriteAsJsonAsync(
+                    new ApiErrorDto(exception.Message, "HistoryUnavailable"),
+                    context.RequestAborted);
+            }
+        });
+
+        string webRootPath = app.Environment.WebRootPath
+            ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+        bool hasWebUi = File.Exists(Path.Combine(webRootPath, "index.html"));
+        var webUiStaticFiles = new StaticFileOptions
+        {
+            OnPrepareResponse = context =>
+            {
+                string path = context.Context.Request.Path.Value ?? string.Empty;
+                context.Context.Response.Headers.CacheControl = path.StartsWith(
+                    "/assets/", StringComparison.Ordinal)
+                    ? "public,max-age=31536000,immutable"
+                    : "no-cache";
+            },
+        };
+        if (hasWebUi)
+        {
+            app.UseDefaultFiles();
+            app.UseStaticFiles(webUiStaticFiles);
+        }
 
         app.MapOpenApi("/api/openapi.json");
         MapEndpoints(app);
+        if (!hasWebUi)
+            app.MapGet("/", () => Results.Redirect("/api/server/info"))
+                .ExcludeFromDescription();
+        app.Map("/api/{**unmatched}", () => Results.NotFound());
+        if (hasWebUi)
+            app.MapFallbackToFile("index.html", webUiStaticFiles);
         return app;
     }
 
@@ -92,468 +397,16 @@ public static class ServerHost
 
     private static void MapEndpoints(WebApplication app)
     {
-        app.MapGet("/", () => Results.Redirect("/api/server/info"))
-            .ExcludeFromDescription();
-
-        app.MapGet("/api/server/info", (EngineSupervisor supervisor) => Results.Ok(supervisor.GetInfo()))
-            .WithTags("Server")
-            .WithSummary("Gets server identity and protocol information.")
-            .Produces<ServerInfoDto>();
-        app.MapGet("/api/server/status", (EngineSupervisor supervisor) => Results.Ok(supervisor.GetStatus()))
-            .WithTags("Server")
-            .WithSummary("Gets current daemon and Soulseek client status.")
-            .Produces<ServerStatusDto>();
-        app.MapGet("/api/profiles", (EngineSupervisor supervisor) => Results.Ok(supervisor.GetProfiles()))
-            .WithTags("Profiles")
-            .WithSummary("Lists configured download profiles.")
-            .Produces<IReadOnlyList<ProfileSummaryDto>>();
-        app.MapGet("/api/events/catalog", () => Results.Ok(ServerEventCatalog.All))
-            .WithTags("Events")
-            .WithSummary("Lists SignalR event types and their snapshot invalidation behavior.")
-            .Produces<IReadOnlyList<ServerEventDescriptorDto>>();
-
-        app.MapGet("/api/jobs", (
-            EngineStateStore stateStore,
-            ServerJobLifecycleState? lifecycleState,
-            ServerJobTerminalOutcome? terminalOutcome,
-            ServerJobSkipReason? skipReason,
-            ServerJobKind? kind,
-            Guid? workflowId,
-            bool includeAll = false) =>
-        {
-            var jobs = stateStore.GetJobs(new JobQuery(lifecycleState, terminalOutcome, kind, workflowId, includeAll, skipReason));
-            return Results.Ok(jobs);
-        })
-            .WithTags("Jobs")
-            .WithSummary("Lists known jobs.")
-            .WithDescription("Default results contain only execution roots where ParentJobId is null. Set includeAll=true for a flat list of every matching job.")
-            .Produces<IReadOnlyList<JobSummaryDto>>();
-
-        app.MapGet("/api/jobs/{jobId:guid}", (Guid jobId, EngineStateStore stateStore) =>
-        {
-            var detail = stateStore.GetJobDetail(jobId);
-            return detail != null ? Results.Ok(detail) : Results.NotFound();
-        })
-            .WithTags("Jobs")
-            .WithSummary("Gets a job snapshot by id.")
-            .Produces<JobDetailDto>()
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapGet("/api/workflows/{workflowId:guid}/jobs/display/{displayId:int}", (Guid workflowId, int displayId, EngineSupervisor supervisor) =>
-        {
-            var detail = supervisor.GetJobDetailByDisplayId(workflowId, displayId);
-            return detail != null ? Results.Ok(detail) : Results.NotFound();
-        })
-            .WithTags("Jobs")
-            .WithSummary("Gets a job snapshot by workflow and display id.")
-            .Produces<JobDetailDto>()
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapGet("/api/jobs/{jobId:guid}/raw", (Guid jobId, long afterSequence, EngineSupervisor supervisor) =>
-        {
-            var results = supervisor.GetSearchRawResults(jobId, afterSequence);
-            return results != null ? Results.Ok(results) : Results.NotFound();
-        })
-            .WithTags("Search Results")
-            .WithSummary("Gets raw search responses for a search job.")
-            .WithDescription("Use afterSequence to incrementally fetch raw responses after the last seen sequence.")
-            .Produces<IReadOnlyList<SearchRawResultDto>>()
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapGet("/api/jobs/{jobId:guid}/results/files", (Guid jobId, EngineSupervisor supervisor) =>
-        {
-            var results = supervisor.GetFileResults(jobId);
-            return results != null ? Results.Ok(results) : Results.NotFound();
-        })
-            .WithTags("Search Results")
-            .WithSummary("Gets file candidates for a search-like job.")
-            .Produces<SearchResultSnapshotDto<FileCandidateDto>>()
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapPost("/api/jobs/{jobId:guid}/results/files/project", (Guid jobId, FileSearchProjectionRequestDto request, EngineSupervisor supervisor) =>
-        {
-            var results = supervisor.GetFileResults(jobId, request);
-            return results != null ? Results.Ok(results) : Results.NotFound();
-        })
-            .WithTags("Search Results")
-            .WithSummary("Projects search results as file candidates.")
-            .Produces<SearchResultSnapshotDto<FileCandidateDto>>()
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapGet("/api/jobs/{jobId:guid}/results/folders", (Guid jobId, bool includeFiles, EngineSupervisor supervisor) =>
-        {
-            try
-            {
-                var results = supervisor.GetFolderResults(jobId, includeFiles);
-                return results != null ? Results.Ok(results) : Results.NotFound();
-            }
-            catch (Exception ex) when (TryCreateBadRequest(ex, out _))
-            {
-                return BadRequest(ex);
-            }
-        })
-            .WithTags("Search Results")
-            .WithSummary("Gets folder candidates for an album search-like job.")
-            .WithDescription("Set includeFiles=true only when the client needs selectable files. Folder file counts can come from search results and may not represent a full browse of the remote folder.")
-            .Produces<SearchResultSnapshotDto<AlbumFolderDto>>()
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapPost("/api/jobs/{jobId:guid}/results/folders/project", (Guid jobId, FolderSearchProjectionRequestDto request, EngineSupervisor supervisor) =>
-        {
-            try
-            {
-                var results = supervisor.GetFolderResults(jobId, request);
-                return results != null ? Results.Ok(results) : Results.NotFound();
-            }
-            catch (Exception ex) when (TryCreateBadRequest(ex, out _))
-            {
-                return BadRequest(ex);
-            }
-        })
-            .WithTags("Search Results")
-            .WithSummary("Projects search results as album folders.")
-            .Produces<SearchResultSnapshotDto<AlbumFolderDto>>()
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapGet("/api/jobs/{jobId:guid}/results/aggregate-tracks", (Guid jobId, EngineSupervisor supervisor) =>
-        {
-            var results = supervisor.GetAggregateTrackResults(jobId);
-            return results != null ? Results.Ok(results) : Results.NotFound();
-        })
-            .WithTags("Search Results")
-            .WithSummary("Gets aggregate track candidates.")
-            .Produces<SearchResultSnapshotDto<AggregateTrackCandidateDto>>()
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapPost("/api/jobs/{jobId:guid}/results/aggregate-tracks/project", (Guid jobId, AggregateTrackProjectionRequestDto request, EngineSupervisor supervisor) =>
-        {
-            var results = supervisor.GetAggregateTrackResults(jobId, request);
-            return results != null ? Results.Ok(results) : Results.NotFound();
-        })
-            .WithTags("Search Results")
-            .WithSummary("Projects search results as aggregate track candidates.")
-            .Produces<SearchResultSnapshotDto<AggregateTrackCandidateDto>>()
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapGet("/api/jobs/{jobId:guid}/results/aggregate-albums", (Guid jobId, EngineSupervisor supervisor) =>
-        {
-            try
-            {
-                var results = supervisor.GetAggregateAlbumResults(jobId);
-                return results != null ? Results.Ok(results) : Results.NotFound();
-            }
-            catch (Exception ex) when (TryCreateBadRequest(ex, out _))
-            {
-                return BadRequest(ex);
-            }
-        })
-            .WithTags("Search Results")
-            .WithSummary("Gets aggregate album candidates.")
-            .Produces<SearchResultSnapshotDto<AggregateAlbumCandidateDto>>()
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapPost("/api/jobs/{jobId:guid}/results/aggregate-albums/project", (Guid jobId, AggregateAlbumProjectionRequestDto request, EngineSupervisor supervisor) =>
-        {
-            try
-            {
-                var results = supervisor.GetAggregateAlbumResults(jobId, request);
-                return results != null ? Results.Ok(results) : Results.NotFound();
-            }
-            catch (Exception ex) when (TryCreateBadRequest(ex, out _))
-            {
-                return BadRequest(ex);
-            }
-        })
-            .WithTags("Search Results")
-            .WithSummary("Projects search results as aggregate album candidates.")
-            .Produces<SearchResultSnapshotDto<AggregateAlbumCandidateDto>>()
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapPost("/api/jobs/{jobId:guid}/retrieve-folder", async (
-            Guid jobId,
-            RetrieveFolderRequestDto request,
-            EngineSupervisor supervisor,
-            CancellationToken ct) =>
-        {
-            try
-            {
-                var summary = await supervisor.StartRetrieveFolderAsync(jobId, request, ct);
-                return summary != null
-                    ? Results.Accepted($"/api/jobs/{summary.JobId}", summary)
-                    : Results.NotFound();
-            }
-            catch (Exception ex) when (TryCreateBadRequest(ex, out _))
-            {
-                return BadRequest(ex);
-            }
-        })
-            .WithTags("Follow-up Jobs")
-            .WithSummary("Starts a folder retrieval job for a selected album result folder.")
-            .WithDescription("Retrieves the full remote folder contents for a selected folder result. Search responses can omit child items that did not match the original query.")
-            .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
-            .Produces(StatusCodes.Status404NotFound)
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
-
-        app.MapPost("/api/jobs/{jobId:guid}/downloads/files", async (
-            Guid jobId,
-            StartFileDownloadsRequestDto request,
-            EngineSupervisor supervisor,
-            CancellationToken ct) =>
-        {
-            try
-            {
-                var summaries = await supervisor.StartFileDownloadsAsync(jobId, request, ct);
-                return summaries != null
-                    ? Results.Accepted($"/api/jobs/{jobId}", summaries)
-                    : Results.NotFound();
-            }
-            catch (Exception ex) when (TryCreateBadRequest(ex, out _))
-            {
-                return BadRequest(ex);
-            }
-        })
-            .WithTags("Follow-up Jobs")
-            .WithSummary("Starts one or more file download jobs from selected search result files.")
-            .WithDescription("The source search job identifies where the candidate refs came from. Per-download settings belong in the request options, not in the original search job.")
-            .Produces<IReadOnlyList<JobSummaryDto>>(StatusCodes.Status202Accepted)
-            .Produces(StatusCodes.Status404NotFound)
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
-
-        app.MapPost("/api/jobs/{jobId:guid}/downloads/folder", async (
-            Guid jobId,
-            StartFolderDownloadRequestDto request,
-            EngineSupervisor supervisor,
-            CancellationToken ct) =>
-        {
-            try
-            {
-                var summary = await supervisor.StartFolderDownloadAsync(jobId, request, ct);
-                return summary != null
-                    ? Results.Accepted($"/api/jobs/{summary.JobId}", summary)
-                    : Results.NotFound();
-            }
-            catch (Exception ex) when (TryCreateBadRequest(ex, out _))
-            {
-                return BadRequest(ex);
-            }
-        })
-            .WithTags("Follow-up Jobs")
-            .WithSummary("Starts an album/folder download job from a selected folder result.")
-            .WithDescription("The source search job identifies where the folder ref came from. Per-download settings belong in the request options, not in the original search job.")
-            .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
-            .Produces(StatusCodes.Status404NotFound)
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
-
-        app.MapPost("/api/jobs/{jobId:guid}/manual/complete", async (Guid jobId, EngineSupervisor supervisor) =>
-        {
-            return await supervisor.CompleteManualSelectionAsync(jobId)
-                ? Results.Accepted($"/api/jobs/{jobId}")
-                : Results.NotFound();
-        })
-            .WithTags("Jobs")
-            .WithSummary("Completes a manual-selection job without starting additional downloads.")
-            .WithDescription("Use this when a DownloadBehavior.Manual job reached AwaitingSelection and the caller wants to close the manual step without resuming the job.")
-            .Produces(StatusCodes.Status202Accepted)
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapPost("/api/jobs/{jobId:guid}/manual/skip", async (Guid jobId, EngineSupervisor supervisor) =>
-        {
-            return await supervisor.SkipManualSelectionAsync(jobId)
-                ? Results.Accepted($"/api/jobs/{jobId}")
-                : Results.NotFound();
-        })
-            .WithTags("Jobs")
-            .WithSummary("Skips a manual-selection job without starting additional downloads.")
-            .WithDescription("Use this when a DownloadBehavior.Manual job reached AwaitingSelection and the caller wants to record an explicit user skip.")
-            .Produces(StatusCodes.Status202Accepted)
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapPost("/api/jobs/{jobId:guid}/cancel", (Guid jobId, EngineSupervisor supervisor) =>
-        {
-            return supervisor.CancelJob(jobId)
-                ? Results.Accepted($"/api/jobs/{jobId}")
-                : Results.NotFound();
-        })
-            .WithTags("Jobs")
-            .WithSummary("Cancels a job when cancellation is available.")
-            .Produces(StatusCodes.Status202Accepted)
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapPost("/api/workflows/{workflowId:guid}/jobs/display/{displayId:int}/cancel", (Guid workflowId, int displayId, EngineSupervisor supervisor) =>
-        {
-            return supervisor.CancelJobByDisplayId(workflowId, displayId)
-                ? Results.Accepted($"/api/workflows/{workflowId}")
-                : Results.NotFound();
-        })
-            .WithTags("Workflows")
-            .WithSummary("Cancels a workflow job by display id.")
-            .WithDescription("Convenience endpoint for CLI-style cancellation prompts. Normal GUI clients should prefer AvailableActions on known job ids.")
-            .Produces(StatusCodes.Status202Accepted)
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapPost("/api/jobs/{jobId:guid}/next-candidate", (Guid jobId, EngineSupervisor supervisor) =>
-        {
-            return supervisor.TryNextCandidate(jobId)
-                ? Results.Accepted($"/api/jobs/{jobId}")
-                : Results.NotFound();
-        })
-            .WithTags("Jobs")
-            .WithSummary("Tries the next candidate for an active job download.")
-            .Produces(StatusCodes.Status202Accepted)
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapPost("/api/workflows/{workflowId:guid}/jobs/display/{displayId:int}/next-candidate", (Guid workflowId, int displayId, EngineSupervisor supervisor) =>
-        {
-            return supervisor.TryNextCandidateByDisplayId(workflowId, displayId)
-                ? Results.Accepted($"/api/workflows/{workflowId}")
-                : Results.NotFound();
-        })
-            .WithTags("Workflows")
-            .WithSummary("Tries the next candidate for an active job download by display id.")
-            .Produces(StatusCodes.Status202Accepted)
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapPost("/api/jobs/extract", async (SubmitExtractJobRequestDto request, EngineSupervisor supervisor, CancellationToken ct) =>
-            await SubmitJobAsync(() => supervisor.SubmitExtractJobAsync(request, ct)))
-            .WithTags("Job Submission")
-            .WithSummary("Submits an input extraction job.")
-            .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
-
-        app.MapPost("/api/jobs/search", async (SubmitSearchJobRequestDto request, EngineSupervisor supervisor, CancellationToken ct) =>
-            await SubmitJobAsync(() => supervisor.SubmitSearchJobAsync(request, ct)))
-            .WithTags("Job Submission")
-            .WithSummary("Submits a generic Soulseek search job.")
-            .WithDescription("Search jobs are discovery-oriented. They store raw Soulseek results; use projection endpoints to view those results as files, album folders, or aggregate candidates, then use follow-up download endpoints for selected refs.")
-            .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
-
-        app.MapPost("/api/jobs/search/tracks", async (SubmitTrackSearchJobRequestDto request, EngineSupervisor supervisor, CancellationToken ct) =>
-            await SubmitJobAsync(() => supervisor.SubmitTrackSearchJobAsync(request, ct)))
-            .WithTags("Job Submission")
-            .WithSummary("Submits a track search job.")
-            .WithDescription("Track search jobs are suitable for exploratory pick-then-download UIs: inspect projected file candidates from the result endpoints, then start follow-up downloads from selected refs.")
-            .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
-
-        app.MapPost("/api/jobs/search/albums", async (SubmitAlbumSearchJobRequestDto request, EngineSupervisor supervisor, CancellationToken ct) =>
-            await SubmitJobAsync(() => supervisor.SubmitAlbumSearchJobAsync(request, ct)))
-            .WithTags("Job Submission")
-            .WithSummary("Submits an album search job.")
-            .WithDescription("Album search jobs are suitable for exploratory pick-then-download UIs: inspect projected folder candidates from the result endpoints, then start a follow-up folder download from the selected ref.")
-            .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
-
-        app.MapPost("/api/jobs/downloads/song", async (SubmitSongJobRequestDto request, EngineSupervisor supervisor, CancellationToken ct) =>
-            await SubmitJobAsync(() => supervisor.SubmitSongJobAsync(request, ct)))
-            .WithTags("Job Submission")
-            .WithSummary("Submits a single-file download job.")
-            .WithDescription("Use DownloadBehavior.Automatic for normal transfer jobs. Use DownloadBehavior.Manual when the job should pause at AwaitingSelection for caller approval/selection before resuming the same job.")
-            .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
-
-        app.MapPost("/api/jobs/downloads/album", async (SubmitAlbumJobRequestDto request, EngineSupervisor supervisor, CancellationToken ct) =>
-            await SubmitJobAsync(() => supervisor.SubmitAlbumJobAsync(request, ct)))
-            .WithTags("Job Submission")
-            .WithSummary("Submits an album/folder download job.")
-            .WithDescription("Use DownloadBehavior.Automatic for normal transfer jobs. Use DownloadBehavior.Manual when the job should pause at AwaitingSelection for caller approval/selection before resuming the same job.")
-            .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
-
-        app.MapPost("/api/jobs/aggregate/tracks", async (SubmitAggregateJobRequestDto request, EngineSupervisor supervisor, CancellationToken ct) =>
-            await SubmitJobAsync(() => supervisor.SubmitAggregateJobAsync(request, ct)))
-            .WithTags("Job Submission")
-            .WithSummary("Submits an aggregate track search job.")
-            .WithDescription("Aggregate jobs can download automatically or, with DownloadBehavior.Manual, pause after candidate grouping so the caller can choose which child downloads to resume.")
-            .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
-
-        app.MapPost("/api/jobs/aggregate/albums", async (SubmitAlbumAggregateJobRequestDto request, EngineSupervisor supervisor, CancellationToken ct) =>
-            await SubmitJobAsync(() => supervisor.SubmitAlbumAggregateJobAsync(request, ct)))
-            .WithTags("Job Submission")
-            .WithSummary("Submits an aggregate album search job.")
-            .WithDescription("Aggregate album jobs can download automatically or, with DownloadBehavior.Manual, pause after bucket projection so the caller can choose which child downloads to resume.")
-            .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
-
-        app.MapPost("/api/jobs/lists", async (SubmitJobListRequestDto request, EngineSupervisor supervisor, CancellationToken ct) =>
-            await SubmitJobAsync(() => supervisor.SubmitJobListAsync(request, ct)))
-            .WithTags("Job Submission")
-            .WithSummary("Submits a job list from draft child jobs.")
-            .WithDescription("Job drafts are submission payloads only. Submitted children appear as normal runtime jobs in subsequent job/workflow snapshots.")
-            .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
-
-        app.MapGet("/api/workflows", (EngineStateStore stateStore) => Results.Ok(stateStore.GetWorkflows()))
-            .WithTags("Workflows")
-            .WithSummary("Lists known workflows.")
-            .Produces<IReadOnlyList<WorkflowSummaryDto>>();
-
-        app.MapGet("/api/workflows/{workflowId:guid}", (Guid workflowId, bool? includeAll, EngineStateStore stateStore) =>
-        {
-            var workflow = stateStore.GetWorkflow(workflowId, includeAll == true);
-            return workflow != null ? Results.Ok(workflow) : Results.NotFound();
-        })
-            .WithTags("Workflows")
-            .WithSummary("Gets a workflow snapshot by id.")
-            .WithDescription("Default results contain only execution roots where ParentJobId is null. Set includeAll=true for a flat list of every workflow job. Use /tree for the same jobs grouped by ParentJobId.")
-            .Produces<WorkflowDetailDto>()
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapGet("/api/workflows/{workflowId:guid}/tree", (Guid workflowId, EngineStateStore stateStore) =>
-        {
-            var workflow = stateStore.GetWorkflowTree(workflowId);
-            return workflow != null ? Results.Ok(workflow) : Results.NotFound();
-        })
-            .WithTags("Workflows")
-            .WithSummary("Gets the execution tree for a workflow.")
-            .WithDescription("This tree is built only from ParentJobId relationships. Follow-up jobs started from search results remain workflow roots and expose SourceJobId instead.")
-            .Produces<WorkflowTreeDto>()
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapPost("/api/workflows/{workflowId:guid}/cancel", (Guid workflowId, EngineSupervisor supervisor) =>
-        {
-            int cancelled = supervisor.CancelWorkflow(workflowId);
-            return cancelled > 0
-                ? Results.Accepted($"/api/workflows/{workflowId}", new CancelWorkflowResponseDto(cancelled))
-                : Results.NotFound();
-        })
-            .WithTags("Workflows")
-            .WithSummary("Cancels cancellable jobs in a workflow.")
-            .Produces<CancelWorkflowResponseDto>(StatusCodes.Status202Accepted)
-            .Produces(StatusCodes.Status404NotFound);
-
-        app.MapHub<ServerEventHub>("/api/events");
-    }
-
-    private static async Task<IResult> SubmitJobAsync(Func<Task<JobSummaryDto>> submit)
-    {
-        try
-        {
-            var summary = await submit();
-            return Results.Accepted($"/api/jobs/{summary.JobId}", summary);
-        }
-        catch (Exception ex) when (TryCreateBadRequest(ex, out _))
-        {
-            return BadRequest(ex);
-        }
-    }
-
-    private static IResult BadRequest(Exception ex)
-    {
-        TryCreateBadRequest(ex, out var error);
-        Sockseek.Core.SockseekLog.Daemon.Warn($"Bad request: {error}");
-        return Results.BadRequest(new ApiErrorDto(error));
-    }
-
-    private static bool TryCreateBadRequest(Exception ex, out string error)
-    {
-        error = ex.Message;
-        return ex is ArgumentException
-            || ex.Message.StartsWith("Input error:", StringComparison.Ordinal);
+        UserProfileEndpoints.Map(app);
+        PeerRestrictionEndpoints.Map(app);
+        UserBrowseEndpoints.Map(app);
+        InputArtifactEndpoints.Map(app);
+        JobPreviewEndpoints.Map(app);
+        SearchViewEndpoints.Map(app);
+        ServerEndpoints.Map(app);
+        ChatEndpoints.Map(app);
+        JobEndpoints.Map(app);
+        TransferEndpoints.Map(app);
+        SharingEndpoints.Map(app);
     }
 }

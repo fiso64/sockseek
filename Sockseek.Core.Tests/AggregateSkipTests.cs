@@ -17,9 +17,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Debug);
 
             var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-skip-agg-music-" + Guid.NewGuid());
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-skip-agg-out-" + Guid.NewGuid());

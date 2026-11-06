@@ -6,6 +6,17 @@ using System.Globalization;
 namespace Sockseek.Core.Extractors;
     public class StringExtractor : IExtractor, IInputMatcher
     {
+        public static string SourceName => "Text";
+        public JobSourceInfo? DescribeSource(ExtractJob source, Job item)
+        {
+            if (ReferenceEquals(source, item)) return new(
+                Detail: source.SourceInputType == InputType.List ? "String source" : "Text import",
+                NestedPreviewTitle: source.Input,
+                PreviewDetail: source.SourceInputType == InputType.List ? "String source" : "Text import");
+            return source.SourceCollectionInputType == InputType.List && item is SongJob or AlbumJob && item.ItemNumber > 0
+                ? new(Detail: $"List item {item.ItemNumber}") : null;
+        }
+
         public static bool InputMatches(string input)
         {
             return !input.IsInternetUrl();
@@ -17,6 +28,7 @@ namespace Sockseek.Core.Extractors;
             {
                 ExtractionMode.Album => true,
                 ExtractionMode.Song => false,
+                ExtractionMode.General => throw new ArgumentException("General extraction mode is only valid for exact remote-file sources."),
                 _ => !HasExplicitNonEmptyTitleKey(input),
             };
 

@@ -1,15 +1,27 @@
 using Sockseek.Api;
 using Sockseek.Server;
+using Sockseek.Core.Diagnostics;
 
-Sockseek.Core.SockseekLog.SetupExceptionHandling();
-Sockseek.Core.SockseekLog.AddConsole();
+WebApplication? app = null;
 
 try
 {
-    var app = ServerHost.Build(args);
+    app = ServerHost.Build(args);
+    var logger = app.Services.GetRequiredService<ILoggerFactory>()
+        .CreateLogger("Sockseek.Server.Program");
+    using var exceptionObserver = ProcessExceptionObserver.Install(logger);
     app.Run();
 }
 catch (Exception ex)
 {
-    Sockseek.Core.SockseekLog.Fatal(ex, "Unhandled server error");
+    if (app is not null)
+    {
+        var logger = app.Services.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Sockseek.Server.Program");
+        ServerLogMessages.UnhandledServerError(logger, ex);
+    }
+    else
+    {
+        Console.Error.WriteLine($"Sockseek server startup failed: {ex}");
+    }
 }

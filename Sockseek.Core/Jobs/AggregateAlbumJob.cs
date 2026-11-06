@@ -1,4 +1,5 @@
 using Sockseek.Core.Models;
+using Sockseek.Core.Snapshots;
 
 namespace Sockseek.Core.Jobs;
     // Finds all distinct albums matching a query (e.g. by an artist); converts each to an AlbumJob added to the queue.
@@ -14,11 +15,18 @@ namespace Sockseek.Core.Jobs;
         protected override bool DefaultCanBeSkipped => false;
 
         // Populated after aggregate search: one AlbumJob per distinct album candidate.
-        public List<AlbumJob> Albums { get; set; } = new();
+        private readonly JobMembers<AlbumJob> members;
+        public IReadOnlyList<AlbumJob> Albums
+        {
+            get => members.Snapshot;
+            set => members.Replace(value);
+        }
+        internal JobOutcomeSummary MemberOutcomes => members.Summary;
 
         public AlbumAggregateJob(AlbumQuery query)
         {
             Query = query;
+            members = new(false, NotifyStructureChanged);
         }
 
         public override string ToString(bool noInfo)

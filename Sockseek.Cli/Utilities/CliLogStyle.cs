@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
-using Sockseek.Core;
 
 namespace Sockseek.Cli;
 
@@ -52,9 +51,6 @@ internal static class CliLogStyle
             _ => "",
         };
 
-    public static void WriteConsoleLog(SockseekLog.StructuredLogEntry entry, bool forceError = false)
-        => WriteConsoleEvent(CliOutputEvent.FromLogEntry(entry), forceError);
-
     public static void WriteConsoleEvent(CliOutputEvent outputEvent, bool forceError = false)
     {
         lock (Printing.ConsoleLock)
@@ -87,7 +83,7 @@ internal static class CliLogStyle
 
     public static string ProcessLogPrefixText(TerminalProcessLogLine line)
     {
-        if (line.Routing == SockseekLog.LogRouting.ConsoleOnly)
+        if (line.Presentation == CliProcessLogPresentation.Plain)
             return "";
 
         var levelPrefix = line.Level == LogLevel.Information ? "" : $"[{ShortLevel(line.Level)}] ";
@@ -96,7 +92,7 @@ internal static class CliLogStyle
 
     public static string ProcessLogPrefixMarkup(TerminalProcessLogLine line)
     {
-        if (line.Routing == SockseekLog.LogRouting.ConsoleOnly)
+        if (line.Presentation == CliProcessLogPresentation.Plain)
             return "";
 
         var categoryPrefix = $"[{line.CategoryName}] ";
@@ -165,7 +161,7 @@ internal static class CliLogStyle
 
     private static void WriteProcessLogLine(TextWriter writer, TerminalProcessLogLine line)
     {
-        if (line.Routing == SockseekLog.LogRouting.ConsoleOnly)
+        if (line.Presentation == CliProcessLogPresentation.Plain)
         {
             WriteColoredLine(writer, line.Message, line.Color ?? MessageColor(line.Level));
             return;

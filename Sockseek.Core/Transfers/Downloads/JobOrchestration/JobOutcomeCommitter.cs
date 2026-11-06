@@ -28,8 +28,10 @@ internal static class JobOutcomeCommitter
             case JobTerminalOutcome.Succeeded:
                 if (job is SongJob song)
                     song.SetDone(outcome.DownloadPath, outcome.ChosenCandidate, outcome.DownloadSource);
-                else if (job is AlbumJob album)
-                    album.SetDone(outcome.DownloadPath);
+                else if (job is FileDownloadJob file)
+                    file.SetDone(outcome.DownloadPath);
+                else if (job is DirectoryDownloadJob directory)
+                    directory.SetDone(outcome.DownloadPath);
                 else
                     job.SetDone();
                 break;
@@ -47,8 +49,10 @@ internal static class JobOutcomeCommitter
                 {
                     if (job is SongJob existingSong)
                         existingSong.SetAlreadyExists(outcome.DownloadPath);
-                    else if (job is AlbumJob existingAlbum)
-                        existingAlbum.SetAlreadyExists(outcome.DownloadPath);
+                    else if (job is FileDownloadJob existingFile)
+                        existingFile.SetAlreadyExists(outcome.DownloadPath);
+                    else if (job is DirectoryDownloadJob existingDirectory)
+                        existingDirectory.SetAlreadyExists(outcome.DownloadPath);
                     else
                         job.SetAlreadyExists();
                 }
@@ -71,7 +75,9 @@ internal static class JobOutcomeCommitter
 
         if (job is SongJob song)
             song.DownloadPath = outcome.DownloadPath;
-        else if (job is AlbumJob album)
-            album.DownloadPath = outcome.DownloadPath;
+        else if (job is FileDownloadJob file)
+            file.DownloadPath = outcome.DownloadPath;
+        else if (job is DirectoryDownloadJob directory)
+            directory.DownloadPath = outcome.DownloadPath;
     }
 }

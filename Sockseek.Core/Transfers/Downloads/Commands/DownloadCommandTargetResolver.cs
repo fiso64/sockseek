@@ -32,7 +32,7 @@ internal sealed class DownloadCommandTargetResolver
     {
         var targetIds = CommandTargetIds(job);
         return activeDownloads.ActiveDownloads
-            .Where(download => targetIds.Contains(download.Song.Id))
+            .Where(download => targetIds.Contains(download.Owner.Id))
             .ToList();
     }
 

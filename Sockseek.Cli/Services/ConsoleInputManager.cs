@@ -8,6 +8,9 @@ public static class ConsoleInputManager
     private static readonly SemaphoreSlim _consoleInteractionLock = new(1, 1);
     private static volatile bool _directPromptActive;
     private static int _consoleOutputPauseDepth;
+    private static Func<Task>? _onCancelRequested;
+    private static Func<Task>? _onNextCandidateRequested;
+    private static Func<Task>? _onInfoRequested;
 
     public enum CancelPromptAction
     {
@@ -21,10 +24,36 @@ public static class ConsoleInputManager
     public readonly record struct CancelPromptResult(CancelPromptAction Action, int? JobId = null, string? Input = null);
 
     public static bool GlobalCancelEnabled { get; set; } = true;
-    public static Func<Task>? OnCancelRequested { get; set; }
-    public static Func<Task>? OnNextCandidateRequested { get; set; }
-    public static Func<Task>? OnInfoRequested { get; set; }
+    public static Func<Task>? OnCancelRequested
+    {
+        get => _onCancelRequested;
+        set
+        {
+            _onCancelRequested = value;
+            HandlersChanged?.Invoke();
+        }
+    }
+    public static Func<Task>? OnNextCandidateRequested
+    {
+        get => _onNextCandidateRequested;
+        set
+        {
+            _onNextCandidateRequested = value;
+            HandlersChanged?.Invoke();
+        }
+    }
+    public static Func<Task>? OnInfoRequested
+    {
+        get => _onInfoRequested;
+        set
+        {
+            _onInfoRequested = value;
+            HandlersChanged?.Invoke();
+        }
+    }
     public static CliProgressReporter? Reporter { get; set; }
+
+    internal static event Action? HandlersChanged;
 
     public static async Task RunLoopAsync(CancellationToken ct)
     {

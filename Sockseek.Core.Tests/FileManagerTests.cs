@@ -6,6 +6,7 @@ using System.Reflection;
 using System.IO;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
+using Sockseek.Core.Diagnostics;
 
 namespace Tests.FileManagerTests
 {
@@ -16,7 +17,11 @@ namespace Tests.FileManagerTests
         {
             config ??= TestHelpers.CreateDefaultSettings().Download;
             job ??= new JobList();
-            return new FileManager(job, config.Output, config.Extraction);
+            return new FileManager(
+                job,
+                config.Output,
+                config.Extraction,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance);
         }
 
         [TestMethod]
@@ -49,7 +54,11 @@ namespace Tests.FileManagerTests
             var config = TestHelpers.CreateDefaultSettings().Download;
             config.Output.ParentDir = "/music";
             var job = new AlbumJob(new AlbumQuery());
-            var manager = new FileManager(job, config.Output, config.Extraction);
+            var manager = new FileManager(
+                job,
+                config.Output,
+                config.Extraction,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance);
 
             manager.SetremoteBaseDir("Music\\Artist\\Album");
 
@@ -76,7 +85,7 @@ namespace Tests.FileManagerTests
         private static string? InvokeGetFolderName(Soulseek.File? slfile, string? remoteBaseDir)
         {
             var method = typeof(FileManager).GetMethod("GetFolderName", BindingFlags.NonPublic | BindingFlags.Static);
-            return (string?)method!.Invoke(null, new object?[] { slfile, remoteBaseDir });
+            return (string?)method!.Invoke(null, new object?[] { slfile?.Filename, remoteBaseDir });
         }
 
         [TestMethod]
@@ -129,13 +138,13 @@ namespace Tests.FileManagerTests
                 ? new Soulseek.SearchResponse("user", 1, true, 100, 0, new List<Soulseek.File> { slFile })
                 : null;
             FileCandidate? candidate = slFile != null && response != null
-                ? new FileCandidate(response, slFile)
+                ? SoulseekSearchAdapter.ToFileCandidate(response, slFile)
                 : null;
             return new FileManagerContext
             {
-                Job          = job,
-                Query        = query,
-                Candidate    = candidate,
+                Job = job,
+                Query = query,
+                Candidate = candidate,
                 DownloadPath = downloadPath,
             };
         }
@@ -397,7 +406,7 @@ namespace Tests.FileManagerTests
 
             var file1 = new SongJob(new SongQuery { Artist = "Artist1", Album = "Album1", Title = "Track1" })
             {
-                ResolvedTarget = new FileCandidate(new Soulseek.SearchResponse("user", 0, false, 0, 0, null),
+                ResolvedTarget = SoulseekSearchAdapter.ToFileCandidate(new Soulseek.SearchResponse("user", 0, false, 0, 0, null),
                                                    new Soulseek.File(0, @"Artist1\Album1\01. Track1.mp3", 0, "mp3")),
                 DownloadPath = audio1Base,
             };
@@ -405,7 +414,7 @@ namespace Tests.FileManagerTests
 
             var file2 = new SongJob(new SongQuery { Artist = "Artist1", Album = "Album1", Title = "Track2" })
             {
-                ResolvedTarget = new FileCandidate(new Soulseek.SearchResponse("user", 0, false, 0, 0, null),
+                ResolvedTarget = SoulseekSearchAdapter.ToFileCandidate(new Soulseek.SearchResponse("user", 0, false, 0, 0, null),
                                                    new Soulseek.File(0, @"Artist1\Album1\02. Track2.mp3", 0, "mp3")),
                 DownloadPath = audio2Base,
             };
@@ -413,7 +422,7 @@ namespace Tests.FileManagerTests
 
             var coverFile = new SongJob(new SongQuery())
             {
-                ResolvedTarget = new FileCandidate(new Soulseek.SearchResponse("user", 0, false, 0, 0, null),
+                ResolvedTarget = SoulseekSearchAdapter.ToFileCandidate(new Soulseek.SearchResponse("user", 0, false, 0, 0, null),
                                                    new Soulseek.File(0, @"Artist1\Album1\Cover.jpg", 0, "jpg")),
                 DownloadPath = coverBase,
             };
@@ -440,7 +449,12 @@ namespace Tests.FileManagerTests
 
             var contexts = Prepare(aggregate);
             generatedSong.Config = aggregate.Config;
-            var manager = new FileManager(generatedSong, aggregate.Config.Output, aggregate.Config.Extraction, contexts[aggregate.Id].OutputScope);
+            var manager = new FileManager(
+                generatedSong,
+                aggregate.Config.Output,
+                aggregate.Config.Extraction,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance,
+                contexts[aggregate.Id].OutputScope);
 
             string target = manager.GetSavePath(@"User1\Artist1 - Track1.mp3");
 
@@ -455,7 +469,12 @@ namespace Tests.FileManagerTests
 
             var contexts = Prepare(aggregate);
             generatedAlbum.Config = aggregate.Config;
-            var manager = new FileManager(generatedAlbum, aggregate.Config.Output, aggregate.Config.Extraction, contexts[aggregate.Id].OutputScope);
+            var manager = new FileManager(
+                generatedAlbum,
+                aggregate.Config.Output,
+                aggregate.Config.Extraction,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance,
+                contexts[aggregate.Id].OutputScope);
             manager.SetremoteBaseDir(AlbumRemoteDir);
 
             string target = manager.GetSavePath(AlbumRemoteTrack);
@@ -534,6 +553,55 @@ namespace Tests.FileManagerTests
         }
 
         [TestMethod]
+        public void NameFormat_MetadataFailureLogsOnceWithoutPath()
+        {
+            config.Output.NameFormat = "Formatted/{artist|filename}";
+            var song = new SongJob(new SongQuery { Artist = "Artist1", Title = "Track" });
+            var contexts = Prepare(song);
+            var records = new List<CompactLogRecord>();
+            using ILoggerFactory loggerFactory = LoggerFactory.Create(builder => builder
+                .SetMinimumLevel(LogLevel.Trace)
+                .AddProvider(new CompactTextLoggerProvider(records.Add, LogLevel.Debug)));
+            var manager = new FileManager(
+                song,
+                song.Config.Output,
+                song.Config.Extraction,
+                loggerFactory.CreateLogger<FileManager>(),
+                contexts[song.Id].OutputScope);
+            MarkDownloaded(
+                song,
+                @"User1\Original File.mp3",
+                Path.Combine(testRoot, ".sockseek-staging", "download.mp3"));
+
+            manager.OrganizeDownloadedFile(song);
+
+            CompactLogRecord failure = records.Single(record => record.EventId.Id == 3006);
+            Assert.AreEqual(LogLevel.Debug, failure.Level);
+            StringAssert.Contains(failure.Message, "File metadata could not be read");
+            Assert.IsFalse(failure.Message.Contains(testRoot, StringComparison.OrdinalIgnoreCase));
+        }
+
+        [TestMethod]
+        public void NameFormat_OutputExtensionVariableIsNotAppendedTwice()
+        {
+            config.Output.NameFormat = "Formatted/{filename}{ext}";
+            var song = new SongJob(new SongQuery { Artist = "Artist1", Title = "Track" });
+            var contexts = Prepare(song);
+            var manager = PreparedManager(song, contexts);
+            MarkDownloaded(
+                song,
+                @"User1\Original File.flac",
+                Path.Combine(testRoot, ".sockseek-staging", "download.flac"));
+
+            manager.OrganizeDownloadedFile(song);
+
+            string expected = Path.Combine(testRoot, "Formatted", "Original File.flac");
+            AssertSamePath(expected, song.DownloadPath!);
+            Assert.IsTrue(File.Exists(expected));
+            Assert.IsFalse(File.Exists(expected + ".flac"));
+        }
+
+        [TestMethod]
         public void IsAudioVariable_UsesKnownAudioClassification()
         {
             var aiff = DownloadedSong(@"User1\Track.aiff", Path.Combine(testRoot, "Track.aiff"));
@@ -600,7 +668,12 @@ namespace Tests.FileManagerTests
             => JobPreparer.PrepareJobs(new JobList(null, jobs), config);
 
         private FileManager PreparedManager(Job job, Dictionary<Guid, JobContext> contexts)
-            => new(job, job.Config.Output, job.Config.Extraction, contexts[job.Id].OutputScope);
+            => new(
+                job,
+                job.Config.Output,
+                job.Config.Extraction,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance,
+                contexts[job.Id].OutputScope);
 
         private (SongJob Song, Dictionary<Guid, JobContext> Contexts) PrepareNestedExtractedCsvSong()
         {
@@ -630,7 +703,7 @@ namespace Tests.FileManagerTests
         private static FileCandidate Candidate(string filename)
         {
             var response = new Soulseek.SearchResponse("user", 1, true, 100, 0, []);
-            return new FileCandidate(response, TestHelpers.CreateSlFile(filename));
+            return SoulseekSearchAdapter.ToFileCandidate(response, TestHelpers.CreateSlFile(filename));
         }
 
         private SongJob MarkDownloaded(SongJob song, string remoteFilename, string localPath)

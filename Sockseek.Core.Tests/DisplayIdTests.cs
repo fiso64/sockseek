@@ -7,6 +7,7 @@ using Sockseek.Core.Services;
 namespace Tests.Core;
 
 [TestClass]
+[DoNotParallelize]
 public class DisplayIdTests
 {
     [TestMethod]

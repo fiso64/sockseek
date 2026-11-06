@@ -39,9 +39,9 @@ This project was formerly named `sldl` (and `slsk-batchdl` before that). See [he
    ```
 
 > [!NOTE]
-> Sockseek does not share your music folders yet. To keep the Soulseek network healthy, it's good to share your collection with a regular client like [Nicotine+](https://github.com/nicotine-plus/nicotine-plus) or [slskd](https://github.com/slskd/slskd).
->
-> By the way, the upcoming version 4.0 implements a full Soulseek client, including sharing and a UI.
+> Sharing, uploads, private messages, chatrooms, and notifications are available
+> through [daemon mode](#daemon--remote-mode). A normal one-shot download command
+> does not stay online to serve shares or receive chat messages.
 
 ## Common workflows
 
@@ -175,7 +175,33 @@ See [CSV options](#csv-file-options) for all options.
 
 ### YouTube
 
-A YouTube playlist URL.
+## Index
+ - [Input types](#input-types)
+   - [CSV file](#csv-file)
+   - [YouTube](#youtube)
+   - [Spotify](#spotify)
+   - [Bandcamp](#bandcamp)
+   - [MusicBrainz](#musicbrainz)
+   - [Soulseek Link](#soulseek-link)
+   - [Search string](#search-string)
+   - [List file](#list-file)
+ - [Download modes](#download-modes)
+   - [Song](#song)
+   - [Album](#album)
+   - [Album Aggregate](#album-aggregate)
+   - [Song Aggregate](#song-aggregate)
+ - [Daemon / remote mode](#daemon--remote-mode)
+ - [Configuration](#configuration)
+ - [File conditions](#file-conditions)
+ - [Name format](#name-format)
+ - [Variables](#variables)
+ - [On-Complete Actions](#on-complete-actions)
+ - [Shortcuts \& interactive mode](#shortcuts--interactive-mode)
+ - [Examples](#examples)
+ - [Notes](#notes)
+ - [Tips](#tips)
+ - [Options reference](#options-reference)
+ - [Docker](docs/docker.md)
 
 The default method to retrieve playlists might not reliably return all videos. If you're having issues, you can use the official API by providing a key with `--youtube-key`. A key can be obtained at https://console.cloud.google.com (create a new project, click 'Enable API' and search for 'YouTube Data', then follow the prompts).
 
@@ -280,10 +306,11 @@ soundcloud-token = <your-token>
 </details>
 
 ### Soulseek Link
-
-A direct path to a shared item starting with `slsk://`.
-
-Paths ending in `/` are treated as album/folder downloads.
+A direct path starting with `slsk://`. By default, a path ending in `/` is an ordinary
+folder download and a path without it is an ordinary exact-file download. Use `--song`
+or `--album` to request music-specific handling. `--song` rejects directory links;
+`--album` treats the supplied remote path as the selected album directory, whether or
+not it has a trailing slash.
 
 ### Search string
 
@@ -409,27 +436,13 @@ See [Aggregate options](#aggregate-download-options) for aggregate options.
 <!-- sockseek-help:start(daemon) -->
 
 ## Daemon / remote mode
+Daemon mode runs Sockseek as a long-lived service with an HTTP/SignalR API,
+remote CLI access, sharing, chat, notifications, and durable history. Run `sockseek daemon` to start
+it; the default endpoint is `http://127.0.0.1:5030`.
 
-> Preparing the stage for v4, which adds a full Soulseek client & UI and is currently under development. 
-
-Right now, daemon mode exposes the download engine for remote CLI use. 
-
-Start it:
-
-```bash
-sockseek daemon
-```
-
-It uses the same config/profile system as the CLI. By default, it listens on localhost only on port `5030`. You can add `--server-ip 0.0.0.0` to listen for all IPs, and configure the port with `--server-port`.
-
-Once the daemon is running, use `--remote <url>` to run the CLI against it:
-
-```bash
-sockseek "Artist - Title" --remote http://127.0.0.1:5030
-```
-
-See [daemon and remote mode options](#daemon--remote-options).
-
+See [daemon setup and remote commands](docs/daemon.md) for monitoring, sharing,
+chat, notifications, history, backup, and security guidance. For application integration,
+see [the API guide](docs/api.md).
 <!-- sockseek-help:end -->
 
 <!-- sockseek-help:start(config) -->
@@ -489,14 +502,19 @@ max-stale-time = 9999999
 [youtube]
 profile-cond = input-type == "youtube"
 output-dir = ~/downloads/sockseek-youtube
+
+# use structural naming for non-music downloads
+[generic-layout]
+profile-cond = download-mode == "generic-file" || download-mode == "generic-directory"
+name-format = {peer-username}/{foldername}/{filename}
 ```
 
 The following operators are supported for use in `profile-cond`: `&&`, `||`, `==`, `!=`, `!{bool}`.  
 The following variables are available:
 
 ```
-input-type        ("youtube"|"csv"|"string"|"bandcamp"|"spotify"|"list"|"soulseek"|"musicbrainz"|"soundcloud"|"none")
-download-mode     ("normal"|"song"|"aggregate"|"album"|"album-aggregate")
+input-type        ("youtube"|"csv"|"string"|"bandcamp"|"spotify"|"list"|"soulseek"|"musicbrainz"|"none")
+download-mode     ("song"|"aggregate"|"album"|"album-aggregate"|"generic-file"|"generic-directory")
 album             (bool)
 aggregate         (bool)
 interactive       (bool)
@@ -563,6 +581,11 @@ enabling `--strict-conditions` and setting a `--min-bitrate` will effectively ex
 <!-- sockseek-help:start(name-format) -->
 
 ## Name format
+Variables enclosed in {} will be replaced by the corresponding available value.
+Name format supports subdirectories as well as conditional expressions like {tag1|tag2} - If
+tag1 is null, use tag2. This can be chained arbitrarily many times. String literals enclosed
+in parentheses are ignored in the null check. See [Variables](#variables) for the complete
+reference, also available with `sockseek --help variables`.
 
 Sockseek can format the downloaded filenames using `--name-format <yourformat>`. Variables enclosed in `{}` will be replaced by the corresponding file tag value.
 Name format supports subdirectories as well as conditional expressions like `{tag1|tag2}` - If
@@ -575,12 +598,39 @@ tag1 is null, use tag2 (can be chained). Examples:
     Everything inside round parentheses `()` inside braces `{}` is treated as a raw string and ignored in the null check. Here, if artist and title are both not null, name it 'Artist - Title', otherwise use the original filename.
 - `{albumartist(/)album(/)track(. )title|(missing-tags/)slsk-foldername(/)slsk-filename}`  
     Sort files into artist/album folders if all tags are present, otherwise put them in
-    the 'missing-tags' folder.
+    the 'missing-tags' folder.   
+<!-- sockseek-help:end -->
 
-### Available variables
+<!-- sockseek-help:start(variables) -->
+## Variables
 
-The following values are read from the downloaded file's tags:
+Variables are shared by name formats and on-complete commands.
 
+### Shared placement variables
+
+These variables are available for all download jobs.
+
+```
+peer-username / username        Username of the peer serving the file
+filename / slsk-filename        Remote filename without its extension
+ext                             Final output file extension, including the dot
+relative-path                   Relative directory plus filename, without the extension
+foldername / slsk-foldername    Selected root plus relative directory; for a direct
+                                file, its immediate remote parent folder
+item-name                       Current song, album, file, or folder name
+default-folder                  Default Sockseek folder for the current job 
+                                (e.g. Spotify playlist name)
+output-dir / outputdir          Output parent directory (--output)
+type                            Job type (Song, Album, RemoteFile, RemoteDirectory, ..)
+extractor                       Name of the input extractor (Spotify, CSV, ..)
+input                           Original input string
+bindir                          Base application directory
+configdir                       Active config file directory
+```
+
+### Music variables
+
+These are read from the downloaded file's tags:
 ```
 artist                         First artist
 artists                        Artists, joined with '&'
@@ -594,38 +644,16 @@ disc                           Disc number
 length                         Track length (in seconds)
 ```
 
-The following values are taken from the input source (CSV file data, Spotify, etc):
-
+These are taken from the input source (CSV file data, Spotify, etc):
 ```
-sartist                        Source artist
+sartist / sartists             Source artist
 stitle                         Source track title
 salbum                         Source album name
 slength                        Source track length
-uri                            Track URI
+uri / url                      Track URI
 snum                           Source item number (1-indexed, including offset)
-row/line                       Line number (1-indexed, only for CSV or list input)
-```
-
-Other variables:
-
-```
-type                           Track type
-state                          Track state
-failure-reason                 Reason for failure if any
-is-audio                       If track is audio (true/false)
-artist-maybe-wrong             If artist might be incorrect (true/false)
-slsk-filename                  Soulseek filename without extension
-slsk-foldername                Soulseek folder name
-extractor                      Name of the extractor used
-input                          Input string
-item-name                      Name of the playlist/source
-default-folder                 Default Sockseek folder name
-bindir                         Base application directory
-outputdir                      Output directory (--output-dir)
-configdir                      Active config file directory
-path                           Download file path (or folder if album)
-path-noext                     Download file path without extension
-ext                            File extension
+row / line                     Line number (1-indexed, only for CSV or list input)
+artist-maybe-wrong             If the source artist might be incorrect (true/false)
 ```
 
 <!-- sockseek-help:end -->
@@ -666,16 +694,34 @@ When passing an on-complete action on the command line, quote the whole value so
 - `lock` - Serialize this action across jobs
 - `update-index` - Read stdout as `success;new_path`, `failed`, or `ignored;new_path` to update the track/album entry in the index and playlist. `failed` clears the stored path; `ignored;new_path` leaves the state unchanged and updates only the path.
 
-### Variables
+If `when=` is omitted, it behaves like `when=completed`. This preserves the usual "run when work completed" behavior while avoiding commands for already-existing or not-found-last-time skips.
 
-**The available variables are the same as in [name-format](#available-variables)**, with the following additions:
+Chained actions evaluate `when=` and outcome/path variables against the result of the preceding action. For example, if an `update-index` action changes a failure to success, the next `when=success` action runs and sees the updated path.
 
-- `{exitcode}` - Previous command's exit code
-- `{stdout}` - Previous command's stdout
-- `{stderr}` - Previous command's stderr
-- `{first-exitcode}` - First command's exit code
-- `{first-stdout}` - First command's stdout
-- `{first-stderr}` - First command's stderr
+### Command-output variables
+
+See the shared [Variables](#variables) reference, also available with
+`sockseek --help variables`. On-complete commands additionally provide:
+
+```
+is-audio            true for an audio file; false otherwise
+path                Absolute downloaded file or directory path
+path-noext          Absolute downloaded path without its final file extension
+
+terminal-outcome    Succeeded, Failed, Skipped, Cancelled, or PartialSuccess
+skip-reason         AlreadyExists, NotFoundLastTime, Manual, or Filtered;
+                    None when the outcome is not a skip or has no specific reason
+failure-reason      None, InvalidSearchString, OutOfDownloadRetries,
+                    AllDownloadsFailed, Other, ExtractionFailed, Cancelled,
+                    ChildJobsFailed, NoSearchResults, or NoMatchingResults
+                    
+exitcode            Previous command's exit code
+stdout              Previous command's stdout
+stderr              Previous command's stderr
+first-exitcode      First command's exit code
+first-stdout        First command's stdout
+first-stderr        First command's stderr
+```
 
 Sockseek captures stdout/stderr for ordinary on-complete commands, so chained commands can use output variables from the previous ones. Commands launched with `shell` cannot use stdout/stderr.
 
@@ -980,7 +1026,7 @@ Most used flags at a glance:
 --no-incomplete-ext             Save files with their final name instead of a temporary
                                 `.incomplete` extension.
 
---no-skip-existing              Do not skip downloaded tracks
+--no-skip-existing              Download items even when index/file checks find an existing match
 --skip-mode-output-dir <mode>   How to match files in the output dir: name|tag|index
                                 (default: index)
 --skip-check-cond               Check file conditions when skipping existing files. If the
@@ -996,24 +1042,12 @@ Most used flags at a glance:
 --listen-port <port>            Port for incoming connections (default: 49998)
 --no-listen                     Disable the incoming connection listener
 --connect-timeout <ms>          Timeout used when logging in to Soulseek (default: 20000ms)
---user-description <desc>       Optional description text for your Soulseek account
---shared-files <int>            Number of files you share on Soulseek (default: 0)
---shared-folders <int>          Number of folders you share on Soulseek (default: 0)
+--user-description <desc>       Soulseek profile description
+--user-picture <path>           Daemon profile picture
 
 --on-complete <command>         Run a command when a download completes. See `--help
                                 on-complete`
 ```
-
-#### Daemon / Remote Options
-
-```
-sockseek daemon                 Start the HTTP/SignalR daemon instead of running a download
---server-ip <ip>                IP/interface for the daemon HTTP API (default: 127.0.0.1)
---server-port <port>            Port for the daemon HTTP API (default: 5030)
---remote <url>                  Use an existing daemon instead of running locally
---detach                        With --remote, submit and print the workflow ID without waiting
-```
-
 #### Search Options
 
 ```
@@ -1207,14 +1241,96 @@ sockseek daemon                 Start the HTTP/SignalR daemon instead of running
 --relax-filtering               Slightly relax file filtering in aggregate mode to include
                                 more results
 ```
+#### Daemon / Remote Options
+```
+sockseek daemon                 Start the HTTP/SignalR daemon instead of running a download
+--server-ip <ip>                IP/interface for the daemon HTTP API (default: 127.0.0.1)
+--server-port <port>            Port for the daemon HTTP API (default: 5030)
+--remote <url>                  Use an existing daemon instead of running locally
+--monitor                       Monitor all active daemon workflows. Input is optional;
+                                an input submitted with this option appears alongside
+                                all other daemon work until the monitor is interrupted
+--share <[alias]path|path>      Replace configured public share roots. Prefix a later value
+                                with '+ ' to append instead.
+--share-exclude <path>          Replace excluded share subtrees. Prefix with '+ ' to append.
+--share-filter <regex>          Replace case-insensitive share filters. Prefix with '+ ' to
+                                append. Matches on the remote relative path.
+--share-scan-on-start <bool>    Scan configured shares when the daemon starts (default: true)
+--share-rescan-interval <time>  Periodic rescan interval (for example 30m, 12h, or off;
+                                default: off)
+--upload-slots <num>            Maximum concurrent uploads (default: 10)
+--upload-speed-limit-kib <n>    Aggregate upload limit in KiB/s (default: unlimited)
+--upload-blocked-user <name>    Replace usernames denied access to your shares. Prefix with '+ ' to append.
+--upload-blocked-ip <address>   Replace IPs denied access to your shares. Prefix with '+ ' to append.
+--private-message-blocked-user <name>
+                                Replace usernames whose incoming DMs are discarded. Prefix with '+ ' to append.
+--chat-room <name>              Replace rooms joined by the daemon. Prefix with '+ ' to append.
+--data-dir <path>               Directory for daemon data, including sockseek.db
+--no-retention                  Disable scheduled history retention
+--successful-job-retention-days <days|forever>
+                                Successful job retention (default: 90)
+--unsuccessful-job-retention-days <days|forever>
+                                Failed, cancelled, and interrupted job retention (default: 180)
+--transfer-retention-days <days|forever>
+                                Transfer history retention (default: 90)
+--search-result-retention-days <days|forever>
+                                Raw search-result retention (default: 30)
+--private-message-retention-days <days|forever>
+                                Private-message retention (default: forever)
+--room-message-retention-days <days|forever>
+                                Room-message retention (default: 30)
+```
+<!-- sockseek-help-topic:start(user) -->
+#### Remote User Commands
+```text
+sockseek user profile <username>  Show a peer's profile and sharing statistics
+  --refresh                       Fetch new profile data
+  --picture <mode>                Picture mode: auto|sixel|pixels|none; auto probes
+                                  terminal support (default: auto)
 
+sockseek user shares <username>   Browse/select files; remote transfer/output/profile options apply
+  --refresh                       Fetch new shares instead of using a recent browse
+
+sockseek user shares-page <browse-id>
+                                  List one page of browse results
+  --parent <directory-id>         List child directories (omit for roots)
+  --files <directory-id>          List files instead; mutually exclusive with --parent
+  --query <text>                  Filter the requested page
+  --cursor <cursor>               Continue from an earlier page
+  --limit <1..500>                Maximum results (default: 100)
+
+sockseek user shares-download <browse-id>
+                                  Download selections; remote transfer/output/profile options apply
+  --folder <directory-id>         Select a complete public subtree; repeatable
+  --file <file-id>                Select one file; repeatable
+  --request-id <uuid>             Retry key for idempotent submission
+
+sockseek user shares-cancel <browse-id>
+                                  Cancel an active browse for all waiting clients
+
+--remote <url>                    Daemon URL; required unless configured
+--json                            Emit JSON instead of pictures or interactive browsing
+```
+<!-- sockseek-help-topic:end -->
+<!-- TODO [V4]: missing CLI documentation for sockseek chat, sockseek room, and others -->
+<!-- sockseek-help-topic:start(database) -->
+#### Sockseek Database
+```
+sockseek database migrate      Update the offline database to the current schema
+sockseek database integrity    Check an offline database for corruption
+sockseek database backup       Create and verify an offline backup
+sockseek database restore      Verify and restore an offline backup
+--data-dir <path>               Override the configured/default data directory
+--backup <path>                 Backup destination for `backup`, source for `restore`
+```
+<!-- sockseek-help-topic:end -->
 #### Printing & Debug Options
 
 ```
--v, --verbose                   Print extra debug info
+-v, --verbose                   Print debug logs
 -vv, --trace                    Print trace-level debug info
 --debug                         Alias for --verbose
---log-file <path>               Write debug info to a specified file
+--log-file <path>               Write debug logs to a file
 --no-progress                   Disable progress bars/percentages, only simple printing
 --progress-json                 Print progress events as JSON lines
 --print <option>                Print jobs or search results instead of downloading:

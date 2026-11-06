@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="34 65 435 435">
+  <defs>
+    <mask id="sock-cuff">
+      <rect width="600" height="600" fill="white" />
+      <g transform="translate(295 310) scale(0.88) rotate(-16) translate(-295 -300) translate(590 0) scale(-1 1)" fill="none" stroke="black" stroke-width="6" stroke-linecap="round">
+      <path d="M258 102v32" />
+      <path d="M276 102v32" />
+      <path d="M295 102v32" />
+      <path d="M314 102v32" />
+      <path d="M332 102v32" />
+      </g>
+    </mask>
+  </defs>
+  <g fill="#454bfa" mask="url(#sock-cuff)">
+    <g transform="translate(295 310) scale(0.88) rotate(-16) translate(-295 -300) translate(590 0) scale(-1 1)">
+      <path d="M248,215 C178,210 110,180 48,109 L62,137 L48,127 Q44,126 49,135 L67,157 L55,151 Q51,152 57,161 L75,181 L64,177 Q60,178 66,187 L84,207 L75,204 Q71,205 78,214 C110,254 158,310 212,305 C235,302 242,310 246,330 Z" />
+      <path d="M342,215 C412,210 480,180 542,109 L528,137 L542,127 Q546,126 541,135 L523,157 L535,151 Q539,152 533,161 L515,181 L526,177 Q530,178 524,187 L506,207 L515,204 Q519,205 512,214 C480,254 432,310 378,305 C355,302 348,310 344,330 Z" />
+      <path d="M248,130 L342,130 L344,330 C344,360 372,372 405,385 C445,402 452,452 412,466 L268,466 C232,466 222,430 234,396 L246,330 Z" />
+      <rect x="238" y="92" width="114" height="52" rx="12" fill="#9298ff" />
+    </g>
+  </g>
+</svg>

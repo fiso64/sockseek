@@ -6,6 +6,7 @@ using Sockseek.Core.Models;
 namespace Tests.InteractiveModeManagerTests;
 
 [TestClass]
+[DoNotParallelize]
 public class InteractiveModeManagerTests
 {
     [TestMethod]
@@ -333,6 +334,6 @@ public class InteractiveModeManagerTests
         var file = new Soulseek.File(1, filename, 100, ".mp3");
         return new AlbumFile(
             new SongQuery { Artist = "Artist", Title = Path.GetFileNameWithoutExtension(filename) },
-            new FileCandidate(response, file));
+            SoulseekSearchAdapter.ToFileCandidate(response, file));
     }
 }

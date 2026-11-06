@@ -66,7 +66,7 @@ internal static class AlbumQualityPolicy
         => Evaluate(
             folder.Files
                 .Where(file => !file.IsNotAudio)
-                .Select(file => file.Candidate.File),
+                .Select(file => ConditionFile.From(file.Candidate)),
             conditions,
             activeQuality);
 

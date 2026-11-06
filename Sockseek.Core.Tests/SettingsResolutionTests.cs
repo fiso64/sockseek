@@ -135,19 +135,19 @@ public class SettingsResolutionTests
     {
         var settings = new DownloadSettings();
         var queue = new JobList();
-        Assert.IsFalse(JobPreparer.WillWriteIndex(settings, queue));
+        Assert.IsFalse(JobPreparer.WillWriteIndex(settings, queue.EnablesIndexByDefault || queue.Jobs.Any(job => job.EnablesIndexByDefault)));
         queue.Add(new SongJob(new SongQuery()) { EnablesIndexByDefault = true });
-        Assert.IsTrue(JobPreparer.WillWriteIndex(settings, queue));
-        queue.Jobs.Clear();
+        Assert.IsTrue(JobPreparer.WillWriteIndex(settings, queue.EnablesIndexByDefault || queue.Jobs.Any(job => job.EnablesIndexByDefault)));
+        queue.Clear();
         settings.Output.IndexFilePath = "index.csv";
-        Assert.IsTrue(JobPreparer.WillWriteIndex(settings, queue));
+        Assert.IsTrue(JobPreparer.WillWriteIndex(settings, queue.EnablesIndexByDefault || queue.Jobs.Any(job => job.EnablesIndexByDefault)));
         settings.Output.WriteIndex = false;
-        Assert.IsFalse(JobPreparer.WillWriteIndex(settings, queue));
+        Assert.IsFalse(JobPreparer.WillWriteIndex(settings, queue.EnablesIndexByDefault || queue.Jobs.Any(job => job.EnablesIndexByDefault)));
         settings.Output.IndexFilePath = null;
         settings.Output.WriteIndex = true;
-        Assert.IsTrue(JobPreparer.WillWriteIndex(settings, queue));
+        Assert.IsTrue(JobPreparer.WillWriteIndex(settings, queue.EnablesIndexByDefault || queue.Jobs.Any(job => job.EnablesIndexByDefault)));
         settings.Output.WriteIndex = null;
-        Assert.IsFalse(JobPreparer.WillWriteIndex(settings, queue));
+        Assert.IsFalse(JobPreparer.WillWriteIndex(settings, queue.EnablesIndexByDefault || queue.Jobs.Any(job => job.EnablesIndexByDefault)));
     }
 
     [TestMethod]

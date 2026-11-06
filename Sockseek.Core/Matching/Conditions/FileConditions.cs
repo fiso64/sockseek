@@ -266,6 +266,29 @@ namespace Sockseek.Core.Models;
                 && (!checkUser || UserSatisfies(response));
         }
 
+        internal bool ProjectionFileSatisfies(
+            ConditionFile file,
+            SongQuery? query,
+            string? username,
+            bool filenameChecks = true,
+            bool checkUser = true)
+        {
+            int length = query?.Length ?? -1;
+            string title = query?.Title ?? "";
+            string artist = query?.Artist ?? "";
+            string album = query?.Album ?? "";
+            return FormatSatisfies(file.Path)
+                && LengthToleranceSatisfies(file.Length, length)
+                && BitrateSatisfies(file.Bitrate)
+                && SampleRateSatisfies(file.SampleRate)
+                && BitDepthSatisfies(file.BitDepth)
+                && (!filenameChecks
+                    || StrictTitleSatisfies(file.Path, title)
+                    && StrictArtistSatisfies(file.Path, artist)
+                    && StrictAlbumSatisfies(file.Path, album))
+                && (!checkUser || UsernameSatisfies(username));
+        }
+
         public bool StrictTitleSatisfies(string fname, string tname, bool noPath = true)
         {
             if (!StrictTitle || tname.Length == 0)
@@ -549,18 +572,27 @@ namespace Sockseek.Core.Models;
 
         public bool BannedUsersSatisfies(SearchResponse? response)
         {
-            return response == null || BannedUsers.Length == 0 || !BannedUsers.Any(x => x == response.Username);
+            return BannedUsernameSatisfies(response?.Username);
         }
+
+        public bool BannedUsernameSatisfies(string? username)
+            => username == null || BannedUsers.Length == 0 || !BannedUsers.Any(x => x == username);
 
         public bool AllowedUsersSatisfies(SearchResponse? response)
         {
-            return response == null || AllowedUsers.Length == 0 || AllowedUsers.Any(x => x == response.Username);
+            return AllowedUsernameSatisfies(response?.Username);
         }
+
+        public bool AllowedUsernameSatisfies(string? username)
+            => username == null || AllowedUsers.Length == 0 || AllowedUsers.Any(x => x == username);
 
         public bool UserSatisfies(SearchResponse? response)
         {
             return BannedUsersSatisfies(response) && AllowedUsersSatisfies(response);
         }
+
+        public bool UsernameSatisfies(string? username)
+            => BannedUsernameSatisfies(username) && AllowedUsernameSatisfies(username);
 
         public string GetNotSatisfiedName(Soulseek.File file, SongQuery? query, SearchResponse? response)
         {
@@ -661,6 +693,15 @@ namespace Sockseek.Core.Models;
 
             primary.FillMissingFrom(fallback);
             return primary.IsEmpty() ? null : primary;
+        }
+
+        public FileConditionPatch Clone()
+        {
+            var copy = (FileConditionPatch)MemberwiseClone();
+            copy.Formats = Formats?.ToArray();
+            copy.BannedUsers = BannedUsers?.ToArray();
+            copy.AllowedUsers = AllowedUsers?.ToArray();
+            return copy;
         }
 
         public override bool Equals(object? obj)

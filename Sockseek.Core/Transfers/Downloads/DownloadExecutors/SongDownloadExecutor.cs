@@ -3,6 +3,9 @@ using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
+using Sockseek.Core.Events;
+using Microsoft.Extensions.Logging;
+using Sockseek.Core.Diagnostics;
 
 namespace Sockseek.Core;
 
@@ -11,11 +14,13 @@ internal sealed class SongDownloadExecutor
     private readonly DownloadExecutionContext context;
     private readonly JobOrchestrator jobs;
     private readonly SongDownloadFallbackRunner fallbackRunner;
+    private readonly ILogger<SongDownloadExecutor> logger;
 
     public SongDownloadExecutor(DownloadExecutionContext context, JobOrchestrator jobs)
     {
         this.context = context;
         this.jobs = jobs;
+        logger = context.LoggerFactory.CreateLogger<SongDownloadExecutor>();
         fallbackRunner = new SongDownloadFallbackRunner(context);
     }
 
@@ -53,9 +58,12 @@ internal sealed class SongDownloadExecutor
 
         if (updateIndexes)
         {
-            SockseekLog.Jobs.Trace($"ProcessSongJob finished for {song.DisplayId}. Calling IndexEditor Update ({(jobCtx.IndexEditor != null ? "Yes" : "No")}) and PlaylistEditor Update ({(jobCtx.PlaylistEditor != null ? "Yes" : "No")})");
-            jobCtx.IndexEditor?.Update();
-            jobCtx.PlaylistEditor?.Update();
+            DownloadLogMessages.JobDecision(
+                logger,
+                song.Id,
+                "updating-output-indexes",
+                (jobCtx.IndexEditor is null ? 0 : 1) + (jobCtx.PlaylistEditor is null ? 0 : 1));
+            context.UpdateOutputs(song, jobCtx);
         }
 
         return outcome;
@@ -68,7 +76,13 @@ internal sealed class SongDownloadExecutor
 
         var activityJob = song ?? job;
         activityJob.UpdateActivity(JobActivityPhase.RunningOnComplete);
-        return await OnCompleteExecutor.ExecuteAsync(job, song, ctx, outcome);
+        return await OnCompleteExecutor.ExecuteAsync(
+            job,
+            song,
+            ctx,
+            outcome,
+            context.Events,
+            logger);
     }
 
     public async Task<JobOutcome> DownloadEmbeddedSong(
@@ -154,20 +168,31 @@ internal sealed class SongDownloadExecutor
         FileManager organizer,
         bool finalizePlacement)
     {
-        var finalization = context.OutputFinalizer.FinalizeSongPlacement(
+        var finalization = await context.OutputFinalizer.FinalizeSongPlacementAsync(
             song,
             parentJob,
             outcome,
             organizer,
-            finalizePlacement);
+            finalizePlacement,
+            allowOverwrite: !song.Config.Skip.SkipExisting,
+            allowUnownedReplacement: song.Config.Skip.SkipExisting);
         if (finalization.OrganizationException != null)
+        {
+            FailPendingTerminalTransfer(song, finalization.OrganizationException, TransferFailureReason.Finalization);
             return finalization.Outcome;
+        }
 
         var postProcessOutcome = DownloadExecutorCoordinator.OutcomeWithCurrentMetadata(song, finalization.Outcome);
+        // Organization can replace the transfer's staging path. Publish the
+        // same updated path that the job commits. Album-owned placement finishes
+        // later, after all of the album's files have been organized together.
+        if (finalizePlacement)
+            await CompletePendingTerminalTransferAsync(song, postProcessOutcome.DownloadPath);
+
         postProcessOutcome = await RunOnCompleteIfApplicable(parentJob, song, jobCtx, postProcessOutcome);
         DownloadExecutorCoordinator.ApplyPreCommitOutcomeMetadata(song, postProcessOutcome);
 
-        context.OutputFinalizer.PublishDownloadedFileCache(song, postProcessOutcome);
+        await context.OutputFinalizer.PublishDownloadedFileCacheAsync(song, postProcessOutcome);
         return postProcessOutcome;
     }
 
@@ -181,72 +206,37 @@ internal sealed class SongDownloadExecutor
     {
         if (song.LifecycleState != JobLifecycleState.Pending) return JobOutcome.NoChange();
 
-        int tries = config.Transfer.UnknownErrorRetries;
-        JobOutcome? finalOutcome = null;
-        string? lastFailureMessage = null;
-        string? lastFailureDetail = null;
+        await context.ClientManager.WaitUntilReadyAsync(cts.Token);
+        cts.Token.ThrowIfCancellationRequested();
 
-        while (tries > 0)
+        try
         {
-            if (song.LifecycleState == JobLifecycleState.Terminal)
-                break;
-
-            await context.ClientManager.WaitUntilReadyAsync(cts.Token);
-            cts.Token.ThrowIfCancellationRequested();
-
-            try
-            {
-                var outcome = await SearchAndDownloadSong(song, job, config, organizer, cts);
-                if (outcome.TerminalOutcome == JobTerminalOutcome.Succeeded)
-                {
-                    finalOutcome = outcome;
-                }
-                else
-                {
-                    lastFailureMessage = outcome.FailureMessage;
-                    lastFailureDetail = outcome.FailureDetail;
-                    finalOutcome = outcome;
-                }
-            }
-            catch (Exception ex)
-            {
-                if (ex is not OperationCanceledException)
-                    SockseekLog.Jobs.Debug($"{ex}");
-                else
-                    SockseekLog.Jobs.Debug($"Cancelled: {song}");
-
-                if (!context.ClientManager.IsConnectedAndLoggedIn)
-                {
-                    continue;
-                }
-                else if (ex is OperationCanceledException && cts.IsCancellationRequested)
-                {
-                    return JobOutcome.Cancelled(cancellationSource());
-                }
-                else
-                {
-                    lastFailureMessage = DownloadFailureMessage(ex);
-                    lastFailureDetail = SockseekLog.ExceptionDetail(ex);
-                    tries--;
-                    continue;
-                }
-            }
-
-            break;
+            return await SearchAndDownloadSong(song, job, config, organizer, cts);
         }
-
-        if (tries == 0)
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            return JobOutcome.Failed(JobFailureReason.AllDownloadsFailed, lastFailureMessage, lastFailureDetail);
+            DownloadLogMessages.JobDecision(logger, song.Id, "cancelled", null);
+            return JobOutcome.Cancelled(cancellationSource());
         }
-
-        return finalOutcome ?? JobOutcome.NoChange();
+        catch (Exception ex)
+        {
+            DownloadLogMessages.ComponentFailed(
+                logger,
+                ex,
+                "song-download",
+                song.Id);
+            return JobOutcome.Failed(
+                JobFailureReason.AllDownloadsFailed,
+                DownloadFailureMessage(ex),
+                ExceptionText.Detail(ex));
+        }
     }
 
     /// <summary>
     /// Searches for candidates for <paramref name="song"/> then downloads the best one.
     /// Returns an explicit outcome for expected domain failures; unexpected infrastructure
-    /// exceptions still bubble to the retry policy in <see cref="DownloadSong"/>.
+    /// exceptions still bubble after the exact-file runner exhausts its transfer
+    /// retry budget.
     /// </summary>
     private async Task<JobOutcome> SearchAndDownloadSong(
         SongJob song,
@@ -257,6 +247,9 @@ internal sealed class SongDownloadExecutor
     {
         var responseData = new ResponseData();
         bool searched = false;
+
+        if (song.ExactTarget is { } exactTarget && song.Candidates == null)
+            return await DownloadExactSongTarget(song, job, config, organizer, cts, exactTarget);
 
         // Skip search if candidates are pre-set (ResolvedTarget / direct download).
         if (song.Candidates == null)
@@ -275,67 +268,118 @@ internal sealed class SongDownloadExecutor
                 // searchCts causes SearchSong to return and release it naturally.
                 using var searchCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
 
-                Task<FileDownloadOutcome?>? fastDownloadTask = null;
-                var fastDownloadStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                int fastCandidateAccepted = 0;
+                int fastCandidateClaimed = 0;
+                var fastDownloadStarted = new TaskCompletionSource<(
+                    FileCandidate Candidate,
+                    Task<ExactFileTransferOutcome?> Download)>(
+                        TaskCreationOptions.RunContinuationsAsynchronously);
 
                 searched = true;
                 var searchTask = context.Runtime.Searcher.SearchSong(song, config.Search, responseData, searchCts.Token,
                     onFastSearchCandidate: fc =>
                     {
-                        if (Interlocked.CompareExchange(ref fastCandidateAccepted, 1, 0) == 0)
-                        {
-                            SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: fast-search starting provisional download from {fc.Username}\\{fc.Filename}: {song}");
-                            var target = context.OutputFinalizer.GetInitialDownloadTarget(config, song, organizer, fc);
+                        if (Interlocked.CompareExchange(ref fastCandidateClaimed, 1, 0) != 0)
+                            return;
 
-                            // Use the main job CTS for the download so cancelling the search doesn't kill the download.
-                            fastDownloadTask = context.Runtime.Downloader
-                                .DownloadFile(
-                                    fc,
-                                    target.Path,
-                                    song,
-                                    config.Transfer,
-                                    config.Output.ParentDir,
-                                    cts.Token,
-                                    target.PublishToDuplicateCache,
-                                    DownloadParentFor(song, job))
-                                .ContinueWith(t =>
-                                {
-                                    if (t.IsCompletedSuccessfully)
-                                        return (FileDownloadOutcome?)t.Result;
-                                    return null;
-                                }, TaskScheduler.Default);
-                            fastDownloadStarted.TrySetResult();
+                        DownloadLogMessages.JobDecision(
+                            logger,
+                            song.Id,
+                            "fast-search-provisional-download-started",
+                            null);
+                        async Task<ExactFileTransferOutcome?> DownloadCandidateAsync()
+                        {
+                            try
+                            {
+                                var target = await context.OutputFinalizer.GetInitialDownloadTargetAsync(config, song, organizer, fc);
+
+                                // Use the main job CTS for the download so cancelling the search doesn't kill the download.
+                                return await context.Runtime.ExactFileTransfers
+                                    .DownloadFile(
+                                        fc.Target,
+                                        target.Path,
+                                        song,
+                                        config.Transfer,
+                                        config.Output.ParentDir,
+                                        config.Search.MaxStaleTime,
+                                        ct: cts.Token,
+                                        publishToDuplicateCache: target.PublishToDuplicateCache,
+                                        parentJob: DownloadParentFor(song, job),
+                                        deferTerminalCompletion: true,
+                                        // Reaching transfer means the centralized skip
+                                        // evaluation did not accept the existing file
+                                        // under its configured length semantics.
+                                        allowOverwrite: true,
+                                        protectPublishedOutput: config.Skip.SkipExisting);
+                            }
+                            catch { return null; }
                         }
+                        Task<ExactFileTransferOutcome?> download = DownloadCandidateAsync();
+                        fastDownloadStarted.TrySetResult((fc, download));
                     });
 
-                // Results may arrive asynchronously after SearchSong returns its
-                // task. Wake when a provisional download starts, rather than
-                // awaiting only search completion when none has started yet.
-                await Task.WhenAny(searchTask, fastDownloadStarted.Task);
-
-                if (fastDownloadTask != null)
+                Task first = await Task.WhenAny(searchTask, fastDownloadStarted.Task);
+                (FileCandidate Candidate, Task<ExactFileTransferOutcome?> Download)? provisional = null;
+                if (first == fastDownloadStarted.Task)
                 {
-                    var fastDownload = await fastDownloadTask;
-                    if (fastDownload?.Status == FileDownloadStatus.Completed && fastDownload.Result != null)
+                    provisional = await fastDownloadStarted.Task;
+                }
+                else
+                {
+                    await searchTask;
+                    if (fastDownloadStarted.Task.IsCompletedSuccessfully)
+                        provisional = fastDownloadStarted.Task.Result;
+                }
+
+                if (provisional is { } started)
+                {
+                    var fastDownload = await started.Download;
+                    if (fastDownload?.Status == ExactFileTransferStatus.Completed
+                        && fastDownload.Result != null)
                     {
                         // Fast download won - cancel the search.
                         await searchCts.CancelAsync();
                         try { await searchTask; } catch (OperationCanceledException) { }
 
                         var result = fastDownload.Result;
-                        context.UserSuccesses.RecordSuccess(result.Candidate.Username);
-                        SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: fast-search provisional download succeeded from {result.Candidate.Username}\\{result.Candidate.Filename}: {song}");
-                        return JobOutcome.Done(result.OutputPath, result.Candidate);
+                        context.UserSuccesses.RecordSuccess(song.WorkflowId, result.Target.Username);
+                        if (result.TransferId is Guid transferId)
+                        {
+                            context.PendingTerminalTransfers[song.Id] = new PendingTerminalTransfer(
+                                transferId,
+                                result.AttemptCount,
+                                result.Target,
+                                result.Target.Filename,
+                                result.OutputPath);
+                        }
+                        DownloadLogMessages.JobDecision(
+                            logger,
+                            song.Id,
+                            "fast-search-provisional-download-succeeded",
+                            null);
+                        return JobOutcome.Done(result.OutputPath, started.Candidate);
                     }
 
-                    if (fastDownload?.Status == FileDownloadStatus.ManuallySkipped)
+                    if (fastDownload?.Status == ExactFileTransferStatus.ManuallySkipped)
                     {
-                        SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: fast-search provisional download was manually skipped, waiting for full search to complete: {song}");
+                        DownloadLogMessages.JobDecision(
+                            logger,
+                            song.Id,
+                            "fast-search-provisional-download-skipped",
+                            null);
+                    }
+                    else if (fastDownload?.Status == ExactFileTransferStatus.AlreadyExists)
+                    {
+                        await searchCts.CancelAsync();
+                        try { await searchTask; } catch (OperationCanceledException) { }
+                        return JobOutcome.AlreadyExists(fastDownload.Result?.OutputPath);
                     }
                     else
                     {
-                        SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: fast-search provisional download failed, waiting for full search to complete: {song}");
+                        DownloadLogMessages.JobDecision(
+                            logger,
+                            song.Id,
+                            "fast-search-provisional-download-failed",
+                            null);
                     }
 
                     await searchTask;
@@ -347,7 +391,10 @@ internal sealed class SongDownloadExecutor
             }
         }
 
-        var candidates = song.Candidates;
+        // An explicit manual choice cannot fall back to another source. Keep
+        // discovery options intact for a still-open aggregate selection.
+        IReadOnlyList<FileCandidate>? candidates = song.DownloadBehavior == DownloadBehavior.Manual
+            && song.ResolvedTarget is { } selected ? [selected] : song.Candidates;
 
         if (candidates == null || candidates.Count == 0)
         {
@@ -355,7 +402,7 @@ internal sealed class SongDownloadExecutor
             if (fallbackOutcome != null)
                 return fallbackOutcome;
 
-            SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: no suitable candidates after search: {song}");
+            DownloadLogMessages.JobDecision(logger, song.Id, "no-suitable-candidates", 0);
             return searched
                 ? DownloadOutcomes.NoMatchingDiscovery(responseData, "file result", "file results", "song candidates")
                 : DownloadOutcomes.NoMatchingCandidates();
@@ -368,22 +415,29 @@ internal sealed class SongDownloadExecutor
         foreach (var candidate in candidates)
         {
             tried++;
-            var target = context.OutputFinalizer.GetInitialDownloadTarget(config, song, organizer, candidate);
+            var target = await context.OutputFinalizer.GetInitialDownloadTargetAsync(config, song, organizer, candidate);
 
-            FileDownloadOutcome download;
+            ExactFileTransferOutcome download;
             try
             {
+                song.ActiveCandidate = candidate;
                 song.UpdateActivity(JobActivityPhase.Downloading);
-                // ReportDownloadStart is called inside DownloadFile (via Downloader).
-                download = await context.Runtime.Downloader.DownloadFile(
-                    candidate,
+                // Transfer start is reported by the exact peer-file runner.
+                download = await context.Runtime.ExactFileTransfers.DownloadFile(
+                    candidate.Target,
                     target.Path,
                     song,
                     config.Transfer,
                     config.Output.ParentDir,
-                    cts.Token,
-                    target.PublishToDuplicateCache,
-                    DownloadParentFor(song, job));
+                    config.Search.MaxStaleTime,
+                    ct: cts.Token,
+                    publishToDuplicateCache: target.PublishToDuplicateCache,
+                    parentJob: DownloadParentFor(song, job),
+                    deferTerminalCompletion: true,
+                    // The job-level skip evaluator has already decided that
+                    // any existing output is not an acceptable match.
+                    allowOverwrite: true,
+                    protectPublishedOutput: config.Skip.SkipExisting);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -392,9 +446,11 @@ internal sealed class SongDownloadExecutor
 
                 lastDownloadException = ex;
                 lastDownloadFailureMessage = DownloadFailureMessage(ex);
-                SockseekLog.Jobs.Debug(
-                    $"Download attempt {tried} failed for '{candidate.Username}\\{candidate.Filename}' " +
-                    $"to '{target.Path}': {SockseekLog.ExceptionSummary(ex)}");
+                DownloadLogMessages.JobDecision(
+                    logger,
+                    song.Id,
+                    "candidate-download-failed",
+                    tried);
                 if (tried >= candidates.Count || tried >= config.Transfer.MaxDownloadRetries)
                 {
                     return JobOutcome.Failed(
@@ -404,19 +460,43 @@ internal sealed class SongDownloadExecutor
 
                 continue;
             }
-
-            if (download.Status == FileDownloadStatus.ManuallySkipped)
+            finally
             {
-                SockseekLog.Jobs.Debug($"Manually skipped candidate: {candidate.Username}\\{candidate.Filename}");
+                song.ActiveCandidate = null;
+            }
+
+            if (download.Status == ExactFileTransferStatus.ManuallySkipped)
+            {
+                DownloadLogMessages.JobDecision(
+                    logger,
+                    song.Id,
+                    "candidate-manually-skipped",
+                    tried);
                 tried--;
                 continue;
             }
 
+            if (download.Status == ExactFileTransferStatus.AlreadyExists)
+                return JobOutcome.AlreadyExists(download.Result?.OutputPath);
+
             var result = download.Result
                 ?? throw new InvalidOperationException($"Completed download outcome missing result for '{candidate.Username}\\{candidate.Filename}'.");
-            context.UserSuccesses.RecordSuccess(result.Candidate.Username);
-            SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: download succeeded from {result.Candidate.Username}\\{result.Candidate.Filename} to '{result.OutputPath}': {song}");
-            return JobOutcome.Done(result.OutputPath, result.Candidate);
+            context.UserSuccesses.RecordSuccess(song.WorkflowId, result.Target.Username);
+            if (result.TransferId is Guid transferId)
+            {
+                context.PendingTerminalTransfers[song.Id] = new PendingTerminalTransfer(
+                    transferId,
+                    result.AttemptCount,
+                    candidate.Target,
+                    result.Target.Filename,
+                    result.OutputPath);
+            }
+            DownloadLogMessages.JobDecision(
+                logger,
+                song.Id,
+                "candidate-download-succeeded",
+                tried);
+            return JobOutcome.Done(result.OutputPath, candidate);
         }
 
         if (lastDownloadException != null)
@@ -427,10 +507,132 @@ internal sealed class SongDownloadExecutor
         return DownloadOutcomes.NoMatchingCandidates();
     }
 
+    private async Task<JobOutcome> DownloadExactSongTarget(
+        SongJob song,
+        Job parentJob,
+        DownloadSettings config,
+        FileManager organizer,
+        CancellationTokenSource cts,
+        PeerFileTarget target)
+    {
+        var destination = await context.OutputFinalizer.GetInitialDownloadTargetAsync(config, song, organizer, target);
+        song.UpdateActivity(JobActivityPhase.Downloading);
+
+        var download = await context.Runtime.ExactFileTransfers.DownloadFile(
+            target,
+            destination.Path,
+            song,
+            config.Transfer,
+            config.Output.ParentDir,
+            config.Search.MaxStaleTime,
+            ct: cts.Token,
+            publishToDuplicateCache: destination.PublishToDuplicateCache,
+            parentJob: DownloadParentFor(song, parentJob),
+            deferTerminalCompletion: true,
+            // The job-level skip evaluator has already decided that any
+            // existing output is not an acceptable match.
+            allowOverwrite: true,
+            protectPublishedOutput: config.Skip.SkipExisting);
+
+        if (download.Status == ExactFileTransferStatus.ManuallySkipped)
+            return JobOutcome.Skipped(JobSkipReason.Manual);
+        if (download.Status == ExactFileTransferStatus.AlreadyExists)
+            return JobOutcome.AlreadyExists(download.Result?.OutputPath);
+
+        var result = download.Result
+            ?? throw new InvalidOperationException(
+                $"Completed exact download outcome missing result for "
+                + $"'{target.Username}\\{PeerIdentityValidator.ToDisplayText(target.Filename)}'.");
+        context.UserSuccesses.RecordSuccess(song.WorkflowId, target.Username);
+        if (result.TransferId is Guid transferId)
+        {
+            context.PendingTerminalTransfers[song.Id] = new PendingTerminalTransfer(
+                transferId,
+                result.AttemptCount,
+                target,
+                target.Filename,
+                result.OutputPath);
+        }
+
+        return JobOutcome.Done(result.OutputPath, downloadSource: SongDownloadSource.Soulseek);
+    }
+
+    internal ValueTask<bool> CompleteAlbumTransfersAsync(IEnumerable<SongJob> files)
+        => context.Runtime.Files.WithCacheAsync(_ =>
+        {
+            foreach (var file in files) CompletePendingTerminalTransfer(file, file.DownloadPath);
+            return true;
+        });
+
+    private ValueTask<bool> CompletePendingTerminalTransferAsync(SongJob song, string? finalPath)
+        => context.Runtime.Files.WithCacheAsync(_ => { CompletePendingTerminalTransfer(song, finalPath); return true; });
+
+    private void CompletePendingTerminalTransfer(SongJob song, string? finalPath)
+    {
+        if (!context.PendingTerminalTransfers.TryRemove(song.Id, out var pending))
+            return;
+
+        var resolvedPath = string.IsNullOrWhiteSpace(finalPath) ? pending.InitialOutputPath : finalPath;
+        long size = System.IO.File.Exists(resolvedPath) ? new FileInfo(resolvedPath).Length : 0;
+        if (pending.Target is { } target)
+        {
+            context.Events.RaiseTransferCompleted(
+                pending.TransferId,
+                song,
+                target,
+                resolvedPath,
+                size > 0 ? size : target.Size ?? 0,
+                pending.AttemptCount);
+        }
+        else
+        {
+            context.Events.RaiseFallbackTransferCompleted(
+                pending.TransferId,
+                song,
+                pending.SourceReference,
+                resolvedPath,
+                size,
+                pending.AttemptCount);
+        }
+    }
+
+    private void FailPendingTerminalTransfer(SongJob song, Exception exception, TransferFailureReason reason)
+    {
+        if (!context.PendingTerminalTransfers.TryRemove(song.Id, out var pending))
+            return;
+
+        if (pending.Target is { } target)
+        {
+            context.Events.RaiseTransferFailed(
+                pending.TransferId,
+                song,
+                target,
+                pending.InitialOutputPath,
+                song.BytesTransferred,
+                target.Size ?? 0,
+                pending.AttemptCount,
+                reason,
+                exception);
+        }
+        else
+        {
+            context.Events.RaiseFallbackTransferFailed(
+                pending.TransferId,
+                song,
+                pending.SourceReference,
+                pending.InitialOutputPath,
+                pending.AttemptCount,
+                reason,
+                exception);
+        }
+    }
+
     private static bool ShouldCancelGroupOnEmbeddedOutcome(JobOutcome outcome)
-        => outcome.TerminalOutcome is JobTerminalOutcome.Failed
-            or JobTerminalOutcome.Skipped
-            or JobTerminalOutcome.PartialSuccess;
+        // Existing output is a successful result, not a reason to cancel the
+        // album's remaining independent files.
+        => outcome.TerminalOutcome is JobTerminalOutcome.Failed or JobTerminalOutcome.PartialSuccess
+            || outcome.TerminalOutcome == JobTerminalOutcome.Skipped
+                && outcome.SkipReason != JobSkipReason.AlreadyExists;
 
     private JobCancellationSource CancellationSourceForEmbeddedSong(
         SongJob song,
@@ -448,7 +650,7 @@ internal sealed class SongDownloadExecutor
     }
 
     private static string? DownloadFailureMessage(Exception ex)
-        => SockseekLog.ExceptionSummary(ex);
+        => ExceptionText.Summary(ex);
 
     private static Job? DownloadParentFor(SongJob song, Job job)
         => ReferenceEquals(song, job) ? null : job;

@@ -28,6 +28,17 @@ internal static class ConditionSatisfactionPolicy
         SongQuery? query)
         => conditions.FileSatisfies(ConditionFile.From(file), query, response, filenameChecks: true, checkUser: true);
 
+    internal static bool SearchFileSatisfies(
+        FileConditions conditions,
+        SearchProjectionInput input,
+        SongQuery? query)
+        => conditions.ProjectionFileSatisfies(
+            new ConditionFile(input.Filename, input.Length, input.BitRate, input.SampleRate, input.BitDepth),
+            query,
+            input.Username,
+            filenameChecks: true,
+            checkUser: true);
+
     internal static bool LocalFileSatisfies(
         FileConditions conditions,
         SimpleFile file,
@@ -50,9 +61,12 @@ internal static class ConditionSatisfactionPolicy
         int visibleAudioFileCount,
         IEnumerable<string> visibleFilenames,
         AlbumQuery query,
-        SearchSettings search)
+        SearchSettings search,
+        bool enforceMinimumTrackCount)
     {
-        bool enforceMinimum = SearchResultsLikelyContainCompleteAlbumFolders(query, search);
+        // User-facing filters describe the files observed so far. Automatic
+        // discovery may defer a minimum until browsing the complete candidate.
+        bool enforceMinimum = enforceMinimumTrackCount || SearchResultsLikelyContainCompleteAlbumFolders(query, search);
         return AlbumFolderSatisfies(conditions, visibleAudioFileCount, visibleFilenames, enforceMinimum);
     }
 
@@ -144,6 +158,20 @@ internal static class ConditionSatisfactionPolicy
                 ConditionFile.From(file),
                 SortQuery,
                 response,
+                filenameChecks: true,
+                checkUser: false);
+        }
+
+        public bool Satisfies(SearchProjectionInput input)
+        {
+            if (checkUser && !nonQualityFileConditions.UsernameSatisfies(input.Username))
+                return false;
+            if (!checkFile || !Utils.IsMusicFile(input.Filename))
+                return true;
+            return nonQualityFileConditions.ProjectionFileSatisfies(
+                new ConditionFile(input.Filename, input.Length, input.BitRate, input.SampleRate, input.BitDepth),
+                SortQuery,
+                input.Username,
                 filenameChecks: true,
                 checkUser: false);
         }

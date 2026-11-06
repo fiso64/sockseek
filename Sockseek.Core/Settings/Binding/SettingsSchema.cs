@@ -74,7 +74,8 @@ public sealed class SettingsSchema
         groups.Add((type, prefix));
         foreach (var member in DataMembers(type))
         {
-            if (member.IsDefined(typeof(JsonIgnoreAttribute))) continue;
+            if (member.IsDefined(typeof(SettingIgnoreAttribute))
+                || member.GetCustomAttribute<JsonIgnoreAttribute>()?.Condition == JsonIgnoreCondition.Always) continue;
             var entry = new SettingMember(prefix + member.Name, parents, member);
             members.Add(entry.Path, entry);
             if (IsGroup(entry.ValueType))

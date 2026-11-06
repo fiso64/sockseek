@@ -26,6 +26,94 @@ public class EventTrafficProfilingTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
+    public void CompactDeltas_MateriallyReduceLargeWorkflowAndTransferPayloads()
+    {
+        const int count = 1_000;
+        var epoch = Guid.NewGuid();
+        var workflowId = Guid.NewGuid();
+        var jobs = Enumerable.Range(1, count)
+            .Select(index => JobStateDto.FromSummary(
+                new JobSummaryDto(
+                    Guid.NewGuid(),
+                    index,
+                    workflowId,
+                    ServerJobKind.Song,
+                    ServerJobLifecycleState.Running,
+                    ServerJobActivityPhase.Downloading,
+                    null,
+                    ServerJobTerminalOutcome.None,
+                    ServerJobSkipReason.None,
+                    $"Track {index}",
+                    $"Artist - Track {index}",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    ["profile-a"],
+                    []),
+                2))
+            .ToList();
+        var fullJobs = Batch(
+            workflowId,
+            epoch,
+            jobs.Select(job => new JobDeltaDto(job.JobId, job.Revision, Added: job)).ToList(),
+            []);
+        var compactJobs = Batch(
+            workflowId,
+            epoch,
+            jobs.Select(job => new JobDeltaDto(job.JobId, job.Revision, Lifecycle: job.Lifecycle)).ToList(),
+            []);
+
+        var transfers = jobs.Select(job => new TransferStateDto(
+            Guid.NewGuid(),
+            3,
+            new TransferIdentityFieldsDto(
+                job.JobId,
+                workflowId,
+                "Download",
+                "SoulseekPeer",
+                "peer",
+                $"Artist\\Album\\{job.Display.QueryText}.flac",
+                Guid.NewGuid().ToString("N")),
+            new TransferStatusFieldsDto("InProgress", $"C:\\music\\{job.Display.QueryText}.flac", 1, false),
+            new TransferProgressFieldsDto(500_000, 1_000_000))).ToList();
+        var fullTransfers = Batch(
+            workflowId,
+            epoch,
+            [],
+            transfers.Select(transfer =>
+                new TransferDeltaDto(transfer.TransferId, transfer.Revision, Added: transfer)).ToList());
+        var compactTransfers = Batch(
+            workflowId,
+            epoch,
+            [],
+            transfers.Select(transfer =>
+                new TransferDeltaDto(
+                    transfer.TransferId,
+                    transfer.Revision,
+                    Progress: transfer.Progress)).ToList());
+        var options = SockseekApiJson.CreateSerializerOptions();
+
+        int fullJobBytes = JsonSerializer.SerializeToUtf8Bytes(fullJobs, options).Length;
+        int compactJobBytes = JsonSerializer.SerializeToUtf8Bytes(compactJobs, options).Length;
+        int fullTransferBytes = JsonSerializer.SerializeToUtf8Bytes(fullTransfers, options).Length;
+        int compactTransferBytes = JsonSerializer.SerializeToUtf8Bytes(compactTransfers, options).Length;
+
+        TestContext.WriteLine(
+            $"jobs full={fullJobBytes:N0} compact={compactJobBytes:N0}; " +
+            $"transfers full={fullTransferBytes:N0} compact={compactTransferBytes:N0}");
+        Assert.IsTrue(
+            compactJobBytes <= fullJobBytes * 0.65,
+            "Lifecycle-only job deltas should be at least 35% smaller than full row replacements.");
+        Assert.IsTrue(
+            compactTransferBytes <= fullTransferBytes * 0.50,
+            "Progress-only transfer deltas should be at least 50% smaller than full transfer replacements.");
+    }
+
+    [TestMethod]
     [TestCategory("Profiling")]
     [Timeout(120_000)]
     public async Task LargeWorkflowCancellation_EventTrafficProfile()
@@ -60,7 +148,6 @@ public class EventTrafficProfilingTests
                 supervisor.StateStore,
                 supervisor,
                 new NoOpHubContext<ServerEventHub>());
-            broadcaster.EventPublished += counter.Add;
             broadcaster.BatchPublished += counter.Add;
 
             runTask = supervisor.RunAsync(cts.Token);
@@ -68,11 +155,10 @@ public class EventTrafficProfilingTests
             string csvPath = Path.Combine(inputDir, "playlist.csv");
             File.WriteAllLines(csvPath, BuildCsvLines(jobCount));
 
-            var root = await supervisor.SubmitExtractJobAsync(
+            var root = await supervisor.Submissions.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(
                     csvPath,
-                    InputType: "CSV",
-                    AutoStartExtractedResult: true),
+                    InputType: "CSV"),
                 CancellationToken.None);
 
             await WaitForWorkflowJobCountAsync(supervisor, root.WorkflowId, jobCount + 2);
@@ -140,7 +226,6 @@ public class EventTrafficProfilingTests
                 supervisor.StateStore,
                 supervisor,
                 new NoOpHubContext<ServerEventHub>());
-            broadcaster.EventPublished += counter.Add;
             broadcaster.BatchPublished += counter.Add;
 
             runTask = supervisor.RunAsync(cts.Token);
@@ -148,11 +233,10 @@ public class EventTrafficProfilingTests
             string csvPath = Path.Combine(inputDir, "playlist.csv");
             BuildMatchingTrackLibrary(musicRoot, csvPath, jobCount);
 
-            var root = await supervisor.SubmitExtractJobAsync(
+            var root = await supervisor.Submissions.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(
                     csvPath,
-                    InputType: "CSV",
-                    AutoStartExtractedResult: true),
+                    InputType: "CSV"),
                 CancellationToken.None);
 
             await WaitForWorkflowJobCountAsync(supervisor, root.WorkflowId, jobCount + 2);
@@ -213,7 +297,6 @@ public class EventTrafficProfilingTests
                 supervisor.StateStore,
                 supervisor,
                 new NoOpHubContext<ServerEventHub>());
-            broadcaster.EventPublished += counter.Add;
             broadcaster.BatchPublished += counter.Add;
 
             runTask = supervisor.RunAsync(cts.Token);
@@ -221,11 +304,10 @@ public class EventTrafficProfilingTests
             string csvPath = Path.Combine(inputDir, "playlist.csv");
             File.WriteAllLines(csvPath, BuildCsvLines(jobCount));
 
-            var root = await supervisor.SubmitExtractJobAsync(
+            var root = await supervisor.Submissions.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(
                     csvPath,
-                    InputType: "CSV",
-                    AutoStartExtractedResult: true),
+                    InputType: "CSV"),
                 CancellationToken.None);
 
             await WaitForWorkflowJobCountAsync(supervisor, root.WorkflowId, jobCount + 2);
@@ -273,6 +355,10 @@ public class EventTrafficProfilingTests
                 },
             },
             Profiles = ProfileCatalog.Empty,
+            Persistence = new ServerPersistenceOptions
+            {
+                DataDirectory = Path.Combine(musicRoot, ".sockseek-test-data"),
+            },
         });
 
         return new EngineSupervisor(options);
@@ -311,7 +397,7 @@ public class EventTrafficProfilingTests
         using var signal = new TestSignal()
             .Subscribe<JobSummaryDto>(handler => supervisor.StateStore.JobUpserted += handler, handler => supervisor.StateStore.JobUpserted -= handler)
             .Subscribe<WorkflowSummaryDto>(handler => supervisor.StateStore.WorkflowUpserted += handler, handler => supervisor.StateStore.WorkflowUpserted -= handler)
-            .Subscribe<SearchUpdatedDto>(handler => supervisor.StateStore.SearchUpdated += handler, handler => supervisor.StateStore.SearchUpdated -= handler);
+            .Subscribe<SearchStateDto>(handler => supervisor.StateStore.SearchUpdated += handler, handler => supervisor.StateStore.SearchUpdated -= handler);
         await signal.WaitUntilAsync(() =>
         {
             var workflow = supervisor.StateStore.GetWorkflowSummary(workflowId);
@@ -324,7 +410,7 @@ public class EventTrafficProfilingTests
         using var signal = new TestSignal()
             .Subscribe<JobSummaryDto>(handler => supervisor.StateStore.JobUpserted += handler, handler => supervisor.StateStore.JobUpserted -= handler)
             .Subscribe<WorkflowSummaryDto>(handler => supervisor.StateStore.WorkflowUpserted += handler, handler => supervisor.StateStore.WorkflowUpserted -= handler)
-            .Subscribe<SearchUpdatedDto>(handler => supervisor.StateStore.SearchUpdated += handler, handler => supervisor.StateStore.SearchUpdated -= handler);
+            .Subscribe<SearchStateDto>(handler => supervisor.StateStore.SearchUpdated += handler, handler => supervisor.StateStore.SearchUpdated -= handler);
         await signal.WaitUntilAsync(() => supervisor.StateStore.GetWorkflowSummary(workflowId)?.ActiveJobCount == 0,
             "Workflow did not become inactive.", 60_000);
     }
@@ -422,6 +508,24 @@ public class EventTrafficProfilingTests
                 ? $"{bytes / 1024.0:F1} KiB"
                 : $"{bytes / (1024.0 * 1024.0):F2} MiB";
 
+    private static StateUpdateBatchDto Batch(
+        Guid workflowId,
+        Guid epoch,
+        IReadOnlyList<JobDeltaDto> jobs,
+        IReadOnlyList<TransferDeltaDto> transfers)
+        => new(
+            StateStreamScopeDto.Workflow(workflowId),
+            epoch,
+            0,
+            1,
+            DateTimeOffset.UtcNow,
+            StateDeltaDto.Empty with
+            {
+                Jobs = jobs,
+                Transfers = transfers,
+            },
+            []);
+
     private static bool ShouldRunProfile()
         => string.Equals(Environment.GetEnvironmentVariable(RunProfileEnvVar), "1", StringComparison.OrdinalIgnoreCase)
             || string.Equals(Environment.GetEnvironmentVariable(RunProfileEnvVar), "true", StringComparison.OrdinalIgnoreCase);
@@ -442,28 +546,27 @@ public class EventTrafficProfilingTests
         private static readonly JsonSerializerOptions JsonOptions = SockseekApiJson.CreateSerializerOptions();
         private readonly Lock gate = new();
         private readonly List<EventTrafficSample> networkMessages = [];
-        private readonly List<ServerEventEnvelopeDto> logicalEvents = [];
+        private readonly List<(string Category, string Type)> logicalChanges = [];
 
-        public void Add(ServerEventEnvelopeDto envelope)
-        {
-            if (envelope.WorkflowId.HasValue)
-                return;
-
-            int serializedBytes = JsonSerializer.SerializeToUtf8Bytes(envelope, JsonOptions).Length;
-            lock (gate)
-            {
-                networkMessages.Add(new EventTrafficSample(envelope.Type, envelope.WorkflowId, serializedBytes));
-                logicalEvents.Add(envelope);
-            }
-        }
-
-        public void Add(WorkflowUpdateBatchDto batch)
+        public void Add(StateUpdateBatchDto batch)
         {
             int serializedBytes = JsonSerializer.SerializeToUtf8Bytes(batch, JsonOptions).Length;
+            Guid? workflowId = batch.Scope.WorkflowId;
             lock (gate)
             {
-                networkMessages.Add(new EventTrafficSample("workflow.update-batch", batch.WorkflowId, serializedBytes));
-                logicalEvents.AddRange(FlattenBatch(batch));
+                networkMessages.Add(new EventTrafficSample("state.update-batch", workflowId, serializedBytes));
+                if (batch.State.Daemon != null)
+                    logicalChanges.Add(("state", "daemon.replaced"));
+                logicalChanges.AddRange(batch.State.Workflows.Select(_ => ("state", "workflow.replaced")));
+                logicalChanges.AddRange(batch.State.Jobs.Select(_ => ("state", "job.delta")));
+                logicalChanges.AddRange(batch.State.Searches.Select(_ => ("state", "search.replaced")));
+                logicalChanges.AddRange(batch.State.Transfers.Select(delta =>
+                    ("state", delta.Added != null ? "transfer.added" : "transfer.delta")));
+                logicalChanges.AddRange(batch.State.RemovedWorkflowIds.Select(_ => ("state", "workflow.removed")));
+                logicalChanges.AddRange(batch.State.RemovedJobIds.Select(_ => ("state", "job.removed")));
+                logicalChanges.AddRange(batch.State.RemovedSearchJobIds.Select(_ => ("state", "search.removed")));
+                logicalChanges.AddRange(batch.State.RemovedTransferIds.Select(_ => ("state", "transfer.removed")));
+                logicalChanges.AddRange(batch.Activity.Select(activity => ("activity", activity.Type)));
             }
         }
 
@@ -475,7 +578,7 @@ public class EventTrafficProfilingTests
                     Total: networkMessages.Count,
                     SerializedBytes: networkMessages.Sum(e => (long)e.SerializedBytes),
                     MaxEnvelopeBytes: networkMessages.Count == 0 ? 0 : networkMessages.Max(e => e.SerializedBytes),
-                    SnapshotInvalidations: logicalEvents.Count(e => e.SnapshotInvalidation),
+                    SnapshotInvalidations: 0,
                     WorkflowEvents: networkMessages.Count(e => e.WorkflowId == workflowId),
                     OtherWorkflowEvents: networkMessages.Count(e => e.WorkflowId.HasValue && e.WorkflowId != workflowId),
                     NoWorkflowEvents: networkMessages.Count(e => !e.WorkflowId.HasValue),
@@ -485,43 +588,14 @@ public class EventTrafficProfilingTests
                     SerializedBytesByMessageType: networkMessages
                         .GroupBy(e => e.Type, StringComparer.Ordinal)
                         .ToDictionary(g => g.Key, g => g.Sum(e => (long)e.SerializedBytes), StringComparer.Ordinal),
-                    ByCategory: logicalEvents
+                    ByCategory: logicalChanges
                         .GroupBy(e => e.Category, StringComparer.Ordinal)
                         .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
-                    ByType: logicalEvents
+                    ByType: logicalChanges
                         .GroupBy(e => e.Type, StringComparer.Ordinal)
                         .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal));
             }
         }
-
-        private static IEnumerable<ServerEventEnvelopeDto> FlattenBatch(WorkflowUpdateBatchDto batch)
-        {
-            foreach (var summary in batch.JobUpserts)
-                yield return BatchEnvelope(batch, "job.upserted", "state", snapshotInvalidation: true, summary);
-            if (batch.Workflow != null)
-                yield return BatchEnvelope(batch, "workflow.upserted", "state", snapshotInvalidation: true, batch.Workflow);
-            foreach (var update in batch.SearchUpdates)
-                yield return BatchEnvelope(batch, "search.updated", "state", snapshotInvalidation: true, update);
-            foreach (var progress in batch.Progress)
-                yield return BatchEnvelope(batch, "download.progress", "progress", snapshotInvalidation: false, progress);
-            foreach (var envelope in batch.Activity)
-                yield return envelope;
-        }
-
-        private static ServerEventEnvelopeDto BatchEnvelope(
-            WorkflowUpdateBatchDto batch,
-            string type,
-            string category,
-            bool snapshotInvalidation,
-            object payload)
-            => new(
-                batch.Sequence,
-                type,
-                batch.OccurredAtUtc,
-                category,
-                snapshotInvalidation,
-                batch.WorkflowId,
-                payload);
     }
 
     private sealed record EventTrafficSample(
@@ -545,48 +619,4 @@ public class EventTrafficProfilingTests
         public int Count(string type) => ByType.GetValueOrDefault(type);
     }
 
-    private sealed class NoOpHubContext<THub> : IHubContext<THub>
-        where THub : Hub
-    {
-        public IHubClients Clients { get; } = new NoOpHubClients();
-        public IGroupManager Groups { get; } = new NoOpGroupManager();
-    }
-
-    private sealed class NoOpHubClients : IHubClients
-    {
-        private static readonly IClientProxy Proxy = new NoOpClientProxy();
-
-        public IClientProxy All => Proxy;
-
-        public IClientProxy AllExcept(IReadOnlyList<string> excludedConnectionIds) => Proxy;
-
-        public IClientProxy Client(string connectionId) => Proxy;
-
-        public IClientProxy Clients(IReadOnlyList<string> connectionIds) => Proxy;
-
-        public IClientProxy Group(string groupName) => Proxy;
-
-        public IClientProxy GroupExcept(string groupName, IReadOnlyList<string> excludedConnectionIds) => Proxy;
-
-        public IClientProxy Groups(IReadOnlyList<string> groupNames) => Proxy;
-
-        public IClientProxy User(string userId) => Proxy;
-
-        public IClientProxy Users(IReadOnlyList<string> userIds) => Proxy;
-    }
-
-    private sealed class NoOpGroupManager : IGroupManager
-    {
-        public Task AddToGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
-        public Task RemoveFromGroupAsync(string connectionId, string groupName, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-    }
-
-    private sealed class NoOpClientProxy : IClientProxy
-    {
-        public Task SendCoreAsync(string method, object?[] args, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-    }
 }

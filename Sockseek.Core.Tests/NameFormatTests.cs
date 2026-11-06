@@ -10,6 +10,107 @@ namespace Tests.NameFormat
     [TestClass]
     public class NameFormatTests
     {
+        [TestMethod]
+        public void MusicCapabilities_EnrichCanonicalSharedCapabilitiesWithoutRedefiningThem()
+        {
+            var structural = NameFormatVariableProvider.Capabilities;
+            var music = FileManager.GetNameFormatVariableDescriptors();
+
+            Assert.IsTrue(structural.All(variable =>
+                variable.Applicability == NameFormatVariableApplicability.Shared
+                && variable.Phase == NameFormatEvaluationPhase.Placement));
+            Assert.IsTrue(structural.All(variable => music.Any(candidate =>
+                candidate.Name == variable.Name
+                && candidate == variable)));
+            Assert.AreEqual(music.Count, music.Select(variable => variable.Name).Distinct().Count());
+            Assert.IsTrue(music.Any(variable =>
+                variable.Name == "path"
+                && variable.Applicability == NameFormatVariableApplicability.Shared
+                && variable.Phase == NameFormatEvaluationPhase.Completion));
+            Assert.IsTrue(music.Any(variable =>
+                variable.Name == "terminal-outcome"
+                && variable.Applicability == NameFormatVariableApplicability.Shared
+                && variable.Phase == NameFormatEvaluationPhase.OnComplete));
+            Assert.IsTrue(music.Any(variable =>
+                variable.Name == "artist"
+                && variable.Applicability == NameFormatVariableApplicability.Music
+                && variable.Phase == NameFormatEvaluationPhase.MusicFinalization));
+            Assert.IsFalse(music.Any(variable =>
+                variable.Name is "lifecycle-state" or "activity-phase"));
+        }
+
+        [TestMethod]
+        public void MusicProvider_DelegatesEverySharedPlacementVariableWithIdenticalSemantics()
+        {
+            var slFile = new Soulseek.File(0, @"Music\Artist\Album\Disc 2\07. Track.flac", 1, ".flac");
+            var ctx = MakeCtx(slFile: slFile, remoteBaseDir: @"Music\Artist\Album") with
+            {
+                DownloadPath = Path.Combine(Path.GetTempPath(), "07. Track.mp3"),
+                DefaultFolder = "Playlist",
+                OutputDir = Path.Combine(Path.GetTempPath(), "Output"),
+                ExtractorName = "Soulseek",
+                InputSource = "slsk://user/Music/Artist/Album/",
+                ConfigDir = Path.Combine(Path.GetTempPath(), "Config"),
+            };
+            var structural = new NameFormatVariableProvider(
+                FileManager.GetStructuralNameFormatContext(ctx));
+
+            foreach (string name in NameFormatVariableProvider.Supported)
+            {
+                Assert.IsTrue(structural.TryResolve(name, out var expected), name);
+                Assert.IsTrue(FileManager.TryResolveNameFormatVariable(
+                    name,
+                    ctx,
+                    () => null,
+                    out var actual), name);
+                Assert.AreEqual(expected, actual, name);
+            }
+        }
+
+        [TestMethod]
+        public void ExtUsesTheActualOutputExtensionAndRemoteExtIsUnsupported()
+        {
+            var slFile = new Soulseek.File(0, @"Music\Artist\Track.flac", 1, "flac");
+            var ctx = MakeCtx(slFile: slFile) with
+            {
+                DownloadPath = Path.Combine(Path.GetTempPath(), "Track.mp3"),
+            };
+
+            Assert.IsTrue(FileManager.TryResolveNameFormatVariable("ext", ctx, () => null, out var output));
+            Assert.IsFalse(FileManager.TryResolveNameFormatVariable("remote-ext", ctx, () => null, out _));
+            Assert.IsFalse(FileManager.TryResolveNameFormatVariable("extension", ctx, () => null, out _));
+            Assert.AreEqual(".mp3", output.Value);
+        }
+
+        [TestMethod]
+        public void ExplicitOutcomeVariables_AreOnCompleteOnlyAndAmbiguousStateVariablesAreRemoved()
+        {
+            var ctx = MakeCtx() with
+            {
+                TerminalOutcome = JobTerminalOutcome.Skipped,
+                SkipReason = JobSkipReason.AlreadyExists,
+            };
+
+            Assert.IsFalse(FileManager.TryResolveNameFormatVariable(
+                "terminal-outcome", ctx, () => null, out _));
+            Assert.IsTrue(FileManager.TryResolveNameFormatVariable(
+                "terminal-outcome", ctx, () => null, out var outcome, includeOnCompleteVariables: true));
+            Assert.AreEqual("Skipped", outcome.Value);
+            Assert.AreEqual(
+                "Skipped|AlreadyExists|None",
+                FileManager.ReplaceVariables(
+                    "{terminal-outcome}|{skip-reason}|{failure-reason}",
+                    ctx,
+                    null));
+
+            foreach (string removed in new[] { "state", "lifecycle-state", "activity-phase" })
+            {
+                Assert.IsFalse(FileManager.GetAllVariableNames().Contains(removed));
+                Assert.IsFalse(FileManager.TryResolveNameFormatVariable(
+                    removed, ctx, () => null, out _, includeOnCompleteVariables: true));
+            }
+        }
+
         readonly List<TagLib.File> tagLibFiles = new();
 
         private FileManagerContext MakeCtx(
@@ -25,13 +126,13 @@ namespace Tests.NameFormat
                 ? new Soulseek.SearchResponse("user", 1, true, 100, 0, new List<Soulseek.File> { slFile })
                 : null;
             FileCandidate? candidate = slFile != null && response != null
-                ? new FileCandidate(response, slFile)
+                ? SoulseekSearchAdapter.ToFileCandidate(response, slFile)
                 : null;
             return new FileManagerContext
             {
-                Job          = job,
-                Query        = query,
-                Candidate    = candidate,
+                Job = job,
+                Query = query,
+                Candidate = candidate,
                 RemoteBaseDir = remoteBaseDir != null ? remoteBaseDir.Replace('/', '\\') : null,
             };
         }

@@ -24,9 +24,8 @@ namespace Sockseek.Core.Models;
                 Path = tagFile.Name;
                 SetFromTagLib(tagFile);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                SockseekLog.Trace($"Failed to read tags for '{path}': {ex.Message}");
                 Path = path;
             }
         }

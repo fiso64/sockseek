@@ -37,9 +37,9 @@ public class StaleDownloadTests
             ResolvedTarget = candidate,
         };
         var engine = CreateEngine(engineSettings, client, clock);
-        StaleDownloadException? attemptException = null;
-        engine.Events.DownloadAttemptFailed += (_, _, _, _, _, ex) =>
-            attemptException = ex as StaleDownloadException;
+        string? attemptExceptionType = null;
+        engine.Events.DownloadAttemptFailed += change =>
+            attemptExceptionType = change.Exception.Type;
 
         using var runCts = new CancellationTokenSource();
         var runTask = Start(engine, song, settings, runCts.Token);
@@ -60,7 +60,7 @@ public class StaleDownloadTests
             AssertFailed(song, JobFailureReason.AllDownloadsFailed);
             Assert.AreEqual(JobCancellationSource.None, song.CancellationSource);
             StringAssert.Contains(song.FailureMessage, "Download attempt became stale");
-            Assert.IsNotNull(attemptException);
+            Assert.AreEqual(nameof(StaleDownloadException), attemptExceptionType);
         }
         finally
         {
@@ -98,9 +98,9 @@ public class StaleDownloadTests
             ResolvedTarget = candidate,
         };
         var engine = CreateEngine(engineSettings, client, clock);
-        StaleDownloadException? attemptException = null;
-        engine.Events.DownloadAttemptFailed += (_, _, _, _, _, ex) =>
-            attemptException = ex as StaleDownloadException;
+        string? attemptExceptionType = null;
+        engine.Events.DownloadAttemptFailed += change =>
+            attemptExceptionType = change.Exception.Type;
 
         using var runCts = new CancellationTokenSource();
         var runTask = Start(engine, song, settings, runCts.Token);
@@ -116,7 +116,7 @@ public class StaleDownloadTests
             AssertFailed(song, JobFailureReason.AllDownloadsFailed);
             Assert.AreEqual(JobCancellationSource.None, song.CancellationSource);
             StringAssert.Contains(song.FailureMessage, "Download attempt became stale");
-            Assert.IsNotNull(attemptException);
+            Assert.AreEqual(nameof(StaleDownloadException), attemptExceptionType);
         }
         finally
         {
@@ -135,8 +135,8 @@ public class StaleDownloadTests
         var goodFile = TestHelpers.CreateSlFile(@"Shares\Test Artist - Test Song.mp3", size: 5000, length: 180);
         var staleResponse = CreateResponse("stale-user", staleFile);
         var goodResponse = CreateResponse("good-user", goodFile);
-        var staleCandidate = new FileCandidate(staleResponse, staleFile);
-        var goodCandidate = new FileCandidate(goodResponse, goodFile);
+        var staleCandidate = SoulseekSearchAdapter.ToFileCandidate(staleResponse, staleFile);
+        var goodCandidate = SoulseekSearchAdapter.ToFileCandidate(goodResponse, goodFile);
         var downloadGate = new TestHelpers.DownloadGate();
         var client = new ClientTests.MockSoulseekClient([staleResponse, goodResponse])
         {
@@ -155,11 +155,11 @@ public class StaleDownloadTests
             Candidates = [staleCandidate, goodCandidate],
         };
         var engine = CreateEngine(engineSettings, client, clock);
-        StaleDownloadException? attemptException = null;
-        engine.Events.DownloadAttemptFailed += (_, candidate, _, _, _, ex) =>
+        string? attemptExceptionType = null;
+        engine.Events.DownloadAttemptFailed += change =>
         {
-            if (candidate.Username == "stale-user")
-                attemptException = ex as StaleDownloadException;
+            if (change.Target.Identity.Username == "stale-user")
+                attemptExceptionType = change.Exception.Type;
         };
 
         using var runCts = new CancellationTokenSource();
@@ -173,8 +173,8 @@ public class StaleDownloadTests
 
             await runTask.WaitAsync(SignalTimeout);
             Assert.AreEqual(JobTerminalOutcome.Succeeded, song.TerminalOutcome);
-            Assert.AreEqual("good-user", song.ChosenCandidate?.Username);
-            Assert.IsNotNull(attemptException);
+            Assert.AreEqual("good-user", song.ResolvedTarget?.Username);
+            Assert.AreEqual(nameof(StaleDownloadException), attemptExceptionType);
         }
         finally
         {
@@ -201,19 +201,18 @@ public class StaleDownloadTests
             Cts = new CancellationTokenSource(),
         };
         var activeDownloads = new ActiveDownloadTracker();
-        var downloadedFiles = new DownloadedFileCache();
         var events = new DownloadEvents();
         var staleDownloads = new StaleDownloadCoordinator(activeDownloads, clock);
-        var downloader = new Downloader(
+        using var fileOperations = new DownloadFileOperations(engineSettings.ConcurrentJobs);
+        var downloader = new ExactPeerFileTransferRunner(
             client,
             TestHelpers.CreateMockClientManager(client, engineSettings),
             activeDownloads,
-            downloadedFiles,
             events,
-            staleDownloads);
+            staleDownloads, fileOperations);
         var started = NewSignal();
         var releaseStarted = NewSignal();
-        events.DownloadStarted += (_, _) =>
+        events.DownloadStarted += _ =>
         {
             started.TrySetResult();
             releaseStarted.Task.GetAwaiter().GetResult();
@@ -222,11 +221,12 @@ public class StaleDownloadTests
 
         using var downloadCts = CancellationTokenSource.CreateLinkedTokenSource(song.Cts.Token);
         var downloadTask = Task.Run(() => downloader.DownloadFile(
-            candidate,
+            candidate.Target,
             outputPath,
             song,
             settings.Transfer,
             settings.Output.ParentDir,
+            settings.Search.MaxStaleTime,
             downloadCts.Token));
         try
         {
@@ -239,7 +239,7 @@ public class StaleDownloadTests
 
             releaseStarted.TrySetResult();
             var outcome = await downloadTask.WaitAsync(SignalTimeout);
-            Assert.AreEqual(FileDownloadStatus.Completed, outcome.Status);
+            Assert.AreEqual(ExactFileTransferStatus.Completed, outcome.Status);
         }
         finally
         {
@@ -305,8 +305,8 @@ public class StaleDownloadTests
         {
             ResolvedTarget = folder,
             Results = [folder],
-            AllowBrowseResolvedTarget = false,
-            SkipResolvedTargetTrackCountVerification = true,
+            DirectoryResolutionPolicy = AlbumDirectoryResolutionPolicy.UseSelectedSnapshot,
+            ValidationRequirement = AlbumValidationRequirement.UserAccepted,
         };
 
         var downloadGate = new TestHelpers.DownloadGate();
@@ -319,10 +319,10 @@ public class StaleDownloadTests
         var settings = CreateSettings(outputDir);
         var engine = CreateEngine(engineSettings, client, clock);
         var warnings = new List<string>();
-        engine.Events.JobMessage += (job, level, _, message) =>
+        engine.Events.JobMessage += change =>
         {
-            if (ReferenceEquals(job, album) && level == LogLevel.Warning)
-                warnings.Add(message);
+            if (change.Job.Id == album.Id && change.Level == LogLevel.Warning)
+                warnings.Add(change.Message);
         };
 
         using var runCts = new CancellationTokenSource();
@@ -368,7 +368,7 @@ public class StaleDownloadTests
         var album = new AlbumJob(new AlbumQuery { Artist = "Test Artist", Album = "Test Album" })
         {
             Results = [staleFolder, goodFolder],
-            SkipResolvedTargetTrackCountVerification = true,
+            ValidationRequirement = AlbumValidationRequirement.UserAccepted,
         };
 
         var downloadGate = new TestHelpers.DownloadGate();
@@ -385,10 +385,10 @@ public class StaleDownloadTests
         settings.Transfer.MaxDownloadRetries = 2;
         var engine = CreateEngine(engineSettings, client, clock);
         var warnings = new List<string>();
-        engine.Events.JobMessage += (job, level, _, message) =>
+        engine.Events.JobMessage += change =>
         {
-            if (ReferenceEquals(job, album) && level == LogLevel.Warning)
-                warnings.Add(message);
+            if (change.Job.Id == album.Id && change.Level == LogLevel.Warning)
+                warnings.Add(change.Message);
         };
 
         using var runCts = new CancellationTokenSource();
@@ -515,11 +515,11 @@ public class StaleDownloadTests
         var response = CreateResponse("single-slot-song-user", firstFile, secondFile);
         var firstSong = new SongJob(new SongQuery { Artist = "Test Artist", Title = "First Single" })
         {
-            ResolvedTarget = new FileCandidate(response, firstFile),
+            ResolvedTarget = SoulseekSearchAdapter.ToFileCandidate(response, firstFile),
         };
         var secondSong = new SongJob(new SongQuery { Artist = "Other Artist", Title = "Second Single" })
         {
-            ResolvedTarget = new FileCandidate(response, secondFile),
+            ResolvedTarget = SoulseekSearchAdapter.ToFileCandidate(response, secondFile),
         };
         var songList = new JobList("same-user songs", [firstSong, secondSong]);
 
@@ -576,8 +576,8 @@ public class StaleDownloadTests
         {
             ResolvedTarget = folder,
             Results = [folder],
-            AllowBrowseResolvedTarget = false,
-            SkipResolvedTargetTrackCountVerification = true,
+            DirectoryResolutionPolicy = AlbumDirectoryResolutionPolicy.UseSelectedSnapshot,
+            ValidationRequirement = AlbumValidationRequirement.UserAccepted,
         };
 
         var sameUserQueue = new SameUserQueuedSiblingProbe();
@@ -665,7 +665,7 @@ public class StaleDownloadTests
     {
         var file = TestHelpers.CreateSlFile(filename, size: size, length: 180);
         var response = CreateResponse(username, file);
-        return (response, new FileCandidate(response, file));
+        return (response, SoulseekSearchAdapter.ToFileCandidate(response, file));
     }
 
     private static SearchResponse CreateResponse(string username, params Soulseek.File[] files)
@@ -732,8 +732,13 @@ public class StaleDownloadTests
             DownloadSettings settings,
             FileManager organizer,
             IJobLog? log,
-            CancellationToken ct)
+            CancellationToken ct,
+            Action<FallbackTransferDescriptor>? transferStarting = null)
         {
+            transferStarting?.Invoke(new FallbackTransferDescriptor(
+                "blocking-fallback",
+                song.Query.ToString(),
+                organizer.GetSavePathNoExt(song.Query.ToString() + ".mp3")));
             started.TrySetResult();
             await release.Task.WaitAsync(ct);
             return string.IsNullOrWhiteSpace(downloadPath)

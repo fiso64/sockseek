@@ -37,9 +37,6 @@ internal static class CliJobStatusPresenter
         return ForSplit(lifecycle, activity, outcome, skipReason, song.FailureReason, transferStateOverride ?? song.TransferState);
     }
 
-    public static CliJobStatus ForSongEvent(SongStateChangedEventDto song)
-        => ForSplit(song.LifecycleState, song.ActivityPhase, song.TerminalOutcome, song.SkipReason, song.FailureReason);
-
     public static CliJobStatus ForSplit(
         ServerJobLifecycleState lifecycle,
         ServerJobActivityPhase activity,

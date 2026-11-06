@@ -19,6 +19,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
     <PackageReference Include="AngleSharp" Version="1.8.5" />
     <PackageReference Include="Google.Apis.YouTube.v3" Version="1.77.0.4302" />
     <PackageReference Include="HtmlAgilityPack" Version="1.13.1" />
@@ -26,7 +27,10 @@
     <PackageReference Include="SmallestCSVParser" Version="1.2.0" />
     <!-- Upstream 10.0.2 is unlisted/deprecated for CriticalBugs, with no newer release.
          Review https://github.com/jpdillingham/Soulseek.NET/releases before upgrading;
-         retain the search-disposal workaround until an upstream fix is verified. -->
+         retain the search-disposal workaround until an upstream fix is verified.
+         TODO [V4]: Upgrade to a release containing upload-linger fixes cf30b1bc/c97972ca.
+         See SoulseekUploadProtocolInvoker; verify a receiver holding its socket open
+         no longer holds an upload slot beyond MaximumLingerTime. -->
     <PackageReference Include="Soulseek" Version="10.0.2" />
     <PackageReference Include="SpotifyAPI.Web" Version="7.4.2" />
     <PackageReference Include="SpotifyAPI.Web.Auth" Version="7.4.2" />

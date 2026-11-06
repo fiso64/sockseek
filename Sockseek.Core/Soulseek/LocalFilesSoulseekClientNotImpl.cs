@@ -24,7 +24,7 @@ namespace Sockseek.Core.Services
 
         public IReadOnlyCollection<Transfer> Uploads => throw new NotImplementedException();
 
-        public string Username => throw new NotImplementedException();
+        public string Username => "local";
 
         public event EventHandler<BrowseProgressUpdatedEventArgs> BrowseProgressUpdated;
         public event EventHandler Connected;
@@ -176,7 +176,9 @@ namespace Sockseek.Core.Services
 
         public Task<UserInfo> GetUserInfoAsync(string username, CancellationToken? cancellationToken = null)
         {
-            throw new NotImplementedException();
+            if (!index.Any(user => string.Equals(user.Username, username, StringComparison.Ordinal)))
+                throw new UserNotFoundException($"User {username} not found");
+            return Task.FromResult(new UserInfo("Local mock user", 1, 0, true));
         }
 
         public Task<bool> GetUserPrivilegedAsync(string username, CancellationToken? cancellationToken = null)
@@ -186,12 +188,30 @@ namespace Sockseek.Core.Services
 
         public Task<UserStatistics> GetUserStatisticsAsync(string username, CancellationToken? cancellationToken = null)
         {
-            throw new NotImplementedException();
+            SearchResponse? user = index.FirstOrDefault(
+                candidate => string.Equals(candidate.Username, username, StringComparison.Ordinal));
+            if (user is null)
+                throw new UserNotFoundException($"User {username} not found");
+            int directories = user.Files
+                .Select(file => Utils.GetDirectoryNameSlsk(file.Filename))
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+            return Task.FromResult(new UserStatistics(
+                username,
+                averageSpeed: user.UploadSpeed,
+                uploadCount: 0,
+                fileCount: user.Files.Count,
+                directoryCount: directories));
         }
 
         public Task<UserStatus> GetUserStatusAsync(string username, CancellationToken? cancellationToken = null)
         {
-            throw new NotImplementedException();
+            bool exists = index.Any(
+                candidate => string.Equals(candidate.Username, username, StringComparison.Ordinal));
+            return Task.FromResult(new UserStatus(
+                username,
+                exists ? UserPresence.Online : UserPresence.Offline,
+                isPrivileged: false));
         }
 
         public Task GrantUserPrivilegesAsync(string username, int days, CancellationToken? cancellationToken = null)

@@ -1,12 +1,14 @@
 using Sockseek.Api;
-using Sockseek.Server;
 
 namespace Sockseek.Cli;
 
 internal interface ICliBackend
 {
-    event Action<ServerEventEnvelopeDto>? EventReceived;
-    event Action<WorkflowClientUpdate>? WorkflowUpdated;
+    event Action<DaemonClientUpdate>? StateUpdated;
+    event Action<ActivityEventDto>? ActivityReceived;
+    event Action<StateSnapshotDto>? LiveSnapshotApplied;
+
+    DaemonClientStore ClientStore { get; }
 
     Task<JobSummaryDto> SubmitExtractJobAsync(SubmitExtractJobRequestDto request, CancellationToken ct = default);
     Task<JobSummaryDto> SubmitSearchJobAsync(SubmitSearchJobRequestDto request, CancellationToken ct = default);
@@ -37,6 +39,7 @@ internal interface ICliBackend
     Task<JobSummaryDto?> StartFolderDownloadAsync(Guid searchJobId, StartFolderDownloadRequestDto request, CancellationToken ct = default);
     Task<bool> CancelJobAsync(Guid jobId, CancellationToken ct = default);
     Task<bool> CancelJobByDisplayIdAsync(int displayId, Guid? workflowId = null, CancellationToken ct = default);
+    Task<int> CancelAllJobsAsync(CancellationToken ct = default);
     Task<int> CancelWorkflowAsync(Guid workflowId, CancellationToken ct = default);
     Task<bool> CompleteManualSelectionAsync(Guid jobId, CancellationToken ct = default);
     Task<bool> SkipManualSelectionAsync(Guid jobId, CancellationToken ct = default);

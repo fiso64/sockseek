@@ -35,6 +35,12 @@
           "Microsoft.Extensions.Options": "10.0.13"
         }
       },
+      "SixLabors.ImageSharp": {
+        "type": "Direct",
+        "requested": "[3.1.12, )",
+        "resolved": "3.1.12",
+        "contentHash": "iAg6zifihXEFS/t7fiHhZBGAdCp3FavsF4i2ZIDp0JfeYeDVzvmlbY1CNhhIKimaIzrzSi5M/NBFcWvZT2rB/A=="
+      },
       "SmallestCSVParser": {
         "type": "Direct",
         "requested": "[1.2.0, )",

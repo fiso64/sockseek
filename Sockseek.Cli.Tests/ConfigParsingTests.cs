@@ -870,7 +870,7 @@ namespace Tests.ConfigParsingTests
                 new CliSettings());
 
             Assert.IsNull(options.OutputParentDir);
-            Assert.IsNull(options.DownloadSettings?.Operations.SingleOrDefault(change => change.Path == "Output.ParentDir")?.Value);
+            Assert.IsNull(options.DownloadSettings?.Output?.ParentDir);
         }
 
         [TestMethod]
@@ -881,7 +881,7 @@ namespace Tests.ConfigParsingTests
                 new CliSettings());
 
             Assert.IsNull(options.OutputParentDir);
-            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Operations.SingleOrDefault(change => change.Path == "Output.ParentDir")?.Value);
+            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Output?.ParentDir);
         }
 
         [TestMethod]
@@ -892,7 +892,7 @@ namespace Tests.ConfigParsingTests
                 new CliSettings());
 
             Assert.IsNull(options.OutputParentDir);
-            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Operations.SingleOrDefault(change => change.Path == "Output.ParentDir")?.Value);
+            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Output?.ParentDir);
         }
 
         [TestMethod]

@@ -40,17 +40,8 @@ public class EngineSettings
 
     // ── Sharing ───────────────────────────────────────────────────────────────
 
-    [SettingOption("--shared-files")]
-    public int SharedFiles { get; set; }
-
-    [SettingOption("--shared-folders")]
-    public int SharedFolders { get; set; }
-
     [SettingOption("--user-description")]
     public string? UserDescription { get; set; }
-
-    [SettingOption("--nmsc", "--no-modify-share-count")]
-    public bool NoModifyShareCount { get; set; }
 
     // ── Concurrency ───────────────────────────────────────────────────────────
 
@@ -102,4 +93,10 @@ public class EngineSettings
 
     [SettingOption("--mock-files-fail-downloads")]
     public int MockFilesFailDownloads { get; set; }
+    [SettingOption("--user-picture", DefaultProfileOnly = true)]
+    public string? UserPicturePath { get; set; }
+    public SharingSettings Sharing { get; set; } = new();
+    public UploadSettings Uploads { get; set; } = new();
+    public ChatSettings Chat { get; set; } = new();
+    public PeerRestrictionSettings PeerRestrictions { get; set; } = new();
 }

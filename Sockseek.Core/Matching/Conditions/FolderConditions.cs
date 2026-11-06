@@ -64,6 +64,13 @@ namespace Sockseek.Core.Models;
 
     public class FolderConditionPatch
     {
+        public FolderConditionPatch Clone()
+        {
+            var copy = (FolderConditionPatch)MemberwiseClone();
+            copy.RequiredTrackTitles = RequiredTrackTitles?.ToList();
+            return copy;
+        }
+
         public int? MinTrackCount;
         public int? MaxTrackCount;
         public List<string>? RequiredTrackTitles;

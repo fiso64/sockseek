@@ -11,8 +11,8 @@ internal static class DownloadOutcomes
     public static JobOutcome ExceptionFailure(JobFailureReason reason, Exception exception)
         => JobOutcome.Failed(
             reason,
-            SockseekLog.ExceptionSummary(exception),
-            SockseekLog.ExceptionDetail(exception));
+            Diagnostics.ExceptionText.Summary(exception),
+            Diagnostics.ExceptionText.Detail(exception));
 
     public static JobOutcome NoMatchingDiscovery(
         ResponseData responseData,

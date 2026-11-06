@@ -77,6 +77,9 @@ public static partial class ConfigManager
         ApplyProfile(invocation.Profile, engine, dl, cli, daemon, remote);
 
         PostProcess(engine, dl, file.ConfigDir);
+        if (!string.IsNullOrWhiteSpace(daemon.DataDirectory))
+            daemon.DataDirectory = Utils.GetFullPath(Utils.ExpandVariables(
+                daemon.DataDirectory, new PathVariableContext(ConfigDir: file.ConfigDir)));
 
         return (engine, dl, cli, daemon, remote);
     }
@@ -103,13 +106,17 @@ public static partial class ConfigManager
         var cliProfile = invocation.Profile.Profile;
 
         return new ProfileJobSettingsResolver(
-            new DownloadSettings { DefaultMinSharesAggregate = engine?.DefaultMinSharesAggregate ?? SearchSettings.DefaultMinShares },
+            null,
             catalog.DefaultProfile,
             catalog.AutoProfiles,
             namedProfiles,
             cliProfile,
             context,
-            normalize: settings => PostProcessDownload(settings, new PathVariableContext(ConfigDir: file.ConfigDir)));
+            normalize: settings =>
+            {
+                settings.DefaultMinSharesAggregate = engine?.DefaultMinSharesAggregate ?? SearchSettings.DefaultMinShares;
+                PostProcessDownload(settings, new PathVariableContext(ConfigDir: file.ConfigDir));
+            });
     }
 
     public static DownloadSettings BindCliDownloadTokens(IReadOnlyList<string> cliArgs)
@@ -172,7 +179,7 @@ public static partial class ConfigManager
                 return;
         }
 
-        SockseekLog.Warn("Warning: Client profile settings did not stabilize after repeated auto-profile passes");
+        Console.Error.WriteLine("Warning: Client profile settings did not stabilize after repeated auto-profile passes");
     }
 
     public static IReadOnlyList<string> GetProfileNames(ConfigFile file)
@@ -315,6 +322,8 @@ public static partial class ConfigManager
     {
         if (flag is "-c" or "--config" or "--nc" or "--no-config" or "--profile") return;
         if (!OptionCatalog.ByName.TryGetValue(flag, out var option)) throw UnknownArgument(flag);
+        if (option.DefaultProfileOnly && builder.Name != "default" && !builder.Name.StartsWith('<'))
+            throw new ArgumentException($"Input error: Daemon setting '{flag}' is not allowed in named or automatic profile '{builder.Name}'.");
         option.Bind(builder.For(option.RootType), value, flag);
     }
 

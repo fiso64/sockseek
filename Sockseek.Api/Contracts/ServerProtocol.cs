@@ -32,12 +32,32 @@ public enum ServerJobKind
     /// <summary>Folder-browse job used to fully load a search result folder.</summary>
     [JsonStringEnumMemberName(ServerProtocol.JobKinds.RetrieveFolder)]
     RetrieveFolder,
+    /// <summary>Ordinary exact peer-file download job.</summary>
+    [JsonStringEnumMemberName(ServerProtocol.JobKinds.RemoteFile)]
+    RemoteFile,
+    /// <summary>Ordinary peer-directory download job.</summary>
+    [JsonStringEnumMemberName(ServerProtocol.JobKinds.RemoteDirectory)]
+    RemoteDirectory,
     /// <summary>Fallback kind for unknown or unmapped core jobs.</summary>
     [JsonStringEnumMemberName(ServerProtocol.JobKinds.Generic)]
     Generic,
 }
 
-/// <summary>High-level runtime lifecycle returned by job, workflow, and event DTOs.</summary>
+/// <summary>Stable semantic role within one accepted submission.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ServerJobRole>))]
+public enum ServerJobRole
+{
+    [JsonStringEnumMemberName(ServerProtocol.JobRoles.UserRoot)]
+    UserRoot,
+    [JsonStringEnumMemberName(ServerProtocol.JobRoles.SemanticResult)]
+    SemanticResult,
+    [JsonStringEnumMemberName(ServerProtocol.JobRoles.Orchestration)]
+    Orchestration,
+    [JsonStringEnumMemberName(ServerProtocol.JobRoles.ExecutionChild)]
+    ExecutionChild,
+}
+
+/// <summary>High-level runtime lifecycle returned by job, workflow, and live-state DTOs.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<ServerJobLifecycleState>))]
 public enum ServerJobLifecycleState
 {
@@ -139,7 +159,7 @@ public enum ServerWorkflowState
 }
 
 /// <summary>
-/// Stable failure reason returned by job and event DTOs.
+/// Stable failure reason returned by job and live-state DTOs.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<ServerJobFailureReason>))]
 public enum ServerJobFailureReason
@@ -203,6 +223,16 @@ public enum ServerResourceActionKind
 /// </summary>
 public static class ServerProtocol
 {
+    /// <summary>Daemon stream position captured before a paged history read.</summary>
+    public const string ReadEpochHeader = "X-Sockseek-Read-Epoch";
+    public const string ReadSequenceHeader = "X-Sockseek-Read-Sequence";
+
+    /// <summary>Default collection size for flat items; callers may request more.</summary>
+    public const int DefaultPageSize = 500;
+
+    /// <summary>Default collection size for items with nested presentation data.</summary>
+    public const int DefaultNestedPageSize = 100;
+
     /// <summary>
     /// Runtime job kind wire values used by JSON serialization and polymorphic discriminators.
     /// Prefer <see cref="ServerJobKind"/> in .NET consumer code.
@@ -217,7 +247,17 @@ public static class ServerProtocol
         public const string AlbumAggregate = "album-aggregate";
         public const string JobList = "job-list";
         public const string RetrieveFolder = "retrieve-folder";
+        public const string RemoteFile = "remote-file";
+        public const string RemoteDirectory = "remote-directory";
         public const string Generic = "generic";
+    }
+
+    public static class JobRoles
+    {
+        public const string UserRoot = "user-root";
+        public const string SemanticResult = "semantic-result";
+        public const string Orchestration = "orchestration";
+        public const string ExecutionChild = "execution-child";
     }
 
     /// <summary>
@@ -226,6 +266,8 @@ public static class ServerProtocol
     /// </summary>
     public static class JobDraftKinds
     {
+        /// <summary>Draft for a generic file search job.</summary>
+        public const string GenericSearch = "search-generic";
         /// <summary>Draft for <see cref="SubmitExtractJobRequestDto"/>.</summary>
         public const string Extract = "extract";
         /// <summary>Draft for a track-oriented search job.</summary>
@@ -242,6 +284,8 @@ public static class ServerProtocol
         public const string AlbumAggregate = "album-aggregate";
         /// <summary>Draft for a nested job list.</summary>
         public const string JobList = "job-list";
+        public const string RemoteFile = "remote-file";
+        public const string RemoteDirectory = "remote-directory";
     }
 
     /// <summary>
@@ -286,6 +330,50 @@ public static class ServerProtocol
 
 public static class ServerProtocolEnumExtensions
 {
+    /// <summary>Accept the public job-kind spelling in query parameters as well as older CLR enum names.</summary>
+    public static bool TryParseJobKind(string value, out ServerJobKind kind)
+    {
+        foreach (var candidate in Enum.GetValues<ServerJobKind>())
+        {
+            if (string.Equals(value, candidate.ToWireString(), StringComparison.Ordinal)
+                || string.Equals(value, candidate.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                kind = candidate;
+                return true;
+            }
+        }
+
+        kind = default;
+        return false;
+    }
+
+    /// <summary>Use one spelling for role filters and JSON job summaries.</summary>
+    public static string ToWireString(this ServerJobRole role)
+        => role switch
+        {
+            ServerJobRole.UserRoot => ServerProtocol.JobRoles.UserRoot,
+            ServerJobRole.SemanticResult => ServerProtocol.JobRoles.SemanticResult,
+            ServerJobRole.Orchestration => ServerProtocol.JobRoles.Orchestration,
+            ServerJobRole.ExecutionChild => ServerProtocol.JobRoles.ExecutionChild,
+            _ => role.ToString(),
+        };
+
+    public static bool TryParseJobRole(string value, out ServerJobRole role)
+    {
+        foreach (var candidate in Enum.GetValues<ServerJobRole>())
+        {
+            if (string.Equals(value, candidate.ToWireString(), StringComparison.Ordinal)
+                || string.Equals(value, candidate.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                role = candidate;
+                return true;
+            }
+        }
+
+        role = default;
+        return false;
+    }
+
     public static string ToWireString(this ServerJobKind kind)
         => kind switch
         {
@@ -297,6 +385,8 @@ public static class ServerProtocolEnumExtensions
             ServerJobKind.AlbumAggregate => ServerProtocol.JobKinds.AlbumAggregate,
             ServerJobKind.JobList => ServerProtocol.JobKinds.JobList,
             ServerJobKind.RetrieveFolder => ServerProtocol.JobKinds.RetrieveFolder,
+            ServerJobKind.RemoteFile => ServerProtocol.JobKinds.RemoteFile,
+            ServerJobKind.RemoteDirectory => ServerProtocol.JobKinds.RemoteDirectory,
             ServerJobKind.Generic => ServerProtocol.JobKinds.Generic,
             _ => kind.ToString(),
         };

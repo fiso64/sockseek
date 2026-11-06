@@ -1,6 +1,7 @@
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
+using Microsoft.Extensions.Logging;
 
 namespace Sockseek.Core.Transfers.Downloads.Skipping;
 
@@ -8,13 +9,16 @@ internal sealed class SkipEvaluationCoordinator
 {
     private readonly Func<Job, JobContext> getContext;
     private readonly Action<Job> raiseBuildingMusicDirectoryIndex;
+    private readonly ILogger<SkipEvaluationCoordinator> logger;
 
     public SkipEvaluationCoordinator(
         Func<Job, JobContext> getContext,
-        Action<Job> raiseBuildingMusicDirectoryIndex)
+        Action<Job> raiseBuildingMusicDirectoryIndex,
+        ILogger<SkipEvaluationCoordinator> logger)
     {
         this.getContext = getContext;
         this.raiseBuildingMusicDirectoryIndex = raiseBuildingMusicDirectoryIndex;
+        this.logger = logger;
     }
 
     public bool TrySetAlreadyExists(Job job, SongJob song, TrackSkipperContext skipCtx)
@@ -23,8 +27,8 @@ internal sealed class SkipEvaluationCoordinator
 
         if (path != null)
         {
-            song.SetAlreadyExists(path);
-            SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: skipped because matching file already exists at '{path}': {song}");
+            JobOutcomeCommitter.Commit(song, JobOutcome.AlreadyExists(path));
+            AlreadyExists(song);
         }
 
         return path != null;
@@ -50,12 +54,9 @@ internal sealed class SkipEvaluationCoordinator
 
         if (path != null)
         {
-            if (job is AlbumJob albumJob)
-                albumJob.SetAlreadyExists(path);
-            else
-                job.SetAlreadyExists();
+            JobOutcomeCommitter.Commit(job, JobOutcome.AlreadyExists(path));
             ctx.IndexEditor?.NotifyJobDownloadPath(job.Id, path);
-            SockseekLog.Jobs.Debug($"[{job.DisplayId}] {SockseekLog.JobTypeName(job)}: skipped because matching output already exists at '{path}': {job}");
+            AlreadyExists(job);
         }
 
         return path != null;
@@ -76,7 +77,7 @@ internal sealed class SkipEvaluationCoordinator
         if (path == null)
             return null;
 
-        SockseekLog.Jobs.Debug($"[{job.DisplayId}] {SockseekLog.JobTypeName(job)}: skipped because matching output already exists at '{path}': {job}");
+        AlreadyExists(job);
         return JobOutcome.AlreadyExists(path);
     }
 
@@ -104,15 +105,15 @@ internal sealed class SkipEvaluationCoordinator
         return path;
     }
 
-    public bool TrySetNotFoundLastTime(SongJob song, M3uEditor? indexEditor)
+    public bool TrySetNotFoundLastTime(SongJob song, DownloadOutputFile? indexEditor)
     {
         if (indexEditor == null) return false;
         var prev = indexEditor.PreviousRunResult(song);
         if (prev == null) return false;
         if (IsNotFoundFailure(prev.FailureReason) || prev.State == JobStateOld.NotFoundLastTime)
         {
-            song.SetSkipped(JobSkipReason.NotFoundLastTime, NotFoundFailureReasonOrDefault(prev.FailureReason));
-            SockseekLog.Jobs.Debug($"[{song.DisplayId}] SongJob: skipped because prior index entry was {prev.State}/{prev.FailureReason}: {song}");
+            JobOutcomeCommitter.Commit(song, JobOutcome.Skipped(JobSkipReason.NotFoundLastTime, NotFoundFailureReasonOrDefault(prev.FailureReason)));
+            NotFoundPreviously(song);
             return true;
         }
         return false;
@@ -127,8 +128,8 @@ internal sealed class SkipEvaluationCoordinator
         if (prev == null) return false;
         if (IsNotFoundFailure(prev.FailureReason) || prev.State == JobStateOld.NotFoundLastTime)
         {
-            job.SetSkipped(JobSkipReason.NotFoundLastTime, NotFoundFailureReasonOrDefault(prev.FailureReason));
-            SockseekLog.Jobs.Debug($"[{job.DisplayId}] {SockseekLog.JobTypeName(job)}: skipped because prior index entry was {prev.State}/{prev.FailureReason}: {job}");
+            JobOutcomeCommitter.Commit(job, JobOutcome.Skipped(JobSkipReason.NotFoundLastTime, NotFoundFailureReasonOrDefault(prev.FailureReason)));
+            NotFoundPreviously(job);
             return true;
         }
         return false;
@@ -144,9 +145,23 @@ internal sealed class SkipEvaluationCoordinator
         if (!IsNotFoundFailure(prev.FailureReason) && prev.State != JobStateOld.NotFoundLastTime)
             return null;
 
-        SockseekLog.Jobs.Debug($"[{job.DisplayId}] {SockseekLog.JobTypeName(job)}: skipped because prior index entry was {prev.State}/{prev.FailureReason}: {job}");
+        NotFoundPreviously(job);
         return JobOutcome.Skipped(JobSkipReason.NotFoundLastTime, NotFoundFailureReasonOrDefault(prev.FailureReason));
     }
+
+    private void AlreadyExists(Job job)
+        => DownloadLogMessages.JobDecision(
+            logger,
+            job.Id,
+            "skipped-existing-output",
+            null);
+
+    private void NotFoundPreviously(Job job)
+        => DownloadLogMessages.JobDecision(
+            logger,
+            job.Id,
+            "skipped-not-found-in-prior-run",
+            null);
 
     private string? FindExistingAlbumPath(Job job, AlbumJob album, JobContext ctx, TrackSkipperContext skipCtx)
     {
@@ -171,7 +186,7 @@ internal sealed class SkipEvaluationCoordinator
         return path;
     }
 
-    private static IndexEntry? PreviousRunResult(Job job, M3uEditor indexEditor)
+    private static IndexEntry? PreviousRunResult(Job job, DownloadOutputFile indexEditor)
         => job switch
         {
             SongJob song => indexEditor.PreviousRunResult(song),

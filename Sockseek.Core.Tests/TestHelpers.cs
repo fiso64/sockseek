@@ -195,11 +195,11 @@ namespace Tests
         {
             var response = new SearchResponse(username, 1, true, 100, 0, []);
             var file = CreateSlFile(filename, size, extension, bitrate, length, sampleRate, bitDepth);
-            return new AlbumFile(query ?? Searcher.InferSongQuery(filename, new SongQuery()), new FileCandidate(response, file));
+            return new AlbumFile(query ?? Searcher.InferSongQuery(filename, new SongQuery()), SoulseekSearchAdapter.ToFileCandidate(response, file));
         }
 
         public static AlbumFile CreateAlbumFile(SearchResponse response, File file, SongQuery? query = null)
-            => new(query ?? Searcher.InferSongQuery(file.Filename, new SongQuery()), new FileCandidate(response, file));
+            => new(query ?? Searcher.InferSongQuery(file.Filename, new SongQuery()), SoulseekSearchAdapter.ToFileCandidate(response, file));
 
         public static (EngineSettings Engine, DownloadSettings Download) CreateDefaultSettings()
         {

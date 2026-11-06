@@ -62,32 +62,25 @@ public static class TooManyMegabytesAlbumLogRepro
         var logFilePath = mode == ReproRenderMode.LogFile ? Path.Combine(outputDir, "sockseek.log") : null;
         await System.IO.File.WriteAllLinesAsync(wishlistPath, CreateWishlistLines(), cancellationToken);
 
-        SockseekLog.RemoveNonFileOutputs();
-        SockseekLog.RemoveFileOutputs();
         var lines = new ConcurrentQueue<string>();
-        if (logFilePath != null)
-        {
-            if (System.IO.File.Exists(logFilePath))
-                System.IO.File.Delete(logFilePath);
+        if (logFilePath != null && System.IO.File.Exists(logFilePath))
+            System.IO.File.Delete(logFilePath);
 
-            SockseekLog.AddOrReplaceFile(logFilePath, LogLevel.Debug);
-        }
-        else
-        {
-            SockseekLog.AddStructuredConsoleSink(
-                (entry, _) =>
+        using var output = CliOutputController.CreateDetached(
+            eventSink: outputEvent =>
+            {
+                if (mode == ReproRenderMode.Live
+                    && outputEvent is CliOutputEvent.JobLog { Line.ShowInLive: false })
                 {
-                    var outputEvent = CliOutputEvent.FromLogEntry(entry);
-                    if (mode == ReproRenderMode.Live
-                        && outputEvent is CliOutputEvent.JobLog { Line.ShowInLive: false })
-                    {
-                        return;
-                    }
+                    return;
+                }
 
-                    lines.Enqueue(CliLogStyle.FormatOutputEventText(outputEvent));
-                },
-                LogLevel.Information);
-        }
+                lines.Enqueue(CliLogStyle.FormatOutputEventText(outputEvent));
+            });
+        using var loggerFactory = output.CreateLoggerFactory(
+            LogLevel.Information,
+            logFilePath,
+            LogLevel.Debug);
 
         var files = CreateAlbumFiles();
         var response = new SearchResponse(Username, 1, true, 100_000, 0, files);
@@ -108,35 +101,22 @@ public static class TooManyMegabytesAlbumLogRepro
         settings.Output.NameFormat = "{foldername}/{filename}";
         settings.Output.WriteIndex = false;
 
-        var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings, client));
+        var engine = new DownloadEngine(
+            engineSettings,
+            new SoulseekClientManager(
+                engineSettings,
+                client,
+                logger: loggerFactory.CreateLogger<SoulseekClientManager>()),
+            loggerFactory: loggerFactory);
         var backend = new LocalCliBackend(engine, settings);
         var reporter = new CliProgressReporter(new CliSettings
         {
             NoProgress = mode != ReproRenderMode.Live,
         });
 
-        if (mode == ReproRenderMode.Live)
-        {
-            backend.EventReceived += envelope =>
-            {
-                if (envelope.Type == "album.track-download-started"
-                    && envelope.Payload is AlbumTrackDownloadStartedEventDto albumTrack)
-                {
-                    ReportAlbumTrackDownloadStartedMethod.Invoke(reporter, [albumTrack]);
-                }
-                else if (envelope.Type == "download.attempt-failed"
-                    && envelope.Payload is DownloadAttemptFailedEventDto failure)
-                {
-                    ReportDownloadAttemptFailedMethod.Invoke(reporter, [failure]);
-                }
-            };
-        }
-        else
-        {
-            reporter.Attach(backend);
-        }
+        reporter.Attach(backend);
 
-        var eventLogger = new EventLogger(backend, includeDiagnosticDetails: false);
+        var eventLogger = new EventLogger(backend, output, includeDiagnosticDetails: false);
         eventLogger.Attach();
 
         engine.Enqueue(new ExtractJob(settings.Extraction.Input, settings.Extraction.InputType), settings);
@@ -151,8 +131,6 @@ public static class TooManyMegabytesAlbumLogRepro
         finally
         {
             reporter.Stop();
-            SockseekLog.RemoveNonFileOutputs();
-            SockseekLog.RemoveFileOutputs();
         }
 
         if (logFilePath != null && System.IO.File.Exists(logFilePath))

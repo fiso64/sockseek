@@ -52,7 +52,6 @@ internal static class RealSearchCapture
         {
             UseRandomLogin = true,
             ListenPort = null,
-            NoModifyShareCount = true,
         };
         using var manager = new SoulseekClientManager(engineSettings);
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(30, timeout / 1000 + 30)));

@@ -1,8 +1,10 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Sockseek.Core;
+using Sockseek.Core.Events;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
+using Sockseek.Core.Snapshots;
 using Sockseek.Api;
 using Sockseek.Server;
 
@@ -17,6 +19,7 @@ public class JsonStreamProgressReporter
     private readonly TextWriter _writer;
     private readonly Lock _lock = new();
     private readonly JsonSerializerOptions _jsonOptions;
+    private readonly HashSet<Guid> _seenTransfers = [];
     private DateTime _lastDownloadProgressReport = DateTime.MinValue;
     private readonly TimeSpan _downloadProgressThrottle = TimeSpan.FromMilliseconds(500);
 
@@ -33,55 +36,128 @@ public class JsonStreamProgressReporter
 
     public void Attach(DownloadEvents events)
     {
-        events.TrackListReady     += songs => ReportTrackList(songs);
-        events.JobStateChanged    += job =>
+        events.TrackListReady     += change => ReportTrackList(change.Songs);
+        events.JobStateChanged    += change =>
         {
-            if (job is SongJob song)
+            if (change.Job.Payload is SongJobSnapshotPayload song)
             {
-                if (song.ActivityPhase == JobActivityPhase.Searching)
-                    ReportSearchStart(song);
-                else if (song.IsTerminal)
-                    ReportStateChanged(song);
+                if (change.ActivityPhase == JobActivityPhase.Searching)
+                    ReportSearchStart(song.Query);
+                else if (change.IsTerminal)
+                    ReportStateChanged(change.Job, song);
             }
         };
         events.DownloadStarted    += ReportDownloadStart;
         events.DownloadProgress   += ReportDownloadProgress;
-        events.OverallProgress    += ReportOverallProgress;
+        events.OverallProgress    += change => ReportOverallProgress(change.Done, change.Failed, change.Total);
         events.ListProgress       += ReportListProgress;
-        events.JobStateChanged    += job =>
+        events.JobStateChanged    += change =>
         {
-            if (job is ExtractJob ej && ej.IsUnsuccessfulTerminal)
-                ReportExtractionFailed(ej, ej.FailureMessage ?? "Extraction failed");
+            if (change.Job.Payload is ExtractJobSnapshotPayload extract && change.IsUnsuccessfulTerminal)
+                ReportExtractionFailed(extract, change.FailureMessage ?? "Extraction failed");
         };
     }
 
     internal void Attach(ICliBackend backend)
     {
-        backend.EventReceived += envelope =>
+        backend.StateUpdated += update =>
         {
-            switch (envelope.Type)
+            if (update.Status != DaemonClientApplyStatus.Applied)
+                return;
+
+            foreach (var job in update.ChangedJobs.Where(job => job.Kind == ServerJobKind.Song))
             {
-                case "song.searching" when envelope.Payload is SongSearchingEventDto e:
-                    ReportSearchStart(e);
-                    break;
+                if (job.ActivityPhase == ServerJobActivityPhase.Searching)
+                    ReportSearchStart(job);
+                if (job.LifecycleState == ServerJobLifecycleState.Terminal)
+                    ReportStateChanged(job);
+            }
 
-                case "download.started" when envelope.Payload is DownloadStartedEventDto e:
-                    ReportDownloadStart(e);
-                    break;
-
-                case "download.progress" when envelope.Payload is DownloadProgressEventDto e:
-                    ReportDownloadProgress(e);
-                    break;
-
-                case "song.state-changed" when envelope.Payload is SongStateChangedEventDto e:
-                    ReportStateChanged(e);
-                    break;
-
-                case "track-batch.resolved" when envelope.Payload is TrackBatchResolvedEventDto e:
-                    ReportTrackBatchResolved(e);
-                    break;
+            foreach (var transfer in update.ChangedTransfers)
+            {
+                bool first;
+                lock (_lock)
+                    first = _seenTransfers.Add(transfer.TransferId);
+                if (first && transfer.Identity.JobId is { } jobId)
+                    ReportDownloadStart(backend.ClientStore.GetJob(jobId), transfer);
+                ReportDownloadProgress(transfer);
             }
         };
+
+        backend.ActivityReceived += activity =>
+        {
+            if (activity.Payload is TrackBatchResolvedActivityDto batch)
+                ReportTrackBatchResolved(batch);
+        };
+    }
+
+    private void ReportSearchStart(JobSummaryDto song)
+    {
+        WriteEvent("search_start", new
+        {
+            jobId = song.JobId,
+            query = song.QueryText ?? song.ItemName,
+        });
+    }
+
+    private void ReportDownloadStart(JobSummaryDto? song, TransferStateDto transfer)
+    {
+        WriteEvent("download_start", new
+        {
+            jobId = transfer.Identity.JobId,
+            query = song?.QueryText ?? song?.ItemName,
+            username = transfer.Identity.Username,
+            filename = transfer.Identity.RemotePath,
+            size = transfer.Progress.TotalBytes,
+            extension = GetExtension(transfer.Identity.RemotePath ?? ""),
+            transferId = transfer.TransferId,
+        });
+    }
+
+    private void ReportDownloadProgress(TransferStateDto transfer)
+    {
+        var now = DateTime.UtcNow;
+        if (now - _lastDownloadProgressReport < _downloadProgressThrottle)
+            return;
+        _lastDownloadProgressReport = now;
+
+        WriteEvent("download_progress", new
+        {
+            jobId = transfer.Identity.JobId,
+            transferId = transfer.TransferId,
+            bytesTransferred = transfer.Progress.BytesTransferred,
+            totalBytes = transfer.Progress.TotalBytes,
+            percent = transfer.Progress.TotalBytes > 0
+                ? Math.Round((double)transfer.Progress.BytesTransferred / transfer.Progress.TotalBytes * 100, 1)
+                : 0,
+        });
+    }
+
+    private void ReportStateChanged(JobSummaryDto song)
+    {
+        WriteEvent("track_state", new
+        {
+            jobId = song.JobId,
+            query = song.QueryText ?? song.ItemName,
+            lifecycleState = song.LifecycleState,
+            activityPhase = song.ActivityPhase,
+            terminalOutcome = song.TerminalOutcome,
+            skipReason = song.SkipReason,
+            failureReason = song.FailureReason,
+            rawResultCount = song.DiscoveryRawResultCount,
+            lockedCount = song.DiscoveryLockedFileCount,
+        });
+    }
+
+    private void ReportTrackBatchResolved(TrackBatchResolvedActivityDto batch)
+    {
+        WriteEvent("track_list", new
+        {
+            total = batch.PendingCount + batch.ExistingCount + batch.NotFoundCount,
+            pending = batch.PendingCount,
+            existing = batch.ExistingCount,
+            notFound = batch.NotFoundCount,
+        });
     }
 
     private void ReportTrackList(IEnumerable<SongJob> songs)
@@ -105,6 +181,33 @@ public class JsonStreamProgressReporter
         WriteEvent("track_list", data);
     }
 
+    private void ReportTrackList(IEnumerable<JobSnapshot> songs)
+    {
+        var list = songs
+            .Where(song => song.Payload is SongJobSnapshotPayload)
+            .ToList();
+        var data = new
+        {
+            total = list.Count,
+            tracks = list.Select((job, i) =>
+            {
+                var song = (SongJobSnapshotPayload)job.Payload;
+                return new
+                {
+                    index = i,
+                    artist = song.Query.Artist,
+                    title = song.Query.Title,
+                    album = song.Query.Album,
+                    length = song.Query.Length,
+                    lifecycleState = job.LifecycleState.ToString(),
+                    activityPhase = job.ActivityPhase.ToString(),
+                    terminalOutcome = job.TerminalOutcome.ToString(),
+                };
+            }).ToList(),
+        };
+        WriteEvent("track_list", data);
+    }
+
     private void ReportSearchStart(SongJob song)
     {
         WriteEvent("search_start", new
@@ -115,13 +218,13 @@ public class JsonStreamProgressReporter
         });
     }
 
-    private void ReportSearchStart(SongSearchingEventDto song)
+    private void ReportSearchStart(SongQuerySnapshot song)
     {
         WriteEvent("search_start", new
         {
-            artist = song.Query.Artist,
-            title  = song.Query.Title,
-            album  = song.Query.Album,
+            artist = song.Artist,
+            title = song.Title,
+            album = song.Album,
         });
     }
 
@@ -133,21 +236,22 @@ public class JsonStreamProgressReporter
             title     = song.Query.Title,
             username  = candidate.Username,
             filename  = candidate.Filename,
-            size      = candidate.File.Size,
+            size      = candidate.Size,
             extension = GetExtension(candidate.Filename),
         });
     }
 
-    private void ReportDownloadStart(DownloadStartedEventDto song)
+    private void ReportDownloadStart(DownloadStartedChange change)
     {
+        var song = (SongJobSnapshotPayload)change.Job.Payload;
         WriteEvent("download_start", new
         {
             artist = song.Query.Artist,
             title = song.Query.Title,
-            username = song.Candidate.Username,
-            filename = song.Candidate.Filename,
-            size = song.Candidate.Size,
-            extension = GetExtension(song.Candidate.Filename),
+            username = change.Target.Identity.Username,
+            filename = change.Target.Identity.Filename,
+            size = change.Target.Size,
+            extension = GetExtension(change.Target.Identity.Filename),
         });
     }
 
@@ -168,7 +272,7 @@ public class JsonStreamProgressReporter
         });
     }
 
-    private void ReportDownloadProgress(DownloadProgressEventDto progress)
+    private void ReportDownloadProgress(DownloadProgressedChange progress)
     {
         var now = DateTime.UtcNow;
         if (now - _lastDownloadProgressReport < _downloadProgressThrottle)
@@ -177,7 +281,7 @@ public class JsonStreamProgressReporter
 
         WriteEvent("download_progress", new
         {
-            jobId = progress.JobId,
+            jobId = progress.Job.Id,
             bytesTransferred = progress.BytesTransferred,
             totalBytes = progress.TotalBytes,
             percent = progress.TotalBytes > 0 ? Math.Round((double)progress.BytesTransferred / progress.TotalBytes * 100, 1) : 0,
@@ -188,7 +292,7 @@ public class JsonStreamProgressReporter
     {
         var chosen = song.TerminalOutcome == JobTerminalOutcome.Succeeded
             || (song.TerminalOutcome == JobTerminalOutcome.Skipped && song.SkipReason == JobSkipReason.AlreadyExists)
-                ? song.ChosenCandidate
+                ? song.ResolvedTarget
                 : null;
         WriteEvent("track_state", new
         {
@@ -202,71 +306,40 @@ public class JsonStreamProgressReporter
             downloadPath    = !string.IsNullOrEmpty(song.DownloadPath) ? song.DownloadPath : null,
             username        = chosen?.Username,
             filename        = chosen?.Filename,
-            size            = chosen?.File.Size,
-            bitRate         = chosen?.File.BitRate,
+            size            = chosen?.Size,
+            bitRate         = chosen?.BitRate,
             extension       = chosen != null ? GetExtension(chosen.Filename) : null,
             rawResultCount  = song.Discovery?.RawResultCount,
             lockedCount     = song.Discovery?.LockedFileCount,
         });
     }
 
-    private void ReportStateChanged(SongStateChangedEventDto song)
+    private void ReportStateChanged(JobSnapshotHeader job, SongJobSnapshotPayload song)
     {
+        var chosen = job.TerminalOutcome == JobTerminalOutcome.Succeeded
+            || (job.TerminalOutcome == JobTerminalOutcome.Skipped && job.SkipReason == JobSkipReason.AlreadyExists)
+                ? song.ResolvedTarget
+                : null;
         WriteEvent("track_state", new
         {
             artist = song.Query.Artist,
             title = song.Query.Title,
-            lifecycleState = song.LifecycleState,
-            activityPhase = song.ActivityPhase,
-            terminalOutcome = song.TerminalOutcome,
-            skipReason = song.SkipReason,
-            failureReason = song.FailureReason,
-            downloadPath = song.DownloadPath,
-            username = song.ChosenCandidate?.Username,
-            filename = song.ChosenCandidate?.Filename,
-            size = song.ChosenCandidate?.Size,
-            bitRate = song.ChosenCandidate?.BitRate,
-            extension = song.ChosenCandidate != null ? GetExtension(song.ChosenCandidate.Filename) : null,
-            rawResultCount = song.DiscoveryRawResultCount,
-            lockedCount = song.DiscoveryLockedFileCount,
+            lifecycleState = job.LifecycleState.ToString(),
+            activityPhase = job.ActivityPhase.ToString(),
+            terminalOutcome = job.TerminalOutcome.ToString(),
+            skipReason = job.SkipReason != JobSkipReason.None ? job.SkipReason.ToString() : null,
+            failureReason = job.FailureReason != JobFailureReason.None ? job.FailureReason.ToString() : null,
+            downloadPath = !string.IsNullOrEmpty(song.File.DownloadPath) ? song.File.DownloadPath : null,
+            username = chosen?.Username ?? song.ExactTarget?.Identity.Username,
+            filename = chosen?.Filename ?? song.ExactTarget?.Identity.Filename,
+            size = chosen?.Size ?? song.ExactTarget?.Size,
+            bitRate = chosen?.BitRate ?? song.ExactTarget?.BitRate,
+            extension = chosen != null
+                ? GetExtension(chosen.Filename)
+                : song.ExactTarget?.Extension,
+            rawResultCount = job.Discovery?.RawResultCount,
+            lockedCount = job.Discovery?.LockedFileCount,
         });
-    }
-
-    private void ReportTrackBatchResolved(TrackBatchResolvedEventDto batch)
-    {
-        var pending = batch.Pending.ToList();
-        var existing = batch.Existing.ToList();
-        var notFound = batch.NotFound.ToList();
-        var tracks = pending.Concat(existing).Concat(notFound).ToList();
-
-        var data = new
-        {
-            total = batch.PendingCount + batch.ExistingCount + batch.NotFoundCount,
-            pending = batch.PendingCount,
-            existing = batch.ExistingCount,
-            notFound = batch.NotFoundCount,
-            tracks = tracks.Select((s, i) => new
-            {
-                index = i,
-                artist = s.Query.Artist,
-                title = s.Query.Title,
-                album = s.Query.Album,
-                length = s.Query.Length,
-                lifecycleState = s.LifecycleState,
-                activityPhase = s.ActivityPhase,
-                terminalOutcome = pending.Contains(s)
-                    ? ServerJobTerminalOutcome.None
-                    : existing.Contains(s)
-                        ? ServerJobTerminalOutcome.Skipped
-                        : ServerJobTerminalOutcome.Skipped,
-                skipReason = pending.Contains(s)
-                    ? ServerJobSkipReason.None
-                    : existing.Contains(s)
-                        ? ServerJobSkipReason.AlreadyExists
-                        : ServerJobSkipReason.NotFoundLastTime,
-            }).ToList(),
-        };
-        WriteEvent("track_list", data);
     }
 
     private void ReportOverallProgress(int downloaded, int failed, int total)
@@ -285,6 +358,11 @@ public class JsonStreamProgressReporter
         WriteEvent("list_progress", new { name = list.ItemName, downloaded, failed, total });
     }
 
+    private void ReportListProgress(ListProgressChange progress)
+    {
+        WriteEvent("list_progress", new { name = progress.List.ItemName, downloaded = progress.Done, failed = progress.Failed, total = progress.Total });
+    }
+
     private void ReportExtractionFailed(ExtractJob job, string reason)
     {
         WriteEvent("extraction_failed", new
@@ -294,10 +372,17 @@ public class JsonStreamProgressReporter
         });
     }
 
-    internal void ReportWorkflowSubmitted(Guid workflowId)
+    private void ReportExtractionFailed(ExtractJobSnapshotPayload job, string reason)
     {
-        WriteEvent("workflow_submitted", new { workflowId });
+        WriteEvent("extraction_failed", new
+        {
+            input = job.Input,
+            reason,
+        });
     }
+
+    internal void ReportWorkflowSubmitted(Guid workflowId)
+        => WriteEvent("workflow_submitted", new { workflowId });
 
     private void WriteEvent(string type, object data)
     {

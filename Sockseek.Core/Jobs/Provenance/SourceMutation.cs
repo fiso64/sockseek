@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Sockseek.Core.Models;
 
 public enum SourceMutationKind
@@ -15,6 +17,7 @@ public sealed record SourceMutation(
     int CsvColumnCount = 0,
     string? TrackUri = null)
 {
+    [JsonIgnore]
     public string Key => $"{Kind}|{Source}|{LineNumber}|{TrackUri ?? string.Empty}";
 
     public static SourceMutation ClearTextLine(string path, int lineNumber, int itemNumber = 1)

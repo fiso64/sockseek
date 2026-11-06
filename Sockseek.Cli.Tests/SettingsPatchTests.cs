@@ -7,6 +7,7 @@ using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Settings;
+using Sockseek.Server;
 
 namespace Tests;
 
@@ -14,8 +15,16 @@ namespace Tests;
 public class SettingsPatchTests
 {
     private static SettingsPatch RoundTrip(SettingsPatch patch) => JsonSerializer.Deserialize<SettingsPatch>(
-        JsonSerializer.Serialize(patch, SockseekApiJson.CreateSerializerOptions()),
-        SockseekApiJson.CreateSerializerOptions())!;
+        JsonSerializer.Serialize(patch, new JsonSerializerOptions(JsonSerializerDefaults.Web) { IncludeFields = true }),
+        new JsonSerializerOptions(JsonSerializerDefaults.Web) { IncludeFields = true })!;
+
+    private static SettingsPatch WireRoundTrip(SettingsPatch patch)
+    {
+        var json = SockseekApiJson.CreateSerializerOptions();
+        var wire = DownloadSettingsPatchDtoMapper.FromCore(RoundTrip(patch));
+        return DownloadSettingsPatchDtoMapper.ToCore(JsonSerializer.Deserialize<DownloadSettingsPatchDto>(
+            JsonSerializer.Serialize(wire, json), json));
+    }
 
     [TestMethod]
     public void CliPatch_RoundTripPreservesCompoundOptionsAndTheirOrder()
@@ -28,8 +37,10 @@ public class SettingsPatchTests
         ])!;
         var local = new DownloadSettings();
         var remote = new DownloadSettings();
+        local.Output.IncompleteAlbumAction.Path = "inherited";
+        remote.Output.IncompleteAlbumAction.Path = "inherited";
         patch.ApplyTo(local);
-        RoundTrip(patch).ApplyTo(remote);
+        WireRoundTrip(patch).ApplyTo(remote);
 
         Assert.IsNull(SettingsPatch.Difference(local, remote));
         Assert.AreEqual(AlbumArtOption.Most, remote.Output.AlbumArtOption);
@@ -80,9 +91,15 @@ public class SettingsPatchTests
             "--on-complete", "+ -- repeated", "--on-complete", "+ -- repeated",
         ])!;
 
-        RoundTrip(patch).ApplyTo(settings);
+        patch = new SettingsPatch([
+            .. patch.Operations,
+            new("Search.NecessaryFolderCond.RequiredTrackTitles", new List<string> { "One" }),
+            new("Search.NecessaryFolderCond.RequiredTrackTitles", new List<string> { "One", "Two" }, SettingOperation.AppendDistinct),
+        ]);
+        WireRoundTrip(patch).ApplyTo(settings);
 
         CollectionAssert.AreEqual(new[] { "-- replacement", "-- repeated", "-- repeated" }, settings.Output.OnComplete);
+        CollectionAssert.AreEqual(new[] { "One", "Two" }, settings.Search.NecessaryFolderCond.RequiredTrackTitles);
     }
 
     [TestMethod]
@@ -127,11 +144,11 @@ public class SettingsPatchTests
     public void IndexChoice_RoundTripsAutomaticAndExplicitValues()
     {
         var settings = new DownloadSettings();
-        RoundTrip(ConfigManager.CreateCliDownloadSettingsPatch(["--write-index"])!).ApplyTo(settings);
+        WireRoundTrip(ConfigManager.CreateCliDownloadSettingsPatch(["--write-index"])!).ApplyTo(settings);
         Assert.IsTrue(settings.Output.WriteIndex);
-        RoundTrip(ConfigManager.CreateCliDownloadSettingsPatch(["--no-write-index"])!).ApplyTo(settings);
+        WireRoundTrip(ConfigManager.CreateCliDownloadSettingsPatch(["--no-write-index"])!).ApplyTo(settings);
         Assert.IsFalse(settings.Output.WriteIndex);
-        RoundTrip(new SettingsPatch([new("Output.WriteIndex", null)])).ApplyTo(settings);
+        WireRoundTrip(new SettingsPatch([new("Output.WriteIndex", null)])).ApplyTo(settings);
         Assert.IsNull(settings.Output.WriteIndex);
     }
 

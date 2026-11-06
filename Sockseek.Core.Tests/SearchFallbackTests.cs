@@ -46,8 +46,8 @@ public class SearchFallbackTests
 
         CollectionAssert.AreEqual(new[] { "artist1 artist2 title", "artist1 title", "artist2 title" }, queries);
         Assert.AreEqual(1, song.Candidates?.Count);
-        Assert.AreEqual(@"Music\Artist2 - Title.mp3", song.Candidates![0].File.Filename);
-        Assert.IsTrue(search.NecessaryCond.StrictArtistSatisfies(song.Candidates[0].File.Filename, song.Query.Artist));
+        Assert.AreEqual(@"Music\Artist2 - Title.mp3", song.Candidates![0].Target.Filename);
+        Assert.IsTrue(search.NecessaryCond.StrictArtistSatisfies(song.Candidates[0].Target.Filename, song.Query.Artist));
         Assert.AreEqual("Artist1; Artist2", song.Query.Artist);
         Assert.AreEqual("Title", song.Query.Title);
     }
@@ -91,7 +91,7 @@ public class SearchFallbackTests
 
         Assert.AreEqual(2, client.SearchCallCount);
         Assert.AreEqual(1, song.Candidates?.Count);
-        Assert.AreEqual("Remix", song.Candidates![0].Response.Username);
+        Assert.AreEqual("Remix", song.Candidates![0].Target.Username);
         Assert.AreEqual(title, song.Query.Title);
     }
 
@@ -251,7 +251,7 @@ public class SearchFallbackTests
         Assert.AreEqual(2, incrementalFiles.Count);
         var filtered = job.Snapshot().Where(x => ConditionSatisfactionPolicy.SearchFileSatisfies(search.NecessaryCond, x.Response, x.File, query)).ToList();
         var batchFiles = SearchResultProjector.SortedTrackCandidates(filtered, query, search, new());
-        CollectionAssert.AreEqual(batchFiles.Select(x => x.Response.Username).ToArray(), incrementalFiles.Select(x => x.Response.Username).ToArray());
+        CollectionAssert.AreEqual(batchFiles.Select(x => x.Target.Username).ToArray(), incrementalFiles.Select(x => x.Target.Username).ToArray());
 
         var incremental = job.GetAggregateTracks(search, new()).Items;
         var batch = SearchResultProjector.AggregateTracks(job.Snapshot(), query, search, new());

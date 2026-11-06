@@ -295,13 +295,13 @@ public class RealCaptureProjectionBenchmarks
                     checksum += file.Query.Artist.Length;
                     checksum += file.Query.Album.Length;
                     checksum += file.Query.Title.Length;
-                    checksum += (int)(file.Candidate.File.Size & 0xFFFF);
-                    checksum += file.Candidate.File.Length ?? 0;
-                    checksum += file.Candidate.File.BitRate ?? 0;
-                    checksum += file.Candidate.File.SampleRate ?? 0;
-                    checksum += file.Candidate.File.BitDepth ?? 0;
-                    checksum += file.Candidate.Response.UploadSpeed;
-                    checksum += file.Candidate.Response.QueueLength;
+                    checksum += (int)((file.Candidate.Target.Size ?? 0) & 0xFFFF);
+                    checksum += file.Candidate.Target.Length ?? 0;
+                    checksum += file.Candidate.Target.BitRate ?? 0;
+                    checksum += file.Candidate.Target.SampleRate ?? 0;
+                    checksum += file.Candidate.Target.BitDepth ?? 0;
+                    checksum += file.Candidate.Peer.UploadSpeed ?? 0;
+                    checksum += file.Candidate.Peer.ResponseFileCount;
                 }
             }
 

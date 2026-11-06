@@ -81,20 +81,34 @@ internal sealed record TerminalJobRecord(
     CliJobStatusCategory Category,
     string? ParentId);
 
+internal sealed record TerminalRenderState(
+    IReadOnlyList<TerminalJobRecord> JobRecords,
+    IReadOnlyList<JobView> JobViews,
+    int RetiredCompleted = 0,
+    int RetiredFailed = 0);
+
+internal readonly record struct TerminalJobCounts(
+    int Active,
+    int Queued,
+    int Completed,
+    int Failed);
+
 internal sealed class TerminalLiveRenderer : IDisposable
 {
-    private readonly ConcurrentDictionary<string, JobView> _jobs = new();
+    private readonly Dictionary<string, JobView> _jobs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TerminalJobRecord> _knownJobs = new(StringComparer.Ordinal);
-    private int _countQueued, _countActive, _countCompleted, _countFailed;
+    private int _retiredCompleted;
+    private int _retiredFailed;
     private readonly ConcurrentQueue<CliOutputEvent> _pendingLogs = new();
     private readonly List<CliOutputEvent> _printedLogHistory = [];
-    private readonly CancellationTokenSource _cts = new();
-    private readonly Task _renderTask;
+    private readonly Func<CancellationToken, Task> _runRenderLoop;
     private readonly TimeSpan _refreshInterval = TimeSpan.FromMilliseconds(100);
     private readonly Lock _sync = new();
+    private readonly Lock _lifecycleSync = new();
 
-    private volatile bool _paused;
-    private volatile string? _statusMessage;
+    private CancellationTokenSource? _renderCts;
+    private Task? _renderTask;
+    private volatile bool _suspended;
     private long _rateLimitResetTicks; // 0 = not rate-limited; otherwise UTC ticks of reset time
     private int _spinFrame;
     private bool _disposed;
@@ -131,48 +145,49 @@ internal sealed class TerminalLiveRenderer : IDisposable
     private static bool SupportsUnicodeSpinner() => AnsiConsole.Profile.Capabilities.Unicode;
 
     public TerminalLiveRenderer()
+        : this(null)
     {
+    }
+
+    internal TerminalLiveRenderer(Func<CancellationToken, Task>? runRenderLoop)
+    {
+        _runRenderLoop = runRenderLoop ?? RenderLoopAsync;
         _lastTerminalSize = GetTerminalSize();
-        _renderTask = Task.Run(RenderLoopAsync);
+        StartRenderLoop();
     }
 
     public bool IsPaused
     {
-        get => _paused;
-        set => _paused = value;
+        get => _suspended;
+        set
+        {
+            if (value)
+                Suspend();
+            else
+                Resume();
+        }
     }
 
     public void Publish(CliOutputEvent outputEvent)
     {
-        if (_disposed) return;
-
-        switch (outputEvent)
+        lock (_lifecycleSync)
         {
-            case CliOutputEvent.JobLog or CliOutputEvent.ProcessLog or CliOutputEvent.RawLine:
-                _pendingLogs.Enqueue(outputEvent);
-                break;
-            case CliOutputEvent.UpsertJobView upsert:
-                Upsert(upsert.Job);
-                break;
-            case CliOutputEvent.UpsertJobRecord upsert:
-                UpsertJob(upsert.Job);
-                break;
-            case CliOutputEvent.RemoveJob remove:
-                Remove(remove.Id);
-                break;
-            case CliOutputEvent.StatusMessage status:
-                SetStatusMessage(status.Message);
-                break;
-            case CliOutputEvent.RateLimit rateLimit:
-                SetRateLimited(rateLimit.ResetsAt);
-                break;
-        }
-    }
+            if (_disposed)
+                return;
 
-    private void SetStatusMessage(string? message)
-    {
-        if (_disposed) return;
-        _statusMessage = message == null ? null : SanitizeLiveText(message);
+            switch (outputEvent)
+            {
+                case CliOutputEvent.JobLog or CliOutputEvent.ProcessLog or CliOutputEvent.RawLine:
+                    _pendingLogs.Enqueue(outputEvent);
+                    break;
+                case CliOutputEvent.ReplaceRenderState replace:
+                    ReplaceRenderState(replace.State);
+                    break;
+                case CliOutputEvent.RateLimit rateLimit:
+                    SetRateLimited(rateLimit.ResetsAt);
+                    break;
+            }
+        }
     }
 
     private void SetRateLimited(DateTimeOffset? resetsAt)
@@ -181,53 +196,22 @@ internal sealed class TerminalLiveRenderer : IDisposable
         Interlocked.Exchange(ref _rateLimitResetTicks, resetsAt?.UtcTicks ?? 0L);
     }
 
-    private void Upsert(JobView job)
-    {
-        if (_disposed) return;
-        _jobs[job.Id] = job with { UpdatedAt = DateTimeOffset.UtcNow };
-    }
-
-    private void UpsertJob(TerminalJobRecord job)
+    private void ReplaceRenderState(TerminalRenderState state)
     {
         if (_disposed) return;
         lock (_sync)
         {
-            bool isAlbumChild = job.ParentId != null
-                && _knownJobs.TryGetValue(job.ParentId, out var parent)
-                && IsAlbumKind(parent.Kind);
+            _knownJobs.Clear();
+            foreach (var record in state.JobRecords)
+                _knownJobs[record.Id] = record;
 
-            if (_knownJobs.TryGetValue(job.Id, out var old))
-                ApplyCountDelta(old.Category, -1, isAlbumChild);
+            _jobs.Clear();
+            foreach (var view in state.JobViews)
+                _jobs[view.Id] = view with { UpdatedAt = DateTimeOffset.UtcNow };
 
-            _knownJobs[job.Id] = job;
-            ApplyCountDelta(job.Category, +1, isAlbumChild);
+            _retiredCompleted = state.RetiredCompleted;
+            _retiredFailed = state.RetiredFailed;
         }
-    }
-
-    private void ApplyCountDelta(CliJobStatusCategory category, int delta, bool isAlbumChild)
-    {
-        if (isAlbumChild) return;
-        switch (category)
-        {
-            case CliJobStatusCategory.Queued:
-                _countQueued += delta;
-                break;
-            case CliJobStatusCategory.Active:
-                _countActive += delta;
-                break;
-            case CliJobStatusCategory.Succeeded:
-                _countCompleted += delta;
-                break;
-            case CliJobStatusCategory.Failed:
-                _countFailed += delta;
-                break;
-        }
-    }
-
-    private void Remove(string id)
-    {
-        if (_disposed) return;
-        _jobs.TryRemove(id, out _);
     }
 
     public void Dispose()
@@ -235,11 +219,16 @@ internal sealed class TerminalLiveRenderer : IDisposable
 
     public void Dispose(bool printSummary)
     {
-        if (_disposed) return;
-        _disposed = true;
-        _cts.Cancel();
-        try { _renderTask.Wait(TimeSpan.FromSeconds(2)); }
-        catch { }
+        lock (_lifecycleSync)
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            StopRenderLoop();
+        }
+
+        FlushLogs();
         // When the terminal shrinks, Spectre.Live's repaint can clear the wrong rows and
         // eat into real log scrollback above the live region (see comment in FlushLogs).
         // Replaying the log history at the end recovers those lost lines.
@@ -247,10 +236,70 @@ internal sealed class TerminalLiveRenderer : IDisposable
             ReplayPrintedLogHistory();
         if (printSummary)
             AnsiConsole.MarkupLine(BuildCountsMarkup(CountKnownJobs()));
-        _cts.Dispose();
     }
 
-    private async Task RenderLoopAsync()
+    private void Suspend()
+    {
+        lock (_lifecycleSync)
+        {
+            if (_disposed || _suspended)
+                return;
+
+            _suspended = true;
+            StopRenderLoop();
+        }
+    }
+
+    private void Resume()
+    {
+        lock (_lifecycleSync)
+        {
+            if (_disposed || !_suspended)
+                return;
+
+            _suspended = false;
+            StartRenderLoop();
+        }
+    }
+
+    private void StartRenderLoop()
+    {
+        _renderCts = new CancellationTokenSource();
+        var cancellationToken = _renderCts.Token;
+        _renderTask = Task.Run(() => _runRenderLoop(cancellationToken));
+    }
+
+    private void StopRenderLoop()
+    {
+        var cts = _renderCts;
+        var task = _renderTask;
+        _renderCts = null;
+        _renderTask = null;
+
+        if (cts == null || task == null)
+            return;
+
+        cts.Cancel();
+        try
+        {
+            task.GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+        finally
+        {
+            cts.Dispose();
+        }
+    }
+
+    private async Task RenderLoopAsync(CancellationToken cancellationToken)
     {
         try
         {
@@ -260,18 +309,15 @@ internal sealed class TerminalLiveRenderer : IDisposable
                 .Cropping(VerticalOverflowCropping.Top)
                 .StartAsync(async ctx =>
                 {
-                    while (!_cts.IsCancellationRequested)
+                    while (!cancellationToken.IsCancellationRequested)
                     {
                         RememberTerminalResize();
 
-                        if (!_paused)
-                        {
-                            FlushLogs();
-                            ctx.UpdateTarget(Render());
-                            ctx.Refresh();
-                        }
+                        FlushLogs();
+                        ctx.UpdateTarget(Render());
+                        ctx.Refresh();
 
-                        try { await Task.Delay(_refreshInterval, _cts.Token); }
+                        try { await Task.Delay(_refreshInterval, cancellationToken); }
                         catch (OperationCanceledException) { }
                     }
 
@@ -623,7 +669,13 @@ internal sealed class TerminalLiveRenderer : IDisposable
     private List<LiveRow> BuildRows()
     {
         int maxRows = MaxLiveRows();
-        var allJobs = _jobs.Values.ToDictionary(job => job.Id, StringComparer.Ordinal);
+        Dictionary<string, JobView> allJobs;
+        TerminalJobCounts counts;
+        lock (_sync)
+        {
+            allJobs = _jobs.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+            counts = CountKnownJobsUnsafe();
+        }
         var visibleIds = allJobs.Values
             .Where(job => IsLiveState(job.State))
             .Select(job => job.Id)
@@ -639,24 +691,24 @@ internal sealed class TerminalLiveRenderer : IDisposable
             .ThenBy(job => job.DisplayId)
             .ToList();
 
-        var counts = CountKnownJobs();
         long resetTicks = Interlocked.Read(ref _rateLimitResetTicks);
         bool isRateLimited = resetTicks != 0;
-        bool useRateLimitSpinner = isRateLimited
-            && !_jobs.Values.Any(j => string.Equals(j.State, "downloading", StringComparison.OrdinalIgnoreCase));
-        var frames = useRateLimitSpinner ? RateLimitSpinFrames : SpinFrames;
-        var spin = frames[_spinFrame++ % frames.Count];
+        var statusLine = BuildCountsMarkup(counts);
+        if (!IsIdle(counts))
+        {
+            bool useRateLimitSpinner = isRateLimited
+                && !allJobs.Values.Any(j => string.Equals(j.State, "downloading", StringComparison.OrdinalIgnoreCase));
+            var frames = useRateLimitSpinner ? RateLimitSpinFrames : SpinFrames;
+            var spin = frames[_spinFrame++ % frames.Count];
+            statusLine = $"{spin} {statusLine}";
+        }
 
-        var statusLine = $"{spin} {BuildCountsMarkup(counts)}";
         if (isRateLimited)
         {
             var remaining = new DateTimeOffset(new DateTime(resetTicks, DateTimeKind.Utc)) - DateTimeOffset.UtcNow;
             int secs = Math.Max(0, (int)Math.Ceiling(remaining.TotalSeconds));
             statusLine += $" | [bold yellow]Search rate limit reached, resuming in {secs}s[/]";
         }
-        else if (_statusMessage is string msg)
-            statusLine += $" | [bold yellow]{Markup.Escape(msg)}[/]";
-
         statusLine += " | [grey][[c]]ancel · [[t]]ry next · [[i]]nfo[/]";
 
         var rows = new List<LiveRow>();
@@ -810,24 +862,65 @@ internal sealed class TerminalLiveRenderer : IDisposable
             && !string.Equals(state, "not found", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(state, "partial", StringComparison.OrdinalIgnoreCase);
 
-    private (int Active, int Queued, int Completed, int Failed) CountKnownJobs()
+    private TerminalJobCounts CountKnownJobs()
     {
         lock (_sync)
-            return (_countActive, _countQueued, _countCompleted, _countFailed);
+            return CountKnownJobsUnsafe();
     }
 
-    private static bool IsAlbumChild(
-        JobView job,
-        IReadOnlyDictionary<string, JobView> jobsById)
-        => job.ParentId is string parentId
-            && jobsById.TryGetValue(parentId, out var parent)
-            && IsAlbumKind(parent.Kind);
+    private TerminalJobCounts CountKnownJobsUnsafe()
+        => CountRenderState(new TerminalRenderState(
+            _knownJobs.Values.ToList(),
+            [],
+            _retiredCompleted,
+            _retiredFailed));
 
     private static bool IsAlbumKind(string kind)
         => string.Equals(kind, "Album", StringComparison.OrdinalIgnoreCase)
             || string.Equals(kind, "AlbumJob", StringComparison.OrdinalIgnoreCase);
 
-    private static string BuildCountsMarkup((int Active, int Queued, int Completed, int Failed) counts)
+    internal static TerminalJobCounts CountJobRecords(IEnumerable<TerminalJobRecord> records)
+    {
+        int active = 0;
+        int queued = 0;
+        int completed = 0;
+        int failed = 0;
+        foreach (var record in records)
+        {
+            switch (record.Category)
+            {
+                case CliJobStatusCategory.Queued:
+                    queued++;
+                    break;
+                case CliJobStatusCategory.Active:
+                    active++;
+                    break;
+                case CliJobStatusCategory.Succeeded:
+                    completed++;
+                    break;
+                case CliJobStatusCategory.Failed:
+                    failed++;
+                    break;
+            }
+        }
+
+        return new TerminalJobCounts(active, queued, completed, failed);
+    }
+
+    internal static TerminalJobCounts CountRenderState(TerminalRenderState state)
+    {
+        var counts = CountJobRecords(state.JobRecords);
+        return counts with
+        {
+            Completed = counts.Completed + state.RetiredCompleted,
+            Failed = counts.Failed + state.RetiredFailed,
+        };
+    }
+
+    internal static bool IsIdle(TerminalJobCounts counts)
+        => counts.Active == 0 && counts.Queued == 0;
+
+    private static string BuildCountsMarkup(TerminalJobCounts counts)
     {
         var failedPart = counts.Failed > 0 ? $"[red]{counts.Failed}[/]" : $"{counts.Failed}";
         return $"[cyan]{counts.Active}[/] active · {counts.Queued} queued · [green]{counts.Completed}[/] completed · {failedPart} failed";
@@ -908,6 +1001,25 @@ internal sealed class TerminalLiveRenderer : IDisposable
             ? $" ({rawResultCount.Value})"
             : "";
 
+    internal static string JobProgressAnnotation(JobView job)
+    {
+        if (IsAlbumKind(job.Kind)
+            && job.TotalChildren is int albumTotal
+            && albumTotal > 0)
+            return $" [{job.DoneChildren ?? 0}/{albumTotal}]";
+
+        if (job.Percent is int percent
+            && string.Equals(job.State, "downloading", StringComparison.OrdinalIgnoreCase))
+        {
+            var speed = job.SpeedBytesPerSecond is long bytesPerSecond
+                ? $", {FormatSpeed(bytesPerSecond)}"
+                : "";
+            return $" ({percent,2}%{speed})";
+        }
+
+        return SearchingResultAnnotation(job.State, job.DiscoveryRawResultCount);
+    }
+
     private static IReadOnlyList<LiveCell> JobLeftCells(JobView job, IReadOnlyList<JobChildView> visibleChildren, int hiddenChildren, out TerminalFileMetadata? outMetadata)
     {
         bool isAlbum = IsAlbumKind(job.Kind);
@@ -920,24 +1032,16 @@ internal sealed class TerminalLiveRenderer : IDisposable
         };
 
         Style? stateStyle;
-        string annotation;
+        string annotation = JobProgressAnnotation(job);
         string displayName = job.Name;
         List<LiveCell>? extraDisplayCells = null;
 
-        if (isAlbum && job.TotalChildren is int albumTotal)
+        if (isAlbum && job.TotalChildren is > 0)
         {
-            annotation = $" [{job.DoneChildren ?? 0}/{albumTotal}]";
             stateStyle = null;
-        }
-        else if (job.Percent is int pct && string.Equals(job.State, "downloading", StringComparison.OrdinalIgnoreCase))
-        {
-            var speedStr = job.SpeedBytesPerSecond is long spd ? $", {FormatSpeed(spd)}" : "";
-            annotation = $" ({pct,2}%{speedStr})";
-            stateStyle = StateStyle(job.State);
         }
         else
         {
-            annotation = SearchingResultAnnotation(job.State, job.DiscoveryRawResultCount);
             stateStyle = StateStyle(job.State);
         }
 

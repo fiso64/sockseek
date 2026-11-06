@@ -25,6 +25,7 @@ public sealed record ParsedInvocation(ProfileEntry Profile, string? ConfigPath, 
 
 internal sealed class ProfileBuilder(string name)
 {
+    public string Name => name;
     public string? Condition { get; set; }
     private readonly SettingsPatchBuilder engine = new();
     private readonly SettingsPatchBuilder download = new();

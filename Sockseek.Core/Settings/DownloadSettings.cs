@@ -60,7 +60,7 @@ public class DownloadSettings
     };
 
     /// Tracks which auto-profiles were applied by the job settings resolver.
-    [JsonIgnore]
+    [SettingIgnore]
     public HashSet<string> AppliedAutoProfiles { get; set; } = [];
 
     /// Runtime path expansion context. This is not a user-facing setting.
@@ -68,7 +68,7 @@ public class DownloadSettings
     public PathVariableContext RuntimePathContext { get; set; } = PathVariableContext.Empty;
 
     /// Automatic aggregate threshold supplied by the host's backend.
-    [JsonIgnore]
+    [SettingIgnore]
     public int DefaultMinSharesAggregate { get; set; } = SearchSettings.DefaultMinShares;
 
     // ── Computed properties ───────────────────────────────────────────────────

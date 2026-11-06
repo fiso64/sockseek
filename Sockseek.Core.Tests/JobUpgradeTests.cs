@@ -13,7 +13,8 @@ namespace Tests.Jobs
         [TestMethod]
         public void SongJob_UpgradeToAlbum_ReturnsAlbumJob()
         {
-            var song = new SongJob(new SongQuery { Artist = "Artist", Album = "Album", Title = "Title" }) { ItemNumber = 5, LineNumber = 10 };
+            var song = new SongJob(new SongQuery { Artist = "Artist", Album = "Album", Title = "Title" })
+            { ItemNumber = 5, LineNumber = 10, ExtractorInfo = "Catalog entry: A12" };
             var results = ((IUpgradeable)song).Upgrade(album: true, aggregate: false).ToList();
 
             Assert.AreEqual(1, results.Count);
@@ -27,6 +28,7 @@ namespace Tests.Jobs
             Assert.AreEqual(1, album.UpgradeSources.Count);
             Assert.AreEqual(5, album.ItemNumber);
             Assert.AreEqual(10, album.LineNumber);
+            Assert.AreEqual(song.ExtractorInfo, album.ExtractorInfo);
         }
 
         [TestMethod]

@@ -4,6 +4,11 @@ using Sockseek.Core.Settings;
 
 namespace Sockseek.Core.Services;
 
+public sealed record FallbackTransferDescriptor(
+    string SourceReference,
+    string SourceTitle,
+    string OutputPathPrefix);
+
 public interface ISongDownloadFallback
 {
     bool CanRun(SongJob song, DownloadSettings settings);
@@ -13,7 +18,8 @@ public interface ISongDownloadFallback
         DownloadSettings settings,
         FileManager organizer,
         IJobLog? log,
-        CancellationToken ct);
+        CancellationToken ct,
+        Action<FallbackTransferDescriptor>? transferStarting = null);
 }
 
 public static class SongDownloadFallback

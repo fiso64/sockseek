@@ -1,7 +1,7 @@
-using System.Collections.Concurrent;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
+using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 
 namespace Sockseek.Cli;
@@ -10,7 +10,9 @@ internal static class PrintOutputRenderer
 {
     private readonly record struct PrintRequest(Job Job, PrintOption Option);
 
-    public static bool PrintRequestedOutput(JobList queue)
+    public static bool PrintRequestedOutput(
+        JobList queue,
+        Func<Guid, IReadOnlyDictionary<string, int>>? getUserSuccessCounts = null)
     {
         var requests = queue.Jobs.SelectMany(CollectPrintRequests).ToList();
         if (requests.Count == 0)
@@ -38,7 +40,11 @@ internal static class PrintOutputRenderer
             }
             else
             {
-                ResultPrintFormatter.Print(request.Job, request.Option, request.Job.Config.Search);
+                ResultPrintFormatter.Print(
+                    request.Job,
+                    request.Option,
+                    request.Job.Config.Search,
+                    getUserSuccessCounts?.Invoke(request.Job.WorkflowId));
                 i++;
             }
 
@@ -132,22 +138,43 @@ internal static class JobPrintFormatter
                 return;
 
             bool full = option.HasFlag(PrintOption.Full);
-            Printing.WriteLine($"{jobs.Count} {Pluralize("job", jobs.Count)}:");
+            PrintHeaderCore(jobs.Count);
 
             for (int i = 0; i < jobs.Count; i++)
-            {
-                if (full)
-                {
-                    if (i > 0)
-                        Printing.WriteLine();
-                    foreach (var line in FormatFull(jobs[i]))
-                        Printing.WriteLine("  " + line);
-                }
-                else
-                {
-                    Printing.WriteLine($"  {FormatNormal(jobs[i])}");
-                }
-            }
+                PrintJobCore(jobs[i], full, separate: i > 0);
+        }
+    }
+
+    public static void PrintHeader(int count)
+    {
+        lock (Printing.ConsoleLock)
+        {
+            if (count > 0)
+                PrintHeaderCore(count);
+        }
+    }
+
+    public static void PrintJob(Job job, PrintOption option, bool separate)
+    {
+        lock (Printing.ConsoleLock)
+            PrintJobCore(job, option.HasFlag(PrintOption.Full), separate);
+    }
+
+    private static void PrintHeaderCore(int count)
+        => Printing.WriteLine($"{count} {Pluralize("job", count)}:");
+
+    private static void PrintJobCore(Job job, bool full, bool separate)
+    {
+        if (full)
+        {
+            if (separate)
+                Printing.WriteLine();
+            foreach (var line in FormatFull(job))
+                Printing.WriteLine("  " + line);
+        }
+        else
+        {
+            Printing.WriteLine($"  {FormatNormal(job)}");
         }
     }
 
@@ -185,14 +212,16 @@ internal static class JobPrintFormatter
                 break;
 
             case RetrieveFolderJob folder:
-                yield return $"  User:               {folder.TargetFolder.Username}";
-                yield return $"  Folder:             {folder.TargetFolder.FolderPath}";
+                yield return $"  User:               {folder.Directory.Username}";
+                yield return $"  Folder:             {folder.Directory.FolderPath}";
                 break;
 
             default:
                 yield return $"  Name:               {DisplayName(job, noInfo: true)}";
                 break;
         }
+        if (!string.IsNullOrWhiteSpace(job.ExtractorInfo))
+            yield return $"  Extractor info:     {job.ExtractorInfo}";
     }
 
     private static IEnumerable<string> SongFields(SongJob song)
@@ -201,8 +230,6 @@ internal static class JobPrintFormatter
             yield return line;
         if (!string.IsNullOrWhiteSpace(song.DownloadPath))
             yield return $"Local path:         {song.DownloadPath}";
-        if (!string.IsNullOrWhiteSpace(song.Other))
-            yield return $"Other:              {song.Other}";
     }
 
     private static IEnumerable<string> AlbumFields(AlbumJob album)
@@ -265,20 +292,28 @@ internal static class JobPrintFormatter
 
 internal static class ResultPrintFormatter
 {
-    public static void Print(Job job, PrintOption printOption, SearchSettings search)
+    public static void Print(
+        Job job,
+        PrintOption printOption,
+        SearchSettings search,
+        IReadOnlyDictionary<string, int>? reputationSnapshot = null)
     {
         lock (Printing.ConsoleLock)
         {
             switch (job)
             {
                 case JobList list:
-                    PrintJobListResults(list, printOption, search);
+                    PrintJobListResults(list, printOption, search, reputationSnapshot);
                     break;
                 case SearchJob searchJob:
-                    PrintSearchResults(searchJob, printOption, search);
+                    PrintSearchResults(
+                        searchJob,
+                        printOption,
+                        search,
+                        reputationSnapshot);
                     break;
                 case SongJob song:
-                    PrintSongResults(song, printOption, search);
+                    PrintSongResults(song, printOption);
                     break;
                 case AggregateJob aggregate:
                     PrintAggregateResults(aggregate, printOption);
@@ -296,11 +331,16 @@ internal static class ResultPrintFormatter
         }
     }
 
-    private static void PrintSearchResults(SearchJob searchJob, PrintOption printOption, SearchSettings search)
+    private static void PrintSearchResults(
+        SearchJob searchJob,
+        PrintOption printOption,
+        SearchSettings search,
+        IReadOnlyDictionary<string, int>? reputationSnapshot)
     {
         if (searchJob.DefaultFolderProjection != null)
         {
-            var folders = searchJob.GetAlbumFolders(search);
+            var folders = searchJob.GetAlbumFolders(
+                searchJob.DefaultFolderProjection, search, includeLocked: true);
             var album = new AlbumJob(searchJob.DefaultFolderProjection.Query)
             {
                 Results = folders.Items.ToList(),
@@ -312,18 +352,30 @@ internal static class ResultPrintFormatter
 
         var projection = searchJob.DefaultFileProjection
             ?? new FileSearchProjection(new SongQuery { Title = searchJob.QueryText });
-        var candidates = searchJob
-            .GetSortedTrackCandidates(projection, search, new ConcurrentDictionary<string, int>())
-            .Items;
+        var kernel = new SearchViewKernel(
+            projection,
+            search,
+            reputationSnapshot);
+        kernel.Apply(
+            searchJob.RawSnapshot().Select(result => result.ProjectionInput),
+            searchJob.Revision,
+            searchJob.IsComplete);
+        var candidates = kernel.Snapshot().Files
+            .Select(file => file.Input.ToFileCandidate(file.ConditionFacts))
+            .ToArray();
         var song = new SongJob(projection.Query)
         {
             Candidates = candidates.ToList(),
             Config = searchJob.Config,
         };
-        PrintSongResults(song, printOption, search);
+        PrintSongResults(song, printOption);
     }
 
-    private static void PrintJobListResults(JobList list, PrintOption printOption, SearchSettings search)
+    private static void PrintJobListResults(
+        JobList list,
+        PrintOption printOption,
+        SearchSettings search,
+        IReadOnlyDictionary<string, int>? reputationSnapshot)
     {
         bool nonVerbose = IsMachineReadable(printOption);
         bool printedAny = false;
@@ -335,7 +387,7 @@ internal static class ResultPrintFormatter
             if (printedAny && !nonVerbose)
                 Printing.WriteLine();
 
-            Print(child, printOption, search);
+            Print(child, printOption, search, reputationSnapshot);
             printedAny = true;
         }
     }
@@ -351,9 +403,10 @@ internal static class ResultPrintFormatter
         }
         else if (printOption.HasFlag(PrintOption.Link))
         {
-            var first = aggregate.Songs.FirstOrDefault(s => s.ChosenCandidate != null);
-            if (first?.ChosenCandidate != null)
-                Printing.PrintLink(first.ChosenCandidate.Username, first.ChosenCandidate.Filename);
+            var first = aggregate.Songs.SelectMany(song => song.Candidates ?? [])
+                .FirstOrDefault(candidate => candidate.Visibility == SearchResultVisibility.Public);
+            if (first != null)
+                Printing.PrintLink(first.Username, first.Filename);
         }
         else
         {
@@ -404,8 +457,10 @@ internal static class ResultPrintFormatter
 
         if (printOption.HasFlag(PrintOption.Link))
         {
-            if (album.Results.Count > 0)
-                Printing.PrintAlbumLink(album.Results[0]);
+            var first = album.Results.FirstOrDefault(folder =>
+                folder.Files.Any(file => file.Candidate.Visibility == SearchResultVisibility.Public));
+            if (first != null)
+                Printing.PrintAlbumLink(first);
             return;
         }
 
@@ -425,20 +480,17 @@ internal static class ResultPrintFormatter
 
         foreach (var folder in album.Results)
         {
-            Printing.PrintAlbum(folder);
+            Printing.PrintAlbum(folder, showConditions: printOption.HasFlag(PrintOption.Full));
             if (!printOption.HasFlag(PrintOption.Full))
                 break;
         }
     }
 
-    private static void PrintSongResults(SongJob song, PrintOption printOption, SearchSettings search)
+    private static void PrintSongResults(SongJob song, PrintOption printOption)
     {
-        search = song.Config?.ResolveSearchSettings(search) ?? search;
         bool printFull = printOption.HasFlag(PrintOption.Full);
         bool nonVerbose = IsMachineReadable(printOption);
-        var orderedResults = song.Candidates?
-            .Select(candidate => (candidate.Response, candidate.File))
-            .ToList();
+        var orderedResults = song.Candidates?.ToList();
 
         if (!nonVerbose)
             Printing.WriteLine($"Results for {song}:");
@@ -446,7 +498,7 @@ internal static class ResultPrintFormatter
         if (orderedResults == null || orderedResults.Count == 0)
         {
             if (printOption.HasFlag(PrintOption.Json))
-                JsonPrinter.PrintTrackResultJson(song.Query, []);
+                JsonPrinter.PrintTrackResultJson(song.Query, Array.Empty<FileCandidate>());
             if (!nonVerbose)
                 Printing.WriteLine("No results", ConsoleColor.Yellow);
             return;
@@ -458,14 +510,15 @@ internal static class ResultPrintFormatter
         if (printOption.HasFlag(PrintOption.Json))
             JsonPrinter.PrintTrackResultJson(song.Query, orderedResults, printFull);
         else if (printOption.HasFlag(PrintOption.Link))
-            Printing.PrintLink(orderedResults.First().Response.Username, orderedResults.First().File.Filename);
+        {
+            var first = orderedResults.FirstOrDefault(candidate => candidate.Visibility == SearchResultVisibility.Public);
+            if (first != null) Printing.PrintLink(first.Username, first.Filename);
+        }
         else
-            Printing.PrintTrackResults(
-                orderedResults.Select(x => (x.Response, x.File)),
+            Printing.PrintTrackCandidates(
+                orderedResults,
                 song.Query,
-                printFull,
-                search.NecessaryCond,
-                search.PreferredCond);
+                printFull);
     }
 
     private static bool IsMachineReadable(PrintOption printOption)

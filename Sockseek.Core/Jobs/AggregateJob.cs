@@ -1,4 +1,5 @@
 using Sockseek.Core.Models;
+using Sockseek.Core.Snapshots;
 
 namespace Sockseek.Core.Jobs;
     // Downloads all search results matching a query (e.g. all songs by an artist,
@@ -11,11 +12,18 @@ namespace Sockseek.Core.Jobs;
         protected override bool DefaultCanBeSkipped => false;
 
         // One SongJob per found variant. Populated after search.
-        public List<SongJob> Songs { get; set; } = new();
+        private readonly JobMembers<SongJob> members;
+        public IReadOnlyList<SongJob> Songs
+        {
+            get => members.Snapshot;
+            set => members.Replace(value);
+        }
+        internal JobOutcomeSummary MemberOutcomes => members.Summary;
 
         public AggregateJob(SongQuery query)
         {
             Query = query;
+            members = new(false, NotifyStructureChanged);
         }
 
         public override string ToString(bool noInfo)

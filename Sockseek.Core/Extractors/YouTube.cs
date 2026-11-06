@@ -15,6 +15,9 @@ using Sockseek.Core.Settings;
 namespace Sockseek.Core.Extractors;
     public class YouTubeExtractor : IExtractor, IInputMatcher
     {
+        public JobSourceInfo? DescribeSource(ExtractJob source, Job item)
+            => ReferenceEquals(source, item) ? new(Detail: "YouTube import", PreviewDetail: "YouTube import") : null;
+
         private readonly YouTubeSettings _yt;
 
         public YouTubeExtractor(YouTubeSettings yt) { _yt = yt; }
@@ -71,14 +74,14 @@ namespace Sockseek.Core.Extractors;
 
             var slj = new JobList { ItemName = name, EnablesIndexByDefault = true };
             foreach (var s in songs)
-                slj.Jobs.Add(s);
+                slj.Add(s);
 
             if (reverse)
             {
-                slj.Jobs.Reverse();
-                slj.Jobs.RemoveRange(0, Math.Min(offset, slj.Jobs.Count));
+                slj.ReverseMembers();
+                slj.RemoveRange(0, Math.Min(offset, slj.Jobs.Count));
                 if (slj.Jobs.Count > maxTracks)
-                    slj.Jobs.RemoveRange(maxTracks, slj.Jobs.Count - maxTracks);
+                    slj.RemoveRange(maxTracks, slj.Jobs.Count - maxTracks);
             }
 
             return slj;
@@ -267,12 +270,9 @@ namespace Sockseek.Core.Extractors;
                 ArtistMaybeWrong = artistMaybeWrong,
             };
 
-            return new SongJob(query) { Other = other };
+            return new SongJob(query) { ExtractorInfo = other };
         }
 
-        // Legacy adapter: used by tests and callers that still work with Track shape.
-        public static async Task<SongJob> ParseTrackInfo(string title, string uploader, string id, int length, string desc = "", bool requestInfoIfNeeded = false)
-            => await ParseSongInfo(title, uploader, id, length, desc, requestInfoIfNeeded);
 
         public static async Task<(string title, string uploader, int length, string desc)> GetVideoInfo(string id)
         {
@@ -394,12 +394,7 @@ namespace Sockseek.Core.Extractors;
             return (playlistTitle, songs);
         }
 
-        // Legacy adapter for callers that expected (string, List<Track>)
-        public static async Task<(string, List<SongJob>)> GetTracksYtExplode(string url, int max = int.MaxValue, int offset = 0)
-            => await GetSongsYtExplode(url, max, offset);
 
-        public static async Task<(string, List<SongJob>)> GetTracksApi(string url, int max = int.MaxValue, int offset = 0)
-            => await GetSongsApi(url, max, offset);
 
         public static async Task<string> UrlToId(string url)
         {
@@ -478,7 +473,7 @@ namespace Sockseek.Core.Extractors;
                                     if (!string.IsNullOrWhiteSpace(title))
                                     {
                                         var song = await ParseSongInfo(title, uploader, waybackUrl, duration, log: _log);
-                                        song.Other = $"{{\"t\":\"{title.Trim()}\",\"u\":\"{uploader.Trim()}\"}}";
+                                        song.ExtractorInfo = $"{{\"t\":\"{title.Trim()}\",\"u\":\"{uploader.Trim()}\"}}";
                                         songs.Add(song);
                                         good = true;
                                         break;

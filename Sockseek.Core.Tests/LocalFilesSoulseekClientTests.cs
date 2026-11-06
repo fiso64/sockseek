@@ -10,6 +10,47 @@ namespace Tests.Core;
 public class LocalFilesSoulseekClientTests
 {
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task FactoryDownloadsRespectOutputOwnership(bool disposeOutput)
+    {
+        var file = new Soulseek.File(1, @"Shared\Track.bin", 8, ".bin");
+        var client = new LocalFilesSoulseekClient([new SearchResponse("peer", 1, true, 100, 0, [file])]);
+        using var output = new MemoryStream();
+        var transfer = await client.DownloadAsync("peer", file.Filename, () => Task.FromResult<Stream>(output),
+            options: new TransferOptions(disposeOutputStreamOnCompletion: disposeOutput));
+        Assert.AreEqual(TransferStates.Completed, transfer.State);
+        Assert.AreEqual(!disposeOutput, output.CanWrite);
+        CollectionAssert.AreEqual(Enumerable.Range(0, 8).Select(i => (byte)i).ToArray(), output.ToArray());
+    }
+
+    [TestMethod]
+    public async Task ResponseHandlerSearch_PropagatesCancellationWithoutAggregateException()
+    {
+        var indexedFile = new Soulseek.File(
+            code: 1,
+            filename: @"Artist\Track.mp3",
+            size: 4,
+            extension: "mp3");
+        var response = new SearchResponse(
+            username: "local",
+            token: 1,
+            hasFreeUploadSlot: true,
+            uploadSpeed: 100,
+            queueLength: 0,
+            fileList: [indexedFile]);
+        var client = new LocalFilesSoulseekClient([response]);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
+            client.SearchAsync(
+                new SearchQuery("Track"),
+                responseHandler: _ => { },
+                cancellationToken: cancellation.Token));
+    }
+
+    [TestMethod]
     public async Task FromLocalPaths_UsesSoulseekRelativeIdentityAndDownloadsFromLocalSource()
     {
         string root = Path.Combine(Path.GetTempPath(), "Sockseek-local-files-identity-" + Guid.NewGuid());

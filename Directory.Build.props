@@ -1,9 +1,13 @@
 <Project>
   <PropertyGroup>
-    <VersionPrefix>3.0.7</VersionPrefix>
+    <VersionPrefix>4.0.0</VersionPrefix>
     <VersionSuffix></VersionSuffix>
 
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+
+    <!-- Keep expensive qualification fixtures out of the fast default loop.
+         An explicit command-line test filter replaces this default. -->
+    <VSTestTestCaseFilter Condition="'$(VSTestTestCaseFilter)' == ''">TestCategory!=Load</VSTestTestCaseFilter>
   </PropertyGroup>
 
   <ItemGroup Condition="$([System.String]::Copy('$(MSBuildProjectName)').EndsWith('.Tests'))">
@@ -12,6 +16,14 @@
 
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'Sockseek.Cli.Tests' Or '$(MSBuildProjectName)' == 'Sockseek.Server.Tests'">
     <Compile Include="$(MSBuildThisFileDirectory)tests/TestServerHost.cs" Link="TestSupport/TestServerHost.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'Sockseek.Persistence.Tests' Or '$(MSBuildProjectName)' == 'Sockseek.Server.Tests' Or '$(MSBuildProjectName)' == 'Sockseek.Cli.Tests'">
+    <Compile Include="$(MSBuildThisFileDirectory)tests/TestDatabase.cs" Link="TestSupport/TestDatabase.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'Sockseek.Persistence.Tests' Or '$(MSBuildProjectName)' == 'Sockseek.Server.Tests'">
+    <Compile Include="$(MSBuildThisFileDirectory)tests/TestPersistenceWriter.cs" Link="TestSupport/TestPersistenceWriter.cs" />
   </ItemGroup>
 
   <!-- Redirect the lock file to the ignored 'obj' folder during manual publishes -->

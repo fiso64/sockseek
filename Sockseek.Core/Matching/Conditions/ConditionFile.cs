@@ -10,6 +10,9 @@ internal readonly record struct ConditionFile(
     public static ConditionFile From(Soulseek.File file)
         => new(file.Filename, file.Length, file.BitRate, file.SampleRate, file.BitDepth);
 
+    public static ConditionFile From(FileCandidate file)
+        => new(file.Filename, file.Length, file.BitRate, file.SampleRate, file.BitDepth);
+
     public static ConditionFile From(TagLib.File file)
         => new(
             file.Name,

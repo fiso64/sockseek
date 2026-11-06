@@ -306,7 +306,7 @@ public partial class AlbumGroupingBenchmarks
                 inferredByFilename.Add(item.File.Filename, info);
             }
 
-            files.Add(new AlbumFile(info, new FileCandidate(item.Response, item.File)));
+            files.Add(new AlbumFile(info, SoulseekSearchAdapter.ToFileCandidate(item.Response, item.File)));
         }
 
         return files;

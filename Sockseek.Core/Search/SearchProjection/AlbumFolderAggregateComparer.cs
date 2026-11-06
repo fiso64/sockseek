@@ -7,13 +7,13 @@ namespace Sockseek.Core.Services;
 internal sealed class AlbumFolderAggregateComparer : IComparer<AlbumFolder>
 {
     private readonly ResultSorter.SortKeyContext keyContext;
-    private readonly IReadOnlyDictionary<string, int> folderOrder;
-    private readonly Dictionary<string, ResultSorter.SortEntry?> bestEntries = new(StringComparer.Ordinal);
+    private readonly IReadOnlyDictionary<PeerPathKey, int> folderOrder;
+    private readonly Dictionary<PeerPathKey, ResultSorter.SortEntry?> bestEntries = [];
 
     public AlbumFolderAggregateComparer(
         AlbumQuery query,
         SearchSettings search,
-        IReadOnlyDictionary<string, int> folderOrder)
+        IReadOnlyDictionary<PeerPathKey, int> folderOrder)
     {
         this.folderOrder = folderOrder;
         keyContext = ResultSorter.CreateSortKeyContext(
@@ -97,7 +97,7 @@ internal sealed class AlbumFolderAggregateComparer : IComparer<AlbumFolder>
         if (folder.SearchAggregateSortEntry.HasValue)
             return folder.SearchAggregateSortEntry;
 
-        string key = FolderKey(folder);
+        PeerPathKey key = FolderKey(folder);
         if (bestEntries.TryGetValue(key, out var cached))
             return cached;
 
@@ -111,8 +111,7 @@ internal sealed class AlbumFolderAggregateComparer : IComparer<AlbumFolder>
         foreach (var file in folder.Files)
         {
             var entry = ResultSorter.CreateSortEntry(
-                file.Candidate.Response,
-                file.Candidate.File,
+                file.Candidate,
                 keyContext,
                 originalIndex: 0);
             if (!entry.HasValue)
@@ -138,8 +137,8 @@ internal sealed class AlbumFolderAggregateComparer : IComparer<AlbumFolder>
             ? order
             : int.MaxValue;
 
-    private static string FolderKey(AlbumFolder folder)
-        => folder.Username + '\\' + folder.FolderPath;
+    private static PeerPathKey FolderKey(AlbumFolder folder)
+        => new(folder.Username, folder.FolderPath);
 
     private static int CompareCoverageBuckets(AlbumQualityCoverageBucket x, AlbumQualityCoverageBucket y)
         => y.Bucket.CompareTo(x.Bucket);

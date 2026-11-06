@@ -40,6 +40,10 @@ public class SearchSettings
     [SettingOption("--pmbd", "--pref-min-bitdepth", Member = "MinBitDepth")]
     [SettingOption("--pMbd", "--pref-max-bitdepth", Member = "MaxBitDepth")]
     [SettingOption("--pst", "--pstt", "--pref-strict-title", Member = "StrictTitle")]
+    // When string ranking is active, artist-in-path matching still acts as a late
+    // tie-breaker with this option off, after quality preferences, free slots and
+    // coarse upload speed. Enabling it promotes artist matching ahead of those
+    // factors and requires it for a result to count as preferred.
     [SettingOption("--psar", "--pref-strict-artist", Member = "StrictArtist")]
     [SettingOption("--psal", "--pref-strict-album", Member = "StrictAlbum")]
     [SettingOption("--panl", "--pref-accept-no-length", Member = "AcceptNoLength")]

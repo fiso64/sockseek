@@ -17,7 +17,8 @@ public sealed class YtDlpSongDownloadFallback(IYtDlpClient client) : ISongDownlo
         DownloadSettings settings,
         FileManager organizer,
         IJobLog? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<FallbackTransferDescriptor>? transferStarting = null)
     {
         if (!CanRun(song, settings))
             return null;
@@ -31,6 +32,7 @@ public sealed class YtDlpSongDownloadFallback(IYtDlpClient client) : ISongDownlo
             ? $"{song.Query.Artist} - {song.Query.Title}"
             : result.Title;
         var savePathNoExt = organizer.GetSavePathNoExt(sourceName + ".mp3");
+        transferStarting?.Invoke(new FallbackTransferDescriptor(result.Id, sourceName, savePathNoExt));
         var downloadPath = await client.DownloadAsync(
             result.Id,
             savePathNoExt,

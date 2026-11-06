@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -119,9 +121,9 @@ public class RemoteProfileTests
         var clientInput = Path.Combine(root, "client-wishlist.txt");
         var daemonInput = Path.Combine(root, "daemon-wishlist.txt");
         var overrideInput = Path.Combine(root, "explicit-wishlist.txt");
-        File.WriteAllText(clientInput, "\"Artist - Client Album\"\n");
-        File.WriteAllText(daemonInput, "\"Artist - Daemon Album\"\n");
-        File.WriteAllText(overrideInput, "\"Artist - Explicit Album\"\n");
+        File.WriteAllText(clientInput, "");
+        File.WriteAllText(daemonInput, "");
+        File.WriteAllText(overrideInput, "");
         var configPath = Path.Combine(root, "client.conf");
         var daemonWishlist = new SettingsProfile
         {
@@ -141,6 +143,7 @@ public class RemoteProfileTests
         };
         await using var app = TestServerHost.Build([], new ServerOptions
         {
+            Persistence = new ServerPersistenceOptions { Enabled = true, DataDirectory = Directory.CreateDirectory(Path.Combine(root, "data")).FullName },
             Engine = new EngineSettings { MockFilesDir = library, MockFilesReadTags = false },
             DefaultDownload = new DownloadSettings
             {
@@ -161,13 +164,31 @@ public class RemoteProfileTests
         var originalError = Console.Error;
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
-        var stateStore = app.Services.GetRequiredService<EngineSupervisor>().StateStore;
+        var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
+        var stateStore = supervisor.StateStore;
+        SubmitExtractJobRequestDto? submittedRequest = null;
+        CreateJobPreviewRequestDto? previewRequest = null;
+        app.Use(async (context, next) =>
+        {
+            if (context.Request.Method == "POST" && context.Request.Path == "/api/jobs/extract")
+            {
+                context.Request.EnableBuffering();
+                submittedRequest = await context.Request.ReadFromJsonAsync<SubmitExtractJobRequestDto>(SockseekApiJson.CreateSerializerOptions());
+                context.Request.Body.Position = 0;
+            }
+            else if (context.Request.Method == "POST" && context.Request.Path == "/api/job-previews")
+            {
+                context.Request.EnableBuffering();
+                previewRequest = await context.Request.ReadFromJsonAsync<CreateJobPreviewRequestDto>(SockseekApiJson.CreateSerializerOptions());
+                context.Request.Body.Position = 0;
+            }
+            await next(context);
+        });
         var completed = new TaskCompletionSource<JobSummaryDto>(TaskCreationOptions.RunContinuationsAsynchronously);
         void OnJobUpserted(JobSummaryDto summary)
         {
-            if (summary.Kind == ServerJobKind.Extract && summary.ParentJobId == null
-                && summary.TerminalOutcome != ServerJobTerminalOutcome.None)
-                completed.TrySetResult(summary);
+            if (summary.Kind != ServerJobKind.Extract || summary.ParentJobId != null) return;
+            if (summary.TerminalOutcome != ServerJobTerminalOutcome.None) completed.TrySetResult(summary);
         }
         stateStore.JobUpserted += OnJobUpserted;
         try
@@ -178,12 +199,13 @@ public class RemoteProfileTests
                 ? $"[wishlist]\nremote = {url}\ninput = {clientInput}\ninput-type = list\nmax-stale-time = 1000\n"
                     + "format = mp3\npref-format = mp3\nmin-bitrate = 128\nname-format = client/{filename}\n"
                     + "write-index = false\nskip-existing = true\nreverse = false\nmax-retries = 99\nno-progress = true\n"
+                    + (detach ? "detach = true\n" : "")
                 : "");
             using var http = SockseekApiClient.CreateHttpClient(url);
             var api = new SockseekApiClient(http);
-            List<string> args = ["--config", configPath, "--profile", "wishlist", "--print-jobs"];
+            List<string> args = ["--config", configPath, "--profile", "wishlist"];
             if (!clientProfile) args.AddRange(["--remote", url]);
-            if (detach) args.Add("--detach");
+            if (detach && !clientProfile) args.Add("--detach");
             if (explicitInput) args.AddRange([overrideInput, "--input-type", "list"]);
             if (overrideDownloadSettings)
                 args.AddRange(["--format", "ogg", "--pref-format", "ogg", "--min-bitrate", "192",
@@ -191,6 +213,17 @@ public class RemoteProfileTests
                     "--skip-existing=true", "--reverse=false", "--max-retries", "11"]);
             Console.SetOut(stdout);
             Console.SetError(stderr);
+            if (daemonProfile && !detach && !explicitInput && !overrideDownloadSettings)
+            {
+                var previewExit = await Sockseek.Cli.Program.Main([.. args, "--print", "jobs"])
+                    .WaitAsync(TimeSpan.FromSeconds(15));
+                Assert.AreEqual((int)Sockseek.Cli.Program.CliExitCode.Success, previewExit, stderr.ToString());
+                Assert.IsNotNull(previewRequest);
+                Assert.IsNull(((ExtractJobDraftDto)previewRequest.Job).Input,
+                    "Review must let the daemon resolve its profile input, just like direct submission.");
+                Assert.IsNull(submittedRequest, "Printing a preview must not submit runtime work.");
+                stdout.GetStringBuilder().Clear();
+            }
             var exit = await Sockseek.Cli.Program.Main(args.ToArray()).WaitAsync(TimeSpan.FromSeconds(15));
             Console.SetOut(originalOut);
             Console.SetError(originalError);
@@ -207,15 +240,37 @@ public class RemoteProfileTests
             Assert.AreEqual((int)Sockseek.Cli.Program.CliExitCode.Success, exit, stderr.ToString());
             var summary = await completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, summary.TerminalOutcome, summary.FailureMessage);
-            var job = stateStore.GetJob<ExtractJob>(summary.JobId);
-            Assert.IsNotNull(job);
+            if (detach)
+            {
+                Assert.IsTrue(Guid.TryParse(stdout.ToString().Trim(), out Guid reported), stdout.ToString());
+                Assert.AreEqual(summary.WorkflowId, reported);
+            }
+            Assert.IsNotNull(submittedRequest);
             var expectedInput = explicitInput ? overrideInput : daemonInput;
-            Assert.AreEqual(expectedInput, job.Input);
-            Assert.AreEqual(expectedInput, job.Config.Extraction.Input);
-            Assert.AreEqual(InputType.List, job.InputType);
-            var settings = job.Config;
-            CollectionAssert.AreEqual(new[] { overrideDownloadSettings ? "ogg" : "flac" }, settings.Search.NecessaryCond.Formats);
-            CollectionAssert.AreEqual(new[] { overrideDownloadSettings ? "ogg" : "flac" }, settings.Search.PreferredCond.Formats);
+            var detail = await api.GetJobDetailAsync(summary.JobId);
+            Assert.IsNotNull(detail);
+            var source = (ExtractJobPayloadDto)detail.Payload!;
+            if (explicitInput)
+            {
+                Assert.IsNotNull(submittedRequest.ArtifactId);
+                var accepted = await api.GetSubmissionAsync(summary.SubmissionId!.Value);
+                Assert.IsNotNull(accepted);
+                Assert.AreEqual(submittedRequest.ArtifactId, accepted.Summary.ArtifactId);
+                Assert.AreNotEqual(expectedInput, source.Input, "The daemon must read the upload, not the client's filesystem path.");
+            }
+            else Assert.AreEqual(expectedInput, source.Input);
+            Assert.AreEqual("List", source.InputType);
+            var resolved = await api.ResolveEffectiveSettingsAsync(new(
+                new ExtractJobDraftDto(expectedInput, "List"), submittedRequest.Options));
+            var settings = resolved.Settings.Values;
+            Assert.IsNotNull(settings.Search);
+            Assert.IsNotNull(settings.Output);
+            Assert.IsNotNull(settings.Skip);
+            Assert.IsNotNull(settings.Extraction);
+            Assert.IsNotNull(settings.Transfer);
+            Assert.AreEqual(expectedInput, submittedRequest.Input ?? expectedInput);
+            CollectionAssert.AreEqual(new[] { overrideDownloadSettings ? "ogg" : "flac" }, settings.Search!.NecessaryCond!.Formats!.Replace!.ToArray());
+            CollectionAssert.AreEqual(new[] { overrideDownloadSettings ? "ogg" : "flac" }, settings.Search!.PreferredCond!.Formats!.Replace!.ToArray());
             Assert.AreEqual(overrideDownloadSettings ? 192 : 320, settings.Search.NecessaryCond.MinBitrate);
             Assert.AreEqual(overrideDownloadSettings ? 3000 : 2000, settings.Search.MaxStaleTime);
             Assert.AreEqual(overrideDownloadSettings ? "cli/{filename}" : "daemon/{filename}", settings.Output.NameFormat);
@@ -226,14 +281,13 @@ public class RemoteProfileTests
                 "A client-only setting must not fill gaps in the daemon profile.");
             Assert.AreEqual(clientProfile ? 12345 : 5000, settings.Search.SearchTimeout);
             CollectionAssert.AreEqual(clientProfile ? new[] { "client-no-progress" } : Array.Empty<string>(),
-                settings.AppliedAutoProfiles.ToArray());
+                resolved.AppliedAutoProfiles.ToArray());
         }
         finally
         {
             stateStore.JobUpserted -= OnJobUpserted;
             Console.SetOut(originalOut);
             Console.SetError(originalError);
-            SockseekLog.RemoveNonFileOutputs();
             await app.StopAsync();
             Directory.Delete(root, recursive: true);
         }
