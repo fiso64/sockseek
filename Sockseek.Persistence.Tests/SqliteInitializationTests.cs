@@ -24,6 +24,42 @@ namespace Sockseek.Persistence.Tests;
 public sealed class SqliteInitializationTests
 {
     [TestMethod]
+    public async Task ArchiveUpgradeDeletesJobsButPreservesTransfersAndReruns()
+    {
+        await using var database = new TemporaryDatabase();
+        await using var context = await database.Factory.CreateDbContextAsync();
+        await context.GetService<IMigrator>().MigrateAsync("20261106230000_DownloadPresentationGroups");
+        Guid runtime = Guid.NewGuid(), deleted = Guid.NewGuid(), rerun = Guid.NewGuid();
+        context.RuntimeSessions.Add(new RuntimeSessionEntity { Id = runtime, Version = "migration" });
+        context.Submissions.AddRange(
+            new SubmissionEntity { Id = deleted, SpecificationSchemaVersion = 1, Revision = 1, Specification = new() { Json = "{}" } },
+            new SubmissionEntity { Id = rerun, RerunOfSubmissionId = deleted, SpecificationSchemaVersion = 1, Revision = 1,
+                Specification = new() { Json = "{}" } });
+        var job = JobRow(Guid.NewGuid(), runtime, 1, "Terminal", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        job.SubmissionId = deleted;
+        context.Jobs.Add(job);
+        await context.SaveChangesAsync();
+        // Seed the previous schema directly; current entities deliberately have no archive field.
+        await context.Database.ExecuteSqlInterpolatedAsync($"UPDATE submissions SET archived_at_utc = 100 WHERE id = {deleted}");
+        await context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO transfers (id, job_id, last_runtime_id, last_sequence, direction, source, state,
+                terminal_outcome, failure_reason, cancellation_source, total_bytes, transferred_bytes,
+                attempt_count, created_at_utc, completed_at_utc, revision, group_kind, archived_at_utc)
+            VALUES ({Guid.NewGuid()}, {job.Id}, {runtime}, 1, 'Download', 'SoulseekPeer', 'Completed',
+                'Succeeded', 'None', 'None', 100, 100, 1, 1, 2, 1, 'Directory', 100)
+            """);
+        context.ChangeTracker.Clear();
+        await context.Database.MigrateAsync();
+        Assert.AreEqual(0, await context.Jobs.CountAsync());
+        var retained = await context.Transfers.SingleAsync();
+        Assert.IsNull(retained.JobId);
+        Assert.AreEqual(100L, retained.RemovedAtUtc);
+        Assert.AreEqual(100L, retained.TransferredBytes);
+        Assert.IsNull((await context.Submissions.SingleAsync()).RerunOfSubmissionId);
+        Assert.AreEqual(rerun, (await context.Set<SubmissionSpecificationEntity>().SingleAsync()).SubmissionId);
+    }
+
+    [TestMethod]
     public async Task DownloadGroupingMigrationPreservesSelectionBoundariesAndOutputPaths()
     {
         await using var database = new TemporaryDatabase();
@@ -167,7 +203,7 @@ public sealed class SqliteInitializationTests
         Assert.AreEqual("0", Scalar(context,
             "SELECT COUNT(*) FROM sqlite_master WHERE name GLOB 'search_view*' OR name GLOB 'search_directory_observation*';"));
         Assert.AreEqual("1", Scalar(context,
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_transfers_group_ref_username_direction_archived_at_utc';"));
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_transfers_group_ref_username_direction_removed_at_utc';"));
         Assert.AreEqual("1", Scalar(context,
             "SELECT COUNT(*) FROM pragma_table_info('jobs') WHERE name = 'source_detail';"));
 

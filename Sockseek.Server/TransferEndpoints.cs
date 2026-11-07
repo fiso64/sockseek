@@ -21,7 +21,7 @@ internal static class TransferEndpoints
             string? groupRef,
             DateTimeOffset? fromUtc,
             DateTimeOffset? toUtc,
-            bool? archived,
+            bool? includeRemoved,
             string? cursor,
             int? limit,
             CancellationToken cancellationToken) =>
@@ -32,7 +32,7 @@ internal static class TransferEndpoints
                     Cursor: cursor, Limit: limit ?? ServerProtocol.DefaultPageSize,
                     JobId: jobId, WorkflowId: workflowId, Direction: direction, Source: source,
                     State: state, TerminalOutcome: terminalOutcome, Username: username,
-                    FromUtc: fromUtc, ToUtc: toUtc, Archived: archived ?? false, GroupRef: groupRef),
+                    FromUtc: fromUtc, ToUtc: toUtc, IncludeRemoved: includeRemoved ?? false, GroupRef: groupRef),
                     cancellationToken);
                 if (page.NextCursor != null)
                     httpContext.Response.Headers["X-Next-Cursor"] = page.NextCursor;
@@ -143,7 +143,7 @@ internal static class TransferEndpoints
             catch (Exception ex) when (IsInvalidRequest(ex)) { return BadRequest(ex); }
         })
             .WithTags("Transfers")
-            .WithSummary("Looks up current unarchived transfer timeline rows by ID.")
+            .WithSummary("Looks up current visible transfer timeline rows by ID.")
             .WithDescription("Uses the same live, queued and retained projection as the timeline. Returns all found IDs in newest-first order without a continuation. Missing IDs are omitted; retained availability is explicit.")
             .Produces<TransferTimelinePageDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
@@ -272,17 +272,15 @@ internal static class TransferEndpoints
             .WithDescription("Targets are resolved once, then cancelled independently. Races and per-transfer failures are reported in a fixed-size receipt.")
             .Produces<TransferCommandReceiptDto>();
 
-        app.MapPost("/api/transfers/{transferId:guid}/archive", async (
+        app.MapDelete("/api/transfers/{transferId:guid}", async (
             Guid transferId,
-            SetTransferArchivedRequestDto request,
             TransferReadService transfers,
             CancellationToken cancellationToken) =>
         {
             try
             {
-                return Results.Ok(await transfers.SetTransfersArchivedAsync(
-                    new Sockseek.Persistence.Read.TransferArchiveFilter(TransferId: transferId),
-                    request.Archived,
+                return Results.Ok(await transfers.RemoveTransfersAsync(
+                    new Sockseek.Persistence.Read.TransferRemovalFilter(TransferId: transferId),
                     cancellationToken));
             }
             catch (NotSupportedException ex)
@@ -291,27 +289,26 @@ internal static class TransferEndpoints
             }
         })
             .WithTags("Transfers")
-            .WithSummary("Archives or restores one terminal retained transfer.")
-            .WithDescription("Archive is reversible and separate from cancellation; a nonterminal transfer is rejected.")
+            .WithSummary("Removes one terminal retained transfer.")
+            .WithDescription("Removal hides a terminal transfer from ordinary listings while preserving history and statistics. Nonterminal transfers are rejected.")
             .Produces<TransferCommandReceiptDto>()
             .Produces(StatusCodes.Status503ServiceUnavailable);
 
-        app.MapPost("/api/transfers/archive", async (
-            ArchiveTransfersRequestDto request,
+        app.MapPost("/api/transfers/remove", async (
+            RemoveTransfersRequestDto request,
             TransferReadService transfers,
             CancellationToken cancellationToken) =>
         {
             try
             {
-                return Results.Ok(await transfers.SetTransfersArchivedAsync(
-                    new Sockseek.Persistence.Read.TransferArchiveFilter(
+                return Results.Ok(await transfers.RemoveTransfersAsync(
+                    new Sockseek.Persistence.Read.TransferRemovalFilter(
                         Direction: request.Direction,
                         TerminalOutcome: request.TerminalOutcome,
                         Username: request.Username,
                         FromUtc: request.FromUtc,
                         ToUtc: request.ToUtc,
                         GroupRef: request.GroupRef),
-                    request.Archived,
                     cancellationToken));
             }
             catch (NotSupportedException ex)
@@ -320,8 +317,8 @@ internal static class TransferEndpoints
             }
         })
             .WithTags("Transfers")
-            .WithSummary("Archives or restores terminal transfer history, optionally scoped to an exact peer/group.")
-            .WithDescription("The command is reversible, excludes active transfers, and returns bounded outcome counts.")
+            .WithSummary("Removes terminal transfers from listings, optionally scoped to an exact peer/group.")
+            .WithDescription("Preserves retained history and statistics, excludes active transfers, and returns bounded outcome counts.")
             .Produces<TransferCommandReceiptDto>()
             .Produces(StatusCodes.Status503ServiceUnavailable);
 

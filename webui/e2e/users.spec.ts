@@ -291,7 +291,7 @@ test('filters Unicode share names without changing the selected download identit
   await expect(file).toHaveCount(1);
   await expect(file.getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
   await expect(file).toContainText('Აbc.txt');
-  const response = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
+  const response = await page.request.get('/api/transfers?direction=download&limit=100');
   expect(response.ok(), await response.text()).toBe(true);
   const transfers = (await response.json() as Schema<'TransferTimelinePageDto'>).items;
   expect(transfers).toHaveLength(1);

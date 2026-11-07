@@ -28,9 +28,9 @@ function observeJobCompletion(page: Page, job: Schema<'JobSummaryDto'>): Promise
   })));
 }
 
-test('removes a terminal user root from detail, retaining rejected actions and archived history', async ({ page }) => {
+test('removes a terminal user root from detail, preserving rejected actions and deleting accepted work', async ({ page }) => {
   const response = await page.request.post('/api/jobs/lists', { data: {
-    name: 'Archive detail fixture', jobs: [{ kind: 'remote-file', target: {
+    name: 'Deletion detail fixture', jobs: [{ kind: 'remote-file', target: {
       username: 'fixture-peer', filename: 'Fixture\\Fixture song.txt', size: 128, extension: '.txt',
     } }],
   } satisfies Schema<'SubmitJobListRequestDto'> });
@@ -44,21 +44,21 @@ test('removes a terminal user root from detail, retaining rejected actions and a
   await expect(page.locator('.job-content-section .job-source-summary')).toContainText('From: fixture-peer');
   await expect(page.locator('.job-detail-meta')).not.toContainText('fixture-peer');
   await expect(page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Back to Archive detail fixture', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to Deletion detail fixture', exact: true }).click();
 
-  let rejectArchive = true;
+  let rejectDeletion = true;
   let release!: () => void;
   const released = new Promise<void>((resolve) => { release = resolve; });
   let admitted!: () => void;
   const admission = new Promise<void>((resolve) => { admitted = resolve; });
-  await page.route(`**/api/submissions/${root.submissionId}/archive`, async (route) => {
-    if (!rejectArchive) return route.continue();
+  await page.route(`**/api/submissions/${root.submissionId}`, async (route) => {
+    if (!rejectDeletion) return route.continue();
     admitted();
     await released;
     // Exercise the wire receipt failure path, not just a non-2xx request. The
     // real daemon handles the successful retry below; this receipt is injected.
-    const rejected: Schema<'SubmissionArchiveResponseDto'> = {
-      submissionId: root.submissionId!, archived: true, affectedSubmissionCount: 0,
+    const rejected: Schema<'DeleteSubmissionResponseDto'> = {
+      submissionId: root.submissionId!, affectedSubmissionCount: 0,
       affectedJobCount: 0, rejectedSubmissionCount: 1,
       rejectionReasons: [{ reason: 'nonterminal-jobs', count: 1 }],
     };
@@ -73,23 +73,19 @@ test('removes a terminal user root from detail, retaining rejected actions and a
   await expect(page).toHaveURL(new RegExp(`/jobs/${root.jobId}$`));
   await expect(remove).toBeEnabled();
   await expect(page.locator('.job-child-row')).toHaveCount(1);
-  rejectArchive = false;
+  rejectDeletion = false;
   await remove.click();
   await expect(page).toHaveURL(/\/jobs\?tab=downloads$/);
-  await expect(page.locator('.search-history-row').filter({ hasText: 'Archive detail fixture' })).toHaveCount(0);
+  await expect(page.locator('.search-history-row').filter({ hasText: 'Deletion detail fixture' })).toHaveCount(0);
   await page.reload();
-  await expect(page.locator('.search-history-row').filter({ hasText: 'Archive detail fixture' })).toHaveCount(0);
+  await expect(page.locator('.search-history-row').filter({ hasText: 'Deletion detail fixture' })).toHaveCount(0);
   const retained = await page.request.get(`/api/jobs/${root.jobId}`);
-  expect(retained.ok()).toBeTruthy();
-  const archived = await page.request.get('/api/jobs?archived=true&includeAll=false&limit=100');
-  expect(archived.ok()).toBeTruthy();
-  const jobs = await archived.json() as Schema<'JobSummaryDto'>[];
-  expect(jobs.some((job) => job.jobId === root.jobId)).toBe(true);
+  expect(retained.status()).toBe(404);
 });
 
-test('does not navigate away from a new page when an earlier detail archive finishes', async ({ page }) => {
+test('does not navigate away from a new page when an earlier detail deletion finishes', async ({ page }) => {
   const response = await page.request.post('/api/jobs/lists', { data: {
-    name: 'Background archive fixture', jobs: [{ kind: 'remote-file', target: {
+    name: 'Background deletion fixture', jobs: [{ kind: 'remote-file', target: {
       username: 'fixture-peer', filename: 'Fixture\\Fixture song.txt', size: 128, extension: '.txt',
     } }],
   } satisfies Schema<'SubmitJobListRequestDto'> });
@@ -99,19 +95,19 @@ test('does not navigate away from a new page when an earlier detail archive fini
   let admitted!: () => void, release!: () => void;
   const admission = new Promise<void>((resolve) => { admitted = resolve; });
   const released = new Promise<void>((resolve) => { release = resolve; });
-  const archivePath = `/api/submissions/${root.submissionId}/archive`;
-  await page.route(`**${archivePath}`, async (route) => { admitted(); await released; await route.continue(); });
-  const archived = page.waitForResponse((reply) => new URL(reply.url()).pathname === archivePath && reply.ok());
+  const deletionPath = `/api/submissions/${root.submissionId}`;
+  await page.route(`**${deletionPath}`, async (route) => { admitted(); await released; await route.continue(); });
+  const deletiond = page.waitForResponse((reply) => new URL(reply.url()).pathname === deletionPath && reply.ok());
   await page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Delete', exact: true }).click();
   await admission;
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
   release();
-  const receipt = await (await archived).json() as Schema<'SubmissionArchiveResponseDto'>;
+  const receipt = await (await deletiond).json() as Schema<'DeleteSubmissionResponseDto'>;
   expect(receipt.affectedSubmissionCount).toBe(1);
   await expect(page).toHaveURL(/\/dashboard$/);
   await page.getByRole('button', { name: 'Jobs', exact: true }).click();
-  await expect(page.locator('.search-history-row').filter({ hasText: 'Background archive fixture' })).toHaveCount(0);
+  await expect(page.locator('.search-history-row').filter({ hasText: 'Background deletion fixture' })).toHaveCount(0);
 });
 
 test('retains a child-page failure through active and terminal detail and recovers on retry', async ({ page, daemon }) => {

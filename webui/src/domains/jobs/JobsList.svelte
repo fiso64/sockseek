@@ -14,7 +14,7 @@
   import { jobKindIcon, jobKindLabel, searchJobMode } from './kind';
   import { searchModeLabel } from '../search/model';
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
-  import { canArchiveRoot } from './archive';
+  import { canDeleteRoot } from './deletion';
   import { searchJobStats } from './search-stats';
   import { automaticJobListStats } from './list-stats';
   import { presentedJobs, sortPresentedJobsNewestFirst, type PresentedJob } from './presentation';
@@ -38,13 +38,13 @@
     onretry: () => void;
     onopen: (job: JobSummaryDto, detail?: Schema<'JobDetailDto'>) => void;
     oncancel: (job: JobSummaryDto) => void;
-    onarchive: (job: JobSummaryDto) => void;
-    archivingSubmissions?: ReadonlySet<string>;
+    ondelete: (job: JobSummaryDto) => void;
+    deletingSubmissions?: ReadonlySet<string>;
     onloadmore?: () => void;
     onnew: () => void;
   }
 
-  let { jobs, tab, submissionId, onclearfilter, ontabchange, position, refreshRevision = 0, connected, observeJobs, loading = false, daemonOffline = false, hasMore = false, error = null, actionError = null, onretry, onopen, oncancel, onarchive, archivingSubmissions = new Set<string>(), onloadmore, onnew }: Props = $props();
+  let { jobs, tab, submissionId, onclearfilter, ontabchange, position, refreshRevision = 0, connected, observeJobs, loading = false, daemonOffline = false, hasMore = false, error = null, actionError = null, onretry, onopen, oncancel, ondelete, deletingSubmissions = new Set<string>(), onloadmore, onnew }: Props = $props();
   let section: HTMLElement;
   onMount(() => {
     const scroller = section.closest('main')!;
@@ -214,8 +214,8 @@
           </button>
           {#if !unavailable && job.availableActions?.some((action) => action.kind === 'cancel')}
             <button type="button" class="search-history-remove" aria-label={`Cancel ${title(entry.root)}`} title="Cancel" onclick={() => oncancel(job)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 6l8 8M14 6l-8 8" /></svg></button>
-          {:else if !unavailable && job.lifecycleState === 'Terminal' && canArchiveRoot(entry.root)}
-            <button type="button" class="search-history-remove" disabled={archivingSubmissions.has(job.submissionId!)} aria-label={`Remove ${title(entry.root)}`} title="Remove submission from history (reversible archive)" onclick={() => onarchive(job)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 6l8 8M14 6l-8 8" /></svg></button>
+          {:else if !unavailable && job.lifecycleState === 'Terminal' && canDeleteRoot(entry.root)}
+            <button type="button" class="search-history-remove" disabled={deletingSubmissions.has(job.submissionId!)} aria-label={`Remove ${title(entry.root)}`} title="Remove submission from history" onclick={() => ondelete(job)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 6l8 8M14 6l-8 8" /></svg></button>
           {:else if job.kind !== 'search'}
             <span class="automatic-history-action-space" aria-hidden="true"></span>
           {/if}

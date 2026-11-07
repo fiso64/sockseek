@@ -132,11 +132,10 @@ internal static class DaemonResourceCommandRunner
             WriteReceipt(receipt, JsonRequested(args));
             return Program.CliExitCode.Success;
         }
-        if (Equals(action, "archive"))
+        if (Equals(action, "remove"))
         {
-            TransferCommandReceiptDto receipt = await api.SetTransfersArchivedAsync(
-                new ArchiveTransfersRequestDto(
-                    Archived: !args.Contains("--restore", StringComparer.OrdinalIgnoreCase),
+            TransferCommandReceiptDto receipt = await api.RemoveTransfersAsync(
+                new RemoveTransfersRequestDto(
                     Direction: Option(args, "--direction"),
                     TerminalOutcome: Option(args, "--outcome"),
                     Username: Option(args, "--username"),
@@ -146,7 +145,7 @@ internal static class DaemonResourceCommandRunner
             return Program.CliExitCode.Success;
         }
         if (action is not null)
-            return Usage("Expected 'transfers', 'transfers cancel', or 'transfers archive'.");
+            return Usage("Expected 'transfers', 'transfers cancel', or 'transfers remove'.");
 
         int limit = ParseLimit(Option(args, "--limit"), ServerProtocol.DefaultPageSize);
         var filter = new TransferHistoryFilter(
@@ -154,7 +153,7 @@ internal static class DaemonResourceCommandRunner
             State: Option(args, "--state"),
             TerminalOutcome: Option(args, "--outcome"),
             Username: Option(args, "--username"),
-            Archived: args.Contains("--archived", StringComparer.OrdinalIgnoreCase));
+            IncludeRemoved: args.Contains("--include-removed", StringComparer.OrdinalIgnoreCase));
         TransferTimelinePageDto page = await api.GetTransfersPageAsync(
             filter,
             Option(args, "--cursor"),
@@ -190,17 +189,16 @@ internal static class DaemonResourceCommandRunner
     {
         string? action = Positional(args, 1);
         string? idValue = Positional(args, 2);
-        if ((!Equals(action, "cancel") && !Equals(action, "archive"))
+        if ((!Equals(action, "cancel") && !Equals(action, "remove"))
             || !Guid.TryParse(idValue, out Guid transferId))
         {
-            return Usage("Expected 'transfer cancel <id>' or 'transfer archive <id>'.");
+            return Usage("Expected 'transfer cancel <id>' or 'transfer remove <id>'.");
         }
 
-        if (Equals(action, "archive"))
+        if (Equals(action, "remove"))
         {
-            TransferCommandReceiptDto receipt = await api.SetTransferArchivedAsync(
+            TransferCommandReceiptDto receipt = await api.RemoveTransferAsync(
                 transferId,
-                archived: !args.Contains("--restore", StringComparer.OrdinalIgnoreCase),
                 cancellationToken).ConfigureAwait(false);
             WriteReceipt(receipt, JsonRequested(args));
         }
@@ -346,12 +344,11 @@ internal static class DaemonResourceCommandRunner
                         "--cursor",
                         "--limit",
                         "--scope",
-                        "--restore",
-                        "--archived",
+                        "--include-removed",
                     ],
                     StringComparer.OrdinalIgnoreCase)
                 : new HashSet<string>(
-                    ["--json", "--restore"],
+                    ["--json"],
                     StringComparer.OrdinalIgnoreCase);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var positional = new List<string>();
@@ -385,8 +382,8 @@ internal static class DaemonResourceCommandRunner
                 share
                     ? "Input error: Expected 'share status' or 'share scan'."
                     : transfers
-                        ? "Input error: Expected 'transfers', 'transfers cancel', or 'transfers archive'."
-                        : "Input error: Expected 'transfer cancel <id>' or 'transfer archive <id>'.");
+                        ? "Input error: Expected 'transfers', 'transfers cancel', or 'transfers remove'."
+                        : "Input error: Expected 'transfer cancel <id>' or 'transfer remove <id>'.");
         }
         if (share
             && seen.Contains("--cancel")
@@ -398,23 +395,16 @@ internal static class DaemonResourceCommandRunner
         if (transfers)
         {
             string? action = positional.Count > 1 ? positional[1] : null;
-            if (seen.Contains("--restore") && !Equals(action, "archive"))
-                throw new ArgumentException("Input error: --restore is valid only with 'transfers archive'.");
             if (seen.Contains("--scope") && !Equals(action, "cancel"))
                 throw new ArgumentException("Input error: --scope is valid only with 'transfers cancel'.");
-            if (seen.Contains("--archived") && action is not null)
-                throw new ArgumentException("Input error: --archived is valid only when listing transfers.");
-            if (seen.Contains("--group-ref") && !Equals(action, "cancel") && !Equals(action, "archive"))
-                throw new ArgumentException("Input error: --group-ref is valid only with 'transfers cancel' or 'transfers archive'.");
+            if (seen.Contains("--include-removed") && action is not null)
+                throw new ArgumentException("Input error: --include-removed is valid only when listing transfers.");
+            if (seen.Contains("--group-ref") && !Equals(action, "cancel") && !Equals(action, "remove"))
+                throw new ArgumentException("Input error: --group-ref is valid only with 'transfers cancel' or 'transfers remove'.");
             if (seen.Contains("--group-ref") && (!seen.Contains("--username") || !seen.Contains("--direction")))
                 throw new ArgumentException("Input error: --group-ref requires --username and --direction.");
         }
-        if (!share && !transfers
-            && seen.Contains("--restore")
-            && !Equals(positional.ElementAtOrDefault(1), "archive"))
-        {
-            throw new ArgumentException("Input error: --restore is valid only with 'transfer archive'.");
-        }
+
     }
 
     private static string? Option(IReadOnlyList<string> args, string name)
@@ -456,13 +446,13 @@ internal static class DaemonResourceCommandRunner
               sockseek share scan [--remote <url>] [--json]
               sockseek share scan --cancel [--remote <url>] [--json]
               sockseek transfers [--remote <url>] [--direction upload|download] [--state <state>]
-                                     [--username <name>] [--archived] [--limit N] [--cursor <cursor>] [--json]
+                                     [--username <name>] [--include-removed] [--limit N] [--cursor <cursor>] [--json]
               sockseek transfers cancel --direction upload|download [--scope all|queued|in-progress]
                                        [--username <name>] [--group-ref <ref>]
-              sockseek transfers archive [--direction upload|download] [--outcome <outcome>] [--restore]
+              sockseek transfers remove [--direction upload|download] [--outcome <outcome>]
                                         [--username <name>] [--group-ref <ref>]
               sockseek transfer cancel <id> [--remote <url>] [--json]
-              sockseek transfer archive <id> [--restore] [--remote <url>] [--json]
+              sockseek transfer remove <id> [--remote <url>] [--json]
 
             The remote URL can be set as `remote = <url>` in config; --remote overrides it.
             --group-ref requires both --username and --direction.

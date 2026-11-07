@@ -61,7 +61,7 @@ export class JobListController {
   afterArchive(submissionId: string): void {
     this.items = this.items.filter(row => row.submissionId !== submissionId);
     // Commands may finish while an old snapshot is in flight. Replace its scope
-    // after acceptance rather than maintaining archive tombstones in the client.
+    // after acceptance rather than maintaining deletion tombstones in the client.
     if (this.active) this.refresh();
   }
 
@@ -73,7 +73,7 @@ export class JobListController {
     this.error = null;
     const scope: Schema<'JobListScopeDto'> = {
       query: { lifecycleState: null, terminalOutcome: null, kind: this.tab === 'searches' ? 'search' : null, workflowId: null,
-        submissionId: this.submissionId, includeAll: false, newestFirst: true, excludeExtractResults: true, excludeKinds: this.tab === 'downloads' ? ['search', 'retrieve-folder'] : null, archived: false },
+        submissionId: this.submissionId, includeAll: false, newestFirst: true, excludeExtractResults: true, excludeKinds: this.tab === 'downloads' ? ['search', 'retrieve-folder'] : null },
       limit: this.limit,
     };
     const next = (value: Schema<'JobListUpdateDto'>) => {

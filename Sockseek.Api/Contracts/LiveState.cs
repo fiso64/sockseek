@@ -5,7 +5,7 @@ namespace Sockseek.Api;
 /// <summary>The live replication protocol implemented by this API.</summary>
 public static class LiveProtocol
 {
-    public const int Version = 17;
+    public const int Version = 18;
     public const string HubPath = "api/events";
     public const string StateUpdateBatchMethod = "stateUpdateBatch";
     public const string SubscribeAllMethod = nameof(LiveClientInvocation.SubscribeAll);
@@ -475,7 +475,7 @@ public sealed record TransferStatusFieldsDto(
     IReadOnlyList<ResourceActionDto>? AvailableActions = null,
     DateTimeOffset? CompletedAtUtc = null,
     string? FailureMessage = null,
-    DateTimeOffset? ArchivedAtUtc = null)
+    DateTimeOffset? RemovedAtUtc = null)
 {
     public IReadOnlyList<ResourceActionDto> AvailableActions { get; init; } =
         AvailableActions ?? [];

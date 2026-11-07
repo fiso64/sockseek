@@ -25,7 +25,6 @@ public sealed record SubmissionSummaryDto(
     Guid? PreviewId,
     string? ArtifactId,
     long Revision,
-    DateTimeOffset? ArchivedAtUtc,
     int TotalJobCount,
     int UserRootJobCount,
     int ActiveJobCount,
@@ -37,14 +36,11 @@ public sealed record SubmissionDetailDto(
     ServerJobKind? CommandKind,
     IReadOnlyList<string> CredentialBindings);
 
-public sealed record SetSubmissionArchivedRequestDto(bool Archived = true);
-
 /// <summary>A counted reason, with an optional explanation for this group of entries.</summary>
 public sealed record SubmissionReasonCountDto(string Reason, long Count, string? Message = null);
 
-public sealed record SubmissionArchiveResponseDto(
+public sealed record DeleteSubmissionResponseDto(
     Guid SubmissionId,
-    bool Archived,
     int AffectedSubmissionCount,
     int AffectedJobCount,
     int RejectedSubmissionCount,

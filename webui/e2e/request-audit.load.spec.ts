@@ -256,7 +256,7 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
   let acceptedRoot: { jobId: string } | undefined;
   await expect.poll(async () => {
     const rootsResponse = await page.request.get(
-      `/api/jobs?submissionId=${commit.submissionId}&includeAll=false&archived=false&limit=100`);
+      `/api/jobs?submissionId=${commit.submissionId}&includeAll=false&limit=100`);
     expect(rootsResponse.ok(), await rootsResponse.text()).toBe(true);
     const roots = await rootsResponse.json() as { jobId: string }[];
     acceptedRoot = roots[0];

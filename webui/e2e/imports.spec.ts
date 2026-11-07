@@ -46,7 +46,7 @@ test('folds a running text extraction into one source-labelled root and opens it
   await expect(row.getByRole('button', { name: 'Remove Fixture song', exact: true })).toHaveCount(0);
   expect(detailReads.filter(path => path === `/api/jobs/${submitted.jobId}`),
     'Import context must use the job summary rather than fetch its source payload.').toHaveLength(0);
-  const response = await page.request.get(`/api/jobs?submissionId=${submitted.submissionId}&includeAll=false&archived=false&limit=100`);
+  const response = await page.request.get(`/api/jobs?submissionId=${submitted.submissionId}&includeAll=false&limit=100`);
   const roots = await response.json() as Schema<'JobSummaryDto'>[];
   const imported = roots.find((job) => job.kind === 'extract')!;
   expect(imported.resultJobId).toBeTruthy();

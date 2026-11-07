@@ -57,22 +57,13 @@ public sealed class PersistenceLoadTests
                 PersistenceMutationPriority.Structural, Guid.NewGuid(), null, null, null,
                 1, "Search", "Terminal", "None", null, "Succeeded", "None", "None", "None",
                 null, null, "Accepted root", "Accepted root", 1, new(() => "{}"),
-                SubmissionId: id, SemanticRole: "UserRoot", SubmissionSpecificationJson: specification);
+                SubmissionId: id, SemanticRole: "UserRoot");
             long beforeMetadata = GC.GetTotalAllocatedBytes(precise: true);
             stopwatch.Restart();
-            Assert.AreEqual(1, (await store.SetArchivedAsync(id, true)).AffectedSubmissionCount);
-            TimeSpan archiveTime = stopwatch.Elapsed;
-            Assert.AreEqual(1, (await store.SetArchivedAsync(id, false)).AffectedSubmissionCount);
-            TimeSpan unarchiveTime = stopwatch.Elapsed - archiveTime;
             Assert.IsTrue(inbox.TryEnqueue(root));
             inbox.Complete();
             await writing;
             long metadataAllocation = GC.GetTotalAllocatedBytes(precise: true) - beforeMetadata;
-            Console.WriteLine($"16-MiB immutable command: archive/unarchive and root registration "
-                + $"{stopwatch.Elapsed.TotalMilliseconds:F1} ms (archive {archiveTime.TotalMilliseconds:F1}, "
-                + $"unarchive {unarchiveTime.TotalMilliseconds:F1}, root "
-                + $"{(stopwatch.Elapsed - archiveTime - unarchiveTime).TotalMilliseconds:F1}), "
-                + $"allocated {metadataAllocation / 1048576.0:F2} MiB.");
             var job = await new JobHistoryReader(database.Factory).GetJobAsync(root.JobId);
             Assert.IsNotNull(job);
             Assert.AreEqual(id, job.SubmissionId);
@@ -80,8 +71,7 @@ public sealed class PersistenceLoadTests
             Assert.IsNotNull(retained);
             Assert.AreEqual(specification, retained.SpecificationJson);
             Assert.AreEqual(99, retained.SpecificationSchemaVersion);
-            Assert.AreEqual(3L, retained.Revision);
-            Assert.IsNull(retained.ArchivedAtUtc);
+            Assert.AreEqual(1L, retained.Revision);
             Assert.AreEqual("{\"accepted\":true}", retained.CommitReceiptJson);
             Assert.IsTrue(metadataAllocation < 8 * 1024 * 1024,
                 $"Small metadata/root updates allocated {metadataAllocation} bytes: immutable intent must not be rehydrated.");
@@ -114,9 +104,9 @@ public sealed class PersistenceLoadTests
             WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 250)
             INSERT INTO submissions (
                 id, submitted_at_utc, specification_schema_version,
-                revision, archived_at_utc, rerun_of_submission_id, preview_id, artifact_id)
+                revision, rerun_of_submission_id, preview_id, artifact_id)
             SELECT upper(printf('40000000-0000-0000-0000-%012x', x)), 1000, 99,
-                7, CASE WHEN x > 225 THEN 2000 ELSE NULL END,
+                7,
                 CASE WHEN x > 1 THEN '40000000-0000-0000-0000-000000000001' ELSE NULL END,
                 upper(printf('70000000-0000-0000-0000-%012x', x)), 'source — 雪'
             FROM n;
@@ -162,14 +152,13 @@ public sealed class PersistenceLoadTests
             + $"allocated {allocatedBytes / 1048576.0:F2} MiB.");
 
         var third = await store.GetSubmissionsAsync(new(second.NextCursor, 100));
-        var archived = await store.GetSubmissionsAsync(new(Limit: 100, Archived: true));
         var all = first.Items.Concat(second.Items).Concat(third.Items).ToArray();
         Assert.AreEqual(100, first.Items.Count);
         Assert.AreEqual(100, second.Items.Count);
-        Assert.AreEqual(25, third.Items.Count);
+        Assert.AreEqual(50, third.Items.Count);
         Assert.IsNull(third.NextCursor);
-        Assert.AreEqual(225, all.Select(item => item.Id).Distinct().Count());
-        CollectionAssert.AreEqual(Enumerable.Range(1, 225).Reverse()
+        Assert.AreEqual(250, all.Select(item => item.Id).Distinct().Count());
+        CollectionAssert.AreEqual(Enumerable.Range(1, 250).Reverse()
             .Select(value => Guid.Parse($"40000000-0000-0000-0000-{value:x12}")).ToArray(),
             all.Select(item => item.Id).ToArray());
         Assert.IsTrue(all.All(item => item.Revision == 7 && item.TotalJobCount == 4
@@ -178,9 +167,6 @@ public sealed class PersistenceLoadTests
             && item.PreviewId == Guid.Parse("70000000" + item.Id.ToString()[8..])));
         Assert.IsTrue(all.SkipLast(1).All(item => item.RerunOfSubmissionId == all[^1].Id));
         Assert.IsNull(all[^1].RerunOfSubmissionId);
-        Assert.AreEqual(25, archived.Items.Count);
-        Assert.IsTrue(archived.Items.All(item => item.ArchivedAtUtc != null));
-        Assert.IsFalse(archived.Items.Any(item => all.Any(active => active.Id == item.Id)));
         var retained = await store.GetSubmissionAsync(first.Items[0].Id);
         Assert.IsNotNull(retained);
         Assert.AreEqual(99, retained.SpecificationSchemaVersion);
@@ -418,13 +404,13 @@ public sealed class PersistenceLoadTests
             "SELECT id FROM transfers WHERE workflow_id = $workflow ORDER BY created_at_utc, id LIMIT 101",
             ("$workflow", SqlGuid(workflowId))), "IX_transfers_workflow_id_created_at_utc_id");
         StringAssert.Contains(await QueryPlanAsync(database,
-            "SELECT id FROM transfers WHERE username = $peer AND archived_at_utc IS NULL "
+            "SELECT id FROM transfers WHERE username = $peer AND removed_at_utc IS NULL "
             + "AND direction = 'Upload' ORDER BY created_at_utc DESC, id DESC LIMIT 501",
-            ("$peer", "Raré")), "IX_transfers_username_archived_at_utc_created_at_utc_id");
+            ("$peer", "Raré")), "IX_transfers_username_removed_at_utc_created_at_utc_id");
         StringAssert.Contains(await QueryPlanAsync(database,
-            "SELECT id FROM transfers WHERE archived_at_utc IS NULL AND direction = 'Upload' "
+            "SELECT id FROM transfers WHERE removed_at_utc IS NULL AND direction = 'Upload' "
             + "ORDER BY created_at_utc DESC,id DESC LIMIT 501"),
-            "IX_transfers_archived_at_utc_direction_created_at_utc_id");
+            "IX_transfers_removed_at_utc_direction_created_at_utc_id");
         StringAssert.Contains(await QueryPlanAsync(database,
             "SELECT id FROM transfers WHERE terminal_outcome = 'Succeeded' "
             + "AND completed_at_utc >= $start AND completed_at_utc < 100001",

@@ -22,7 +22,6 @@ public sealed record JobHistoryQuery(
     Guid? ParentJobId = null,
     Guid? SubmissionId = null,
     string? SemanticRole = null,
-    bool Archived = false,
     bool NewestFirst = false,
     bool ExcludeExtractResults = false,
     IReadOnlyCollection<Guid>? ExcludedJobIds = null,
@@ -92,8 +91,8 @@ public interface IJobHistoryReader
 {
     Task<PersistedJobPage> GetJobsAsync(JobHistoryQuery query, CancellationToken cancellationToken = default);
     Task<PersistedJob?> GetJobAsync(Guid jobId, CancellationToken cancellationToken = default);
-    /// <summary>True for an unarchived job, false for an archived job, null if absent.</summary>
-    Task<bool?> GetJobAvailabilityAsync(Guid jobId, CancellationToken cancellationToken = default);
+    /// <summary>Whether the job still exists.</summary>
+    Task<bool> ContainsJobAsync(Guid jobId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PersistedJob>> GetJobsByIdsAsync(IReadOnlyCollection<Guid> jobIds, CancellationToken cancellationToken = default);
     Task<PersistedDirectoryManifestPage?> GetDirectoryManifestAsync(
         Guid jobId, int? attemptNumber, int afterOrdinal, int limit,
@@ -242,11 +241,7 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
             // that no longer match. Exclude before filtering and paging.
             Filter("job.id NOT IN (SELECT value FROM json_each($excluded))", "$excluded", EncodeIds(excluded));
         }
-        const string archived = """
-            EXISTS (SELECT 1 FROM submissions submission
-                WHERE submission.id=job.submission_id AND submission.archived_at_utc IS NOT NULL)
-            """;
-        conditions.Add(query.Archived ? archived : "NOT " + archived);
+
         if (query.ParentJobId is Guid parent)
             Filter("job.parent_job_id=$parent", "$parent", parent);
         else if (!query.IncludeAll)
@@ -284,7 +279,7 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
         parameters.Add(new SqliteParameter("$limit", query.Limit == int.MaxValue ? query.Limit : query.Limit + 1));
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         var rows = await ReadRowsAsync(context, "FROM jobs job", $"""
-            WHERE {string.Join(" AND ", conditions)}
+            {(conditions.Count == 0 ? "" : "WHERE " + string.Join(" AND ", conditions))}
             ORDER BY job.display_id {order},job.id {order} LIMIT $limit
             """, parameters, cancellationToken).ConfigureAwait(false);
         bool hasMore = rows.Count > query.Limit;
@@ -309,14 +304,13 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
         return rows.SingleOrDefault();
     }
 
-    public async Task<bool?> GetJobAvailabilityAsync(Guid jobId, CancellationToken cancellationToken = default)
+    public async Task<bool> ContainsJobAsync(Guid jobId, CancellationToken cancellationToken = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         var rows = await SqliteReadQuery.ReadAsync(context, """
-            SELECT submission.archived_at_utc
-            FROM jobs job LEFT JOIN submissions submission ON submission.id = job.submission_id
+            SELECT 1 FROM jobs job
             WHERE job.id = $id
-            """, [new SqliteParameter("$id", jobId)], row => (bool?)row.IsDBNull(0), cancellationToken).ConfigureAwait(false);
+            """, [new SqliteParameter("$id", jobId)], row => true, cancellationToken).ConfigureAwait(false);
         return rows.SingleOrDefault();
     }
 

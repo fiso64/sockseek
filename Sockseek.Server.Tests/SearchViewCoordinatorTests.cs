@@ -1057,8 +1057,8 @@ public sealed class SearchViewCoordinatorTests
                 replay.JobId, new CreateSearchViewRequestDto(), CancellationToken.None);
             Assert.IsNotNull(replayView);
             Assert.AreEqual(ServerSearchViewProjectionKind.AggregateTracks, replayView.Kind);
-            SubmissionArchiveResponseDto archive = await queries.SetSubmissionArchivedAsync(
-                accepted.SubmissionId!.Value, true, CancellationToken.None);
+            DeleteSubmissionResponseDto archive = await queries.DeleteSubmissionAsync(
+                accepted.SubmissionId!.Value, CancellationToken.None);
             Assert.AreEqual(1, archive.RejectedSubmissionCount);
             Assert.AreEqual("nonterminal-jobs", archive.RejectionReasons.Single().Reason);
         }

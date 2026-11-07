@@ -64,6 +64,19 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
     private Task? runTask;
     private Task? disposeTask;
 
+    public Task WaitForSubmissionAsync(Guid submissionId, CancellationToken cancellationToken)
+        => _workflowLifetime?.WaitForSubmissionAsync(submissionId, cancellationToken) ?? Task.CompletedTask;
+
+    // Called only after execution and its pending writes have settled. Other
+    // submissions may still use the workflow; their execution state stays intact.
+    public void ForgetSubmission(Guid submissionId)
+    {
+        var ids = _jobs.Jobs.Where(job => job.SubmissionId == submissionId).Select(job => job.Id).ToHashSet();
+        Queue.RemoveJobs(ids);
+        _manualSelections.Retire(ids);
+        _jobs.Retire(ids);
+    }
+
     public Job? GetJob(Guid id) => _jobs.GetJob(id);
     public Job? GetJob(int displayId) => _jobs.GetJob(displayId);
     public IReadOnlyList<Job> GetJobsByWorkflow(Guid workflowId) => _jobs.GetJobsByWorkflow(workflowId);
@@ -168,23 +181,26 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         => _manualSelections.TryStartAlbum(sourceJobId, selectedFolder, albumQuery, configureSelection, out selectedJob);
 
     /// <summary>Completes an AwaitingSelection job through the engine so terminal side effects stay centralized.</summary>
-    public async Task<bool> CompleteManualSelectionAsync(Guid jobId)
-    {
-        var job = GetJob(jobId);
-        bool completed = await _manualSelections.CompleteAsync(jobId);
-        if (completed && job != null)
-            _workflowLifetime?.Reevaluate(job.WorkflowId);
-        return completed;
-    }
+    public Task<bool> CompleteManualSelectionAsync(Guid jobId)
+        => FinishManualSelectionAsync(jobId, skip: false);
 
     /// <summary>Marks an AwaitingSelection job as explicitly skipped by the user.</summary>
-    public async Task<bool> SkipManualSelectionAsync(Guid jobId)
+    public Task<bool> SkipManualSelectionAsync(Guid jobId)
+        => FinishManualSelectionAsync(jobId, skip: true);
+
+    private async Task<bool> FinishManualSelectionAsync(Guid jobId, bool skip)
     {
         var job = GetJob(jobId);
-        bool skipped = await _manualSelections.SkipAsync(jobId);
-        if (skipped && job != null)
-            _workflowLifetime?.Reevaluate(job.WorkflowId);
-        return skipped;
+        if (job is null) return false;
+        var lifetime = _workflowLifetime?.QueueRoot(job);
+        try
+        {
+            return skip ? await _manualSelections.SkipAsync(jobId) : await _manualSelections.CompleteAsync(jobId);
+        }
+        finally
+        {
+            if (lifetime != null) _workflowLifetime!.RootCompleted(lifetime);
+        }
     }
 
     public async Task<RetrieveFolderJob> ProcessFolderRetrieval(

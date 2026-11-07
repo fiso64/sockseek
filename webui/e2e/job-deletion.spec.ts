@@ -1,9 +1,9 @@
 import { test, expect } from './fixtures';
 import type { Schema } from '../src/api/types';
 
-test('a cancelled list snapshot cannot resurrect an archived submission', async ({ page }) => {
+test('a cancelled list snapshot cannot resurrect a deleted submission', async ({ page }) => {
   const response = await page.request.post('/api/jobs/lists', { data: {
-    name: 'Archive history race fixture', jobs: [{ kind: 'remote-file', target: {
+    name: 'Deletion history race fixture', jobs: [{ kind: 'remote-file', target: {
       username: 'fixture-peer', filename: 'Fixture\\Fixture song.txt', size: 128, extension: '.txt',
     } }],
   } satisfies Schema<'SubmitJobListRequestDto'> });
@@ -45,9 +45,9 @@ test('a cancelled list snapshot cannot resurrect an archived submission', async 
     });
   });
   // Install the interceptor on a fresh connection. Keep the first displayed
-  // row while the second scope's pre-archive snapshot is delayed.
+  // row while the second scope's pre-deletion snapshot is delayed.
   await page.goto('/jobs?tab=downloads');
-  const row = page.locator('.search-history-row').filter({ hasText: 'Archive history race fixture' });
+  const row = page.locator('.search-history-row').filter({ hasText: 'Deletion history race fixture' });
   await expect(row).toBeVisible();
   await row.locator('.search-history-open').click();
   await page.getByRole('button', { name: 'Jobs', exact: true }).click();

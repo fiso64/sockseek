@@ -224,7 +224,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
   const retainedFiles: Schema<'TransferStateDto'>[] = [];
   let cursor: string | null = null;
   do {
-    const response = await page.request.get('/api/transfers?direction=download&archived=false&username=paged-peer&limit=500'
+    const response = await page.request.get('/api/transfers?direction=download&username=paged-peer&limit=500'
       + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''));
     expect(response.ok(), await response.text()).toBe(true);
     const result = await response.json() as Schema<'TransferTimelinePageDto'>;

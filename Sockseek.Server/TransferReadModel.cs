@@ -169,7 +169,7 @@ internal static class TransferReadModel
                 transfer.GroupDisplayPath, GroupRelativePath: transfer.GroupRelativePath, GroupKind: Enum.Parse<Sockseek.Api.TransferGroupKind>(transfer.GroupKind)),
             new(transfer.State, transfer.LocalPath, transfer.AttemptCount, outcome != TransferTerminalOutcome.None,
                 outcome, failure, PublicCancellationSource(transfer.CancellationSource), [],
-                transfer.CompletedAtUtc, transfer.FailureMessage, transfer.ArchivedAtUtc),
+                transfer.CompletedAtUtc, transfer.FailureMessage, transfer.RemovedAtUtc),
             new(transfer.TransferredBytes, transfer.TotalBytes ?? -1, transfer.BytesPerSecond, transfer.LastProgressAtUtc),
             new(transfer.CreatedAtUtc, transfer.StartedAtUtc), ToFileMetadata(transfer.File), transfer.CreatedAtUtc);
     }
@@ -232,11 +232,11 @@ internal static class TransferReadModel
             {
                 CompletedAtUtc = current.Status.CompletedAtUtc ?? retained.Status.CompletedAtUtc,
                 FailureMessage = current.Status.FailureMessage ?? retained.Status.FailureMessage,
-                ArchivedAtUtc = retained.Status.ArchivedAtUtc,
+                RemovedAtUtc = retained.Status.RemovedAtUtc,
             },
         };
 
-    // The same revision, archive and metadata fallback rules as full rows,
+    // The same revision, removal and metadata fallback rules as full rows,
     // projected directly from captured facts without creating a wire row.
     public static TransferGroupMember ForGroup(TransferReadSnapshot current, TransferGroupMember? retained)
         => retained is not null && retained.Revision > current.Revision ? retained : new(
@@ -244,7 +244,7 @@ internal static class TransferReadModel
             current.GroupRef ?? retained?.GroupRef, current.State, current.TerminalOutcome.ToString(),
             current.TotalBytes < 0 ? null : current.TotalBytes,
             current.File?.Size ?? retained?.FileSize,
-            current.BytesTransferred, current.BytesPerSecond, retained?.ArchivedAtUtc);
+            current.BytesTransferred, current.BytesPerSecond, retained?.RemovedAtUtc);
 
     private static bool TransferStatusEquals(
         TransferStatusFieldsDto left,
@@ -258,7 +258,7 @@ internal static class TransferReadModel
             && left.CancellationSource == right.CancellationSource
             && left.CompletedAtUtc == right.CompletedAtUtc
             && left.FailureMessage == right.FailureMessage
-            && left.ArchivedAtUtc == right.ArchivedAtUtc
+            && left.RemovedAtUtc == right.RemovedAtUtc
             && left.AvailableActions.SequenceEqual(right.AvailableActions);
 
 }

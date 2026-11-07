@@ -110,7 +110,7 @@ public sealed class PersistenceRuntimeHost
             var readers = new SockseekDbContextFactory(SockseekDbContextOptions.CreateReadOnly(sqliteOptions));
             JobHistory = new JobHistoryReader(readers);
             SearchHistory = new SearchHistoryReader(readers);
-            // The reader and archive commands share the existing persistence
+            // The reader and removal commands share the existing persistence
             // writer/inbox lifecycle; initialize the command-capable reader
             // after the inbox is created below.
 

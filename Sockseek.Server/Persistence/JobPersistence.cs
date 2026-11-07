@@ -74,10 +74,6 @@ internal sealed class JobPersistence(
             job.SubmissionId,
             job.SemanticRole.ToString(),
             job.CreatedAtUtc,
-            job.SubmissionSpecificationJson,
-            job.RerunOfSubmissionId,
-            job.PreviewId,
-            job.ArtifactId,
             pending.StartedAtUtc ?? default,
             manifest,
             job.SourceDetail));

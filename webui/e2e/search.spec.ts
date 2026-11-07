@@ -112,27 +112,21 @@ async function sortWithoutCreatingView(page: Page, value: string, order: Schema<
     page.on('request', request => {
       if (request.method() === 'GET' && new URL(request.url()).pathname === `/api/jobs/${view.sourceJobId}`) reads.push(request.url());
     });
-    const archiveUrl = `/api/submissions/${source.summary.submissionId}/archive`;
-    const archive = await page.request.post(archiveUrl, { data: { archived: true } });
-    expect((await archive.json()).rejectedSubmissionCount).toBe(0);
+    const deleteUrl = `/api/submissions/${source.summary.submissionId}`;
+    const deletion = await page.request.delete(deleteUrl);
+    expect((await deletion.json()).rejectedSubmissionCount).toBe(0);
     await expect(sourceLink).toHaveCount(0);
     expect(page.url()).toBe(downloadJobUrl);
     expect(reads).toEqual([]);
     await page.reload();
     await expect(page.locator('.job-detail-heading')).toBeVisible();
     await expect(sourceLink).toHaveCount(0);
-    const restore = await page.request.post(archiveUrl, { data: { archived: false } });
-    expect((await restore.json()).rejectedSubmissionCount).toBe(0);
-    await expect(sourceLink).toBeVisible();
-    expect(reads).toEqual([]);
-    await sourceLink.click();
-    await expect(page).toHaveURL(new RegExp(`/jobs/${view.sourceJobId}\\?results=generic$`));
     await page.goto('/downloads');
     const file = page.locator('.file-item-card').filter({ hasText: 'Artist - Bare.flac' });
     await expect(file).toHaveCount(1);
     await expect(file.getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
     await expect(page.locator('.folder-item-card')).toHaveCount(0);
-    const response = await page.request.get('/api/transfers?direction=download&archived=false');
+    const response = await page.request.get('/api/transfers?direction=download');
     expect(response.ok(), await response.text()).toBe(true);
     const transfers = (await response.json() as Schema<'TransferTimelinePageDto'>).items;
     expect(transfers).toHaveLength(1);
@@ -364,7 +358,7 @@ test('applies projection-only sort and live track conditions through an all-exce
   await page.goto('/downloads');
   let files: Schema<'TransferStateDto'>[] = [];
   await expect.poll(async () => {
-    const response = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
+    const response = await page.request.get('/api/transfers?direction=download&limit=100');
     expect(response.ok(), await response.text()).toBe(true);
     files = (await response.json() as Schema<'TransferTimelinePageDto'>).items;
     return files.map(file => `${file.identity.username}:${file.status.terminalOutcome}:${file.identity.remotePath}`).sort();
@@ -522,7 +516,7 @@ test.describe('live album conditions', () => {
     await page.goto('/downloads');
     await expect(page.locator('.folder-file-row')).toHaveCount(4);
     await expect(page.locator('.folder-file-state.complete')).toHaveCount(4);
-    const transfersResponse = await page.request.get('/api/transfers?direction=download&archived=false');
+    const transfersResponse = await page.request.get('/api/transfers?direction=download');
     expect(transfersResponse.ok(), await transfersResponse.text()).toBe(true);
     const files = (await transfersResponse.json() as Schema<'TransferTimelinePageDto'>).items;
     expect(files.map(file => `${file.identity.username}:${file.status.terminalOutcome}:${file.identity.remotePath}`).sort()).toEqual([
@@ -602,7 +596,7 @@ test('keeps an aggregate track choice and all-except plan through live group reo
   await page.goto('/downloads');
   let transfers: Schema<'TransferStateDto'>[] = [];
   await expect.poll(async () => {
-    const result = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
+    const result = await page.request.get('/api/transfers?direction=download&limit=100');
     expect(result.ok(), await result.text()).toBe(true);
     transfers = (await result.json() as Schema<'TransferTimelinePageDto'>).items;
     return transfers.map(item => `${item.identity.username}:${item.status.terminalOutcome}:${item.identity.remotePath}`).sort();
@@ -615,7 +609,7 @@ test('keeps an aggregate track choice and all-except plan through live group reo
     expect((await stat(transfer.status.localPath!)).size).toBe(8_000_000);
   }
   const jobsResponse = await page.request.get(
-    `/api/jobs?submissionId=${receipt.submissionId}&includeAll=true&archived=false&limit=100`);
+    `/api/jobs?submissionId=${receipt.submissionId}&includeAll=true&limit=100`);
   expect(jobsResponse.ok(), await jobsResponse.text()).toBe(true);
   const songs = (await jobsResponse.json() as Schema<'JobSummaryDto'>[]).filter(job => job.kind === 'song');
   expect(songs).toHaveLength(2);
@@ -721,7 +715,7 @@ test('downloads only checked public files from a mixed chosen aggregate album fo
   await expect(page.locator('.folder-item-card')).not.toContainText('Finale.flac');
   await expect(page.locator('.folder-item-card')).not.toContainText('Bonus.flac');
   await expect(page.locator('.folder-item-card')).not.toContainText('Locked.flac');
-  const transfers = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
+  const transfers = await page.request.get('/api/transfers?direction=download&limit=100');
   expect(transfers.ok(), await transfers.text()).toBe(true);
   const timeline = await transfers.json() as Schema<'TransferTimelinePageDto'>;
   expect(timeline.items).toHaveLength(1);
@@ -1034,7 +1028,7 @@ test('merges empty album and artist fields without losing input or focus', async
   await expect(input).toBeFocused();
 });
 
-test('cancels the active search and archives it from the result header', async ({ page, daemon }) => {
+test('cancels the active search and deletes it from the result header', async ({ page, daemon }) => {
   await daemon.command('staged-search');
   await page.goto('/jobs');
   await chooseFileSearch(page);
@@ -1136,7 +1130,7 @@ test('searches again from one conditioned child, including after a whole-submiss
     expect(replayed.summary.submissionId).toBeTruthy();
     expect(replayed.summary.submissionId).not.toBe(root.submissionId);
     const replayedJobs = await page.request.get(
-      `/api/jobs?submissionId=${replayed.summary.submissionId}&includeAll=true&archived=false`);
+      `/api/jobs?submissionId=${replayed.summary.submissionId}&includeAll=true`);
     if (!replayedJobs.ok()) throw new Error(`Replayed jobs query ${replayedJobs.status()}: ${await replayedJobs.text()}`);
     expect((await replayedJobs.json() as unknown[])).toHaveLength(1);
   }
@@ -1186,7 +1180,7 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   await expect(page.getByLabel('50% complete', { exact: true })).toBeVisible();
   await daemon.command('release-download');
   await expect(page.getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
-  const timelineResponse = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
+  const timelineResponse = await page.request.get('/api/transfers?direction=download&limit=100');
   expect(timelineResponse.ok(), await timelineResponse.text()).toBe(true);
   const timeline = await timelineResponse.json() as Schema<'TransferTimelinePageDto'>;
   expect(timeline.items).toHaveLength(1);
@@ -1497,7 +1491,7 @@ test('downloads a File Search subfolder with a snapshot-bound path rule and a fi
   await expect(page.locator('.page')).not.toContainText('Selected.txt');
   await expect(page.locator('.page')).not.toContainText('Unselected.txt');
   await expect(page.locator('.folder-file-state.complete')).toHaveCount(2);
-  const transfersResponse = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
+  const transfersResponse = await page.request.get('/api/transfers?direction=download&limit=100');
   expect(transfersResponse.ok(), await transfersResponse.text()).toBe(true);
   const transfers = (await transfersResponse.json() as Schema<'TransferTimelinePageDto'>).items;
   expect(transfers.map(item => `${item.identity.username}:${item.status.terminalOutcome}:${item.identity.remotePath}`).sort()).toEqual([

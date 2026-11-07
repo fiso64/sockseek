@@ -358,7 +358,7 @@ public sealed class UploadPersistenceTests
             Task<TransferTimelinePageDto> Timeline(string? outcome = null, string? filter = null)
                 => queries.GetTransfersAsync(new(Limit: 500, Direction: "Upload", State: filter, TerminalOutcome: outcome, Username: "Peer"));
             UploadTransferSnapshot cancelled;
-            Task<TransferCommandReceiptDto> archive;
+            Task<TransferCommandReceiptDto> removal;
             await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
             { DataSource = SockseekDataPaths.ResolveDatabasePath(directory) }.ToString()))
             {
@@ -394,18 +394,18 @@ public sealed class UploadPersistenceTests
                     "A retained queued predecessor cannot bypass the current-state filter.");
                 state.FlushStateUpdates();
                 Assert.AreEqual(TransferTerminalOutcome.Cancelled, client.GetTransfers().Single(item => item.TransferId == queuedId).Status.TerminalOutcome);
-                archive = queries.SetTransfersArchivedAsync(new TransferArchiveFilter(Direction: "Upload", TerminalOutcome: "Cancelled"), true);
-                Assert.IsFalse(archive.IsCompleted, "Archival must wait for the terminal handoff, without blocking reads.");
+                removal = queries.RemoveTransfersAsync(new TransferRemovalFilter(Direction: "Upload", TerminalOutcome: "Cancelled"));
+                Assert.IsFalse(removal.IsCompleted, "Removal must wait for the terminal handoff, without blocking reads.");
                 held.Rollback();
             }
             await WaitForStored(queuedId, "Cancelled");
-            var receipt = await archive.WaitAsync(TimeSpan.FromSeconds(5));
+            var receipt = await removal.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(1, receipt.SucceededCount);
             Assert.AreEqual(0, (await Timeline("Cancelled")).Items.Count);
-            var archived = await queries.GetTransfersAsync(new(Limit: 500, Direction: "Upload", TerminalOutcome: "Cancelled", Username: "Peer", Archived: true));
-            Assert.AreEqual(queuedId, archived.Items.Single().TransferId);
-            Assert.AreEqual(cancelled.Revision, archived.Items.Single().Revision);
-            Assert.AreEqual(cancelled.FinishedAtUtc!.Value.ToUnixTimeMilliseconds(), archived.Items.Single().Status.CompletedAtUtc!.Value.ToUnixTimeMilliseconds());
+            var removed = await queries.GetTransfersAsync(new(Limit: 500, Direction: "Upload", TerminalOutcome: "Cancelled", Username: "Peer", IncludeRemoved: true));
+            Assert.AreEqual(queuedId, removed.Items.Single().TransferId);
+            Assert.AreEqual(cancelled.Revision, removed.Items.Single().Revision);
+            Assert.AreEqual(cancelled.FinishedAtUtc!.Value.ToUnixTimeMilliseconds(), removed.Items.Single().Status.CompletedAtUtc!.Value.ToUnixTimeMilliseconds());
             Assert.IsNull(state.GetLiveTransfer(queuedId));
             state.FlushStateUpdates();
             Assert.IsFalse(client.GetTransfers().Any(row => row.TransferId == queuedId));

@@ -14,7 +14,7 @@ public sealed record TransferRetainedCoverageDto(
     TransferRetainedCoverageState State,
     string? Reason = null);
 
-/// <summary>Looks up current unarchived timeline rows by exact transfer ID.</summary>
+/// <summary>Looks up current visible timeline rows by exact transfer ID.</summary>
 public sealed record TransferLookupRequestDto(
     IReadOnlyList<Guid> TransferIds,
     string? Direction = null);
@@ -32,7 +32,7 @@ public sealed record TransferGroupSummariesRequestDto(
     IReadOnlyList<TransferGroupKeyDto> Groups);
 
 /// <summary>
-/// Moving aggregate over all unarchived members of one transfer presentation group.
+/// Moving aggregate over all visible members of one transfer presentation group.
 /// Counts and bytes include members outside the current transfer timeline page.
 /// </summary>
 public sealed record TransferGroupSummaryDto(
@@ -99,14 +99,11 @@ public sealed record TransferCommandReceiptDto(
     int FailedCount,
     IReadOnlyList<TransferCommandReasonCountDto> Reasons);
 
-public sealed record SetTransferArchivedRequestDto(bool Archived = true);
-
 /// <summary>
-/// Archives terminal transfer history. Username and GroupRef are exact,
+/// Removes terminal transfers from ordinary listings; retained statistics are preserved. Username and GroupRef are exact,
 /// optional filters; pair them to target one peer's directory group.
 /// </summary>
-public sealed record ArchiveTransfersRequestDto(
-    bool Archived = true,
+public sealed record RemoveTransfersRequestDto(
     string? Direction = null,
     string? TerminalOutcome = null,
     string? Username = null,

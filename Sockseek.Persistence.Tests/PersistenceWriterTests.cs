@@ -22,6 +22,61 @@ namespace Sockseek.Persistence.Tests;
 public sealed class PersistenceWriterTests
 {
     [TestMethod]
+    public async Task SubmissionDeletionSettlesQueuedWritesAndPreservesTransfers()
+    {
+        await using var database = new WriterDatabase();
+        var runtime = (await new PersistenceRuntimeSession(database.Factory).StartAsync("deletion")).Runtime;
+        Guid submission = Guid.NewGuid(), jobId = Guid.NewGuid(), transferId = Guid.NewGuid();
+        await using (var context = await database.Factory.CreateDbContextAsync())
+        {
+            context.Submissions.Add(new SubmissionEntity { Id = submission, SpecificationSchemaVersion = 1,
+                Specification = new() { Json = "{}" }, Revision = 1 });
+            await context.SaveChangesAsync();
+        }
+        var options = new PersistenceWriterOptions { MaximumBatchSize = 1 };
+        var health = new PersistenceHealth();
+        var inbox = new PersistenceInbox(options, health);
+        var store = new SubmissionStore(database.Factory, inbox);
+        var job = Job(runtime.RuntimeId, jobId, 1, PersistenceMutationPriority.Structural, terminal: true, kind: "Search")
+            with { SubmissionId = submission };
+        Assert.IsTrue(inbox.TryEnqueue(job));
+        Assert.IsTrue(inbox.TryEnqueue(job with { Revision = 2, Priority = PersistenceMutationPriority.Ordinary }));
+        Assert.IsTrue(inbox.TryEnqueue(new SearchCompletionPersistenceMutation(runtime.RuntimeId, 3,
+            DateTimeOffset.UtcNow, jobId, 3, "query", 0, 0, "Complete")));
+        Assert.IsTrue(inbox.TryEnqueue(Transfer(runtime.RuntimeId, transferId, 4) with
+        {
+            JobId = jobId, Priority = PersistenceMutationPriority.Terminal,
+            State = "Completed", TerminalOutcome = "Succeeded", TransferredBytes = 100,
+        }));
+        Task<SubmissionDeleteResult> deletion = store.DeleteAsync(submission);
+        Assert.IsFalse(deletion.IsCompleted, "Deletion must wait for all previously queued lanes.");
+        Task writing = new PersistenceWriter(database.Factory, inbox, health, options).RunAsync(CancellationToken.None);
+        try
+        {
+            var result = await deletion.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.AreEqual(1, result.AffectedJobCount);
+            Assert.AreEqual(0, result.RejectedSubmissionCount);
+        }
+        finally { inbox.Complete(); await writing; }
+        await using var read = await database.Factory.CreateDbContextAsync();
+        Assert.AreEqual(0, await read.Submissions.CountAsync());
+        Assert.AreEqual(0, await read.Set<SubmissionSpecificationEntity>().CountAsync());
+        Assert.AreEqual(0, await read.Jobs.CountAsync());
+        Assert.AreEqual(0, await read.SearchJobs.CountAsync());
+        var retained = await read.Transfers.SingleAsync();
+        Assert.AreEqual(transferId, retained.Id);
+        Assert.IsNull(retained.JobId);
+        Assert.AreEqual(100L, retained.TransferredBytes);
+        Assert.AreEqual(0L, health.Snapshot(inbox).PermanentlyFailedMutationCount);
+        var followUp = Job(runtime.RuntimeId, Guid.NewGuid(), 5, PersistenceMutationPriority.Structural)
+            with { SourceJobId = jobId };
+        var followUpHealth = await RunCompletedWriterAsync(database, [followUp]);
+        Assert.AreEqual(0L, followUpHealth.PermanentlyFailedMutationCount);
+        Assert.IsNull((await read.Jobs.SingleAsync()).SourceJobId);
+
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task UploadRetrySupersedesOnlyEarlierMatchingTerminalRows(bool oldArrivesLate)
@@ -48,14 +103,14 @@ public sealed class PersistenceWriterTests
             [oldArrivesLate ? failed : retry], observer)).PermanentlyFailedMutationCount);
         await using var read = await database.Factory.CreateDbContextAsync();
         var rows = await read.Transfers.ToDictionaryAsync(row => row.Id);
-        Assert.IsNotNull(rows[failed.TransferId].ArchivedAtUtc);
+        Assert.IsNotNull(rows[failed.TransferId].RemovedAtUtc);
         Assert.AreEqual("Peer disconnected.", rows[failed.TransferId].FailureMessage);
-        Assert.IsTrue(rows.Values.Where(row => row.Id != failed.TransferId).All(row => row.ArchivedAtUtc is null));
+        Assert.IsTrue(rows.Values.Where(row => row.Id != failed.TransferId).All(row => row.RemovedAtUtc is null));
         CollectionAssert.AreEqual(new[] { failed.TransferId }, observer.SupersededTransfers);
         // A later progress write must not resurrect the superseded row.
         await RunCompletedWriterAsync(database, [failed with { Revision = 4, Sequence = 4 }]);
         Assert.IsNotNull(await read.Transfers.AsNoTracking().Where(row => row.Id == failed.TransferId)
-            .Select(row => row.ArchivedAtUtc).SingleAsync());
+            .Select(row => row.RemovedAtUtc).SingleAsync());
     }
 
     [TestMethod]
@@ -239,12 +294,11 @@ public sealed class PersistenceWriterTests
         DirectoryManifestSnapshot Manifest(int attempt) => new(attempt, new("Folder", [], 0), false, [], []);
         var first = job with { DirectoryManifest = Manifest(1) };
         var second = job with { Revision = 2, DirectoryManifest = Manifest(2) };
-        var accepted = job with { Revision = 3, SubmissionSpecificationJson = "{\"intent\":true}" };
-        foreach (var mutation in new[] { first, second, accepted, job with { Revision = 4 } })
+        foreach (var mutation in new[] { first, second, job with { Revision = 4 } })
             Assert.IsTrue(inbox.TryEnqueue(mutation));
         var batch = inbox.DrainBatch();
-        Assert.AreEqual(4, batch.Count);
-        CollectionAssert.AreEquivalent(new[] { first, second, accepted }, batch.Where(item => item.Revision < 4).ToArray());
+        Assert.AreEqual(3, batch.Count);
+        CollectionAssert.AreEquivalent(new[] { first, second }, batch.Where(item => item.Revision < 4).ToArray());
         inbox.Complete();
     }
 
@@ -1243,7 +1297,7 @@ public sealed class PersistenceWriterTests
         Assert.AreEqual(@"Music\Artist\Album", detail.Transfer.GroupRef);
         Assert.AreEqual(@"Public Music\Artist\Album", detail.Transfer.GroupDisplayPath);
         Assert.AreEqual("Disc 1/Track.flac", detail.Transfer.GroupRelativePath);
-        Assert.IsNull(detail.Transfer.ArchivedAtUtc);
+        Assert.IsNull(detail.Transfer.RemovedAtUtc);
         Assert.AreEqual(0L, health.Snapshot(inbox).PermanentlyFailedMutationCount);
         foreach (Guid id in newIds)
         {
@@ -2625,14 +2679,14 @@ public sealed class PersistenceWriterTests
         long sequence = 0;
         const string folder = @"Root\é/δ";
         TransferEntity Row(string? user, string group, string direction, string state, string outcome,
-            long total, long bytes, long? size = null, long? speed = null, bool archived = false) => new()
+            long total, long bytes, long? size = null, long? speed = null, bool removed = false) => new()
         {
             Id = Guid.NewGuid(), LastRuntimeId = runtime.RuntimeId, LastSequence = ++sequence,
             Direction = direction, Source = "SoulseekPeer", Username = user, GroupRef = group,
             State = state, TerminalOutcome = outcome, TotalBytes = total, TransferredBytes = bytes,
             FileSizeBytes = size, BytesPerSecond = speed, CreatedAtUtc = 0,
             CompletedAtUtc = outcome == "None" ? null : 1,
-            ArchivedAtUtc = archived ? 1 : null, FailureReason = "None", Revision = 1,
+            RemovedAtUtc = removed ? 1 : null, FailureReason = "None", Revision = 1,
         };
         await using (var context = await database.Factory.CreateDbContextAsync())
         {
@@ -2645,7 +2699,7 @@ public sealed class PersistenceWriterTests
                 Row(null, folder, "Download", "Failed", "Failed", long.MaxValue, 2),
                 Row(null, folder, "Download", "Cancelled", "Cancelled", long.MaxValue, 10, size: 56),
                 Row(null, folder, "Download", "Interrupted", "Interrupted", 0, 0),
-                Row(null, folder, "Download", "Completed", "Succeeded", 999, 999, archived: true),
+                Row(null, folder, "Download", "Completed", "Succeeded", 999, 999, removed: true),
                 Row("null", folder, "Download", "Completed", "Succeeded", 10, 10),
                 Row("Peer", folder, "Download", "Completed", "Succeeded", 20, 20),
                 Row("peer", folder, "Download", "Completed", "Succeeded", 30, 30),
@@ -2677,11 +2731,11 @@ public sealed class PersistenceWriterTests
     }
 
     [TestMethod]
-    public async Task TransferArchive_IsReversibleAndRejectsNonterminalRows()
+    public async Task TransferRemovalPreservesHistoryAndRejectsNonterminalRows()
     {
         await using var database = new WriterDatabase();
         var runtimeSession = new PersistenceRuntimeSession(database.Factory);
-        var runtime = (await runtimeSession.StartAsync("transfer-archive-test")).Runtime;
+        var runtime = (await runtimeSession.StartAsync("transfer-removal-test")).Runtime;
         Guid terminalId = Guid.NewGuid();
         Guid activeId = Guid.NewGuid();
         Guid otherGroupId = Guid.NewGuid();
@@ -2793,37 +2847,27 @@ public sealed class PersistenceWriterTests
             projection.OverlappingTransfers
                 .Select(transfer => transfer.Id).ToArray());
 
-        TransferArchiveResult archived = await reader.SetArchivedAsync(
-            new TransferArchiveFilter(Direction: "Upload", Username: "peer", GroupRef: "folder"),
-            archived: true);
-        Assert.AreEqual(2, archived.ResolvedCount);
-        Assert.AreEqual(1, archived.ChangedCount);
-        Assert.AreEqual(1, archived.RejectedCount);
-        Assert.AreEqual(1, archived.Reasons["nonterminal"]);
+        TransferRemovalResult removed = await reader.RemoveAsync(
+            new TransferRemovalFilter(Direction: "Upload", Username: "peer", GroupRef: "folder"));
+        Assert.AreEqual(2, removed.ResolvedCount);
+        Assert.AreEqual(1, removed.ChangedCount);
+        Assert.AreEqual(1, removed.RejectedCount);
+        Assert.AreEqual(1, removed.Reasons["nonterminal"]);
         Assert.AreEqual(1, (await reader.GetGroupProjectionAsync([folderKey], [])).Summaries.Single().FileCount);
         CollectionAssert.AreEquivalent(
             new[] { activeId, otherGroupId, otherPeerId },
             (await reader.GetTransfersAsync(new TransferQuery(Limit: 10)))
                 .Items.Select(item => item.Id).ToArray());
-        Assert.AreEqual(
-            terminalId,
-            (await reader.GetTransfersAsync(new TransferQuery(Limit: 10, Archived: true)))
-                .Items.Single().Id);
+        CollectionAssert.AreEquivalent(new[] { terminalId, activeId, otherGroupId, otherPeerId },
+            (await reader.GetTransfersAsync(new TransferQuery(Limit: 10, IncludeRemoved: true))).Items.Select(row => row.Id).ToArray());
         Guid[] requestedIds = [terminalId, terminalId, activeId, otherGroupId, Guid.NewGuid()];
         CollectionAssert.AreEquivalent(new[] { activeId, otherGroupId },
             (await reader.GetTransfersAsync(new(TransferIds: requestedIds))).Items.Select(item => item.Id).ToArray());
-        Assert.AreEqual(terminalId,
-            (await reader.GetTransfersAsync(new(TransferIds: requestedIds, Archived: true))).Items.Single().Id);
+        CollectionAssert.AreEquivalent(new[] { terminalId, activeId, otherGroupId },
+            (await reader.GetTransfersAsync(new(TransferIds: requestedIds, IncludeRemoved: true))).Items.Select(row => row.Id).ToArray());
 
-        TransferArchiveResult restored = await reader.SetArchivedAsync(
-            new TransferArchiveFilter(TransferId: terminalId),
-            archived: false);
-        Assert.AreEqual(1, restored.ChangedCount);
-        Assert.AreEqual(4, (await reader.GetTransfersAsync(new TransferQuery(Limit: 10))).Items.Count);
-
-        TransferArchiveResult missing = await reader.SetArchivedAsync(
-            new TransferArchiveFilter(TransferId: Guid.NewGuid()),
-            archived: true);
+        TransferRemovalResult missing = await reader.RemoveAsync(
+            new TransferRemovalFilter(TransferId: Guid.NewGuid()));
         Assert.AreEqual(1, missing.RejectedCount);
         Assert.AreEqual(1, missing.Reasons["not-found"]);
 

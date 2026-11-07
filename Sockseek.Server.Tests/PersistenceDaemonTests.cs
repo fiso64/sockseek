@@ -143,7 +143,7 @@ public sealed class PersistenceDaemonTests
                 Assert.IsNotNull(submission);
                 Assert.AreEqual(3, submission.Summary.TotalJobCount);
                 Assert.AreEqual(0, submission.Summary.ActiveJobCount);
-                Assert.AreEqual(3, (await queries.GetSubmissionsAsync(null, 100, false).WaitAsync(TimeSpan.FromSeconds(5)))
+                Assert.AreEqual(3, (await queries.GetSubmissionsAsync(null, 100).WaitAsync(TimeSpan.FromSeconds(5)))
                     .Items.Single(item => item.SubmissionId == root.SubmissionId).TotalJobCount);
                 Assert.IsFalse(removed.Task.IsCompleted,
                     $"Read ownership must last until acknowledgement; metadata={metadata.Status}, error={metadata.Exception?.GetBaseException().Message}.");
@@ -167,7 +167,7 @@ public sealed class PersistenceDaemonTests
             Assert.IsTrue(await reconnected.MoveNextAsync());
             CollectionAssert.AreEqual(snapshot.WindowJobIds!.ToArray(), reconnected.Current.WindowJobIds!.ToArray());
             Assert.AreEqual(expectedStats, reconnected.Current.Jobs.Single().Added!.Stats);
-            await client.SetSubmissionArchivedAsync(root.SubmissionId!.Value, true);
+            await client.DeleteSubmissionAsync(root.SubmissionId!.Value);
             Assert.IsTrue(await reconnected.MoveNextAsync());
             CollectionAssert.AreEqual(new[] { root.JobId }, reconnected.Current.RemovedJobIds.ToArray());
         }
@@ -259,13 +259,11 @@ public sealed class PersistenceDaemonTests
             var retained = await persistence.Submissions.GetSubmissionAsync(replay.SubmissionId!.Value);
             Assert.IsNotNull(retained);
             Assert.AreEqual(original.SubmissionId, retained.RerunOfSubmissionId);
-            var archived = await app.Services.GetRequiredService<JobReadService>().SetSubmissionArchivedAsync(original.SubmissionId.Value, true, CancellationToken.None);
-            Assert.AreEqual(1, archived.AffectedSubmissionCount);
-            Assert.AreEqual(0, archived.RejectedSubmissionCount);
-            Assert.AreEqual(originalIntent, await persistence.Submissions.GetSpecificationJsonAsync(original.SubmissionId.Value),
-                "Archiving mutable metadata must preserve the immutable replay intent.");
-            var restored = await app.Services.GetRequiredService<JobReadService>().SetSubmissionArchivedAsync(original.SubmissionId.Value, false, CancellationToken.None);
-            Assert.AreEqual(1, restored.AffectedSubmissionCount);
+            var deleted = await app.Services.GetRequiredService<JobReadService>().DeleteSubmissionAsync(original.SubmissionId.Value, CancellationToken.None);
+            Assert.AreEqual(1, deleted.AffectedSubmissionCount);
+            Assert.AreEqual(0, deleted.RejectedSubmissionCount);
+            Assert.IsNull(await persistence.Submissions.GetSpecificationJsonAsync(original.SubmissionId.Value));
+            Assert.IsNull(await app.Services.GetRequiredService<JobReadService>().GetSubmissionAsync(original.SubmissionId.Value));
         }
         finally
         {
@@ -589,7 +587,7 @@ public sealed class PersistenceDaemonTests
     }
 
     [TestMethod]
-    public async Task SubmissionResource_PersistsArchivesFiltersAndRerunsRetainedSettings()
+    public async Task SubmissionResource_RerunsSettingsAndPermanentlyDeletesOnlyTerminalSubmissions()
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -636,12 +634,11 @@ public sealed class PersistenceDaemonTests
                 CancellationToken.None);
             await awaitingSelection.Task.WaitAsync(TimeSpan.FromSeconds(5));
             supervisor.StateStore.JobUpserted -= OnManualJob;
-            var rejectedArchive = await app.Services.GetRequiredService<JobReadService>().SetSubmissionArchivedAsync(
+            var rejectedDeletion = await app.Services.GetRequiredService<JobReadService>().DeleteSubmissionAsync(
                 manual.SubmissionId!.Value,
-                archived: true,
                 CancellationToken.None);
-            Assert.AreEqual(1, rejectedArchive.RejectedSubmissionCount);
-            Assert.AreEqual("nonterminal-jobs", rejectedArchive.RejectionReasons.Single().Reason);
+            Assert.AreEqual(1, rejectedDeletion.RejectedSubmissionCount);
+            Assert.AreEqual("nonterminal-jobs", rejectedDeletion.RejectionReasons.Single().Reason);
             Assert.IsTrue(supervisor.CancelJob(manual.JobId));
 
             var firstTerminal = new TaskCompletionSource<JobSummaryDto>(
@@ -669,7 +666,7 @@ public sealed class PersistenceDaemonTests
             Assert.IsNotNull(submitted.CreatedAtUtc);
             Guid originalSubmissionId = submitted.SubmissionId.Value;
 
-            var page = await facade.GetSubmissionsAsync(null, 100, archived: false);
+            var page = await facade.GetSubmissionsAsync(null, 100);
             var retained = page.Items.Single(item => item.SubmissionId == originalSubmissionId);
             var persistenceStatus = supervisor.GetStatus().Persistence!;
             Assert.AreEqual("Healthy", persistenceStatus.State, persistenceStatus.LastFailure);
@@ -679,45 +676,6 @@ public sealed class PersistenceDaemonTests
             var detail = await facade.GetSubmissionAsync(originalSubmissionId);
             Assert.IsNotNull(detail);
             Assert.AreEqual(ServerJobKind.Search, detail.CommandKind);
-
-            var archived = await app.Services.GetRequiredService<JobReadService>().SetSubmissionArchivedAsync(
-                originalSubmissionId,
-                archived: true,
-                CancellationToken.None);
-            Assert.AreEqual(1, archived.AffectedSubmissionCount);
-            Assert.AreEqual(1, archived.AffectedJobCount);
-            Assert.AreEqual(0, archived.RejectedSubmissionCount);
-            Assert.IsFalse((await facade.GetSubmissionsAsync(null, 100, archived: false))
-                .Items.Any(item => item.SubmissionId == originalSubmissionId));
-            Assert.IsTrue((await facade.GetSubmissionsAsync(null, 100, archived: true))
-                .Items.Any(item => item.SubmissionId == originalSubmissionId));
-            Assert.AreEqual(0, (await facade.GetJobsAsync(
-                new JobQuery(
-                    null,
-                    null,
-                    null,
-                    null,
-                    IncludeAll: true,
-                    SubmissionId: originalSubmissionId),
-                null,
-                100)).Items.Count);
-            Assert.AreEqual(1, (await facade.GetJobsAsync(
-                new JobQuery(
-                    null,
-                    null,
-                    null,
-                    null,
-                    IncludeAll: true,
-                    SubmissionId: originalSubmissionId,
-                    Archived: true),
-                null,
-                100)).Items.Count);
-
-            var restored = await app.Services.GetRequiredService<JobReadService>().SetSubmissionArchivedAsync(
-                originalSubmissionId,
-                archived: false,
-                CancellationToken.None);
-            Assert.AreEqual(1, restored.AffectedSubmissionCount);
 
             var rerunTerminal = new TaskCompletionSource<bool>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
@@ -747,24 +705,32 @@ public sealed class PersistenceDaemonTests
             Assert.IsNotNull(rerunDetail);
             Assert.AreEqual(originalSubmissionId, rerunDetail.Summary.RerunOfSubmissionId);
 
+            var deleted = await facade.DeleteSubmissionAsync(originalSubmissionId, CancellationToken.None);
+            Assert.AreEqual(1, deleted.AffectedJobCount);
+            Assert.AreEqual(0, deleted.RejectedSubmissionCount);
+            Assert.IsNull(await facade.GetSubmissionAsync(originalSubmissionId));
+            Assert.IsNull(await facade.GetJobAsync(submitted.JobId));
+            Assert.IsNull(await supervisor.Submissions.RerunSubmissionAsync(originalSubmissionId, CancellationToken.None));
+            Assert.IsNull((await facade.GetSubmissionAsync(rerun.SubmissionId.Value))!.Summary.RerunOfSubmissionId);
+
             var hierarchyTerminal = new TaskCompletionSource<bool>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             void OnHierarchyJob(JobSummaryDto job)
             {
-                if (job.ItemName == "archive hierarchy"
+                if (job.ItemName == "deletion hierarchy"
                     && job.LifecycleState == ServerJobLifecycleState.Terminal)
                     hierarchyTerminal.TrySetResult(true);
             }
             supervisor.StateStore.JobUpserted += OnHierarchyJob;
             JobSummaryDto hierarchy = await supervisor.Submissions.SubmitJobListAsync(
                 new SubmitJobListRequestDto(
-                    "archive hierarchy",
+                    "deletion hierarchy",
                     [
                         new JobListJobDraftDto(
                             "nested orchestration",
                             [
                                 new TrackSearchJobDraftDto(
-                                    new SongQueryDto("Missing", "Archive Child")),
+                                    new SongQueryDto("Missing", "Deleted Child")),
                             ]),
                     ]),
                 CancellationToken.None);
@@ -790,13 +756,12 @@ public sealed class PersistenceDaemonTests
                     ServerJobRole.ExecutionChild,
                 },
                 hierarchyJobs.Items.Select(job => job.Role).ToArray());
-            SubmissionArchiveResponseDto hierarchyArchive = await app.Services.GetRequiredService<JobReadService>()
-                .SetSubmissionArchivedAsync(
+            DeleteSubmissionResponseDto hierarchyDeletion = await app.Services.GetRequiredService<JobReadService>()
+                .DeleteSubmissionAsync(
                     hierarchySubmissionId,
-                    archived: true,
                     CancellationToken.None);
-            Assert.AreEqual(3, hierarchyArchive.AffectedJobCount);
-            Assert.AreEqual(0, hierarchyArchive.RejectedSubmissionCount);
+            Assert.AreEqual(3, hierarchyDeletion.AffectedJobCount);
+            Assert.AreEqual(0, hierarchyDeletion.RejectedSubmissionCount);
             await app.StopAsync();
         }
         finally

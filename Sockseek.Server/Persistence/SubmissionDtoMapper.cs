@@ -14,7 +14,6 @@ internal static class SubmissionDtoMapper
             submission.PreviewId,
             submission.ArtifactId,
             submission.Revision,
-            submission.ArchivedAtUtc,
             submission.TotalJobCount,
             submission.UserRootJobCount,
             submission.ActiveJobCount,
@@ -38,10 +37,9 @@ internal static class SubmissionDtoMapper
         }
     }
 
-    public static SubmissionArchiveResponseDto ToArchiveResponse(SubmissionArchiveResult result)
+    public static DeleteSubmissionResponseDto ToDeleteResponse(SubmissionDeleteResult result)
         => new(
             result.SubmissionId,
-            result.Archived,
             result.AffectedSubmissionCount,
             result.AffectedJobCount,
             result.RejectedSubmissionCount,

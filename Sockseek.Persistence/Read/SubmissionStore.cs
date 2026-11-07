@@ -10,8 +10,7 @@ namespace Sockseek.Persistence.Read;
 
 public sealed record SubmissionHistoryQuery(
     string? Cursor = null,
-    int Limit = 100,
-    bool Archived = false);
+    int Limit = 100);
 
 public record PersistedSubmissionSummary(
     Guid Id,
@@ -20,7 +19,6 @@ public record PersistedSubmissionSummary(
     Guid? PreviewId,
     string? ArtifactId,
     long Revision,
-    DateTimeOffset? ArchivedAtUtc,
     int TotalJobCount,
     int UserRootJobCount,
     int ActiveJobCount,
@@ -37,22 +35,20 @@ public sealed record PersistedSubmission(
     string? CommitFingerprint,
     string? CommitReceiptJson,
     long Revision,
-    DateTimeOffset? ArchivedAtUtc,
     int TotalJobCount,
     int UserRootJobCount,
     int ActiveJobCount,
     int FailedJobCount) : PersistedSubmissionSummary(
         Id, SubmittedAtUtc, RerunOfSubmissionId, PreviewId, ArtifactId,
-        Revision, ArchivedAtUtc, TotalJobCount, UserRootJobCount,
+        Revision, TotalJobCount, UserRootJobCount,
         ActiveJobCount, FailedJobCount);
 
 public sealed record PersistedSubmissionPage(
     IReadOnlyList<PersistedSubmissionSummary> Items,
     string? NextCursor);
 
-public sealed record SubmissionArchiveResult(
+public sealed record SubmissionDeleteResult(
     Guid SubmissionId,
-    bool Archived,
     int AffectedSubmissionCount,
     int AffectedJobCount,
     int RejectedSubmissionCount,
@@ -90,19 +86,16 @@ public interface ISubmissionStore
     Task<PersistedSubmissionCommitReceipt?> GetCommitReceiptAsync(
         Guid submissionId,
         CancellationToken cancellationToken = default);
-    Task<SubmissionArchiveResult> SetArchivedAsync(
+    /// <summary>Delete after the execution owner has finished producing this submission's updates.</summary>
+    Task<SubmissionDeleteResult> DeleteAsync(
         Guid submissionId,
-        bool archived,
         CancellationToken cancellationToken = default);
 }
 
 public sealed class SubmissionStore(
     IDbContextFactory<SockseekDbContext> contextFactory,
-    PersistenceInbox inbox,
-    TimeProvider? timeProvider = null) : ISubmissionStore
+    PersistenceInbox inbox) : ISubmissionStore
 {
-    private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
-
     public async Task CreateAsync(
         SubmissionRegistration registration,
         CancellationToken cancellationToken = default)
@@ -152,7 +145,8 @@ public sealed class SubmissionStore(
                     .ToUniversalTime().ToUnixTimeMilliseconds(),
                 SpecificationSchemaVersion = registration.SpecificationSchemaVersion,
                 Specification = new() { Json = registration.SpecificationJson },
-                RerunOfSubmissionId = registration.RerunOfSubmissionId,
+                RerunOfSubmissionId = registration.RerunOfSubmissionId is Guid source
+                    && await context.Submissions.AnyAsync(item => item.Id == source, ct).ConfigureAwait(false) ? source : null,
                 PreviewId = registration.PreviewId,
                 ArtifactId = registration.ArtifactId,
                 CommitFingerprint = registration.CommitFingerprint,
@@ -182,9 +176,9 @@ public sealed class SubmissionStore(
         // outside this read, and fixed SQL needs no first-use query compilation.
         command.CommandText = $"""
             SELECT id, submitted_at_utc, rerun_of_submission_id, preview_id,
-                artifact_id, revision, archived_at_utc
+                artifact_id, revision
             FROM submissions
-            WHERE archived_at_utc IS {(query.Archived ? "NOT NULL" : "NULL")}
+            WHERE 1=1
                 {(cursor is null ? "" : "AND (submitted_at_utc < $time OR (submitted_at_utc = $time AND id < $id))")}
             ORDER BY submitted_at_utc DESC, id DESC
             LIMIT $limit;
@@ -201,7 +195,7 @@ public sealed class SubmissionStore(
                 rows.Add(new(reader.GetGuid(0), DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(1)),
                     reader.IsDBNull(2) ? null : reader.GetGuid(2), reader.IsDBNull(3) ? null : reader.GetGuid(3),
                     reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetInt64(5),
-                    reader.IsDBNull(6) ? null : DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(6)), 0, 0, 0, 0));
+                    0, 0, 0, 0));
         bool hasMore = rows.Count > query.Limit;
         if (hasMore)
             rows.RemoveAt(rows.Count - 1);
@@ -235,9 +229,6 @@ public sealed class SubmissionStore(
             row.CommitFingerprint,
             row.CommitReceiptJson,
             row.Revision,
-            row.ArchivedAtUtc.HasValue
-                ? DateTimeOffset.FromUnixTimeMilliseconds(row.ArchivedAtUtc.Value)
-                : null,
             0, 0, 0, 0);
         var counted = (await WithJobCountsAsync<PersistedSubmission>(context, transaction, [submission], cancellationToken)
             .ConfigureAwait(false))[0];
@@ -269,54 +260,28 @@ public sealed class SubmissionStore(
     }
 
 
-    public async Task<SubmissionArchiveResult> SetArchivedAsync(
+    public async Task<SubmissionDeleteResult> DeleteAsync(
         Guid submissionId,
-        bool archived,
         CancellationToken cancellationToken = default)
     {
-        var command = new AwaitablePersistenceCommand<SubmissionArchiveResult>(async (context, ct) =>
+        // The caller first awaits execution. Settle every earlier mutation lane
+        // before deleting; an interactive command alone is not a write barrier.
+        await inbox.FlushMutationsAsync(cancellationToken).ConfigureAwait(false);
+        var command = new AwaitablePersistenceCommand<SubmissionDeleteResult>(async (context, ct) =>
         {
-            var submission = await context.Submissions
-                .Where(item => item.Id == submissionId)
-                .Select(item => new { item.ArchivedAtUtc, item.Revision })
-                .SingleOrDefaultAsync(ct)
+            if (!await context.Submissions.AnyAsync(item => item.Id == submissionId, ct).ConfigureAwait(false))
+                return new(submissionId, 0, 0, 0, null);
+            var jobs = context.Jobs.Where(job => job.SubmissionId == submissionId);
+            if (await jobs.AnyAsync(job => job.LifecycleState != "Terminal", ct).ConfigureAwait(false))
+                return new(submissionId, 0, 0, 1, "nonterminal-jobs");
+            await context.Submissions.Where(item => item.RerunOfSubmissionId == submissionId)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(item => item.RerunOfSubmissionId, (Guid?)null), ct)
                 .ConfigureAwait(false);
-            if (submission == null)
-                return new(submissionId, archived, 0, 0, 1, "not-found");
-
-            int totalJobs = await context.Jobs
-                .CountAsync(job => job.SubmissionId == submissionId, ct)
-                .ConfigureAwait(false);
-            if (archived)
-            {
-                int activeJobs = await context.Jobs
-                    .CountAsync(
-                        job => job.SubmissionId == submissionId
-                            && job.LifecycleState != "Terminal",
-                        ct)
-                    .ConfigureAwait(false);
-                if (activeJobs > 0)
-                    return new(submissionId, true, 0, 0, 1, "nonterminal-jobs");
-            }
-
-            bool changed = archived
-                ? submission.ArchivedAtUtc == null
-                : submission.ArchivedAtUtc != null;
-            if (changed)
-            {
-                var entry = context.Submissions.Attach(new SubmissionEntity
-                {
-                    Id = submissionId,
-                    ArchivedAtUtc = archived ? clock.GetUtcNow().ToUnixTimeMilliseconds() : null,
-                    Revision = checked(submission.Revision + 1),
-                });
-                entry.Property(item => item.ArchivedAtUtc).IsModified = true;
-                entry.Property(item => item.Revision).IsModified = true;
-            }
-            return new(submissionId, archived, changed ? 1 : 0, changed ? totalJobs : 0, 0, null);
+            int deleted = await jobs.ExecuteDeleteAsync(ct).ConfigureAwait(false);
+            await context.Submissions.Where(item => item.Id == submissionId).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+            return new(submissionId, 1, deleted, 0, null);
         });
         await inbox.EnqueueCommandAsync(command, cancellationToken).ConfigureAwait(false);
-        // Once admitted, archive/unarchive is durable intent owned by the writer.
         return await command.Task.ConfigureAwait(false);
     }
 

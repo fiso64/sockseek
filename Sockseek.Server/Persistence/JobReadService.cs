@@ -23,8 +23,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
             if (persistence.JobHistory is { } history)
             {
                 await persistence.WaitForJobHandoffAsync(id, cancellationToken, includeSearchResults: false).ConfigureAwait(false);
-                var retained = await history.GetJobAvailabilityAsync(id, cancellationToken).ConfigureAwait(false);
-                if (retained is bool available) return available;
+                if (await history.ContainsJobAsync(id, cancellationToken).ConfigureAwait(false)) return true;
             }
             return live.IsJobAvailable(id);
         }
@@ -39,48 +38,35 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
     private async Task<JobDetailDto> WithSourceAvailabilityAsync(JobDetailDto detail, CancellationToken cancellationToken)
         => detail with { SourceJobAvailable = await IsSourceJobAvailableAsync(detail.Summary.SourceJobId, cancellationToken).ConfigureAwait(false) };
 
-    public async Task<SubmissionArchiveResponseDto> SetSubmissionArchivedAsync(
+    public async Task<DeleteSubmissionResponseDto> DeleteSubmissionAsync(
         Guid submissionId,
-        bool archived,
         CancellationToken cancellationToken)
     {
         if (persistence.Submissions == null)
-            throw new NotSupportedException("Submission archive is unavailable because persistence is disabled or not started.");
+            throw new NotSupportedException("Submission deletion requires persistence.");
         var liveJobs = live.GetJobs(new JobQuery(
             null, null, null, null, IncludeAll: true, SubmissionId: submissionId));
-        if (archived)
-        {
-            bool pending = supervisor.HasPendingSubmission(submissionId);
-            bool liveActive = liveJobs.Any(job => job.LifecycleState != ServerJobLifecycleState.Terminal);
-            if (pending || liveActive)
-            {
-                return new SubmissionArchiveResponseDto(
-                    submissionId,
-                    true,
-                    0,
-                    0,
-                    1,
-                    [new SubmissionReasonCountDto("nonterminal-jobs", 1)]);
-            }
-        }
-        // Archive needs this submission's terminal metadata, not another
-        // workflow's search history. Pending projections remain in StateStore
-        // until their durable acknowledgement.
-        foreach (var job in liveJobs)
-            await persistence.WaitForJobHandoffAsync(job.JobId, cancellationToken, includeSearchResults: false)
-                .ConfigureAwait(false);
-        var result = await persistence.Submissions
-            .SetArchivedAsync(submissionId, archived, cancellationToken)
-            .ConfigureAwait(false);
+        if (supervisor.HasPendingSubmission(submissionId)
+            || liveJobs.Any(job => job.LifecycleState != ServerJobLifecycleState.Terminal))
+            return new(submissionId, 0, 0, 1, [new("nonterminal-jobs", 1)]);
+
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        await supervisor.WaitForSubmissionExecutionAsync(submissionId, cancellationToken).ConfigureAwait(false);
+        var result = await persistence.Submissions.DeleteAsync(submissionId, cancellationToken).ConfigureAwait(false);
         if (result.RejectedSubmissionCount == 0)
-            live.SetSubmissionArchived(submissionId, archived);
-        return SubmissionDtoMapper.ToArchiveResponse(result);
+        {
+            supervisor.ForgetSubmission(submissionId);
+            live.RemoveSubmission(submissionId);
+        }
+        if (logger != null && result.AffectedSubmissionCount > 0)
+            ServerLogMessages.SubmissionDeleted(logger, submissionId,
+                (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, result.AffectedJobCount);
+        return SubmissionDtoMapper.ToDeleteResponse(result);
     }
 
     public async Task<CombinedSubmissionPage> GetSubmissionsAsync(
         string? cursor,
         int limit,
-        bool archived,
         CancellationToken cancellationToken = default)
     {
         if (persistence.Submissions == null)
@@ -90,11 +76,10 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
             null,
             null,
             null,
-            IncludeAll: true,
-            Archived: archived));
+            IncludeAll: true));
         persistence.EnsureJobProjectionsAvailable();
         var page = await persistence.Submissions.GetSubmissionsAsync(
-            new SubmissionHistoryQuery(cursor, limit, archived),
+            new SubmissionHistoryQuery(cursor, limit),
             cancellationToken).ConfigureAwait(false);
         return new CombinedSubmissionPage(
             page.Items.Select(item => WithLiveSubmissionCounts(
@@ -237,7 +222,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         var persisted = await persistence.JobHistory.GetJobsAsync(new JobHistoryQuery(
             cursor, limit, query.LifecycleState?.ToString(), query.TerminalOutcome?.ToString(),
             query.SkipReason?.ToString(), query.Kind?.ToString(), query.WorkflowId, query.IncludeAll,
-            query.ParentJobId, query.SubmissionId, query.Role?.ToString(), query.Archived,
+            query.ParentJobId, query.SubmissionId, query.Role?.ToString(),
             query.NewestFirst, query.ExcludeExtractResults, capture.OwnedJobIds, query.ExcludeKinds?.Select(kind => kind.ToString()).ToArray()), cancellationToken).ConfigureAwait(false);
         // Runtime rows and retained rows are disjoint by ownership. Capture and
         // exact-ID reads use this same runtime-first rule, rather than choosing

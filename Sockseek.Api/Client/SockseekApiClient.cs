@@ -55,7 +55,7 @@ public sealed record TransferHistoryFilter(
     string? Username = null,
     DateTimeOffset? FromUtc = null,
     DateTimeOffset? ToUtc = null,
-    bool Archived = false,
+    bool IncludeRemoved = false,
     string? GroupRef = null);
 
 /// <summary>Exception raised for daemon HTTP responses that intentionally return an API error body.</summary>
@@ -529,7 +529,6 @@ public sealed class SockseekApiClient
             + QueryPart("parentJobId", query.ParentJobId?.ToString())
             + QueryPart("submissionId", query.SubmissionId?.ToString())
             + QueryPart("role", query.Role?.ToWireString())
-            + QueryPart("archived", query.Archived.ToString().ToLowerInvariant())
             + QueryPart("newestFirst", query.NewestFirst.ToString().ToLowerInvariant())
             + QueryPart("excludeExtractResults", query.ExcludeExtractResults.ToString().ToLowerInvariant())
             + QueryPart("cursor", cursor)
@@ -578,12 +577,11 @@ public sealed class SockseekApiClient
         => GetOptionalAsync<WorkflowDetailDto>($"api/workflows/{workflowId}", ct);
 
     public async Task<CursorPage<SubmissionSummaryDto>> GetSubmissionsPageAsync(
-        bool archived = false,
         string? cursor = null,
         int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
         => await GetCursorPageAsync<SubmissionSummaryDto>(
-            $"api/submissions?archived={archived.ToString().ToLowerInvariant()}&limit={limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
+            $"api/submissions?limit={limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             + QueryPart("cursor", cursor),
             ct);
 
@@ -592,14 +590,8 @@ public sealed class SockseekApiClient
         CancellationToken ct = default)
         => GetOptionalAsync<SubmissionDetailDto>($"api/submissions/{submissionId}", ct);
 
-    public Task<SubmissionArchiveResponseDto> SetSubmissionArchivedAsync(
-        Guid submissionId,
-        bool archived,
-        CancellationToken ct = default)
-        => PostRequiredAsync<SubmissionArchiveResponseDto, SetSubmissionArchivedRequestDto>(
-            $"api/submissions/{submissionId}/archive",
-            new SetSubmissionArchivedRequestDto(archived),
-            ct);
+    public Task<DeleteSubmissionResponseDto> DeleteSubmissionAsync(Guid submissionId, CancellationToken ct = default)
+        => DeleteRequiredAsync<DeleteSubmissionResponseDto>($"api/submissions/{submissionId}", ct);
 
     public async Task<JobSummaryDto?> RerunSubmissionAsync(
         Guid submissionId,
@@ -655,7 +647,7 @@ public sealed class SockseekApiClient
             + QueryPart("groupRef", query.GroupRef)
             + QueryPart("fromUtc", query.FromUtc?.ToString("O"))
             + QueryPart("toUtc", query.ToUtc?.ToString("O"))
-            + QueryPart("archived", query.Archived.ToString().ToLowerInvariant())
+            + QueryPart("includeRemoved", query.IncludeRemoved.ToString().ToLowerInvariant())
             + QueryPart("cursor", cursor);
         return await GetRequiredAsync<TransferTimelinePageDto>(url, ct);
     }
@@ -700,20 +692,14 @@ public sealed class SockseekApiClient
             request,
             ct);
 
-    public Task<TransferCommandReceiptDto> SetTransferArchivedAsync(
-        Guid transferId,
-        bool archived = true,
-        CancellationToken ct = default)
-        => PostRequiredAsync<TransferCommandReceiptDto, SetTransferArchivedRequestDto>(
-            $"api/transfers/{transferId:D}/archive",
-            new SetTransferArchivedRequestDto(archived),
-            ct);
+    public Task<TransferCommandReceiptDto> RemoveTransferAsync(Guid transferId, CancellationToken ct = default)
+        => DeleteRequiredAsync<TransferCommandReceiptDto>($"api/transfers/{transferId}", ct);
 
-    public Task<TransferCommandReceiptDto> SetTransfersArchivedAsync(
-        ArchiveTransfersRequestDto request,
+    public Task<TransferCommandReceiptDto> RemoveTransfersAsync(
+        RemoveTransfersRequestDto request,
         CancellationToken ct = default)
-        => PostRequiredAsync<TransferCommandReceiptDto, ArchiveTransfersRequestDto>(
-            "api/transfers/archive",
+        => PostRequiredAsync<TransferCommandReceiptDto, RemoveTransfersRequestDto>(
+            "api/transfers/remove",
             request,
             ct);
 

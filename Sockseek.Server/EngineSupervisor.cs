@@ -448,10 +448,20 @@ public sealed class EngineSupervisor : IDisposable
         return engine?.CancelAllJobs() ?? 0;
     }
 
+    internal Task WaitForSubmissionExecutionAsync(Guid submissionId, CancellationToken cancellationToken)
+    {
+        lock (engineGate)
+            return currentEngine?.WaitForSubmissionAsync(submissionId, cancellationToken) ?? Task.CompletedTask;
+    }
+
+    internal void ForgetSubmission(Guid submissionId)
+    {
+        lock (engineGate) currentEngine?.ForgetSubmission(submissionId);
+    }
+
     internal bool HasPendingSubmission(Guid submissionId)
         => acceptedRootsAwaitingRegistration.Values.Any(pending =>
-            pending.Job.SubmissionId == submissionId
-            && pending.Job.LifecycleState != JobLifecycleState.Terminal);
+            pending.Job.SubmissionId == submissionId);
 
     public bool TryNextCandidate(Guid jobId)
     {

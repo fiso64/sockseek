@@ -30,10 +30,10 @@ test('starts with fresh history, sharing configuration and peer behavior', async
   expect(previousJobId).toBeTruthy();
   const previous = await context.request.get(`/api/jobs/${previousJobId}`);
   expect(previous.status()).toBe(404);
-  const jobs = await context.request.get('/api/jobs?archived=false&includeAll=true&limit=100');
+  const jobs = await context.request.get('/api/jobs?includeAll=true&limit=100');
   expect(jobs.ok(), await jobs.text()).toBe(true);
   expect(await jobs.json()).toEqual([]);
-  const uploads = await context.request.get('/api/transfers?direction=upload&archived=false&limit=100');
+  const uploads = await context.request.get('/api/transfers?direction=upload&limit=100');
   expect(uploads.ok(), await uploads.text()).toBe(true);
   expect((await uploads.json() as Schema<'TransferTimelinePageDto'>).items).toEqual([]);
   const snapshot = await context.request.get('/api/daemon/snapshot');

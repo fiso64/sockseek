@@ -255,7 +255,7 @@ public sealed record JobSummaryDto(
 
 /// <summary>
 /// Fixed-size selected-job snapshot. Direct children are listed through the jobs collection.
-/// SourceJobAvailable indicates whether its source is still present and unarchived.
+/// SourceJobAvailable indicates whether its source is still present.
 /// </summary>
 public sealed record JobDetailDto(
     JobSummaryDto Summary,
@@ -300,7 +300,6 @@ public sealed record JobQuery(
     Guid? ParentJobId = null,
     Guid? SubmissionId = null,
     ServerJobRole? Role = null,
-    bool Archived = false,
     bool NewestFirst = false,
     bool ExcludeExtractResults = false,
     IReadOnlyList<ServerJobKind>? ExcludeKinds = null);

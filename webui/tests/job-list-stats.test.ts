@@ -105,7 +105,7 @@ test('Jobs uses one server scope for navigation, expansion and authoritative rec
   expect(f.controller.items.map(row => row.jobId)).toEqual(['3']);
 });
 
-test('Jobs archive discards an in-flight snapshot and disconnected reads use the same contract', async () => {
+test('Job deletion discards an in-flight snapshot and disconnected reads use the same contract', async () => {
   const f = listFixture();
   f.controller.setActive(true, 'connected');
   f.subscriptions[0]!.next(listSnapshot(listedJob('2'), listedJob('1')));

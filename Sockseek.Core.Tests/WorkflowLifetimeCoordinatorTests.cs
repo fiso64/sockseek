@@ -14,6 +14,8 @@ public sealed class WorkflowLifetimeCoordinatorTests
         Guid workflowId = Guid.NewGuid();
         var first = TerminalSong(workflowId, "First");
         var second = TerminalSong(workflowId, "Second");
+        first.SubmissionId = Guid.NewGuid();
+        second.SubmissionId = Guid.NewGuid();
         var jobs = new List<Job> { first, second };
         int retirements = 0;
         var coordinator = new WorkflowLifetimeCoordinator(
@@ -31,7 +33,12 @@ public sealed class WorkflowLifetimeCoordinatorTests
         var firstLease = coordinator.QueueRoot(first);
         var secondLease = coordinator.QueueRoot(second);
 
+        Task firstDone = coordinator.WaitForSubmissionAsync(first.SubmissionId.Value, CancellationToken.None);
+        Task secondDone = coordinator.WaitForSubmissionAsync(second.SubmissionId.Value, CancellationToken.None);
+        Assert.IsFalse(firstDone.IsCompleted, "A displayed terminal outcome is not execution completion.");
         coordinator.RootCompleted(firstLease);
+        Assert.IsTrue(firstDone.IsCompletedSuccessfully);
+        Assert.IsFalse(secondDone.IsCompleted, "Unrelated roots do not extend this submission's execution lifetime.");
         Assert.AreEqual(0, retirements);
         Assert.AreEqual(1, coordinator.RetainedGenerationCount);
 
@@ -97,12 +104,14 @@ public sealed class WorkflowLifetimeCoordinatorTests
         coordinator.RootCompleted(lease);
         Assert.AreEqual(0, retirements, "Awaiting selection must remain live.");
 
+        var cancellation = coordinator.QueueRoot(job);
         job.SetSkipped(JobSkipReason.Manual);
-        coordinator.Reevaluate(workflowId);
+        coordinator.RootCompleted(cancellation);
         Assert.AreEqual(0, retirements, "A terminal manual selection can still be resumable.");
 
+        var completion = coordinator.QueueRoot(job);
         resumable = false;
-        coordinator.Reevaluate(workflowId);
+        coordinator.RootCompleted(completion);
         Assert.AreEqual(1, retirements);
         Assert.AreEqual(0, coordinator.RetainedGenerationCount);
     }

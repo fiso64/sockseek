@@ -6245,12 +6245,11 @@ export interface paths {
         };
         /**
          * Lists durable accepted submissions newest first.
-         * @description Archived submissions are excluded by default. Traverse runtime jobs with /api/jobs?submissionId= rather than embedding them here.
+         * @description Traverse runtime jobs with /api/jobs?submissionId= rather than embedding them here.
          */
         get: {
             parameters: {
                 query?: {
-                    archived?: boolean;
                     cursor?: string;
                     limit?: number | string;
                 };
@@ -6360,26 +6359,11 @@ export interface paths {
         };
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/submissions/{submissionId}/archive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
         /**
-         * Archives or restores one terminal submission.
-         * @description Archive is reversible. A nonterminal submission is rejected without affecting unrelated submissions.
+         * Permanently deletes one terminal submission and its jobs.
+         * @description Downloaded files, transfers and their statistics are preserved. Nonterminal submissions are rejected.
          */
-        post: {
+        delete: {
             parameters: {
                 query?: never;
                 header?: never;
@@ -6388,11 +6372,7 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["SetSubmissionArchivedRequestDto"];
-                };
-            };
+            requestBody?: never;
             responses: {
                 /** @description OK */
                 200: {
@@ -6400,7 +6380,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["SubmissionArchiveResponseDto"];
+                        "application/json": components["schemas"]["DeleteSubmissionResponseDto"];
                     };
                 };
                 /** @description Authentication required or credential expired/revoked. */
@@ -6426,7 +6406,6 @@ export interface paths {
                 };
             };
         };
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -6601,7 +6580,6 @@ export interface paths {
                     parentJobId?: string;
                     submissionId?: string;
                     role?: "user-root" | "semantic-result" | "orchestration" | "execution-child";
-                    archived?: boolean;
                     includeAll?: boolean;
                     newestFirst?: boolean;
                     excludeExtractResults?: boolean;
@@ -8516,7 +8494,7 @@ export interface paths {
                     groupRef?: string;
                     fromUtc?: string;
                     toUtc?: string;
-                    archived?: boolean;
+                    includeRemoved?: boolean;
                     cursor?: string;
                     limit?: number | string;
                 };
@@ -8716,7 +8694,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Looks up current unarchived transfer timeline rows by ID.
+         * Looks up current visible transfer timeline rows by ID.
          * @description Uses the same live, queued and retained projection as the timeline. Returns all found IDs in newest-first order without a continuation. Missing IDs are omitted; retained availability is explicit.
          */
         post: {
@@ -8968,7 +8946,53 @@ export interface paths {
         };
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Removes one terminal retained transfer.
+         * @description Removal hides a terminal transfer from ordinary listings while preserving history and statistics. Nonterminal transfers are rejected.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    transferId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TransferCommandReceiptDto"];
+                    };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -9110,7 +9134,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/transfers/{transferId}/archive": {
+    "/api/transfers/remove": {
         parameters: {
             query?: never;
             header?: never;
@@ -9120,74 +9144,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Archives or restores one terminal retained transfer.
-         * @description Archive is reversible and separate from cancellation; a nonterminal transfer is rejected.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    transferId: string;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["SetTransferArchivedRequestDto"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["TransferCommandReceiptDto"];
-                    };
-                };
-                /** @description Authentication required or credential expired/revoked. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Access denied. */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Service Unavailable */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/transfers/archive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Archives or restores terminal transfer history, optionally scoped to an exact peer/group.
-         * @description The command is reversible, excludes active transfers, and returns bounded outcome counts.
+         * Removes terminal transfers from listings, optionally scoped to an exact peer/group.
+         * @description Preserves retained history and statistics, excludes active transfers, and returns bounded outcome counts.
          */
         post: {
             parameters: {
@@ -9198,7 +9156,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": components["schemas"]["ArchiveTransfersRequestDto"];
+                    "application/json": components["schemas"]["RemoveTransfersRequestDto"];
                 };
             };
             responses: {
@@ -10148,18 +10106,6 @@ export interface components {
             /** @default true */
             archived: boolean;
         };
-        ArchiveTransfersRequestDto: {
-            /** @default true */
-            archived: boolean;
-            direction?: null | string;
-            terminalOutcome?: null | string;
-            username?: null | string;
-            /** Format: date-time */
-            fromUtc?: null | string;
-            /** Format: date-time */
-            toUtc?: null | string;
-            groupRef?: null | string;
-        };
         AttemptedSongFileDto: {
             target: {
                 username: string;
@@ -10761,6 +10707,17 @@ export interface components {
             transferredBytes: number | string;
             /** Format: int32 */
             successfulFileCount: number | string;
+        };
+        DeleteSubmissionResponseDto: {
+            /** Format: uuid */
+            submissionId: string;
+            /** Format: int32 */
+            affectedSubmissionCount: number | string;
+            /** Format: int32 */
+            affectedJobCount: number | string;
+            /** Format: int32 */
+            rejectedSubmissionCount: number | string;
+            rejectionReasons: components["schemas"]["SubmissionReasonCountDto"][];
         };
         DiagnosticActivityDto: {
             /** Format: int32 */
@@ -11617,7 +11574,7 @@ export interface components {
                             completedAtUtc?: null | string;
                             failureMessage?: null | string;
                             /** Format: date-time */
-                            archivedAtUtc?: null | string;
+                            removedAtUtc?: null | string;
                             availableActions?: {
                                 /** @enum {unknown} */
                                 kind: "cancel";
@@ -11691,7 +11648,7 @@ export interface components {
                         completedAtUtc?: null | string;
                         failureMessage?: null | string;
                         /** Format: date-time */
-                        archivedAtUtc?: null | string;
+                        removedAtUtc?: null | string;
                         availableActions?: {
                             /** @enum {unknown} */
                             kind: "cancel";
@@ -12131,8 +12088,6 @@ export interface components {
             submissionId?: null | string;
             role?: null | components["schemas"]["ServerJobRole"];
             /** @default false */
-            archived: boolean;
-            /** @default false */
             newestFirst: boolean;
             /** @default false */
             excludeExtractResults: boolean;
@@ -12237,7 +12192,7 @@ export interface components {
         /** @enum {unknown} */
         LiveClientInvocation: "SubscribeAll" | "UnsubscribeAll" | "SubscribeWorkflow" | "UnsubscribeWorkflow" | "SubscribeChat" | "UnsubscribeChat" | "SubscribeUserBrowse" | "UnsubscribeUserBrowse" | "ObserveSearchView" | "ObserveTransferTimeline" | "ObserveJobs" | "ObserveJobList";
         /** @enum {integer} */
-        LiveProtocolContractVersion: 17;
+        LiveProtocolContractVersion: 18;
         /** @enum {unknown} */
         LiveServerMessage: "stateUpdateBatch";
         LiveTransferPageDto: {
@@ -12522,6 +12477,16 @@ export interface components {
         };
         /** @enum {unknown} */
         RemoteDirectorySourceKindDto: "PeerDirectory" | "Resolved";
+        RemoveTransfersRequestDto: {
+            direction?: null | string;
+            terminalOutcome?: null | string;
+            username?: null | string;
+            /** Format: date-time */
+            fromUtc?: null | string;
+            /** Format: date-time */
+            toUtc?: null | string;
+            groupRef?: null | string;
+        };
         ResolveEffectiveSettingsRequestDto: {
             job: components["schemas"]["JobDraftDto"];
             options?: null | components["schemas"]["SubmissionOptionsDto"];
@@ -12959,14 +12924,6 @@ export interface components {
             /** Format: date-time */
             expiresAt?: null | string;
             antiforgeryToken: string;
-        };
-        SetSubmissionArchivedRequestDto: {
-            /** @default true */
-            archived: boolean;
-        };
-        SetTransferArchivedRequestDto: {
-            /** @default true */
-            archived: boolean;
         };
         SetUserRestrictionOverrideRequestDto: {
             kind: components["schemas"]["UserRestrictionKind"];
@@ -13526,7 +13483,7 @@ export interface components {
                         completedAtUtc?: null | string;
                         failureMessage?: null | string;
                         /** Format: date-time */
-                        archivedAtUtc?: null | string;
+                        removedAtUtc?: null | string;
                         availableActions?: {
                             /** @enum {unknown} */
                             kind: "cancel";
@@ -13600,7 +13557,7 @@ export interface components {
                     completedAtUtc?: null | string;
                     failureMessage?: null | string;
                     /** Format: date-time */
-                    archivedAtUtc?: null | string;
+                    removedAtUtc?: null | string;
                     availableActions?: {
                         /** @enum {unknown} */
                         kind: "cancel";
@@ -14243,7 +14200,7 @@ export interface components {
                             completedAtUtc?: null | string;
                             failureMessage?: null | string;
                             /** Format: date-time */
-                            archivedAtUtc?: null | string;
+                            removedAtUtc?: null | string;
                             availableActions?: {
                                 /** @enum {unknown} */
                                 kind: "cancel";
@@ -14317,7 +14274,7 @@ export interface components {
                         completedAtUtc?: null | string;
                         failureMessage?: null | string;
                         /** Format: date-time */
-                        archivedAtUtc?: null | string;
+                        removedAtUtc?: null | string;
                         availableActions?: {
                             /** @enum {unknown} */
                             kind: "cancel";
@@ -14578,18 +14535,6 @@ export interface components {
                 };
             }[];
         };
-        SubmissionArchiveResponseDto: {
-            /** Format: uuid */
-            submissionId: string;
-            archived: boolean;
-            /** Format: int32 */
-            affectedSubmissionCount: number | string;
-            /** Format: int32 */
-            affectedJobCount: number | string;
-            /** Format: int32 */
-            rejectedSubmissionCount: number | string;
-            rejectionReasons: components["schemas"]["SubmissionReasonCountDto"][];
-        };
         SubmissionDetailDto: {
             summary: components["schemas"]["SubmissionSummaryDto"];
             commandKind?: null | components["schemas"]["ServerJobKind"];
@@ -14623,8 +14568,6 @@ export interface components {
             artifactId?: null | string;
             /** Format: int64 */
             revision: number | string;
-            /** Format: date-time */
-            archivedAtUtc?: null | string;
             /** Format: int32 */
             totalJobCount: number | string;
             /** Format: int32 */
@@ -14902,7 +14845,7 @@ export interface components {
             completedAtUtc?: null | string;
             failureMessage?: null | string;
             /** Format: date-time */
-            archivedAtUtc?: null | string;
+            removedAtUtc?: null | string;
             availableActions?: components["schemas"]["ResourceActionDto"][] | null;
         };
         /**

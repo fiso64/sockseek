@@ -62,7 +62,7 @@ export class DaemonApiClient {
 
   getJobs(cursor?: string | null, limit = nestedPageSize, signal?: AbortSignal): Promise<CursorPage<JobSummaryDto>> {
     return this.http.getCursorPage<JobSummaryDto[]>(
-      `/jobs${queryString({ archived: false, includeAll: false, newestFirst: true, excludeExtractResults: true, cursor, limit })}`,
+      `/jobs${queryString({ includeAll: false, newestFirst: true, excludeExtractResults: true, cursor, limit })}`,
       signal,
     );
   }
@@ -81,7 +81,7 @@ export class DaemonApiClient {
 
   getJobChildren(jobId: string, cursor?: string | null, signal?: AbortSignal, kind?: JobSummaryDto['kind']): Promise<CursorPage<JobSummaryDto>> {
     return this.http.getCursorPage<JobSummaryDto[]>(
-      `/jobs${queryString({ parentJobId: jobId, kind, archived: false, includeAll: false, excludeExtractResults: true, cursor, limit: nestedPageSize })}`,
+      `/jobs${queryString({ parentJobId: jobId, kind, includeAll: false, excludeExtractResults: true, cursor, limit: nestedPageSize })}`,
       signal,
     );
   }
@@ -229,8 +229,8 @@ export class DaemonApiClient {
     return this.http.post(`/jobs/${encodeURIComponent(jobId)}/cancel`, undefined, signal);
   }
 
-  archiveSubmission(submissionId: string, signal?: AbortSignal): Promise<Schema<'SubmissionArchiveResponseDto'>> {
-    return this.http.post(`/submissions/${encodeURIComponent(submissionId)}/archive`, { archived: true }, signal);
+  deleteSubmission(submissionId: string, signal?: AbortSignal): Promise<Schema<'DeleteSubmissionResponseDto'>> {
+    return this.http.delete(`/submissions/${encodeURIComponent(submissionId)}`, signal);
   }
 
   cancelTransfer(transferId: string, signal?: AbortSignal): Promise<Schema<'TransferStateDto'>> {
@@ -257,7 +257,7 @@ export class DaemonApiClient {
     signal?: AbortSignal,
   ): Promise<TransferTimelinePageDto> {
     return this.http.get(
-      `/transfers${queryString({ direction, username, groupRef, archived: false, cursor, limit })}`,
+      `/transfers${queryString({ direction, username, groupRef, cursor, limit })}`,
       signal,
     );
   }
@@ -267,14 +267,13 @@ export class DaemonApiClient {
     return this.http.post('/transfers/cancel', request, signal);
   }
 
-  archiveTransfer(transferId: string, archived = true, signal?: AbortSignal): Promise<TransferCommandReceiptDto> {
-    const request: Schema<'SetTransferArchivedRequestDto'> = { archived };
-    return this.http.post(`/transfers/${encodeURIComponent(transferId)}/archive`, request, signal);
+  removeTransfer(transferId: string, signal?: AbortSignal): Promise<TransferCommandReceiptDto> {
+    return this.http.delete(`/transfers/${encodeURIComponent(transferId)}`, signal);
   }
 
-  archiveTransfers(direction: 'download' | 'upload', archived = true, group?: { username: string | null; groupRef: string }, signal?: AbortSignal): Promise<TransferCommandReceiptDto> {
-    const request: Schema<'ArchiveTransfersRequestDto'> = { archived, direction, ...group };
-    return this.http.post('/transfers/archive', request, signal);
+  removeTransfers(direction: 'download' | 'upload', group?: { username: string | null; groupRef: string }, signal?: AbortSignal): Promise<TransferCommandReceiptDto> {
+    const request: Schema<'RemoveTransfersRequestDto'> = { direction, ...group };
+    return this.http.post('/transfers/remove', request, signal);
   }
 
   getDashboardAnalytics(range: '24h' | '7d' | '30d' | '90d' | '1y' | 'all', signal?: AbortSignal): Promise<DashboardAnalyticsDto> {

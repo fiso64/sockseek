@@ -211,4 +211,7 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4585, LogLevel.Warning, "Could not determine source job availability; source links are hidden. Suppressed {SuppressedCount} similar warnings.")]
     internal static partial void SourceJobAvailabilityFailed(ILogger logger, Exception exception, long suppressedCount);
 
+    [LoggerMessage(4586, LogLevel.Information, "Submission {SubmissionId} deleted in {DurationMs} ms; jobs={JobCount}")]
+    internal static partial void SubmissionDeleted(ILogger logger, Guid submissionId, long durationMs, int jobCount);
+
 }

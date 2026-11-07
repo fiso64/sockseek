@@ -20,7 +20,7 @@ namespace Tests.Server;
 public class OpenApiContractTests
 {
     [TestMethod]
-    public async Task TypedSubmissionHistory_PagesPublicSummariesAndSeparatesArchivedItems()
+    public async Task TypedSubmissionHistoryPagesSummariesAndDeletesAcceptedWork()
     {
         string directory = Directory.CreateTempSubdirectory("sockseek-submission-api-").FullName;
         try
@@ -58,19 +58,18 @@ public class OpenApiContractTests
                 Assert.IsNull(third.NextCursor);
                 Assert.IsTrue(first.Items.Concat(second.Items).Concat(third.Items)
                     .All(item => item.TotalJobCount == 0 && item.Revision == 1));
-                var archived = await client.SetSubmissionArchivedAsync(ids[1], archived: true);
-                Assert.AreEqual(0, archived.RejectedSubmissionCount);
+                var deleted = await client.DeleteSubmissionAsync(ids[1]);
+                Assert.AreEqual(0, deleted.RejectedSubmissionCount);
                 CollectionAssert.AreEqual(new[] { ids[2], ids[0] },
                     (await client.GetSubmissionsPageAsync()).Items.Select(item => item.SubmissionId).ToArray());
-                Assert.AreEqual(ids[1], (await client.GetSubmissionsPageAsync(archived: true))
-                    .Items.Single().SubmissionId);
+                Assert.IsNull(await client.GetSubmissionAsync(ids[1]));
                 using var response = await http.GetAsync("/api/submissions?limit=1");
                 response.EnsureSuccessStatusCode();
                 using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
                 Assert.AreEqual(JsonValueKind.Array, body.RootElement.ValueKind);
                 Assert.IsFalse(body.RootElement[0].TryGetProperty("specificationJson", out _));
                 Assert.IsTrue(response.Headers.Contains("X-Next-Cursor"));
-                foreach (string path in new[] { "/api/jobs", "/api/jobs?includeAll=true", "/api/jobs?archived=false" })
+                foreach (string path in new[] { "/api/jobs", "/api/jobs?includeAll=true" })
                 {
                     using var jobsResponse = await http.GetAsync(path);
                     jobsResponse.EnsureSuccessStatusCode();
@@ -79,7 +78,7 @@ public class OpenApiContractTests
                         "Optional job flags must default without making an unfiltered request invalid.");
                 }
                 Assert.AreEqual("{\"retained\":\"not-public\"}",
-                    (await store.GetSubmissionAsync(ids[1]))!.SpecificationJson);
+                    (await store.GetSubmissionAsync(ids[0]))!.SpecificationJson);
             }
             finally
             {
@@ -494,10 +493,10 @@ public class OpenApiContractTests
             .TryGetProperty("/api/transfers/cancel", out _));
         Assert.IsTrue(document.RootElement
             .GetProperty("paths")
-            .TryGetProperty("/api/transfers/{transferId}/archive", out _));
+            .TryGetProperty("/api/transfers/{transferId}", out _));
         Assert.IsTrue(document.RootElement
             .GetProperty("paths")
-            .TryGetProperty("/api/transfers/archive", out _));
+            .TryGetProperty("/api/transfers/remove", out _));
         Assert.IsTrue(document.RootElement
             .GetProperty("paths")
             .TryGetProperty("/api/dashboard/analytics", out _));

@@ -151,7 +151,7 @@ public class RemoteCliBackendTests
         StringAssert.Contains(handler.RequestUri!.Query, "username=peer%20name");
         StringAssert.Contains(handler.RequestUri.Query, "cursor=previous-page");
         StringAssert.Contains(handler.RequestUri.Query, "limit=25");
-        StringAssert.Contains(handler.RequestUri.Query, "archived=false");
+        StringAssert.Contains(handler.RequestUri.Query, "includeRemoved=false");
     }
 
     [TestMethod]

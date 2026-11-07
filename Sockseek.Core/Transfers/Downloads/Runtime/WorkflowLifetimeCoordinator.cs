@@ -11,6 +11,20 @@ internal sealed class WorkflowLifetimeCoordinator
 {
     private readonly Lock gate = new();
     private readonly Dictionary<Guid, WorkflowGeneration> currentByWorkflow = [];
+    private readonly Dictionary<Guid, SubmissionExecution> submissions = [];
+    private sealed class SubmissionExecution
+    {
+        public int Roots;
+        public TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    public Task WaitForSubmissionAsync(Guid submissionId, CancellationToken cancellationToken)
+    {
+        lock (gate)
+            return submissions.TryGetValue(submissionId, out var execution)
+                ? execution.Completion.Task.WaitAsync(cancellationToken) : Task.CompletedTask;
+    }
+
     private readonly Func<Guid, IReadOnlyList<Job>> getJobs;
     private readonly Func<IReadOnlyCollection<Job>, bool> hasResumableState;
     private readonly Func<Guid, long> captureSettingsVersion;
@@ -41,6 +55,12 @@ internal sealed class WorkflowLifetimeCoordinator
                 currentByWorkflow[root.WorkflowId] = generation;
             }
 
+            if (root.SubmissionId is Guid submissionId)
+            {
+                if (!submissions.TryGetValue(submissionId, out var execution))
+                    submissions.Add(submissionId, execution = new());
+                execution.Roots++;
+            }
             generation.PendingRoots++;
             generation.SettingsVersion = captureSettingsVersion(root.WorkflowId);
             return new WorkflowRootLease(root, generation);
@@ -60,21 +80,19 @@ internal sealed class WorkflowLifetimeCoordinator
             lease.Generation.PendingRoots--;
             retirement = TryBeginRetirement(lease.Generation);
         }
-        if (retirement != null)
-            CompleteRetirement(retirement);
-    }
-
-    public void Reevaluate(Guid workflowId)
-    {
-        WorkflowGeneration? retirement;
-        lock (gate)
+        try
         {
-            retirement = currentByWorkflow.TryGetValue(workflowId, out var generation)
-                ? TryBeginRetirement(generation)
-                : null;
+            if (retirement != null) CompleteRetirement(retirement);
         }
-        if (retirement != null)
-            CompleteRetirement(retirement);
+        finally
+        {
+            lock (gate)
+                if (lease.Root.SubmissionId is Guid id && --submissions[id].Roots == 0)
+                {
+                    submissions.Remove(id, out var execution);
+                    execution!.Completion.TrySetResult();
+                }
+        }
     }
 
     private WorkflowGeneration? TryBeginRetirement(WorkflowGeneration generation)

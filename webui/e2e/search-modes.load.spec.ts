@@ -166,7 +166,7 @@ for (const mode of modes) {
     // metadata must not wait for those unrelated rows. Exercise this before
     // screenshots or selection/download work give the writer time to catch up.
     const metadataReads: { path: string; elapsedMs: number }[] = [];
-    for (const path of [`/api/jobs/${initial.sourceJobId}`, '/api/jobs?includeAll=false&archived=false&newestFirst=true&limit=100']) {
+    for (const path of [`/api/jobs/${initial.sourceJobId}`, '/api/jobs?includeAll=false&newestFirst=true&limit=100']) {
       const response = await measureApi(daemon.url, path);
       const elapsedMs = response.elapsedMs;
       metadataReads.push({ path, elapsedMs });
@@ -251,7 +251,7 @@ for (const mode of modes) {
         commitMs = commit.uiMs;
         planApiMs = commit.apiMs;
         await expect.poll(async () => {
-          const response = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
+          const response = await page.request.get('/api/transfers?direction=download&limit=100');
           expect(response.ok(), await response.text()).toBe(true);
           const timeline = await response.json() as Schema<'TransferTimelinePageDto'>;
           return timeline.items.map(item => `${item.identity.username}:${item.identity.remotePath}`);
@@ -261,7 +261,7 @@ for (const mode of modes) {
         await daemon.command('release-download');
       }
       await expect.poll(async () => {
-        const response = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
+        const response = await page.request.get('/api/transfers?direction=download&limit=100');
         expect(response.ok(), await response.text()).toBe(true);
         const timeline = await response.json() as Schema<'TransferTimelinePageDto'>;
         transfer = timeline.items[0];
@@ -444,7 +444,7 @@ for (const mode of modes) {
           expect(Number(receipt.submittedCount)).toBe(1);
           expect(Number(receipt.rejectedCount)).toBe(0);
           await daemon.command('wait-download-started');
-          const jobsResponse = await page.request.get(`/api/jobs?submissionId=${receipt.submissionId}&includeAll=true&archived=false&limit=100`);
+          const jobsResponse = await page.request.get(`/api/jobs?submissionId=${receipt.submissionId}&includeAll=true&limit=100`);
           expect(jobsResponse.ok(), await jobsResponse.text()).toBe(true);
           const albums = (await jobsResponse.json() as Schema<'JobSummaryDto'>[]).filter(job => job.kind === 'album');
           expect(albums).toHaveLength(1);
@@ -459,7 +459,7 @@ for (const mode of modes) {
         expect(completed.detail.payload.resultCount).toBe(99);
         expect(completed.detail.payload.resolvedFolderUsername).toBe(second.username);
         expect(Number(completed.directory.bytesTransferred)).toBe(84_500_000);
-        const failures = await page.request.get('/api/transfers?direction=download&archived=false&terminalOutcome=Failed&limit=100');
+        const failures = await page.request.get('/api/transfers?direction=download&terminalOutcome=Failed&limit=100');
         expect(failures.ok(), await failures.text()).toBe(true);
         const failed = (await failures.json() as Schema<'TransferTimelinePageDto'>).items;
         expect(failed.some(item => item.identity.username === first.username && item.identity.remotePath?.startsWith(first.folderPath + '\\'))).toBe(true);
@@ -481,7 +481,7 @@ for (const mode of modes) {
           const root = JSON.parse(response.body) as Schema<'JobSummaryDto'>;
           expect(root.submissionId).not.toBe(submissionId);
           await daemon.command('wait-download-started');
-          const jobsResponse = await page.request.get(`/api/jobs?submissionId=${root.submissionId}&includeAll=true&archived=false&limit=100`);
+          const jobsResponse = await page.request.get(`/api/jobs?submissionId=${root.submissionId}&includeAll=true&limit=100`);
           expect(jobsResponse.ok(), await jobsResponse.text()).toBe(true);
           const albums = (await jobsResponse.json() as Schema<'JobSummaryDto'>[]).filter(job => job.kind === 'album');
           expect(albums).toHaveLength(1);
@@ -552,7 +552,7 @@ for (const mode of modes) {
       try {
         commit = await commitSelectedFiles(10, outputDirectory, { folderMode: 'observed' });
         await daemon.command('wait-download-started');
-        const response = await page.request.get(`/api/jobs?submissionId=${commit.receipt.submissionId}&includeAll=true&archived=false&limit=100`);
+        const response = await page.request.get(`/api/jobs?submissionId=${commit.receipt.submissionId}&includeAll=true&limit=100`);
         expect(response.ok(), await response.text()).toBe(true);
         const jobs = await response.json() as Schema<'JobSummaryDto'>[];
         const directories = jobs.filter(job => job.kind === 'remote-directory');
@@ -667,7 +667,7 @@ for (const mode of modes) {
         const browseStarted = performance.now();
         fullCommit = await commitSelectedFiles(mode.kind === 'GenericDirectories' ? 11 : 10, fullOutput, { folderMode: 'full' });
         expect(fullCommit.body.options?.downloadSettings?.search?.noBrowseFolder).not.toBe(true);
-        const response = await page.request.get(`/api/jobs?submissionId=${fullCommit.receipt.submissionId}&includeAll=true&archived=false&limit=100`);
+        const response = await page.request.get(`/api/jobs?submissionId=${fullCommit.receipt.submissionId}&includeAll=true&limit=100`);
         expect(response.ok(), await response.text()).toBe(true);
         const directories = (await response.json() as Schema<'JobSummaryDto'>[]).filter(job => job.kind === 'remote-directory');
         expect(directories).toHaveLength(1);
@@ -808,7 +808,7 @@ for (const mode of modes) {
       expect(rootApiMs, 'Automatic root metadata must stay a bounded read after child execution.').toBeLessThan(100);
       const completedRoot = JSON.parse(rootResponse.body) as Schema<'JobDetailDto'>;
       expect(completedRoot.summary.terminalOutcome).toBe('Succeeded');
-      const jobsResponse = await measureApi(daemon.url, `/api/jobs?submissionId=${root.submissionId}&includeAll=true&archived=false&limit=200`);
+      const jobsResponse = await measureApi(daemon.url, `/api/jobs?submissionId=${root.submissionId}&includeAll=true&limit=200`);
       const jobsApiMs = jobsResponse.elapsedMs;
       expect(jobsResponse.ok, jobsResponse.body).toBe(true);
       const jobs = JSON.parse(jobsResponse.body) as Schema<'JobSummaryDto'>[];

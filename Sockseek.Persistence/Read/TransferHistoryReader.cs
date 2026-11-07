@@ -34,7 +34,7 @@ public sealed record PersistedTransfer(
     TransferFileMetadataSnapshot? File = null,
     string? GroupRef = null,
     string? GroupDisplayPath = null,
-    DateTimeOffset? ArchivedAtUtc = null,
+    DateTimeOffset? RemovedAtUtc = null,
     string? GroupRelativePath = null,
     string GroupKind = "Directory");
 
@@ -69,7 +69,7 @@ public sealed record TransferQuery(
     string? Username = null,
     DateTimeOffset? FromUtc = null,
     DateTimeOffset? ToUtc = null,
-    bool Archived = false,
+    bool IncludeRemoved = false,
     string? GroupRef = null,
     IReadOnlyCollection<Guid>? TransferIds = null,
     IReadOnlyCollection<LiveTransferCandidate>? LiveCandidates = null,
@@ -108,12 +108,12 @@ public sealed record TransferGroupMember(
     long? FileSize,
     long TransferredBytes,
     long? BytesPerSecond,
-    DateTimeOffset? ArchivedAtUtc);
+    DateTimeOffset? RemovedAtUtc);
 public sealed record PersistedTransferGroupProjection(
     IReadOnlyList<PersistedTransferGroupSummary> Summaries,
     IReadOnlyList<TransferGroupMember> OverlappingTransfers);
 public sealed record PersistedTransferAttemptPage(IReadOnlyList<PersistedTransferAttempt> Items, int? NextAttemptNumber);
-public sealed record TransferArchiveFilter(
+public sealed record TransferRemovalFilter(
     Guid? TransferId = null,
     string? Direction = null,
     string? TerminalOutcome = null,
@@ -121,7 +121,7 @@ public sealed record TransferArchiveFilter(
     DateTimeOffset? FromUtc = null,
     DateTimeOffset? ToUtc = null,
     string? GroupRef = null);
-public sealed record TransferArchiveResult(
+public sealed record TransferRemovalResult(
     int ResolvedCount,
     int ChangedCount,
     int NoOpCount,
@@ -137,9 +137,8 @@ public interface ITransferHistoryReader
         CancellationToken cancellationToken = default);
     Task<PersistedTransferDetail?> GetTransferAsync(Guid transferId, CancellationToken cancellationToken = default);
     Task<PersistedTransferAttemptPage?> GetAttemptsAsync(Guid transferId, int afterAttemptNumber, int limit, CancellationToken cancellationToken = default);
-    Task<TransferArchiveResult> SetArchivedAsync(
-        TransferArchiveFilter filter,
-        bool archived,
+    Task<TransferRemovalResult> RemoveAsync(
+        TransferRemovalFilter filter,
         CancellationToken cancellationToken = default);
 }
 
@@ -157,7 +156,7 @@ public sealed class TransferHistoryReader(
         var cursor = DecodeCursor(query.Cursor);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         var shape = HistoryRowMapping<TransferEntity>.For(context);
-        var conditions = new List<string> { query.Archived ? "t.archived_at_utc IS NOT NULL" : "t.archived_at_utc IS NULL" };
+        var conditions = new List<string> { query.IncludeRemoved ? "1=1" : "t.removed_at_utc IS NULL" };
         var values = new List<(string Name, object Value)>();
         IEnumerable<object> Parameters() => values.Select(value => new SqliteParameter(value.Name, value.Value));
         void Filter(string predicate, string parameter, object? value)
@@ -246,7 +245,7 @@ public sealed class TransferHistoryReader(
             static row => new TransferPageKey(row.GetGuid(0), row.GetInt64(1)), cancellationToken).ConfigureAwait(false);
         var candidates = keys.ToDictionary(row => row.Id);
         var overlaps = await SqliteReadQuery.ReadAsync(context, $"""
-            SELECT t.id, t.created_at_utc, t.revision, t.archived_at_utc, COALESCE(({predicate}), 0)
+            SELECT t.id, t.created_at_utc, t.revision, t.removed_at_utc, COALESCE(({predicate}), 0)
             FROM json_each($liveIds) requested CROSS JOIN {shape.TableName} t
             WHERE t.id = requested.value
             """, Parameters().Append(new SqliteParameter("$liveIds", EncodeIds(matchingLive.Select(row => row.TransferId)))),
@@ -259,7 +258,7 @@ public sealed class TransferHistoryReader(
             var key = new TransferPageKey(current.TransferId, retained?.CreatedAtUtc ?? current.CreatedAtUtc);
             bool matches = retained is not null && retained.Revision > current.Revision
                 ? retained.MatchesFilter
-                : query.Archived == (retained?.ArchivedAtUtc is not null)
+                : (query.IncludeRemoved || retained?.RemovedAtUtc is null)
                     && (!query.FromUtc.HasValue || key.CreatedAtUtc >= query.FromUtc.Value.ToUnixTimeMilliseconds())
                     && (!query.ToUtc.HasValue || key.CreatedAtUtc <= query.ToUtc.Value.ToUnixTimeMilliseconds())
                     && (cursor is null || key.CreatedAtUtc < cursor.Value.CreatedAtUtc
@@ -281,7 +280,7 @@ public sealed class TransferHistoryReader(
 
     private sealed record TransferPageKey(Guid Id, long CreatedAtUtc);
     private sealed record TransferPageOverlap(Guid Id, long CreatedAtUtc, long Revision,
-        long? ArchivedAtUtc, bool MatchesFilter);
+        long? RemovedAtUtc, bool MatchesFilter);
 
     private static string EncodeIds(IEnumerable<Guid> ids)
         => JsonSerializer.Serialize(ids.Distinct().Select(id => id.ToString().ToUpperInvariant()));
@@ -316,7 +315,7 @@ public sealed class TransferHistoryReader(
                 SELECT t.id, t.revision, t.direction, t.username, t.group_ref, t.state, t.terminal_outcome,
                     NULLIF(t.total_bytes, $unknown),
                     CASE WHEN t.file_name IS NOT NULL THEN t.file_size_bytes END,
-                    t.transferred_bytes, t.bytes_per_second, t.archived_at_utc
+                    t.transferred_bytes, t.bytes_per_second, t.removed_at_utc
                 FROM json_each($ids) requested CROSS JOIN transfers t
                 WHERE t.id = requested.value
                 """, [new SqliteParameter("$ids", EncodeIds(overlappingTransferIds)), new SqliteParameter("$unknown", long.MaxValue)],
@@ -361,8 +360,8 @@ public sealed class TransferHistoryReader(
                 COUNT(*) FILTER (WHERE t.terminal_outcome = 'Failed') AS FailedCount,
                 COUNT(*) FILTER (WHERE t.terminal_outcome = 'Cancelled') AS CancelledCount,
                 COUNT(*) FILTER (WHERE t.terminal_outcome = 'Interrupted') AS InterruptedCount
-            FROM transfers t INDEXED BY IX_transfers_group_ref_username_direction_archived_at_utc
-            WHERE t.archived_at_utc IS NULL
+            FROM transfers t INDEXED BY IX_transfers_group_ref_username_direction_removed_at_utc
+            WHERE t.removed_at_utc IS NULL
                 AND t.group_ref IN (SELECT group_ref FROM requested)
                 AND t.direction IN (SELECT direction FROM requested)
                 AND (t.username IN (SELECT username FROM requested)
@@ -438,19 +437,18 @@ public sealed class TransferHistoryReader(
         return page;
     }
 
-    public async Task<TransferArchiveResult> SetArchivedAsync(
-        TransferArchiveFilter filter,
-        bool archived,
+    public async Task<TransferRemovalResult> RemoveAsync(
+        TransferRemovalFilter filter,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(filter);
         if (inbox is null)
-            throw new NotSupportedException("Transfer archive requires the daemon persistence writer.");
+            throw new NotSupportedException("Transfer removal requires the daemon persistence writer.");
 
-        var command = new Persistence.Write.AwaitablePersistenceCommand<TransferArchiveResult>(
+        var command = new Persistence.Write.AwaitablePersistenceCommand<TransferRemovalResult>(
             async (context, ct) =>
             {
-                IQueryable<Entities.TransferEntity> matching = ApplyArchiveFilter(
+                IQueryable<Entities.TransferEntity> matching = ApplyRemovalFilter(
                     context.Transfers,
                     filter);
                 int resolved = await matching.CountAsync(ct).ConfigureAwait(false);
@@ -464,39 +462,30 @@ public sealed class TransferHistoryReader(
                         : new(0, 0, 0, 0, new Dictionary<string, int>());
                 }
 
-                int rejected = archived
-                    ? await matching.CountAsync(
-                        transfer => transfer.TerminalOutcome == "None",
-                        ct).ConfigureAwait(false)
-                    : 0;
-                IQueryable<Entities.TransferEntity> terminal = matching
-                    .Where(transfer => transfer.TerminalOutcome != "None");
-                IQueryable<Entities.TransferEntity> changes = archived
-                    ? terminal.Where(transfer => transfer.ArchivedAtUtc == null)
-                    : terminal.Where(transfer => transfer.ArchivedAtUtc != null);
-                long? archiveTime = archived
-                    ? clock.GetUtcNow().ToUnixTimeMilliseconds()
-                    : null;
+                int rejected = await matching.CountAsync(
+                    transfer => transfer.TerminalOutcome == "None", ct).ConfigureAwait(false);
+                var changes = matching.Where(transfer => transfer.TerminalOutcome != "None" && transfer.RemovedAtUtc == null);
+                long removalTime = clock.GetUtcNow().ToUnixTimeMilliseconds();
                 int changed = await changes.ExecuteUpdateAsync(
                     setters => setters.SetProperty(
-                        transfer => transfer.ArchivedAtUtc,
-                        archiveTime),
+                        transfer => transfer.RemovedAtUtc,
+                        (long?)removalTime),
                     ct).ConfigureAwait(false);
                 int noOp = resolved - rejected - changed;
                 var reasons = new Dictionary<string, int>(StringComparer.Ordinal);
                 if (rejected > 0)
                     reasons["nonterminal"] = rejected;
                 if (noOp > 0)
-                    reasons[archived ? "already-archived" : "already-restored"] = noOp;
+                    reasons["already-removed"] = noOp;
                 return new(resolved, changed, noOp, rejected, reasons);
             });
         await inbox.EnqueueCommandAsync(command, cancellationToken).ConfigureAwait(false);
         return await command.Task.ConfigureAwait(false);
     }
 
-    private static IQueryable<Entities.TransferEntity> ApplyArchiveFilter(
+    private static IQueryable<Entities.TransferEntity> ApplyRemovalFilter(
         IQueryable<Entities.TransferEntity> transfers,
-        TransferArchiveFilter filter)
+        TransferRemovalFilter filter)
     {
         if (filter.TransferId.HasValue)
             transfers = transfers.Where(row => row.Id == filter.TransferId.Value);
@@ -535,7 +524,7 @@ public sealed class TransferHistoryReader(
             MapFile(transfer),
             transfer.GroupRef,
             transfer.GroupDisplayPath,
-            FromUnix(transfer.ArchivedAtUtc),
+            FromUnix(transfer.RemovedAtUtc),
             transfer.GroupRelativePath, transfer.GroupKind);
 
     private static TransferFileMetadataSnapshot? MapFile(

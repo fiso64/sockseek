@@ -79,7 +79,7 @@
   });
   $effect(() => {
     const missing = missingMembers;
-    if (missing.length) untrack(() => removeArchivedMemberRows(row => missing.includes(row.transferId)));
+    if (missing.length) untrack(() => removeMemberRows(row => missing.includes(row.transferId)));
   });
   onDestroy(() => onfetchedmembers([]));
   let nextMemberRequestId = 0;
@@ -193,7 +193,7 @@
       memberPages = { ...memberPages, [key]: { ...current, loading: false } };
   }
 
-  function removeArchivedMemberRows(matches: (row: TransferStateDto) => boolean): void {
+  function removeMemberRows(matches: (row: TransferStateDto) => boolean): void {
     let next: typeof memberPages | undefined;
     for (const [key, page] of Object.entries(memberPages)) {
       const rows = page.rows.filter(row => !matches(row));
@@ -315,18 +315,18 @@
     await onchanged();
   }
 
-  async function archiveIds(ids: string[], label: string): Promise<void> {
+  async function removeIds(ids: string[], label: string): Promise<void> {
     if (!ids.length || mutation.phase === 'pending') return;
     mutation = { phase: 'pending', label };
-    const archived = new Set<string>();
+    const removed = new Set<string>();
     const { succeeded, failed, firstError } = await runTransferCommands(ids, async (id) => {
-      const receipt = await daemonApi.archiveTransfer(id);
-      if (Number(receipt.rejectedCount) || Number(receipt.failedCount)) throw new Error('The daemon rejected or failed this archive operation.');
-      archived.add(id);
+      const receipt = await daemonApi.removeTransfer(id);
+      if (Number(receipt.rejectedCount) || Number(receipt.failedCount)) throw new Error('The daemon rejected or failed this removal operation.');
+      removed.add(id);
     });
-    // An acknowledged archive is authoritative even when optional totals fail.
+    // An acknowledged removal is authoritative even when optional totals fail.
     // Evict only successful identities; failed siblings keep their fetched rows.
-    removeArchivedMemberRows(row => archived.has(row.transferId));
+    removeMemberRows(row => removed.has(row.transferId));
     mutation = {
       phase: failed === ids.length ? 'rejected' : 'succeeded',
       label: succeeded ? `${succeeded} transfer${succeeded === 1 ? '' : 's'} removed` : 'Remove rejected',
@@ -352,10 +352,10 @@
     if (mutation.phase === 'pending') return;
     mutation = { phase: 'pending', label: `Removing terminal ${direction}s…` };
     try {
-      const receipt = await daemonApi.archiveTransfers(direction);
+      const receipt = await daemonApi.removeTransfers(direction);
       mutation = receiptStatus(receipt, 'removed');
       if (!Number(receipt.rejectedCount) && !Number(receipt.failedCount))
-        removeArchivedMemberRows(row => isTerminalTransfer(projection.row(row).transfer));
+        removeMemberRows(row => isTerminalTransfer(projection.row(row).transfer));
       await onchanged();
     } catch (cause) {
       mutation = { phase: 'rejected', label: 'Remove failed', detail: errorMessage(cause) };
@@ -382,12 +382,12 @@
     void cancelIds(entry.transfer.cancellable ? entry.sourceTransferIds : [], `Cancelling ${basename(entry.path)}…`);
   }
 
-  function archiveEntry(entry: TransferTimelineEntry): void {
+  function removeEntry(entry: TransferTimelineEntry): void {
     if (entry.kind === 'folder') {
-      void archiveFolder(entry);
+      void removeFolder(entry);
       return;
     }
-    void archiveIds(isTerminalTransfer(entry.transfer) ? entry.sourceTransferIds : [], `Removing ${basename(entry.path)}…`);
+    void removeIds(isTerminalTransfer(entry.transfer) ? entry.sourceTransferIds : [], `Removing ${basename(entry.path)}…`);
   }
 
   async function cancelFolder(entry: TransferTimelineFolderEntry): Promise<void> {
@@ -402,14 +402,14 @@
     }
   }
 
-  async function archiveFolder(entry: TransferTimelineFolderEntry): Promise<void> {
+  async function removeFolder(entry: TransferTimelineFolderEntry): Promise<void> {
     if (mutation.phase === 'pending') return;
     mutation = { phase: 'pending', label: `Removing ${basename(entry.path)} history…` };
     try {
-      const receipt = await daemonApi.archiveTransfers(direction, true, { username: entry.username, groupRef: entry.groupRef });
+      const receipt = await daemonApi.removeTransfers(direction, { username: entry.username, groupRef: entry.groupRef });
       mutation = receiptStatus(receipt, 'removed');
       if (!Number(receipt.rejectedCount) && !Number(receipt.failedCount))
-        removeArchivedMemberRows(row => (row.identity.username ?? null) === entry.username && row.identity.groupRef === entry.groupRef
+        removeMemberRows(row => (row.identity.username ?? null) === entry.username && row.identity.groupRef === entry.groupRef
           && isTerminalTransfer(projection.row(row).transfer));
       await onchanged();
     } catch (cause) {
@@ -422,9 +422,9 @@
     if (file.transfer?.cancellable) void cancelIds([file.id], `Cancelling ${file.relativePath}…`);
   }
 
-  function archiveFile(folder: TransferTimelineFolderEntry, file: FolderItemFile): void {
+  function removeFile(folder: TransferTimelineFolderEntry, file: FolderItemFile): void {
     void folder;
-    if (isTerminalTransfer(file.transfer)) void archiveIds([file.id], `Removing ${file.relativePath}…`);
+    if (isTerminalTransfer(file.transfer)) void removeIds([file.id], `Removing ${file.relativePath}…`);
   }
 
   function errorMessage(cause: unknown): string {
@@ -486,7 +486,7 @@
                   <FileItemCard path={entry.path} sizeBytes={entry.sizeBytes} audio={entry.audio} transfer={entry.transfer}>
                     {#snippet actions()}
                       {#if entry.transfer.cancellable}<TransferItemActionButton label={`Cancel ${basename(entry.path)}`} disabled={mutation.phase === 'pending'} onclick={() => cancelEntry(entry)} />
-                      {:else if isTerminalTransfer(entry.transfer)}<TransferItemActionButton kind="remove" label={`Remove ${basename(entry.path)}`} disabled={mutation.phase === 'pending'} onclick={() => archiveEntry(entry)} />{/if}
+                      {:else if isTerminalTransfer(entry.transfer)}<TransferItemActionButton kind="remove" label={`Remove ${basename(entry.path)}`} disabled={mutation.phase === 'pending'} onclick={() => removeEntry(entry)} />{/if}
                     {/snippet}
                   </FileItemCard>
                 {:else}
@@ -494,11 +494,11 @@
                   <FolderItemCard path={entry.path} sizeBytes={entry.sizeBytes} files={entry.files} totalFileCount={entry.summaryAvailable ? entry.totalFileCount : null} filesComplete={entry.filesComplete} dataStateLabel={entry.summaryAvailable ? entry.filesComplete ? undefined : 'Showing loaded files; folder totals and actions cover the entire group.' : 'Size, progress and status cover loaded files only. Folder actions apply to the entire group.'} transfer={entry.transfer} onloadmorefiles={entry.summaryAvailable && (!entry.filesComplete || memberPage?.error) ? () => void loadGroupMembers(entry) : undefined} loadingMoreFiles={Boolean(memberPage?.loading || summaryCoverage === null)} fileLoadError={memberPage?.error ?? null}>
                     {#snippet actions()}
                       {#if entry.transfer.cancellable}<TransferItemActionButton label={`Cancel ${basename(entry.path)}`} disabled={mutation.phase === 'pending'} onclick={() => cancelEntry(entry)} />
-                      {:else if isTerminalTransfer(entry.transfer)}<TransferItemActionButton kind="remove" label={`Remove ${basename(entry.path)}`} disabled={mutation.phase === 'pending'} onclick={() => archiveEntry(entry)} />{/if}
+                      {:else if isTerminalTransfer(entry.transfer)}<TransferItemActionButton kind="remove" label={`Remove ${basename(entry.path)}`} disabled={mutation.phase === 'pending'} onclick={() => removeEntry(entry)} />{/if}
                     {/snippet}
                     {#snippet fileActions(file)}
                       {#if file.transfer?.cancellable}<TransferItemActionButton label={`Cancel ${file.relativePath}`} disabled={mutation.phase === 'pending'} onclick={() => cancelFile(entry, file)} />
-                      {:else if isTerminalTransfer(file.transfer)}<TransferItemActionButton kind="remove" label={`Remove ${file.relativePath}`} disabled={mutation.phase === 'pending'} onclick={() => archiveFile(entry, file)} />{/if}
+                      {:else if isTerminalTransfer(file.transfer)}<TransferItemActionButton kind="remove" label={`Remove ${file.relativePath}`} disabled={mutation.phase === 'pending'} onclick={() => removeFile(entry, file)} />{/if}
                     {/snippet}
                   </FolderItemCard>
                 {/if}

@@ -3,7 +3,7 @@
   import { onMount, untrack } from 'svelte';
   import AppShell from './components/AppShell.svelte';
   import JobsList from './domains/jobs/JobsList.svelte';
-  import { canArchiveSubmission, requireArchived } from './domains/jobs/archive';
+  import { canDeleteSubmission, requireDeleted } from './domains/jobs/deletion';
   import { completedExtract } from './domains/jobs/presentation';
   import { JobListController, type JobsTab } from './domains/jobs/job-list.svelte';
   import { JobRouteReader } from './domains/jobs/route-reader';
@@ -78,7 +78,7 @@
   let liveError = $state<Error | null>(null);
   const liveState = liveClient.reducer.state;
   let searchState = $state<SearchViewState>(searchController.current());
-  let archivingSubmissionIds = $state(new Set<string>());
+  let deletingSubmissionIds = $state(new Set<string>());
   let deferSearchRender = $state(false);
   let searchRenderFrame: number | null = null;
 
@@ -138,7 +138,7 @@
     : null);
   let activeSearchAction = $derived(activeSearchJob?.availableActions?.some((action) => action.kind === 'cancel')
     ? 'cancel' as const
-    : activeSearchJob && canArchiveSubmission(activeSearchJob) ? 'archive' as const : null);
+    : activeSearchJob && canDeleteSubmission(activeSearchJob) ? 'delete' as const : null);
   let canRerunSearch = $derived(canReplaySearch(activeSearchJob));
   let selectedSearchCount = $derived(countSearchSelection(searchState));
 
@@ -447,16 +447,16 @@
     catch (error) { mutationError = asError(error); }
   }
 
-  async function archiveSubmission(job: JobSummaryDto): Promise<boolean> {
-    if (!canArchiveSubmission(job) || archivingSubmissionIds.has(job.submissionId!)) return false;
-    archivingSubmissionIds = new Set([...archivingSubmissionIds, job.submissionId!]);
+  async function deleteSubmission(job: JobSummaryDto): Promise<boolean> {
+    if (!canDeleteSubmission(job) || deletingSubmissionIds.has(job.submissionId!)) return false;
+    deletingSubmissionIds = new Set([...deletingSubmissionIds, job.submissionId!]);
     mutationError = null;
     try {
-      requireArchived(await daemonApi.archiveSubmission(job.submissionId!));
+      requireDeleted(await daemonApi.deleteSubmission(job.submissionId!));
       for (const list of Object.values(jobLists)) list.afterArchive(job.submissionId!);
       return true;
     } catch (error) { mutationError = asError(error); return false; }
-    finally { archivingSubmissionIds = new Set([...archivingSubmissionIds].filter((id) => id !== job.submissionId)); }
+    finally { deletingSubmissionIds = new Set([...deletingSubmissionIds].filter((id) => id !== job.submissionId)); }
   }
 
   async function removeActiveSearch(): Promise<void> {
@@ -466,13 +466,13 @@
     removingSearch = true;
     try {
       if (action === 'cancel') await cancelJob(job);
-      else await archiveOpenedSubmission(job);
+      else await deleteOpenedSubmission(job);
     } finally { removingSearch = false; }
   }
 
-  async function archiveOpenedSubmission(job: JobSummaryDto): Promise<void> {
+  async function deleteOpenedSubmission(job: JobSummaryDto): Promise<void> {
     const origin = routeLocation();
-    if (await archiveSubmission(job) && routeLocation() === origin) backToJobs();
+    if (await deleteSubmission(job) && routeLocation() === origin) backToJobs();
   }
 
 
@@ -592,8 +592,8 @@
       <AutomaticJobDetail jobId={automaticJobId} initialDetail={automaticInitialDetail} {userActions}
         connected={liveStatus === 'connected' && documentVisible}
         {observeJobs}
-        onback={backToJobs} onopenjob={(job, detail) => void openJob(job, detail)} onarchive={(job) => void archiveOpenedSubmission(job)}
-        archivingSubmissions={archivingSubmissionIds} archiveError={mutationError} />
+        onback={backToJobs} onopenjob={(job, detail) => void openJob(job, detail)} ondelete={(job) => void deleteOpenedSubmission(job)}
+        deletingSubmissions={deletingSubmissionIds} deleteError={mutationError} />
     {:else}
     {#key jobsTab}
     <JobsList
@@ -612,8 +612,8 @@
       onretry={() => jobList.refresh()}
       onopen={(job, detail) => void openJob(job, detail)}
       oncancel={(job) => void cancelJob(job)}
-      onarchive={(job) => void archiveSubmission(job)}
-      archivingSubmissions={archivingSubmissionIds}
+      ondelete={(job) => void deleteSubmission(job)}
+      deletingSubmissions={deletingSubmissionIds}
       onloadmore={() => jobList.loadMore()}
     />
     {/key}

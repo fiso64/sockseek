@@ -19,7 +19,7 @@
   import { automaticJobListStats, automaticJobProgressPercent } from './list-stats';
   import { jobStatusLabel, jobStatusClass, jobTransferTone } from './status';
   import { jobKindIcon, jobKindLabel } from './kind';
-  import { canArchiveSubmission } from './archive';
+  import { canDeleteSubmission } from './deletion';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import { loadJobAncestors } from './ancestors';
   import { formatCount, humanizeStateValue } from '../../app/format';
@@ -29,7 +29,7 @@
   import UsernameLink from '../../components/UsernameLink.svelte';
   import type { UserLinkActions } from '../../app/navigation';
 
-  let { jobId, initialDetail = null, userActions, connected, observeJobs, onback, onopenjob, onarchive, archivingSubmissions = new Set<string>(), archiveError = null }: {
+  let { jobId, initialDetail = null, userActions, connected, observeJobs, onback, onopenjob, ondelete, deletingSubmissions = new Set<string>(), deleteError = null }: {
     jobId: string;
     initialDetail?: Schema<'JobDetailDto'> | null;
     userActions: UserLinkActions;
@@ -37,9 +37,9 @@
     observeJobs: DaemonLiveClient['observeJobs'];
     onback: () => void;
     onopenjob: (job: JobSummaryDto, detail?: Schema<'JobDetailDto'>) => void;
-    onarchive: (job: JobSummaryDto) => void;
-    archivingSubmissions?: ReadonlySet<string>;
-    archiveError?: Error | null;
+    ondelete: (job: JobSummaryDto) => void;
+    deletingSubmissions?: ReadonlySet<string>;
+    deleteError?: Error | null;
   } = $props();
   let detail = $state.raw<Schema<'JobDetailDto'> | null>(null);
   let observedSource = $state<{ jobId: string; sourceId: string | null; available: boolean } | null>(null);
@@ -599,8 +599,8 @@
         {/if}
         {#if job.availableActions?.some((action) => action.kind === 'cancel')}
           <button type="button" class="delete-search-button quiet-cancel" onclick={() => void cancel()}><Icon name="x" /><span>Cancel</span></button>
-        {:else if canArchiveSubmission(job)}
-          <button type="button" class="delete-search-button" title="Delete submission from history (reversible archive)" disabled={archivingSubmissions.has(job.submissionId!)} onclick={() => onarchive(job)}><Icon name="trash" /><span>Delete</span></button>
+        {:else if canDeleteSubmission(job)}
+          <button type="button" class="delete-search-button" title="Delete submission from history" disabled={deletingSubmissions.has(job.submissionId!)} onclick={() => ondelete(job)}><Icon name="trash" /><span>Delete</span></button>
         {/if}
       </div>
     {/if}
@@ -613,7 +613,7 @@
   {#if retrievalError && payload?.kind === 'album'}<div class="resource-state-notice unavailable" role="alert"><span>Related jobs unavailable: {retrievalError.message}</span><button type="button" disabled={retrievalLoading} onclick={() => void loadRetrievalChildren(true)}>Retry</button></div>{/if}
   {#if manifestError}<div class="resource-state-notice unavailable" role="alert"><span>Directory files unavailable: {manifestError.message}</span><button type="button" disabled={manifestLoading} onclick={() => void loadManifest(true)}>Retry</button></div>{/if}
   {#if actionError}<div class="resource-state-notice unavailable" role="alert">{actionError.message}</div>{/if}
-  {#if archiveError}<div class="resource-state-notice unavailable" role="alert"><strong>Job action failed</strong><span>{archiveError.message}</span></div>{/if}
+  {#if deleteError}<div class="resource-state-notice unavailable" role="alert"><strong>Job action failed</strong><span>{deleteError.message}</span></div>{/if}
   {#if job?.failureMessage}<div class="job-detail-empty"><strong>{job.failureMessage}</strong><span>{job.failureDetail ?? ''}</span></div>{/if}
   {#if payload?.kind === 'extract'}
     <dl class="job-detail-facts">
@@ -716,8 +716,8 @@
             </button>
             {#if !unavailable && child.jobId && child.availableActions?.some((action) => action.kind === 'cancel')}
               <button type="button" class="job-row-action" aria-label={`Cancel ${childTitle}`} title="Cancel" onclick={() => void cancel(child.jobId)}><Icon name="x" /></button>
-            {:else if !unavailable && canArchiveSubmission(child)}
-              <button type="button" class="job-row-action" aria-label={`Remove ${childTitle}`} title="Remove submission from history (reversible archive)" disabled={archivingSubmissions.has(child.submissionId!)} onclick={() => onarchive(child)}><Icon name="x" /></button>
+            {:else if !unavailable && canDeleteSubmission(child)}
+              <button type="button" class="job-row-action" aria-label={`Remove ${childTitle}`} title="Remove submission from history" disabled={deletingSubmissions.has(child.submissionId!)} onclick={() => ondelete(child)}><Icon name="x" /></button>
             {/if}
           </div>
           {#if entry.error || entry.missingResultId && linkedChildren.has(entry.missingResultId)}

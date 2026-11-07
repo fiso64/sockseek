@@ -40,6 +40,7 @@ public sealed class PersistenceInbox : IPersistenceMutationSink
     private int searchCompletionCount;
     private int completed;
     private int activeAdmissions;
+    private readonly HashSet<PersistenceFence> fences = new(ReferenceEqualityComparer.Instance);
 
     public PersistenceInbox(
         PersistenceWriterOptions options,
@@ -73,6 +74,39 @@ public sealed class PersistenceInbox : IPersistenceMutationSink
                 FullMode = BoundedChannelFullMode.Wait,
                 AllowSynchronousContinuations = false,
             });
+    }
+
+    // Wait for already-admitted mutations, without waiting for future traffic.
+    // Callers disposing work must first stop its producers. Each lane is FIFO;
+    // a fence is acknowledged after its preceding batch commits or fails.
+    internal async Task FlushMutationsAsync(CancellationToken cancellationToken = default)
+    {
+        PersistenceFence[] markers = [new(), new(), new()];
+        lock (lifecycleGate)
+        {
+            if (!TryBeginAdmission()) throw new InvalidOperationException("Persistence has stopped.");
+            foreach (var marker in markers) fences.Add(marker);
+        }
+        try
+        {
+            lock (ordinaryGate)
+            {
+                foreach (var item in stateOrder) EnqueueHistory(item, isCritical: false);
+                stateOrder.Clear();
+                pendingStates.Clear();
+            }
+            lock (progressGate)
+            {
+                foreach (var item in progress.Values) EnqueueHistory(item, isCritical: false);
+                progress.Clear();
+            }
+            EnqueueHistory(markers[0], isCritical: true);
+            EnqueueHistory(markers[1], isCritical: false);
+            await EnqueueSearchWithBackpressureAsync(markers[2]).ConfigureAwait(false);
+        }
+        finally { EndAdmission(); }
+        try { await Task.WhenAll(markers.Select(item => item.Completion.Task)).WaitAsync(cancellationToken).ConfigureAwait(false); }
+        finally { lock (lifecycleGate) foreach (var marker in markers) fences.Remove(marker); }
     }
 
     public PersistenceWriterOptions Options { get; }
@@ -150,7 +184,7 @@ public sealed class PersistenceInbox : IPersistenceMutationSink
                 return EnqueueHistory(mutation, isCritical: true);
 
             if (mutation is TransferPersistenceMutation
-                or JobPersistenceMutation { DirectoryManifest: null, SubmissionSpecificationJson: null })
+                or JobPersistenceMutation { DirectoryManifest: null })
             {
                 // Cohesive current state is replaceable; definitions/manifests
                 // and attempts retain ordered delivery. Transfer headers replace
@@ -443,6 +477,7 @@ public sealed class PersistenceInbox : IPersistenceMutationSink
 
     internal void FailPendingCommands(Exception exception)
     {
+        lock (lifecycleGate) foreach (var fence in fences) fence.Completion.TrySetException(exception);
         while (commands.Reader.TryRead(out var command))
         {
             command.Fail(exception);
@@ -484,6 +519,7 @@ public sealed class PersistenceInbox : IPersistenceMutationSink
         catch (ChannelClosedException exception)
         {
             mutationObserver?.PermanentlyFailed([mutation], exception);
+            if (mutation is PersistenceFence fence) fence.Completion.TrySetException(exception);
             return false;
         }
     }
@@ -640,6 +676,7 @@ public sealed class PersistenceInbox : IPersistenceMutationSink
         catch (ChannelClosedException exception)
         {
             mutationObserver?.PermanentlyFailed([mutation], exception);
+            if (mutation is PersistenceFence fence) fence.Completion.TrySetException(exception);
             return false;
         }
     }

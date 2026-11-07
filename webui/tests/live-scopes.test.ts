@@ -73,7 +73,7 @@ function batch(browseId: string, sequence: number, previousSequence: number, rev
 }
 function fixture() {
   const api = {
-    getServerInfo: vi.fn().mockResolvedValue({ liveProtocolVersion: 17 }),
+    getServerInfo: vi.fn().mockResolvedValue({ liveProtocolVersion: 18 }),
     getDaemonSnapshot: vi.fn().mockResolvedValue(snapshot()),
     getUserBrowseSnapshot: vi.fn((id: string) => Promise.resolve(snapshot(id))),
   };

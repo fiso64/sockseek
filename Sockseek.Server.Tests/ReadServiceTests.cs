@@ -498,8 +498,8 @@ public sealed class ReadServiceTests
             foreach (var row in edgeRows) Assert.IsTrue(persistence.MutationSink!.TryEnqueue(row));
             await WaitForVisibleAsync(persistence, async () =>
                 (await persistence.TransferHistory!.GetTransfersAsync(new(Limit: 10, GroupRef: edgeGroup))).Items.Count == 4);
-            Assert.AreEqual(1, (await persistence.TransferHistory!.SetArchivedAsync(
-                new(TransferId: archivedId), true)).ChangedCount);
+            Assert.AreEqual(1, (await persistence.TransferHistory!.RemoveAsync(
+                new(TransferId: archivedId))).ChangedCount);
             AddLive(fallbackId, 2, "Known.bin", -1, 60,
                 Sockseek.Core.Transfers.Uploads.UploadTransferState.InProgress, 25, edgeGroup);
             AddLive(newerId, 2, "Newer.bin", 100, 60,
@@ -1114,10 +1114,6 @@ public sealed class ReadServiceTests
                     var secondPage = await facade.GetJobsAsync(childQuery, firstPage.NextCursor, 1);
                     Assert.AreEqual(children[1].Id, secondPage.Items.Single().JobId);
                     Assert.IsNull(secondPage.NextCursor);
-                    live.SetSubmissionArchived(ownedSubmissionId, true);
-                    Assert.AreEqual(0, (await facade.GetJobsAsync(childQuery, null, 100)).Items.Count);
-                    Assert.AreEqual(2, (await facade.GetJobsAsync(childQuery with { Archived = true }, null, 100)).Items.Count);
-                    live.SetSubmissionArchived(ownedSubmissionId, false);
                     var submissionPage = await facade.GetJobsAsync(new JobQuery(null, null, null, workflowId,
                         IncludeAll: true, SubmissionId: ownedSubmissionId), null, 100);
                     CollectionAssert.AreEqual(new[] { ownedParent.Id }.Concat(children.Select(child => child.Id)).ToArray(),

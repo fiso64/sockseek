@@ -377,16 +377,15 @@ public sealed class SockseekLiveClient : IAsyncDisposable
         CancellationToken ct = default)
         => api.CancelTransfersAsync(request, ct);
 
-    public Task<TransferCommandReceiptDto> SetTransferArchivedAsync(
+    public Task<TransferCommandReceiptDto> RemoveTransferAsync(
         Guid transferId,
-        bool archived = true,
         CancellationToken ct = default)
-        => api.SetTransferArchivedAsync(transferId, archived, ct);
+        => api.RemoveTransferAsync(transferId, ct);
 
-    public Task<TransferCommandReceiptDto> SetTransfersArchivedAsync(
-        ArchiveTransfersRequestDto request,
+    public Task<TransferCommandReceiptDto> RemoveTransfersAsync(
+        RemoveTransfersRequestDto request,
         CancellationToken ct = default)
-        => api.SetTransfersArchivedAsync(request, ct);
+        => api.RemoveTransfersAsync(request, ct);
 
     public Task<LiveTransferPageDto> LoadLiveTransferPageAsync(
         LiveTransferFilter? filter = null,

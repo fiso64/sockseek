@@ -77,7 +77,7 @@ test('cancels a live download and retains its cancelled state after reload', asy
   await expect(card).toHaveCount(0);
   await page.reload();
   await expect(page.getByText('No downloads', { exact: true })).toBeVisible();
-  const archived = await page.request.get('/api/transfers?direction=download&archived=true&limit=100');
+  const archived = await page.request.get('/api/transfers?direction=download&includeRemoved=true&limit=100');
   expect(archived.ok()).toBeTruthy();
   expect((await archived.json()).items).toHaveLength(1);
 });
@@ -339,10 +339,10 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   // Removing an expanded-only member must work even without folder totals.
   const expandedPath = nextMemberPage.items[0]!.identity.groupRelativePath!;
   const expandedFile = partialFolder.locator('.folder-file-row').filter({ hasText: expandedPath });
-  await page.route(`**/api/transfers/${nextMemberPage.items[0]!.transferId}/archive`, async route => {
+  await page.route(`**/api/transfers/${nextMemberPage.items[0]!.transferId}`, async route => {
     await route.fulfill({ contentType: 'application/json', json: {
       resolvedCount: 1, succeededCount: 0, noOpCount: 0, rejectedCount: 1, failedCount: 0,
-      reasons: [{ reason: 'FixtureArchiveRejected', count: 1 }],
+      reasons: [{ reason: 'FixtureRemovalRejected', count: 1 }],
     } satisfies Schema<'TransferCommandReceiptDto'> });
   }, { times: 1 });
   await expandedFile.hover();

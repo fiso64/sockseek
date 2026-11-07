@@ -70,7 +70,6 @@ internal sealed class SubmissionEntity
     public string? CommitFingerprint { get; set; }
     public string? CommitReceiptJson { get; set; }
     public long Revision { get; set; }
-    public long? ArchivedAtUtc { get; set; }
 }
 
 internal sealed class SubmissionSpecificationEntity
@@ -152,7 +151,7 @@ internal sealed class TransferEntity : IRevisionedHistoryRow
     public string? GroupDisplayPath { get; set; }
     public string? GroupRelativePath { get; set; }
     public string GroupKind { get; set; } = "Directory";
-    public long? ArchivedAtUtc { get; set; }
+    public long? RemovedAtUtc { get; set; }
     public long Revision { get; set; }
 }
 

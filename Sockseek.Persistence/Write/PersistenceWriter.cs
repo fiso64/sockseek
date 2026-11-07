@@ -154,6 +154,8 @@ public sealed class PersistenceWriter(
                         {
                             health.RecordPermanentlyFailedMutations(lost.Mutations.Count);
                             mutationObserver?.PermanentlyFailed(lost.Mutations, lost.Exception);
+                            foreach (var fence in lost.Mutations.OfType<PersistenceFence>())
+                                fence.Completion.TrySetException(lost.Exception);
                         }
                 }
                 if (IsDrained()) return;
@@ -364,6 +366,7 @@ public sealed class PersistenceWriter(
                 health.RecordCommit(clock.GetUtcNow(), rows, stopwatch.Elapsed, batch.Count,
                     reconciliationComplete: inbox.RetryMutationCount == 0);
                 mutationObserver?.Committed(attempt.Normalized, attempt.SupersededTransfers);
+                foreach (var fence in attempt.Normalized.OfType<PersistenceFence>()) fence.Completion.TrySetResult();
                 return (WriteBatchResult.Success, null, null);
             }
             catch (Exception ex) when (attempt.PreparingCombinedSearch && ex is not OperationCanceledException)
@@ -549,16 +552,16 @@ public sealed class PersistenceWriter(
         await using var command = context.Database.GetDbConnection().CreateCommand();
         command.Transaction = context.Database.CurrentTransaction!.GetDbTransaction();
         command.CommandText = """
-            UPDATE transfers AS old SET archived_at_utc = $now
+            UPDATE transfers AS old SET removed_at_utc = $now
             WHERE old.id IN (
                 SELECT old.id FROM json_each($ids) incoming
                 JOIN transfers inserted ON inserted.id = incoming.value
                 JOIN transfers old ON old.username = inserted.username COLLATE BINARY
                     AND old.remote_path = inserted.remote_path COLLATE BINARY
-                    AND old.direction = 'Upload' AND old.archived_at_utc IS NULL
+                    AND old.direction = 'Upload' AND old.removed_at_utc IS NULL
                 JOIN transfers current ON current.username = inserted.username COLLATE BINARY
                     AND current.remote_path = inserted.remote_path COLLATE BINARY
-                    AND current.direction = 'Upload' AND current.archived_at_utc IS NULL
+                    AND current.direction = 'Upload' AND current.removed_at_utc IS NULL
                 WHERE old.id <> current.id AND old.terminal_outcome <> 'None'
                     AND (old.created_at_utc < current.created_at_utc
                         OR (old.created_at_utc = current.created_at_utc
@@ -662,8 +665,6 @@ public sealed class PersistenceWriter(
             {
                 JobEntity row => row.Id == job.JobId && row.Revision == job.Revision,
                 SearchJobEntity row => row.JobId == job.JobId && row.Revision == 0 && job.Kind == "Search",
-                SubmissionEntity row => row.Id == job.SubmissionId && !string.IsNullOrWhiteSpace(job.SubmissionSpecificationJson),
-                SubmissionSpecificationEntity row => row.SubmissionId == job.SubmissionId && !string.IsNullOrWhiteSpace(job.SubmissionSpecificationJson),
                 _ => false,
             },
             TransferPersistenceMutation transfer => entity is TransferEntity row
@@ -694,7 +695,8 @@ public sealed class PersistenceWriter(
         HistoryRows<TransferEntity> Transfers,
         HistoryRows<TransferAttemptEntity> Attempts,
         TransferAccounting Accounting,
-        Dictionary<SearchResultsPersistenceMutation, PreparedSearchWrite> SearchObservations)
+        Dictionary<SearchResultsPersistenceMutation, PreparedSearchWrite> SearchObservations,
+        IReadOnlySet<Guid> SourceJobIds)
     {
         public HashSet<Guid> NewUploadIds { get; } = [];
     }
@@ -708,9 +710,19 @@ public sealed class PersistenceWriter(
         var transfers = mutations.OfType<TransferPersistenceMutation>().Concat(terminals.Select(item => item.Transfer)).ToArray();
         var attempts = mutations.OfType<TransferAttemptPersistenceMutation>()
             .Concat(terminals.Select(item => item.FinalAttempt).OfType<TransferAttemptPersistenceMutation>()).ToArray();
-        Guid[] jobIds = mutations.OfType<JobPersistenceMutation>()
-            .Concat(terminals.Select(item => item.OwningJob).OfType<JobPersistenceMutation>())
-            .Select(job => job.JobId).Distinct().ToArray();
+        var jobs = mutations.OfType<JobPersistenceMutation>()
+            .Concat(terminals.Select(item => item.OwningJob).OfType<JobPersistenceMutation>()).ToArray();
+        Guid[] jobIds = jobs.Select(job => job.JobId).Distinct().ToArray();
+        // A follow-up can outlive its source. Resolve optional provenance once
+        // per batch, including forward references, instead of reinstating a
+        // deleted foreign key on the follow-up's next progress update.
+        var sourceIds = jobs.Select(job => job.SourceJobId).OfType<Guid>().Except(jobIds).ToArray();
+        var availableSources = jobIds.ToHashSet();
+        if (sourceIds.Length > 0)
+            availableSources.UnionWith(await SqliteReadQuery.ReadAsync(context,
+                "SELECT id FROM jobs WHERE id IN (SELECT value FROM json_each($ids))",
+                [new SqliteParameter("$ids", SerializeSqliteGuids(sourceIds))], row => row.GetGuid(0), cancellationToken)
+                .ConfigureAwait(false));
         Guid[] transferIds = transfers.Select(item => item.TransferId).Distinct().ToArray();
         Guid[] attemptIds = attempts.Select(item => item.AttemptId).Distinct().ToArray();
         return new(
@@ -719,7 +731,7 @@ public sealed class PersistenceWriter(
             await HistoryRows<TransferEntity>.LoadAsync(context, transferIds, tracked, cancellationToken).ConfigureAwait(false),
             await HistoryRows<TransferAttemptEntity>.LoadAsync(context, attemptIds, tracked, cancellationToken).ConfigureAwait(false),
             await TransferAccounting.LoadAsync(context, transfers, attempts, tracked, cancellationToken).ConfigureAwait(false),
-            searchObservations);
+            searchObservations, availableSources);
     }
 
     // Keep bulk identity lookups at one parameter even when an observation
@@ -734,7 +746,8 @@ public sealed class PersistenceWriter(
         CancellationToken cancellationToken)
         => mutation switch
         {
-            JobPersistenceMutation job => await ApplyJobAsync(context, job, batchRows.Jobs, cancellationToken).ConfigureAwait(false),
+            PersistenceFence => 0,
+            JobPersistenceMutation job => await ApplyJobAsync(context, job, batchRows, cancellationToken).ConfigureAwait(false),
             TransferPersistenceMutation transfer => ApplyTransfer(transfer, batchRows),
             TransferAttemptPersistenceMutation attempt => ApplyAttempt(attempt, batchRows),
             SearchCompletionPersistenceMutation completion => await ApplySearchCompletionAsync(context, completion, batchRows.Jobs, cancellationToken).ConfigureAwait(false),
@@ -744,37 +757,14 @@ public sealed class PersistenceWriter(
         };
 
     private async Task<int> ApplyJobAsync(SockseekDbContext context, JobPersistenceMutation mutation,
-        HistoryRows<JobEntity> jobs, CancellationToken cancellationToken)
+        BatchRows batchRows, CancellationToken cancellationToken)
     {
+        var jobs = batchRows.Jobs;
         jobs.TryGetValue(mutation.JobId, out var entity);
         if (entity != null && (entity.Revision >= mutation.Revision || entity.LifecycleState == "Terminal" && mutation.LifecycleState != "Terminal"))
             return 0;
 
         long occurredAt = mutation.OccurredAtUnixMilliseconds;
-        if (mutation.SubmissionId is Guid submissionId
-            && !string.IsNullOrWhiteSpace(mutation.SubmissionSpecificationJson))
-        {
-            // Root progress/registration only needs to know whether accepted
-            // intent exists, not rehydrate its potentially large command tree.
-            bool submissionExists = context.Submissions.Local.Any(item => item.Id == submissionId)
-                || await context.Submissions.AnyAsync(item => item.Id == submissionId, cancellationToken)
-                    .ConfigureAwait(false);
-            if (!submissionExists)
-            {
-                context.Submissions.Add(new SubmissionEntity
-                {
-                    Id = submissionId,
-                    SubmittedAtUtc = (mutation.RegisteredAtUtc ?? mutation.OccurredAtUtc)
-                        .ToUniversalTime().ToUnixTimeMilliseconds(),
-                    SpecificationSchemaVersion = SubmissionSpecification.CurrentSchemaVersion,
-                    Specification = new() { Json = mutation.SubmissionSpecificationJson },
-                    RerunOfSubmissionId = mutation.RerunOfSubmissionId,
-                    PreviewId = mutation.PreviewId,
-                    ArtifactId = mutation.ArtifactId,
-                    Revision = 1,
-                });
-            }
-        }
         if (entity == null)
         {
             entity = new JobEntity
@@ -792,7 +782,7 @@ public sealed class PersistenceWriter(
         entity.SubmissionId = mutation.SubmissionId;
         entity.SemanticRole = mutation.SemanticRole;
         entity.ParentJobId = mutation.ParentJobId;
-        entity.SourceJobId = mutation.SourceJobId;
+        entity.SourceJobId = mutation.SourceJobId is Guid source && batchRows.SourceJobIds.Contains(source) ? source : null;
         entity.ResultJobId = mutation.ResultJobId;
         entity.LastRuntimeId = mutation.RuntimeId;
         entity.LastSequence = mutation.Sequence;
@@ -1024,7 +1014,7 @@ public sealed class PersistenceWriter(
     {
         int rows = 0;
         if (mutation.OwningJob != null)
-            rows += await ApplyJobAsync(context, mutation.OwningJob, batchRows.Jobs, cancellationToken).ConfigureAwait(false);
+            rows += await ApplyJobAsync(context, mutation.OwningJob, batchRows, cancellationToken).ConfigureAwait(false);
         rows += ApplyTransfer(mutation.Transfer, batchRows);
         if (mutation.FinalAttempt != null)
             rows += ApplyAttempt(mutation.FinalAttempt, batchRows);

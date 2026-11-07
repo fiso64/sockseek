@@ -127,9 +127,14 @@ public sealed class EngineStateStore
         lock (gate) transferState.MarkHistoryChanged();
     }
 
-    public void SetSubmissionArchived(Guid submissionId, bool archived)
+    public void RemoveSubmission(Guid submissionId)
     {
-        lock (gate) jobState.SetSubmissionArchived(submissionId, archived);
+        IReadOnlyList<JobSummaryDto> jobs;
+        lock (gate)
+            jobs = jobState.GetJobs(new JobQuery(null, null, null, null, IncludeAll: true, SubmissionId: submissionId));
+        foreach (var workflow in jobs.GroupBy(job => job.WorkflowId))
+            RetireJobProjections(workflow.Key, workflow.Select(job => job.JobId).ToArray());
+        lock (gate) jobState.NotifyHistoryChanged();
     }
 
     internal EngineStateStoreRetainedWorkflowCounts RetainedWorkflowStateCounts

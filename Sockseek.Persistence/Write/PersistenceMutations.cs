@@ -22,6 +22,12 @@ public abstract record PersistenceMutation(
     public long OccurredAtUnixMilliseconds => OccurredAtUtc.ToUniversalTime().ToUnixTimeMilliseconds();
 }
 
+internal sealed record PersistenceFence() : PersistenceMutation(
+    Guid.Empty, 0, default, Guid.Empty, 0, PersistenceMutationPriority.Ordinary)
+{
+    internal TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+}
+
 /// <summary>
 /// Captured job facts. PayloadJson encodes immutable input after coalescing and
 /// revision checks, before write access; a null payload clears stored detail.
@@ -56,10 +62,6 @@ public sealed record JobPersistenceMutation(
     Guid? SubmissionId = null,
     string SemanticRole = "UserRoot",
     DateTimeOffset? RegisteredAtUtc = null,
-    string? SubmissionSpecificationJson = null,
-    Guid? RerunOfSubmissionId = null,
-    Guid? PreviewId = null,
-    string? ArtifactId = null,
     DateTimeOffset? StartedAtUtc = null,
     DirectoryManifestSnapshot? DirectoryManifest = null,
     string? SourceDetail = null)

@@ -117,11 +117,9 @@ internal sealed class SubmissionConfiguration : IEntityTypeConfiguration<Submiss
         builder.Property(x => x.CommitFingerprint).HasColumnName("commit_fingerprint").HasMaxLength(64);
         builder.Property(x => x.CommitReceiptJson).HasColumnName("commit_receipt_json");
         builder.Property(x => x.Revision).HasColumnName("revision");
-        builder.Property(x => x.ArchivedAtUtc).HasColumnName("archived_at_utc");
         builder.HasOne<SubmissionEntity>().WithMany().HasForeignKey(x => x.RerunOfSubmissionId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => new { x.SubmittedAtUtc, x.Id });
         builder.HasIndex(x => x.RerunOfSubmissionId);
-        builder.HasIndex(x => x.ArchivedAtUtc);
     }
 }
 
@@ -234,22 +232,22 @@ internal sealed class TransferConfiguration : IEntityTypeConfiguration<TransferE
         builder.Property(x => x.GroupKind).HasColumnName("group_kind");
         builder.Property(x => x.GroupDisplayPath).HasColumnName("group_display_path").HasMaxLength(4096);
         builder.Property(x => x.GroupRelativePath).HasColumnName("group_relative_path");
-        builder.Property(x => x.ArchivedAtUtc).HasColumnName("archived_at_utc");
+        builder.Property(x => x.RemovedAtUtc).HasColumnName("removed_at_utc");
         builder.Property(x => x.Revision).HasColumnName("revision");
         builder.HasOne<JobEntity>().WithMany().HasForeignKey(x => x.JobId).OnDelete(DeleteBehavior.SetNull);
         builder.HasOne<RuntimeSessionEntity>().WithMany().HasForeignKey(x => x.LastRuntimeId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => x.JobId);
         builder.HasIndex(x => new { x.WorkflowId, x.CreatedAtUtc, x.Id });
         // Timeline cursors use acceptance time, which does not change on start.
-        builder.HasIndex(x => new { x.Username, x.ArchivedAtUtc, x.CreatedAtUtc, x.Id });
+        builder.HasIndex(x => new { x.Username, x.RemovedAtUtc, x.CreatedAtUtc, x.Id });
         builder.HasIndex(x => new { x.TerminalOutcome, x.CompletedAtUtc });
         builder.HasIndex(x => new { x.LastRuntimeId, x.TerminalOutcome });
         builder.HasIndex(x => x.CompletedAtUtc);
-        builder.HasIndex(x => new { x.ArchivedAtUtc, x.CreatedAtUtc, x.Id });
-        builder.HasIndex(x => new { x.ArchivedAtUtc, x.Direction, x.CreatedAtUtc, x.Id });
-        builder.HasIndex(x => new { x.GroupRef, x.Username, x.Direction, x.ArchivedAtUtc });
+        builder.HasIndex(x => new { x.RemovedAtUtc, x.CreatedAtUtc, x.Id });
+        builder.HasIndex(x => new { x.RemovedAtUtc, x.Direction, x.CreatedAtUtc, x.Id });
+        builder.HasIndex(x => new { x.GroupRef, x.Username, x.Direction, x.RemovedAtUtc });
         builder.HasIndex(x => new { x.Username, x.RemotePath })
-            .HasFilter("direction = 'Upload' AND archived_at_utc IS NULL");
+            .HasFilter("direction = 'Upload' AND removed_at_utc IS NULL");
     }
 }
 

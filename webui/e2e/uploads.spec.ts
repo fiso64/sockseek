@@ -142,7 +142,7 @@ test('serves a peer upload through live progress and retained history', async ({
   await expect(card).toHaveCount(0);
   await page.reload();
   await expect(page.getByText('No uploads', { exact: true })).toBeVisible();
-  const archived = await page.request.get('/api/transfers?direction=upload&archived=true&limit=100');
+  const archived = await page.request.get('/api/transfers?direction=upload&includeRemoved=true&limit=100');
   expect(archived.ok()).toBeTruthy();
   expect((await archived.json()).items).toHaveLength(1);
 });
@@ -217,8 +217,12 @@ test('explains a failed upload and supersedes it when the peer retries', async (
   await expect(card.getByLabel('50% complete', { exact: true })).toBeVisible();
   await daemon.command('release-upload');
   await expect(card.getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
-  const archived = await page.request.get('/api/transfers?direction=upload&archived=true');
+  const archived = await page.request.get('/api/transfers?direction=upload&includeRemoved=true');
   const history = await archived.json() as Schema<'TransferTimelinePageDto'>;
-  expect(history.items).toHaveLength(1);
-  expect(history.items[0]!.status.failureMessage).toBe('The fixture peer disconnected during upload.');
+  expect(history.items).toHaveLength(2);
+  const failed = history.items.find(row => row.status.terminalOutcome === 'Failed')!;
+  const completed = history.items.find(row => row.status.terminalOutcome === 'Succeeded')!;
+  expect(failed.status.removedAtUtc).toBeTruthy();
+  expect(failed.status.failureMessage).toBe('The fixture peer disconnected during upload.');
+  expect(completed.status.removedAtUtc).toBeUndefined();
 });

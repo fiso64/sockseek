@@ -24,7 +24,7 @@ test('separates search and download tabs with narrow rows, retained jobs and bro
     // Both workflows retire before connection hydration. The list scope must
     // recover their retained rows without relying on a live workflow snapshot.
     await expect.poll(async () => {
-      const response = await page.request.get('/api/jobs?includeAll=false&archived=false&newestFirst=true&limit=100');
+      const response = await page.request.get('/api/jobs?includeAll=false&newestFirst=true&limit=100');
       expect(response.ok()).toBeTruthy();
       const jobs = await response.json() as Schema<'JobSummaryDto'>[];
       if (jobs.length !== 2 || jobs.some(job => job.lifecycleState !== 'Terminal')) return false;
@@ -124,15 +124,15 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
   } satisfies Schema<'SubmitJobListRequestDto'> });
   expect(response.status()).toBe(202);
   const latest = await response.json() as Schema<'JobSummaryDto'>;
-  const newestPage = await page.request.get('/api/jobs?includeAll=false&archived=false&newestFirst=true&limit=3');
+  const newestPage = await page.request.get('/api/jobs?includeAll=false&newestFirst=true&limit=3');
   expect(newestPage.status()).toBe(200);
   const newestRows = await newestPage.json() as Schema<'JobSummaryDto'>[];
   expect(newestRows.map((job) => job.itemName)).toEqual(['Paging parent 101', 'Paging parent 100', 'Paging parent 100']);
   const newestCursor = newestPage.headers()['x-next-cursor'];
   expect(newestCursor).toBeTruthy();
-  const wrongDirection = await page.request.get(`/api/jobs?includeAll=false&archived=false&limit=3&cursor=${encodeURIComponent(newestCursor!)}`);
+  const wrongDirection = await page.request.get(`/api/jobs?includeAll=false&limit=3&cursor=${encodeURIComponent(newestCursor!)}`);
   expect(wrongDirection.status()).toBe(400);
-  const olderPage = await page.request.get(`/api/jobs?includeAll=false&archived=false&newestFirst=true&limit=3&cursor=${encodeURIComponent(newestCursor!)}`);
+  const olderPage = await page.request.get(`/api/jobs?includeAll=false&newestFirst=true&limit=3&cursor=${encodeURIComponent(newestCursor!)}`);
   expect((await olderPage.json() as Schema<'JobSummaryDto'>[]).map((job) => job.itemName))
     .toEqual(['Paging parent 99', 'Paging parent 99', 'Paging parent 98']);
   const observedLimits: number[] = [];

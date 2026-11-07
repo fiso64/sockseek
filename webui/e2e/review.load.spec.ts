@@ -176,7 +176,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
     console.log('PERF_REVIEW_PHASE ' + JSON.stringify({ allExcept, phase: 'accepted detail visible', elapsedMs: detailUiMs, jobReads }));
     if (allExcept) expect(detailUiMs, 'The accepted plan must appear without waiting for a one-second detail polling tick.')
       .toBeLessThan(1_000);
-    const submissionsResponse = await measureApi(daemon.url, '/api/submissions?archived=false&limit=100');
+    const submissionsResponse = await measureApi(daemon.url, '/api/submissions?limit=100');
     expect(submissionsResponse.ok, submissionsResponse.body).toBe(true);
     const submissionsBody = submissionsResponse.body;
     const submissions = JSON.parse(submissionsBody) as Schema<'SubmissionSummaryDto'>[];
@@ -200,7 +200,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
       await page.goto('/downloads');
       await expect(page.locator('.file-item-card')).toHaveCount(1);
       await expect(page.locator('.file-item-card').getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
-      const response = await page.request.get('/api/transfers?direction=download&archived=false&limit=100');
+      const response = await page.request.get('/api/transfers?direction=download&limit=100');
       const transfers = (await response.json() as Schema<'TransferTimelinePageDto'>).items;
       expect(transfers).toHaveLength(1);
       expect(transfers[0]!.identity.username).toBe('fixture-peer');
@@ -228,7 +228,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
       expect(queuedDetail.childCount, 'Known members must be visible while the first execution window is held.').toBe(expectedCount);
       const queuedRootApiMs = queuedRoot.elapsedMs;
       expect(queuedRootApiMs).toBeLessThan(100);
-      const queuedPage = await measureApi(daemon.url, `/api/jobs?parentJobId=${acceptedRootJobId}&archived=false&includeAll=false&limit=100`);
+      const queuedPage = await measureApi(daemon.url, `/api/jobs?parentJobId=${acceptedRootJobId}&includeAll=false&limit=100`);
       expect(queuedPage.ok, queuedPage.body).toBe(true);
       const queuedJobs = JSON.parse(queuedPage.body) as Schema<'JobSummaryDto'>[];
       const queuedPageApiMs = queuedPage.elapsedMs;
@@ -258,7 +258,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
       console.log('PERF_REVIEW_QUEUED ' + JSON.stringify({ declaredChildren: expectedCount,
         visibleChildren: queuedDetail.childCount, queuedRootApiMs, queuedPageApiMs,
         displayedRows: 200, cancelledQueuedJobId: queuedChild.jobId }));
-      const running = await page.request.get(`/api/jobs?workflowId=${receipt.workflowId}&includeAll=true&archived=false&limit=100`);
+      const running = await page.request.get(`/api/jobs?workflowId=${receipt.workflowId}&includeAll=true&limit=100`);
       expect(running.ok(), await running.text()).toBe(true);
       const jobs = await running.json() as Schema<'JobSummaryDto'>[];
       const runningSongs = jobs.filter(job => job.kind === 'song' && job.lifecycleState === 'Running');

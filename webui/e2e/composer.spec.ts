@@ -291,7 +291,7 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   await page.getByRole('button', { name: 'Start 1 job', exact: true }).click();
   expect((await rejected).status()).toBe(409);
   await expect(page.getByRole('alert')).toContainText('expired');
-  const noJobs = await page.request.get('/api/jobs?includeAll=true&archived=false');
+  const noJobs = await page.request.get('/api/jobs?includeAll=true');
   expect(noJobs.ok()).toBeTruthy();
   expect(await noJobs.json()).toEqual([]);
   await expect(page.locator('.new-job-start-button')).toBeDisabled();
@@ -350,7 +350,7 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   await expect(page.locator('.job-child-row')).toHaveCount(1);
   await expect(page.locator('.job-child-row')).toContainText('Fixture CSV Song');
   await expect(page.locator('.job-child-row')).not.toContainText('Second CSV Song');
-  const jobsResponse = await page.request.get(`/api/jobs?submissionId=${receipt.submissionId}&includeAll=true&archived=false`);
+  const jobsResponse = await page.request.get(`/api/jobs?submissionId=${receipt.submissionId}&includeAll=true`);
   expect(jobsResponse.ok()).toBeTruthy();
   const jobs = await jobsResponse.json() as Schema<'JobSummaryDto'>[];
   expect(jobs.some(job => job.queryText?.includes('Fixture CSV Song') || job.itemName?.includes('Fixture CSV Song'))).toBe(true);

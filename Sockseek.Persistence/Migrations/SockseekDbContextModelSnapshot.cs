@@ -794,10 +794,6 @@ namespace Sockseek.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
 
-                    b.Property<long?>("ArchivedAtUtc")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("archived_at_utc");
-
                     b.Property<string>("ArtifactId")
                         .HasMaxLength(256)
                         .HasColumnType("TEXT")
@@ -833,8 +829,6 @@ namespace Sockseek.Persistence.Migrations
                         .HasColumnName("submitted_at_utc");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ArchivedAtUtc");
 
                     b.HasIndex("RerunOfSubmissionId");
 
@@ -1052,9 +1046,9 @@ namespace Sockseek.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
 
-                    b.Property<long?>("ArchivedAtUtc")
+                    b.Property<long?>("RemovedAtUtc")
                         .HasColumnType("INTEGER")
-                        .HasColumnName("archived_at_utc");
+                        .HasColumnName("removed_at_utc");
 
                     b.Property<int>("AttemptCount")
                         .HasColumnType("INTEGER")
@@ -1227,17 +1221,17 @@ namespace Sockseek.Persistence.Migrations
                     b.HasIndex("TerminalOutcome", "CompletedAtUtc");
 
                     b.HasIndex("Username", "RemotePath")
-                        .HasFilter("direction = 'Upload' AND archived_at_utc IS NULL");
+                        .HasFilter("direction = 'Upload' AND removed_at_utc IS NULL");
 
-                    b.HasIndex("ArchivedAtUtc", "CreatedAtUtc", "Id");
+                    b.HasIndex("RemovedAtUtc", "CreatedAtUtc", "Id");
 
                     b.HasIndex("WorkflowId", "CreatedAtUtc", "Id");
 
-                    b.HasIndex("ArchivedAtUtc", "Direction", "CreatedAtUtc", "Id");
+                    b.HasIndex("RemovedAtUtc", "Direction", "CreatedAtUtc", "Id");
 
-                    b.HasIndex("GroupRef", "Username", "Direction", "ArchivedAtUtc");
+                    b.HasIndex("GroupRef", "Username", "Direction", "RemovedAtUtc");
 
-                    b.HasIndex("Username", "ArchivedAtUtc", "CreatedAtUtc", "Id");
+                    b.HasIndex("Username", "RemovedAtUtc", "CreatedAtUtc", "Id");
 
                     b.ToTable("transfers", null, t =>
                         {

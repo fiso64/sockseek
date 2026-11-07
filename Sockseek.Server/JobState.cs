@@ -60,7 +60,6 @@ internal sealed class JobState
     private readonly Dictionary<Guid, Guid> resultJobIds = [];
     private readonly Dictionary<Guid, Guid> extractJobIdsByResult = [];
     private readonly Dictionary<Guid, Guid> sourceJobIds = [];
-    private readonly HashSet<Guid> archivedSubmissionIds = [];
     private readonly HashSet<Guid> executionCompletedJobs = [];
     private readonly Dictionary<Guid, string> songTransferStates = [];
     private readonly Dictionary<Guid, SearchStateDto> searchStates = [];
@@ -251,7 +250,7 @@ internal sealed class JobState
     }
 
     public bool IsJobAvailable(Guid jobId)
-        => records.TryGetValue(jobId, out var record) && MatchesJobArchive(record.Current, archived: false);
+        => records.ContainsKey(jobId);
 
     public JobSummaryDto? GetJobSummary(Guid jobId)
     {
@@ -424,15 +423,7 @@ internal sealed class JobState
             0);
     }
 
-    public void SetSubmissionArchived(Guid submissionId, bool archived)
-    {
-        // History owns archive state after the final live member retires. Keep
-        // only the overlay needed by current records, but invalidate readers for
-        // history-only changes too (including unarchive after daemon restart).
-        if (archived && submissions.ContainsKey(submissionId)) archivedSubmissionIds.Add(submissionId);
-        else archivedSubmissionIds.Remove(submissionId);
-        ListChanged?.Invoke();
-    }
+    internal void NotifyHistoryChanged() => ListChanged?.Invoke();
 
     internal JobPageCapture CaptureJobPage(JobQuery query, long? afterDisplayId, Guid? afterJobId, int take, StateStreamPositionDto position)
     {
@@ -563,11 +554,7 @@ internal sealed class JobState
         && (query.SubmissionId is null || record.SubmissionId == query.SubmissionId)
         && (query.Role is null || record.Role == query.Role)
         && (query.ParentJobId is null || record.ParentJobId == query.ParentJobId)
-        && MatchesJobArchive(record, query.Archived)
         && (query.ParentJobId.HasValue || query.IncludeAll || IsDefaultRoot(record));
-
-    private bool MatchesJobArchive(JobReadState record, bool archived)
-        => archived == (record.SubmissionId is Guid id && archivedSubmissionIds.Contains(id));
 
     private bool IsCurrentExtract(Guid id, Guid workflowId)
         => records.TryGetValue(id, out var entry) && entry.Current.Kind == ServerJobKind.Extract
@@ -651,10 +638,7 @@ internal sealed class JobState
         if (id is not Guid submissionId || !submissions.TryGetValue(submissionId, out var membership)) return;
         membership.JobIds.Remove(jobId);
         if (membership.JobIds.Count == 0)
-        {
             submissions.Remove(submissionId);
-            archivedSubmissionIds.Remove(submissionId);
-        }
     }
 
     private void PublishJobMembership(Guid? jobId)

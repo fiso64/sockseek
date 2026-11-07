@@ -17,25 +17,18 @@ namespace Tests.Server;
 public class EngineStateStoreTests
 {
     [TestMethod]
-    public void HistoryOnlyArchiveChangesInvalidateJobReadersWithoutLiveMembers()
+    public void SubmissionDeletionInvalidatesReadersAndRemovesLiveMembers()
     {
         var store = new EngineStateStore();
         int invalidations = 0;
         store.JobListChanged += () => invalidations++;
-        // Unarchive after restart has no prior in-memory archive marker.
-        store.SetSubmissionArchived(Guid.NewGuid(), false);
-        Guid archived = Guid.NewGuid();
-        store.SetSubmissionArchived(archived, true);
-        store.SetSubmissionArchived(archived, false);
-        Assert.AreEqual(3, invalidations);
-
+        store.RemoveSubmission(Guid.NewGuid());
+        Assert.AreEqual(1, invalidations);
         var job = new SearchJob("Source") { SubmissionId = Guid.NewGuid() };
         Register(store, job);
         Assert.IsTrue(store.IsJobAvailable(job.Id));
-        store.SetSubmissionArchived(job.SubmissionId.Value, true);
+        store.RemoveSubmission(job.SubmissionId.Value);
         Assert.IsFalse(store.IsJobAvailable(job.Id));
-        store.SetSubmissionArchived(job.SubmissionId.Value, false);
-        Assert.IsTrue(store.IsJobAvailable(job.Id));
         Assert.IsFalse(store.IsJobAvailable(Guid.NewGuid()));
     }
 
@@ -144,7 +137,7 @@ public class EngineStateStoreTests
         Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, updates.Current.Jobs.Single().Lifecycle!.TerminalOutcome);
         Assert.AreEqual(0, updates.Current.RemovedJobIds.Count, "Storage retirement cannot remove the displayed result.");
 
-        store.SetSubmissionArchived(roots[3].SubmissionId!.Value, true);
+        store.RemoveSubmission(roots[3].SubmissionId!.Value);
         Assert.IsTrue(await updates.MoveNextAsync());
         CollectionAssert.Contains(updates.Current.RemovedJobIds.ToArray(), roots[3].Id);
         CollectionAssert.Contains(updates.Current.Jobs.Select(row => row.JobId).ToArray(), roots[1].Id);

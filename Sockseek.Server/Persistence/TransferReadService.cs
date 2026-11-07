@@ -47,12 +47,12 @@ public sealed partial class TransferReadService(EngineStateStore live, DaemonRun
         var retainedCoverage = RetainedTransferCoverage();
         // Keep captured facts until membership is known. Wire metadata and
         // retained file attributes belong to the selected page, not every live row.
-        var current = (query.Archived ? [] : transferIds is not null
+        var current = (transferIds is not null
             ? live.GetTransferFactsSnapshot(transferIds)
             : live.GetTransferPageCandidates(query.GroupRef, query.Direction, query.Username))
             .ToDictionary(row => row.TransferId);
         bool queueHasMore = false;
-        if (!query.Archived && query.GroupRef is null && transferIds is null
+        if (query.GroupRef is null && transferIds is null
             && CanIncludeQueuedUploads(query)
             && runtime?.Sharing is { } sharing)
         {
@@ -154,10 +154,10 @@ public sealed partial class TransferReadService(EngineStateStore live, DaemonRun
         foreach (TransferReadSnapshot liveRow in current)
         {
             persistedById.TryGetValue(liveRow.TransferId, out TransferGroupMember? persisted);
-            if (persisted is { ArchivedAtUtc: null })
+            if (persisted is { RemovedAtUtc: null })
                 AdjustGroupTotals(totals, persisted, -1);
             var chosen = TransferReadModel.ForGroup(liveRow, persisted);
-            if (chosen.ArchivedAtUtc is null)
+            if (chosen.RemovedAtUtc is null)
                 AdjustGroupTotals(totals, chosen, 1);
         }
 
@@ -255,24 +255,23 @@ public sealed partial class TransferReadService(EngineStateStore live, DaemonRun
         return new TransferTimelinePageDto(ordered, next, retainedCoverage);
     }
 
-    public async Task<TransferCommandReceiptDto> SetTransfersArchivedAsync(
-        TransferArchiveFilter filter,
-        bool archived,
+    public async Task<TransferCommandReceiptDto> RemoveTransfersAsync(
+        TransferRemovalFilter filter,
         CancellationToken cancellationToken = default)
     {
         if (persistence.TransferHistory is null)
             throw new NotSupportedException(
-                "Transfer archive is unavailable because persistence is disabled or not started.");
+                "Transfer removal is unavailable because persistence is disabled or not started.");
         // A terminal delta is readable before its durable successor exists.
-        // Archive only after those known terminal writes can participate, then
+        // Remove only after those known terminal writes can participate, then
         // release the same captured population rather than newer completions.
-        var terminal = archived ? live.GetActiveTransferSnapshot()
-            .Where(transfer => transfer.Status.IsTerminal && MatchesArchiveFilter(transfer, filter)).ToArray() : [];
+        var terminal = live.GetActiveTransferSnapshot()
+            .Where(transfer => transfer.Status.IsTerminal && MatchesRemovalFilter(transfer, filter)).ToArray();
         foreach (var transfer in terminal)
             await persistence.WaitForTransferHandoffAsync(
                 transfer.TransferId, transfer.Revision, cancellationToken).ConfigureAwait(false);
-        TransferArchiveResult result = await persistence.TransferHistory
-            .SetArchivedAsync(filter, archived, cancellationToken)
+        TransferRemovalResult result = await persistence.TransferHistory
+            .RemoveAsync(filter, cancellationToken)
             .ConfigureAwait(false);
 
         foreach (var transfer in terminal)
@@ -292,9 +291,9 @@ public sealed partial class TransferReadService(EngineStateStore live, DaemonRun
                 .ToArray());
     }
 
-    private static bool MatchesArchiveFilter(
+    private static bool MatchesRemovalFilter(
         TransferStateDto transfer,
-        TransferArchiveFilter filter)
+        TransferRemovalFilter filter)
     {
         DateTimeOffset created = transfer.Scheduling?.RequestedAtUtc
             ?? DateTimeOffset.UnixEpoch;

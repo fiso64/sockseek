@@ -36,7 +36,7 @@
     viewState: SearchViewState;
     liveJob?: JobStateDto | null;
     liveJobError?: Error | null;
-    removeAction?: 'cancel' | 'archive' | null;
+    removeAction?: 'cancel' | 'delete' | null;
     removePending?: boolean;
     actionError?: Error | null;
     onremove: () => void;

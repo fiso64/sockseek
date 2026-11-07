@@ -6755,15 +6755,8 @@
           "Submissions"
         ],
         "summary": "Lists durable accepted submissions newest first.",
-        "description": "Archived submissions are excluded by default. Traverse runtime jobs with /api/jobs?submissionId= rather than embedding them here.",
+        "description": "Traverse runtime jobs with /api/jobs?submissionId= rather than embedding them here.",
         "parameters": [
-          {
-            "name": "archived",
-            "in": "query",
-            "schema": {
-              "type": "boolean"
-            }
-          },
           {
             "name": "cursor",
             "in": "query",
@@ -6867,15 +6860,13 @@
             "Browser": [ ]
           }
         ]
-      }
-    },
-    "/api/submissions/{submissionId}/archive": {
-      "post": {
+      },
+      "delete": {
         "tags": [
           "Submissions"
         ],
-        "summary": "Archives or restores one terminal submission.",
-        "description": "Archive is reversible. A nonterminal submission is rejected without affecting unrelated submissions.",
+        "summary": "Permanently deletes one terminal submission and its jobs.",
+        "description": "Downloaded files, transfers and their statistics are preserved. Nonterminal submissions are rejected.",
         "parameters": [
           {
             "name": "submissionId",
@@ -6887,23 +6878,13 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetSubmissionArchivedRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SubmissionArchiveResponseDto"
+                  "$ref": "#/components/schemas/DeleteSubmissionResponseDto"
                 }
               }
             }
@@ -7124,13 +7105,6 @@
                 "orchestration",
                 "execution-child"
               ]
-            }
-          },
-          {
-            "name": "archived",
-            "in": "query",
-            "schema": {
-              "type": "boolean"
             }
           },
           {
@@ -8919,7 +8893,7 @@
             }
           },
           {
-            "name": "archived",
+            "name": "includeRemoved",
             "in": "query",
             "schema": {
               "type": "boolean"
@@ -9138,7 +9112,7 @@
         "tags": [
           "Transfers"
         ],
-        "summary": "Looks up current unarchived transfer timeline rows by ID.",
+        "summary": "Looks up current visible transfer timeline rows by ID.",
         "description": "Uses the same live, queued and retained projection as the timeline. Returns all found IDs in newest-first order without a continuation. Missing IDs are omitted; retained availability is explicit.",
         "requestBody": {
           "content": {
@@ -9361,6 +9335,53 @@
             "Browser": [ ]
           }
         ]
+      },
+      "delete": {
+        "tags": [
+          "Transfers"
+        ],
+        "summary": "Removes one terminal retained transfer.",
+        "description": "Removal hides a terminal transfer from ordinary listings while preserving history and statistics. Nonterminal transfers are rejected.",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferCommandReceiptDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/transfers/{transferId}/cancel": {
@@ -9483,77 +9504,18 @@
         ]
       }
     },
-    "/api/transfers/{transferId}/archive": {
+    "/api/transfers/remove": {
       "post": {
         "tags": [
           "Transfers"
         ],
-        "summary": "Archives or restores one terminal retained transfer.",
-        "description": "Archive is reversible and separate from cancellation; a nonterminal transfer is rejected.",
-        "parameters": [
-          {
-            "name": "transferId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
+        "summary": "Removes terminal transfers from listings, optionally scoped to an exact peer/group.",
+        "description": "Preserves retained history and statistics, excludes active transfers, and returns bounded outcome counts.",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SetTransferArchivedRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TransferCommandReceiptDto"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service Unavailable"
-          },
-          "401": {
-            "description": "Authentication required or credential expired/revoked."
-          },
-          "403": {
-            "description": "Access denied."
-          }
-        },
-        "security": [
-          {
-            "ApiKey": [ ]
-          },
-          {
-            "Browser": [ ]
-          }
-        ]
-      }
-    },
-    "/api/transfers/archive": {
-      "post": {
-        "tags": [
-          "Transfers"
-        ],
-        "summary": "Archives or restores terminal transfer history, optionally scoped to an exact peer/group.",
-        "description": "The command is reversible, excludes active transfers, and returns bounded outcome counts.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ArchiveTransfersRequestDto"
+                "$ref": "#/components/schemas/RemoveTransfersRequestDto"
               }
             }
           },
@@ -11201,53 +11163,6 @@
           "archived": {
             "type": "boolean",
             "default": true
-          }
-        }
-      },
-      "ArchiveTransfersRequestDto": {
-        "type": "object",
-        "properties": {
-          "archived": {
-            "type": "boolean",
-            "default": true
-          },
-          "direction": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "terminalOutcome": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "username": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "fromUtc": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "toUtc": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "groupRef": {
-            "type": [
-              "null",
-              "string"
-            ]
           }
         }
       },
@@ -13788,6 +13703,52 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "DeleteSubmissionResponseDto": {
+        "required": [
+          "submissionId",
+          "affectedSubmissionCount",
+          "affectedJobCount",
+          "rejectedSubmissionCount",
+          "rejectionReasons"
+        ],
+        "type": "object",
+        "properties": {
+          "submissionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "affectedSubmissionCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "affectedJobCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "rejectedSubmissionCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "rejectionReasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubmissionReasonCountDto"
+            }
           }
         }
       },
@@ -17846,7 +17807,7 @@
                                 "string"
                               ]
                             },
-                            "archivedAtUtc": {
+                            "removedAtUtc": {
                               "type": [
                                 "null",
                                 "string"
@@ -18118,7 +18079,7 @@
                             "string"
                           ]
                         },
-                        "archivedAtUtc": {
+                        "removedAtUtc": {
                           "type": [
                             "null",
                             "string"
@@ -20036,10 +19997,6 @@
               }
             ]
           },
-          "archived": {
-            "type": "boolean",
-            "default": false
-          },
           "newestFirst": {
             "type": "boolean",
             "default": false
@@ -20472,7 +20429,7 @@
       },
       "LiveProtocolContractVersion": {
         "enum": [
-          17
+          18
         ],
         "type": "integer"
       },
@@ -21585,6 +21542,49 @@
           "PeerDirectory",
           "Resolved"
         ]
+      },
+      "RemoveTransfersRequestDto": {
+        "type": "object",
+        "properties": {
+          "direction": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "terminalOutcome": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "username": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "fromUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "toUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "groupRef": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
       },
       "ResolveEffectiveSettingsRequestDto": {
         "required": [
@@ -23447,24 +23447,6 @@
           },
           "antiforgeryToken": {
             "type": "string"
-          }
-        }
-      },
-      "SetSubmissionArchivedRequestDto": {
-        "type": "object",
-        "properties": {
-          "archived": {
-            "type": "boolean",
-            "default": true
-          }
-        }
-      },
-      "SetTransferArchivedRequestDto": {
-        "type": "object",
-        "properties": {
-          "archived": {
-            "type": "boolean",
-            "default": true
           }
         }
       },
@@ -25892,7 +25874,7 @@
                             "string"
                           ]
                         },
-                        "archivedAtUtc": {
+                        "removedAtUtc": {
                           "type": [
                             "null",
                             "string"
@@ -26164,7 +26146,7 @@
                         "string"
                       ]
                     },
-                    "archivedAtUtc": {
+                    "removedAtUtc": {
                       "type": [
                         "null",
                         "string"
@@ -28882,7 +28864,7 @@
                                 "string"
                               ]
                             },
-                            "archivedAtUtc": {
+                            "removedAtUtc": {
                               "type": [
                                 "null",
                                 "string"
@@ -29154,7 +29136,7 @@
                             "string"
                           ]
                         },
-                        "archivedAtUtc": {
+                        "removedAtUtc": {
                           "type": [
                             "null",
                             "string"
@@ -30230,56 +30212,6 @@
           }
         }
       },
-      "SubmissionArchiveResponseDto": {
-        "required": [
-          "submissionId",
-          "archived",
-          "affectedSubmissionCount",
-          "affectedJobCount",
-          "rejectedSubmissionCount",
-          "rejectionReasons"
-        ],
-        "type": "object",
-        "properties": {
-          "submissionId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "archived": {
-            "type": "boolean"
-          },
-          "affectedSubmissionCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "affectedJobCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "rejectedSubmissionCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "rejectionReasons": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SubmissionReasonCountDto"
-            }
-          }
-        }
-      },
       "SubmissionDetailDto": {
         "required": [
           "summary",
@@ -30427,13 +30359,6 @@
               "string"
             ],
             "format": "int64"
-          },
-          "archivedAtUtc": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
           },
           "totalJobCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
@@ -31643,7 +31568,7 @@
               "string"
             ]
           },
-          "archivedAtUtc": {
+          "removedAtUtc": {
             "type": [
               "null",
               "string"

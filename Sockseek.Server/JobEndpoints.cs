@@ -25,7 +25,6 @@ internal static class JobEndpoints
         app.MapGet("/api/submissions", async (
             JobReadService jobs,
             HttpContext httpContext,
-            bool? archived,
             string? cursor,
             int? limit,
             CancellationToken cancellationToken) =>
@@ -35,7 +34,6 @@ internal static class JobEndpoints
                 var page = await jobs.GetSubmissionsAsync(
                     cursor,
                     limit ?? ServerProtocol.DefaultPageSize,
-                    archived ?? false,
                     cancellationToken);
                 if (page.NextCursor != null)
                     httpContext.Response.Headers["X-Next-Cursor"] = page.NextCursor;
@@ -52,7 +50,7 @@ internal static class JobEndpoints
         })
             .WithTags("Submissions")
             .WithSummary("Lists durable accepted submissions newest first.")
-            .WithDescription("Archived submissions are excluded by default. Traverse runtime jobs with /api/jobs?submissionId= rather than embedding them here.")
+            .WithDescription("Traverse runtime jobs with /api/jobs?submissionId= rather than embedding them here.")
             .Produces<IReadOnlyList<SubmissionSummaryDto>>()
             .Produces(StatusCodes.Status503ServiceUnavailable);
 
@@ -77,17 +75,15 @@ internal static class JobEndpoints
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status503ServiceUnavailable);
 
-        app.MapPost("/api/submissions/{submissionId:guid}/archive", async (
+        app.MapDelete("/api/submissions/{submissionId:guid}", async (
             Guid submissionId,
-            SetSubmissionArchivedRequestDto request,
             JobReadService jobs,
             CancellationToken cancellationToken) =>
         {
             try
             {
-                return Results.Ok(await jobs.SetSubmissionArchivedAsync(
+                return Results.Ok(await jobs.DeleteSubmissionAsync(
                     submissionId,
-                    request.Archived,
                     cancellationToken));
             }
             catch (NotSupportedException ex)
@@ -96,9 +92,9 @@ internal static class JobEndpoints
             }
         })
             .WithTags("Submissions")
-            .WithSummary("Archives or restores one terminal submission.")
-            .WithDescription("Archive is reversible. A nonterminal submission is rejected without affecting unrelated submissions.")
-            .Produces<SubmissionArchiveResponseDto>()
+            .WithSummary("Permanently deletes one terminal submission and its jobs.")
+            .WithDescription("Downloaded files, transfers and their statistics are preserved. Nonterminal submissions are rejected.")
+            .Produces<DeleteSubmissionResponseDto>()
             .Produces(StatusCodes.Status503ServiceUnavailable);
 
         app.MapPost("/api/submissions/{submissionId:guid}/rerun", async (
@@ -172,7 +168,6 @@ internal static class JobEndpoints
             Guid? parentJobId,
             Guid? submissionId,
             string? role,
-            bool? archived,
             bool? includeAll,
             bool? newestFirst,
             bool? excludeExtractResults,
@@ -211,8 +206,7 @@ internal static class JobEndpoints
                         parentJobId,
                         submissionId,
                         parsedRole,
-                        archived ?? false,
-                        newestFirst ?? false,
+                            newestFirst ?? false,
                         excludeExtractResults ?? false,
                         parsedExcludeKinds),
                     cursor,
