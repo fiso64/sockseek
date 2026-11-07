@@ -16,7 +16,7 @@ internal static partial class CliLogMessages
     [LoggerMessage(5003, LogLevel.Information, "Sockseek daemon starting on {ListenUrl}")]
     internal static partial void DaemonStarting(ILogger logger, string listenUrl);
 
-    [LoggerMessage(5004, LogLevel.Warning, "Sockseek daemon is listening on all network interfaces; the API is unauthenticated and must only be exposed on trusted networks or behind access control")]
+    [LoggerMessage(5004, LogLevel.Information, "Sockseek daemon is listening on all network interfaces")]
     internal static partial void DaemonNetworkExposed(ILogger logger);
 
     [LoggerMessage(5005, LogLevel.Information, "Sockseek daemon stopped")]

@@ -478,7 +478,7 @@ public sealed class SearchViewCoordinatorTests
         try
         {
             await app.StartAsync();
-            using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+            using var http = await global::Tests.TestServerHost.CreateHttpClientAsync(app);
             var api = new SockseekApiClient(http);
             var source = await api.SubmitSearchJobAsync(new SubmitSearchJobRequestDto("Track"));
             var views = app.Services.GetRequiredService<SearchViewCoordinator>();
@@ -2269,7 +2269,7 @@ public sealed class SearchViewCoordinatorTests
                 .Deserialize(retainedWithOptions!.SpecificationJson).MaterializeJob();
             Assert.IsTrue(optionRoot.Jobs.All(job => job.PlannedSettings?.ReadSettings().Skip.SkipExisting == false),
                 "The same download-time override must be composed for each accepted child.");
-            using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+            using var http = await global::Tests.TestServerHost.CreateHttpClientAsync(app);
             var api = new SockseekApiClient(http);
             var replayTimer = System.Diagnostics.Stopwatch.StartNew();
             CommitSearchViewSelectionResponseDto repeated = await api.CommitSearchViewSelectionAsync(view.ViewId, commitRequest);

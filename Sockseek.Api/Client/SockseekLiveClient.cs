@@ -39,6 +39,8 @@ public sealed class SockseekLiveClient : IAsyncDisposable
     public event Action<StateSnapshotDto>? SnapshotApplied;
     public event Action<ActivityEventDto>? ActivityReceived;
     public event Action<StateStreamScopeDto, Exception>? SynchronizationFailed;
+    /// <summary>The live connection ended after recovery was exhausted; callers must not wait for further updates.</summary>
+    public event Action<Exception>? ConnectionFailed;
 
     public SockseekLiveClient(string serverUrl, JsonSerializerOptions? jsonOptions = null, DaemonStateDetail detail = DaemonStateDetail.Full)
         : this(SockseekApiClient.CreateHttpClient(serverUrl), ownsHttp: true, jsonOptions, detail)
@@ -60,16 +62,34 @@ public sealed class SockseekLiveClient : IAsyncDisposable
             ?? throw new ArgumentException("The HTTP client requires a daemon BaseAddress.", nameof(http));
 
         connection = new HubConnectionBuilder()
-            .WithUrl(new Uri(baseUri, $"{LiveProtocol.HubPath}?liveProtocol={LiveProtocol.Version}"))
+            .WithUrl(new Uri(baseUri, $"{LiveProtocol.HubPath}?liveProtocol={LiveProtocol.Version}"), connectionOptions =>
+            {
+                if (http.DefaultRequestHeaders.TryGetValues("X-API-Key", out var keys))
+                    connectionOptions.Headers["X-API-Key"] = keys.Single();
+                if (http.DefaultRequestHeaders.TryGetValues("Cookie", out var cookies))
+                    connectionOptions.Headers["Cookie"] = string.Join("; ", cookies);
+                connectionOptions.HttpMessageHandlerFactory = handler =>
+                {
+                    if (handler is HttpClientHandler clientHandler) clientHandler.AllowAutoRedirect = false;
+                    // SignalR can redirect in its JSON negotiation response independently of HTTP redirects.
+                    return new ServerOriginHandler(baseUri, handler);
+                };
+            })
             .AddJsonProtocol(json =>
             {
                 json.PayloadSerializerOptions.PropertyNameCaseInsensitive = true;
                 SockseekApiJson.ConfigureSerializerOptions(json.PayloadSerializerOptions);
             })
-            .WithAutomaticReconnect()
+            .WithAutomaticReconnect(new AuthenticatedReconnectPolicy())
             .Build();
         connection.On<StateUpdateBatchDto>(LiveProtocol.StateUpdateBatchMethod, HandleBatch);
         connection.Reconnected += _ => RecoverAfterReconnectAsync();
+        connection.Closed += error =>
+        {
+            if (!disposed && Mode != LiveSubscriptionMode.None)
+                ConnectionFailed?.Invoke(error ?? new IOException("The daemon live connection closed."));
+            return Task.CompletedTask;
+        };
     }
 
     public Task StartDaemonAsync(CancellationToken ct = default)
@@ -480,6 +500,11 @@ public sealed class SockseekLiveClient : IAsyncDisposable
                 catch (Exception ex)
                 {
                     SynchronizationFailed?.Invoke(scope, ex);
+                    if (AuthenticationRejected(ex))
+                    {
+                        ConnectionFailed?.Invoke(ex);
+                        return;
+                    }
                     int delayMs = Math.Min(5_000, 100 * (1 << Math.Min(attempt++, 5)));
                     try
                     {
@@ -757,4 +782,19 @@ public sealed class SockseekLiveClient : IAsyncDisposable
     private sealed record BufferedDrain(
         IReadOnlyList<StateUpdateBatchDto> Batches,
         bool Overflowed);
+
+    private sealed class AuthenticatedReconnectPolicy : IRetryPolicy
+    {
+        private static readonly int[] Delays = [0, 2, 10, 30];
+        public TimeSpan? NextRetryDelay(RetryContext context)
+            => AuthenticationRejected(context.RetryReason) || context.PreviousRetryCount >= Delays.Length
+                ? null : TimeSpan.FromSeconds(Delays[context.PreviousRetryCount]);
+
+    }
+
+    private static bool AuthenticationRejected(Exception? error)
+        => error is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden }
+            || error is SockseekApiRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden }
+            || error is AggregateException aggregate && aggregate.InnerExceptions.Any(AuthenticationRejected)
+            || error?.InnerException is { } inner && AuthenticationRejected(inner);
 }

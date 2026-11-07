@@ -9,7 +9,6 @@ internal static class SearchViewEndpoints
     public static void Map(WebApplication app)
     {
         app.MapPost("/api/jobs/{jobId:guid}/search-views", CreateViewAsync)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Creates a revisioned projection over a live or retained search.")
             .WithDescription("Returns revision zero immediately. Poll the latest summary revision while the search is running, then page its typed collections from one immutable revision.")
@@ -19,7 +18,6 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/search-views/{viewId:guid}", Get)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Gets fixed-size counters and the latest immutable revision.")
             .Produces<SearchViewSummaryDto>()
@@ -27,7 +25,6 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/search-views/{viewId:guid}/definition", GetDefinition)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Gets the exact projection and effective search settings retained for this view.")
             .Produces<SearchViewDefinitionDto>()
@@ -35,7 +32,6 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/search-views/{viewId:guid}/files", GetFiles)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Pages file rows from one immutable search-view revision.")
             .WithDescription("sortOrder reorders the existing projected rows; omitting it uses the view default. Keep the same sortOrder value (or omission) when continuing a cursor. Cursors bind the view, revision and requested order; counters describe the same revision as the rows.")
@@ -45,7 +41,6 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/search-views/{viewId:guid}/directories", GetDirectories)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Pages exact peer-directory summaries from one immutable revision.")
             .WithDescription("sortOrder reorders existing directory summaries; omitting it uses the view default. Keep the same sortOrder value (or omission) when continuing a cursor. Membership, counters and child-file ordering retain their revision semantics.")
@@ -57,7 +52,6 @@ internal static class SearchViewEndpoints
         app.MapGet(
                 "/api/search-views/{viewId:guid}/directories/{directoryRef}/files",
                 GetDirectoryFiles)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Pages exact relative child paths under a directory in one immutable revision.")
             .Produces<SearchViewDirectoryFilePageDto>()
@@ -68,7 +62,6 @@ internal static class SearchViewEndpoints
         app.MapPost(
                 "/api/search-views/{viewId:guid}/directories/retrieve",
                 RetrieveDirectoryAsync)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Retrieves an exact peer directory issued by a Search View revision.")
             .WithDescription("Runs the generic folder-retrieval job. Completion publishes retrieved totals and child refs as a new immutable Search View revision; the issuing revision remains unchanged.")
@@ -78,7 +71,6 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/search-views/{viewId:guid}/aggregate-tracks", GetAggregateTracks)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Pages aggregate-track group summaries from one immutable revision.")
             .Produces<SearchViewAggregateTrackPageDto>()
@@ -89,7 +81,6 @@ internal static class SearchViewEndpoints
         app.MapGet(
                 "/api/search-views/{viewId:guid}/aggregate-tracks/{groupRef}/alternatives",
                 GetAggregateTrackOptions)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Pages one aggregate-track group's ordered alternatives.")
             .Produces<SearchViewAggregateTrackOptionPageDto>()
@@ -98,7 +89,6 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/search-views/{viewId:guid}/aggregate-albums", GetAggregateAlbums)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Pages aggregate-album group summaries from one immutable revision.")
             .Produces<SearchViewAggregateAlbumPageDto>()
@@ -109,7 +99,6 @@ internal static class SearchViewEndpoints
         app.MapGet(
                 "/api/search-views/{viewId:guid}/aggregate-albums/{groupRef}/alternatives",
                 GetAggregateAlbumOptions)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Pages one aggregate-album group's directory alternatives.")
             .Produces<SearchViewAggregateAlbumOptionPageDto>()
@@ -118,7 +107,6 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapPost("/api/search-views/{viewId:guid}/chosen-options/resolve", ResolveChosenOptions)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Reads exact browser-held aggregate choices in one Search View revision.")
             .WithDescription("Returns a current option DTO or an explicit miss for each requested group. Choices remain client-owned and are never saved by this read.")
@@ -128,7 +116,6 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/search-views/{viewId:guid}/updates", GetUpdatesAsync)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Gets the latest fixed-size summary for inexpensive live refresh.")
             .WithDescription("When HasNewRevision is true, refetch only visible pages and expanded groups at Summary.Revision. Optional waitForChange waits up to one second for a new revision; completed Views return immediately.")
@@ -138,7 +125,6 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapPost("/api/search-views/{viewId:guid}/commit", CommitSelectionAsync)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Commits a client-owned revision-bound selection as one submission.")
             .WithDescription("The fixed-size receipt reports independent resolution outcomes; runtime jobs are traversed through the jobs API.")
@@ -148,7 +134,6 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapPost("/api/search-views/{viewId:guid}/selection-settings", ResolveSelectionSettings)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Resolves the effective download defaults for a client-owned selection.")
             .Produces<ResolveSearchViewSelectionSettingsResponseDto>()
@@ -157,7 +142,6 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapPost("/api/search-views/{viewId:guid}/selection-counts", CountSelection)
-            .RequireOperator()
             .WithTags("Search Views")
             .WithSummary("Counts observed public and locked files in a client-owned selection.")
             .Produces<CountSearchViewSelectionResponseDto>()

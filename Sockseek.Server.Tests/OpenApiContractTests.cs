@@ -25,7 +25,7 @@ public class OpenApiContractTests
         string directory = Directory.CreateTempSubdirectory("sockseek-submission-api-").FullName;
         try
         {
-            await using var app = ServerHost.Build([], new ServerOptions
+            await using var app = global::Tests.TestServerHost.Build([], new ServerOptions
             {
                 Engine = new EngineSettings { LogLevel = LogLevel.None },
                 Persistence = new ServerPersistenceOptions
@@ -45,7 +45,7 @@ public class OpenApiContractTests
                     await store.CreateAsync(new SubmissionRegistration(
                         id, DateTimeOffset.FromUnixTimeMilliseconds(1000), 99,
                         "{\"retained\":\"not-public\"}", null, null, "artifact"));
-                using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+                using var http = await global::Tests.TestServerHost.CreateHttpClientAsync(app);
                 var client = new SockseekApiClient(http);
                 var first = await client.GetSubmissionsPageAsync(limit: 1);
                 Assert.AreEqual(ids[2], first.Items.Single().SubmissionId);
@@ -801,7 +801,7 @@ public class OpenApiContractTests
         url = app.Urls.Single();
         try
         {
-            using var http = new HttpClient { BaseAddress = new Uri(url) };
+            using var http = await global::Tests.TestServerHost.CreateHttpClientAsync(app);
             var info = await new SockseekApiClient(http).GetServerInfoAsync();
 
             Assert.AreEqual(LiveProtocol.Version, info.LiveProtocolVersion);

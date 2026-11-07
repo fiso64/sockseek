@@ -256,7 +256,20 @@ public static partial class Help
     sockseek daemon                 Start the HTTP/SignalR daemon instead of running a download
     --server-ip <ip>                IP/interface for the daemon HTTP API (default: 127.0.0.1)
     --server-port <port>            Port for the daemon HTTP API (default: 5030)
+    --web-username <name>          WebUI login name (default: admin)
+    --web-password-file <path>      WebUI password file; required unless a hash or --no-auth is set
+    --web-password-hash <hash>      Alternative to the password file; use auth hash-password
+    --web-session-lifetime <time>   Fixed session duration (default: 7.00:00:00)
+    --trusted-proxies <ips>         Forwarding proxy addresses (default: 127.0.0.1,::1)
+    --allow-http-auth              Permit plaintext HTTP credentials/cookies (default: false)
+    --no-auth                      Grant anonymous full access (default: false)
     --remote <url>                  Use an existing daemon instead of running locally
+    --remote-api-key-file <path>    Remote client key file; separate from the WebUI password
+    --remote-api-key <key>          Alternative inline API key (prefer a private file)
+    sockseek auth hash-password    Generate a WebUI password hash locally
+    sockseek auth keys list        List API keys; add --remote for a running daemon
+    sockseek auth keys create <name>  Create a named key and print its secret once
+    sockseek auth keys revoke <id>  Revoke a key; offline commands require the daemon stopped
     --monitor                       Monitor all active daemon workflows. Input is optional;
                                     an input submitted with this option appears alongside
                                     all other daemon work until the monitor is interrupted
@@ -950,10 +963,17 @@ Tips
     const string daemonHelp = @"
 Daemon / remote mode
   Daemon mode runs Sockseek as a long-lived service with an HTTP/SignalR API, remote CLI access,
-  sharing, chat, notifications, and durable history. Run sockseek daemon to start it; the default
-  endpoint is http://127.0.0.1:5030.
-  See daemon setup and remote commands for monitoring, sharing, chat, notifications, history,
-  backup, and security guidance. For application integration, see the API guide.";
+  sharing, chat, notifications, and durable history. Configure a WebUI password and HTTPS access,
+  then run sockseek daemon to start it; the default endpoint is http://127.0.0.1:5030.
+  Set web-password-file (or web-password-hash) for browser login. HTTPS is required;
+  --allow-http-auth explicitly permits plain HTTP for trusted local deployments. For TLS
+  termination, configure trusted-proxies with the proxy addresses. --no-auth disables authentication
+  entirely.
+  Create named API keys in Settings or with sockseek auth keys create <name>. Remote clients use
+  --remote <url> --remote-api-key-file <path>; add --monitor to observe live workflows. Keys can be
+  listed and revoked through Settings or sockseek auth keys. Browser sessions expire after seven
+  days by default and are invalidated by logout or daemon restart.
+  For application integration, see the API guide.";
 
     const string userHelp = @"
 Remote User Commands

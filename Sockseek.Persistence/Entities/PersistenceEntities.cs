@@ -1,5 +1,13 @@
 namespace Sockseek.Persistence.Entities;
 
+internal sealed class ApiKeyEntity
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+    public byte[] Hash { get; set; } = [];
+    public long CreatedAtUtc { get; set; }
+}
+
 // History mutations accept changes only at a newer revision. Unchanged/replayed
 // rows retain theirs, so the writer need not snapshot every column again.
 internal interface IRevisionedHistoryRow

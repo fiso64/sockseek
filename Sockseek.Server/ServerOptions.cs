@@ -8,6 +8,7 @@ namespace Sockseek.Server;
 public sealed class ServerOptions
 {
     public string Name { get; set; } = "Sockseek";
+    public Authentication.AuthenticationOptions Authentication { get; set; } = new();
     /// <summary>Maximum time allowed for graceful connection and service shutdown.</summary>
     public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(30);
     public EngineSettings Engine { get; set; } = new();

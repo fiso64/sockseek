@@ -11,7 +11,7 @@ internal static class UserCommandRunner
 {
     public static async Task<Program.CliExitCode> RunAsync(
         IReadOnlyList<string> args,
-        string? remote,
+        RemoteSettings? remote,
         string? profileNames,
         CancellationToken cancellationToken = default)
     {
@@ -20,7 +20,7 @@ internal static class UserCommandRunner
             PrintHelp();
             return Program.CliExitCode.Success;
         }
-        if (string.IsNullOrWhiteSpace(remote))
+        if (remote?.IsEnabled != true)
             return Usage("This command requires a configured remote URL (remote = <url> or --remote <url>).");
         if (!IsWord(args, 0, "user"))
             return Usage("Expected a user command.");
@@ -35,7 +35,7 @@ internal static class UserCommandRunner
 
         try
         {
-            using HttpClient http = SockseekApiClient.CreateHttpClient(remote);
+            using HttpClient http = remote.CreateHttpClient();
             var api = new SockseekApiClient(http);
             return Word(args, 1)?.ToLowerInvariant() switch
             {
@@ -157,7 +157,7 @@ internal static class UserCommandRunner
 
     private static async Task<Program.CliExitCode> RunSharesAsync(
         SockseekApiClient api,
-        string remote,
+        RemoteSettings remote,
         IReadOnlyList<string> args,
         string? profileNames,
         CancellationToken cancellationToken)
@@ -302,7 +302,7 @@ internal static class UserCommandRunner
 
     private static async Task<UserBrowseDto> WaitForBrowseAsync(
         SockseekApiClient api,
-        string remote,
+        RemoteSettings remote,
         UserBrowseDto browse,
         bool progress,
         CancellationToken cancellationToken)
@@ -313,7 +313,7 @@ internal static class UserCommandRunner
         SockseekLiveClient? live = null;
         try
         {
-            live = new SockseekLiveClient(remote);
+            live = new SockseekLiveClient(remote.CreateHttpClient(), ownsHttp: true);
             using var subscribeTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             subscribeTimeout.CancelAfter(TimeSpan.FromSeconds(2));
             await live.StartUserBrowseAsync(browse.BrowseId, subscribeTimeout.Token).ConfigureAwait(false);

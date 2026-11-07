@@ -9,7 +9,6 @@ namespace Sockseek.Server;
 /// twice to that connection.
 /// </summary>
 public sealed class ServerEventHub(
-    IOperatorMutationAuthorizer operatorAuthorizer,
     EngineStateStore stateStore,
     Planning.SearchViewCoordinator searchViews,
     Persistence.JobReadService jobs,
@@ -20,7 +19,6 @@ public sealed class ServerEventHub(
         JobListScopeDto scope,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        await RequireOperatorAsync();
         await foreach (var update in jobs.ObserveJobListAsync(scope, events, cancellationToken))
             yield return update;
     }
@@ -29,7 +27,6 @@ public sealed class ServerEventHub(
         Guid jobId, IReadOnlyList<Guid> jobIds,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        await RequireOperatorAsync();
         await foreach (var update in jobs.ObserveJobsAsync(jobId, jobIds, events, cancellationToken))
             yield return update;
     }
@@ -38,7 +35,6 @@ public sealed class ServerEventHub(
         TransferTimelineScopeDto scope,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        await RequireOperatorAsync();
         await foreach (var update in transfers.ObserveTransferTimelineAsync(scope, events, cancellationToken))
             yield return update;
     }
@@ -81,7 +77,6 @@ public sealed class ServerEventHub(
         if (Context.Items.TryGetValue(ModeKey, out var mode) && Equals(mode, WorkflowMode))
             throw new HubException("Cannot mix daemon and workflow subscriptions on one connection.");
 
-        await RequireOperatorAsync();
         Context.Items[ModeKey] = Equals(mode, ChatMode) ? DaemonChatMode : DaemonMode;
         await Groups.RemoveFromGroupAsync(Context.ConnectionId,
             detail == DaemonStateDetail.Full ? SummaryEventsGroupName : AllEventsGroupName);
@@ -191,7 +186,6 @@ public sealed class ServerEventHub(
             throw new HubException("A chat subscription requires a conversation or room scope.");
         if (Context.Items.TryGetValue(ModeKey, out var mode) && Equals(mode, WorkflowMode))
             throw new HubException("Cannot mix chat and workflow subscriptions on one connection.");
-        await RequireOperatorAsync();
         Context.Items[ModeKey] = Equals(mode, DaemonMode) || Equals(mode, DaemonChatMode)
             ? DaemonChatMode
             : ChatMode;
@@ -232,7 +226,6 @@ public sealed class ServerEventHub(
         scope.Validate();
         if (Context.Items.TryGetValue(ModeKey, out var mode) && Equals(mode, WorkflowMode))
             throw new HubException("Cannot mix user-browse and workflow subscriptions on one connection.");
-        await RequireOperatorAsync();
         Context.Items[ModeKey] = Equals(mode, DaemonMode) || Equals(mode, DaemonChatMode)
             ? DaemonChatMode
             : ChatMode;
@@ -261,16 +254,6 @@ public sealed class ServerEventHub(
             else if (Equals(mode, ChatMode))
                 Context.Items.Remove(ModeKey);
         }
-    }
-
-    private async Task RequireOperatorAsync()
-    {
-        HttpContext context = Context.GetHttpContext()
-            ?? throw new HubException("The live subscription has no HTTP context.");
-        IResult? rejection = await operatorAuthorizer.GetRejectionAsync(
-            context, Context.ConnectionAborted);
-        if (rejection is not null)
-            throw new HubException("Operator authorization is required for this live subscription.");
     }
 
     private HashSet<StateStreamScopeDto> ChatScopes()

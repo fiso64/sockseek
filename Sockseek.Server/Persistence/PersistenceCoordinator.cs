@@ -51,6 +51,7 @@ public sealed class PersistenceCoordinator(
     public ChatPersistenceStore? Chat => host?.Chat;
     public PeerRestrictionOverrideStore? PeerRestrictions => host?.PeerRestrictions;
     public InputArtifactStore? InputArtifacts => host?.InputArtifacts;
+    public Sockseek.Persistence.Authentication.ApiKeyStore? ApiKeys => host?.ApiKeys;
     internal int SearchResultBatchSize => options.Persistence.SearchResultFlushCount;
     public long? DatabaseSizeBytes => host?.DatabaseSizeBytes;
     public long? WalSizeBytes => host?.WalSizeBytes;

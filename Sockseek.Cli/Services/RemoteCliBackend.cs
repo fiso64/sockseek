@@ -12,6 +12,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
     private readonly HttpClient http;
     private readonly SockseekApiClient api;
     private readonly SockseekLiveClient live;
+    private readonly TaskCompletionSource<Exception> connectionFailure = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ConcurrentDictionary<Guid, byte> workflowSubscriptions = [];
     private readonly ConcurrentDictionary<(
         Guid SourceJobId,
@@ -27,16 +28,23 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
     internal static JsonSerializerOptions CreateJsonOptions()
         => SockseekApiJson.CreateSerializerOptions();
 
-    public RemoteCliBackend(string serverUrl)
+    public RemoteCliBackend(HttpClient http)
     {
-        var baseUri = SockseekApiClient.NormalizeServerUrl(serverUrl);
-        http = new HttpClient { BaseAddress = baseUri };
+        this.http = http;
         var jsonOptions = CreateJsonOptions();
         api = new SockseekApiClient(http, jsonOptions);
         live = new SockseekLiveClient(http, ownsHttp: false, jsonOptions);
         live.Updated += HandleStateUpdate;
         live.ActivityReceived += HandleActivity;
         live.SnapshotApplied += snapshot => LiveSnapshotApplied?.Invoke(snapshot);
+        live.ConnectionFailed += error => connectionFailure.TrySetResult(error);
+    }
+
+    public async Task AwaitLiveAsync(Task operation)
+    {
+        if (await Task.WhenAny(operation, connectionFailure.Task).ConfigureAwait(false) == connectionFailure.Task)
+            throw await connectionFailure.Task.ConfigureAwait(false);
+        await operation.ConfigureAwait(false);
     }
 
     public Task StartAsync(CancellationToken ct = default)

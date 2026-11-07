@@ -12,7 +12,10 @@ it('uploads the original file body without materializing text or treating its na
   vi.stubGlobal('fetch', fetchMock);
   const result = await new DaemonApiClient().uploadInputArtifact(file, abort.signal);
   expect(result.artifactId).toBe('artifact');
-  expect(fetchMock).toHaveBeenCalledWith('/api/input-artifacts?fileName=music+%26+favorites.csv', {
-    method: 'POST', body: file, headers: { 'content-type': 'application/octet-stream' }, signal: abort.signal,
-  });
+  expect(fetchMock).toHaveBeenCalledWith('/api/input-artifacts?fileName=music+%26+favorites.csv',
+    expect.objectContaining({ method: 'POST', body: file, credentials: 'same-origin' }));
+  const request = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1];
+  expect(new Headers(request.headers).get('content-type')).toBe('application/octet-stream');
+  abort.abort();
+  expect(request.signal?.aborted).toBe(true);
 });

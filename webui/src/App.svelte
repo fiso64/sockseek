@@ -17,6 +17,7 @@
   import UsersPage from './domains/users/UsersPage.svelte';
   import { userBrowserSession, type UserBrowseView } from './domains/users/session';
   import ChatPage from './domains/chat/ChatPage.svelte';
+  import SettingsPage from './domains/settings/SettingsPage.svelte';
   import { DaemonLiveClient, type LiveConnectionStatus } from './api/live';
   import { jobStateSummary } from './api/job-summary';
   import { updatedJob } from './api/state.svelte';
@@ -672,10 +673,7 @@
   {:else if activePage === 'chat'}
     <ChatPage {liveClient} {liveStatus} runtime={liveState.daemon?.chat} {userActions} initialUsername={initialChatUsername} />
   {:else}
-    <section class="page settings-page">
-      <header class="page-heading settings-heading"><h1>Settings</h1></header>
-      <div class="empty-state settings-empty-state"><strong>Not implemented yet</strong><p>Settings are not implemented in this prototype.</p></div>
-    </section>
+    <SettingsPage />
   {/if}
 </AppShell>
 

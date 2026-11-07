@@ -50,7 +50,6 @@ internal static class JobEndpoints
                 return BadRequest(ex);
             }
         })
-            .RequireOperator()
             .WithTags("Submissions")
             .WithSummary("Lists durable accepted submissions newest first.")
             .WithDescription("Archived submissions are excluded by default. Traverse runtime jobs with /api/jobs?submissionId= rather than embedding them here.")
@@ -72,7 +71,6 @@ internal static class JobEndpoints
                 return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
             }
         })
-            .RequireOperator()
             .WithTags("Submissions")
             .WithSummary("Gets safe durable submission metadata.")
             .Produces<SubmissionDetailDto>()
@@ -97,7 +95,6 @@ internal static class JobEndpoints
                 return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
             }
         })
-            .RequireOperator()
             .WithTags("Submissions")
             .WithSummary("Archives or restores one terminal submission.")
             .WithDescription("Archive is reversible. A nonterminal submission is rejected without affecting unrelated submissions.")
@@ -127,7 +124,6 @@ internal static class JobEndpoints
                 return BadRequest(ex);
             }
         })
-            .RequireOperator()
             .WithTags("Submissions")
             .WithSummary("Reruns a submission from its retained normalized command and effective settings.")
             .WithDescription("Current credentials are rebound only for retained credential slots. Current defaults and profiles do not replace the retained root settings.")
@@ -157,7 +153,6 @@ internal static class JobEndpoints
                 return BadRequest(ex);
             }
         })
-            .RequireOperator()
             .WithTags("Job Submission")
             .WithSummary("Replays only one planned search job from its retained execution settings.")
             .WithDescription("Sibling jobs are not restarted. Older submissions without retained child identities cannot be replayed through this operation.")

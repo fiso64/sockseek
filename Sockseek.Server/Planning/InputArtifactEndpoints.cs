@@ -7,7 +7,6 @@ internal static class InputArtifactEndpoints
     public static void Map(WebApplication app)
     {
         app.MapPost("/api/input-artifacts", UploadAsync)
-            .RequireOperator()
             .WithTags("Input Artifacts")
             .WithSummary("Streams an immutable browser input into daemon-owned expiring storage.")
             .WithDescription("The browser filename is retained only as safe presentation metadata and is never used as a daemon path. No internal file-size cap is imposed.")
@@ -16,7 +15,6 @@ internal static class InputArtifactEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/input-artifacts/{artifactId}", GetAsync)
-            .RequireOperator()
             .WithTags("Input Artifacts")
             .WithSummary("Gets immutable artifact metadata.")
             .Produces<InputArtifactDto>()

@@ -11,7 +11,6 @@ using Sockseek.Server.Persistence;
 using Sockseek.Persistence.Read;
 using Sockseek.Persistence.Sqlite;
 using Sockseek.Persistence.Write;
-using ServerHost = Tests.TestServerHost;
 
 namespace Sockseek.Server.Tests;
 
@@ -31,7 +30,7 @@ public sealed class PersistenceDaemonTests
             if (Interlocked.Increment(ref searchCount) == 2) searchesStarted.TrySetResult();
             await releaseSearches.Task.WaitAsync(ct);
         };
-        await using var app = ServerHost.Build([], new ServerOptions
+        await using var app = global::Tests.TestServerHost.Build([], new ServerOptions
         {
             Engine = new EngineSettings { Username = "test", Password = "test", LogLevel = Microsoft.Extensions.Logging.LogLevel.None },
             OperatorDownloadSettings = new DownloadSettingsPatchDto(Output: new OutputSettingsPatchDto(ParentDir: Path.Combine(directory, "out"))),
@@ -44,7 +43,7 @@ public sealed class PersistenceDaemonTests
         try
         {
             await app.StartAsync();
-            using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+            using var http = await global::Tests.TestServerHost.CreateHttpClientAsync(app);
             var client = new SockseekApiClient(http);
             var engine = await created.Task.WaitAsync(TimeSpan.FromSeconds(5));
             var retired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -186,7 +185,7 @@ public sealed class PersistenceDaemonTests
     {
         string directory = Path.Combine(Path.GetTempPath(), "sockseek-isolated-submission-" + Guid.NewGuid().ToString("N"));
         var peer = global::Tests.Server.SoulseekClientProxy.Create();
-        await using var app = ServerHost.Build([], new ServerOptions
+        await using var app = global::Tests.TestServerHost.Build([], new ServerOptions
         {
             Engine = new EngineSettings { Username = "test", Password = "test", LogLevel = Microsoft.Extensions.Logging.LogLevel.None },
             OperatorDownloadSettings = new DownloadSettingsPatchDto(Output: new OutputSettingsPatchDto(ParentDir: Path.Combine(directory, "out"))),
@@ -451,7 +450,7 @@ public sealed class PersistenceDaemonTests
                     RetentionEnabled = false,
                 },
             };
-            var app = ServerHost.Build([], options, "http://127.0.0.1:0");
+            var app = global::Tests.TestServerHost.Build([], options, "http://127.0.0.1:0");
             try
             {
                 await app.StartAsync();
@@ -516,7 +515,7 @@ public sealed class PersistenceDaemonTests
                         await insert.ExecuteNonQueryAsync();
                     }
                 }
-                using (var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) })
+                using (var http = await global::Tests.TestServerHost.CreateHttpClientAsync(app))
                 await using (var live = new SockseekLiveClient(http))
                 {
                     var scope = new TransferTimelineScopeDto(TransferCommandDirection.Download,
@@ -615,7 +614,7 @@ public sealed class PersistenceDaemonTests
 
         try
         {
-            await using var app = ServerHost.Build([], options, "http://127.0.0.1:0");
+            await using var app = global::Tests.TestServerHost.Build([], options, "http://127.0.0.1:0");
             await app.StartAsync();
             var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
             var facade = app.Services.GetRequiredService<JobReadService>();
@@ -857,7 +856,7 @@ public sealed class PersistenceDaemonTests
             long aggregateAlbumViewRevision;
             SearchViewAggregateAlbumGroupDto expectedAggregateAlbum;
 
-            await using (var first = ServerHost.Build([], options, "http://127.0.0.1:0"))
+            await using (var first = global::Tests.TestServerHost.Build([], options, "http://127.0.0.1:0"))
             {
                 await first.StartAsync();
                 try
@@ -932,7 +931,7 @@ public sealed class PersistenceDaemonTests
             SqliteConnection.ClearAllPools();
             options.DefaultDownload!.Search.NecessaryCond.Formats = ["ogg"];
 
-            await using (var second = ServerHost.Build([], options, "http://127.0.0.1:0"))
+            await using (var second = global::Tests.TestServerHost.Build([], options, "http://127.0.0.1:0"))
             {
                 await second.StartAsync();
                 try
@@ -1202,7 +1201,7 @@ public sealed class PersistenceDaemonTests
 
             SqliteConnection.ClearAllPools();
 
-            await using (var third = ServerHost.Build([], options, "http://127.0.0.1:0"))
+            await using (var third = global::Tests.TestServerHost.Build([], options, "http://127.0.0.1:0"))
             {
                 await third.StartAsync();
                 try

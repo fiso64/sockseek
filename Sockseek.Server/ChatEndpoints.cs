@@ -25,7 +25,6 @@ internal static class ChatEndpoints
                         scope, position, DateTimeOffset.UtcNow, null, [], [], [], [], target));
             });
         })
-            .RequireOperator()
             .WithTags("Live State")
             .WithSummary("Gets a bounded recoverable conversation snapshot.")
             .Produces<StateSnapshotDto>()
@@ -48,7 +47,6 @@ internal static class ChatEndpoints
                         scope, position, DateTimeOffset.UtcNow, null, [], [], [], [], target));
             });
         })
-            .RequireOperator()
             .WithTags("Live State")
             .WithSummary("Gets a bounded recoverable room snapshot.")
             .Produces<StateSnapshotDto>()
@@ -61,7 +59,6 @@ internal static class ChatEndpoints
                 ? ChatUnavailable()
                 : Results.Ok(chat.GetState());
         })
-            .RequireOperator()
             .WithTags("Chat")
             .WithSummary("Gets compact chat runtime status.")
             .Produces<ChatRuntimeStateDto>()
@@ -83,7 +80,6 @@ internal static class ChatEndpoints
                     page.Items.Select(chat.MapConversation).ToArray(), page.NextCursor));
             });
         })
-            .RequireOperator()
             .WithTags("Chat")
             .WithSummary("Pages private-message conversations.")
             .Produces<ConversationPageDto>()
@@ -100,7 +96,6 @@ internal static class ChatEndpoints
                     request.Username, request.MessageId, request.Text, cancellationToken)));
             });
         })
-            .RequireOperator()
             .WithTags("Chat")
             .WithSummary("Sends an idempotent private message.")
             .Produces<ChatMessageDto>()
@@ -119,7 +114,6 @@ internal static class ChatEndpoints
                     : Results.Ok(chat.MapConversation(conversation));
             });
         })
-            .RequireOperator()
             .WithTags("Chat")
             .WithSummary("Gets an existing conversation by exact peer username without creating one.")
             .Produces<ConversationSummaryDto>()
@@ -138,7 +132,6 @@ internal static class ChatEndpoints
                     : Results.Ok(chat.MapConversation(conversation));
             });
         })
-            .RequireOperator()
             .WithTags("Chat")
             .WithSummary("Gets a private-message conversation.")
             .Produces<ConversationSummaryDto>()
@@ -161,7 +154,6 @@ internal static class ChatEndpoints
                     page.Items.Select(ChatDtoMapper.ToDto).ToArray(), page.NextCursor));
             });
         })
-            .RequireOperator()
             .WithTags("Chat")
             .WithSummary("Pages messages in a private conversation.")
             .Produces<ChatMessagePageDto>()
@@ -179,7 +171,6 @@ internal static class ChatEndpoints
                     conversationId, request.MessageId, request.Text, cancellationToken)));
             });
         })
-            .RequireOperator()
             .WithTags("Chat")
             .WithSummary("Sends an idempotent message to a conversation.")
             .Produces<ChatMessageDto>()
@@ -200,7 +191,6 @@ internal static class ChatEndpoints
                     ?? throw new KeyNotFoundException("The conversation was not found.")));
             });
         })
-            .RequireOperator()
             .WithTags("Chat")
             .WithSummary("Advances a conversation's local read watermark.")
             .Produces<ConversationSummaryDto>()
@@ -220,7 +210,6 @@ internal static class ChatEndpoints
                     ?? throw new KeyNotFoundException("The conversation was not found.")));
             });
         })
-            .RequireOperator()
             .WithTags("Chat")
             .WithSummary("Archives or reactivates a conversation.")
             .Produces<ConversationSummaryDto>()
@@ -237,7 +226,6 @@ internal static class ChatEndpoints
                 return Results.NoContent();
             });
         })
-            .RequireOperator()
             .WithTags("Chat")
             .WithSummary("Permanently deletes conversation history.")
             .Produces(StatusCodes.Status204NoContent)
@@ -257,7 +245,6 @@ internal static class ChatEndpoints
                     kind, cursor, limit ?? ServerProtocol.DefaultPageSize, refresh == true, cancellationToken));
             });
         })
-            .RequireOperator()
             .WithTags("Chat Rooms")
             .WithSummary("Pages rooms visible to the current Soulseek account.")
             .Produces<AvailableRoomPageDto>()
@@ -276,7 +263,6 @@ internal static class ChatEndpoints
                     state, cursor, limit ?? ServerProtocol.DefaultPageSize, cancellationToken));
             });
         })
-            .RequireOperator()
             .WithTags("Chat Rooms")
             .WithSummary("Pages known room subscriptions and runtime state.")
             .Produces<ChatRoomPageDto>()
@@ -293,7 +279,6 @@ internal static class ChatEndpoints
                     request.RoomName, request.Remember, cancellationToken));
             });
         })
-            .RequireOperator()
             .WithTags("Chat Rooms")
             .WithSummary("Joins a room and optionally remembers it across restarts.")
             .Produces<ChatRoomSummaryDto>()
@@ -310,7 +295,6 @@ internal static class ChatEndpoints
                 return room is null ? ChatNotFound("The room was not found.") : Results.Ok(room);
             });
         })
-            .RequireOperator()
             .WithTags("Chat Rooms")
             .WithSummary("Gets room subscription, join, and private-room metadata.")
             .Produces<ChatRoomDetailDto>()
@@ -326,7 +310,6 @@ internal static class ChatEndpoints
                 return Results.Ok(await chat.Rooms.LeaveRoomAsync(roomId, cancellationToken));
             });
         })
-            .RequireOperator()
             .WithTags("Chat Rooms")
             .WithSummary("Leaves a room and removes its runtime subscription.")
             .Produces<ChatRoomSummaryDto>()
@@ -349,7 +332,6 @@ internal static class ChatEndpoints
                     page.Items.Select(ChatDtoMapper.ToDto).ToArray(), page.NextCursor));
             });
         })
-            .RequireOperator()
             .WithTags("Chat Rooms")
             .WithSummary("Pages messages in a joined or retained room.")
             .Produces<ChatMessagePageDto>()
@@ -367,7 +349,6 @@ internal static class ChatEndpoints
                     roomId, request.MessageId, request.Text, cancellationToken)));
             });
         })
-            .RequireOperator()
             .WithTags("Chat Rooms")
             .WithSummary("Sends an idempotent room message.")
             .Produces<ChatMessageDto>()
@@ -386,7 +367,6 @@ internal static class ChatEndpoints
                                   ?? throw new KeyNotFoundException("The room was not found."));
             });
         })
-            .RequireOperator()
             .WithTags("Chat Rooms")
             .WithSummary("Advances a room's local read watermark.")
             .Produces<ChatRoomSummaryDto>()
@@ -406,7 +386,6 @@ internal static class ChatEndpoints
                     roomId, cursor, limit ?? ServerProtocol.DefaultPageSize, revision, cancellationToken));
             });
         })
-            .RequireOperator()
             .WithTags("Chat Rooms")
             .WithSummary("Pages the current ephemeral room roster.")
             .Produces<RoomMemberPageDto>()
@@ -424,7 +403,6 @@ internal static class ChatEndpoints
                 return Results.Ok(await chat.Rooms.GetRoomDetailAsync(roomId, cancellationToken));
             });
         })
-            .RequireOperator()
             .WithTags("Chat Rooms")
             .WithSummary("Adds a member to a joined private room.")
             .Produces<ChatRoomDetailDto>()
@@ -441,7 +419,6 @@ internal static class ChatEndpoints
                 return Results.NoContent();
             });
         })
-            .RequireOperator()
             .WithTags("Chat Rooms")
             .WithSummary("Permanently deletes retained room history.")
             .Produces(StatusCodes.Status204NoContent)
@@ -463,7 +440,6 @@ internal static class ChatEndpoints
                     page.Items.Select(ChatDtoMapper.ToDto).ToArray(), page.NextCursor));
             });
         })
-            .RequireOperator()
             .WithTags("Notifications")
             .WithSummary("Pages durable chat notifications.")
             .Produces<NotificationPageDto>()
@@ -482,7 +458,6 @@ internal static class ChatEndpoints
                     : Results.Ok(ChatDtoMapper.ToDto(notification));
             });
         })
-            .RequireOperator()
             .WithTags("Notifications")
             .WithSummary("Gets a durable chat notification.")
             .Produces<UserNotificationDto>()
@@ -503,7 +478,6 @@ internal static class ChatEndpoints
                     ?? throw new KeyNotFoundException("The notification was not found.")));
             });
         })
-            .RequireOperator()
             .WithTags("Notifications")
             .WithSummary("Marks one notification read.")
             .Produces<UserNotificationDto>()
@@ -521,7 +495,6 @@ internal static class ChatEndpoints
                 return Results.Ok(chat.GetNotificationSummary());
             });
         })
-            .RequireOperator()
             .WithTags("Notifications")
             .WithSummary("Marks a bounded notification set or sequence range read.")
             .Produces<NotificationSummaryDto>()

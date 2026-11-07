@@ -9,7 +9,7 @@ internal static class ChatCommandRunner
 {
     public static async Task<Program.CliExitCode> RunAsync(
         IReadOnlyList<string> args,
-        string? remote,
+        RemoteSettings? remote,
         CancellationToken cancellationToken = default)
     {
         if (args.Any(arg => arg is "-h" or "--help"))
@@ -17,11 +17,11 @@ internal static class ChatCommandRunner
             PrintHelp();
             return Program.CliExitCode.Success;
         }
-        if (string.IsNullOrWhiteSpace(remote))
+        if (remote?.IsEnabled != true)
             return Usage("This command requires a configured remote URL (remote = <url> or --remote <url>).");
         try
         {
-            using HttpClient http = SockseekApiClient.CreateHttpClient(remote);
+            using HttpClient http = remote.CreateHttpClient();
             var api = new SockseekApiClient(http);
             return Word(args, 0)?.ToLowerInvariant() switch
             {

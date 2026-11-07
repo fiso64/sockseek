@@ -9,7 +9,6 @@ internal static class UserProfileEndpoints
     public static void Map(WebApplication app)
     {
         app.MapGet("/api/users/{username}/profile", GetProfileAsync)
-            .RequireOperator()
             .WithTags("User Browsing")
             .WithSummary("Gets a composite remote Soulseek user profile.")
             .Produces<UserProfileDto>()
@@ -17,7 +16,6 @@ internal static class UserProfileEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/users/{username}/presence", GetPresenceAsync)
-            .RequireOperator()
             .WithTags("User Browsing")
             .WithSummary("Observes a peer's presence without fetching profile details.")
             .Produces<UserPresenceObservationDto>()
@@ -25,7 +23,6 @@ internal static class UserProfileEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/users/{username}/picture", GetPictureAsync)
-            .RequireOperator()
             .WithTags("User Browsing")
             .WithSummary("Gets a validated remote Soulseek user profile picture.")
             .Produces<byte[]>(
