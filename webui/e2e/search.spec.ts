@@ -244,6 +244,7 @@ test('keeps previous results usable while a refinement loads and explicitly reco
 });
 
 test('applies projection-only sort and live track conditions through an all-except download', async ({ page, daemon }) => {
+  await page.clock.install(); // Advance refinement debounce timers explicitly.
   await daemon.command('directory-selection-search');
   await page.goto('/jobs');
   await chooseFileSearch(page);
@@ -254,9 +255,11 @@ test('applies projection-only sort and live track conditions through an all-exce
   await page.getByRole('button', { name: 'Filtering', exact: true }).click();
   const panel = page.getByRole('region', { name: 'Result search configuration' });
   await panel.getByRole('button', { name: 'PDF', exact: true }).click();
+  await page.clock.fastForward(350);
   await expect(page.locator('.folder-item-card')).toHaveCount(0);
   await expect(page.locator('.search-results-empty')).toContainText('2 files received, but none match the current result conditions.');
   await page.getByRole('button', { name: 'Remove PDF format' }).click();
+  await page.clock.fastForward(350);
   await expect(page.locator('.folder-item-card')).toHaveCount(1);
 
   await page.keyboard.press('Escape');
@@ -286,6 +289,7 @@ test('applies projection-only sort and live track conditions through an all-exce
     && /\/api\/jobs\/[^/]+\/search-views$/.test(new URL(response.url()).pathname)
     && response.request().postDataJSON()?.refinementSettings?.necessaryCond?.formats?.replace?.join(',') === 'flac');
   await panel.getByRole('textbox', { name: 'Comma-separated required formats', exact: true }).fill('flac');
+  await page.clock.fastForward(350);
   await required;
   await expect(page.locator('.file-item-card')).toHaveCount(2);
   await panel.getByRole('button', { name: 'Ranking', exact: true }).click();
@@ -295,12 +299,14 @@ test('applies projection-only sort and live track conditions through an all-exce
     && /\/api\/jobs\/[^/]+\/search-views$/.test(new URL(response.url()).pathname)
     && response.request().postDataJSON()?.refinementSettings?.preferredCond?.formats?.replace?.join(',') === 'flac');
   await panel.getByRole('textbox', { name: 'Comma-separated preferred formats', exact: true }).fill('flac');
+  await page.clock.fastForward(350);
   await preferred;
   const refined = page.waitForResponse(response => response.ok()
     && response.request().method() === 'POST'
     && /\/api\/jobs\/[^/]+\/search-views$/.test(new URL(response.url()).pathname)
     && response.request().postDataJSON()?.refinementSettings?.preferredCond?.minBitrate === 256);
   await panel.getByLabel('Min bitrate kbps').fill('256');
+  await page.clock.fastForward(350);
   const refinedView = await (await refined).json() as Schema<'SearchViewSummaryDto'>;
   await page.keyboard.press('Escape');
   await expect(page.locator('.file-item-card.preferred')).toHaveCount(1);
@@ -319,6 +325,7 @@ test('applies projection-only sort and live track conditions through an all-exce
     && /\/api\/jobs\/[^/]+\/search-views$/.test(new URL(response.url()).pathname)
     && response.request().postDataJSON()?.filterText === 'flac');
   await page.getByRole('textbox', { name: 'Filter search results', exact: true }).fill('flac');
+  await page.clock.fastForward(350);
   const filteredView = await (await filtered).json() as Schema<'SearchViewSummaryDto'>;
   await expect(page.locator('.file-item-card')).toHaveCount(1);
   await page.getByRole('textbox', { name: 'Filter search results', exact: true }).blur();
@@ -371,6 +378,7 @@ test('applies projection-only sort and live track conditions through an all-exce
 test.describe('live album conditions', () => {
 
   test('refines live album quality without dropping mixed-format members from selected late folders', async ({ page, daemon }) => {
+    await page.clock.install(); // Advance refinement debounce timers explicitly.
     await daemon.command('staged-conditioned-music-search');
     let searches = 0;
     page.on('request', request => {
@@ -397,14 +405,17 @@ test.describe('live album conditions', () => {
       && /\/api\/jobs\/[^/]+\/search-views$/.test(new URL(response.url()).pathname)
       && response.request().postDataJSON()?.refinementSettings?.necessaryCond?.formats?.replace?.join(',') === 'flac');
     await panel.getByRole('textbox', { name: 'Comma-separated required formats', exact: true }).fill('flac');
+    await page.clock.fastForward(350);
     await required;
     // Album quality describes folder coverage, unlike Track Search's per-file
     // filtering. A mixed-format folder retains both files until strict coverage
     // requires every track to match.
     await expect(page.locator('.folder-file-row')).toHaveCount(2);
     await panel.getByRole('checkbox', { name: 'Every album track must satisfy quality' }).check();
+    await page.clock.fastForward(350);
     await expect(page.locator('.folder-item-card')).toHaveCount(0);
     await panel.getByRole('checkbox', { name: 'Every album track must satisfy quality' }).uncheck();
+    await page.clock.fastForward(350);
     await expect(page.locator('.folder-file-row')).toHaveCount(2);
     await panel.getByRole('button', { name: 'Ranking', exact: true }).click();
     await panel.getByRole('button', { name: 'custom…', exact: true }).click();
@@ -413,11 +424,13 @@ test.describe('live album conditions', () => {
       && /\/api\/jobs\/[^/]+\/search-views$/.test(new URL(response.url()).pathname)
       && response.request().postDataJSON()?.refinementSettings?.preferredCond?.formats?.replace?.join(',') === 'flac');
     await panel.getByRole('textbox', { name: 'Comma-separated preferred formats', exact: true }).fill('flac');
+    await page.clock.fastForward(350);
     await preferred;
     const refined = page.waitForResponse(response => response.ok() && response.request().method() === 'POST'
       && /\/api\/jobs\/[^/]+\/search-views$/.test(new URL(response.url()).pathname)
       && response.request().postDataJSON()?.refinementSettings?.preferredCond?.minBitrate === 256);
     await panel.getByLabel('Min bitrate kbps').fill('256');
+    await page.clock.fastForward(350);
     const view = await (await refined).json() as Schema<'SearchViewSummaryDto'>;
     await page.keyboard.press('Escape');
     await expect(page.locator('.result-tier.preferred-tier .folder-item-card')).toHaveCount(1);

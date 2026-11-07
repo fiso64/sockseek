@@ -53,10 +53,26 @@ jobs:
         dotnet-version: '10.0.x'
         cache: true
         cache-dependency-path: '**/packages.lock.json'
+    - uses: actions/setup-node@v6
+      with:
+        node-version: '24'
+        cache: npm
+        cache-dependency-path: webui/package-lock.json
     - name: Restore and build
       run: |
         dotnet restore --locked-mode
         dotnet build --no-restore --configuration Release --nologo -m:1 -p:OpenApiGenerateDocuments=false
+    - name: Publish daemon with its production WebUI
+      run: |
+        dotnet publish Sockseek.Cli/Sockseek.Cli.csproj --no-build --no-restore --configuration Release --output artifacts/ci-publish -m:1 -p:OpenApiGenerateDocuments=false
+        test -s artifacts/ci-publish/wwwroot/index.html
+        test -n "$(find artifacts/ci-publish/wwwroot/assets -maxdepth 1 -name '*.js' -print -quit)"
+    - name: Check WebUI types and unit tests
+      working-directory: webui
+      # Publish installed dependencies, checked the schema and built the SPA.
+      run: |
+        npm run check
+        npm test
     - name: C# tests and PR bulk regressions
       # Assemblies already parallelize internally. Keep test hosts sequential;
       # concurrent hosts oversubscribe hosted runners and starve continuations.
@@ -73,7 +89,9 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: backend-test-results
-        path: artifacts/
+        path: |
+          artifacts/tests/
+          artifacts/load/
         if-no-files-found: ignore
         retention-days: 7
 
@@ -92,28 +110,21 @@ jobs:
         node-version: '24'
         cache: npm
         cache-dependency-path: webui/package-lock.json
-    - name: Publish daemon with its production WebUI
-      run: |
-        dotnet restore Sockseek.Cli/Sockseek.Cli.csproj --locked-mode
-        dotnet publish Sockseek.Cli/Sockseek.Cli.csproj --no-restore --configuration Release --output artifacts/ci-publish -m:1 -p:OpenApiGenerateDocuments=false
-        test -s artifacts/ci-publish/wwwroot/index.html
-        test -n "$(find artifacts/ci-publish/wwwroot/assets -maxdepth 1 -name '*.js' -print -quit)"
-    - name: Check WebUI types and unit tests
+    - name: Build browser UI
       working-directory: webui
-      # Publish installed dependencies, checked the schema and built the SPA.
       run: |
-        npm run check
-        npm test
+        npm ci
+        npm run build
     - name: Build browser test daemon
       run: |
         dotnet restore webui/e2e/daemon/Sockseek.WebUi.TestHost.csproj --locked-mode
         dotnet build webui/e2e/daemon/Sockseek.WebUi.TestHost.csproj --no-restore --configuration Release --nologo -m:1 -p:OpenApiGenerateDocuments=false
-    - name: Install Chromium
+    - name: Install headless Chromium
       working-directory: webui
-      run: npx playwright install --with-deps chromium
+      run: npx playwright install --with-deps --only-shell chromium
     - name: Browser journeys
       working-directory: webui
-      # Publish already built the SPA; invoke Playwright without rebuilding it.
+      # The SPA and fixture are already built; do not rebuild them here.
       run: npx playwright test
     - name: Full browser Load qualification
       if: github.event_name == 'schedule' || inputs.full_load

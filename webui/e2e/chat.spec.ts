@@ -134,6 +134,7 @@ test('recovers a silently missed chat batch without a connection transition', as
 });
 
 test('preserves reading position and catches up across a multi-page connection outage', async ({ page, daemon }) => {
+  await page.clock.install();
   let socket: WebSocketRoute | undefined;
   let outage = false;
   let restoreConnection!: () => void;
@@ -173,6 +174,7 @@ test('preserves reading position and catches up across a multi-page connection o
     outage = false;
     restoreConnection();
   }
+  await page.clock.fastForward(2_000); // Resume SignalR without waiting for its retry delay.
   await expect(status).toContainText('Connected');
   await expect(messages.getByText('Offline 502', { exact: true })).toBeAttached();
   await expect(messages.getByText('Offline 000', { exact: true })).toBeAttached();

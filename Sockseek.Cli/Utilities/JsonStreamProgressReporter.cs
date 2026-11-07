@@ -20,6 +20,7 @@ public class JsonStreamProgressReporter
     private readonly Lock _lock = new();
     private readonly JsonSerializerOptions _jsonOptions;
     private readonly HashSet<Guid> _seenTransfers = [];
+    private readonly HashSet<Guid> _searchingJobs = [];
     private DateTime _lastDownloadProgressReport = DateTime.MinValue;
     private readonly TimeSpan _downloadProgressThrottle = TimeSpan.FromMilliseconds(500);
 
@@ -41,7 +42,7 @@ public class JsonStreamProgressReporter
         {
             if (change.Job.Payload is SongJobSnapshotPayload song)
             {
-                if (change.ActivityPhase == JobActivityPhase.Searching)
+                if (EnteredSearch(change.Job.Id, change.ActivityPhase == JobActivityPhase.Searching))
                     ReportSearchStart(song.Query);
                 else if (change.IsTerminal)
                     ReportStateChanged(change.Job, song);
@@ -67,11 +68,14 @@ public class JsonStreamProgressReporter
 
             foreach (var job in update.ChangedJobs.Where(job => job.Kind == ServerJobKind.Song))
             {
-                if (job.ActivityPhase == ServerJobActivityPhase.Searching)
+                if (EnteredSearch(job.JobId, job.ActivityPhase == ServerJobActivityPhase.Searching))
                     ReportSearchStart(job);
                 if (job.LifecycleState == ServerJobLifecycleState.Terminal)
                     ReportStateChanged(job);
             }
+
+            lock (_lock)
+                _searchingJobs.ExceptWith(update.State.RemovedJobIds);
 
             foreach (var transfer in update.ChangedTransfers)
             {
@@ -89,6 +93,18 @@ public class JsonStreamProgressReporter
             if (activity.Payload is TrackBatchResolvedActivityDto batch)
                 ReportTrackBatchResolved(batch);
         };
+    }
+
+    private bool EnteredSearch(Guid jobId, bool searching)
+    {
+        lock (_lock)
+        {
+            // Result counts and reconnect snapshots can update a still-searching job.
+            // Forget the phase when it ends so an actual retry emits a new start.
+            if (searching) return _searchingJobs.Add(jobId);
+            _searchingJobs.Remove(jobId);
+            return false;
+        }
     }
 
     private void ReportSearchStart(JobSummaryDto song)
@@ -208,16 +224,6 @@ public class JsonStreamProgressReporter
         WriteEvent("track_list", data);
     }
 
-    private void ReportSearchStart(SongJob song)
-    {
-        WriteEvent("search_start", new
-        {
-            artist = song.Query.Artist,
-            title  = song.Query.Title,
-            album  = song.Query.Album,
-        });
-    }
-
     private void ReportSearchStart(SongQuerySnapshot song)
     {
         WriteEvent("search_start", new
@@ -285,32 +291,6 @@ public class JsonStreamProgressReporter
             bytesTransferred = progress.BytesTransferred,
             totalBytes = progress.TotalBytes,
             percent = progress.TotalBytes > 0 ? Math.Round((double)progress.BytesTransferred / progress.TotalBytes * 100, 1) : 0,
-        });
-    }
-
-    private void ReportStateChanged(SongJob song)
-    {
-        var chosen = song.TerminalOutcome == JobTerminalOutcome.Succeeded
-            || (song.TerminalOutcome == JobTerminalOutcome.Skipped && song.SkipReason == JobSkipReason.AlreadyExists)
-                ? song.ResolvedTarget
-                : null;
-        WriteEvent("track_state", new
-        {
-            artist          = song.Query.Artist,
-            title           = song.Query.Title,
-            lifecycleState  = song.LifecycleState.ToString(),
-            activityPhase   = song.ActivityPhase.ToString(),
-            terminalOutcome = song.TerminalOutcome.ToString(),
-            skipReason      = song.SkipReason != JobSkipReason.None ? song.SkipReason.ToString() : null,
-            failureReason   = song.FailureReason != JobFailureReason.None ? song.FailureReason.ToString() : null,
-            downloadPath    = !string.IsNullOrEmpty(song.DownloadPath) ? song.DownloadPath : null,
-            username        = chosen?.Username,
-            filename        = chosen?.Filename,
-            size            = chosen?.Size,
-            bitRate         = chosen?.BitRate,
-            extension       = chosen != null ? GetExtension(chosen.Filename) : null,
-            rawResultCount  = song.Discovery?.RawResultCount,
-            lockedCount     = song.Discovery?.LockedFileCount,
         });
     }
 
