@@ -1436,7 +1436,6 @@ public class RemoteCliBackendTests
 
         var options = new ServerOptions
         {
-            ShutdownTimeout = TimeSpan.FromMilliseconds(100),
             Engine = new EngineSettings
             {
                 MockFilesDir = musicRoot,

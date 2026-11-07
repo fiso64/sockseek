@@ -51,14 +51,6 @@ public sealed class HelpReferenceTests
 
         Assert.AreEqual(1, CountOccurrences(mainHelp, "-c, --config <path>"));
         Assert.AreEqual(1, CountOccurrences(mainHelp, "--no-config"));
-
-        int aggregateIndex = mainHelp.IndexOf("Aggregate Download Options", StringComparison.Ordinal);
-        int daemonIndex = mainHelp.IndexOf("Daemon / Remote Options", StringComparison.Ordinal);
-        int databaseIndex = mainHelp.IndexOf("Sockseek Database", StringComparison.Ordinal);
-        int debugIndex = mainHelp.IndexOf("Printing & Debug Options", StringComparison.Ordinal);
-        Assert.IsTrue(aggregateIndex < daemonIndex);
-        Assert.IsTrue(daemonIndex < databaseIndex);
-        Assert.IsTrue(databaseIndex < debugIndex);
     }
 
     [TestMethod]
@@ -72,7 +64,6 @@ public sealed class HelpReferenceTests
 
             Assert.IsTrue(Help.PrintAndExitIfNeeded(["daemon", "--help"]));
 
-            StringAssert.Contains(output.ToString(), "Daemon / remote mode");
             StringAssert.Contains(output.ToString(), "--remote-api-key-file");
         }
         finally
@@ -92,9 +83,7 @@ public sealed class HelpReferenceTests
 
             Assert.IsTrue(Help.PrintAndExitIfNeeded(["database", "--help"]));
 
-            StringAssert.Contains(output.ToString(), "Sockseek Database");
             StringAssert.Contains(output.ToString(), "sockseek database backup");
-            Assert.IsFalse(output.ToString().Contains("Required Arguments", StringComparison.Ordinal));
             Assert.IsFalse(output.ToString().Contains("--config", StringComparison.Ordinal));
             Assert.IsFalse(output.ToString().Contains("--no-config", StringComparison.Ordinal));
         }

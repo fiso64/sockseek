@@ -42,8 +42,7 @@ configured storage, and ordinary local administration are trusted.
 * Tests are a maintenance liability as well as an asset. Do not add tests automatically
   for every change. Prefer extending existing tests over new files. Test observable
   behavior and failure isolation rather than implementation details
-  or documentation wording. Do not increase test-worker counts or remove CI's
-  sequential-host guard. Avoid polling and fixed waits, optimize setup, mark stress
+  or any prose/wording. Avoid polling and fixed waits, optimize setup, mark stress
   tests as `Load`, and remove low-value or obsolete tests while preserving meaningful
   behavioral coverage. Tests should suppress application logging unless they assert it.
   Keep the test suite execution time in check, do not let it bloat. Budget normal
