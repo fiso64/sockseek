@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Sockseek.Api;
 
 namespace Sockseek.Cli;
@@ -239,7 +240,13 @@ internal static class DaemonResourceCommandRunner
     {
         if (json)
         {
-            Write(new { Sharing = state, Uploads = uploads }, json: true);
+            JsonSerializerOptions options = SockseekApiJson.CreateSerializerOptions();
+            options.WriteIndented = true;
+            Console.WriteLine(new JsonObject
+            {
+                ["Sharing"] = JsonSerializer.SerializeToNode(state, options),
+                ["Uploads"] = JsonSerializer.SerializeToNode(uploads, options),
+            }.ToJsonString(options));
             return;
         }
 

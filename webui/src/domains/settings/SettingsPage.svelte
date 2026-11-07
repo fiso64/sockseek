@@ -5,6 +5,7 @@
   import type { Schema } from '../../api/types';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import Modal from '../../components/Modal.svelte';
+  import Icon from '../../components/Icon.svelte';
 
   const http = new DaemonHttpClient();
   let keys = $state<Schema<'ApiKeyDto'>[]>([]);
@@ -67,15 +68,12 @@
 </script>
 
 <section class="page settings-page">
-  <header class="page-heading"><p class="eyebrow">Configuration</p><h1>Settings</h1></header>
-  <section class="settings-section" aria-labelledby="access-heading">
-    <div class="section-heading">
-      <div><h2 id="access-heading">Access</h2>
-        <p>{browserSession.data?.authenticationEnabled ? `Signed in as ${browserSession.data.username}` : 'Authentication is disabled. Anyone who can reach this server has full access.'}</p>
-      </div>
-      {#if browserSession.data?.authenticationEnabled}<button class="auth-button" onclick={() => void logout()} disabled={pending}>Sign out</button>{/if}
-    </div>
-  </section>
+  <header class="page-heading">
+    <div><p class="eyebrow">Configuration</p><h1>Settings</h1></div>
+    {#if browserSession.data?.authenticationEnabled}
+      <button class="auth-button sign-out" onclick={() => void logout()} disabled={pending}><Icon name="log-out" />Sign out</button>
+    {/if}
+  </header>
   <section class="settings-section" aria-labelledby="keys-heading">
     <div class="section-heading key-heading">
       <div><h2 id="keys-heading">API keys</h2><p>Connect the remote CLI or other integrations. Each key grants full access.</p></div>
@@ -114,7 +112,7 @@
 {#if revoking}
   <Modal title="Revoke API key" compact locked={pending} onclose={() => { revoking = null; error = null; }}>
     <div class="key-secret">
-      <p>Revoke “{revoking.name}”? Its clients will lose access. Accepted downloads and jobs will continue.</p>
+      <p>Revoke “{revoking.name}”? Its clients will lose access.</p>
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       <button class="auth-button" disabled={pending} onclick={() => void revoke()} aria-keyshortcuts="Control+Enter">Revoke key</button>
     </div>
@@ -122,6 +120,8 @@
 {/if}
 
 <style>
+  .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .sign-out { display: inline-flex; align-items: center; gap: 7px; --app-icon-size: 16px; }
   .settings-section { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); padding: 18px; margin-bottom: 14px; }
   .section-heading, li { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
   .section-heading > div, li > div { min-width: 0; overflow-wrap: anywhere; }
