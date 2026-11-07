@@ -305,8 +305,7 @@
     </div>
     <section class="search-mode-help-notes" aria-labelledby="search-mode-notes-title">
       <h3 id="search-mode-notes-title">Notes</h3>
-      <p>Artist and song or album title affect how results are filtered, ranked, and grouped. Separate them with a spaced hyphen, for example Casiopea - Mint Jams.</p>
-      <p>For aggregate searches, a single field is treated as an artist.</p>
+      <p>Artist and song or album title affect how results are filtered, ranked, and grouped. Separate them with a hyphen, for example Casiopea - Mint Jams.</p>
     </section>
   </Modal>
 {/if}

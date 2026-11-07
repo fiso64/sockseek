@@ -5,6 +5,7 @@
   import { browserSession } from './api/session.svelte';
 
   let loading = $state(true);
+  let showLoading = $state(false);
   let pending = $state(false);
   let error = $state<string | null>(null);
   let username = $state('');
@@ -12,10 +13,12 @@
 
   async function bootstrap(): Promise<void> {
     loading = true;
+    showLoading = false;
     error = null;
+    const timer = setTimeout(() => { showLoading = true; }, 150);
     try { await browserSession.refresh(); }
     catch (cause) { error = failureMessage(cause); }
-    finally { loading = false; }
+    finally { clearTimeout(timer); loading = false; }
   }
 
   onMount(() => {
@@ -45,7 +48,7 @@
 </script>
 
 {#if loading}
-  <main class="session-screen"><LoadingIndicator label="Checking session" /></main>
+  <main class="session-screen">{#if showLoading}<LoadingIndicator label="Checking session" />{/if}</main>
 {:else if browserSession.data?.authenticated}
   <App />
 {:else}
