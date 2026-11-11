@@ -22,6 +22,7 @@ export function hasAppliedConditions(mode: SearchResultMode, conditions: SearchC
       || conditions.common.maxSampleRate
       || conditions.common.minBitDepth
       || conditions.common.maxBitDepth
+      || conditions.common.excludeLocked
       || conditions.common.rejectUnknownMetadata
       || conditions.common.allowedUsers.trim()
       || conditions.common.bannedUsers.trim(),

@@ -14856,6 +14856,12 @@
               "null",
               "boolean"
             ]
+          },
+          "excludeLocked": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -23270,7 +23276,8 @@
           "Title",
           "Artist",
           "Album",
-          "Username"
+          "Username",
+          "ExcludeLocked"
         ]
       },
       "ServerSearchPreferenceTier": {

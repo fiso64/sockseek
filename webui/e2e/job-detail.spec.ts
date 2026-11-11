@@ -6,7 +6,7 @@ import { basename, join } from 'node:path';
 
 test('opens a CLI print-results run as searchable results on navigation and reload', async ({ page }) => {
   const response = await page.request.post('/api/jobs/downloads/song', { data: {
-    songQuery: { title: 'Fixture song' }, options: { downloadSettings: { printOption: 6 } },
+    songQuery: { title: 'Fixture song', artistMaybeWrong: false }, options: { downloadSettings: { printOption: 6 } },
   } satisfies Schema<'SubmitSongJobRequestDto'> });
   expect(response.status()).toBe(202);
   const job = await response.json() as Schema<'JobSummaryDto'>;

@@ -71,7 +71,8 @@ public sealed record FileConditionsDefinition(
     IReadOnlyList<string> BannedUsers,
     IReadOnlyList<string> AllowedUsers,
     bool AcceptNoLength,
-    bool AcceptMissingProps)
+    bool AcceptMissingProps,
+    bool ExcludeLocked = false)
 {
     public static FileConditionsDefinition From(FileConditions conditions)
         => new(
@@ -89,7 +90,8 @@ public sealed record FileConditionsDefinition(
             conditions.BannedUsers.ToArray(),
             conditions.AllowedUsers.ToArray(),
             conditions.AcceptNoLength,
-            conditions.AcceptMissingProps);
+            conditions.AcceptMissingProps,
+            conditions.ExcludeLocked);
 
     public FileConditions ToConditions() => new()
     {
@@ -108,6 +110,7 @@ public sealed record FileConditionsDefinition(
         AllowedUsers = AllowedUsers.ToArray(),
         AcceptNoLength = AcceptNoLength,
         AcceptMissingProps = AcceptMissingProps,
+        ExcludeLocked = ExcludeLocked,
     };
 }
 

@@ -71,7 +71,7 @@ public static class SearchSettingsBaselines
         if (baseline == SearchSettingsBaselineKind.Generic)
         {
             settings.Search.NecessaryCond = new();
-            settings.Search.PreferredCond = new();
+            settings.Search.PreferredCond = new() { ExcludeLocked = true };
             settings.Search.NecessaryFolderCond = new();
             settings.Search.PreferredFolderCond = new();
         }

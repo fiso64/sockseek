@@ -130,6 +130,7 @@ public enum ServerSearchPreferenceCondition
     Artist,
     Album,
     Username,
+    ExcludeLocked,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<ServerChatTargetKind>))]

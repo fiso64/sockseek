@@ -159,7 +159,8 @@ internal static class EffectiveSettingsMapper
             new CollectionPatchDto<string>(Replace: conditions.BannedUsers),
             new CollectionPatchDto<string>(Replace: conditions.AllowedUsers),
             conditions.AcceptNoLength,
-            conditions.AcceptMissingProps);
+            conditions.AcceptMissingProps,
+            ExcludeLocked: conditions.ExcludeLocked);
 
     private static FolderConditionsPatchDto FolderConditions(FolderConditions conditions)
         => new(

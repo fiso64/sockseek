@@ -25,6 +25,7 @@ public class SearchSettings
     [SettingOption("--anl", "--accept-no-length", Member = "AcceptNoLength")]
     [SettingOption("--bu", "--banned-users", Member = "BannedUsers")]
     [SettingOption("--au", "--allowed-users", Member = "AllowedUsers")]
+    [SettingOption("--exclude-locked", Member = "ExcludeLocked")]
     public FileConditions NecessaryCond { get; set; } = new()
     {
         Formats = [.. SearchDefaults.Formats],
@@ -49,8 +50,10 @@ public class SearchSettings
     [SettingOption("--panl", "--pref-accept-no-length", Member = "AcceptNoLength")]
     [SettingOption("--pbu", "--pref-banned-users", Member = "BannedUsers")]
     [SettingOption("--pau", "--pref-allowed-users", Member = "AllowedUsers")]
+    [SettingOption("--pref-exclude-locked", Member = "ExcludeLocked")]
     public FileConditions PreferredCond { get; set; } = new()
     {
+        ExcludeLocked     = true,
         Formats          = ["mp3"],
         LengthTolerance  = 3,
         MinBitrate       = 200,

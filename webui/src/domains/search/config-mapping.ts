@@ -22,6 +22,7 @@ export function readSearchConditions(settings: Settings, expectedLength?: number
     target.allowedUsers = (source.allowedUsers?.replace ?? []).join(', ');
     target.bannedUsers = (source.bannedUsers?.replace ?? []).join(', ');
     target.strictArtist = source.strictArtist ?? false;
+    target.excludeLocked = source.excludeLocked ?? false;
   }
   const required = settings.necessaryCond ?? {};
   const preferred = settings.preferredCond ?? {};
@@ -93,6 +94,7 @@ export function searchConditionsPatchForFamily(
       const second = key === 'formats' ? b.common[key] : csv(b.common[key]);
       if (JSON.stringify(first) !== JSON.stringify(second)) patch[key] = { replace: key === 'formats' ? second.map((format) => format.toLowerCase()) : [...second] };
     }
+    if (a.common.excludeLocked !== b.common.excludeLocked) patch.excludeLocked = b.common.excludeLocked;
     if (family !== 'generic' && a.common.strictArtist !== b.common.strictArtist) patch.strictArtist = b.common.strictArtist;
     if (family === 'track' || family === 'mixed') {
       if (a.track.strictTitle !== b.track.strictTitle) patch.strictTitle = b.track.strictTitle;

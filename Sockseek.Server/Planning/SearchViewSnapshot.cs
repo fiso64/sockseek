@@ -147,7 +147,7 @@ public sealed partial class SearchViewSnapshot
             if (!snapshot.DirectoryIndexes.TryGetValue(order, out var index))
             {
                 index = DirectorySet(order).Union(snapshot.Directories.Values.Select(row =>
-                    DirectoryPosition(row.Value, snapshot.Files[row.Value.BestChild.Ref].Key, order)));
+                    DirectoryPosition(row.Value, row.Key, order)));
                 snapshot.DirectoryIndexes.Add(order, index);
             }
             return index;
@@ -232,7 +232,7 @@ public sealed partial class SearchViewSnapshot
             if (!snapshot.AlbumOptionIndexes.TryGetValue(group.Ref, out var index))
             {
                 index = DirectorySet(SearchViewSortOrder.Relevance).Union(group.Options.Select(key =>
-                    DirectoryPosition(snapshot.Directories[key].Value, snapshot.Files[snapshot.Directories[key].Value.BestChild.Ref].Key)));
+                    DirectoryPosition(snapshot.Directories[key].Value, snapshot.Directories[key].Key)));
                 snapshot.AlbumOptionIndexes.Add(group.Ref, index);
             }
             return index;

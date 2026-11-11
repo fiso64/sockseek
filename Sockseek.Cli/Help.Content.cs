@@ -302,6 +302,8 @@ public static partial class Help
                                     Private-message retention (default: forever)
     --room-message-retention-days <days|forever>
                                     Room-message retention (default: 30)
+    --exclude-locked                Exclude locked files from search results (default: false)
+    --pref-exclude-locked           Prefer unlocked results (default: true)
 
   Remote User Commands
 

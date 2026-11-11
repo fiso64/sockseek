@@ -943,7 +943,8 @@ public sealed class SearchViewKernel
                 lockedCount,
                 publicBytes,
                 lockedBytes,
-                best ?? throw new InvalidOperationException("A projected directory has no best child."),
+                (lockedCount > 0 ? best?.ForLockedFolder() : best)
+                    ?? throw new InvalidOperationException("A projected directory has no best child."),
                 newChildren,
                 AbsorbedDirectories: absorbedDirectories);
     }

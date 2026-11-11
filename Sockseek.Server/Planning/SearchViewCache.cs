@@ -248,7 +248,7 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
     }
 
     internal sealed record FileRow(SearchViewFile Value, SearchProjectionSortKey Key);
-    internal sealed record DirectoryRow(SearchViewDirectory Value,
+    internal sealed record DirectoryRow(SearchViewDirectory Value, SearchProjectionSortKey Key,
         ImmutableSortedSet<SearchViewDirectoryFilePosition> Children,
         long PublicCount, long LockedCount, long KnownBytes, long UnknownSizes,
         Guid? ObservationId = null, ImmutableDictionary<string, long?>? RetrievedSizes = null);
@@ -385,8 +385,13 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
                 string key = DirectoryRef(summary.SourceJobId, directory.Directory);
                 var old = next.Directories.GetValueOrDefault(key) ?? next.HiddenDirectories.GetValueOrDefault(key);
                 next.HiddenDirectories = next.HiddenDirectories.Remove(key);
+                // A folder's preference can differ from its best file (one locked
+                // member makes the folder locked). Preserve the projection's facts
+                // and rank without changing the individual file row.
+                var bestFile = RequireFile(next, summary, directory.BestChild.Input).Value;
+                var best = ProjectedFile(bestFile.Ref, bestFile.AdmittedRevision, directory.BestChild);
                 var row = old ?? new DirectoryRow(new(key, directory.Directory.Username, directory.Directory.FolderPath,
-                    0, 0, 0, 0, false, null, null, RequireFile(next, summary, directory.BestChild.Input).Value), ChildSet(), 0, 0, 0, 0);
+                    0, 0, 0, 0, false, null, null, best), directory.BestChild.SortKey, ChildSet(), 0, 0, 0, 0);
                 foreach (var absorbed in directory.AbsorbedDirectories ?? [])
                     if (before.Directories.TryGetValue(DirectoryRef(summary.SourceJobId, absorbed), out var absorbedRow))
                         foreach (var child in absorbedRow.Children)
@@ -397,7 +402,7 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
                     directory.PublicMatchingFileCount, directory.LockedMatchingFileCount,
                     directory.PublicMatchingBytes, directory.LockedMatchingBytes,
                     directory.IsFullyRetrieved, directory.RetrievedFileCount, directory.RetrievedBytes,
-                    RequireFile(next, summary, directory.BestChild.Input).Value);
+                    best);
                 bool hasRetrievedChildren = old?.ObservationId != null
                     || row.PublicCount + row.LockedCount > directory.PublicMatchingFileCount + directory.LockedMatchingFileCount;
                 if (hasRetrievedChildren)
@@ -408,7 +413,7 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
                         RetrievedFileCount = row.PublicCount + row.LockedCount,
                         RetrievedBytes = row.UnknownSizes == 0 ? row.KnownBytes : null,
                     };
-                row = row with { Value = visible };
+                row = row with { Value = visible, Key = directory.BestChild.SortKey };
                 next.Directories = next.Directories.SetItem(key, row);
                 changedDirectories.Add(key);
             }
@@ -482,13 +487,18 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
             cancellationToken.ThrowIfCancellationRequested();
             string key = FileRef(summary.SourceJobId, file.Input);
             if (rows.ContainsKey(key)) continue;
-            var facts = file.ConditionFacts;
-            var row = new SearchViewFile(key, summary.Revision, file.Input, facts.PreferenceTier,
-                facts.NecessaryConditionsSatisfied, facts.SatisfiedPreferredConditions ?? [], facts.ConfiguredPreferredConditions ?? []);
+            var row = ProjectedFile(key, summary.Revision, file);
             rows.Add(key, new(row, file.SortKey));
             changed.Add(key);
         }
         next.Files = rows.ToImmutable();
+    }
+
+    private static SearchViewFile ProjectedFile(string key, long admittedRevision, ProjectedFileCandidate file)
+    {
+        var facts = file.ConditionFacts;
+        return new(key, admittedRevision, file.Input, facts.PreferenceTier,
+            facts.NecessaryConditionsSatisfied, facts.SatisfiedPreferredConditions ?? [], facts.ConfiguredPreferredConditions ?? []);
     }
 
     internal static FileRow RequireFile(SearchViewSnapshot snapshot, SearchViewInfo summary, SearchProjectionInput input)
@@ -542,8 +552,8 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
                 var updated = index.ToBuilder();
                 foreach (string key in directories)
                 {
-                    if (before.Directories.TryGetValue(key, out var old)) updated.Remove(DirectoryPosition(old.Value, before.Files[old.Value.BestChild.Ref].Key, order));
-                    if (next.Directories.TryGetValue(key, out var row)) updated.Add(DirectoryPosition(row.Value, next.Files[row.Value.BestChild.Ref].Key, order));
+                    if (before.Directories.TryGetValue(key, out var old)) updated.Remove(DirectoryPosition(old.Value, old.Key, order));
+                    if (next.Directories.TryGetValue(key, out var row)) updated.Add(DirectoryPosition(row.Value, row.Key, order));
                 }
                 next.DirectoryIndexes.Add(order, updated.ToImmutable());
             }
@@ -563,10 +573,10 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
                 var old = before.Albums[key];
                 foreach (string option in old.Options.Except(album.Options).Concat(directories.Where(old.Options.Contains)))
                     updated.Remove(DirectoryPosition(before.Directories[option].Value,
-                        before.Files[before.Directories[option].Value.BestChild.Ref].Key));
+                        before.Directories[option].Key));
                 foreach (string option in album.Options.Except(old.Options).Concat(directories.Where(album.Options.Contains)))
                     updated.Add(DirectoryPosition(next.Directories[option].Value,
-                        next.Files[next.Directories[option].Value.BestChild.Ref].Key));
+                        next.Directories[option].Key));
                 next.AlbumOptionIndexes.Add(key, updated.ToImmutable());
             }
         foreach (string key in albums)

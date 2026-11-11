@@ -10933,6 +10933,7 @@ export interface components {
             clearMinBitDepth?: null | boolean;
             clearMaxBitDepth?: null | boolean;
             clearLengthTolerance?: null | boolean;
+            excludeLocked?: null | boolean;
         };
         FileDownloadStateDto: {
             downloadPath?: null | string;
@@ -12878,7 +12879,7 @@ export interface components {
         /** @enum {unknown} */
         ServerSearchDefaultProjectionKind: "GenericFile" | "Track" | "Album" | null;
         /** @enum {unknown} */
-        ServerSearchPreferenceCondition: "Format" | "Length" | "Bitrate" | "SampleRate" | "BitDepth" | "Title" | "Artist" | "Album" | "Username";
+        ServerSearchPreferenceCondition: "Format" | "Length" | "Bitrate" | "SampleRate" | "BitDepth" | "Title" | "Artist" | "Album" | "Username" | "ExcludeLocked";
         /** @enum {unknown} */
         ServerSearchPreferenceTier: "Preferred" | "Other";
         /** @enum {unknown} */

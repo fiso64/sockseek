@@ -90,6 +90,9 @@
   {/if}
 {/if}
 
+{#if conditions.common.excludeLocked}
+  <span class="search-condition-pill">hide locked<button type="button" aria-label="Remove locked files filter" onclick={() => (conditions.common.excludeLocked = false)}>×</button></span>
+{/if}
 {#if conditions.common.allowedUsers.trim()}
   <span class="search-condition-pill">allow: {conditions.common.allowedUsers.trim()}<button type="button" onclick={() => (conditions.common.allowedUsers = '')}>×</button></span>
 {/if}

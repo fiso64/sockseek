@@ -69,7 +69,7 @@ public sealed class IncrementalAggregateTrackProjector
             var seenKey = (
                 new PeerPathKey(input.Username, input.Filename),
                 input.Visibility);
-            if (!seen.Add(seenKey))
+            if (!seen.Add(seenKey) || !search.NecessaryCond.VisibilitySatisfies(input.Visibility))
                 continue;
 
             if (applyRequiredConditions && !SearchResultProjector.AggregateTrackProjectionIncludes(input, query, search))

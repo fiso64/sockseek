@@ -89,6 +89,8 @@ public sealed class JobSettingsComposerTests
 
         AssertNeutral(settings.Search.NecessaryCond);
         AssertNeutral(settings.Search.PreferredCond);
+        Assert.IsFalse(settings.Search.NecessaryCond.ExcludeLocked);
+        Assert.IsTrue(settings.Search.PreferredCond.ExcludeLocked);
         Assert.AreEqual(0, settings.Search.NecessaryFolderCond.RequiredTrackTitles.Count);
         Assert.AreEqual(0, settings.Search.PreferredFolderCond.RequiredTrackTitles.Count);
     }
@@ -114,6 +116,8 @@ public sealed class JobSettingsComposerTests
         Assert.AreEqual(48000, track.Search.PreferredCond.MaxSampleRate);
         Assert.IsTrue(track.Search.PreferredCond.StrictTitle);
         Assert.IsTrue(track.Search.PreferredCond.StrictAlbum);
+        Assert.IsFalse(track.Search.NecessaryCond.ExcludeLocked);
+        Assert.IsTrue(track.Search.PreferredCond.ExcludeLocked);
     }
 
     [TestMethod]

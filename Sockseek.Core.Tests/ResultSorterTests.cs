@@ -53,6 +53,7 @@ namespace Tests.ResultSorterTests
                 bitrateMatch,
                 sampleRateMatch,
                 bitDepthMatch,
+                true, // These sort-key tests do not configure locked preferences.
                 fileSatisfies,
                 hasFreeUploadSlot,
                 uploadSpeedFast,

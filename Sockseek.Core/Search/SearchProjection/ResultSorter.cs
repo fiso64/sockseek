@@ -140,6 +140,7 @@ public static partial class ResultSorter
         int originalIndex,
         int? userSuccessCount = null)
     {
+        if (!keyContext.Search.NecessaryCond.VisibilitySatisfies(input.Visibility)) return null;
         int successCount = userSuccessCount ?? keyContext.UserSuccessCounts.GetValueOrDefault(input.Username, 0);
         if (successCount <= keyContext.Search.IgnoreOn)
             return null;
@@ -154,7 +155,7 @@ public static partial class ResultSorter
             0, 0, candidate.Username, 0, candidate.Filename, candidate.Size,
             candidate.BitRate, candidate.BitDepth, candidate.SampleRate, candidate.Length,
             candidate.Extension, candidate.UploadSpeed, candidate.HasFreeUploadSlot,
-            candidate.Attributes, DateTimeOffset.UnixEpoch), keyContext, originalIndex);
+            candidate.Attributes, DateTimeOffset.UnixEpoch, Visibility: candidate.Visibility), keyContext, originalIndex);
 
     private static SearchProjectionInput ToInput(SearchResponse response, Soulseek.File file)
         => new(
@@ -351,10 +352,12 @@ public static partial class ResultSorter
             bool qualityPreferencesMet = formatMatch && lengthToleranceMatch && bitrateMatch
                 && sampleRateMatch && preferredUserConditionsMet && bitDepthMatch;
             bool stringPreferencesMet = strictTitleMatch && strictArtistMatch && strictAlbumMatch;
-            bool preferredConditionsMet = qualityPreferencesMet && stringPreferencesMet;
-            bool rankingPreferencesMet = qualityPreferencesMet && (ignoreStringSortConditions || stringPreferencesMet);
-            var configuredPreferredConditions = new List<SearchPreferenceCondition>(9);
-            var satisfiedPreferredConditions = new List<SearchPreferenceCondition>(9);
+            bool unlockedMatch = preferredCond.VisibilitySatisfies(input.Visibility);
+            bool preferredConditionsMet = qualityPreferencesMet && stringPreferencesMet && unlockedMatch;
+            bool rankingPreferencesMet = qualityPreferencesMet && (ignoreStringSortConditions || stringPreferencesMet) && unlockedMatch;
+            var configuredPreferredConditions = new List<SearchPreferenceCondition>(10);
+            var satisfiedPreferredConditions = new List<SearchPreferenceCondition>(10);
+            AddSatisfied(preferredCond.ExcludeLocked, unlockedMatch, SearchPreferenceCondition.ExcludeLocked);
             AddSatisfied(preferredCond.Formats.Length > 0, formatMatch, SearchPreferenceCondition.Format);
             AddSatisfied(preferredCond.LengthTolerance is >= 0, lengthToleranceMatch, SearchPreferenceCondition.Length);
             AddSatisfied(preferredCond.MinBitrate != null || preferredCond.MaxBitrate != null, bitrateMatch, SearchPreferenceCondition.Bitrate);
@@ -391,6 +394,7 @@ public static partial class ResultSorter
                 bitrateMatch,
                 sampleRateMatch,
                 bitDepthMatch,
+                unlockedMatch,
                 rankingPreferencesMet,
                 input.HasFreeUploadSlot ?? false,
                 (input.UploadSpeed ?? -1) / 1024 / 650,
@@ -549,6 +553,7 @@ public static partial class ResultSorter
             bool bitrateMatch,
             bool sampleRateMatch,
             bool bitDepthMatch,
+            bool unlockedMatch,
             bool rankingPreferencesMet,
             bool hasFreeUploadSlot,
             int uploadSpeedFast,
@@ -578,6 +583,7 @@ public static partial class ResultSorter
                 bitrateMatch,
                 sampleRateMatch,
                 bitDepthMatch,
+                unlockedMatch,
                 rankingPreferencesMet,
                 hasFreeUploadSlot);
             this.uploadSpeedFast = uploadSpeedFast;
@@ -602,6 +608,19 @@ public static partial class ResultSorter
             // Facts describe public condition semantics, independently of the
             // ranking policy encoded above (which may deliberately ignore strings).
             ConditionFacts = conditionFacts;
+        }
+
+        private SortKey(SortKey source, SearchConditionFacts facts)
+        {
+            this = source;
+            highFlags = WithoutLockedPreference(source.highFlags);
+            ConditionFacts = facts;
+        }
+
+        internal SortKey ForLockedFolder()
+        {
+            var facts = ConditionFacts.WithLockedFolder();
+            return facts != ConditionFacts ? new(this, facts) : this;
         }
 
         internal int CompareAlbumBeforeQualityTo(SortKey other)
@@ -647,6 +666,7 @@ public static partial class ResultSorter
             bool bitrateMatch,
             bool sampleRateMatch,
             bool bitDepthMatch,
+            bool unlockedMatch,
             bool rankingPreferencesMet,
             bool hasFreeUploadSlot)
         {
@@ -669,6 +689,7 @@ public static partial class ResultSorter
                 .Then(bitrateMatch)
                 .Then(sampleRateMatch)
                 .Then(bitDepthMatch)
+                .Then(unlockedMatch)
                 .Then(rankingPreferencesMet)
                 .Then(hasFreeUploadSlot)
                 .Value;
@@ -716,6 +737,11 @@ public static partial class ResultSorter
                 .Value;
         }
     }
+
+    // PackHighFlags positions: availability follows the quality flags, then
+    // all-preferences and free-slot flags. Folder lifting clears the first two
+    // without changing the actual peer speed or evaluating conditions again.
+    internal static uint WithoutLockedPreference(uint flags) => flags & ~((1u << 15) | (1u << 14));
 
     private readonly struct BoolSortKey
     {

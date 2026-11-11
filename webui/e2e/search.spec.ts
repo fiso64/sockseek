@@ -637,6 +637,16 @@ test('downloads only checked public files from a mixed chosen aggregate album fo
   await page.locator('#global-search-simple').press('Enter');
   await expect(page.locator('.search-results-summary')).toContainText('4 files');
   await expect(page.locator('.search-results-summary')).toContainText('2 locked');
+  await page.getByRole('button', { name: 'Filtering', exact: true }).click();
+  const config = page.getByRole('region', { name: 'Result search configuration' });
+  await config.getByLabel('Hide locked files', { exact: true }).check();
+  await expect(page.locator('.folder-file-row.locked')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Remove locked files filter' })).toBeVisible();
+  await config.getByRole('button', { name: 'Ranking', exact: true }).click();
+  await expect(config.getByLabel('Prefer unlocked files', { exact: true })).toBeChecked();
+  await page.getByRole('button', { name: 'Remove locked files filter' }).click();
+  await expect(page.locator('.folder-file-row.locked')).toHaveCount(1);
+  await page.keyboard.press('Escape');
   await page.locator('.aggregate-options-button').click();
   const dialog = page.getByRole('dialog', { name: /Fixture Album.*options/i });
   await dialog.locator('.aggregate-option').filter({ hasText: 'second-peer' })

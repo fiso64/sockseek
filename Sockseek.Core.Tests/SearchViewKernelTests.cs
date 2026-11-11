@@ -11,6 +11,64 @@ namespace Tests.Unit;
 public sealed class SearchViewKernelTests
 {
     [TestMethod]
+    [DataRow(SearchViewProjectionKind.Files)]
+    [DataRow(SearchViewProjectionKind.GenericDirectories)]
+    [DataRow(SearchViewProjectionKind.AlbumDirectories)]
+    [DataRow(SearchViewProjectionKind.AggregateTracks)]
+    [DataRow(SearchViewProjectionKind.AggregateAlbums)]
+    public void LockedConditionsFilterProjectionWithoutLosingRawCounts(SearchViewProjectionKind kind)
+    {
+        var settings = new SearchSettings
+        {
+            NecessaryCond = new() { ExcludeLocked = true },
+            PreferredCond = new() { ExcludeLocked = true },
+            NecessaryFolderCond = new(), MinSharesAggregate = 1,
+        };
+        var definition = new SearchViewProjectionDefinition(kind,
+            new SongQuery { Artist = "Artist", Title = "Track" },
+            new AlbumQuery { Artist = "Artist", Album = "Album" }, IncludeFullResults: true);
+        var inputs = new[]
+        {
+            Input(1, "Public", @"Artist\Album\Artist - Track.flac", 900, SearchResultVisibility.Public),
+            Input(2, "Locked", @"Artist\Album\Artist - Track.flac", 900, SearchResultVisibility.Locked),
+        };
+        var filtered = new SearchViewKernel(definition, settings).Apply(inputs, 2, true);
+        Assert.AreEqual(1L, filtered.Counters.PublicFileCount);
+        Assert.AreEqual(1L, filtered.Counters.LockedFileCount);
+        Assert.AreEqual(1L, filtered.Counters.ProjectedFileCount);
+        Assert.AreEqual(0L, filtered.Counters.ProjectedLockedFileCount);
+        Assert.AreEqual("Public", filtered.ChangedFiles.Single().Input.Username);
+
+        settings.NecessaryCond.ExcludeLocked = false;
+        var unfiltered = new SearchViewKernel(definition, settings).Apply(inputs, 2, true);
+        Assert.AreEqual(2L, unfiltered.Counters.ProjectedFileCount);
+        Assert.AreEqual(SearchPreferenceTier.Other,
+            unfiltered.ChangedFiles.Single(file => file.Input.Username == "Locked").ConditionFacts.PreferenceTier);
+    }
+
+    [TestMethod]
+    public void LockedPreferenceFollowsFormatButPrecedesSlotsAndSpeed()
+    {
+        var inputs = new[]
+        {
+            Input(1, "PublicFlac", @"Artist\Album\Track.flac", 900, SearchResultVisibility.Public) with { UploadSpeed = 1, HasFreeUploadSlot = false },
+            Input(2, "LockedFlac", @"Artist\Album\Track.flac", 900, SearchResultVisibility.Locked) with { UploadSpeed = 10_000_000 },
+            Input(3, "PublicMp3", @"Artist\Album\Track.mp3", 320, SearchResultVisibility.Public) with { UploadSpeed = 1, HasFreeUploadSlot = false },
+            Input(4, "LockedMp3", @"Artist\Album\Track.mp3", 320, SearchResultVisibility.Locked) with { UploadSpeed = 10_000_000 },
+        };
+        var settings = new SearchSettings { NecessaryCond = new(), PreferredCond = new() { Formats = ["flac"], ExcludeLocked = true } };
+        ProjectedFileCandidate[] Rank() => new SearchViewKernel(new FileSearchProjection(new SongQuery()), settings)
+            .Apply(inputs, 4, true).ChangedFiles.OrderBy(file => file.SortKey, SearchProjectionSortKeyComparer.Instance).ToArray();
+        var ranked = Rank();
+        CollectionAssert.AreEqual(new[] { "PublicFlac", "LockedFlac", "PublicMp3", "LockedMp3" }, ranked.Select(file => file.Input.Username).ToArray());
+        Assert.AreEqual(SearchPreferenceTier.Preferred, ranked[0].ConditionFacts.PreferenceTier);
+        Assert.IsTrue(ranked.Skip(1).All(file => file.ConditionFacts.PreferenceTier == SearchPreferenceTier.Other));
+        Assert.AreEqual(10_000_000, ranked[1].Input.UploadSpeed);
+        settings.PreferredCond.ExcludeLocked = false;
+        CollectionAssert.AreEqual(new[] { "LockedFlac", "PublicFlac", "LockedMp3", "PublicMp3" }, Rank().Select(file => file.Input.Username).ToArray());
+    }
+
+    [TestMethod]
     [DataRow(SearchViewProjectionKind.AlbumDirectories)]
     [DataRow(SearchViewProjectionKind.AggregateAlbums)]
     public void FreeTextAlbumMinimumCountsObservedTracksAcrossPublications(SearchViewProjectionKind kind)

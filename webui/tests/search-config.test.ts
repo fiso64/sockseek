@@ -4,13 +4,16 @@ import { readSearchConditions, rebaseSearchConditions, searchConditionsPatch, se
 
 describe('resolved search configuration edits', () => {
   it('leaves untouched settings inherited and explicitly clears lists and booleans', () => {
-    const before = readSearchConditions({ preferredCond: { formats: { replace: ['mp3'] }, strictTitle: true, minBitrate: 200 } });
+    const before = readSearchConditions({ preferredCond: { formats: { replace: ['mp3'] }, strictTitle: true, minBitrate: 200, excludeLocked: true } });
     expect(before.ranking.common.formats).toEqual(['MP3']);
     expect(searchConditionsPatch('track', before, structuredClone(before))).toEqual({});
     const after = structuredClone(before);
     after.ranking.common.formats = [];
     after.ranking.track.strictTitle = false;
-    expect(searchConditionsPatch('track', before, after)).toEqual({ preferredCond: { formats: { replace: [] }, strictTitle: false } });
+    after.ranking.common.excludeLocked = false;
+    after.common.excludeLocked = true;
+    expect(hasAppliedConditions('track', after)).toBe(true);
+    expect(searchConditionsPatch('track', before, after)).toEqual({ preferredCond: { formats: { replace: [] }, strictTitle: false, excludeLocked: false }, necessaryCond: { excludeLocked: true } });
   });
 
   it('normalizes format vocabulary without changing exact peer spelling', () => {

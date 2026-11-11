@@ -142,6 +142,11 @@ namespace Tests.Unit
             Assert.AreEqual(SearchResultVisibility.Locked, displayed.Single().Visibility);
             Assert.AreEqual(0, provisional, "Read-only discovery must not start a provisional download.");
             Assert.AreEqual(0, client.DownloadCallCount);
+            settings.Search.NecessaryCond.ExcludeLocked = true;
+            Assert.AreEqual(0, (await Discover(print: true)).Count);
+            settings.Search.NecessaryCond.ExcludeLocked = false;
+            settings.Search.PreferredCond.ExcludeLocked = false;
+            Assert.AreEqual(0, (await Discover(print: false)).Count);
             settings.Search.NecessaryCond.BannedUsers = ["private"];
             Assert.AreEqual(0, (await Discover(print: true)).Count,
                 "Read-only visibility must still respect configured peer conditions.");
@@ -676,14 +681,15 @@ namespace Tests.Unit
             var query = new AlbumQuery();
             var search = new SearchSettings
             {
-                NecessaryCond = new FileConditions(), PreferredCond = new FileConditions(),
+                NecessaryCond = new FileConditions(), PreferredCond = new FileConditions { ExcludeLocked = true },
                 NecessaryFolderCond = new FolderConditions(),
             };
             var inputs = Enumerable.Range(0, 4_096).Select(index =>
             {
                 var file = TestHelpers.CreateSlFile($@"Music\Album-{(singleAlbum ? 0 : index / 8):D4}\{index:D4}.flac", length: 180);
                 var response = new SearchResponse("Peer", 1, true, 1000, 0, [file]);
-                return SearchProjectionInput.FromLive(index + 1L, 1, response, file, DateTimeOffset.UnixEpoch);
+                return SearchProjectionInput.FromLive(index + 1L, 1, response, file, DateTimeOffset.UnixEpoch)
+                    with { Visibility = index % 8 == 7 ? SearchResultVisibility.Locked : SearchResultVisibility.Public };
             }).ToArray();
             var projector = new IncrementalAlbumFolderProjector(query, search);
             long before = GC.GetAllocatedBytesForCurrentThread();

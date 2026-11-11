@@ -241,6 +241,7 @@
             <label><span>{searchConfigLabel('allowedUsers', 'conditions')}</span><input type="text" bind:value={conditions.common.allowedUsers} placeholder="e.g. user1, user2" /></label>
             <label><span>{searchConfigLabel('bannedUsers', 'conditions')}</span><input type="text" bind:value={conditions.common.bannedUsers} placeholder="e.g. user1, user2" /></label>
           </div>
+          <label class="config-check"><input type="checkbox" bind:checked={conditions.common.excludeLocked} /> {searchConfigLabel('excludeLocked', 'conditions')}</label>
         </section>
       </div>
     </div>
@@ -326,6 +327,7 @@
             <label><span>{searchConfigLabel('allowedUsers', 'ranking')}</span><input type="text" bind:value={conditions.ranking.common.allowedUsers} placeholder="e.g. user1, user2" /></label>
             <label><span>{searchConfigLabel('bannedUsers', 'ranking')}</span><input type="text" bind:value={conditions.ranking.common.bannedUsers} placeholder="e.g. user1, user2" /></label>
           </div>
+          <label class="config-check" title="After quality preferences, before upload slots and speed. A folder with any locked file counts as locked."><input type="checkbox" bind:checked={conditions.ranking.common.excludeLocked} /> {searchConfigLabel('excludeLocked', 'ranking')}</label>
         </section>
       </div>
     </div>

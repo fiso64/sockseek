@@ -32,7 +32,7 @@ internal static class ConditionSatisfactionPolicy
         FileConditions conditions,
         SearchProjectionInput input,
         SongQuery? query)
-        => conditions.ProjectionFileSatisfies(
+        => conditions.VisibilitySatisfies(input.Visibility) && conditions.ProjectionFileSatisfies(
             new ConditionFile(input.Filename, input.Length, input.BitRate, input.SampleRate, input.BitDepth),
             query,
             input.Username,
@@ -164,6 +164,7 @@ internal static class ConditionSatisfactionPolicy
 
         public bool Satisfies(SearchProjectionInput input)
         {
+            if (!nonQualityFileConditions.VisibilitySatisfies(input.Visibility)) return false;
             if (checkUser && !nonQualityFileConditions.UsernameSatisfies(input.Username))
                 return false;
             if (!checkFile || !Utils.IsMusicFile(input.Filename))

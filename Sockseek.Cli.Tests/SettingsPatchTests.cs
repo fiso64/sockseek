@@ -31,7 +31,7 @@ public class SettingsPatchTests
     {
         var patch = ConfigManager.CreateCliDownloadSettingsPatch([
             "Artist - Title", "--album-art-only", "--album-art", "most", "--strict-artist",
-            "--format", "flac", "--on-complete", "-- first", "--on-complete", "+ -- second",
+            "--format", "flac", "--exclude-locked", "--pref-exclude-locked", "false", "--on-complete", "-- first", "--on-complete", "+ -- second",
             "--regex", "T:foo;bar", "--regex", "+ A:baz;qux",
             "--incomplete-album-action", "move:failed", "--incomplete-album-action", "keep",
         ])!;
@@ -45,6 +45,8 @@ public class SettingsPatchTests
         Assert.IsNull(SettingsPatch.Difference(local, remote));
         Assert.AreEqual(AlbumArtOption.Most, remote.Output.AlbumArtOption);
         Assert.IsTrue(remote.Search.NecessaryCond.StrictArtist);
+        Assert.IsTrue(remote.Search.NecessaryCond.ExcludeLocked);
+        Assert.IsFalse(remote.Search.PreferredCond.ExcludeLocked);
         CollectionAssert.AreEqual(new[] { "flac" }, remote.Search.NecessaryCond.Formats);
         CollectionAssert.AreEqual(new[] { "-- first", "-- second" }, remote.Output.OnComplete);
         Assert.HasCount(2, remote.Preprocess.Regex!);

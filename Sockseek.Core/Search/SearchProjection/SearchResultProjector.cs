@@ -213,7 +213,7 @@ public static partial class SearchResultProjector
                 SortedAudioLengths(folder.Files),
                 RepresentativeAudioFilename(folder.Files),
                 qualityCoverage,
-                folder.Best));
+                folder.FolderBest));
         }
 
         return folders;
@@ -362,7 +362,21 @@ public static partial class SearchResultProjector
         // Keep the winning rank and its original evaluated file together. A
         // consumer never needs to reconstruct evidence or index every candidate.
         public EvaluatedAlbumProjectionInput Best { get; private set; }
-        public ResultSorter.SortEntry AggregateSortEntry => Best.SortEntry;
+        private bool hasLockedFile;
+        private EvaluatedAlbumProjectionInput? folderBest;
+        public EvaluatedAlbumProjectionInput FolderBest => folderBest ??= BuildFolderBest();
+        public ResultSorter.SortEntry AggregateSortEntry => FolderBest.SortEntry;
+
+        private EvaluatedAlbumProjectionInput BuildFolderBest()
+        {
+            // Any locked member makes the folder locked for preferences, even
+            // when its best-quality track is public. Individual file facts stay
+            // unchanged. Membership changes invalidate this small cached value.
+            if (!hasLockedFile) return Best;
+            var key = Best.SortEntry.Key.ForLockedFolder();
+            return Best with { SortEntry = Best.SortEntry with { Key = key },
+                File = Best.File with { ConditionFacts = key.ConditionFacts, SortKey = key.PersistenceKey } };
+        }
 
         public AlbumFolderBuilder(
             string username,
@@ -378,6 +392,7 @@ public static partial class SearchResultProjector
             MusicCount = file.IsMusic ? 1 : 0;
             QualityCoverage = AlbumAudioQualityCoverage.Inactive(MusicCount);
             Best = evaluated;
+            hasLockedFile = evaluated.Input.Visibility == SearchResultVisibility.Locked;
         }
 
         public void RefreshQualityCoverage(FileConditions conditions, ActiveAlbumTrackConditions activeQuality)
@@ -396,7 +411,7 @@ public static partial class SearchResultProjector
 
         private void AddAggregateBest(EvaluatedAlbumProjectionInput evaluated)
         {
-            if (ResultSorter.SortEntryComparer.Instance.Compare(evaluated.SortEntry, AggregateSortEntry) < 0)
+            if (ResultSorter.SortEntryComparer.Instance.Compare(evaluated.SortEntry, Best.SortEntry) < 0)
                 Best = evaluated;
         }
 
@@ -404,6 +419,8 @@ public static partial class SearchResultProjector
         {
             var file = new AlbumFolderFile(evaluated.File, Utils.IsMusicFile(evaluated.Input.Filename));
             Files.Add(file);
+            hasLockedFile |= evaluated.Input.Visibility == SearchResultVisibility.Locked;
+            folderBest = null;
             if (file.IsMusic)
                 MusicCount++;
             AddAggregateBest(evaluated);
@@ -412,6 +429,8 @@ public static partial class SearchResultProjector
         public void AddRange(AlbumFolderBuilder other)
         {
             Files.AddRange(other.Files);
+            hasLockedFile |= other.hasLockedFile;
+            folderBest = null;
             AddAggregateBest(other.Best);
             MusicCount += other.MusicCount;
         }

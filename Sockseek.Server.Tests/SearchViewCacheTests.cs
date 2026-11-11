@@ -20,6 +20,47 @@ namespace Sockseek.Server.Tests;
 public sealed class SearchViewCacheTests
 {
     [TestMethod]
+    [DataRow(SearchViewProjectionKind.GenericDirectories)]
+    [DataRow(SearchViewProjectionKind.AlbumDirectories)]
+    [DataRow(SearchViewProjectionKind.AggregateAlbums)]
+    public void LateLockedMemberChangesFolderRankWithoutChangingFileFactsOrOldPages(SearchViewProjectionKind kind)
+    {
+        var store = new SearchViewCache();
+        var view = store.Create(Guid.NewGuid(), Definition(kind));
+        var settings = new SearchSettings { NecessaryCond = new(), PreferredCond = new() { ExcludeLocked = true }, NecessaryFolderCond = new(), MinSharesAggregate = 1 };
+        var definition = new SearchViewProjectionDefinition(kind, new SongQuery { Artist = "Artist", Title = "Track" },
+            new AlbumQuery { Artist = "Artist", Album = "Album" });
+        var kernel = new SearchViewKernel(definition, settings);
+        var inputs = new[]
+        {
+            Input(1, "Fast", @"Artist\Album\Artist - Track.flac", 900) with { UploadSpeed = 10_000_000 },
+            Input(2, "Slow", @"Artist\Album\Artist - Track.flac", 900) with { UploadSpeed = 1, HasFreeUploadSlot = false },
+            Input(3, "Fast", @"Artist\Album\cover.jpg", 0) with { Visibility = SearchResultVisibility.Locked },
+        };
+        view = store.Publish(view.Id, kernel.Apply(inputs[..2], 2, false), "Live");
+        var original = store.GetSnapshot(view.Id, view.Revision, default)!;
+        Assert.AreEqual("Fast", original.GetDirectories(null, 100).Items[0].Username);
+        string? group = kind == SearchViewProjectionKind.AggregateAlbums ? original.GetAggregateAlbums(null, 100).Items.Single().Ref : null;
+        if (group != null) Assert.AreEqual("Fast", original.GetAggregateAlbumOptions(group, null, 100)!.Items[0].Username);
+        view = store.Publish(view.Id, kernel.Apply(inputs[2..], 3, true), "Complete");
+        var current = store.GetSnapshot(view.Id, view.Revision, default)!;
+        var folders = current.GetDirectories(null, 100).Items;
+        CollectionAssert.AreEqual(new[] { "Slow", "Fast" }, folders.Select(folder => folder.Username).ToArray());
+        Assert.AreEqual(SearchPreferenceTier.Other, folders[1].BestChild.PreferenceTier);
+        var publicFile = current.GetDirectoryFiles(folders[1].Ref, null, 500)!.Items.Single(file => file.File.Input.Visibility == SearchResultVisibility.Public);
+        Assert.AreEqual(SearchPreferenceTier.Preferred, publicFile.File.PreferenceTier);
+        Assert.AreEqual("Fast", original.GetDirectories(null, 100).Items[0].Username);
+        if (group != null)
+        {
+            Assert.AreEqual("Slow", current.GetAggregateAlbumOptions(group, null, 100)!.Items[0].Username);
+            Assert.AreEqual("Fast", original.GetAggregateAlbumOptions(group, null, 100)!.Items[0].Username);
+        }
+        var rebuilt = new SearchViewKernel(definition, settings).Apply(inputs, 3, true);
+        Assert.AreEqual(view.Counters, rebuilt.Counters);
+        Assert.AreEqual(SearchPreferenceTier.Other, rebuilt.ChangedDirectories!.Single(folder => folder.Directory.Username == "Fast").BestChild.ConditionFacts.PreferenceTier);
+    }
+
+    [TestMethod]
     public void PublicationDoesNotRequireDurableSourceOrDatabase()
     {
         var store = new SearchViewCache();
@@ -2137,7 +2178,8 @@ public sealed class SearchViewCacheTests
         view = store.Publish(view.Id, kernel.Apply(Enumerable.Range(1, 1000).Select(index => Input(index, false)).ToArray(), 1, false), "Live");
         long oldRevision = view.Revision;
         var pinnedFiles = (store.GetSnapshot(view.Id, oldRevision, default)?.GetFiles(null, 500))!;
-        long allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+        // Projection/publication are synchronous; exclude allocations from parallel tests.
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
         long? writtenBefore = ProcessWriteBytes();
         var publication = Stopwatch.StartNew();
         // Exercise sharing across repeated publications as the folder grows.
@@ -2149,7 +2191,7 @@ public sealed class SearchViewCacheTests
             Assert.AreEqual(start + count - 1L, view.Counters.ProjectedFileCount);
         }
         publication.Stop();
-        long allocated = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
         long? written = ProcessWriteBytes() - writtenBefore;
         Console.WriteLine($"Final 99k observations: input construction + generic folder projection + publication allocated "
             + $"{allocated / 1048576.0:F1} MiB; process write_bytes delta {written?.ToString() ?? "unavailable"}.");

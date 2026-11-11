@@ -28,6 +28,7 @@ public enum SearchPreferenceCondition
     Artist = 6,
     Album = 7,
     Username = 8,
+    ExcludeLocked = 9,
 }
 
 public readonly record struct SearchConditionFacts(
@@ -40,6 +41,12 @@ public readonly record struct SearchConditionFacts(
         ? SearchPreferenceTier.Preferred
         : SearchPreferenceTier.Other;
 
+    internal SearchConditionFacts WithLockedFolder()
+        => SatisfiedPreferredConditions?.Contains(SearchPreferenceCondition.ExcludeLocked) == true
+            ? this with { PreferredConditionsSatisfied = false,
+                SatisfiedPreferredConditions = SatisfiedPreferredConditions.Where(c => c != SearchPreferenceCondition.ExcludeLocked).ToArray() }
+            : this;
+
     public IReadOnlyList<SearchPreferenceCondition> UnsatisfiedPreferredConditions
         => (ConfiguredPreferredConditions ?? [])
             .Except(SatisfiedPreferredConditions ?? [])
@@ -51,7 +58,15 @@ public readonly record struct SearchConditionFacts(
 public sealed record ProjectedFileCandidate(
     SearchProjectionInput Input,
     SearchConditionFacts ConditionFacts,
-    SearchProjectionSortKey SortKey);
+    SearchProjectionSortKey SortKey)
+{
+    internal ProjectedFileCandidate ForLockedFolder()
+    {
+        var facts = ConditionFacts.WithLockedFolder();
+        return facts == ConditionFacts ? this : this with { ConditionFacts = facts,
+            SortKey = SortKey with { HighFlags = ResultSorter.WithoutLockedPreference(SortKey.HighFlags) } };
+    }
+}
 
 public readonly record struct SearchProjectionSortKey(
     uint HighFlags,

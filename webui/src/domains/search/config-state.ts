@@ -8,6 +8,7 @@ export interface CommonSearchConditions {
   maxBitDepth: string;
   rejectUnknownMetadata: boolean;
   strictArtist: boolean;
+  excludeLocked: boolean;
   allowedUsers: string;
   bannedUsers: string;
 }
@@ -36,6 +37,7 @@ export interface CommonSearchRanking {
   minBitDepth: string;
   maxBitDepth: string;
   strictArtist: boolean;
+  excludeLocked: boolean;
   allowedUsers: string;
   bannedUsers: string;
 }
@@ -78,6 +80,7 @@ export function createEmptySearchConditions(): SearchConditions {
       maxBitDepth: '',
       rejectUnknownMetadata: false,
       strictArtist: false,
+      excludeLocked: false,
       allowedUsers: '',
       bannedUsers: '',
     },
@@ -113,6 +116,7 @@ export function createEmptySearchRanking(): SearchRankingPreferences {
       minBitDepth: '',
       maxBitDepth: '',
       strictArtist: false,
+      excludeLocked: false,
       allowedUsers: '',
       bannedUsers: '',
     },

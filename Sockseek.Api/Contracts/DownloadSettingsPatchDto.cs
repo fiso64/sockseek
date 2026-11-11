@@ -97,7 +97,8 @@ public sealed record FileConditionsPatchDto(
     bool? ClearMaxSampleRate = null,
     bool? ClearMinBitDepth = null,
     bool? ClearMaxBitDepth = null,
-    bool? ClearLengthTolerance = null);
+    bool? ClearLengthTolerance = null,
+    bool? ExcludeLocked = null);
 
 public sealed record FolderConditionsPatchDto(
     int? MinTrackCount = null,

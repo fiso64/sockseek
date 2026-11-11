@@ -80,6 +80,11 @@ export const SEARCH_CONFIG_FIELDS = {
     conditions: { label: 'Allowed users', section: 'peers' },
     ranking: { label: 'Preferred users', section: 'peers' },
   },
+  excludeLocked: {
+    id: 'excludeLocked', modes: 'all', relationship: 'paired',
+    conditions: { label: 'Hide locked files', section: 'peers' },
+    ranking: { label: 'Prefer unlocked files', section: 'peers' },
+  },
   bannedUsers: {
     id: 'bannedUsers', modes: 'all', relationship: 'paired',
     conditions: { label: 'Banned users', section: 'peers' },
