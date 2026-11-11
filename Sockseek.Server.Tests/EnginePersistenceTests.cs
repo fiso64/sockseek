@@ -17,29 +17,42 @@ namespace Sockseek.Server.Tests;
 public sealed class EnginePersistenceTests
 {
     [TestMethod]
-    public async Task PartialDownloadRetryPreservesOutputAndAccountsOnlyNewBytesPerAttempt()
+    [DataRow(16, true)]
+    [DataRow(2, true)]
+    [DataRow(32, true)]
+    [DataRow(6, false)]
+    [DataRow(32, false)]
+    public async Task DownloadRetriesPreserveOrRestartPartialFilesAndAccountForActualBytes(int remoteSize, bool interrupted)
     {
         string root = Path.Combine(Path.GetTempPath(), "sockseek-resume-" + Guid.NewGuid().ToString("N"));
         System.IO.Directory.CreateDirectory(root);
-        byte[] content = Enumerable.Range(0, 16).Select(value => (byte)value).ToArray();
+        byte[] content = Enumerable.Range(0, remoteSize).Select(value => (byte)value).ToArray();
+        bool changedSize = remoteSize != 16;
         var offsets = new List<long>();
         var fake = global::Tests.Server.SoulseekClientProxy.Create();
         fake.DownloadHandler = async args =>
         {
             long offset = (long)args[4]!;
             offsets.Add(offset);
+            bool firstPartial = interrupted && offsets.Count == 1;
+            long announcedSize = firstPartial ? 16 : content.Length;
+            long expectedSize = (long)args[3]!;
+            if (expectedSize != announcedSize)
+                throw new TransferSizeMismatchException(expectedSize, announcedSize);
             var options = (TransferOptions)args[6]!;
             var ct = (CancellationToken)args[7]!;
             Stream output = await ((Func<Task<Stream>>)args[2]!)();
             Assert.AreEqual(offset, output.Position);
-            long end = offsets.Count == 1 ? 4 : content.Length;
+            long end = firstPartial ? 4 : content.Length;
             Transfer Snapshot(TransferStates state, long bytes) => new(TransferDirection.Download,
-                (string)args[0]!, (string)args[1]!, 1, state, content.Length, offset, bytes);
+                (string)args[0]!, (string)args[1]!, 1, state, announcedSize, offset, bytes);
             options.StateChanged?.Invoke((TransferStates.Queued, Snapshot(TransferStates.InProgress, offset)));
             options.ProgressUpdated?.Invoke((offset, Snapshot(TransferStates.InProgress, offset)));
-            await output.WriteAsync(content.AsMemory((int)offset, (int)(end - offset)), ct);
+            // A changed file's old prefix must not survive the restart.
+            await output.WriteAsync(firstPartial && changedSize ? new byte[] { 255, 255, 255, 255 }
+                : content.AsMemory((int)offset, (int)(end - offset)), ct);
             options.ProgressUpdated?.Invoke((offset, Snapshot(TransferStates.InProgress, end)));
-            if (offsets.Count == 1)
+            if (firstPartial)
             {
                 options.StateChanged?.Invoke((TransferStates.InProgress, Snapshot(TransferStates.Completed | TransferStates.Errored, end)));
                 throw new ConnectionException("Peer connection interrupted after four bytes.");
@@ -53,11 +66,11 @@ public sealed class EnginePersistenceTests
         await using var engine = new DownloadEngine(settings, manager);
         var sink = new CapturingSink();
         AttachPersistence(engine.Events, Guid.NewGuid(), sink);
-        var job = new RemoteFileJob(new PeerFileTarget(new PeerFileIdentity("Peer", @"Share\Track.bin"), content.Length, ".bin"));
+        var job = new RemoteFileJob(new PeerFileTarget(new PeerFileIdentity("Peer", @"Share\Track.bin"), 16, ".bin"));
         var download = new Sockseek.Core.Settings.DownloadSettings
         {
             Output = { ParentDir = root, NameFormat = "" },
-            Transfer = { UnknownErrorRetries = 1 },
+            Transfer = { UnknownErrorRetries = interrupted ? 1 : 0 },
         };
         try
         {
@@ -66,12 +79,15 @@ public sealed class EnginePersistenceTests
             await engine.RunAsync(CancellationToken.None);
 
             Assert.AreEqual(JobTerminalOutcome.Succeeded, job.TerminalOutcome);
-            CollectionAssert.AreEqual(new long[] { 0, 4 }, offsets);
+            CollectionAssert.AreEqual(interrupted ? changedSize ? new long[] { 0, 4, 0 } : [0, 4] : [0, 0], offsets);
             CollectionAssert.AreEqual(content, await System.IO.File.ReadAllBytesAsync(job.DownloadPath!));
             Assert.IsFalse(System.IO.File.Exists(job.DownloadPath + ".incomplete"));
             var terminal = sink.Mutations.OfType<TransferTerminalPersistenceMutation>().Single();
-            Assert.AreEqual(16, terminal.Transfer.TransferredBytes);
-            Assert.AreEqual(2, terminal.Transfer.AttemptCount);
+            Assert.AreEqual(remoteSize, job.FileSize);
+            Assert.AreEqual(remoteSize, job.BytesTransferred);
+            Assert.AreEqual(remoteSize, terminal.Transfer.TransferredBytes);
+            Assert.AreEqual(remoteSize, terminal.Transfer.TotalBytes);
+            Assert.AreEqual(offsets.Count, terminal.Transfer.AttemptCount);
             var observations = sink.Mutations.SelectMany(mutation => mutation switch
             {
                 TransferPersistenceMutation transfer => transfer.AccountingObservations ?? [],
@@ -80,8 +96,9 @@ public sealed class EnginePersistenceTests
                 _ => Array.Empty<TransferAccountingObservation>(),
             }).GroupBy(observation => observation.AttemptId)
                 .Select(attempt => attempt.Max(observation => observation.CumulativeBytes)).Order().ToArray();
-            CollectionAssert.AreEqual(new long[] { 4, 12 }, observations,
-                "The retry's resume prefix must not be counted twice by persistence.");
+            long[] expectedBytes = interrupted ? [4, changedSize ? remoteSize : remoteSize - 4] : [remoteSize];
+            if (changedSize) expectedBytes = [.. expectedBytes, 0]; // Rejected negotiation sends no file bytes.
+            CollectionAssert.AreEqual(expectedBytes.Order().ToArray(), observations);
         }
         finally { System.IO.Directory.Delete(root, recursive: true); }
     }

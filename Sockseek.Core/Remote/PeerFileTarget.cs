@@ -141,6 +141,9 @@ public sealed record PeerFileTarget
     public int? Length { get; }
     public IReadOnlyList<FileAttributeSnapshot>? Attributes { get; }
 
+    public PeerFileTarget WithSize(long size)
+        => new(Identity, size, Extension, BitRate, BitDepth, SampleRate, Length, Attributes);
+
     [JsonIgnore]
     public string Username => Identity.Username;
     [JsonIgnore]

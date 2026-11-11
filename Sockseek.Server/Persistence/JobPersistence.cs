@@ -76,7 +76,8 @@ internal sealed class JobPersistence(
             job.CreatedAtUtc,
             pending.StartedAtUtc ?? default,
             manifest,
-            job.SourceDetail));
+            job.SourceDetail,
+            (int)job.PrintOption));
     }
 
     internal void WriteResults(SearchResultsAddedChange change)

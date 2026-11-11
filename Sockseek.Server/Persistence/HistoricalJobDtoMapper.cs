@@ -102,7 +102,8 @@ internal static class HistoricalJobDtoMapper
             Stats: ServerSnapshotMapper.ToJobSummaryStats(snapshot),
             SearchDefaultProjection: searchDefinition?.DefaultProjection.ToServer(),
             SearchAggregatePresentation: searchDefinition?.AggregatePresentation,
-            SourceDetail: job.SourceDetail);
+            SourceDetail: job.SourceDetail,
+            PrintOption: ((PrintOption)job.PrintOption).ToServer());
     }
 
     // A detail/manifest read decodes once and shares that capture between summary,
@@ -129,7 +130,7 @@ internal static class HistoricalJobDtoMapper
             job.ActivityUntilUtc, Parse(job.TerminalOutcome, JobTerminalOutcome.None),
             Parse(job.SkipReason, JobSkipReason.None), Parse(job.CancellationSource, JobCancellationSource.None),
             Parse(job.FailureReason, JobFailureReason.Other), job.FailureMessage, job.FailureDetail,
-            job.ItemName, job.QueryText, null, [], PrintOption.None, false, job.SourceDetail),
+            job.ItemName, job.QueryText, null, [], (PrintOption)job.PrintOption, false, job.SourceDetail),
             payload ?? new GenericJobSnapshotPayload(job.Kind));
     }
 

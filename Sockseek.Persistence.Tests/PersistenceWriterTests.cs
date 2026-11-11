@@ -1088,6 +1088,7 @@ public sealed class PersistenceWriterTests
             OccurredAtUtc = completed,
             RegisteredAtUtc = registered,
             StartedAtUtc = jobStarted,
+            PrintOption = (int)(Sockseek.Core.PrintOption.Results | Sockseek.Core.PrintOption.Full),
         };
         TransferPersistenceMutation transfer = Transfer(runtime.RuntimeId, transferId, revision: 2) with
         {
@@ -1128,6 +1129,7 @@ public sealed class PersistenceWriterTests
         Assert.AreEqual(
             attemptStarted.ToUnixTimeMilliseconds(),
             (await verify.TransferAttempts.SingleAsync(row => row.Id == attemptId)).StartedAtUtc);
+        Assert.AreEqual(job.PrintOption, (await new JobHistoryReader(database.Factory).GetJobAsync(jobId))!.PrintOption);
         await runtimeSession.StopAsync();
     }
 

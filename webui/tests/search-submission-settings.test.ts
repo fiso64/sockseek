@@ -2,6 +2,28 @@ import { expect, it, vi } from 'vitest';
 import { DaemonApiClient } from '../src/api/client';
 import { DaemonHttpClient } from '../src/api/http';
 import { albumQuery, editableSearchDraft, emptySearchDraft, parseSearchResultMode, searchJobPath, songQuery, type SearchResultMode } from '../src/domains/search/model';
+import { showsSearchResults } from '../src/domains/jobs/presentation';
+
+it.each([
+  ['song', 'track', 'Files'], ['album', 'album', 'AlbumDirectories'],
+  ['aggregate', 'song-aggregate', 'AggregateTracks'], ['album-aggregate', 'album-aggregate', 'AggregateAlbums'],
+] as const)('opens CLI print-only %s jobs as results with their structured query', async (kind, mode, projection) => {
+  const http = new DaemonHttpClient();
+  const summary = { jobId: 'job', kind, printOption: 6 };
+  const query = { artist: 'Artist', title: 'Track', album: 'Album', length: 180 };
+  vi.spyOn(http, 'get').mockResolvedValue({ summary, payload: { kind, query } });
+  const post = vi.spyOn(http, 'post').mockResolvedValue({ kind: projection });
+  expect(showsSearchResults(summary)).toBe(true);
+  expect(showsSearchResults({ ...summary, printOption: 0 })).toBe(false);
+  expect(showsSearchResults({ ...summary, printOption: 1 })).toBe(false);
+  expect(showsSearchResults({ ...summary, printOption: 8 })).toBe(true);
+  expect(showsSearchResults({ ...summary, printOption: 16 })).toBe(true);
+  const opened = await new DaemonApiClient(http).openSearchJob(summary);
+  expect(post).toHaveBeenCalledWith('/jobs/job/search-views', { kind: projection, includeFullResults: true }, undefined);
+  expect(opened.draft).toMatchObject({ resultMode: mode, artist: 'Artist', title: mode.includes('album') ? 'Album' : 'Track' });
+  expect(showsSearchResults({ kind: 'search' })).toBe(true);
+  expect(showsSearchResults({ kind: 'extract', printOption: 6 })).toBe(false);
+});
 
 it('keeps only known result modes in search-detail URLs', () => {
   expect(searchJobPath('a/b', 'song-aggregate')).toBe('/jobs/a%2Fb?results=song-aggregate');

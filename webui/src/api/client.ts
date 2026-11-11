@@ -193,13 +193,18 @@ export class DaemonApiClient {
       ? (payload.aggregatePresentation ? 'song-aggregate' : 'track')
       : payload?.defaultProjection === 'Album'
         ? (payload.aggregatePresentation ? 'album-aggregate' : 'album')
-      : payload?.defaultProjection === 'GenericFile' ? 'generic' : null;
+      : payload?.defaultProjection === 'GenericFile' ? 'generic'
+      : detail.payload?.kind === 'song' ? 'track'
+      : detail.payload?.kind === 'album' ? 'album'
+      : detail.payload?.kind === 'aggregate' ? 'song-aggregate'
+      : detail.payload?.kind === 'album-aggregate' ? 'album-aggregate' : null;
     const mode = defaultMode && requestedMode
       && searchModeFamily(requestedMode) === searchModeFamily(defaultMode)
       ? requestedMode : defaultMode;
     const view = await this.createSearchView(job.jobId, {
       kind: mode ? searchViewKind(mode) : undefined,
-      includeFullResults: payload?.includeFullResults ?? false,
+      // ServerPrintOption.Full: print-only execution jobs have no search payload.
+      includeFullResults: payload?.includeFullResults ?? Boolean((detail.summary?.printOption ?? job.printOption ?? 0) & 4),
     }, signal);
     return { job: detail.summary, view, draft: searchDraftFromDetail(detail, view.kind) };
   }
@@ -490,8 +495,10 @@ function searchDraftFromDetail(
   kind: SearchViewSummaryDto['kind'],
 ): SearchDraft {
   const payload = detail.payload?.kind === 'search' ? detail.payload : null;
-  const song = payload?.songQuery;
-  const album = payload?.albumQuery;
+  const song = payload?.songQuery ?? (detail.payload?.kind === 'song' || detail.payload?.kind === 'aggregate'
+    ? detail.payload.query : null);
+  const album = payload?.albumQuery ?? (detail.payload?.kind === 'album' || detail.payload?.kind === 'album-aggregate'
+    ? detail.payload.query : null);
   const aggregate = kind === 'AggregateTracks' || kind === 'AggregateAlbums';
   const split = aggregate
     ? Boolean(song?.title || album?.album || album?.searchHint)

@@ -14,7 +14,9 @@ public sealed class LeafDownloadFailureTests
 {
     [TestMethod]
     [DataRow("transport cancellation")]
-    [DataRow("size mismatch")]
+    [DataRow("zero size")]
+    [DataRow("negative size")]
+    [DataRow("changing size")]
     [DataRow("wrapped missing file")]
     [DataRow("permission denied")]
     public async Task PermanentTransferFailureDoesNotRetryAndFailsOnlyItsRoot(string failureKind)
@@ -28,11 +30,14 @@ public sealed class LeafDownloadFailureTests
             Response(failedTarget),
             Response(completedTarget),
         ]);
+        int sizeChanges = 0;
         client.BeforeDownloadStartsAsync = (username, _, _) =>
             username == failedTarget.Username
                 ? Task.FromException(failureKind switch
                 {
-                    "size mismatch" => new TransferSizeMismatchException(16, 32),
+                    "zero size" => new TransferSizeMismatchException(16, 0),
+                    "negative size" => new TransferSizeMismatchException(16, -1),
+                    "changing size" => new TransferSizeMismatchException(16, 16 + 16 * ++sizeChanges),
                     "wrapped missing file" => new SoulseekClientException("cannot open file", new FileNotFoundException()),
                     "permission denied" => new UnauthorizedAccessException(),
                     _ => new OperationCanceledException("transport ended early"),
@@ -67,7 +72,8 @@ public sealed class LeafDownloadFailureTests
             Assert.IsTrue(File.Exists(completed.DownloadPath));
             Assert.AreEqual(16, completed.FileSize, "Negotiated size must reach the job even when the target size was unknown.");
             Assert.AreEqual(16, reportedSize);
-            Assert.AreEqual(2, client.DownloadCallCount, "Only one attempt per file; permanent failures must not be retried.");
+            Assert.AreEqual(failureKind == "changing size" ? 3 : 2, client.DownloadCallCount);
+            Assert.IsNull(failed.DownloadPath);
         }
         finally
         {

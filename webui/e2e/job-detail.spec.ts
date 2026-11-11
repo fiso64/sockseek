@@ -4,6 +4,21 @@ import type { Page } from '@playwright/test';
 import { stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
+test('opens a CLI print-results run as searchable results on navigation and reload', async ({ page }) => {
+  const response = await page.request.post('/api/jobs/downloads/song', { data: {
+    songQuery: { title: 'Fixture song' }, options: { downloadSettings: { printOption: 6 } },
+  } satisfies Schema<'SubmitSongJobRequestDto'> });
+  expect(response.status()).toBe(202);
+  const job = await response.json() as Schema<'JobSummaryDto'>;
+  await page.goto(`/jobs/${job.jobId}`);
+  await expect(page.locator('.file-item-card')).toHaveCount(1);
+  await expect(page.locator('.automatic-job-detail')).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('.file-item-card')).toHaveCount(1);
+  await page.locator('.file-item-card input[type=checkbox]').check();
+  await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
+});
+
 // Record browser collection reads separately from direct API assertions.
 function observeUnfilteredChildReads(page: Page): string[] {
   const parents: string[] = [];

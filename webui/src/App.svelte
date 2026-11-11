@@ -4,7 +4,7 @@
   import AppShell from './components/AppShell.svelte';
   import JobsList from './domains/jobs/JobsList.svelte';
   import { canDeleteSubmission, requireDeleted } from './domains/jobs/deletion';
-  import { completedExtract } from './domains/jobs/presentation';
+  import { completedExtract, showsSearchResults } from './domains/jobs/presentation';
   import { JobListController, type JobsTab } from './domains/jobs/job-list.svelte';
   import { JobRouteReader } from './domains/jobs/route-reader';
   import Modal from './components/Modal.svelte';
@@ -397,7 +397,7 @@
       return;
     }
     jobsTab = job.kind === 'search' ? 'searches' : 'downloads';
-    if (job.kind !== 'search') {
+    if (!showsSearchResults(job)) {
       automaticJobId = job.jobId;
       automaticInitialDetail = detail ?? null;
       openingJobKey = null;

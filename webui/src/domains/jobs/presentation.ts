@@ -12,6 +12,13 @@ export function completedExtract(job: JobSummaryDto): boolean {
     && job.terminalOutcome === 'Succeeded' && Boolean(job.resultJobId);
 }
 
+/** CLI result printing runs discovery without selecting a download target. */
+export function showsSearchResults(job: JobSummaryDto): boolean {
+  // ServerPrintOption.Results | Link | Json, matching DownloadSettings.PrintResults.
+  return job.kind === 'search' || Boolean((job.printOption ?? 0) & (2 | 8 | 16))
+    && ['song', 'album', 'aggregate', 'album-aggregate'].includes(job.kind ?? '');
+}
+
 /** Presentation only: extraction and its executable result remain distinct jobs. */
 export function presentJob(root: JobSummaryDto, jobs: ReadonlyMap<string, JobSummaryDto>): PresentedJob {
   const seen = new Set<string>();

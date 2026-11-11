@@ -24,11 +24,34 @@ namespace Sockseek.Persistence.Tests;
 public sealed class SqliteInitializationTests
 {
     [TestMethod]
+    public async Task PrintModeUpgradeRecoversAcceptedIntent()
+    {
+        await using var database = new TemporaryDatabase();
+        await using var context = await database.Factory.CreateDbContextAsync();
+        await context.Database.MigrateAsync();
+        Guid runtime = Guid.NewGuid(), submission = Guid.NewGuid();
+        context.RuntimeSessions.Add(new RuntimeSessionEntity { Id = runtime, Version = "migration" });
+        context.Submissions.Add(new SubmissionEntity { Id = submission, SpecificationSchemaVersion = 5, Revision = 1,
+            Specification = new() { Json = """{"effectiveSettingsJson":"{\"printOption\":6}"}""" } });
+        var job = JobRow(Guid.NewGuid(), runtime, 1, "Terminal", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        job.SubmissionId = submission;
+        context.Jobs.Add(job);
+        context.Jobs.Add(JobRow(Guid.NewGuid(), runtime, 2, "Terminal", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+        await context.GetService<IMigrator>().MigrateAsync("20261107120000_RemoveArchives");
+        await context.Database.MigrateAsync();
+        var rows = await context.Jobs.OrderBy(row => row.DisplayId).ToArrayAsync();
+        Assert.AreEqual(6, rows[0].PrintOption);
+        Assert.AreEqual(0, rows[1].PrintOption);
+    }
+
+    [TestMethod]
     public async Task ArchiveUpgradeDeletesJobsButPreservesTransfersAndReruns()
     {
         await using var database = new TemporaryDatabase();
         await using var context = await database.Factory.CreateDbContextAsync();
-        await context.GetService<IMigrator>().MigrateAsync("20261106230000_DownloadPresentationGroups");
+        await context.Database.MigrateAsync();
         Guid runtime = Guid.NewGuid(), deleted = Guid.NewGuid(), rerun = Guid.NewGuid();
         context.RuntimeSessions.Add(new RuntimeSessionEntity { Id = runtime, Version = "migration" });
         context.Submissions.AddRange(
@@ -39,6 +62,7 @@ public sealed class SqliteInitializationTests
         job.SubmissionId = deleted;
         context.Jobs.Add(job);
         await context.SaveChangesAsync();
+        await context.GetService<IMigrator>().MigrateAsync("20261106230000_DownloadPresentationGroups");
         // Seed the previous schema directly; current entities deliberately have no archive field.
         await context.Database.ExecuteSqlInterpolatedAsync($"UPDATE submissions SET archived_at_utc = 100 WHERE id = {deleted}");
         await context.Database.ExecuteSqlInterpolatedAsync($"""

@@ -464,6 +464,10 @@ namespace Sockseek.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("skip_reason");
 
+                    b.Property<int>("PrintOption")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("print_option");
+
                     b.Property<string>("SourceDetail")
                         .HasMaxLength(128)
                         .HasColumnType("TEXT")

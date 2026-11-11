@@ -27,6 +27,10 @@ public sealed class HistoricalSongPayloadTests
         Assert.AreEqual(128L, selected.ResolvedSize);
         Assert.AreEqual(24, selected.ResolvedAttributes!.Single().Value);
 
+        var printJob = Job("Song", song) with { PrintOption = (int)(PrintOption.Results | PrintOption.Full) };
+        Assert.AreEqual(ServerPrintOption.Results | ServerPrintOption.Full, HistoricalJobDtoMapper.ToSummary(printJob).PrintOption);
+        Assert.AreEqual(PrintOption.Results | PrintOption.Full, HistoricalJobDtoMapper.ReadSnapshot(printJob).PrintOption);
+
         var unresolved = Read(song);
         Assert.IsNull(unresolved.ResolvedUsername);
         Assert.IsNull(unresolved.ResolvedHasFreeUploadSlot);

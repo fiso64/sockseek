@@ -197,6 +197,7 @@ public sealed class ExactPeerFileTransferRunner
             events.RaiseDownloadStarted(transferId, owner, target, outputPath);
 
             int maxRetries = checked(transfer.UnknownErrorRetries + 1);
+            bool correctedSize = false;
             while (true)
             {
                 try
@@ -211,7 +212,7 @@ public sealed class ExactPeerFileTransferRunner
                         target,
                         outputPath,
                         incompleteOutputPath);
-                    await staleDownloads.WatchPeerTransferAsync(
+                    var completed = await staleDownloads.WatchPeerTransferAsync(
                         activeDownload,
                         maxStaleTimeMs,
                         async activity =>
@@ -231,6 +232,11 @@ public sealed class ExactPeerFileTransferRunner
                                 staleActivity = null;
                             }
                         });
+                    if (completed.Size is { } completedSize && completedSize != target.Size)
+                    {
+                        target = target.WithSize(completedSize);
+                        owner.FileSize = totalBytes = completedSize;
+                    }
                     events.RaiseTransferAttemptCompleted(
                         transferId,
                         currentAttemptId,
@@ -242,7 +248,11 @@ public sealed class ExactPeerFileTransferRunner
                 }
                 catch (Exception e) when (e is not OperationCanceledException)
                 {
-                    bool canRetry = IsRetryableTransferFailure(e)
+                    var sizeChange = e as TransferSizeMismatchException;
+                    bool correctSize = !correctedSize && sizeChange is { RemoteSize: > 0 }
+                        && sizeChange.RemoteSize != target.Size;
+                    if (correctSize) maxRetries = checked(maxRetries + 1);
+                    bool canRetry = correctSize || IsRetryableTransferFailure(e)
                         && attemptCount < maxRetries;
 
                     DownloadLogMessages.TransferAttemptFailed(
@@ -264,6 +274,26 @@ public sealed class ExactPeerFileTransferRunner
 
                     if (!canRetry)
                         throw;
+
+                    if (correctSize)
+                    {
+                        // Like Nicotine+, treat a positive negotiated size as newer
+                        // than the search/browse listing, and discard partial data:
+                        // resuming it could mix two versions of the remote file.
+                        // Soulseek.NET throws before opening the stream, so this
+                        // needs a new request. Allow one correction independently
+                        // of network retries; a repeatedly changing file must fail.
+                        // TODO [V4]: Soulseek.NET also rejects malformed zero sizes
+                        // from some peers. Nicotine retains the known size in that
+                        // case; we need upstream negotiation support to do so safely.
+                        outputStream.SetLength(0);
+                        outputStream.Position = 0;
+                        target = target.WithSize(sizeChange!.RemoteSize);
+                        owner.FileSize = totalBytes = sizeChange.RemoteSize;
+                        owner.BytesTransferred = 0;
+                        lastProgressPublished = long.MinValue;
+                        correctedSize = true;
+                    }
 
                     if (!clientManager.IsConnectedAndLoggedIn)
                         await clientManager.WaitUntilReadyAsync(downloadCts.Token);

@@ -800,6 +800,7 @@ public sealed class PersistenceWriter(
         entity.ItemName = mutation.ItemName;
         entity.QueryText = mutation.QueryText;
         entity.SourceDetail = Limit(mutation.SourceDetail, 128);
+        entity.PrintOption = mutation.PrintOption;
         entity.UpdatedAtUtc = Math.Max(entity.UpdatedAtUtc, occurredAt);
         if (entity.StartedAtUtc == null && mutation.LifecycleState != "Pending")
             entity.StartedAtUtc = mutation.StartedAtUtc?.ToUniversalTime().ToUnixTimeMilliseconds()
