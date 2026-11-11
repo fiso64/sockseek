@@ -34,6 +34,7 @@ public sealed class DaemonRuntime
     public DaemonSoulseekRuntime? SoulseekRuntime { get; private set; }
     public SoulseekClientManager? SoulseekSession { get; private set; }
     public PeerBrowseService? PeerBrowses { get; private set; }
+    public UserPresenceService? UserPresence { get; private set; }
     public UserProfileService? UserProfiles { get; private set; }
 
     internal DaemonRuntime(ServerOptions options, EngineSettings engineSettings,
@@ -89,12 +90,14 @@ public sealed class DaemonRuntime
         PeerBrowseService? peerBrowses = null;
         PeerBrowseArtifactStore? peerBrowseStore = null;
         UserProfileService? userProfiles = null;
+        UserPresenceService? userPresence = null;
         void OnClientStateChanged(SoulseekClientStates state)
         {
             StateStore.UpdateDaemonRuntime(
                 ToSoulseekClientStatusDto(state),
                 restartCount());
             userProfiles?.OnSoulseekStateChanged(state);
+            userPresence?.OnSoulseekStateChanged(state);
             peerBrowses?.OnSoulseekStateChanged(state);
         }
         void OnSharingStateChanged(
@@ -161,6 +164,10 @@ public sealed class DaemonRuntime
             OnUploadChanged(transfer);
         try
         {
+            userPresence = new UserPresenceService(() => soulseek.ClientManager.Client,
+                soulseek.EnsureStartedAsync, loggerFactory.CreateLogger<UserPresenceService>());
+            userPresence.OnSoulseekStateChanged(sharing.ClientManager.State);
+            UserPresence = userPresence;
             userProfiles = new UserProfileService(
                 new SoulseekUserProfileTransport(() => soulseek.ClientManager.Client),
                 soulseek.EnsureStartedAsync,
@@ -201,6 +208,9 @@ public sealed class DaemonRuntime
         }
         finally
         {
+            UserPresence = null;
+            if (userPresence is not null) await userPresence.DisposeAsync();
+            userPresence = null;
             UserProfiles = null;
             if (userProfiles is not null)
                 await userProfiles.DisposeAsync();

@@ -167,12 +167,12 @@ public class OpenApiContractTests
         else if (resourceType == nameof(UserProfileDto))
         {
             var unavailable = new UserProfileSectionDto(ResourceSectionState.Unavailable, "offline");
-            resource = new UserProfileDto("ExactPeer", false, false, UserProfilePresence.Unknown,
-                unavailable, unavailable, unavailable, unavailable,
+            resource = new UserProfileDto("ExactPeer", false, false,
+                unavailable, unavailable, unavailable,
                 null, null, null, null, null, null, null, null, null, now);
             unknownFields = ["description", "sharedFileCount", "sharedDirectoryCount", "averageUploadSpeed",
                 "uploadCount", "uploadSlots", "queueLength", "hasFreeUploadSlot", "picture"];
-            requiredFields = ["username", "uploadAccessBlocked", "privateMessagesBlocked", "presence", "observedAt"];
+            requiredFields = ["username", "uploadAccessBlocked", "privateMessagesBlocked", "observedAt"];
         }
         else
         {

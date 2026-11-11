@@ -2,7 +2,7 @@ import { test, expect, deferInitialDaemonSnapshot } from './fixtures';
 import type { Schema } from '../src/api/types';
 import type { Request, WebSocketRoute } from '@playwright/test';
 
-test('shows observed private-chat presence without loading the full profile', async ({ page }) => {
+test('keeps private-chat presence live without loading the full profile', async ({ page, daemon }) => {
   const seeded = await page.request.post('/api/chat/private-messages', {
     data: { username: 'Presence Peer', text: 'Hello', messageId: crypto.randomUUID() },
   });
@@ -11,11 +11,11 @@ test('shows observed private-chat presence without loading the full profile', as
   page.on('request', request => {
     if (/\/api\/users\/[^/]+\/profile$/.test(new URL(request.url()).pathname)) profileRequests++;
   });
-  const observed = page.waitForResponse(response =>
-    /\/api\/users\/Presence%20Peer\/presence$/.test(new URL(response.url()).pathname));
   await page.goto('/chat/users/Presence%20Peer');
-  expect((await observed).ok()).toBeTruthy();
-  await expect(page.locator('.chat-thread-identity small')).toContainText(/online · observed (just now|\d+ min ago)/);
+  const presence = page.locator('.chat-thread-identity [data-presence]');
+  await expect(presence).toHaveAttribute('data-presence', 'online');
+  await daemon.command('presence-away');
+  await expect(presence).toHaveAttribute('data-presence', 'away');
   await expect(page.locator('.chat-messages')).toContainText('Hello');
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
@@ -40,6 +40,8 @@ test('shows observed private-chat presence without loading the full profile', as
     await composer.clear();
     expect(await composer.evaluate(node => node.getBoundingClientRect().height)).toBe(38);
   }
+  await page.goto('/chat/users/New%20Peer');
+  await expect(presence).toHaveAttribute('data-presence', 'online');
   expect(profileRequests).toBe(0);
 });
 
@@ -157,6 +159,8 @@ test('preserves reading position and catches up across a multi-page connection o
   await page.goto('/chat/users/Reconnect%20Peer');
   const status = page.locator('.connection-status').locator('strong').last();
   await expect(status).toContainText('Connected');
+  const presence = page.locator('.chat-thread-identity [data-presence]');
+  await expect(presence).toHaveAttribute('data-presence', 'online');
   const messages = page.locator('.chat-messages');
   await expect(messages).toContainText('Reading line 59');
   await messages.evaluate(async element => {
@@ -167,6 +171,7 @@ test('preserves reading position and catches up across a multi-page connection o
   try {
     await socket!.close({ code: 1012, reason: 'E2E interruption' });
     await expect(status).toHaveText('Daemon reconnecting');
+    await expect(presence).toHaveAttribute('data-presence', 'disconnected');
     // Cross one history page, not a load test. Recovery must not silently skip
     // the first messages received while the browser's live transport was down.
     await daemon.command('seed-chat-outage');
@@ -176,6 +181,7 @@ test('preserves reading position and catches up across a multi-page connection o
   }
   await page.clock.fastForward(2_000); // Resume SignalR without waiting for its retry delay.
   await expect(status).toContainText('Connected');
+  await expect(presence).toHaveAttribute('data-presence', 'online');
   await expect(messages.getByText('Offline 502', { exact: true })).toBeAttached();
   await expect(messages.getByText('Offline 000', { exact: true })).toBeAttached();
   await expect(messages.locator('[data-message-id]')).toHaveCount(504);

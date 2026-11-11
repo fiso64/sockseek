@@ -29,6 +29,15 @@ public class SoulseekClientProxy : DispatchProxy
     public BrowseResponse SharedFiles { get; set; } = new([]);
     public Func<string, BrowseResponse>? BrowseForPeer { get; set; }
     public Func<string, CancellationToken, Task<BrowseResponse>>? BrowseAsyncForPeer { get; set; }
+    public int WatchCount { get; private set; }
+    public int UnwatchCount { get; private set; }
+    public Func<string, CancellationToken, Task<UserData>>? Watch { get; set; }
+    public Func<string, Task>? Unwatch { get; set; }
+    public void RaiseUserStatus(string username, UserPresence presence)
+    {
+        if (handlers.GetValueOrDefault(nameof(ISoulseekClient.UserStatusChanged)) is EventHandler<UserStatus> handler)
+            handler(Client, new UserStatus(username, presence, false));
+    }
     public UserInfo ProfileInfo { get; set; } = new("", 0, 0, false);
     public UserStatus ProfileStatus { get; set; } = new("peer", UserPresence.Online, false);
     public UserStatistics ProfileStatistics { get; set; } = new("peer", 0, 0, 0, 0);
@@ -122,6 +131,8 @@ public class SoulseekClientProxy : DispatchProxy
             "BrowseAsync" => Task.FromResult(BrowseForPeer?.Invoke((string)args[0]!) ?? SharedFiles),
             "GetUserInfoAsync" => Task.FromResult(ProfileInfoForPeer?.Invoke((string)args[0]!) ?? ProfileInfo),
             "GetUserStatusAsync" => Task.FromResult(ProfileStatus),
+            "WatchUserAsync" => WatchAsync((string)args[0]!, args.OfType<CancellationToken>().LastOrDefault()),
+            "UnwatchUserAsync" => UnwatchAsync((string)args[0]!),
             "GetUserStatisticsAsync" => Task.FromResult(ProfileStatisticsForPeer?.Invoke((string)args[0]!) ?? ProfileStatistics),
             "JoinRoomAsync" => JoinRoom((bool)args[1]!),
             "LeaveRoomAsync" => RoomLeave?.Invoke() ?? Task.CompletedTask,
@@ -131,6 +142,17 @@ public class SoulseekClientProxy : DispatchProxy
             "Dispose" => null,
             _ => DefaultReturn(targetMethod.ReturnType),
         };
+    }
+
+    private Task<UserData> WatchAsync(string username, CancellationToken ct)
+    {
+        WatchCount++;
+        return Watch?.Invoke(username, ct) ?? Task.FromResult(new UserData(username, ProfileStatus.Presence, 0, 0, 0, 0, ""));
+    }
+    private Task UnwatchAsync(string username)
+    {
+        UnwatchCount++;
+        return Unwatch?.Invoke(username) ?? Task.CompletedTask;
     }
 
     private async Task<Search> SearchAsync(object?[] args)

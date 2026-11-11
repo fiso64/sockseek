@@ -13,6 +13,8 @@
   {#if name === 'search-split' || name === 'search-merge'}
     <rect x="3.5" y="6.5" width="17" height="11" rx="2" />
     {#if name === 'search-split'}<path d="M12 6.5v11" />{/if}
+  {:else if name === 'refresh'}
+    <path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.5-1L20 9M4 15l2.4 3A7 7 0 0 0 17.9 17" />
   {:else if name === 'help'}
     <circle cx="12" cy="12" r="9" />
     <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.8-2.5 2-2.5 4" />

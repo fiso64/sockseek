@@ -82,6 +82,13 @@ test('renders populated and partial peer profiles without inventing missing fact
   await expect(navigation.getByRole('button', { name: 'Users', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(card).toBeVisible();
 
+  await expect(card.locator('[data-presence]')).toHaveAttribute('data-presence', 'online');
+  expect(profileReads).toEqual(['/api/users/fixture-peer/profile']);
+  const refreshed = page.waitForResponse(response => response.url().includes('/api/users/fixture-peer/profile?refresh=true'));
+  await card.getByRole('button', { name: 'Refresh', exact: true }).click();
+  expect((await refreshed).ok()).toBeTruthy();
+  expect(profileReads).toHaveLength(2);
+
   // Actual peer-section failures, not fabricated HTTP DTOs. A successful zero
   // must remain zero/false, whereas an omitted unknown must not become either.
   const infoResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/users/info-unavailable-peer/profile');
@@ -115,7 +122,7 @@ test('renders populated and partial peer profiles without inventing missing fact
   await expect(card.locator('.user-profile-stats strong')).toHaveText(['—', '—', '—', '—']);
   await expect(card.getByLabel('Profile section availability')).toContainText('Statistics unavailable');
   expect(profileReads).toEqual([
-    '/api/users/fixture-peer/profile', '/api/users/info-unavailable-peer/profile',
+    '/api/users/fixture-peer/profile', '/api/users/fixture-peer/profile', '/api/users/info-unavailable-peer/profile',
     '/api/users/statistics-unavailable-peer/profile',
   ]);
   await page.setViewportSize({ width: 390, height: 900 });
@@ -368,8 +375,10 @@ test('retries a failed profile request and opens a conversation with that exact 
     await page.getByRole('button', { name: 'Retry', exact: true }).click();
     await expect(page.getByRole('heading', { name: username, exact: true })).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(page.locator('[data-presence]')).toHaveAttribute('data-presence', 'checking');
   } finally { releaseSnapshot(); }
   await expect(page.getByLabel('Connection status')).toContainText('Connected');
+  await expect(page.locator('[data-presence]')).toHaveAttribute('data-presence', 'online');
   await page.getByRole('button', { name: 'Message', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveAttribute('placeholder', `Message ${username}…`);
   await expect(page).toHaveURL(new RegExp(`/chat/users/${encodeURIComponent(username)}$`));

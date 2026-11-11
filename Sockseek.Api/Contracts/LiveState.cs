@@ -5,7 +5,7 @@ namespace Sockseek.Api;
 /// <summary>The live replication protocol implemented by this API.</summary>
 public static class LiveProtocol
 {
-    public const int Version = 18;
+    public const int Version = 19;
     public const string HubPath = "api/events";
     public const string StateUpdateBatchMethod = "stateUpdateBatch";
     public const string SubscribeAllMethod = nameof(LiveClientInvocation.SubscribeAll);
@@ -18,6 +18,7 @@ public static class LiveProtocol
     public const string UnsubscribeChatMethod = nameof(LiveClientInvocation.UnsubscribeChat);
     public const string SubscribeUserBrowseMethod = nameof(LiveClientInvocation.SubscribeUserBrowse);
     public const string UnsubscribeUserBrowseMethod = nameof(LiveClientInvocation.UnsubscribeUserBrowse);
+    public const string ObserveUserPresenceMethod = nameof(LiveClientInvocation.ObserveUserPresence);
     public const string ObserveSearchViewMethod = nameof(LiveClientInvocation.ObserveSearchView);
     public const string ObserveTransferTimelineMethod = nameof(LiveClientInvocation.ObserveTransferTimeline);
 }
@@ -80,6 +81,7 @@ public enum LiveClientInvocation
     UnsubscribeChat,
     SubscribeUserBrowse,
     UnsubscribeUserBrowse,
+    ObserveUserPresence,
     ObserveSearchView,
     ObserveTransferTimeline,
     ObserveJobs,

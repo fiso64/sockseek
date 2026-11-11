@@ -134,7 +134,7 @@ public sealed class ChatApiTests
             UserProfileDto messageBlockedProfile = await api.GetUserProfileAsync("Alice");
             Assert.IsTrue(messageBlockedProfile.PrivateMessagesBlocked);
             Assert.IsFalse(messageBlockedProfile.UploadAccessBlocked);
-            Assert.AreEqual(ResourceSectionState.Available, messageBlockedProfile.Status.State,
+            Assert.AreEqual(ResourceSectionState.Available, messageBlockedProfile.Info.State,
                 "Restrictions annotate profiles; they do not hide outbound profile data.");
 
             UserRestrictionsDto uploadBlocked = await api.SetUserRestrictionAsync(
@@ -147,7 +147,7 @@ public sealed class ChatApiTests
             UserProfileDto fullyBlockedProfile = await api.GetUserProfileAsync("Alice");
             Assert.IsTrue(fullyBlockedProfile.UploadAccessBlocked);
             Assert.IsTrue(fullyBlockedProfile.PrivateMessagesBlocked);
-            Assert.AreEqual(ResourceSectionState.Available, fullyBlockedProfile.Status.State);
+            Assert.AreEqual(ResourceSectionState.Available, fullyBlockedProfile.Info.State);
 
             await api.SetUserRestrictionAsync(
                 "Alice",

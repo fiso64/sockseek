@@ -59,7 +59,6 @@ public sealed class UserProfileServiceTests
         UserProfileDto profile = await owner;
 
         Assert.AreEqual("Peer", profile.Username);
-        Assert.AreEqual(1, transport.StatusCalls);
         Assert.AreEqual(1, transport.InfoCalls);
         Assert.AreEqual(1, transport.StatisticsCalls);
         Assert.AreEqual(1, startupCalls);
@@ -72,8 +71,6 @@ public sealed class UserProfileServiceTests
     {
         var transport = new DelegateTransport
         {
-            Status = (_, _) => Task.FromResult(new UserStatus(
-                "Peer", Soulseek.UserPresence.Away, false)),
             Info = (_, _) => Task.FromResult(new UserInfo(
                 "hello\r\nworld\u202e",
                 uploadSlots: -1,
@@ -92,8 +89,6 @@ public sealed class UserProfileServiceTests
 
         UserProfileDto profile = await service.GetAsync("Peer");
 
-        Assert.AreEqual(UserProfilePresence.Away, profile.Presence);
-        Assert.AreEqual(ResourceSectionState.Available, profile.Status.State);
         Assert.AreEqual(ResourceSectionState.Available, profile.Info.State);
         Assert.AreEqual(ResourceSectionState.TimedOut, profile.Statistics.State);
         Assert.AreEqual(ResourceSectionState.Unavailable, profile.PictureSection.State);
@@ -106,7 +101,7 @@ public sealed class UserProfileServiceTests
     }
 
     [TestMethod]
-    public async Task FreshnessRefreshAndExactIdentityHaveDeterministicCacheBehavior()
+    public async Task ProfileDetailsRemainCachedUntilExplicitRefreshAndKeepExactIdentity()
     {
         DateTimeOffset now = DateTimeOffset.Parse("2026-08-12T12:00:00Z");
         var transport = new DelegateTransport();
@@ -115,85 +110,17 @@ public sealed class UserProfileServiceTests
         UserProfileDto first = await service.GetAsync("Peer");
         UserProfileDto reused = await service.GetAsync("Peer");
         Assert.AreEqual(first.ObservedAt, reused.ObservedAt);
-        Assert.AreEqual(1, transport.StatusCalls);
+        Assert.AreEqual(1, transport.InfoCalls);
 
         await service.GetAsync("Peer", refresh: true);
-        Assert.AreEqual(2, transport.StatusCalls);
+        Assert.AreEqual(2, transport.InfoCalls);
 
-        now += UserProfileService.Freshness;
+        now += TimeSpan.FromDays(1);
         await service.GetAsync("Peer");
-        Assert.AreEqual(3, transport.StatusCalls, "Freshness must be strict at exactly 30 seconds.");
+        Assert.AreEqual(2, transport.InfoCalls);
 
         await service.GetAsync("peer");
-        Assert.AreEqual(4, transport.StatusCalls, "Soulseek identities must remain case-sensitive.");
-    }
-
-    [TestMethod]
-    public async Task PresenceObservationFetchesOnlyStatusAndRetainsExactPeerIdentity()
-    {
-        DateTimeOffset now = DateTimeOffset.Parse("2026-08-12T12:00:00Z");
-        var transport = new DelegateTransport
-        {
-            Status = (username, _) => Task.FromResult(new UserStatus(
-                username, Soulseek.UserPresence.Away, false)),
-        };
-        await using var service = CreateService(transport, utcNow: () => now);
-
-        UserPresenceObservationDto presence = await service.ObservePresenceAsync("Peer");
-
-        Assert.AreEqual("Peer", presence.Username);
-        Assert.AreEqual(UserProfilePresence.Away, presence.Presence);
-        Assert.AreEqual(ResourceSectionState.Available, presence.Status.State);
-        Assert.AreEqual(now, presence.ObservedAtUtc);
-        Assert.AreEqual(1, transport.StatusCalls);
-        Assert.AreEqual(0, transport.InfoCalls);
-        Assert.AreEqual(0, transport.StatisticsCalls);
-
-        now = now.AddMinutes(1);
-        presence = await service.ObservePresenceAsync("peer");
-        Assert.AreEqual("peer", presence.Username);
-        Assert.AreEqual(now, presence.ObservedAtUtc);
-        Assert.AreEqual(2, transport.StatusCalls);
-    }
-
-    [TestMethod]
-    public async Task FailedPresenceObservationDoesNotInventAnAgeOrFetchProfileSections()
-    {
-        var transport = new DelegateTransport
-        {
-            Status = (_, _) => throw new InvalidOperationException("status unavailable"),
-        };
-        await using var service = CreateService(transport);
-
-        UserPresenceObservationDto presence = await service.ObservePresenceAsync("Peer");
-
-        Assert.AreEqual(UserProfilePresence.Unknown, presence.Presence);
-        Assert.AreEqual(ResourceSectionState.Unavailable, presence.Status.State);
-        Assert.IsNull(presence.ObservedAtUtc);
-        Assert.AreEqual(0, transport.InfoCalls);
-        Assert.AreEqual(0, transport.StatisticsCalls);
-    }
-
-    [TestMethod]
-    public async Task DisposalDrainsAnActivePresenceObservationBeforeClosingNetworkConcurrency()
-    {
-        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var transport = new DelegateTransport
-        {
-            Status = async (_, cancellationToken) =>
-            {
-                started.TrySetResult();
-                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-                throw new InvalidOperationException("The cancelled status request resumed unexpectedly.");
-            },
-        };
-        var service = CreateService(transport);
-        Task<UserPresenceObservationDto> observation = service.ObservePresenceAsync("Peer");
-        await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
-
-        await service.DisposeAsync();
-
-        await Assert.ThrowsExactlyAsync<TaskCanceledException>(() => observation);
+        Assert.AreEqual(3, transport.InfoCalls, "Soulseek identities must remain case-sensitive.");
     }
 
     [TestMethod]
@@ -208,8 +135,6 @@ public sealed class UserProfileServiceTests
 
         await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
             service.GetAsync("bad\u0001name"));
-        await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
-            service.ObservePresenceAsync("bad\u0001name"));
         Assert.AreEqual(0, startupCalls);
     }
 
@@ -243,7 +168,124 @@ public sealed class UserProfileServiceTests
 
         Assert.IsFalse(active.IsCompleted);
         transport.Release.TrySetResult();
-        Assert.AreEqual(UserProfilePresence.Online, (await active).Presence);
+        Assert.AreEqual(ResourceSectionState.Available, (await active).Info.State);
+    }
+
+    [TestMethod]
+    public async Task PresenceSharesExactUserWatchesAndRestoresOnlyActiveReadersAfterReconnect()
+    {
+        var peer = global::Tests.Server.SoulseekClientProxy.Create();
+        await using var service = new UserPresenceService(() => peer.Client, _ => Task.CompletedTask,
+            NullLogger<UserPresenceService>.Instance);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await using var first = service.ObserveAsync("Peer", deadline.Token).GetAsyncEnumerator();
+        await NextPresence(first, UserPresenceState.Online);
+        await using var second = service.ObserveAsync("Peer", deadline.Token).GetAsyncEnumerator();
+        await NextPresence(second, UserPresenceState.Online);
+        Assert.AreEqual(UserPresenceState.Online, (await service.GetAsync("Peer", deadline.Token)).State);
+        Assert.AreEqual(1, peer.WatchCount);
+        await using var other = service.ObserveAsync("peer", deadline.Token).GetAsyncEnumerator();
+        await NextPresence(other, UserPresenceState.Online);
+        Assert.AreEqual(2, peer.WatchCount);
+        peer.RaiseUserStatus("Peer", UserPresence.Away);
+        await NextPresence(first, UserPresenceState.Away);
+        await NextPresence(second, UserPresenceState.Away);
+        Assert.AreEqual(UserPresenceState.Online, (await service.GetAsync("peer", deadline.Token)).State);
+        await first.DisposeAsync();
+        Assert.AreEqual(0, peer.UnwatchCount);
+        await other.DisposeAsync();
+        Assert.AreEqual(1, peer.UnwatchCount);
+
+        peer.ClientState = SoulseekClientStates.Disconnected;
+        service.OnSoulseekStateChanged(peer.ClientState);
+        await NextPresence(second, UserPresenceState.Disconnected);
+        peer.RaiseUserStatus("Peer", UserPresence.Online);
+        Assert.AreEqual(UserPresenceState.Disconnected, (await service.GetAsync("Peer", deadline.Token)).State);
+        peer.ClientState = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
+        service.OnSoulseekStateChanged(peer.ClientState);
+        await NextPresence(second, UserPresenceState.Online);
+        Assert.AreEqual(3, peer.WatchCount);
+        await second.DisposeAsync();
+        Assert.AreEqual(2, peer.UnwatchCount);
+    }
+
+    [TestMethod]
+    public async Task ReopeningDuringCancelledAcquisitionWaitsForUnwatchBeforeWatchingAgain()
+    {
+        var peer = global::Tests.Server.SoulseekClientProxy.Create();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        peer.Watch = async (username, ct) =>
+        {
+            if (peer.WatchCount == 1)
+            {
+                started.SetResult();
+                await Task.Delay(Timeout.Infinite, ct);
+            }
+            return new UserData(username, UserPresence.Online, 0, 0, 0, 0, "");
+        };
+        peer.Unwatch = async _ =>
+        {
+            releasing.TrySetResult();
+            await released.Task.WaitAsync(deadline.Token);
+        };
+        await using var service = new UserPresenceService(() => peer.Client, _ => Task.CompletedTask,
+            NullLogger<UserPresenceService>.Instance);
+        var first = service.ObserveAsync("Peer", deadline.Token).GetAsyncEnumerator();
+        await NextPresence(first, UserPresenceState.Checking);
+        await started.Task.WaitAsync(deadline.Token);
+        Task closing = first.DisposeAsync().AsTask();
+        await releasing.Task.WaitAsync(deadline.Token);
+        Task<UserPresenceDto> replacement = service.GetAsync("Peer", deadline.Token);
+        Assert.AreEqual(1, peer.WatchCount);
+        released.SetResult();
+        await closing;
+        Assert.AreEqual(UserPresenceState.Online, (await replacement).State);
+        Assert.AreEqual(2, peer.WatchCount);
+        Assert.AreEqual(2, peer.UnwatchCount);
+    }
+
+    [TestMethod]
+    public async Task FailedPresenceDoesNotPretendOfflineAndReleasesAttemptedWatch()
+    {
+        var peer = global::Tests.Server.SoulseekClientProxy.Create();
+        peer.Watch = (_, _) => throw new TimeoutException();
+        await using var service = new UserPresenceService(() => peer.Client, _ => Task.CompletedTask,
+            NullLogger<UserPresenceService>.Instance);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(UserPresenceState.Unavailable, (await service.GetAsync("Peer", deadline.Token)).State);
+        Assert.AreEqual(1, peer.UnwatchCount);
+        await Assert.ThrowsExactlyAsync<ArgumentException>(() => service.GetAsync("bad\u0001name", deadline.Token));
+        Assert.AreEqual(1, peer.WatchCount);
+    }
+
+    [TestMethod]
+    public async Task PresenceReadersRecoverWhenInitialLoginFails()
+    {
+        var peer = global::Tests.Server.SoulseekClientProxy.Create();
+        peer.ClientState = SoulseekClientStates.Disconnected;
+        await using var service = new UserPresenceService(() => peer.Client,
+            _ => Task.FromException(new IOException("Login unavailable")), NullLogger<UserPresenceService>.Instance);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await using var reader = service.ObserveAsync("Peer", deadline.Token).GetAsyncEnumerator();
+        await NextPresence(reader, UserPresenceState.Disconnected);
+        Assert.AreEqual(0, peer.WatchCount);
+        peer.ClientState = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
+        service.OnSoulseekStateChanged(peer.ClientState);
+        await NextPresence(reader, UserPresenceState.Online);
+        Assert.AreEqual(1, peer.WatchCount);
+    }
+
+    private static async Task NextPresence(IAsyncEnumerator<UserPresenceDto> reader, UserPresenceState expected)
+    {
+        while (await reader.MoveNextAsync())
+        {
+            if (reader.Current.State == expected) return;
+            Assert.AreEqual(UserPresenceState.Checking, reader.Current.State);
+        }
+        Assert.Fail("Presence stream ended unexpectedly.");
     }
 
     private static UserProfileService CreateService(
@@ -262,23 +304,13 @@ public sealed class UserProfileServiceTests
 
     private sealed class DelegateTransport : IUserProfileTransport
     {
-        public int StatusCalls;
         public int InfoCalls;
         public int StatisticsCalls;
 
-        public Func<string, CancellationToken, Task<UserStatus>> Status { get; init; } =
-            (username, _) => Task.FromResult(new UserStatus(
-                username, Soulseek.UserPresence.Online, false));
         public Func<string, CancellationToken, Task<UserInfo>> Info { get; init; } =
             (_, _) => Task.FromResult(new UserInfo("description", 2, 3, true));
         public Func<string, CancellationToken, Task<UserStatistics>> Statistics { get; init; } =
             (username, _) => Task.FromResult(new UserStatistics(username, 100, 5, 10, 2));
-
-        public Task<UserStatus> GetStatusAsync(string username, CancellationToken cancellationToken)
-        {
-            Interlocked.Increment(ref StatusCalls);
-            return Status(username, cancellationToken);
-        }
 
         public Task<UserInfo> GetInfoAsync(string username, CancellationToken cancellationToken)
         {
@@ -296,19 +328,10 @@ public sealed class UserProfileServiceTests
     private sealed class GatedTransport : IUserProfileTransport
     {
         private int started;
-        public int StatusCalls;
         public int InfoCalls;
         public int StatisticsCalls;
         public TaskCompletionSource AllStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public async Task<UserStatus> GetStatusAsync(string username, CancellationToken cancellationToken)
-        {
-            Interlocked.Increment(ref StatusCalls);
-            Started();
-            await Release.Task.WaitAsync(cancellationToken);
-            return new UserStatus(username, Soulseek.UserPresence.Online, false);
-        }
 
         public async Task<UserInfo> GetInfoAsync(string username, CancellationToken cancellationToken)
         {
@@ -328,7 +351,7 @@ public sealed class UserProfileServiceTests
 
         private void Started()
         {
-            if (Interlocked.Increment(ref started) == 3)
+            if (Interlocked.Increment(ref started) == 2)
                 AllStarted.TrySetResult();
         }
     }

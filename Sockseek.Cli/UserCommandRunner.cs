@@ -1,6 +1,7 @@
 using Sockseek.Server;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Sockseek.Api;
 using Sockseek.Core.UserProfiles;
 
@@ -80,16 +81,26 @@ internal static class UserCommandRunner
     {
         RequirePositionCount(args, 3, ProfileOptions);
         string username = RequiredPosition(args, 2, "username");
-        UserProfileDto profile = await api.GetUserProfileAsync(
-            username, Flag(args, "--refresh"), cancellationToken).ConfigureAwait(false);
+        var profileTask = api.GetUserProfileAsync(username, Flag(args, "--refresh"), cancellationToken);
+        var presenceTask = api.GetUserPresenceAsync(username, cancellationToken);
+        await Task.WhenAll(profileTask, presenceTask).ConfigureAwait(false);
+        var presence = await presenceTask.ConfigureAwait(false);
+        UserProfileDto profile = await profileTask.ConfigureAwait(false);
 
         if (Json(args))
         {
-            WriteJson(profile);
+            var options = SockseekApiJson.CreateSerializerOptions();
+            options.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+            var json = new JsonObject
+            {
+                ["profile"] = JsonSerializer.SerializeToNode(profile, options),
+                ["presence"] = JsonSerializer.SerializeToNode(presence, options),
+            };
+            Console.WriteLine(json.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             return Program.CliExitCode.Success;
         }
 
-        Console.WriteLine($"{Safe(profile.Username)}: {Presence(profile.Presence)}");
+        Console.WriteLine($"{Safe(profile.Username)}: {Presence(presence.State)}");
         if (!string.IsNullOrWhiteSpace(profile.Description))
         {
             Console.WriteLine();
@@ -552,11 +563,13 @@ internal static class UserCommandRunner
     private static string SafeMultiline(string value)
         => UserProfileText.NormalizeDescription(value);
 
-    private static string Presence(UserProfilePresence value) => value switch
+    private static string Presence(UserPresenceState value) => value switch
     {
-        UserProfilePresence.Online => "online",
-        UserProfilePresence.Away => "away",
-        UserProfilePresence.Offline => "offline",
+        UserPresenceState.Online => "online",
+        UserPresenceState.Away => "away",
+        UserPresenceState.Offline => "offline",
+        UserPresenceState.Disconnected => "disconnected",
+        UserPresenceState.Unavailable => "status unavailable",
         _ => "unknown",
     };
 

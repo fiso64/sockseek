@@ -689,6 +689,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             if (command == "stop") break;
             switch (command)
             {
+                case "presence-away": peer.RaiseUserStatus("Presence Peer", Soulseek.UserPresence.Away); break;
                 case "terminal-transfer-committed":
                     app.Services.GetRequiredService<EngineStateStore>().NotifyTerminalTransferCommitted();
                     break;

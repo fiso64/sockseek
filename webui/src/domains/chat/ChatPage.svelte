@@ -1,14 +1,13 @@
 <script lang="ts">
+  import { userPresence } from '../users/presence.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { randomUUID } from '../../app/uuid';
   import { onMount, tick } from 'svelte';
-  import type { ChatMessageDto, ChatRoomSummaryDto, ChatTargetSnapshotDto, ConversationSummaryDto, Schema, UserPresenceObservationDto } from '../../api/types';
+  import type { ChatMessageDto, ChatRoomSummaryDto, ChatTargetSnapshotDto, ConversationSummaryDto, Schema } from '../../api/types';
   import { wireInteger } from '../../api/types';
   import type { DaemonLiveClient, LiveConnectionStatus } from '../../api/live';
   import type { UserLinkActions } from '../../app/navigation';
   import { formatCount, userInitials } from '../../app/format';
-  import { relativeTime } from '../../app/relative-time';
-  import { relativeTimeClock } from '../../app/relative-time-clock';
   import { daemonApi } from '../../api/client';
   import Icon from '../../components/Icon.svelte';
   import LinkifiedText from '../../components/LinkifiedText.svelte';
@@ -50,8 +49,6 @@
   let messageCursor = $state<string | null>(null);
   let messagesLoading = $state(false);
   let targetError = $state<Error | null>(null);
-  let presence = $state<UserPresenceObservationDto | null>(null);
-  let presenceError = $state<Error | null>(null);
   let draft = $state('');
   let composerTextarea = $state<HTMLTextAreaElement | null>(null);
   let adding = $state<'room' | 'user' | null>(null);
@@ -81,13 +78,7 @@
   let activeRoom = $derived.by(() => { const current = target; return current?.kind === 'room' ? rooms.find((item) => item.roomId === current.id) ?? targetSnapshot?.room ?? null : null; });
   let activeUsername = $derived(target?.kind === 'draft' ? target.username : activeConversation?.username ?? null);
   let activeUserBlocked = $derived(activeConversation?.privateMessagesBlocked ?? false);
-  let presenceLabel = $derived.by(() => {
-    if (!presence) return presenceError ? 'presence unavailable' : 'presence unknown';
-    if (presence.status.state !== 'available') return 'presence unavailable';
-    if (presence.presence === 'unknown') return 'presence unknown';
-    const age = relativeTime(presence.observedAtUtc, $relativeTimeClock);
-    return age ? `${presence.presence} · observed ${age.toLowerCase()}` : presence.presence;
-  });
+  const presence = userPresence(() => activeUsername, () => liveClient, () => liveStatus);
   let activeMessages = $derived(mergeMessages(historicalMessages, targetSnapshot?.messages ?? []));
   let composerDisabled = $derived(liveStatus !== 'connected' || runtime?.state !== 'Ready' || activeUserBlocked || !target);
 
@@ -120,20 +111,6 @@
     if (!username || username === handledInitialUsername) return;
     handledInitialUsername = username;
     openOrCreateConversation(username);
-  });
-
-  $effect(() => {
-    const username = target?.kind === 'conversation' ? activeUsername : null;
-    presence = null;
-    presenceError = null;
-    if (!username) return;
-    const request = new AbortController();
-    void daemonApi.getUserPresence(username, request.signal).then((observation) => {
-      if (!request.signal.aborted) presence = observation;
-    }).catch((cause) => {
-      if (!request.signal.aborted) presenceError = asError(cause);
-    });
-    return () => request.abort();
   });
 
   $effect(() => {
@@ -743,7 +720,7 @@
           <div class="chat-thread-identity">
             <UsernameLink username={activeUsername ?? ''} actions={userActions}/>
             <small class:blocked={activeUserBlocked}
-              title={presenceError?.message ?? (presence?.status.state !== 'available' ? presence?.status.reason ?? undefined : undefined)}>{activeUserBlocked ? 'blocked' : target?.kind === 'draft' ? 'new chat' : presenceLabel}</small>
+              data-presence={presence.state}>{activeUserBlocked ? 'Blocked · ' : ''}{presence.label}</small>
           </div>
         {:else if activeRoom}
           <div class="chat-thread-identity">

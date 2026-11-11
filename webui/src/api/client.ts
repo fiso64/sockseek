@@ -289,7 +289,7 @@ export class DaemonApiClient {
     return this.http.get(`/users/${encodeURIComponent(username)}/profile${queryString({ refresh })}`, signal);
   }
 
-  getUserPresence(username: string, signal?: AbortSignal): Promise<Schema<'UserPresenceObservationDto'>> {
+  getUserPresence(username: string, signal?: AbortSignal): Promise<Schema<'UserPresenceDto'>> {
     return this.http.get(`/users/${encodeURIComponent(username)}/presence`, signal);
   }
 

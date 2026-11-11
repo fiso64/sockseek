@@ -2786,9 +2786,8 @@ input[type="checkbox"]:indeterminate {
 .item-data-state { display: flex; align-items: center; gap: 8px; margin-top: 4px; color: var(--warning); font-size: 0.66rem; }
 .item-data-state small { color: var(--muted); }
 
-.user-presence.unknown { background: var(--surface-subtle); color: var(--muted); }
+.user-presence.unknown, .user-presence.checking, .user-presence.unavailable, .user-presence.disconnected { background: var(--surface-subtle); color: var(--muted); }
 .slot-state.unknown { color: var(--faint); }
-.user-profile-observed { display: block; margin-top: 7px; color: var(--faint); font-size: 0.66rem; }
 .share-visibility { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 6px; border-radius: 999px; font-size: 0.62rem; }
 .share-visibility.locked { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); color: var(--danger); }
 .share-visibility.mixed { background: color-mix(in srgb, var(--warning) 10%, var(--surface)); color: var(--warning); }

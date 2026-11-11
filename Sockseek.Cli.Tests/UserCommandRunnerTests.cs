@@ -63,7 +63,7 @@ public sealed class UserCommandRunnerTests
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         int port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        Task<string> request = RespondOnceAsync(listener, ProfileJson());
+        Task<string> request = RespondProfileAsync(listener, ProfileJson());
         TextWriter originalOutput = Console.Out;
         TextWriter originalError = Console.Error;
         using var stdout = new StringWriter();
@@ -151,7 +151,7 @@ public sealed class UserCommandRunnerTests
             .Replace("\"uploadSlots\": 1", "\"uploadSlots\": null")
             .Replace("\"queueLength\": 0", "\"queueLength\": null")
             .Replace("\"hasFreeUploadSlot\": true", "\"hasFreeUploadSlot\": null");
-        Task<string> request = RespondOnceAsync(listener, body);
+        Task<string> request = RespondProfileAsync(listener, body);
         TextWriter originalOutput = Console.Out;
         TextWriter originalError = Console.Error;
         using var stdout = new StringWriter();
@@ -250,13 +250,25 @@ public sealed class UserCommandRunnerTests
             id, null, path[(path.LastIndexOf('\\') + 1)..], path, visibility,
             false, 0, 0, 1, 10, 0, true);
 
-    private static async Task<string> RespondOnceAsync(TcpListener listener, string body)
+    private static async Task<string> RespondProfileAsync(TcpListener listener, string profile)
+    {
+        var requests = await Task.WhenAll(
+            RespondOnceAsync(listener, profile, includePresence: true),
+            RespondOnceAsync(listener, profile, includePresence: true));
+        Assert.AreEqual(1, requests.Count(request => request.Contains("/api/users/Peer/presence ")));
+        Assert.AreEqual(1, requests.Count(request => request.Contains("/api/users/Peer/profile?")));
+        return requests.Single(request => request.Contains("/profile?"));
+    }
+
+    private static async Task<string> RespondOnceAsync(TcpListener listener, string body, bool includePresence = false)
     {
         using TcpClient client = await listener.AcceptTcpClientAsync();
         await using NetworkStream stream = client.GetStream();
         byte[] buffer = new byte[8192];
         int read = await stream.ReadAsync(buffer);
         string request = Encoding.ASCII.GetString(buffer, 0, read);
+        if (includePresence && request.Contains("/api/users/Peer/presence "))
+            body = """{"username":"Peer","state":"online"}""";
         byte[] payload = Encoding.UTF8.GetBytes(body);
         byte[] response = Encoding.ASCII.GetBytes(
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
@@ -270,8 +282,6 @@ public sealed class UserCommandRunnerTests
         => $$"""
         {
           "username": "Peer",
-          "presence": "online",
-          "status": { "state": "available", "reason": null },
           "info": { "state": "available", "reason": null },
           "statistics": { "state": "available", "reason": null },
           "pictureSection": { "state": "available", "reason": null },

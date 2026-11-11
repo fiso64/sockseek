@@ -859,10 +859,10 @@ public sealed class SockseekApiClient
             $"api/users/{Uri.EscapeDataString(username)}/profile?refresh={refresh.ToString().ToLowerInvariant()}",
             ct);
 
-    public Task<UserPresenceObservationDto> GetUserPresenceAsync(
+    public Task<UserPresenceDto> GetUserPresenceAsync(
         string username,
         CancellationToken ct = default)
-        => GetRequiredAsync<UserPresenceObservationDto>(
+        => GetRequiredAsync<UserPresenceDto>(
             $"api/users/{Uri.EscapeDataString(username)}/presence",
             ct);
 

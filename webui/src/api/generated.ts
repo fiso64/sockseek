@@ -101,7 +101,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["UserPresenceObservationDto"];
+                        "application/json": components["schemas"]["UserPresenceDto"];
                     };
                 };
                 /** @description Bad Request */
@@ -12191,9 +12191,9 @@ export interface components {
             remember: boolean;
         };
         /** @enum {unknown} */
-        LiveClientInvocation: "SubscribeAll" | "UnsubscribeAll" | "SubscribeWorkflow" | "UnsubscribeWorkflow" | "SubscribeChat" | "UnsubscribeChat" | "SubscribeUserBrowse" | "UnsubscribeUserBrowse" | "ObserveSearchView" | "ObserveTransferTimeline" | "ObserveJobs" | "ObserveJobList";
+        LiveClientInvocation: "SubscribeAll" | "UnsubscribeAll" | "SubscribeWorkflow" | "UnsubscribeWorkflow" | "SubscribeChat" | "UnsubscribeChat" | "SubscribeUserBrowse" | "UnsubscribeUserBrowse" | "ObserveUserPresence" | "ObserveSearchView" | "ObserveTransferTimeline" | "ObserveJobs" | "ObserveJobList";
         /** @enum {integer} */
-        LiveProtocolContractVersion: 18;
+        LiveProtocolContractVersion: 19;
         /** @enum {unknown} */
         LiveServerMessage: "stateUpdateBatch";
         LiveTransferPageDto: {
@@ -14967,19 +14967,16 @@ export interface components {
             byteLength: number | string;
             eTag: string;
         };
-        UserPresenceObservationDto: {
+        UserPresenceDto: {
             username: string;
-            presence: components["schemas"]["UserProfilePresence"];
-            status: components["schemas"]["UserProfileSectionDto"];
-            /** Format: date-time */
-            observedAtUtc?: null | string;
+            state: components["schemas"]["UserPresenceState"];
         };
+        /** @enum {unknown} */
+        UserPresenceState: "online" | "away" | "offline" | "checking" | "unavailable" | "disconnected" | "unknown";
         UserProfileDto: {
             username: string;
             uploadAccessBlocked: boolean;
             privateMessagesBlocked: boolean;
-            presence: components["schemas"]["UserProfilePresence"];
-            status: components["schemas"]["UserProfileSectionDto"];
             info: components["schemas"]["UserProfileSectionDto"];
             statistics: components["schemas"]["UserProfileSectionDto"];
             pictureSection: components["schemas"]["UserProfileSectionDto"];
@@ -15001,8 +14998,6 @@ export interface components {
             /** Format: date-time */
             observedAt: string;
         };
-        /** @enum {unknown} */
-        UserProfilePresence: "online" | "away" | "offline" | "unknown";
         UserProfileSectionDto: {
             state: components["schemas"]["ResourceSectionState"];
             reason?: null | string;

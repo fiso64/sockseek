@@ -104,7 +104,22 @@ public sealed class SockseekLiveClient : IAsyncDisposable
             token => connection.InvokeAsync(LiveProtocol.SubscribeAllMethod, detail, token),
             ct);
 
-    /// <summary>Processing demand lasts exactly as long as this enumeration.</summary>
+    /// <summary>Share a live user watch until this enumeration is cancelled or disposed.</summary>
+    public async IAsyncEnumerable<UserPresenceDto> ObserveUserPresenceAsync(
+        string username, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await lifecycleGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            ThrowIfDisposed();
+            await EnsureConnectedAsync(ct).ConfigureAwait(false);
+        }
+        finally { lifecycleGate.Release(); }
+        await foreach (var summary in connection.StreamAsync<UserPresenceDto>(
+            LiveProtocol.ObserveUserPresenceMethod, username, ct).ConfigureAwait(false))
+            yield return summary;
+    }
+
     public async IAsyncEnumerable<SearchViewSummaryDto> ObserveSearchViewAsync(
         Guid viewId, [EnumeratorCancellation] CancellationToken ct = default)
     {

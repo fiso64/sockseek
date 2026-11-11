@@ -63,7 +63,7 @@ type FixtureCommand = `prune-search-results:${string}` | `wait-job-complete:${st
   | 'empty-search' | 'staged-search' | 'next-search-batch' | 'finish-search' | 'incoming-chat' | 'directory-selection-search' | 'concurrent-retrieval-search' | 'mixed-retrieval-search' | 'hold-directory-browse' | 'release-directory-browse' | 'group-search' | 'rich-group-search' | 'album-group-search' | 'rich-album-group-search' | 'paged-album-group-search'
   | 'fail-next-upload' | 'request-upload' | 'request-queued-upload' | 'release-upload' | 'incoming-room-chat' | 'seed-chat-history' | 'seed-chat-outage'
   | 'album-art-search' | 'large-album-art-search' | 'bare-filename-search' | 'hold-art-download' | 'release-art-download' | 'wait-directory-complete' | 'staged-conditioned-music-search' | 'mixed-album-group-search'
-  | 'long-song-fallback' | 'report-fallback-downloads' | `report-search-projection:${string}` | 'terminal-transfer-committed';
+  | 'long-song-fallback' | 'report-fallback-downloads' | `report-search-projection:${string}` | 'terminal-transfer-committed' | 'presence-away';
 
 function startDaemonWorker() {
   const child = spawn('dotnet', [assembly, webRoot], { stdio: ['pipe', 'pipe', 'pipe'] });

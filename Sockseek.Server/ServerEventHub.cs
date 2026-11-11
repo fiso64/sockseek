@@ -10,6 +10,7 @@ namespace Sockseek.Server;
 /// </summary>
 public sealed class ServerEventHub(
     EngineStateStore stateStore,
+    DaemonRuntime runtime,
     Planning.SearchViewCoordinator searchViews,
     Persistence.JobReadService jobs,
     Persistence.TransferReadService transfers,
@@ -42,6 +43,10 @@ public sealed class ServerEventHub(
     /// <summary>Observe a projection until complete or the client cancels the stream.</summary>
     public IAsyncEnumerable<SearchViewSummaryDto> ObserveSearchView(Guid viewId, CancellationToken cancellationToken)
         => searchViews.ObserveAsync(viewId, cancellationToken);
+
+    public IAsyncEnumerable<UserPresenceDto> ObserveUserPresence(string username, CancellationToken cancellationToken)
+        => (runtime.UserPresence ?? throw new HubException("Soulseek presence is unavailable."))
+            .ObserveAsync(username, cancellationToken);
 
     private const string AllEventsGroupName = "events:all";
     private const string SummaryEventsGroupName = "events:overview";

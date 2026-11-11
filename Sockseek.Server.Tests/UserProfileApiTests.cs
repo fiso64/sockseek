@@ -100,14 +100,23 @@ public sealed class UserProfileApiTests
             using var http = await global::Tests.TestServerHost.CreateHttpClientAsync(app);
             var api = new SockseekApiClient(http);
 
-            UserPresenceObservationDto presence = await api.GetUserPresenceAsync("Peer");
+            UserPresenceDto presence = await api.GetUserPresenceAsync("Peer");
             Assert.AreEqual("Peer", presence.Username);
-            Assert.AreEqual(UserProfilePresence.Away, presence.Presence);
-            Assert.AreEqual(ResourceSectionState.Available, presence.Status.State);
-            Assert.IsNotNull(presence.ObservedAtUtc);
+            Assert.AreEqual(UserPresenceState.Away, presence.State);
+
+            await using var live = new SockseekLiveClient(http);
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await using var observed = live.ObserveUserPresenceAsync("Peer", deadline.Token).GetAsyncEnumerator();
+            while (await observed.MoveNextAsync() && observed.Current.State == UserPresenceState.Checking) { }
+            Assert.AreEqual(UserPresenceState.Away, observed.Current.State);
+            int watches = fake.WatchCount;
+            fake.RaiseUserStatus("Peer", UserPresence.Online);
+            Assert.IsTrue(await observed.MoveNextAsync());
+            Assert.AreEqual(UserPresenceState.Online, observed.Current.State);
+            Assert.AreEqual(observed.Current, await api.GetUserPresenceAsync("Peer"));
+            Assert.AreEqual(watches, fake.WatchCount);
 
             UserProfileDto profile = await api.GetUserProfileAsync("Peer");
-            Assert.AreEqual(UserProfilePresence.Away, profile.Presence);
             Assert.AreEqual("hello\npeer", profile.Description);
             Assert.AreEqual(30L, profile.SharedFileCount);
             Assert.AreEqual(4L, profile.SharedDirectoryCount);

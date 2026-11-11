@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { userPresence } from './presence.svelte';
   import { keyboardList } from '../../lib/keyboard';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { randomUUID } from '../../app/uuid';
@@ -203,6 +204,8 @@
     mutation = { phase: 'idle' };
     commitKey = null;
   }
+
+  const presence = userPresence(() => view === 'user' ? username : null, () => liveClient, () => liveStatus);
 
   async function loadProfile(value: string, refresh = false): Promise<void> {
     const signal = lifetime.signal;
@@ -587,7 +590,7 @@
           <div class="user-profile-copy">
             <div class="user-profile-name-line">
               <h2>{profile.username}</h2>
-              <span class={`user-presence ${profile.presence}`}><i></i>{profile.presence[0]!.toUpperCase() + profile.presence.slice(1)}</span>
+              <span class={`user-presence ${presence.state}`} data-presence={presence.state}><i></i>{presence.label}</span>
               <span class="user-capacity-inline" aria-label="Upload capacity">
                 <span class:available={profile.hasFreeUploadSlot === true}
                   class:unknown={profile.hasFreeUploadSlot == null} class="slot-state"><i></i>{profile.hasFreeUploadSlot == null ? 'Slot unknown' : profile.hasFreeUploadSlot ? 'Free slot' : 'No free slot'}</span>
@@ -598,8 +601,11 @@
             {#if profile.description}
               <p class="user-profile-description"><LinkifiedText text={profile.description}/></p>
             {/if}
-            <small class="user-profile-observed">Observed {new Date(profile.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
             <div class="user-profile-actions">
+              <button type="button" class="user-message-button" disabled={profileLoading}
+                onclick={() => loadProfile(username, true)}>
+                <Icon name="refresh"/><span>{profileLoading ? 'Refreshing…' : 'Refresh'}</span>
+              </button>
               <button type="button" class="user-message-button" disabled={profile.privateMessagesBlocked}
                 onclick={() => onmessageuser(profile!.username)}>
                 <Icon name="chat"/>

@@ -20,7 +20,7 @@ import { DaemonStateReducer, type ReplicatedDaemonState, type DaemonStateChanges
 export { DaemonStateReducer } from './state.svelte';
 export type { ReplicatedDaemonState } from './state.svelte';
 
-const expectedLiveProtocolVersion = 18 satisfies Schema<'LiveProtocolContractVersion'>;
+const expectedLiveProtocolVersion = 19 satisfies Schema<'LiveProtocolContractVersion'>;
 const stateUpdateBatchMessage = 'stateUpdateBatch' satisfies Schema<'LiveServerMessage'>;
 const subscribeAllMethod = 'SubscribeAll' satisfies Schema<'LiveClientInvocation'>;
 const unsubscribeAllMethod = 'UnsubscribeAll' satisfies Schema<'LiveClientInvocation'>;
@@ -168,6 +168,18 @@ export class DaemonLiveClient {
       throw new Error('The daemon live connection is not ready.');
     const subscription = connection.stream<Schema<'SearchViewSummaryDto'>>(observeSearchViewMethod, viewId)
       .subscribe({ next, error: (failure) => error(asError(failure)), complete });
+    return () => subscription.dispose();
+  }
+
+  observeUserPresence(username: string, next: (presence: Schema<'UserPresenceDto'>) => void,
+    error: (error: Error) => void): () => void {
+    const connection = this.connection;
+    if (!connection || connection.state !== HubConnectionState.Connected)
+      throw new Error('The daemon live connection is not ready.');
+    const method = 'ObserveUserPresence' satisfies Schema<'LiveClientInvocation'>;
+    const subscription = connection.stream<Schema<'UserPresenceDto'>>(method, username)
+      .subscribe({ next, error: failure => error(asError(failure)),
+        complete: () => error(new Error('Presence updates stopped.')) });
     return () => subscription.dispose();
   }
 

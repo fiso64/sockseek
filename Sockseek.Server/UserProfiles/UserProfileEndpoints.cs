@@ -18,7 +18,7 @@ internal static class UserProfileEndpoints
         app.MapGet("/api/users/{username}/presence", GetPresenceAsync)
             .WithTags("User Browsing")
             .WithSummary("Observes a peer's presence without fetching profile details.")
-            .Produces<UserPresenceObservationDto>()
+            .Produces<UserPresenceDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
@@ -119,7 +119,7 @@ internal static class UserProfileEndpoints
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
-        UserProfileService? service = runtime.UserProfiles;
+        UserPresenceService? service = runtime.UserPresence;
         if (service is null)
         {
             ServerLogMessages.FeatureRequestUnavailable(
@@ -129,7 +129,7 @@ internal static class UserProfileEndpoints
         }
         try
         {
-            return Results.Ok(await service.ObservePresenceAsync(
+            return Results.Ok(await service.GetAsync(
                 username, cancellationToken).ConfigureAwait(false));
         }
         catch (Exception exception)

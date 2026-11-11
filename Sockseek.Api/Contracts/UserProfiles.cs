@@ -2,8 +2,8 @@ using System.Text.Json.Serialization;
 
 namespace Sockseek.Api;
 
-[JsonConverter(typeof(JsonStringEnumConverter<UserProfilePresence>))]
-public enum UserProfilePresence
+[JsonConverter(typeof(JsonStringEnumConverter<UserPresenceState>))]
+public enum UserPresenceState
 {
     [JsonStringEnumMemberName("online")]
     Online,
@@ -11,6 +11,12 @@ public enum UserProfilePresence
     Away,
     [JsonStringEnumMemberName("offline")]
     Offline,
+    [JsonStringEnumMemberName("checking")]
+    Checking,
+    [JsonStringEnumMemberName("unavailable")]
+    Unavailable,
+    [JsonStringEnumMemberName("disconnected")]
+    Disconnected,
     [JsonStringEnumMemberName("unknown")]
     Unknown,
 }
@@ -30,11 +36,9 @@ public sealed record UserProfileSectionDto(
     ResourceSectionState State,
     string? Reason);
 
-public sealed record UserPresenceObservationDto(
-    string Username,
-    UserProfilePresence Presence,
-    UserProfileSectionDto Status,
-    DateTimeOffset? ObservedAtUtc);
+/// <summary>Live server status. Offline is confirmed by Soulseek; disconnected
+/// and unavailable must never be presented as a peer being offline.</summary>
+public sealed record UserPresenceDto(string Username, UserPresenceState State);
 
 public sealed record UserPictureRefDto(
     string Url,
@@ -46,8 +50,6 @@ public sealed record UserProfileDto(
     string Username,
     bool UploadAccessBlocked,
     bool PrivateMessagesBlocked,
-    UserProfilePresence Presence,
-    UserProfileSectionDto Status,
     UserProfileSectionDto Info,
     UserProfileSectionDto Statistics,
     UserProfileSectionDto PictureSection,

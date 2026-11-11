@@ -100,7 +100,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UserPresenceObservationDto"
+                  "$ref": "#/components/schemas/UserPresenceDto"
                 }
               }
             }
@@ -20427,6 +20427,7 @@
           "UnsubscribeChat",
           "SubscribeUserBrowse",
           "UnsubscribeUserBrowse",
+          "ObserveUserPresence",
           "ObserveSearchView",
           "ObserveTransferTimeline",
           "ObserveJobs",
@@ -20435,7 +20436,7 @@
       },
       "LiveProtocolContractVersion": {
         "enum": [
-          18
+          19
         ],
         "type": "integer"
       },
@@ -32096,39 +32097,37 @@
           }
         }
       },
-      "UserPresenceObservationDto": {
+      "UserPresenceDto": {
         "required": [
           "username",
-          "presence",
-          "status"
+          "state"
         ],
         "type": "object",
         "properties": {
           "username": {
             "type": "string"
           },
-          "presence": {
-            "$ref": "#/components/schemas/UserProfilePresence"
-          },
-          "status": {
-            "$ref": "#/components/schemas/UserProfileSectionDto"
-          },
-          "observedAtUtc": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
+          "state": {
+            "$ref": "#/components/schemas/UserPresenceState"
           }
         }
+      },
+      "UserPresenceState": {
+        "enum": [
+          "online",
+          "away",
+          "offline",
+          "checking",
+          "unavailable",
+          "disconnected",
+          "unknown"
+        ]
       },
       "UserProfileDto": {
         "required": [
           "username",
           "uploadAccessBlocked",
           "privateMessagesBlocked",
-          "presence",
-          "status",
           "info",
           "statistics",
           "pictureSection",
@@ -32144,12 +32143,6 @@
           },
           "privateMessagesBlocked": {
             "type": "boolean"
-          },
-          "presence": {
-            "$ref": "#/components/schemas/UserProfilePresence"
-          },
-          "status": {
-            "$ref": "#/components/schemas/UserProfileSectionDto"
           },
           "info": {
             "$ref": "#/components/schemas/UserProfileSectionDto"
@@ -32241,14 +32234,6 @@
             "format": "date-time"
           }
         }
-      },
-      "UserProfilePresence": {
-        "enum": [
-          "online",
-          "away",
-          "offline",
-          "unknown"
-        ]
       },
       "UserProfileSectionDto": {
         "required": [
