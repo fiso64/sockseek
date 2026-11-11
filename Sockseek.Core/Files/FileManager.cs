@@ -117,7 +117,7 @@ public sealed class OutputScope
             : inherited;
 
     private static bool JobCreatesDefaultFolderScope(Job job)
-        => job is JobList or AggregateJob or AlbumAggregateJob;
+        => job is JobList or SongGroupsJob or AlbumGroupsJob;
 
     private static string CleanDefaultFolderSegment(string? folderName, string invalidReplaceStr)
         => string.IsNullOrWhiteSpace(folderName)

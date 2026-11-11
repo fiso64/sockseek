@@ -126,9 +126,9 @@ public sealed class SearchViewSelections
                                 [directory.BestChild.Input.ToFileCandidate().Target], isComplete: false)))
                         : new RemoteDirectorySource.PeerDirectory(
                             new PeerDirectoryIdentity(directory.Username, directory.FolderPath))),
-                { AggregateTrackGroup: { } track } when track.SelectableOptionCount > 0
+                { TrackGroup: { } track } when track.SelectableOptionCount > 0
                     => new SongJob(track.Query),
-                { AggregateAlbumGroup: { } album } when album.SelectableOptionCount > 0
+                { AlbumGroup: { } album } when album.SelectableOptionCount > 0
                     => new AlbumJob(album.Query),
                 _ => null,
             };
@@ -156,7 +156,7 @@ public sealed class SearchViewSelections
                 variants.Add(kind, new SearchViewSelectionSettingsVariantDto(
                     kind, EffectiveSettingsMapper.ToSafeSettings(settings)));
             }
-            if (item.Directory != null || item.AggregateTrackGroup != null || item.AggregateAlbumGroup != null)
+            if (item.Directory != null || item.TrackGroup != null || item.AlbumGroup != null)
                 selectedContainers.Add(item.Ref);
         }
 
@@ -297,7 +297,7 @@ public sealed class SearchViewSelections
                 return file.Input.Visibility == SearchResultVisibility.Locked ? (0, 1) : (1, 0);
             if (item.Directory is { } directory)
                 return CountDirectory(directory);
-            if (item.AggregateTrackGroup is { } track)
+            if (item.TrackGroup is { } track)
             {
                 if (request.ChosenOptions?.ContainsKey(item.Ref) == true)
                 {
@@ -307,7 +307,7 @@ public sealed class SearchViewSelections
                 }
                 return track.Representative.Input.Visibility == SearchResultVisibility.Locked ? (0, 1) : (1, 0);
             }
-            if (item.AggregateAlbumGroup is not { } album)
+            if (item.AlbumGroup is not { } album)
                 return (0, 0);
             SearchViewDirectory selectedDirectory = album.Representative;
             if (request.ChosenOptions?.ContainsKey(item.Ref) == true)
@@ -348,16 +348,16 @@ public sealed class SearchViewSelections
                 unresolvedChoices.Remove(item.Ref);
                 unresolvedAlbumSelections.Remove(item.Ref);
                 if (request.ChosenOptions?.ContainsKey(item.Ref) == true
-                    && item.AggregateTrackGroup == null && item.AggregateAlbumGroup == null)
-                    throw new ArgumentException("A chosen option must refer to an aggregate group.");
+                    && item.TrackGroup == null && item.AlbumGroup == null)
+                    throw new ArgumentException("A chosen option must refer to a result group.");
                 if (request.AlbumFileSelections?.ContainsKey(item.Ref) == true
-                    && item.AggregateAlbumGroup == null)
-                    throw new ArgumentException("An album file selection must refer to an aggregate-album group.");
+                    && item.AlbumGroup == null)
+                    throw new ArgumentException("An album file selection must refer to an album group.");
                 (long itemPublic, long itemLocked) = CountItem(item);
                 publicCount = checked(publicCount + itemPublic);
                 lockedCount = checked(lockedCount + itemLocked);
                 selectedItemCount = checked(selectedItemCount + 1);
-                if (item.Directory != null || item.AggregateTrackGroup != null || item.AggregateAlbumGroup != null)
+                if (item.Directory != null || item.TrackGroup != null || item.AlbumGroup != null)
                     selectedContainers.Add(item.Ref);
             }
         }
@@ -377,15 +377,15 @@ public sealed class SearchViewSelections
                     unresolvedChoices.Remove(item.Ref);
                     unresolvedAlbumSelections.Remove(item.Ref);
                     if (request.ChosenOptions?.ContainsKey(item.Ref) == true
-                        && item.AggregateTrackGroup == null && item.AggregateAlbumGroup == null)
-                        throw new ArgumentException("A chosen option must refer to an aggregate group.");
+                        && item.TrackGroup == null && item.AlbumGroup == null)
+                        throw new ArgumentException("A chosen option must refer to a result group.");
                     if (request.AlbumFileSelections?.ContainsKey(item.Ref) == true
-                        && item.AggregateAlbumGroup == null)
-                        throw new ArgumentException("An album file selection must refer to an aggregate-album group.");
+                        && item.AlbumGroup == null)
+                        throw new ArgumentException("An album file selection must refer to an album group.");
                     (long actualPublic, long actualLocked) = CountItem(item);
-                    var baselineItem = item.AggregateAlbumGroup is { } album
+                    var baselineItem = item.AlbumGroup is { } album
                         ? CountDirectory(album.Representative)
-                        : item.AggregateTrackGroup is { } track
+                        : item.TrackGroup is { } track
                             ? track.Representative.Input.Visibility == SearchResultVisibility.Locked ? (0L, 1L) : (1L, 0L)
                             : (0L, 0L);
                     publicCount = checked(publicCount + actualPublic - baselineItem.Item1);
@@ -548,11 +548,11 @@ public sealed class SearchViewSelections
             requested = checked(requested + 1);
             resolved = checked(resolved + 1);
             foundRefs?.Add(item.Ref);
-            if (unboundAlbumSelections.Remove(item.Ref) && item.AggregateAlbumGroup is null)
-                throw new ArgumentException("An album file selection must refer to an aggregate-album group.");
+            if (unboundAlbumSelections.Remove(item.Ref) && item.AlbumGroup is null)
+                throw new ArgumentException("An album file selection must refer to an album group.");
             if (unboundChoices.Remove(item.Ref)
-                && item.AggregateTrackGroup is null && item.AggregateAlbumGroup is null)
-                throw new ArgumentException("A chosen option must refer to an aggregate group.");
+                && item.TrackGroup is null && item.AlbumGroup is null)
+                throw new ArgumentException("A chosen option must refer to a result group.");
             if ((item.ParentRef != null && selectedContainers.Contains(item.ParentRef))
                 || item.ContainerRefs?.Any(selectedContainers.Contains) == true)
             {
@@ -604,8 +604,8 @@ public sealed class SearchViewSelections
                 root.Add(job);
                 submitted = checked(submitted + 1);
                 if (item.Directory != null
-                    || item.AggregateTrackGroup != null
-                    || item.AggregateAlbumGroup != null)
+                    || item.TrackGroup != null
+                    || item.AlbumGroup != null)
                     selectedContainers.Add(item.Ref);
             }
             catch (Exception exception) when (
@@ -792,13 +792,13 @@ public sealed class SearchViewSelections
                 new PeerDirectoryIdentity(directory.Username, directory.FolderPath),
                 excludedFiles.GetValueOrDefault(directory.Username))), null);
         }
-        if (item.AggregateTrackGroup is { } aggregate)
+        if (item.TrackGroup is { } group)
         {
             var candidates = new List<FileCandidate>();
             if (chosenOption == null && request.UseRepresentativeWhenUnchosen == true)
             {
-                if (aggregate.Representative.Input.Visibility == SearchResultVisibility.Public)
-                    candidates.Add(aggregate.Representative.Input.ToFileCandidate());
+                if (group.Representative.Input.Visibility == SearchResultVisibility.Public)
+                    candidates.Add(group.Representative.Input.ToFileCandidate());
             }
             else if (chosenOption != null)
             {
@@ -807,21 +807,21 @@ public sealed class SearchViewSelections
             }
             else
             {
-                foreach (SearchViewFile option in snapshot.ReadPublicAggregateTrackOptions(aggregate.Ref, cancellationToken))
+                foreach (SearchViewFile option in snapshot.ReadPublicTrackGroupOptions(group.Ref, cancellationToken))
                 {
                     candidates.Add(option.Input.ToFileCandidate());
                 }
             }
             if (candidates.Count == 0)
                 return (null, chosenOption == null ? "locked" : "unavailable-option");
-            SongQuery query = aggregate.Query;
+            SongQuery query = group.Query;
             return (new SongJob(query) { Candidates = candidates }, null);
         }
-        if (item.AggregateAlbumGroup is { } aggregateAlbum)
+        if (item.AlbumGroup is { } albumGroup)
         {
             if (albumFileSelection != null && chosenOption == null)
                 throw new ArgumentException("Choosing album files requires an exact album option.");
-            AlbumQuery query = aggregateAlbum.Query;
+            AlbumQuery query = albumGroup.Query;
             var defaultTrackQuery = new SongQuery
             {
                 Artist = query.Artist,
@@ -834,7 +834,7 @@ public sealed class SearchViewSelections
             {
                 if (chosenOption == null && request.UseRepresentativeWhenUnchosen == true)
                 {
-                    yield return aggregateAlbum.Representative;
+                    yield return albumGroup.Representative;
                     yield break;
                 }
                 if (chosenOption != null)
@@ -843,7 +843,7 @@ public sealed class SearchViewSelections
                         yield return chosenAlbum;
                     yield break;
                 }
-                foreach (SearchViewDirectory option in snapshot.ReadPublicAggregateAlbumOptions(aggregateAlbum.Ref, cancellationToken))
+                foreach (SearchViewDirectory option in snapshot.ReadPublicAlbumGroupOptions(albumGroup.Ref, cancellationToken))
                 {
                     yield return option;
                 }
@@ -979,7 +979,7 @@ public sealed class SearchViewSelections
         if ((choices?.Keys ?? []).Concat(albumFiles?.Keys ?? []).Any(groupRef =>
                 selection.Mode == RefSelectionMode.Only
                     ? !selectedRefs.Contains(groupRef) : selectedRefs.Contains(groupRef)))
-            throw new ArgumentException("An aggregate choice must belong to a selected group.");
+            throw new ArgumentException("An group choice must belong to a selected group.");
         return GroupDirectoryPathRules(pathRules);
     }
 
@@ -998,10 +998,10 @@ public sealed class SearchViewSelections
             && view.ProjectionKind is not (SearchViewProjectionKind.GenericDirectories or SearchViewProjectionKind.AlbumDirectories))
             throw new ArgumentException("File exceptions require a directory projection.");
         if ((choices is { Count: > 0 } || useRepresentative)
-            && view.ProjectionKind is not (SearchViewProjectionKind.AggregateTracks or SearchViewProjectionKind.AggregateAlbums))
-            throw new ArgumentException("Chosen options and representative-only selection require an aggregate projection.");
-        if (albumFiles is { Count: > 0 } && view.ProjectionKind != SearchViewProjectionKind.AggregateAlbums)
-            throw new ArgumentException("Album file selections require an aggregate-album projection.");
+            && view.ProjectionKind is not (SearchViewProjectionKind.TrackGroups or SearchViewProjectionKind.AlbumGroups))
+            throw new ArgumentException("Chosen options and representative-only selection require a grouped projection.");
+        if (albumFiles is { Count: > 0 } && view.ProjectionKind != SearchViewProjectionKind.AlbumGroups)
+            throw new ArgumentException("Album file selections require an album-group projection.");
         if (pathRules.Count > 0 && view.ProjectionKind != SearchViewProjectionKind.GenericDirectories)
             throw new ArgumentException("Directory path rules require a File Search projection.");
     }

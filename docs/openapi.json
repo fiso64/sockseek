@@ -2554,12 +2554,12 @@
         ]
       }
     },
-    "/api/search-views/{viewId}/aggregate-tracks": {
+    "/api/search-views/{viewId}/track-groups": {
       "get": {
         "tags": [
           "Search Views"
         ],
-        "summary": "Pages aggregate-track group summaries from one immutable revision.",
+        "summary": "Pages track group summaries from one immutable revision.",
         "parameters": [
           {
             "name": "viewId",
@@ -2609,7 +2609,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SearchViewAggregateTrackPageDto"
+                  "$ref": "#/components/schemas/SearchViewTrackGroupPageDto"
                 }
               }
             }
@@ -2661,12 +2661,12 @@
         ]
       }
     },
-    "/api/search-views/{viewId}/aggregate-tracks/{groupRef}/alternatives": {
+    "/api/search-views/{viewId}/track-groups/{groupRef}/alternatives": {
       "get": {
         "tags": [
           "Search Views"
         ],
-        "summary": "Pages one aggregate-track group's ordered alternatives.",
+        "summary": "Pages one track group's ordered alternatives.",
         "parameters": [
           {
             "name": "viewId",
@@ -2724,7 +2724,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SearchViewAggregateTrackOptionPageDto"
+                  "$ref": "#/components/schemas/SearchViewTrackGroupOptionPageDto"
                 }
               }
             }
@@ -2776,12 +2776,12 @@
         ]
       }
     },
-    "/api/search-views/{viewId}/aggregate-albums": {
+    "/api/search-views/{viewId}/album-groups": {
       "get": {
         "tags": [
           "Search Views"
         ],
-        "summary": "Pages aggregate-album group summaries from one immutable revision.",
+        "summary": "Pages album group summaries from one immutable revision.",
         "parameters": [
           {
             "name": "viewId",
@@ -2831,7 +2831,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SearchViewAggregateAlbumPageDto"
+                  "$ref": "#/components/schemas/SearchViewAlbumGroupPageDto"
                 }
               }
             }
@@ -2883,12 +2883,12 @@
         ]
       }
     },
-    "/api/search-views/{viewId}/aggregate-albums/{groupRef}/alternatives": {
+    "/api/search-views/{viewId}/album-groups/{groupRef}/alternatives": {
       "get": {
         "tags": [
           "Search Views"
         ],
-        "summary": "Pages one aggregate-album group's directory alternatives.",
+        "summary": "Pages one album group's directory alternatives.",
         "parameters": [
           {
             "name": "viewId",
@@ -2946,7 +2946,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SearchViewAggregateAlbumOptionPageDto"
+                  "$ref": "#/components/schemas/SearchViewAlbumGroupOptionPageDto"
                 }
               }
             }
@@ -3003,7 +3003,7 @@
         "tags": [
           "Search Views"
         ],
-        "summary": "Reads exact browser-held aggregate choices in one Search View revision.",
+        "summary": "Reads exact browser-held group choices in one Search View revision.",
         "description": "Returns a current option DTO or an explicit miss for each requested group. Choices remain client-owned and are never saved by this read.",
         "parameters": [
           {
@@ -7061,8 +7061,8 @@
                 "search",
                 "song",
                 "album",
-                "aggregate",
-                "album-aggregate",
+                "song-groups",
+                "album-groups",
                 "job-list",
                 "retrieve-folder",
                 "remote-file",
@@ -8221,7 +8221,7 @@
           "Job Submission"
         ],
         "summary": "Submits a generic Soulseek search job.",
-        "description": "Search jobs are discovery-oriented. They store raw Soulseek results; use projection endpoints to view those results as files, album folders, or aggregate candidates, then use follow-up download endpoints for selected refs.",
+        "description": "Search jobs are discovery-oriented. They store raw Soulseek results; use projection endpoints to view those results as files, album folders, or group candidates, then use follow-up download endpoints for selected refs.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -8490,18 +8490,18 @@
         ]
       }
     },
-    "/api/jobs/aggregate/tracks": {
+    "/api/jobs/groups/tracks": {
       "post": {
         "tags": [
           "Job Submission"
         ],
-        "summary": "Submits an aggregate track search job.",
-        "description": "Aggregate jobs can download automatically or, with DownloadBehavior.Manual, pause after candidate grouping so the caller can choose which child downloads to resume.",
+        "summary": "Submits a grouped track search job.",
+        "description": "Grouped-song jobs can download automatically or, with DownloadBehavior.Manual, pause after candidate grouping so the caller can choose which child downloads to resume.",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SubmitAggregateJobRequestDto"
+                "$ref": "#/components/schemas/SubmitSongGroupsJobRequestDto"
               }
             }
           },
@@ -8545,18 +8545,18 @@
         ]
       }
     },
-    "/api/jobs/aggregate/albums": {
+    "/api/jobs/groups/albums": {
       "post": {
         "tags": [
           "Job Submission"
         ],
-        "summary": "Submits an aggregate album search job.",
-        "description": "Aggregate album jobs can download automatically or, with DownloadBehavior.Manual, pause after bucket projection so the caller can choose which child downloads to resume.",
+        "summary": "Submits a grouped album search job.",
+        "description": "Grouped album jobs can download automatically or, with DownloadBehavior.Manual, pause after bucket projection so the caller can choose which child downloads to resume.",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SubmitAlbumAggregateJobRequestDto"
+                "$ref": "#/components/schemas/SubmitAlbumGroupsJobRequestDto"
               }
             }
           },
@@ -14319,7 +14319,7 @@
               }
             ]
           },
-          "aggregate": {
+          "songGroups": {
             "oneOf": [
               {
                 "type": "null"
@@ -14329,7 +14329,7 @@
               }
             ]
           },
-          "albumAggregate": {
+          "albumGroups": {
             "oneOf": [
               {
                 "type": "null"
@@ -15324,7 +15324,7 @@
               }
             ]
           },
-          "searchAggregatePresentation": {
+          "searchGroupResults": {
             "type": [
               "null",
               "boolean"
@@ -15363,10 +15363,10 @@
             "$ref": "#/components/schemas/JobDraftDtoAlbumJobDraftDto"
           },
           {
-            "$ref": "#/components/schemas/JobDraftDtoAggregateJobDraftDto"
+            "$ref": "#/components/schemas/JobDraftDtoSongGroupsJobDraftDto"
           },
           {
-            "$ref": "#/components/schemas/JobDraftDtoAlbumAggregateJobDraftDto"
+            "$ref": "#/components/schemas/JobDraftDtoAlbumGroupsJobDraftDto"
           },
           {
             "$ref": "#/components/schemas/JobDraftDtoJobListJobDraftDto"
@@ -15387,68 +15387,22 @@
             "search-album": "#/components/schemas/JobDraftDtoAlbumSearchJobDraftDto",
             "song": "#/components/schemas/JobDraftDtoSongJobDraftDto",
             "album": "#/components/schemas/JobDraftDtoAlbumJobDraftDto",
-            "aggregate": "#/components/schemas/JobDraftDtoAggregateJobDraftDto",
-            "album-aggregate": "#/components/schemas/JobDraftDtoAlbumAggregateJobDraftDto",
+            "song-groups": "#/components/schemas/JobDraftDtoSongGroupsJobDraftDto",
+            "album-groups": "#/components/schemas/JobDraftDtoAlbumGroupsJobDraftDto",
             "job-list": "#/components/schemas/JobDraftDtoJobListJobDraftDto",
             "remote-file": "#/components/schemas/JobDraftDtoRemoteFileJobDraftDto",
             "remote-directory": "#/components/schemas/JobDraftDtoRemoteDirectoryJobDraftDto"
           }
         }
       },
-      "JobDraftDtoAggregateJobDraftDto": {
-        "required": [
-          "songQuery"
-        ],
-        "properties": {
-          "kind": {
-            "enum": [
-              "aggregate"
-            ],
-            "type": "string"
-          },
-          "songQuery": {
-            "$ref": "#/components/schemas/SongQueryDto"
-          },
-          "downloadBehavior": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
-              }
-            ]
-          },
-          "downloadSettings": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
-              }
-            ]
-          },
-          "provenance": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JobProvenanceDto"
-              }
-            ]
-          }
-        }
-      },
-      "JobDraftDtoAlbumAggregateJobDraftDto": {
+      "JobDraftDtoAlbumGroupsJobDraftDto": {
         "required": [
           "albumQuery"
         ],
         "properties": {
           "kind": {
             "enum": [
-              "album-aggregate"
+              "album-groups"
             ],
             "type": "string"
           },
@@ -15764,6 +15718,52 @@
           },
           "target": { },
           "outputPathComponents": { },
+          "downloadSettings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+              }
+            ]
+          },
+          "provenance": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobProvenanceDto"
+              }
+            ]
+          }
+        }
+      },
+      "JobDraftDtoSongGroupsJobDraftDto": {
+        "required": [
+          "songQuery"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "song-groups"
+            ],
+            "type": "string"
+          },
+          "songQuery": {
+            "$ref": "#/components/schemas/SongQueryDto"
+          },
+          "downloadBehavior": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
+              }
+            ]
+          },
           "downloadSettings": {
             "oneOf": [
               {
@@ -16828,8 +16828,8 @@
                                 "search",
                                 "song",
                                 "album",
-                                "aggregate",
-                                "album-aggregate",
+                                "song-groups",
+                                "album-groups",
                                 "job-list",
                                 "retrieve-folder",
                                 "remote-file",
@@ -16888,7 +16888,7 @@
                                 null
                               ]
                             },
-                            "searchAggregatePresentation": {
+                            "searchGroupResults": {
                               "type": [
                                 "null",
                                 "boolean"
@@ -17210,8 +17210,8 @@
                             "search",
                             "song",
                             "album",
-                            "aggregate",
-                            "album-aggregate",
+                            "song-groups",
+                            "album-groups",
                             "job-list",
                             "retrieve-folder",
                             "remote-file",
@@ -17270,7 +17270,7 @@
                             null
                           ]
                         },
-                        "searchAggregatePresentation": {
+                        "searchGroupResults": {
                           "type": [
                             "null",
                             "boolean"
@@ -18852,10 +18852,10 @@
             "$ref": "#/components/schemas/JobPayloadDtoAlbumJobPayloadDto"
           },
           {
-            "$ref": "#/components/schemas/JobPayloadDtoAggregateJobPayloadDto"
+            "$ref": "#/components/schemas/JobPayloadDtoSongGroupsJobPayloadDto"
           },
           {
-            "$ref": "#/components/schemas/JobPayloadDtoAlbumAggregateJobPayloadDto"
+            "$ref": "#/components/schemas/JobPayloadDtoAlbumGroupsJobPayloadDto"
           },
           {
             "$ref": "#/components/schemas/JobPayloadDtoJobListPayloadDto"
@@ -18880,8 +18880,8 @@
             "search": "#/components/schemas/JobPayloadDtoSearchJobPayloadDto",
             "song": "#/components/schemas/JobPayloadDtoSongJobPayloadDto",
             "album": "#/components/schemas/JobPayloadDtoAlbumJobPayloadDto",
-            "aggregate": "#/components/schemas/JobPayloadDtoAggregateJobPayloadDto",
-            "album-aggregate": "#/components/schemas/JobPayloadDtoAlbumAggregateJobPayloadDto",
+            "song-groups": "#/components/schemas/JobPayloadDtoSongGroupsJobPayloadDto",
+            "album-groups": "#/components/schemas/JobPayloadDtoAlbumGroupsJobPayloadDto",
             "job-list": "#/components/schemas/JobPayloadDtoJobListPayloadDto",
             "retrieve-folder": "#/components/schemas/JobPayloadDtoRetrieveFolderJobPayloadDto",
             "remote-file": "#/components/schemas/JobPayloadDtoRemoteFileJobPayloadDto",
@@ -18890,59 +18890,7 @@
           }
         }
       },
-      "JobPayloadDtoAggregateJobPayloadDto": {
-        "required": [
-          "query",
-          "songCount",
-          "completedSongCount",
-          "succeededSongCount",
-          "failedSongCount"
-        ],
-        "properties": {
-          "kind": {
-            "enum": [
-              "aggregate"
-            ],
-            "type": "string"
-          },
-          "query": {
-            "$ref": "#/components/schemas/SongQueryDto"
-          },
-          "songCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "completedSongCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "succeededSongCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "failedSongCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          }
-        }
-      },
-      "JobPayloadDtoAlbumAggregateJobPayloadDto": {
+      "JobPayloadDtoAlbumGroupsJobPayloadDto": {
         "required": [
           "query",
           "resultCount",
@@ -18953,7 +18901,7 @@
         "properties": {
           "kind": {
             "enum": [
-              "album-aggregate"
+              "album-groups"
             ],
             "type": "string"
           },
@@ -19379,9 +19327,61 @@
           "isComplete": {
             "type": "boolean"
           },
-          "aggregatePresentation": {
+          "groupResults": {
             "type": "boolean",
             "default": false
+          }
+        }
+      },
+      "JobPayloadDtoSongGroupsJobPayloadDto": {
+        "required": [
+          "query",
+          "songCount",
+          "completedSongCount",
+          "succeededSongCount",
+          "failedSongCount"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "song-groups"
+            ],
+            "type": "string"
+          },
+          "query": {
+            "$ref": "#/components/schemas/SongQueryDto"
+          },
+          "songCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "completedSongCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "succeededSongCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "failedSongCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -20302,7 +20302,7 @@
               }
             ]
           },
-          "searchAggregatePresentation": {
+          "searchGroupResults": {
             "type": [
               "null",
               "boolean"
@@ -22113,13 +22113,13 @@
               "boolean"
             ]
           },
-          "isAggregate": {
+          "groupResults": {
             "type": [
               "null",
               "boolean"
             ]
           },
-          "minSharesAggregate": {
+          "minGroupShares": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "null",
@@ -22128,7 +22128,7 @@
             ],
             "format": "int32"
           },
-          "aggregateLengthTol": {
+          "groupLengthTol": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "null",
@@ -22164,7 +22164,7 @@
             ],
             "format": "int32"
           },
-          "clearMinSharesAggregate": {
+          "clearMinGroupShares": {
             "type": [
               "null",
               "boolean"
@@ -22211,7 +22211,7 @@
           }
         }
       },
-      "SearchViewAggregateAlbumGroupDto": {
+      "SearchViewAlbumGroupDto": {
         "required": [
           "ref",
           "query",
@@ -22248,7 +22248,7 @@
           }
         }
       },
-      "SearchViewAggregateAlbumOptionPageDto": {
+      "SearchViewAlbumGroupOptionPageDto": {
         "required": [
           "revision",
           "groupRef",
@@ -22276,7 +22276,7 @@
           }
         }
       },
-      "SearchViewAggregateAlbumPageDto": {
+      "SearchViewAlbumGroupPageDto": {
         "required": [
           "revision",
           "items"
@@ -22289,96 +22289,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/SearchViewAggregateAlbumGroupDto"
-            }
-          },
-          "nextCursor": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
-      "SearchViewAggregateTrackGroupDto": {
-        "required": [
-          "ref",
-          "query",
-          "shareCount",
-          "selectableOptionCount",
-          "representative"
-        ],
-        "type": "object",
-        "properties": {
-          "ref": {
-            "type": "string"
-          },
-          "query": {
-            "$ref": "#/components/schemas/SongQueryDto"
-          },
-          "shareCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "selectableOptionCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "representative": {
-            "$ref": "#/components/schemas/SearchViewFileDto"
-          }
-        }
-      },
-      "SearchViewAggregateTrackOptionPageDto": {
-        "required": [
-          "revision",
-          "groupRef",
-          "items"
-        ],
-        "type": "object",
-        "properties": {
-          "revision": {
-            "$ref": "#/components/schemas/SearchViewRevisionDto"
-          },
-          "groupRef": {
-            "type": "string"
-          },
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SearchViewFileDto"
-            }
-          },
-          "nextCursor": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
-      "SearchViewAggregateTrackPageDto": {
-        "required": [
-          "revision",
-          "items"
-        ],
-        "type": "object",
-        "properties": {
-          "revision": {
-            "$ref": "#/components/schemas/SearchViewRevisionDto"
-          },
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SearchViewAggregateTrackGroupDto"
+              "$ref": "#/components/schemas/SearchViewAlbumGroupDto"
             }
           },
           "nextCursor": {
@@ -23010,6 +22921,95 @@
           }
         }
       },
+      "SearchViewTrackGroupDto": {
+        "required": [
+          "ref",
+          "query",
+          "shareCount",
+          "selectableOptionCount",
+          "representative"
+        ],
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "query": {
+            "$ref": "#/components/schemas/SongQueryDto"
+          },
+          "shareCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "selectableOptionCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "representative": {
+            "$ref": "#/components/schemas/SearchViewFileDto"
+          }
+        }
+      },
+      "SearchViewTrackGroupOptionPageDto": {
+        "required": [
+          "revision",
+          "groupRef",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "revision": {
+            "$ref": "#/components/schemas/SearchViewRevisionDto"
+          },
+          "groupRef": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchViewFileDto"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SearchViewTrackGroupPageDto": {
+        "required": [
+          "revision",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "revision": {
+            "$ref": "#/components/schemas/SearchViewRevisionDto"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchViewTrackGroupDto"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "SearchViewUpdateDto": {
         "required": [
           "summary",
@@ -23206,8 +23206,8 @@
           "search",
           "song",
           "album",
-          "aggregate",
-          "album-aggregate",
+          "song-groups",
+          "album-groups",
           "job-list",
           "retrieve-folder",
           "remote-file",
@@ -23300,8 +23300,8 @@
           "Files",
           "GenericDirectories",
           "AlbumDirectories",
-          "AggregateTracks",
-          "AggregateAlbums"
+          "TrackGroups",
+          "AlbumGroups"
         ]
       },
       "ServerSearchViewSortOrder": {
@@ -24896,8 +24896,8 @@
                             "search",
                             "song",
                             "album",
-                            "aggregate",
-                            "album-aggregate",
+                            "song-groups",
+                            "album-groups",
                             "job-list",
                             "retrieve-folder",
                             "remote-file",
@@ -24956,7 +24956,7 @@
                             null
                           ]
                         },
-                        "searchAggregatePresentation": {
+                        "searchGroupResults": {
                           "type": [
                             "null",
                             "boolean"
@@ -25278,8 +25278,8 @@
                         "search",
                         "song",
                         "album",
-                        "aggregate",
-                        "album-aggregate",
+                        "song-groups",
+                        "album-groups",
                         "job-list",
                         "retrieve-folder",
                         "remote-file",
@@ -25338,7 +25338,7 @@
                         null
                       ]
                     },
-                    "searchAggregatePresentation": {
+                    "searchGroupResults": {
                       "type": [
                         "null",
                         "boolean"
@@ -27886,8 +27886,8 @@
                                 "search",
                                 "song",
                                 "album",
-                                "aggregate",
-                                "album-aggregate",
+                                "song-groups",
+                                "album-groups",
                                 "job-list",
                                 "retrieve-folder",
                                 "remote-file",
@@ -27946,7 +27946,7 @@
                                 null
                               ]
                             },
-                            "searchAggregatePresentation": {
+                            "searchGroupResults": {
                               "type": [
                                 "null",
                                 "boolean"
@@ -28268,8 +28268,8 @@
                             "search",
                             "song",
                             "album",
-                            "aggregate",
-                            "album-aggregate",
+                            "song-groups",
+                            "album-groups",
                             "job-list",
                             "retrieve-folder",
                             "remote-file",
@@ -28328,7 +28328,7 @@
                             null
                           ]
                         },
-                        "searchAggregatePresentation": {
+                        "searchGroupResults": {
                           "type": [
                             "null",
                             "boolean"
@@ -30401,38 +30401,7 @@
           }
         }
       },
-      "SubmitAggregateJobRequestDto": {
-        "required": [
-          "songQuery"
-        ],
-        "type": "object",
-        "properties": {
-          "songQuery": {
-            "$ref": "#/components/schemas/SongQueryDto"
-          },
-          "options": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SubmissionOptionsDto"
-              }
-            ]
-          },
-          "downloadBehavior": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
-              }
-            ]
-          }
-        }
-      },
-      "SubmitAlbumAggregateJobRequestDto": {
+      "SubmitAlbumGroupsJobRequestDto": {
         "required": [
           "albumQuery"
         ],
@@ -30513,7 +30482,7 @@
               }
             ]
           },
-          "aggregatePresentation": {
+          "groupResults": {
             "type": "boolean",
             "default": false
           }
@@ -30613,6 +30582,37 @@
           }
         }
       },
+      "SubmitSongGroupsJobRequestDto": {
+        "required": [
+          "songQuery"
+        ],
+        "type": "object",
+        "properties": {
+          "songQuery": {
+            "$ref": "#/components/schemas/SongQueryDto"
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            ]
+          },
+          "downloadBehavior": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadBehaviorPolicyDto"
+              }
+            ]
+          }
+        }
+      },
       "SubmitSongJobRequestDto": {
         "required": [
           "songQuery"
@@ -30667,7 +30667,7 @@
               }
             ]
           },
-          "aggregatePresentation": {
+          "groupResults": {
             "type": "boolean",
             "default": false
           }

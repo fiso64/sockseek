@@ -401,14 +401,14 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             ToDto(page.DirectorySummary));
     }
 
-    public SearchViewAggregateTrackPageDto? GetAggregateTracks(Guid viewId, long revision, string? cursor, int limit, CancellationToken cancellationToken)
+    public SearchViewTrackGroupPageDto? GetTrackGroups(Guid viewId, long revision, string? cursor, int limit, CancellationToken cancellationToken)
     {
         var snapshot = Cache.GetSnapshot(viewId, revision, cancellationToken);
         if (snapshot is null) return null;
-        SearchViewAggregateTrackPosition? after = cursor == null
+        SearchViewTrackGroupPosition? after = cursor == null
             ? null
-            : cursors.DecodeAggregateTracks(cursor, viewId, revision);
-        SearchViewAggregateTrackPage? page = snapshot.GetAggregateTracks(after, limit, cancellationToken);
+            : cursors.DecodeTrackGroups(cursor, viewId, revision);
+        SearchViewTrackGroupPage? page = snapshot.GetTrackGroups(after, limit, cancellationToken);
         if (page == null)
             return null;
         return new(
@@ -416,24 +416,24 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             page.Items.Select(ToDto).ToArray(),
             page.NextPosition == null
                 ? null
-                : cursors.EncodeAggregateTracks(
+                : cursors.EncodeTrackGroups(
                     viewId,
                     revision,
                     page.NextPosition));
     }
 
-    public SearchViewAggregateTrackOptionPageDto? GetAggregateTrackOptions(Guid viewId, string groupRef, long revision, string? cursor, int limit, CancellationToken cancellationToken)
+    public SearchViewTrackGroupOptionPageDto? GetTrackGroupOptions(Guid viewId, string groupRef, long revision, string? cursor, int limit, CancellationToken cancellationToken)
     {
         var snapshot = Cache.GetSnapshot(viewId, revision, cancellationToken);
         if (snapshot is null) return null;
         SearchViewFilePosition? after = cursor == null
             ? null
-            : cursors.DecodeAggregateTrackOptions(
+            : cursors.DecodeTrackGroupOptions(
                 cursor,
                 viewId,
                 groupRef,
                 revision);
-        SearchViewAggregateTrackOptionPage? page = snapshot.GetAggregateTrackOptions(groupRef, after, limit, cancellationToken);
+        SearchViewTrackGroupOptionPage? page = snapshot.GetTrackGroupOptions(groupRef, after, limit, cancellationToken);
         if (page == null)
             return null;
         return new(
@@ -442,21 +442,21 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             page.Items.Select(ToDto).ToArray(),
             page.NextPosition == null
                 ? null
-                : cursors.EncodeAggregateTrackOptions(
+                : cursors.EncodeTrackGroupOptions(
                     viewId,
                     groupRef,
                     revision,
                     page.NextPosition));
     }
 
-    public SearchViewAggregateAlbumPageDto? GetAggregateAlbums(Guid viewId, long revision, string? cursor, int limit, CancellationToken cancellationToken)
+    public SearchViewAlbumGroupPageDto? GetAlbumGroups(Guid viewId, long revision, string? cursor, int limit, CancellationToken cancellationToken)
     {
         var snapshot = Cache.GetSnapshot(viewId, revision, cancellationToken);
         if (snapshot is null) return null;
-        SearchViewAggregateAlbumPosition? after = cursor == null
+        SearchViewAlbumGroupPosition? after = cursor == null
             ? null
-            : cursors.DecodeAggregateAlbums(cursor, viewId, revision);
-        SearchViewAggregateAlbumPage? page = snapshot.GetAggregateAlbums(after, limit, InitialDirectoryFileLimit, cancellationToken);
+            : cursors.DecodeAlbumGroups(cursor, viewId, revision);
+        SearchViewAlbumGroupPage? page = snapshot.GetAlbumGroups(after, limit, InitialDirectoryFileLimit, cancellationToken);
         if (page == null)
             return null;
         return new(
@@ -468,24 +468,24 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             }).ToArray(),
             page.NextPosition == null
                 ? null
-                : cursors.EncodeAggregateAlbums(
+                : cursors.EncodeAlbumGroups(
                     viewId,
                     revision,
                     page.NextPosition));
     }
 
-    public SearchViewAggregateAlbumOptionPageDto? GetAggregateAlbumOptions(Guid viewId, string groupRef, long revision, string? cursor, int limit, CancellationToken cancellationToken)
+    public SearchViewAlbumGroupOptionPageDto? GetAlbumGroupOptions(Guid viewId, string groupRef, long revision, string? cursor, int limit, CancellationToken cancellationToken)
     {
         var snapshot = Cache.GetSnapshot(viewId, revision, cancellationToken);
         if (snapshot is null) return null;
         SearchViewDirectoryPosition? after = cursor == null
             ? null
-            : cursors.DecodeAggregateAlbumOptions(
+            : cursors.DecodeAlbumGroupOptions(
                 cursor,
                 viewId,
                 groupRef,
                 revision);
-        SearchViewAggregateAlbumOptionPage? page = snapshot.GetAggregateAlbumOptions(groupRef, after, limit, InitialDirectoryFileLimit, cancellationToken);
+        SearchViewAlbumGroupOptionPage? page = snapshot.GetAlbumGroupOptions(groupRef, after, limit, InitialDirectoryFileLimit, cancellationToken);
         if (page == null)
             return null;
         return new(
@@ -494,7 +494,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             page.Items.Select(item => ToDtoWithInitialFiles(viewId, revision, item, page.DirectoryFilePreviews)).ToArray(),
             page.NextPosition == null
                 ? null
-                : cursors.EncodeAggregateAlbumOptions(
+                : cursors.EncodeAlbumGroupOptions(
                     viewId,
                     groupRef,
                     revision,
@@ -1090,10 +1090,10 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             || settings.NoBrowseFolder != null
             || settings.Relax != null
             || settings.ArtistMaybeWrong != null
-            || settings.IsAggregate != null)
+            || settings.GroupResults != null)
         {
             throw new ArgumentException(
-                "Search View refinements may only change result conditions, ranking, and aggregate grouping.",
+                "Search View refinements may only change result conditions, ranking, and grouping.",
                 nameof(settings));
         }
     }
@@ -1173,10 +1173,10 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         SearchViewProjectionKind kind = request.Kind?.ToCore() ?? definition.DefaultProjection switch
         {
             SearchDefaultProjectionKind.GenericFile => SearchViewProjectionKind.GenericDirectories,
-            SearchDefaultProjectionKind.Track => definition.AggregatePresentation
-                ? SearchViewProjectionKind.AggregateTracks : SearchViewProjectionKind.Files,
-            SearchDefaultProjectionKind.Album => definition.AggregatePresentation
-                ? SearchViewProjectionKind.AggregateAlbums : SearchViewProjectionKind.AlbumDirectories,
+            SearchDefaultProjectionKind.Track => definition.GroupResults
+                ? SearchViewProjectionKind.TrackGroups : SearchViewProjectionKind.Files,
+            SearchDefaultProjectionKind.Album => definition.GroupResults
+                ? SearchViewProjectionKind.AlbumGroups : SearchViewProjectionKind.AlbumDirectories,
             _ => throw new ArgumentOutOfRangeException(),
         };
         SongQuery? song = request.SongQuery == null
@@ -1187,7 +1187,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             : JobRequestMapper.ToAlbumQuery(request.AlbumQuery);
         if (kind is SearchViewProjectionKind.Files
             or SearchViewProjectionKind.GenericDirectories
-            or SearchViewProjectionKind.AggregateTracks)
+            or SearchViewProjectionKind.TrackGroups)
             song ??= new SongQuery { Title = definition.NetworkQuery };
         var resolved = new SearchViewProjectionDefinition(
             kind,
@@ -1225,11 +1225,11 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             settings,
             new ConcurrentDictionary<string, int>(StringComparer.Ordinal),
             albumMode: projection.Kind is SearchViewProjectionKind.AlbumDirectories
-                or SearchViewProjectionKind.AggregateAlbums,
+                or SearchViewProjectionKind.AlbumGroups,
             requireFileSatisfies: projection.Kind == SearchViewProjectionKind.GenericDirectories
                 && !projection.IncludeFullResults,
             ignoreStringSortConditions:
-                projection.Kind == SearchViewProjectionKind.AggregateAlbums,
+                projection.Kind == SearchViewProjectionKind.AlbumGroups,
             retainProjectedRows: false);
         SearchProjectionInput[] inputs = snapshot.Files
             .Select((target, index) => new SearchProjectionInput(
@@ -1380,8 +1380,8 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         };
     }
 
-    private static SearchViewAggregateTrackGroupDto ToDto(
-        SearchViewAggregateTrackGroup row)
+    private static SearchViewTrackGroupDto ToDto(
+        SearchViewTrackGroup row)
     {
         SongQuery query = row.Query;
         return new(
@@ -1392,8 +1392,8 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             ToDto(row.Representative));
     }
 
-    private static SearchViewAggregateAlbumGroupDto ToDto(
-        SearchViewAggregateAlbumGroup row)
+    private static SearchViewAlbumGroupDto ToDto(
+        SearchViewAlbumGroup row)
     {
         AlbumQuery query = row.Query;
         return new(

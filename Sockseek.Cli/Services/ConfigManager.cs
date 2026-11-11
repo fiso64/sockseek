@@ -119,7 +119,7 @@ public static partial class ConfigManager
             context,
             normalize: settings =>
             {
-                settings.DefaultMinSharesAggregate = engine?.DefaultMinSharesAggregate ?? SearchSettings.DefaultMinShares;
+                settings.DefaultMinGroupShares = engine?.DefaultMinGroupShares ?? SearchSettings.DefaultMinShares;
                 PostProcessDownload(settings, new PathVariableContext(ConfigDir: file.ConfigDir));
             });
     }
@@ -233,7 +233,7 @@ public static partial class ConfigManager
     private static void PostProcess(EngineSettings engine, DownloadSettings dl, string? configDir)
     {
         var pathContext = new PathVariableContext(ConfigDir: configDir);
-        dl.DefaultMinSharesAggregate = engine.DefaultMinSharesAggregate;
+        dl.DefaultMinGroupShares = engine.DefaultMinGroupShares;
         PostProcessDownload(dl, pathContext);
         SettingsNormalizer.NormalizeEnginePaths(engine, pathContext);
     }

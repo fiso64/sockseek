@@ -12,8 +12,8 @@ public sealed record FolderSearchProjection(
     bool IgnoreStringSortConditions = false,
     FolderSortMode SortMode = FolderSortMode.AlbumRanked,
     bool EnforceMinimumTrackCount = true);
-public sealed record AggregateTrackProjection(SongQuery Query);
-public sealed record AggregateAlbumProjection(AlbumQuery Query);
+public sealed record TrackGroupProjection(SongQuery Query);
+public sealed record AlbumGroupProjection(AlbumQuery Query);
 
 public class SearchJob : Job
 {
@@ -24,9 +24,9 @@ public class SearchJob : Job
     public string QueryText { get; }
     public FileSearchProjection? DefaultFileProjection { get; init; }
     public FolderSearchProjection? DefaultFolderProjection { get; init; }
-    public AggregateTrackProjection? DefaultAggregateTrackProjection { get; init; }
-    public AggregateAlbumProjection? DefaultAggregateAlbumProjection { get; init; }
-    public bool AggregatePresentation { get; init; }
+    public TrackGroupProjection? DefaultTrackGroupProjection { get; init; }
+    public AlbumGroupProjection? DefaultAlbumGroupProjection { get; init; }
+    public bool GroupResults { get; init; }
 
     public SearchSession Session { get; }
 
@@ -56,7 +56,7 @@ public class SearchJob : Job
         QueryText = query.ToString(noInfo: true);
         NetworkQuery = query;
         DefaultFileProjection = new FileSearchProjection(query, includeFullResults);
-        DefaultAggregateTrackProjection = new AggregateTrackProjection(query);
+        DefaultTrackGroupProjection = new TrackGroupProjection(query);
         Session = new SearchSession(Id, timeProvider, QueryText);
         SearchObservationSession = Session;
     }
@@ -66,7 +66,7 @@ public class SearchJob : Job
         NetworkQuery = SearchResultProjector.AlbumNetworkQuery(query);
         QueryText = NetworkQuery.ToString(noInfo: true);
         DefaultFolderProjection = new FolderSearchProjection(query);
-        DefaultAggregateAlbumProjection = new AggregateAlbumProjection(query);
+        DefaultAlbumGroupProjection = new AlbumGroupProjection(query);
         Session = new SearchSession(Id, timeProvider, QueryText);
         SearchObservationSession = Session;
     }
@@ -148,33 +148,33 @@ public class SearchJob : Job
         return result;
     }
 
-    public SearchProjectionSnapshot<SongJob> GetAggregateTracks(
+    public SearchProjectionSnapshot<SongJob> GetTrackGroups(
         SearchSettings search,
         ConcurrentDictionary<string, int> userSuccessCounts)
     {
-        var projection = DefaultAggregateTrackProjection
+        var projection = DefaultTrackGroupProjection
             ?? (DefaultFileProjection is { } fileProjection
-                ? new AggregateTrackProjection(fileProjection.Query)
-                : new AggregateTrackProjection(new SongQuery { Title = QueryText }));
-        return GetAggregateTracks(projection, search, userSuccessCounts);
+                ? new TrackGroupProjection(fileProjection.Query)
+                : new TrackGroupProjection(new SongQuery { Title = QueryText }));
+        return GetTrackGroups(projection, search, userSuccessCounts);
     }
 
-    public SearchProjectionSnapshot<SongJob> GetAggregateTracks(
+    public SearchProjectionSnapshot<SongJob> GetTrackGroups(
         SongQuery query,
         SearchSettings search,
         ConcurrentDictionary<string, int> userSuccessCounts)
-        => GetAggregateTracks(new AggregateTrackProjection(query), search, userSuccessCounts);
+        => GetTrackGroups(new TrackGroupProjection(query), search, userSuccessCounts);
 
-    public SearchProjectionSnapshot<SongJob> GetAggregateTracks(
-        AggregateTrackProjection projection,
+    public SearchProjectionSnapshot<SongJob> GetTrackGroups(
+        TrackGroupProjection projection,
         SearchSettings search,
         ConcurrentDictionary<string, int> userSuccessCounts,
         bool includeLocked = false)
     {
         var state = GetOrCreateIncrementalProjectionState(
-            ProjectionKey("aggregate-tracks", projection, search, userSuccessCounts, includeLocked),
-            () => new IncrementalNeutralProjectionState<IncrementalAggregateTrackProjector, SongJob>(
-                new IncrementalAggregateTrackProjector(projection.Query, ProjectionSettings(search), userSuccessCounts),
+            ProjectionKey("track-groups", projection, search, userSuccessCounts, includeLocked),
+            () => new IncrementalNeutralProjectionState<IncrementalTrackGroupProjector, SongJob>(
+                new IncrementalTrackGroupProjector(projection.Query, ProjectionSettings(search), userSuccessCounts),
                 (projector, results) => projector.AddRange(results),
                 projector => projector.Snapshot(),
                 includeLocked));
@@ -182,23 +182,23 @@ public class SearchJob : Job
         return state.Snapshot(this);
     }
 
-    public SearchProjectionSnapshot<AlbumJob> GetAggregateAlbums(SearchSettings search)
+    public SearchProjectionSnapshot<AlbumJob> GetAlbumGroups(SearchSettings search)
     {
-        if (DefaultAggregateAlbumProjection == null)
-            throw new InvalidOperationException("Album aggregate projection requires an album projection.");
+        if (DefaultAlbumGroupProjection == null)
+            throw new InvalidOperationException("Album group projection requires an album projection.");
 
-        return GetAggregateAlbums(DefaultAggregateAlbumProjection, search);
+        return GetAlbumGroups(DefaultAlbumGroupProjection, search);
     }
 
-    public SearchProjectionSnapshot<AlbumJob> GetAggregateAlbums(AlbumQuery query, SearchSettings search)
-        => GetAggregateAlbums(new AggregateAlbumProjection(query), search);
+    public SearchProjectionSnapshot<AlbumJob> GetAlbumGroups(AlbumQuery query, SearchSettings search)
+        => GetAlbumGroups(new AlbumGroupProjection(query), search);
 
-    public SearchProjectionSnapshot<AlbumJob> GetAggregateAlbums(
-        AggregateAlbumProjection projection, SearchSettings search, bool includeLocked = false)
+    public SearchProjectionSnapshot<AlbumJob> GetAlbumGroups(
+        AlbumGroupProjection projection, SearchSettings search, bool includeLocked = false)
     {
         var state = GetOrCreateIncrementalProjectionState(
-            ProjectionKey("aggregate-albums", projection, search, includeLocked: includeLocked),
-            () => new IncrementalAlbumAggregateProjectionState(projection.Query, ProjectionSettings(search), includeLocked));
+            ProjectionKey("album-groups", projection, search, includeLocked: includeLocked),
+            () => new IncrementalAlbumGroupsProjectionState(projection.Query, ProjectionSettings(search), includeLocked));
 
         var result = state.Snapshot(this);
         ApplyRetrievedDirectories(result.Items.SelectMany(album => album.Results));
@@ -255,7 +255,7 @@ public class SearchJob : Job
         object? supplemental = null,
         bool includeLocked = false)
         => new(name, ProjectionIdentity(projection), search, supplemental, includeLocked,
-            Config?.Output.AlbumArtOnly == true, Config?.DefaultMinSharesAggregate ?? SearchSettings.DefaultMinShares);
+            Config?.Output.AlbumArtOnly == true, Config?.DefaultMinGroupShares ?? SearchSettings.DefaultMinShares);
 
     private static object ProjectionIdentity(object projection)
         => projection switch
@@ -267,8 +267,8 @@ public class SearchJob : Job
                 AlbumKey(value.Query),
                 value.IgnoreStringSortConditions,
                 value.SortMode),
-            AggregateTrackProjection value => new AggregateTrackProjectionKey(SongKey(value.Query)),
-            AggregateAlbumProjection value => new AggregateAlbumProjectionKey(AlbumKey(value.Query)),
+            TrackGroupProjection value => new TrackGroupProjectionKey(SongKey(value.Query)),
+            AlbumGroupProjection value => new AlbumGroupProjectionKey(AlbumKey(value.Query)),
             _ => throw new ArgumentException("Unsupported search projection type.", nameof(projection)),
         };
 
@@ -302,8 +302,8 @@ public class SearchJob : Job
         AlbumQueryKey Query,
         bool IgnoreStringSortConditions,
         FolderSortMode SortMode);
-    private sealed record AggregateTrackProjectionKey(SongQueryKey Query);
-    private sealed record AggregateAlbumProjectionKey(AlbumQueryKey Query);
+    private sealed record TrackGroupProjectionKey(SongQueryKey Query);
+    private sealed record AlbumGroupProjectionKey(AlbumQueryKey Query);
     private sealed record SongQueryKey(
         string? Artist,
         string? Title,
@@ -400,16 +400,16 @@ public class SearchJob : Job
         }
     }
 
-    private sealed class IncrementalAlbumAggregateProjectionState
+    private sealed class IncrementalAlbumGroupsProjectionState
     {
         private readonly Lock gate = new();
         private readonly IncrementalAlbumFolderProjector albumProjector;
-        private readonly IncrementalAlbumAggregateProjector aggregateProjector;
+        private readonly IncrementalAlbumGroupProjector groupProjector;
         private readonly bool includeLocked;
         private long lastSequence;
         private SearchProjectionSnapshot<AlbumJob>? cachedSnapshot;
 
-        public IncrementalAlbumAggregateProjectionState(AlbumQuery query, SearchSettings search, bool includeLocked)
+        public IncrementalAlbumGroupsProjectionState(AlbumQuery query, SearchSettings search, bool includeLocked)
         {
             this.includeLocked = includeLocked;
             albumProjector = new IncrementalAlbumFolderProjector(
@@ -417,7 +417,7 @@ public class SearchJob : Job
                 search,
                 ignoreStringSortConditions: true,
                 sortMode: FolderSortMode.DeterministicUnranked);
-            aggregateProjector = new IncrementalAlbumAggregateProjector(query, search);
+            groupProjector = new IncrementalAlbumGroupProjector(query, search);
         }
 
         public SearchProjectionSnapshot<AlbumJob> Snapshot(SearchJob job)
@@ -428,7 +428,7 @@ public class SearchJob : Job
                 if (newResults.Count > 0)
                 {
                     var changes = albumProjector.AddRangeAndGetChanges(RawInputs(newResults, includeLocked));
-                    aggregateProjector.ApplyChanges(changes);
+                    groupProjector.ApplyChanges(changes);
                     lastSequence = newResults[^1].Sequence;
                     cachedSnapshot = null;
                 }
@@ -442,7 +442,7 @@ public class SearchJob : Job
                     return cachedSnapshot;
                 }
 
-                cachedSnapshot = new SearchProjectionSnapshot<AlbumJob>(revision, aggregateProjector.Snapshot(), isComplete);
+                cachedSnapshot = new SearchProjectionSnapshot<AlbumJob>(revision, groupProjector.Snapshot(), isComplete);
                 return cachedSnapshot;
             }
         }

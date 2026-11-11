@@ -60,10 +60,10 @@ public class SearchResultProjectorBenchmarks
         => SearchResultProjector.SortedTrackCandidates(trackResults, trackQuery, noStringSearch, userSuccessCounts).Count;
 
     [Benchmark]
-    public int AggregateTracks()
-        => SearchResultProjector.AggregateTracks(rawResults, trackQuery, search, userSuccessCounts).Count;
+    public int TrackGroups()
+        => SearchResultProjector.GroupTracks(rawResults, trackQuery, search, userSuccessCounts).Count;
 
     [Benchmark]
-    public int AggregateAlbums()
-        => SearchResultProjector.AggregateAlbums(albumFolders, albumQuery, search).Count;
+    public int AlbumGroups()
+        => SearchResultProjector.GroupAlbums(albumFolders, albumQuery, search).Count;
 }

@@ -602,7 +602,7 @@ public sealed class ReadServiceTests
             Assert.AreEqual(cancelledId, cancelledPage.Items.Single().TransferId,
                 "A nonmatching queue prefix cannot hide a matching live group member.");
             Assert.IsNull(cancelledPage.NextCursor);
-            // Valid individual sizes can exceed the aggregate's Int64 range.
+            // Valid individual sizes can exceed the group's Int64 range.
             // A failed totals query must not discard independently readable rows.
             Guid hugeId = Guid.NewGuid();
             Assert.IsTrue(persistence.MutationSink!.TryEnqueue(initialMutation with

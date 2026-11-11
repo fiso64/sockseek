@@ -62,13 +62,13 @@ internal sealed class DownloadCommandTargetResolver
                         Add(song);
                     break;
 
-                case AggregateJob aggregate:
-                    foreach (var song in aggregate.Songs)
+                case SongGroupsJob group:
+                    foreach (var song in group.Songs)
                         Add(song);
                     break;
 
-                case AlbumAggregateJob aggregate:
-                    foreach (var album in aggregate.Albums)
+                case AlbumGroupsJob group:
+                    foreach (var album in group.Albums)
                         Add(album);
                     break;
             }

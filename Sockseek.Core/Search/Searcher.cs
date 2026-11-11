@@ -284,10 +284,10 @@ public partial class Searcher : IDisposable
         return null;
     }
 
-    // ── aggregate search ─────────────────────────────────────────────────────
+    // ── group search ─────────────────────────────────────────────────────
 
     // Populates job.Songs: one SongJob per distinct inferred track version found.
-    public async Task<JobOutcome?> SearchAggregate(AggregateJob job, SearchSettings search, ResponseData responseData, CancellationToken ct)
+    public async Task<JobOutcome?> SearchGroup(SongGroupsJob job, SearchSettings search, ResponseData responseData, CancellationToken ct)
     {
         search = job.Config?.ResolveSearchSettings(search) ?? search;
         var session = new SearchSession(job.Id, timeProvider, job.Query.ToString(noInfo: true));
@@ -319,7 +319,7 @@ public partial class Searcher : IDisposable
         responseData.resultCount = session.ResultCount;
         progress.Flush();
         job.UpdateActivity(JobActivityPhase.ProcessingSearchResults);
-        job.Songs = SearchResultProjector.AggregateTracks(
+        job.Songs = SearchResultProjector.GroupTracks(
             ProjectionInputs(session, includeLocked: job.Config?.PrintResults == true),
             job.Query, search, userStats.GetCounts(job.WorkflowId), requiredConditionsAlreadyApplied: true);
         foreach (SongJob song in job.Songs)
@@ -328,7 +328,7 @@ public partial class Searcher : IDisposable
     }
 
     // Returns new AlbumJobs (one per distinct album version found on the network).
-    public async Task<(List<AlbumJob> Albums, JobOutcome? Outcome)> SearchAggregateAlbum(AlbumAggregateJob job, SearchSettings search, ResponseData responseData, CancellationToken ct)
+    public async Task<(List<AlbumJob> Albums, JobOutcome? Outcome)> SearchAlbumGroup(AlbumGroupsJob job, SearchSettings search, ResponseData responseData, CancellationToken ct)
     {
         search = job.Config?.ResolveSearchSettings(search) ?? search;
         var searchJob = new SearchJob(job.Query);
@@ -345,7 +345,7 @@ public partial class Searcher : IDisposable
                 EnforceMinimumTrackCount: job.Config?.PrintResults == true),
             search,
             includeLocked: job.Config?.PrintResults == true);
-        var albums = SearchResultProjector.AggregateAlbums(folders.Items, job.Query, search);
+        var albums = SearchResultProjector.GroupAlbums(folders.Items, job.Query, search);
         foreach (AlbumJob album in albums)
             SubmissionIdentity.AssignExecutionChild(job, album);
         return (albums, null);
@@ -660,7 +660,7 @@ public partial class Searcher : IDisposable
         SearchSettings search,
         int minShares = -1)
     {
-        if (minShares == -1) minShares = search.EffectiveMinSharesAggregate;
+        if (minShares == -1) minShares = search.EffectiveMinGroupShares;
 
         SongQuery infer((SearchResponse r, Soulseek.File f) x)
         {
@@ -673,7 +673,7 @@ public partial class Searcher : IDisposable
         IEnumerable<(SongQuery query, IEnumerable<FileCandidate> candidates)> Group()
         {
             var groups = new SongQueryGroups<(SongQuery Query, List<(SlResponse Response, SlFile File)> Files)>(
-                search.AggregateLengthTol, static (key, _) => (key, []));
+                search.GroupLengthTol, static (key, _) => (key, []));
             foreach (var input in fileResponses) groups.GetOrAdd(infer(input)).Files.Add(input);
 
             foreach (var group in groups.Values

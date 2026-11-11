@@ -210,7 +210,7 @@ internal sealed class TransferState
     }
 
     // The global snapshot contains unowned transfers and live workflows only.
-    // Retiring/reappearing a workflow adjusts its aggregate in O(1), without
+    // Retiring/reappearing a workflow adjusts its group in O(1), without
     // visiting its files or changing ownership of the underlying transfer facts.
     public void SetWorkflowVisible(Guid workflowId, bool visible)
     {

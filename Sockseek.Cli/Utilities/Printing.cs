@@ -210,14 +210,14 @@ public static class Printing
                     CountUserFacingCompletion(child, jobList, visited, ref successes, ref fails, ref skipped);
                 return;
 
-            case AggregateJob aggregateJob:
-                foreach (var song in aggregateJob.Songs)
-                    CountUserFacingCompletion(song, aggregateJob, visited, ref successes, ref fails, ref skipped);
+            case SongGroupsJob songGroupsJob:
+                foreach (var song in songGroupsJob.Songs)
+                    CountUserFacingCompletion(song, songGroupsJob, visited, ref successes, ref fails, ref skipped);
                 return;
 
-            case AlbumAggregateJob albumAggregateJob:
-                foreach (var album in albumAggregateJob.Albums)
-                    CountUserFacingCompletion(album, albumAggregateJob, visited, ref successes, ref fails, ref skipped);
+            case AlbumGroupsJob albumGroupsJob:
+                foreach (var album in albumGroupsJob.Albums)
+                    CountUserFacingCompletion(album, albumGroupsJob, visited, ref successes, ref fails, ref skipped);
                 return;
 
             case RetrieveFolderJob:
@@ -281,7 +281,7 @@ public static class Printing
 
         if (summary && printOnly && toBeDownloaded.Count > 0)
         {
-            var label = printResults && !isNormal ? "aggregate tracks" : "tracks to download";
+            var label = printResults && !isNormal ? "group tracks" : "tracks to download";
             WriteLine($"{toBeDownloaded.Count} {label}:");
         }
         else if (summary && !printOnly && (isNormal || skippedTracks.Length > 0))

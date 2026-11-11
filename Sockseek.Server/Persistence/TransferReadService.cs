@@ -143,7 +143,7 @@ public sealed partial class TransferReadService(EngineStateStore live, DaemonRun
             return new([], coverage, readPosition);
 
         // Capture volatile rows before their durable successors. The reader
-        // obtains aggregate totals and overlap rows from one SQLite snapshot.
+        // obtains group totals and overlap rows from one SQLite snapshot.
         var current = live.GetTransferGroupSnapshot(groups.ToHashSet());
         PersistedTransferGroupProjection retained = await persistence.TransferHistory
             .GetGroupProjectionAsync(requested, current.Select(row => row.TransferId).ToArray(), cancellationToken)

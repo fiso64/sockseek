@@ -127,8 +127,8 @@ internal sealed class AutoProfileWorkflowReporter
     {
         SongJob => "song",
         AlbumJob => "album",
-        AggregateJob => "aggregate",
-        AlbumAggregateJob => "album aggregate",
+        SongGroupsJob => "song-groups",
+        AlbumGroupsJob => "album groups",
         SearchJob => "search",
         _ => null,
     };
@@ -148,7 +148,7 @@ internal sealed class AutoProfileWorkflowReporter
             ? kind
             : kind switch
             {
-                "album aggregate" => "album aggregates",
+                "album groups" => "album groupss",
                 "search" => "searches",
                 _ => $"{kind}s",
             };

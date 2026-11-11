@@ -174,14 +174,14 @@
     if (payload?.kind === 'album')
       return retrievalLoaded && !retrievalCursor && !retrievalError ? relatedRows.length : null;
     const declared = payload?.kind === 'job-list' ? payload.count
-      : payload?.kind === 'aggregate' ? payload.songCount
-      : payload?.kind === 'album-aggregate' ? payload.resultCount
+      : payload?.kind === 'song-groups' ? payload.songCount
+      : payload?.kind === 'album-groups' ? payload.resultCount
       : null;
     if (declared != null && (Number(declared) > 0 || !Number(detail?.childCount))) return Number(declared);
     return loadedChildCount != null && !cursor && !childError ? childRows.length : null;
   });
   let showRelatedJobs = $derived(Boolean(detail) && (
-    payload?.kind === 'job-list' || payload?.kind === 'aggregate' || payload?.kind === 'album-aggregate'
+    payload?.kind === 'job-list' || payload?.kind === 'song-groups' || payload?.kind === 'album-groups'
     // Album Song children are file members in the folder card; only real
     // Retrieve Folder operations belong in its separate related-jobs list.
     || payload?.kind === 'album' && relatedRows.length > 0
@@ -238,25 +238,25 @@
   let progress = $derived(payload?.kind === 'job-list'
     && payload.succeededJobCount != null && payload.failedJobCount != null
     ? { total: payload.count, completed: payload.succeededJobCount, failed: payload.failedJobCount }
-    : payload?.kind === 'aggregate'
+    : payload?.kind === 'song-groups'
       && payload.succeededSongCount != null && payload.failedSongCount != null
       ? { total: payload.songCount, completed: payload.succeededSongCount, failed: payload.failedSongCount }
-      : payload?.kind === 'album-aggregate'
+      : payload?.kind === 'album-groups'
         && payload.succeededAlbumCount != null && payload.failedAlbumCount != null
         ? { total: payload.resultCount, completed: payload.succeededAlbumCount, failed: payload.failedAlbumCount }
       : null);
   let outcomeCountsUnavailable = $derived(payload?.kind === 'job-list'
     ? payload.succeededJobCount == null || payload.failedJobCount == null
-    : payload?.kind === 'aggregate'
+    : payload?.kind === 'song-groups'
       ? payload.succeededSongCount == null || payload.failedSongCount == null
-      : payload?.kind === 'album-aggregate'
+      : payload?.kind === 'album-groups'
         ? payload.succeededAlbumCount == null || payload.failedAlbumCount == null
         : false);
 
   function childOutcomes(value: Schema<'JobPayloadDto'> | null | undefined): string {
     if (value?.kind === 'job-list') return JSON.stringify([value.activeJobCount, value.completedJobCount, value.succeededJobCount, value.failedJobCount]);
-    if (value?.kind === 'aggregate') return JSON.stringify([value.completedSongCount, value.succeededSongCount, value.failedSongCount]);
-    if (value?.kind === 'album-aggregate') return JSON.stringify([value.completedAlbumCount, value.succeededAlbumCount, value.failedAlbumCount]);
+    if (value?.kind === 'song-groups') return JSON.stringify([value.completedSongCount, value.succeededSongCount, value.failedSongCount]);
+    if (value?.kind === 'album-groups') return JSON.stringify([value.completedAlbumCount, value.succeededAlbumCount, value.failedAlbumCount]);
     if (value?.kind === 'album' || value?.kind === 'remote-directory') return JSON.stringify([value.directory.attemptNumber, value.directory.fileCount, value.directory.terminalFileCount]);
     return '';
   }
@@ -403,11 +403,11 @@
       const visibleCount = reset ? children.length : 0;
       const merged = new Map((reset ? [] : children).map((child) => [child.jobId, child]));
       let nextCursor = reset ? null : cursor;
-      // Aggregate execution also registers an internal JobList. Its generated
+      // Grouped execution also registers an internal JobList. Its generated
       // members are already direct children; page only the displayed kind so
       // wrappers neither duplicate rows nor consume the user's page size.
-      const kind = payload?.kind === 'aggregate' ? 'song'
-        : payload?.kind === 'album-aggregate' ? 'album' : undefined;
+      const kind = payload?.kind === 'song-groups' ? 'song'
+        : payload?.kind === 'album-groups' ? 'album' : undefined;
       do {
         const page = await daemonApi.getJobChildren(id, nextCursor, request.signal, kind);
         if (request.signal.aborted) return;
@@ -682,7 +682,7 @@
       <FolderItemCard path={(payload.sourceFolderPath ?? manifest?.displayRoot ?? payload.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} />
       {#if moreFolderFiles}<button type="button" class="job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
     </section>
-  {:else if payload && payload.kind !== 'job-list' && payload.kind !== 'aggregate' && payload.kind !== 'album-aggregate'}
+  {:else if payload && payload.kind !== 'job-list' && payload.kind !== 'song-groups' && payload.kind !== 'album-groups'}
     <div class="resource-state-notice unavailable">This job's detailed result presentation is not connected yet.</div>
   {/if}
   {#if progress}
@@ -696,7 +696,7 @@
   {/if}
   {#if showRelatedJobs}
     <section class="job-related-section">
-      <header class="job-section-heading"><h2>{payload?.kind === 'extract' ? 'Result' : payload?.kind === 'aggregate' ? 'Generated songs' : payload?.kind === 'album-aggregate' ? 'Generated albums' : payload?.kind === 'album' ? 'Related jobs' : 'Jobs'}</h2>
+      <header class="job-section-heading"><h2>{payload?.kind === 'extract' ? 'Result' : payload?.kind === 'song-groups' ? 'Generated songs' : payload?.kind === 'album-groups' ? 'Generated albums' : payload?.kind === 'album' ? 'Related jobs' : 'Jobs'}</h2>
         <span>{formatCount(relatedTotal ?? relatedRows.length)} {relatedTotal == null ? 'loaded ' : ''}{(relatedTotal ?? relatedRows.length) === 1 ? 'job' : 'jobs'}</span>
       </header>
       <div class="job-child-list">

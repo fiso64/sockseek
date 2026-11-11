@@ -808,9 +808,9 @@ public class EngineSupervisorTests
         try
         {
             SettingsProfile profile = CreateProfile(
-                "aggregate-request",
+                "group-request",
                 settings => settings.Search.MaxStaleTime = 7654) with
-            { Condition = "aggregate" };
+            { Condition = "group" };
             var supervisor = CreateSupervisor(root, outputDir, profiles: new ProfileCatalog
             {
                 AutoProfiles = [profile],
@@ -823,13 +823,13 @@ public class EngineSupervisorTests
                     new SongQueryDto("Artist", "Track", "", "", -1, false),
                     Options: new SubmissionOptionsDto(
                         DownloadSettings: new DownloadSettingsPatchDto(
-                            Search: new SearchSettingsPatchDto(IsAggregate: true)))),
+                            Search: new SearchSettingsPatchDto(GroupResults: true)))),
                 CancellationToken.None);
             await WaitForJobStateAsync(supervisor, summary.JobId, ExpectedJobStatus.Succeeded);
 
             SearchJob? job = supervisor.GetRuntimeJob<SearchJob>(summary.JobId);
             Assert.IsNotNull(job?.Config);
-            CollectionAssert.Contains(job.Config.AppliedAutoProfiles.ToList(), "aggregate-request");
+            CollectionAssert.Contains(job.Config.AppliedAutoProfiles.ToList(), "group-request");
             Assert.AreEqual(7654, job.Config.Search.MaxStaleTime);
 
             cts.Cancel();

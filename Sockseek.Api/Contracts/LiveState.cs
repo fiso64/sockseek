@@ -260,7 +260,7 @@ public sealed record JobDisplayFieldsDto(
     ServerJobRole Role,
     DateTimeOffset? CreatedAtUtc,
     ServerSearchDefaultProjectionKind? SearchDefaultProjection = null,
-    bool? SearchAggregatePresentation = null,
+    bool? SearchGroupResults = null,
     string? SourceDetail = null);
 
 /// <summary>
@@ -318,7 +318,7 @@ public sealed record JobStateDto(
                 summary.Role,
                 summary.CreatedAtUtc,
                 summary.SearchDefaultProjection,
-                summary.SearchAggregatePresentation,
+                summary.SearchGroupResults,
                 summary.SourceDetail),
             new JobLifecycleFieldsDto(
                 summary.LifecycleState,
@@ -374,7 +374,7 @@ public sealed record JobStateDto(
             DiscoveryObservedPeerCount: Discovery.ObservedPeerCount,
             Stats: Stats,
             SearchDefaultProjection: Display.SearchDefaultProjection,
-            SearchAggregatePresentation: Display.SearchAggregatePresentation,
+            SearchGroupResults: Display.SearchGroupResults,
             SourceDetail: Display.SourceDetail);
 
 }

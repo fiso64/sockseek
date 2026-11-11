@@ -67,9 +67,9 @@ public class DownloadSettings
     [JsonIgnore]
     public PathVariableContext RuntimePathContext { get; set; } = PathVariableContext.Empty;
 
-    /// Automatic aggregate threshold supplied by the host's backend.
+    /// Automatic group threshold supplied by the host's backend.
     [SettingIgnore]
-    public int DefaultMinSharesAggregate { get; set; } = SearchSettings.DefaultMinShares;
+    public int DefaultMinGroupShares { get; set; } = SearchSettings.DefaultMinShares;
 
     // ── Computed properties ───────────────────────────────────────────────────
 
@@ -83,7 +83,7 @@ public class DownloadSettings
 
     /// Resolve mode-specific search behavior without rewriting configured conditions.
     public SearchSettings ResolveSearchSettings(SearchSettings? search = null)
-        => (search ?? Search).Resolve(Output.AlbumArtOnly, DefaultMinSharesAggregate);
+        => (search ?? Search).Resolve(Output.AlbumArtOnly, DefaultMinGroupShares);
 
     public ResolvedIncompleteAlbumAction ResolveIncompleteAlbumAction()
     {

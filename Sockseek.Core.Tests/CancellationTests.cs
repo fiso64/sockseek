@@ -730,7 +730,7 @@ namespace Tests.Cancellation
         }
 
         [TestMethod]
-        public async Task AggregateJob_CancelledDuringSearch_RemainsCancelled()
+        public async Task SongGroupsJob_CancelledDuringSearch_RemainsCancelled()
         {
             var response = new SearchResponse(
                 username: "user1",
@@ -743,7 +743,7 @@ namespace Tests.Cancellation
                     TestHelpers.CreateSlFile(@"Shares\ELO\Turn Me On.mp3", length: 240),
                 ]);
 
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-cancel-aggregate-search-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-cancel-group-search-" + Guid.NewGuid());
             System.IO.Directory.CreateDirectory(outputDir);
 
             try
@@ -751,26 +751,26 @@ namespace Tests.Cancellation
                 var engineSettings = new EngineSettings { Username = "u", Password = "p" };
                 var downloadSettings = new DownloadSettings();
                 downloadSettings.Output.ParentDir = outputDir;
-                downloadSettings.Search.MinSharesAggregate = 1;
+                downloadSettings.Search.MinGroupShares = 1;
 
-                var aggregateJob = new AggregateJob(new SongQuery { Artist = "ELO", Title = "Turn Me On" });
+                var songGroupsJob = new SongGroupsJob(new SongQuery { Artist = "ELO", Title = "Turn Me On" });
                 var client = new ClientTests.MockSoulseekClient([response]);
                 var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
 
                 engine.Events.JobStateChanged += change =>
                 {
-                    if (change.Job.Id == aggregateJob.Id && change.LifecycleState == JobLifecycleState.Running)
-                        aggregateJob.Cancel(JobCancellationSource.UserRequestedJob);
+                    if (change.Job.Id == songGroupsJob.Id && change.LifecycleState == JobLifecycleState.Running)
+                        songGroupsJob.Cancel(JobCancellationSource.UserRequestedJob);
                 };
 
-                engine.Enqueue(aggregateJob, downloadSettings);
+                engine.Enqueue(songGroupsJob, downloadSettings);
                 engine.CompleteEnqueue();
 
                 var runTask = engine.RunAsync(CancellationToken.None);
                 await IgnoreCancellation(runTask);
 
-                Assert.IsTrue(aggregateJob.IsUnsuccessfulTerminal);
-                Assert.AreEqual(JobFailureReason.Cancelled, aggregateJob.FailureReason);
+                Assert.IsTrue(songGroupsJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.Cancelled, songGroupsJob.FailureReason);
             }
             finally
             {
@@ -877,9 +877,9 @@ namespace Tests.Cancellation
         [DataRow(true, false, false)]
         [DataRow(false, true, true)]
         [DataRow(true, true, true)]
-        public async Task ManualAggregateSelection_ClosingWaitsForOnlyTheSelectedGroup(bool albumMode, bool succeeds, bool cancelOwner)
+        public async Task ManualGroupSelection_ClosingWaitsForOnlyTheSelectedGroup(bool albumMode, bool succeeds, bool cancelOwner)
         {
-            string outputDir = System.IO.Directory.CreateTempSubdirectory("sockseek-manual-aggregate-").FullName;
+            string outputDir = System.IO.Directory.CreateTempSubdirectory("sockseek-manual-group-").FullName;
             var gate = new TestHelpers.DownloadGate();
             Soulseek.File[] Files(string prefix) =>
             [
@@ -902,15 +902,15 @@ namespace Tests.Cancellation
             settings.Output.ParentDir = outputDir;
             settings.Output.WriteIndex = false;
             settings.Skip.SkipExisting = false;
-            settings.Search.MinSharesAggregate = 1;
+            settings.Search.MinGroupShares = 1;
             settings.Search.NoBrowseFolder = true;
-            Job aggregate = albumMode
-                ? new AlbumAggregateJob(new AlbumQuery { Artist = "Artist" })
-                : new AggregateJob(new SongQuery { Artist = "Artist" });
-            aggregate.WorkflowId = Guid.NewGuid();
-            aggregate.DownloadBehaviorPolicy = new DownloadBehaviorPolicy
+            Job group = albumMode
+                ? new AlbumGroupsJob(new AlbumQuery { Artist = "Artist" })
+                : new SongGroupsJob(new SongQuery { Artist = "Artist" });
+            group.WorkflowId = Guid.NewGuid();
+            group.DownloadBehaviorPolicy = new DownloadBehaviorPolicy
             {
-                Aggregate = DownloadBehavior.Manual, AlbumAggregate = DownloadBehavior.Manual,
+                SongGroups = DownloadBehavior.Manual, AlbumGroups = DownloadBehavior.Manual,
             };
             var engineSettings = new EngineSettings
             {
@@ -921,75 +921,75 @@ namespace Tests.Cancellation
             bool queueClosed = false;
             try
             {
-                engine.Enqueue(aggregate, settings);
+                engine.Enqueue(group, settings);
                 running = engine.RunAsync(CancellationToken.None);
-                await WaitForAsync(engine, () => aggregate.IsAwaitingSelection);
+                await WaitForAsync(engine, () => group.IsAwaitingSelection);
                 Job selected, other;
                 Func<bool> choose, chooseAlternative, chooseOther;
                 Func<int> alternativeCount;
-                if (aggregate is AlbumAggregateJob albums)
+                if (group is AlbumGroupsJob albums)
                 {
                     Assert.AreEqual(2, albums.Albums.Count);
                     var album = albums.Albums[^1];
                     var ignored = albums.Albums[0];
                     selected = album;
                     other = ignored;
-                    choose = () => engine.TryStartManualAlbumSelection(aggregate.Id, album.Results[^1], album.Query, null, out _);
-                    chooseAlternative = () => engine.TryStartManualAlbumSelection(aggregate.Id, album.Results[0], album.Query, null, out _);
-                    chooseOther = () => engine.TryStartManualAlbumSelection(aggregate.Id, ignored.Results[0], ignored.Query, null, out _);
+                    choose = () => engine.TryStartManualAlbumSelection(group.Id, album.Results[^1], album.Query, null, out _);
+                    chooseAlternative = () => engine.TryStartManualAlbumSelection(group.Id, album.Results[0], album.Query, null, out _);
+                    chooseOther = () => engine.TryStartManualAlbumSelection(group.Id, ignored.Results[0], ignored.Query, null, out _);
                     alternativeCount = () => album.Results.Count;
                 }
                 else
                 {
-                    var songs = (AggregateJob)aggregate;
+                    var songs = (SongGroupsJob)group;
                     Assert.AreEqual(2, songs.Songs.Count);
                     var song = songs.Songs[^1];
                     var ignored = songs.Songs[0];
                     selected = song;
                     other = ignored;
-                    choose = () => engine.TryStartManualSongSelection(aggregate.Id, song.Candidates![^1], null, out _);
-                    chooseAlternative = () => engine.TryStartManualSongSelection(aggregate.Id, song.Candidates![0], null, out _);
-                    chooseOther = () => engine.TryStartManualSongSelection(aggregate.Id, ignored.Candidates![0], null, out _);
+                    choose = () => engine.TryStartManualSongSelection(group.Id, song.Candidates![^1], null, out _);
+                    chooseAlternative = () => engine.TryStartManualSongSelection(group.Id, song.Candidates![0], null, out _);
+                    chooseOther = () => engine.TryStartManualSongSelection(group.Id, ignored.Candidates![0], null, out _);
                     alternativeCount = () => song.Candidates!.Count;
                 }
                 Assert.AreEqual(2, alternativeCount());
                 Assert.IsTrue(choose());
                 Assert.AreSame(selected, engine.GetJob(selected.Id));
-                Assert.AreEqual(aggregate.WorkflowId, selected.WorkflowId);
+                Assert.AreEqual(group.WorkflowId, selected.WorkflowId);
                 Assert.AreEqual(2, alternativeCount(), "Executing a choice retains discovery alternatives.");
                 await gate.WaitForStartedCountAsync(1);
                 Assert.IsNull(engine.GetJob(other.Id), "Unselected groups are not execution children.");
                 Assert.IsFalse(chooseAlternative(), "An active group cannot be retargeted or resumed twice.");
                 if (cancelOwner)
-                    Assert.IsTrue(engine.CancelJob(aggregate.Id));
+                    Assert.IsTrue(engine.CancelJob(group.Id));
                 else
                 {
-                    Assert.IsTrue(await engine.CompleteManualSelectionAsync(aggregate.Id));
-                    Assert.IsTrue(aggregate.IsAwaitingSelection, "Closing waits for the selected group to finish.");
+                    Assert.IsTrue(await engine.CompleteManualSelectionAsync(group.Id));
+                    Assert.IsTrue(group.IsAwaitingSelection, "Closing waits for the selected group to finish.");
                     Assert.IsFalse(chooseOther(), "A closed selection cannot admit another group.");
                     gate.Open();
                 }
                 try
                 {
-                    await WaitForAsync(engine, () => aggregate.IsTerminal && selected.IsTerminal);
+                    await WaitForAsync(engine, () => group.IsTerminal && selected.IsTerminal);
                 }
                 catch (TimeoutException)
                 {
-                    Assert.Fail($"Owner never settled: root={aggregate.LifecycleState}/{aggregate.TerminalOutcome}, "
+                    Assert.Fail($"Owner never settled: root={group.LifecycleState}/{group.TerminalOutcome}, "
                         + $"selected={selected.LifecycleState}/{selected.TerminalOutcome}; cancel={cancelOwner}.");
                 }
                 var expected = cancelOwner ? JobTerminalOutcome.Cancelled
                     : succeeds ? JobTerminalOutcome.Succeeded : JobTerminalOutcome.Failed;
-                Assert.AreEqual(expected, aggregate.TerminalOutcome);
+                Assert.AreEqual(expected, group.TerminalOutcome);
                 Assert.AreEqual(expected, selected.TerminalOutcome);
-                if (cancelOwner) Assert.AreEqual(JobCancellationSource.UserRequestedJob, aggregate.CancellationSource);
+                if (cancelOwner) Assert.AreEqual(JobCancellationSource.UserRequestedJob, group.CancellationSource);
                 Assert.AreEqual(1, gate.StartedCount, "An explicit choice must not try another source or group.");
                 if (!cancelOwner) Assert.AreEqual(JobLifecycleState.Pending, other.LifecycleState);
-                Assert.IsFalse(await engine.CompleteManualSelectionAsync(aggregate.Id));
+                Assert.IsFalse(await engine.CompleteManualSelectionAsync(group.Id));
                 engine.CompleteEnqueue();
                 queueClosed = true;
                 await running.WaitAsync(TimeSpan.FromSeconds(5));
-                Assert.AreEqual(0, engine.GetJobsByWorkflow(aggregate.WorkflowId).Count,
+                Assert.AreEqual(0, engine.GetJobsByWorkflow(group.WorkflowId).Count,
                     "A terminal manual workflow must not stay alive as a resumable picker.");
                 Assert.AreEqual(0, engine.RetainedStateCounts.Contexts);
                 Assert.AreEqual(0, engine.RetainedStateCounts.ManualSelections);
@@ -1027,7 +1027,7 @@ namespace Tests.Cancellation
         [DataRow(false, true, "engine")]
         [DataRow(true, false, "engine")]
         [DataRow(true, true, "engine")]
-        public async Task ManualSelection_CancellationFinalizesIdleJobsWithoutRediscovery(bool albumMode, bool aggregateMode, string scope)
+        public async Task ManualSelection_CancellationFinalizesIdleJobsWithoutRediscovery(bool albumMode, bool groupMode, string scope)
         {
             string outputDir = System.IO.Directory.CreateTempSubdirectory("sockseek-idle-cancel-").FullName;
             int searches = 0, downloads = 0;
@@ -1043,14 +1043,14 @@ namespace Tests.Cancellation
             var settings = new DownloadSettings();
             settings.Output.ParentDir = outputDir;
             settings.Output.WriteIndex = false;
-            settings.Search.MinSharesAggregate = 1;
+            settings.Search.MinGroupShares = 1;
             settings.Search.NoBrowseFolder = true;
-            Job job = (albumMode, aggregateMode) switch
+            Job job = (albumMode, groupMode) switch
             {
                 (false, false) => new SongJob(new SongQuery { Artist = "Artist", Title = "First" }),
-                (false, true) => new AggregateJob(new SongQuery { Artist = "Artist" }),
+                (false, true) => new SongGroupsJob(new SongQuery { Artist = "Artist" }),
                 (true, false) => new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" }),
-                _ => new AlbumAggregateJob(new AlbumQuery { Artist = "Artist" }),
+                _ => new AlbumGroupsJob(new AlbumQuery { Artist = "Artist" }),
             };
             job.DownloadBehaviorPolicy = new DownloadBehaviorPolicy { Default = DownloadBehavior.Manual };
             var engineSettings = new EngineSettings
@@ -1521,7 +1521,7 @@ namespace Tests.Cancellation
         }
 
         [TestMethod]
-        public async Task AlbumAggregate_CancelledChildAlbums_MarksParentContainersCancelled()
+        public async Task AlbumGroups_CancelledChildAlbums_MarksParentContainersCancelled()
         {
             var index = new List<SearchResponse>
             {
@@ -1549,7 +1549,7 @@ namespace Tests.Cancellation
                     ]),
             };
 
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-cancel-album-aggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-cancel-album-groups-" + Guid.NewGuid());
             System.IO.Directory.CreateDirectory(outputDir);
 
             try
@@ -1564,41 +1564,41 @@ namespace Tests.Cancellation
                 var downloadSettings = new DownloadSettings();
                 downloadSettings.Output.ParentDir = outputDir;
                 downloadSettings.Output.WriteIndex = false;
-                downloadSettings.Search.MinSharesAggregate = 1;
+                downloadSettings.Search.MinGroupShares = 1;
                 downloadSettings.Search.NoBrowseFolder = true;
                 downloadSettings.Skip.SkipExisting = false;
 
-                var aggregateJob = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
+                var songGroupsJob = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
                 var client = new ClientTests.MockSoulseekClient(index);
                 var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
 
-                JobList? aggregateList = null;
+                JobList? groupList = null;
                 engine.Events.JobRegistered += change =>
                 {
-                    if (change.ParentJobId == aggregateJob.Id
+                    if (change.ParentJobId == songGroupsJob.Id
                         && change.Job.Kind == Sockseek.Core.Snapshots.JobSnapshotKind.JobList
                         && engine.GetJob(change.Job.Id) is JobList list)
-                        aggregateList = list;
+                        groupList = list;
                 };
                 engine.Events.JobStateChanged += change =>
                 {
-                    if (aggregateList != null
-                        && change.Job.Id == aggregateList.Id
+                    if (groupList != null
+                        && change.Job.Id == groupList.Id
                         && change.ActivityPhase == JobActivityPhase.RunningChildren)
-                        aggregateList.Cancel(JobCancellationSource.UserRequestedJob);
+                        groupList.Cancel(JobCancellationSource.UserRequestedJob);
                 };
 
-                engine.Enqueue(aggregateJob, downloadSettings);
+                engine.Enqueue(songGroupsJob, downloadSettings);
                 engine.CompleteEnqueue();
 
                 var runTask = engine.RunAsync(CancellationToken.None);
                 await IgnoreCancellation(runTask);
 
-                Assert.IsNotNull(aggregateList, "AlbumAggregate should process matching albums through a registered JobList.");
-                Assert.IsTrue(aggregateList!.IsUnsuccessfulTerminal);
-                Assert.AreEqual(JobFailureReason.Cancelled, aggregateList.FailureReason);
-                Assert.IsTrue(aggregateJob.IsUnsuccessfulTerminal);
-                Assert.AreEqual(JobFailureReason.Cancelled, aggregateJob.FailureReason);
+                Assert.IsNotNull(groupList, "AlbumGroups should process matching albums through a registered JobList.");
+                Assert.IsTrue(groupList!.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.Cancelled, groupList.FailureReason);
+                Assert.IsTrue(songGroupsJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.Cancelled, songGroupsJob.FailureReason);
             }
             finally
             {

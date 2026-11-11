@@ -519,7 +519,7 @@ internal static class JobEndpoints
             await SubmitJobAsync(() => submissions.SubmitSearchJobAsync(request, ct)))
             .WithTags("Job Submission")
             .WithSummary("Submits a generic Soulseek search job.")
-            .WithDescription("Search jobs are discovery-oriented. They store raw Soulseek results; use projection endpoints to view those results as files, album folders, or aggregate candidates, then use follow-up download endpoints for selected refs.")
+            .WithDescription("Search jobs are discovery-oriented. They store raw Soulseek results; use projection endpoints to view those results as files, album folders, or group candidates, then use follow-up download endpoints for selected refs.")
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
@@ -555,19 +555,19 @@ internal static class JobEndpoints
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
-        app.MapPost("/api/jobs/aggregate/tracks", async (SubmitAggregateJobRequestDto request, JobSubmissions submissions, CancellationToken ct) =>
-            await SubmitJobAsync(() => submissions.SubmitAggregateJobAsync(request, ct)))
+        app.MapPost("/api/jobs/groups/tracks", async (SubmitSongGroupsJobRequestDto request, JobSubmissions submissions, CancellationToken ct) =>
+            await SubmitJobAsync(() => submissions.SubmitSongGroupsJobAsync(request, ct)))
             .WithTags("Job Submission")
-            .WithSummary("Submits an aggregate track search job.")
-            .WithDescription("Aggregate jobs can download automatically or, with DownloadBehavior.Manual, pause after candidate grouping so the caller can choose which child downloads to resume.")
+            .WithSummary("Submits a grouped track search job.")
+            .WithDescription("Grouped-song jobs can download automatically or, with DownloadBehavior.Manual, pause after candidate grouping so the caller can choose which child downloads to resume.")
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
-        app.MapPost("/api/jobs/aggregate/albums", async (SubmitAlbumAggregateJobRequestDto request, JobSubmissions submissions, CancellationToken ct) =>
-            await SubmitJobAsync(() => submissions.SubmitAlbumAggregateJobAsync(request, ct)))
+        app.MapPost("/api/jobs/groups/albums", async (SubmitAlbumGroupsJobRequestDto request, JobSubmissions submissions, CancellationToken ct) =>
+            await SubmitJobAsync(() => submissions.SubmitAlbumGroupsJobAsync(request, ct)))
             .WithTags("Job Submission")
-            .WithSummary("Submits an aggregate album search job.")
-            .WithDescription("Aggregate album jobs can download automatically or, with DownloadBehavior.Manual, pause after bucket projection so the caller can choose which child downloads to resume.")
+            .WithSummary("Submits a grouped album search job.")
+            .WithDescription("Grouped album jobs can download automatically or, with DownloadBehavior.Manual, pause after bucket projection so the caller can choose which child downloads to resume.")
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 

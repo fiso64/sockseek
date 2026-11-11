@@ -142,7 +142,7 @@ public sealed record JobSummaryStatsDto(
 /// <param name="DiscoveryPublicFileCount">Raw public files observed by a search job; null for non-search jobs or unavailable history.</param>
 /// <param name="DiscoveryObservedPeerCount">Distinct exact peer identities that supplied public or locked files. Locked-only peers count.</param>
 /// <param name="SearchDefaultProjection">Accepted default search presentation, when retained; null for other jobs or unavailable definitions.</param>
-/// <param name="SearchAggregatePresentation">Accepted aggregate presentation preference, when retained; null for other jobs or unavailable definitions.</param>
+/// <param name="SearchGroupResults">Accepted group presentation preference, when retained; null for other jobs or unavailable definitions.</param>
 /// <param name="Stats">Compact per-kind counts from the job owner; absent values must not be inferred from loaded children.</param>
 public sealed record JobSummaryDto(
     Guid JobId,
@@ -175,7 +175,7 @@ public sealed record JobSummaryDto(
     int? DiscoveryObservedPeerCount = null,
     JobSummaryStatsDto? Stats = null,
     ServerSearchDefaultProjectionKind? SearchDefaultProjection = null,
-    bool? SearchAggregatePresentation = null,
+    bool? SearchGroupResults = null,
     string? SourceDetail = null)
 {
     public JobSummaryDto()

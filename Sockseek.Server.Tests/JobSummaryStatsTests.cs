@@ -25,8 +25,8 @@ public sealed class JobSummaryStatsTests
             (new SongJob(query), new()),
             (new AlbumJob(albumQuery), new(MemberCount: 0, CompletedMemberCount: 0,
                 FailedMemberCount: 0, FolderCount: 0, FileCount: 0)),
-            (new AggregateJob(query), new(MemberCount: 0, CompletedMemberCount: 0, FailedMemberCount: 0)),
-            (new AlbumAggregateJob(albumQuery), new(MemberCount: 0, CompletedMemberCount: 0, FailedMemberCount: 0)),
+            (new SongGroupsJob(query), new(MemberCount: 0, CompletedMemberCount: 0, FailedMemberCount: 0)),
+            (new AlbumGroupsJob(albumQuery), new(MemberCount: 0, CompletedMemberCount: 0, FailedMemberCount: 0)),
             (new JobList("List", [new SongJob(query)]), new(MemberCount: 1, CompletedMemberCount: 0, FailedMemberCount: 0)),
             (new RemoteFileJob(new PeerFileTarget(new(" Peer ", @"Share\File.flac"), 123, "flac")), new(KnownBytes: 123)),
             (new RemoteDirectoryJob(new RemoteDirectorySource.PeerDirectory(new(" Peer ", @"Share\Album"))),
@@ -53,17 +53,17 @@ public sealed class JobSummaryStatsTests
     {
         var search = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" })
         {
-            AggregatePresentation = true,
+            GroupResults = true,
         };
         search.Definition = SearchDefinition.Create(search, new SearchSettings());
 
         JobSummaryDto live = ServerSnapshotMapper.ToJobSummary(CoreSnapshotFactory.CreateJob(search, 0));
         Assert.AreEqual(ServerSearchDefaultProjectionKind.Track, live.SearchDefaultProjection);
-        Assert.AreEqual(true, live.SearchAggregatePresentation);
+        Assert.AreEqual(true, live.SearchGroupResults);
 
         JobSummaryDto liveRoundTrip = JobStateDto.FromSummary(live, 1).ToSummary();
         Assert.AreEqual(live.SearchDefaultProjection, liveRoundTrip.SearchDefaultProjection);
-        Assert.AreEqual(live.SearchAggregatePresentation, liveRoundTrip.SearchAggregatePresentation);
+        Assert.AreEqual(live.SearchGroupResults, liveRoundTrip.SearchGroupResults);
 
         var now = DateTimeOffset.UtcNow;
         var retained = new PersistedJob(search.Id, 1, search.WorkflowId, null, null, null,
@@ -72,11 +72,11 @@ public sealed class JobSummaryStatsTests
             RetainedJobPayloadCodec.Capture(CoreSnapshotFactory.CreateJob(search, 1).Payload).Value);
         JobSummaryDto historical = HistoricalJobDtoMapper.ToSummary(retained);
         Assert.AreEqual(live.SearchDefaultProjection, historical.SearchDefaultProjection);
-        Assert.AreEqual(live.SearchAggregatePresentation, historical.SearchAggregatePresentation);
+        Assert.AreEqual(live.SearchGroupResults, historical.SearchGroupResults);
 
         JobSummaryDto malformed = HistoricalJobDtoMapper.ToSummary(retained with { PayloadJson = "{bad" });
         Assert.IsNull(malformed.SearchDefaultProjection);
-        Assert.IsNull(malformed.SearchAggregatePresentation);
+        Assert.IsNull(malformed.SearchGroupResults);
     }
 
     [TestMethod]
@@ -95,8 +95,8 @@ public sealed class JobSummaryStatsTests
             ("RemoteDirectory", new RemoteDirectoryExecutionPayload(RemoteDirectorySourceSnapshotKind.Resolved, null, null, null, null,
                 directory with { FileCount = 9, TerminalFileCount = 4, BytesTransferred = 35, Progress = 0.35 }),
                 new(MemberCount: 9, CompletedMemberCount: 4, FailedMemberCount: 1, FileCount: 9, ProgressPercent: 35)),
-            ("Aggregate", new AggregateExecutionPayload(songQuery, null, new(5, 2, 1, 1)), new(MemberCount: 5, CompletedMemberCount: 2, FailedMemberCount: 1)),
-            ("AlbumAggregate", new AlbumAggregateJobSnapshotPayload(albumQuery, new(5, 2, 1, 1), null), new(MemberCount: 5, CompletedMemberCount: 2, FailedMemberCount: 1)),
+            ("SongGroups", new SongGroupsExecutionPayload(songQuery, null, new(5, 2, 1, 1)), new(MemberCount: 5, CompletedMemberCount: 2, FailedMemberCount: 1)),
+            ("AlbumGroups", new AlbumGroupsJobSnapshotPayload(albumQuery, new(5, 2, 1, 1), null), new(MemberCount: 5, CompletedMemberCount: 2, FailedMemberCount: 1)),
             ("JobList", new JobListExecutionPayload(new(6, 3, 2, 1)), new(MemberCount: 6, CompletedMemberCount: 3, FailedMemberCount: 1)),
             ("RetrieveFolder", new RetrieveFolderExecutionPayload(new("Peer", "Music"), 2, FolderRetrievalOutcome.Completed, false), new(NewFilesFoundCount: 2)),
         ];

@@ -40,7 +40,7 @@ public static class JobExtraction
         InputType? collectionType = source.SourceCollectionInputType ?? result.SourceCollectionInputType;
         if (result is IUpgradeable upgradeable)
         {
-            List<Job> upgraded = upgradeable.Upgrade(upgradeToAlbum, source.Config.Search.IsAggregate).ToList();
+            List<Job> upgraded = upgradeable.Upgrade(upgradeToAlbum, source.Config.Search.GroupResults).ToList();
             if (upgraded.Count == 1) result = upgraded[0];
             else
             {
@@ -86,11 +86,11 @@ public static class JobExtraction
                 case JobList list:
                     foreach (Job child in list.Jobs) Apply(child);
                     break;
-                case AggregateJob aggregate:
-                    foreach (SongJob child in aggregate.Songs) Apply(child);
+                case SongGroupsJob group:
+                    foreach (SongJob child in group.Songs) Apply(child);
                     break;
-                case AlbumAggregateJob aggregate:
-                    foreach (AlbumJob child in aggregate.Albums) Apply(child);
+                case AlbumGroupsJob group:
+                    foreach (AlbumJob child in group.Albums) Apply(child);
                     break;
             }
         }

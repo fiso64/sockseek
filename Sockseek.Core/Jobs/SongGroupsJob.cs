@@ -4,7 +4,7 @@ using Sockseek.Core.Snapshots;
 namespace Sockseek.Core.Jobs;
     // Downloads all search results matching a query (e.g. all songs by an artist,
     // all versions of a song, or all results for a given name). Groups same songs.
-    public class AggregateJob : Job, IUpgradeable
+    public class SongGroupsJob : Job, IUpgradeable
     {
         public SongQuery Query { get; }
         public override SongQuery QueryTrack => Query;
@@ -20,7 +20,7 @@ namespace Sockseek.Core.Jobs;
         }
         internal JobOutcomeSummary MemberOutcomes => members.Summary;
 
-        public AggregateJob(SongQuery query)
+        public SongGroupsJob(SongQuery query)
         {
             Query = query;
             members = new(false, NotifyStructureChanged);
@@ -29,12 +29,12 @@ namespace Sockseek.Core.Jobs;
         public override string ToString(bool noInfo)
             => ItemName ?? Query.ToString(noInfo);
 
-        public IEnumerable<Job> Upgrade(bool album, bool aggregate)
+        public IEnumerable<Job> Upgrade(bool album, bool group)
         {
             if (album)
             {
                 var newQuery = AlbumQuery.FromSongQuery(Query);
-                var newJob = new AlbumAggregateJob(newQuery);
+                var newJob = new AlbumGroupsJob(newQuery);
                 newJob.CopySharedFieldsFrom(this);
                 if (Query.Title.Length > 0)
                 {

@@ -56,7 +56,7 @@ export const SEARCH_CONFIG_FIELDS = {
     ranking: { label: 'Bit depth', section: 'quality' },
   },
   strictArtist: {
-    id: 'strictArtist', modes: ['track', 'album', 'song-aggregate', 'album-aggregate'], relationship: 'paired',
+    id: 'strictArtist', modes: ['track', 'album', 'song-groups', 'album-groups'], relationship: 'paired',
     conditions: { label: 'Require artist in path', section: 'matching' },
     ranking: { label: 'Prefer artist in path', section: 'matching' },
   },

@@ -130,7 +130,7 @@ namespace Tests.Core
         [TestCategory("Load")]
         [DataRow(false)]
         [DataRow(true)]
-        public async Task HundredCandidateSongFallbackPreservesAttemptsAndExactOutput(bool aggregate)
+        public async Task HundredCandidateSongFallbackPreservesAttemptsAndExactOutput(bool group)
         {
             string outputDir = Path.Combine(Path.GetTempPath(), "sockseek-long-song-fallback-" + Guid.NewGuid().ToString("N"));
             const int candidateCount = 100;
@@ -146,8 +146,8 @@ namespace Tests.Core
                 var settings = new DownloadSettings();
                 settings.Extraction.Input = "Artist - Song";
                 settings.Extraction.RequestedMode = ExtractionMode.Song;
-                settings.Search.IsAggregate = aggregate;
-                settings.Search.MinSharesAggregate = 1;
+                settings.Search.GroupResults = group;
+                settings.Search.MinGroupShares = 1;
                 settings.Transfer.MaxDownloadRetries = candidateCount;
                 settings.Transfer.UnknownErrorRetries = 0;
                 settings.Output.ParentDir = outputDir;
@@ -166,9 +166,9 @@ namespace Tests.Core
 
                 var elapsed = System.Diagnostics.Stopwatch.StartNew();
                 await engine.RunAsync(CancellationToken.None);
-                Console.WriteLine($"100-candidate {(aggregate ? "aggregate" : "ordinary")} Song fallback: {elapsed.Elapsed.TotalMilliseconds:F1} ms.");
+                Console.WriteLine($"100-candidate {(group ? "song-groups" : "ordinary")} Song fallback: {elapsed.Elapsed.TotalMilliseconds:F1} ms.");
 
-                SongJob[] songs = root.Result is AggregateJob grouped
+                SongJob[] songs = root.Result is SongGroupsJob grouped
                     ? grouped.Songs.ToArray() : engine.Queue.AllSongs().ToArray();
                 Assert.AreEqual(1, songs.Length, $"Root {root.TerminalOutcome}: {root.FailureMessage}; result {root.Result?.GetType().Name}: {root.Result?.TerminalOutcome}, {root.Result?.FailureMessage}");
                 SongJob song = songs.Single();
@@ -995,7 +995,7 @@ namespace Tests.Core
         }
 
         [TestMethod]
-        public async Task AggregateJob_FallsBackToNextCandidate_OnDownloadFailure()
+        public async Task SongGroupsJob_FallsBackToNextCandidate_OnDownloadFailure()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-fallback-agg-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
@@ -1014,8 +1014,8 @@ namespace Tests.Core
                 var dl = new DownloadSettings();
                 dl.Extraction.Input = "Artist - Song";
                 dl.Extraction.RequestedMode = ExtractionMode.Song;
-                dl.Search.IsAggregate = true;
-                dl.Search.MinSharesAggregate = 1;
+                dl.Search.GroupResults = true;
+                dl.Search.MinGroupShares = 1;
                 dl.Output.ParentDir = outputDir;
 
                 var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
@@ -1024,12 +1024,12 @@ namespace Tests.Core
 
                 await app.RunAsync(CancellationToken.None);
 
-                var aggJob = app.Queue.AllJobs().OfType<AggregateJob>().FirstOrDefault();
+                var aggJob = app.Queue.AllJobs().OfType<SongGroupsJob>().FirstOrDefault();
                 Assert.IsNotNull(aggJob);
                 var song = aggJob.Songs.FirstOrDefault();
                 Assert.IsNotNull(song);
                 Assert.AreEqual(JobTerminalOutcome.Succeeded, song.TerminalOutcome);
-                Assert.AreEqual("gooduser", song.ResolvedTarget?.Username, "Aggregate song bucket should have fallen back to gooduser.");
+                Assert.AreEqual("gooduser", song.ResolvedTarget?.Username, "SongGroups song bucket should have fallen back to gooduser.");
             }
             finally
             {
@@ -1498,7 +1498,7 @@ namespace Tests.Core
         }
 
         [TestMethod]
-        public async Task AlbumAggregateJob_FallsBackToNextFolder_OnDownloadFailure()
+        public async Task AlbumGroupsJob_FallsBackToNextFolder_OnDownloadFailure()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-fallback-aggalbum-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
@@ -1517,8 +1517,8 @@ namespace Tests.Core
                 var dl = new DownloadSettings();
                 dl.Extraction.Input = "artist=Artist, album=Album";
                 dl.Extraction.IsAlbum = true;
-                dl.Search.IsAggregate = true;
-                dl.Search.MinSharesAggregate = 1;
+                dl.Search.GroupResults = true;
+                dl.Search.MinGroupShares = 1;
                 dl.Search.NoBrowseFolder = true;
                 dl.Output.ParentDir = outputDir;
 
@@ -1528,12 +1528,12 @@ namespace Tests.Core
 
                 await app.RunAsync(CancellationToken.None);
 
-                var aggAlbumJob = app.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
+                var aggAlbumJob = app.Queue.AllJobs().OfType<AlbumGroupsJob>().FirstOrDefault();
                 Assert.IsNotNull(aggAlbumJob);
                 var albumJob = aggAlbumJob.Albums.FirstOrDefault();
                 Assert.IsNotNull(albumJob);
                 Assert.AreEqual(JobTerminalOutcome.Succeeded, albumJob.TerminalOutcome);
-                Assert.AreEqual("gooduser", albumJob.ResolvedTarget?.Username, "Aggregate album bucket should have fallen back to gooduser.");
+                Assert.AreEqual("gooduser", albumJob.ResolvedTarget?.Username, "Grouped album bucket should have fallen back to gooduser.");
             }
             finally
             {
@@ -1542,7 +1542,7 @@ namespace Tests.Core
         }
 
         [TestMethod]
-        public async Task AlbumAggregateJob_FailsWhenGeneratedAlbumDownloadFails()
+        public async Task AlbumGroupsJob_FailsWhenGeneratedAlbumDownloadFails()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-failed-aggalbum-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
@@ -1557,8 +1557,8 @@ namespace Tests.Core
                 var dl = new DownloadSettings();
                 dl.Extraction.Input = "artist=Artist, album=Album";
                 dl.Extraction.IsAlbum = true;
-                dl.Search.IsAggregate = true;
-                dl.Search.MinSharesAggregate = 1;
+                dl.Search.GroupResults = true;
+                dl.Search.MinGroupShares = 1;
                 dl.Search.NoBrowseFolder = true;
                 dl.Transfer.MaxDownloadRetries = 1;
                 dl.Output.ParentDir = outputDir;
@@ -1569,7 +1569,7 @@ namespace Tests.Core
 
                 await app.RunAsync(CancellationToken.None);
 
-                var aggAlbumJob = app.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
+                var aggAlbumJob = app.Queue.AllJobs().OfType<AlbumGroupsJob>().FirstOrDefault();
                 Assert.IsNotNull(aggAlbumJob);
                 Assert.IsTrue(aggAlbumJob.IsUnsuccessfulTerminal);
                 Assert.AreEqual(JobFailureReason.AllDownloadsFailed, aggAlbumJob.FailureReason);
@@ -1582,9 +1582,9 @@ namespace Tests.Core
         }
 
         [TestMethod]
-        public async Task AggregateJob_MixedChildOutcomes_CompletesWithPartialSuccess()
+        public async Task SongGroupsJob_MixedChildOutcomes_CompletesWithPartialSuccess()
         {
-            var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-partial-aggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-partial-group-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
 
             var goodFile = TestHelpers.CreateSlFile(@"Music\Artist - Good.mp3", length: 180);
@@ -1597,20 +1597,20 @@ namespace Tests.Core
             {
                 var eng = new EngineSettings { Username = "u", Password = "p" };
                 var dl = new DownloadSettings();
-                dl.Search.MinSharesAggregate = 1;
+                dl.Search.MinGroupShares = 1;
                 dl.Transfer.MaxDownloadRetries = 1;
                 dl.Output.ParentDir = outputDir;
 
-                var aggregate = new AggregateJob(new SongQuery { Artist = "Artist" });
+                var group = new SongGroupsJob(new SongQuery { Artist = "Artist" });
                 var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
-                app.Enqueue(aggregate, dl);
+                app.Enqueue(group, dl);
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobTerminalOutcome.PartialSuccess, aggregate.TerminalOutcome);
-                Assert.IsTrue(aggregate.Songs.Any(song => song.TerminalOutcome == JobTerminalOutcome.Succeeded));
-                Assert.IsTrue(aggregate.Songs.Any(song => song.TerminalOutcome == JobTerminalOutcome.Failed));
+                Assert.AreEqual(JobTerminalOutcome.PartialSuccess, group.TerminalOutcome);
+                Assert.IsTrue(group.Songs.Any(song => song.TerminalOutcome == JobTerminalOutcome.Succeeded));
+                Assert.IsTrue(group.Songs.Any(song => song.TerminalOutcome == JobTerminalOutcome.Failed));
             }
             finally
             {
@@ -1619,9 +1619,9 @@ namespace Tests.Core
         }
 
         [TestMethod]
-        public async Task AlbumAggregateJob_MixedChildOutcomes_CompletesWithPartialSuccess()
+        public async Task AlbumGroupsJob_MixedChildOutcomes_CompletesWithPartialSuccess()
         {
-            var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-partial-albumaggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-partial-albumgroup-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
 
             var goodFile = TestHelpers.CreateSlFile(@"Music\Artist\Album One\01. Artist - Good.mp3", length: 180);
@@ -1634,21 +1634,21 @@ namespace Tests.Core
             {
                 var eng = new EngineSettings { Username = "u", Password = "p" };
                 var dl = new DownloadSettings();
-                dl.Search.MinSharesAggregate = 1;
+                dl.Search.MinGroupShares = 1;
                 dl.Search.NoBrowseFolder = true;
                 dl.Transfer.MaxDownloadRetries = 1;
                 dl.Output.ParentDir = outputDir;
 
-                var aggregate = new AlbumAggregateJob(new AlbumQuery { Artist = "Artist" });
+                var group = new AlbumGroupsJob(new AlbumQuery { Artist = "Artist" });
                 var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
-                app.Enqueue(aggregate, dl);
+                app.Enqueue(group, dl);
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobTerminalOutcome.PartialSuccess, aggregate.TerminalOutcome);
-                Assert.IsTrue(aggregate.Albums.Any(album => album.TerminalOutcome == JobTerminalOutcome.Succeeded));
-                Assert.IsTrue(aggregate.Albums.Any(album => album.TerminalOutcome == JobTerminalOutcome.Failed));
+                Assert.AreEqual(JobTerminalOutcome.PartialSuccess, group.TerminalOutcome);
+                Assert.IsTrue(group.Albums.Any(album => album.TerminalOutcome == JobTerminalOutcome.Succeeded));
+                Assert.IsTrue(group.Albums.Any(album => album.TerminalOutcome == JobTerminalOutcome.Failed));
             }
             finally
             {

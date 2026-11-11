@@ -278,7 +278,8 @@ public sealed class JobActivityLogFormatter
         {
             ServerJobKind.RetrieveFolder => "Retrieve Folder",
             ServerJobKind.JobList => "Job List",
-            ServerJobKind.AlbumAggregate => "Album Aggregate",
+            ServerJobKind.AlbumGroups => "Album Groups",
+            ServerJobKind.SongGroups => "Song Groups",
             _ => $"{char.ToUpperInvariant(kind.ToWireString()[0])}{kind.ToWireString()[1..]}Job",
         };
 

@@ -37,7 +37,7 @@ internal static class RetainedJobPayloadCodec
                     ?? directory.ResolvedPlanSource?.SourceDirectory?.FolderPath,
                 directory.Manifest?.Plan.DisplayRoot ?? directory.ResolvedPlanSource?.DisplayRoot ?? directory.DirectorySource?.FolderPath,
                 directory.Directory),
-            AggregateJobSnapshotPayload aggregate => new AggregateExecutionPayload(aggregate.Query, aggregate.Definition, aggregate.Outcomes),
+            SongGroupsJobSnapshotPayload group => new SongGroupsExecutionPayload(group.Query, group.Definition, group.Outcomes),
             JobListSnapshotPayload list => new JobListExecutionPayload(ServerSnapshotMapper.ListOutcomes(list)),
             RetrieveFolderJobSnapshotPayload retrieve => new RetrieveFolderExecutionPayload(
                 retrieve.Directory, retrieve.NewFilesFoundCount, retrieve.RetrievalOutcome, retrieve.RetrievalCancelled),
@@ -59,8 +59,8 @@ internal static class RetainedJobPayloadCodec
             "Album" => typeof(AlbumExecutionPayload),
             "RemoteFile" => typeof(RemoteFileJobSnapshotPayload),
             "RemoteDirectory" => typeof(RemoteDirectoryExecutionPayload),
-            "Aggregate" => typeof(AggregateExecutionPayload),
-            "AlbumAggregate" => typeof(AlbumAggregateJobSnapshotPayload),
+            "SongGroups" => typeof(SongGroupsExecutionPayload),
+            "AlbumGroups" => typeof(AlbumGroupsJobSnapshotPayload),
             "JobList" => typeof(JobListExecutionPayload),
             "RetrieveFolder" => typeof(RetrieveFolderExecutionPayload),
             "Generic" => typeof(GenericJobSnapshotPayload),
@@ -77,8 +77,8 @@ internal static class RetainedJobPayloadCodec
         SearchJobSnapshotPayload search => search.Definition,
         SongJobSnapshotPayload song => song.Definition,
         AlbumExecutionPayload album => album.Definition,
-        AggregateExecutionPayload aggregate => aggregate.Definition,
-        AlbumAggregateJobSnapshotPayload aggregate => aggregate.Definition,
+        SongGroupsExecutionPayload group => group.Definition,
+        AlbumGroupsJobSnapshotPayload group => group.Definition,
         _ => null,
     };
 }

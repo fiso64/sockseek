@@ -206,33 +206,33 @@ public class SearchSettings
     [SettingOption("--amw", "--artist-maybe-wrong")]
     public bool ArtistMaybeWrong { get; set; }
 
-    // ── Aggregate search ──────────────────────────────────────────────────────
+    // ── Grouped search ──────────────────────────────────────────────────────
 
     /// When true, search all matching sources and download from each.
     /// Applies to both songs and albums.
-    [SettingOption("-g", "--aggregate")]
-    public bool IsAggregate { get; set; }
+    [SettingOption("-g", "--group", "--aggregate")]
+    public bool GroupResults { get; set; }
 
-    /// Minimum distinct sharers for aggregate results. Null uses the backend default.
-    [SettingOption("--msa", "--min-shares-aggregate")]
-    public int? MinSharesAggregate { get; set; }
+    /// Minimum distinct sharers for group results. Null uses the backend default.
+    [SettingOption("--msa", "--min-group-shares", "--min-shares-aggregate")]
+    public int? MinGroupShares { get; set; }
 
-    private int defaultMinSharesAggregate = DefaultMinShares;
-    public int EffectiveMinSharesAggregate => MinSharesAggregate ?? defaultMinSharesAggregate;
+    private int defaultMinGroupShares = DefaultMinShares;
+    public int EffectiveMinGroupShares => MinGroupShares ?? defaultMinGroupShares;
 
-    /// Length tolerance (seconds) when grouping candidate songs into aggregate buckets.
-    [SettingOption("--alt", "--aggregate-length-tol")]
-    public int AggregateLengthTol { get; set; } = 3;
+    /// Length tolerance (seconds) when grouping candidate songs into group buckets.
+    [SettingOption("--alt", "--group-length-tol", "--aggregate-length-tol")]
+    public int GroupLengthTol { get; set; } = 3;
 
     internal bool AudioConditionsIgnored { get; private set; }
 
     /// Resolve execution context without rewriting configured conditions or defaults.
     internal SearchSettings Resolve(bool artworkOnly, int defaultMinShares)
     {
-        if (AudioConditionsIgnored == artworkOnly && defaultMinSharesAggregate == defaultMinShares)
+        if (AudioConditionsIgnored == artworkOnly && defaultMinGroupShares == defaultMinShares)
             return this;
         var result = (SearchSettings)MemberwiseClone();
-        result.defaultMinSharesAggregate = defaultMinShares;
+        result.defaultMinGroupShares = defaultMinShares;
         if (artworkOnly)
         {
             result.NecessaryCond = WithoutAudioConditions(NecessaryCond);

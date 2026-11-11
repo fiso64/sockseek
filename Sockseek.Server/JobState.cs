@@ -37,14 +37,14 @@ internal sealed class JobState
     internal JobReadState? PublishedJob(Guid id) => records.GetValueOrDefault(id)?.Published;
     internal Guid[] WorkflowJobIds(Guid id) => CurrentJobs.Where(row => row.WorkflowId == id).Select(row => row.Id).ToArray();
 
-    // Keep records and workflow aggregate indexes in sync only through UpdateJobRecord.
+    // Keep records and workflow group indexes in sync only through UpdateJobRecord.
     private readonly Dictionary<Guid, JobSnapshot> jobs = [];
     private readonly Dictionary<Guid, DirectoryProjection> directoryProjections = [];
     private readonly HashSet<Guid> changedContainerSummaries = [];
     private DateTimeOffset containerSummaryChangedAt;
     private readonly Dictionary<Guid, MemberOutcomeProjection> listProjections = [];
-    private readonly Dictionary<Guid, MemberOutcomeProjection> aggregateProjections = [];
-    private readonly Dictionary<Guid, AlbumAggregateProjection> albumAggregateProjections = [];
+    private readonly Dictionary<Guid, MemberOutcomeProjection> groupProjections = [];
+    private readonly Dictionary<Guid, AlbumGroupsProjection> albumGroupsProjections = [];
     private readonly Dictionary<Guid, HashSet<Guid>> nestedJobIdsByContainer = [];
     private readonly Dictionary<Guid, HashSet<Guid>> containerIdsByNestedJob = [];
     // One entry owns current read facts and the last published revision used for
@@ -277,8 +277,8 @@ internal sealed class JobState
         JobPayloadDto payload = ServerSnapshotMapper.ToJobPayload(
             RefreshNestedSnapshots(job), GetTransferState,
             listProjections.GetValueOrDefault(jobId)?.Summary,
-            aggregateProjections.GetValueOrDefault(jobId)?.Summary,
-            albumAggregateProjections.GetValueOrDefault(jobId)?.Summary);
+            groupProjections.GetValueOrDefault(jobId)?.Summary,
+            albumGroupsProjections.GetValueOrDefault(jobId)?.Summary);
         return new JobDetailDto(record.Summary, payload, childCount);
     }
 
@@ -489,8 +489,8 @@ internal sealed class JobState
                 0,
                 listProjections.Count,
                 extractJobIdsByResult.Count,
-                aggregateProjections.Count,
-                albumAggregateProjections.Count);
+                groupProjections.Count,
+                albumGroupsProjections.Count);
         }
     }
 
@@ -572,8 +572,8 @@ internal sealed class JobState
             : ServerSnapshotMapper.ToJobSummaryStats(
                 current,
                 listProjections.GetValueOrDefault(current.Id)?.Summary,
-                aggregateProjections.GetValueOrDefault(current.Id)?.Summary,
-                albumAggregateProjections.GetValueOrDefault(current.Id)?.Summary);
+                groupProjections.GetValueOrDefault(current.Id)?.Summary,
+                albumGroupsProjections.GetValueOrDefault(current.Id)?.Summary);
         var record = CreateJobRecord(current, stats);
         directory?.MarkSummarized();
         return StoreJobRecord(record);
@@ -704,7 +704,7 @@ internal sealed class JobState
                 ids.UnionWith(containers);
         }
         if (jobs.GetValueOrDefault(jobId)?.Kind == JobSnapshotKind.Album)
-            ids.UnionWith(AlbumAggregateAncestors(jobId));
+            ids.UnionWith(AlbumGroupsAncestors(jobId));
         // StoreJob already maintains each member's counter contribution. The
         // containing summaries are derived: capture them at the shared read /
         // publication boundary rather than rebuilding a header per child.
@@ -778,15 +778,15 @@ internal sealed class JobState
         if (job.Payload is JobListSnapshotPayload list)
             listProjections[job.Id] = new MemberOutcomeProjection(
                 list.Jobs, jobs.GetValueOrDefault, followExtractResults: true);
-        if (job.Payload is AggregateJobSnapshotPayload aggregate)
-            aggregateProjections[job.Id] = new MemberOutcomeProjection(
-                aggregate.Songs, jobs.GetValueOrDefault, followExtractResults: false);
-        if (job.Payload is AlbumAggregateJobSnapshotPayload && !albumAggregateProjections.ContainsKey(job.Id))
-            albumAggregateProjections[job.Id] = new AlbumAggregateProjection(
+        if (job.Payload is SongGroupsJobSnapshotPayload group)
+            groupProjections[job.Id] = new MemberOutcomeProjection(
+                group.Songs, jobs.GetValueOrDefault, followExtractResults: false);
+        if (job.Payload is AlbumGroupsJobSnapshotPayload && !albumGroupsProjections.ContainsKey(job.Id))
+            albumGroupsProjections[job.Id] = new AlbumGroupsProjection(
                 RegisteredAlbumDescendants(job.Id));
         UpdateContainerProjectionsForMember(job.Id);
         if (job.Kind == JobSnapshotKind.Album)
-            UpdateAlbumAggregateProjectionsForAlbum(job.Id);
+            UpdateAlbumGroupsProjectionsForAlbum(job.Id);
         switch (job.Payload)
         {
             case AlbumJobSnapshotPayload album:
@@ -830,7 +830,7 @@ internal sealed class JobState
             if (state != null) ownDirectory.UpdateState(state);
         }
         UpdateContainerProjectionsForMember(job.Id);
-        if (job.Kind == JobSnapshotKind.Album) UpdateAlbumAggregateProjectionsForAlbum(job.Id);
+        if (job.Kind == JobSnapshotKind.Album) UpdateAlbumGroupsProjectionsForAlbum(job.Id);
         return job;
     }
 
@@ -844,45 +844,45 @@ internal sealed class JobState
             {
                 if (listProjections.TryGetValue(containerId, out MemberOutcomeProjection? projection))
                     projection.Update(memberId, jobs.GetValueOrDefault);
-                if (aggregateProjections.TryGetValue(containerId, out MemberOutcomeProjection? aggregate))
-                    aggregate.Update(memberId, jobs.GetValueOrDefault);
+                if (groupProjections.TryGetValue(containerId, out MemberOutcomeProjection? group))
+                    group.Update(memberId, jobs.GetValueOrDefault);
             }
         }
     }
 
-    private IReadOnlyList<Guid> UpdateAlbumAggregateProjectionsForAlbum(Guid albumId)
+    private IReadOnlyList<Guid> UpdateAlbumGroupsProjectionsForAlbum(Guid albumId)
     {
         if (!jobs.TryGetValue(albumId, out JobSnapshot? album))
             return [];
         var changed = new List<Guid>();
-        foreach (Guid aggregateId in AlbumAggregateAncestors(albumId))
+        foreach (Guid groupId in AlbumGroupsAncestors(albumId))
         {
-            if (!albumAggregateProjections.TryGetValue(aggregateId, out AlbumAggregateProjection? projection))
+            if (!albumGroupsProjections.TryGetValue(groupId, out AlbumGroupsProjection? projection))
                 continue;
             projection.Update(album);
-            changed.Add(aggregateId);
+            changed.Add(groupId);
         }
         return changed;
     }
 
-    private IEnumerable<Guid> AlbumAggregateAncestors(Guid jobId)
+    private IEnumerable<Guid> AlbumGroupsAncestors(Guid jobId)
     {
         var visited = new HashSet<Guid> { jobId };
         while (parentJobIds.TryGetValue(jobId, out Guid? parentId)
             && parentId is Guid parent
             && visited.Add(parent))
         {
-            if (jobs.GetValueOrDefault(parent)?.Payload is AlbumAggregateJobSnapshotPayload)
+            if (jobs.GetValueOrDefault(parent)?.Payload is AlbumGroupsJobSnapshotPayload)
                 yield return parent;
             jobId = parent;
         }
     }
 
-    private IEnumerable<JobSnapshot> RegisteredAlbumDescendants(Guid aggregateId)
+    private IEnumerable<JobSnapshot> RegisteredAlbumDescendants(Guid groupId)
     {
         var pending = new Stack<Guid>();
-        var visited = new HashSet<Guid> { aggregateId };
-        pending.Push(aggregateId);
+        var visited = new HashSet<Guid> { groupId };
+        pending.Push(groupId);
         while (pending.TryPop(out Guid currentId))
         {
             if (!childJobIdsByParent.TryGetValue(currentId, out HashSet<Guid>? childIds))
@@ -916,7 +916,7 @@ internal sealed class JobState
         {
             AlbumJobSnapshotPayload album => RefreshAlbumPayload(job, album),
             RemoteDirectoryJobSnapshotPayload directory => RefreshRemoteDirectoryPayload(job, directory),
-            AggregateJobSnapshotPayload => job,
+            SongGroupsJobSnapshotPayload => job,
             JobListSnapshotPayload => job,
             _ => job,
         };
@@ -991,12 +991,12 @@ internal sealed class JobState
         }
     }
 
-    private sealed class AlbumAggregateProjection
+    private sealed class AlbumGroupsProjection
     {
         private readonly Dictionary<Guid, (JobLifecycleState Lifecycle, JobTerminalOutcome Terminal, JobSkipReason Skip)> albums = [];
         public JobOutcomeSummary Summary { get; private set; }
 
-        public AlbumAggregateProjection(IEnumerable<JobSnapshot> registeredAlbums)
+        public AlbumGroupsProjection(IEnumerable<JobSnapshot> registeredAlbums)
         {
             foreach (JobSnapshot album in registeredAlbums)
                 Update(album);
@@ -1284,8 +1284,8 @@ internal sealed class JobState
         directoryProjections.Remove(jobId);
         changedContainerSummaries.Remove(jobId);
         listProjections.Remove(jobId);
-        aggregateProjections.Remove(jobId);
-        albumAggregateProjections.Remove(jobId);
+        groupProjections.Remove(jobId);
+        albumGroupsProjections.Remove(jobId);
         if (records.Remove(jobId, out var removed)) RemoveSubmissionMember(removed.Current.SubmissionId, jobId);
         executionCompletedJobs.Remove(jobId);
         songTransferStates.Remove(jobId);
@@ -1367,8 +1367,8 @@ internal sealed class JobState
             submissions[acceptedId].Coverage = MembershipCoverage.Live;
         if (job.Kind == JobSnapshotKind.Album)
         {
-            foreach (Guid aggregateId in UpdateAlbumAggregateProjectionsForAlbum(job.Id))
-                summaries.Add(UpdateJobRecord(jobs[aggregateId]));
+            foreach (Guid groupId in UpdateAlbumGroupsProjectionsForAlbum(job.Id))
+                summaries.Add(UpdateJobRecord(jobs[groupId]));
         }
         var workflowSummary = BuildWorkflowSummary(job.WorkflowId);
         return new(summaries, [workflowSummary], [], occurredAtUtc);

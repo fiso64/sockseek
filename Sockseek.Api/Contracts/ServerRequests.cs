@@ -15,7 +15,7 @@ public sealed record SubmitExtractJobRequestDto(
 /// <summary>
 /// Starts a generic Soulseek discovery job from raw query text.
 /// Search jobs are useful for exploratory/manual UIs: inspect raw results, project them
-/// as files, folders, or aggregate candidates, then start follow-up downloads from selected refs.
+/// as files, folders, or group candidates, then start follow-up downloads from selected refs.
 /// </summary>
 public sealed record SubmitSearchJobRequestDto(
     string QueryText,
@@ -25,26 +25,26 @@ public sealed record SubmitSearchJobRequestDto(
 /// Starts a track discovery job.
 /// The job completes after search/projection; result endpoints expose candidates, and
 /// follow-up download endpoints start new download jobs from selected candidates.
-/// AggregatePresentation changes the default Search View presentation only;
-/// individual aggregate source choices remain client-owned until selection commit.
+/// GroupResults changes the default Search View presentation only;
+/// individual group source choices remain client-owned until selection commit.
 /// </summary>
 public sealed record SubmitTrackSearchJobRequestDto(
     SongQueryDto SongQuery,
     bool IncludeFullResults = false,
     SubmissionOptionsDto? Options = null,
-    bool AggregatePresentation = false);
+    bool GroupResults = false);
 
 /// <summary>
 /// Starts an album discovery job.
 /// The job completes after search/projection; result endpoints expose folders, and
 /// follow-up download endpoints start new download jobs from selected folders.
-/// AggregatePresentation changes the default Search View presentation only;
-/// individual aggregate source choices remain client-owned until selection commit.
+/// GroupResults changes the default Search View presentation only;
+/// individual group source choices remain client-owned until selection commit.
 /// </summary>
 public sealed record SubmitAlbumSearchJobRequestDto(
     AlbumQueryDto AlbumQuery,
     SubmissionOptionsDto? Options = null,
-    bool AggregatePresentation = false);
+    bool GroupResults = false);
 
 /// <summary>
 /// Starts a song download job.
@@ -67,21 +67,21 @@ public sealed record SubmitAlbumJobRequestDto(
     DownloadBehaviorPolicyDto? DownloadBehavior = null);
 
 /// <summary>
-/// Starts an aggregate track job.
+/// Starts a grouped track job.
 /// Automatic behavior downloads from grouped candidates; DownloadBehavior.Manual projects grouped
 /// candidates and enters AwaitingSelection so the caller can resume selected child downloads.
 /// </summary>
-public sealed record SubmitAggregateJobRequestDto(
+public sealed record SubmitSongGroupsJobRequestDto(
     SongQueryDto SongQuery,
     SubmissionOptionsDto? Options = null,
     DownloadBehaviorPolicyDto? DownloadBehavior = null);
 
 /// <summary>
-/// Starts an aggregate album job.
+/// Starts a grouped album job.
 /// Automatic behavior downloads selected album buckets; DownloadBehavior.Manual projects buckets
 /// and enters AwaitingSelection so the caller can resume selected child downloads.
 /// </summary>
-public sealed record SubmitAlbumAggregateJobRequestDto(
+public sealed record SubmitAlbumGroupsJobRequestDto(
     AlbumQueryDto AlbumQuery,
     SubmissionOptionsDto? Options = null,
     DownloadBehaviorPolicyDto? DownloadBehavior = null);
@@ -118,8 +118,8 @@ public sealed record JobProvenanceDto(
 [JsonDerivedType(typeof(AlbumSearchJobDraftDto), ServerProtocol.JobDraftKinds.AlbumSearch)]
 [JsonDerivedType(typeof(SongJobDraftDto), ServerProtocol.JobDraftKinds.Song)]
 [JsonDerivedType(typeof(AlbumJobDraftDto), ServerProtocol.JobDraftKinds.Album)]
-[JsonDerivedType(typeof(AggregateJobDraftDto), ServerProtocol.JobDraftKinds.Aggregate)]
-[JsonDerivedType(typeof(AlbumAggregateJobDraftDto), ServerProtocol.JobDraftKinds.AlbumAggregate)]
+[JsonDerivedType(typeof(SongGroupsJobDraftDto), ServerProtocol.JobDraftKinds.SongGroups)]
+[JsonDerivedType(typeof(AlbumGroupsJobDraftDto), ServerProtocol.JobDraftKinds.AlbumGroups)]
 [JsonDerivedType(typeof(JobListJobDraftDto), ServerProtocol.JobDraftKinds.JobList)]
 [JsonDerivedType(typeof(RemoteFileJobDraftDto), ServerProtocol.JobDraftKinds.RemoteFile)]
 [JsonDerivedType(typeof(RemoteDirectoryJobDraftDto), ServerProtocol.JobDraftKinds.RemoteDirectory)]
@@ -161,13 +161,13 @@ public sealed record AlbumJobDraftDto(
     DownloadSettingsPatchDto? DownloadSettings = null,
     JobProvenanceDto? Provenance = null) : JobDraftDto;
 
-public sealed record AggregateJobDraftDto(
+public sealed record SongGroupsJobDraftDto(
     SongQueryDto SongQuery,
     DownloadBehaviorPolicyDto? DownloadBehavior = null,
     DownloadSettingsPatchDto? DownloadSettings = null,
     JobProvenanceDto? Provenance = null) : JobDraftDto;
 
-public sealed record AlbumAggregateJobDraftDto(
+public sealed record AlbumGroupsJobDraftDto(
     AlbumQueryDto AlbumQuery,
     DownloadBehaviorPolicyDto? DownloadBehavior = null,
     DownloadSettingsPatchDto? DownloadSettings = null,
@@ -202,8 +202,8 @@ public sealed record DownloadBehaviorPolicyDto(
     ServerDownloadBehavior Default = ServerDownloadBehavior.Automatic,
     ServerDownloadBehavior? Song = null,
     ServerDownloadBehavior? Album = null,
-    ServerDownloadBehavior? Aggregate = null,
-    ServerDownloadBehavior? AlbumAggregate = null);
+    ServerDownloadBehavior? SongGroups = null,
+    ServerDownloadBehavior? AlbumGroups = null);
 
 /// <summary>
 /// Submission-time settings layered over the daemon defaults.

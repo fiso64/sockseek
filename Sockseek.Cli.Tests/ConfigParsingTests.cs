@@ -88,11 +88,11 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void Defaults_NoRequestedMode_AggregateFalse()
+        public void Defaults_NoRequestedMode_GroupFalse()
         {
             var config = Cfg();
             Assert.IsNull(config.Extraction.RequestedMode);
-            Assert.IsFalse(config.Search.IsAggregate);
+            Assert.IsFalse(config.Search.GroupResults);
         }
 
         [TestMethod]
@@ -294,10 +294,13 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void Aggregate_Flag_SetsAggregateTrue()
+        [DataRow("--group")]
+        [DataRow("-g")]
+        [DataRow("--aggregate")]
+        public void GroupFlagEnablesGrouping(string flag)
         {
-            var config = Cfg("--aggregate", "some input");
-            Assert.IsTrue(config.Search.IsAggregate);
+            var config = Cfg(flag, "some input");
+            Assert.IsTrue(config.Search.GroupResults);
         }
 
         [TestMethod]
@@ -497,10 +500,10 @@ namespace Tests.ConfigParsingTests
         // Simulates: spotify input → SongJob created by extractor → Upgrade(album:true) →
         // PrepareSubtree on upgraded AlbumJob → PreprocessAlbum.
         static AlbumJob UpgradeAndPrepare(DownloadSettings startConfig,
-            SongQuery? query = null, bool aggregate = false)
+            SongQuery? query = null, bool group = false)
         {
             var songJob = new SongJob(query ?? new SongQuery { Title = "Some Song", Artist = "Some Artist" });
-            var albumJob = (AlbumJob)((IUpgradeable)songJob).Upgrade(album: true, aggregate: aggregate).First();
+            var albumJob = (AlbumJob)((IUpgradeable)songJob).Upgrade(album: true, group: group).First();
             JobPreparer.PrepareSubtree(albumJob, startConfig);
             Preprocessor.PreprocessAlbum(albumJob, albumJob.Config.Preprocess);
             JobPreparer.ApplySearchSettings(albumJob, albumJob.Config.Search);

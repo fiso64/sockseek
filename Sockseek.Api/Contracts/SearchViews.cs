@@ -149,43 +149,43 @@ public sealed record RetrieveSearchViewDirectoryRequestDto(
     PeerDirectoryRefDto Directory,
     Guid IdempotencyKey);
 
-public sealed record SearchViewAggregateTrackGroupDto(
+public sealed record SearchViewTrackGroupDto(
     string Ref,
     SongQueryDto Query,
     int ShareCount,
     long SelectableOptionCount,
     SearchViewFileDto Representative);
 
-public sealed record SearchViewAggregateTrackPageDto(
+public sealed record SearchViewTrackGroupPageDto(
     SearchViewRevisionDto Revision,
-    IReadOnlyList<SearchViewAggregateTrackGroupDto> Items,
+    IReadOnlyList<SearchViewTrackGroupDto> Items,
     string? NextCursor);
 
-public sealed record SearchViewAggregateTrackOptionPageDto(
+public sealed record SearchViewTrackGroupOptionPageDto(
     SearchViewRevisionDto Revision,
     string GroupRef,
     IReadOnlyList<SearchViewFileDto> Items,
     string? NextCursor);
 
-public sealed record SearchViewAggregateAlbumGroupDto(
+public sealed record SearchViewAlbumGroupDto(
     string Ref,
     AlbumQueryDto Query,
     int ShareCount,
     long SelectableOptionCount,
     SearchViewDirectoryDto Representative);
 
-public sealed record SearchViewAggregateAlbumPageDto(
+public sealed record SearchViewAlbumGroupPageDto(
     SearchViewRevisionDto Revision,
-    IReadOnlyList<SearchViewAggregateAlbumGroupDto> Items,
+    IReadOnlyList<SearchViewAlbumGroupDto> Items,
     string? NextCursor);
 
-public sealed record SearchViewAggregateAlbumOptionPageDto(
+public sealed record SearchViewAlbumGroupOptionPageDto(
     SearchViewRevisionDto Revision,
     string GroupRef,
     IReadOnlyList<SearchViewDirectoryDto> Items,
     string? NextCursor);
 
-/// <summary>Reads browser-held aggregate choices against one immutable revision; it does not save them.</summary>
+/// <summary>Reads browser-held group choices against one immutable revision; it does not save them.</summary>
 public sealed record ResolveSearchViewChosenOptionsRequestDto(
     long Revision,
     IReadOnlyDictionary<string, string> ChosenOptions);
@@ -215,7 +215,7 @@ public sealed record CommitSearchViewSelectionRequestDto(
     IReadOnlyList<string>? IncludedFileRefs = null,
     // Group ref -> exact alternative ref in this revision. Absent means all candidates.
     IReadOnlyDictionary<string, string>? ChosenOptions = null,
-    // Aggregate-album group ref -> selected files in the chosen directory.
+    // Album-result group ref -> selected files in the chosen directory.
     // Omitted groups include every public file; this is commit input, not saved UI state.
     IReadOnlyDictionary<string, RefSelectionExpressionDto>? AlbumFileSelections = null,
     // Shared download-time overrides, composed independently for each selected job.
@@ -223,7 +223,7 @@ public sealed record CommitSearchViewSelectionRequestDto(
     // Browser-held exact identities for exclusions hidden in a replacement view.
     // Keys are stable file refs from the same source job, not saved UI state.
     IReadOnlyDictionary<string, FileCandidateRefDto>? ExcludedFileIdentities = null,
-    // If no exact option was chosen for an aggregate group, submit only the
+    // If no exact option was chosen for a result group, submit only the
     // representative shown by this revision instead of every fallback source.
     bool? UseRepresentativeWhenUnchosen = null,
     IReadOnlyList<SearchViewDirectoryPathRuleDto>? DirectoryPathRules = null);

@@ -4,18 +4,18 @@ using Sockseek.Core.Services;
 
 namespace Sockseek.Core;
 
-internal sealed class AggregateDownloadExecutor
+internal sealed class GroupDownloadExecutor
 {
     private readonly DownloadExecutionContext context;
     private readonly JobOrchestrator jobs;
 
-    public AggregateDownloadExecutor(DownloadExecutionContext context, JobOrchestrator jobs)
+    public GroupDownloadExecutor(DownloadExecutionContext context, JobOrchestrator jobs)
     {
         this.context = context;
         this.jobs = jobs;
     }
 
-    public async Task<JobOutcome> ProcessAggregateDownload(AggregateJob job, JobContext ctx)
+    public async Task<JobOutcome> ProcessGroupDownload(SongGroupsJob job, JobContext ctx)
     {
         var pendingSongs = job.Songs
             .Where(song => song.LifecycleState == JobLifecycleState.Pending)
@@ -23,17 +23,17 @@ internal sealed class AggregateDownloadExecutor
 
         if (pendingSongs.Count > 0)
         {
-            var songList = context.PrepareAggregateChildren(job, pendingSongs, ctx);
+            var songList = context.PrepareGroupChildren(job, pendingSongs, ctx);
 
             context.RegisterJob(songList, job);
             await jobs.ProcessJob(songList, job.Cts!.Token, job);
             context.UpdateOutputs(job, ctx);
         }
 
-        return DeriveAggregateOutcome(job);
+        return DeriveGroupOutcome(job);
     }
 
-    private static JobOutcome DeriveAggregateOutcome(AggregateJob job)
+    private static JobOutcome DeriveGroupOutcome(SongGroupsJob job)
     {
         var songs = job.Songs;
         bool anySuccessful = songs.Any(JobOrchestrator.IsSubtreeSuccessful);
@@ -42,7 +42,7 @@ internal sealed class AggregateDownloadExecutor
 
         if (anySuccessful && (anyCancelled || anyUnsuccessful))
             return JobOutcome.PartialSuccess(
-                "Some aggregate songs completed and some failed or were cancelled.",
+                "Some group songs completed and some failed or were cancelled.",
                 anyCancelled ? JobOrchestrator.CancellationSourceForDerivedCancellation(job, songs.Cast<Job>().ToArray()) : JobCancellationSource.None);
 
         if (job.Cts?.IsCancellationRequested == true)
@@ -60,7 +60,7 @@ internal sealed class AggregateDownloadExecutor
                 failedSong.FailureDetail);
 
         if (anyUnsuccessful)
-            return JobOutcome.Failed(JobFailureReason.Other, "One or more aggregate songs failed.");
+            return JobOutcome.Failed(JobFailureReason.Other, "One or more group songs failed.");
 
         return JobOutcome.Done();
     }

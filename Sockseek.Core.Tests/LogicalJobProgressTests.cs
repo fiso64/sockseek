@@ -43,19 +43,19 @@ public sealed class LogicalJobProgressTests
     }
 
     [TestMethod]
-    public void AggregateMembershipCountsConcurrentOutcomesAndReplacements()
+    public void GroupMembershipCountsConcurrentOutcomesAndReplacements()
     {
         var songs = Enumerable.Range(0, 16).Select(i => new SongJob(new() { Title = i.ToString() })).ToArray();
-        var aggregate = new AggregateJob(new()) { Songs = songs };
+        var group = new SongGroupsJob(new()) { Songs = songs };
         Parallel.For(0, songs.Length, i =>
         {
             if (i % 2 == 0) songs[i].SetDone();
             else songs[i].Fail(JobFailureReason.Other);
         });
-        Assert.AreEqual(new JobOutcomeSummary(16, 16, 8, 8), aggregate.MemberOutcomes);
-        aggregate.Songs = [];
+        Assert.AreEqual(new JobOutcomeSummary(16, 16, 8, 8), group.MemberOutcomes);
+        group.Songs = [];
         songs[1].SetDone();
-        Assert.AreEqual(default(JobOutcomeSummary), aggregate.MemberOutcomes);
+        Assert.AreEqual(default(JobOutcomeSummary), group.MemberOutcomes);
     }
 
     [TestMethod]

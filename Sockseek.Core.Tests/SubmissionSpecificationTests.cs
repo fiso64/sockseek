@@ -189,11 +189,11 @@ public sealed class SubmissionSpecificationTests
     }
 
     [TestMethod]
-    public void AggregateSearchPresentationSurvivesSubmissionReplay()
+    public void GroupSearchPresentationSurvivesSubmissionReplay()
     {
         var job = new SearchJob(new SongQuery { Artist = "Artist", Title = "Title" })
         {
-            AggregatePresentation = true,
+            GroupResults = true,
         };
         var settings = new DownloadSettings();
         SubmissionSpecification submitted = SubmissionSpecification.Create(job, settings);
@@ -201,8 +201,8 @@ public sealed class SubmissionSpecificationTests
             SubmissionSpecificationCodec.Serialize(submitted));
         var replayed = (SearchJob)retained.MaterializeJob();
 
-        Assert.IsTrue(retained.Search!.AggregatePresentation);
-        Assert.IsTrue(SearchDefinition.Create(replayed, settings.Search).AggregatePresentation);
+        Assert.IsTrue(retained.Search!.GroupResults);
+        Assert.IsTrue(SearchDefinition.Create(replayed, settings.Search).GroupResults);
 
 
     }

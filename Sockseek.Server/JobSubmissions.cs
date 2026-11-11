@@ -58,7 +58,7 @@ public sealed class JobSubmissions
             ? SearchSettingsBaselines.Create(SearchSettingsBaselineKind.Generic)
             : SettingsCloner.Clone(options.DefaultDownload);
         DownloadSettingsPatchDtoMapper.ApplyTo(defaultDownloadSettings, options.OperatorDownloadSettings);
-        defaultDownloadSettings.DefaultMinSharesAggregate = engineSettings.DefaultMinSharesAggregate;
+        defaultDownloadSettings.DefaultMinGroupShares = engineSettings.DefaultMinGroupShares;
         var pathContext = new PathVariableContext(ConfigDir: options.ConfigDir);
         SettingsNormalizer.NormalizeDownloadPaths(defaultDownloadSettings, pathContext);
         profileCatalog = options.Profiles ?? ProfileCatalog.Empty;
@@ -82,7 +82,7 @@ public sealed class JobSubmissions
             new SettingsProfile { Name = "<daemon-launch>", Download = launchPatch },
             normalize: settings =>
             {
-                settings.DefaultMinSharesAggregate = options.Engine.DefaultMinSharesAggregate;
+                settings.DefaultMinGroupShares = options.Engine.DefaultMinGroupShares;
                 SettingsNormalizer.NormalizeDownloadPaths(settings, pathContext);
             },
             operatorDefault: operatorPatch);
@@ -184,11 +184,11 @@ public sealed class JobSubmissions
     public Task<JobSummaryDto> SubmitAlbumJobAsync(SubmitAlbumJobRequestDto request, CancellationToken ct)
         => SubmitJobAsync(JobRequestMapper.CreateAlbumJob(request), request.Options, ct);
 
-    public Task<JobSummaryDto> SubmitAggregateJobAsync(SubmitAggregateJobRequestDto request, CancellationToken ct)
-        => SubmitJobAsync(JobRequestMapper.CreateAggregateJob(request), request.Options, ct);
+    public Task<JobSummaryDto> SubmitSongGroupsJobAsync(SubmitSongGroupsJobRequestDto request, CancellationToken ct)
+        => SubmitJobAsync(JobRequestMapper.CreateSongGroupsJob(request), request.Options, ct);
 
-    public Task<JobSummaryDto> SubmitAlbumAggregateJobAsync(SubmitAlbumAggregateJobRequestDto request, CancellationToken ct)
-        => SubmitJobAsync(JobRequestMapper.CreateAlbumAggregateJob(request), request.Options, ct);
+    public Task<JobSummaryDto> SubmitAlbumGroupsJobAsync(SubmitAlbumGroupsJobRequestDto request, CancellationToken ct)
+        => SubmitJobAsync(JobRequestMapper.CreateAlbumGroupsJob(request), request.Options, ct);
 
     public Task<JobSummaryDto> SubmitJobListAsync(SubmitJobListRequestDto request, CancellationToken ct)
     {

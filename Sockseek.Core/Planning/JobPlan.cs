@@ -78,9 +78,9 @@ public sealed class PlannedJobNode
     // Search field. Actual Search jobs retain their own captured definition.
     private SearchDefinition? ReadSearch() => search ?? (ParentRef is not null || settings is null ? null : command.Kind switch
     {
-        JobSnapshotKind.Song or JobSnapshotKind.Aggregate when command.SongQuery is { } query
+        JobSnapshotKind.Song or JobSnapshotKind.SongGroups when command.SongQuery is { } query
             => settings.Describe(query),
-        JobSnapshotKind.Album or JobSnapshotKind.AlbumAggregate when command.AlbumQuery is { } query
+        JobSnapshotKind.Album or JobSnapshotKind.AlbumGroups when command.AlbumQuery is { } query
             => settings.Describe(query),
         _ => null,
     });

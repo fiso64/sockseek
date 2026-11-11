@@ -41,6 +41,6 @@ public readonly record struct JobSettingsContext(
                 : search.DefaultFileProjection is not null
                     ? SearchDefaultProjectionKind.Track : SearchDefaultProjectionKind.GenericFile,
             (job as SearchJob)?.QueryText,
-            job is SearchJob { DefaultAggregateTrackProjection: not null } or SearchJob { DefaultAggregateAlbumProjection: not null });
+            job is SearchJob { DefaultTrackGroupProjection: not null } or SearchJob { DefaultAlbumGroupProjection: not null });
     }
 }

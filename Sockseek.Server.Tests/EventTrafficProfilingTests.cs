@@ -194,7 +194,7 @@ public class EventTrafficProfilingTests
     [TestMethod]
     [TestCategory("Profiling")]
     [Timeout(180_000)]
-    public async Task LargeAggregateCompletion_EventTrafficProfile()
+    public async Task LargeGroupCompletion_EventTrafficProfile()
     {
         // This is intentionally env-gated instead of [Ignore] so the profiler can be run
         // without editing source, while plain `dotnet test` only executes this fast no-op.
@@ -265,7 +265,7 @@ public class EventTrafficProfilingTests
     [TestMethod]
     [TestCategory("Profiling")]
     [Timeout(180_000)]
-    public async Task LargeNoResultAggregateCompletion_EventTrafficProfile()
+    public async Task LargeNoResultGroupCompletion_EventTrafficProfile()
     {
         // This is intentionally env-gated instead of [Ignore] so the profiler can be run
         // without editing source, while plain `dotnet test` only executes this fast no-op.

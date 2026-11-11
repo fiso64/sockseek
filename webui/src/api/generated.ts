@@ -2344,14 +2344,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/search-views/{viewId}/aggregate-tracks": {
+    "/api/search-views/{viewId}/track-groups": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Pages aggregate-track group summaries from one immutable revision. */
+        /** Pages track group summaries from one immutable revision. */
         get: {
             parameters: {
                 query: {
@@ -2373,7 +2373,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["SearchViewAggregateTrackPageDto"];
+                        "application/json": components["schemas"]["SearchViewTrackGroupPageDto"];
                     };
                 };
                 /** @description Bad Request */
@@ -2427,14 +2427,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/search-views/{viewId}/aggregate-tracks/{groupRef}/alternatives": {
+    "/api/search-views/{viewId}/track-groups/{groupRef}/alternatives": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Pages one aggregate-track group's ordered alternatives. */
+        /** Pages one track group's ordered alternatives. */
         get: {
             parameters: {
                 query: {
@@ -2457,7 +2457,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["SearchViewAggregateTrackOptionPageDto"];
+                        "application/json": components["schemas"]["SearchViewTrackGroupOptionPageDto"];
                     };
                 };
                 /** @description Bad Request */
@@ -2511,14 +2511,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/search-views/{viewId}/aggregate-albums": {
+    "/api/search-views/{viewId}/album-groups": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Pages aggregate-album group summaries from one immutable revision. */
+        /** Pages album group summaries from one immutable revision. */
         get: {
             parameters: {
                 query: {
@@ -2540,7 +2540,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["SearchViewAggregateAlbumPageDto"];
+                        "application/json": components["schemas"]["SearchViewAlbumGroupPageDto"];
                     };
                 };
                 /** @description Bad Request */
@@ -2594,14 +2594,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/search-views/{viewId}/aggregate-albums/{groupRef}/alternatives": {
+    "/api/search-views/{viewId}/album-groups/{groupRef}/alternatives": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Pages one aggregate-album group's directory alternatives. */
+        /** Pages one album group's directory alternatives. */
         get: {
             parameters: {
                 query: {
@@ -2624,7 +2624,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["SearchViewAggregateAlbumOptionPageDto"];
+                        "application/json": components["schemas"]["SearchViewAlbumGroupOptionPageDto"];
                     };
                 };
                 /** @description Bad Request */
@@ -2688,7 +2688,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reads exact browser-held aggregate choices in one Search View revision.
+         * Reads exact browser-held group choices in one Search View revision.
          * @description Returns a current option DTO or an explicit miss for each requested group. Choices remain client-owned and are never saved by this read.
          */
         post: {
@@ -6575,7 +6575,7 @@ export interface paths {
                     lifecycleState?: components["schemas"]["ServerJobLifecycleState"];
                     terminalOutcome?: components["schemas"]["ServerJobTerminalOutcome"];
                     skipReason?: components["schemas"]["ServerJobSkipReason"];
-                    kind?: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+                    kind?: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
                     workflowId?: string;
                     parentJobId?: string;
                     submissionId?: string;
@@ -7779,7 +7779,7 @@ export interface paths {
         put?: never;
         /**
          * Submits a generic Soulseek search job.
-         * @description Search jobs are discovery-oriented. They store raw Soulseek results; use projection endpoints to view those results as files, album folders, or aggregate candidates, then use follow-up download endpoints for selected refs.
+         * @description Search jobs are discovery-oriented. They store raw Soulseek results; use projection endpoints to view those results as files, album folders, or group candidates, then use follow-up download endpoints for selected refs.
          */
         post: {
             parameters: {
@@ -8098,7 +8098,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/jobs/aggregate/tracks": {
+    "/api/jobs/groups/tracks": {
         parameters: {
             query?: never;
             header?: never;
@@ -8108,8 +8108,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Submits an aggregate track search job.
-         * @description Aggregate jobs can download automatically or, with DownloadBehavior.Manual, pause after candidate grouping so the caller can choose which child downloads to resume.
+         * Submits a grouped track search job.
+         * @description Grouped-song jobs can download automatically or, with DownloadBehavior.Manual, pause after candidate grouping so the caller can choose which child downloads to resume.
          */
         post: {
             parameters: {
@@ -8120,7 +8120,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": components["schemas"]["SubmitAggregateJobRequestDto"];
+                    "application/json": components["schemas"]["SubmitSongGroupsJobRequestDto"];
                 };
             };
             responses: {
@@ -8164,7 +8164,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/jobs/aggregate/albums": {
+    "/api/jobs/groups/albums": {
         parameters: {
             query?: never;
             header?: never;
@@ -8174,8 +8174,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Submits an aggregate album search job.
-         * @description Aggregate album jobs can download automatically or, with DownloadBehavior.Manual, pause after bucket projection so the caller can choose which child downloads to resume.
+         * Submits a grouped album search job.
+         * @description Grouped album jobs can download automatically or, with DownloadBehavior.Manual, pause after bucket projection so the caller can choose which child downloads to resume.
          */
         post: {
             parameters: {
@@ -8186,7 +8186,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": components["schemas"]["SubmitAlbumAggregateJobRequestDto"];
+                    "application/json": components["schemas"]["SubmitAlbumGroupsJobRequestDto"];
                 };
             };
             responses: {
@@ -10838,8 +10838,8 @@ export interface components {
             default?: components["schemas"]["ServerDownloadBehavior"];
             song?: null | components["schemas"]["ServerDownloadBehavior"];
             album?: null | components["schemas"]["ServerDownloadBehavior"];
-            aggregate?: null | components["schemas"]["ServerDownloadBehavior"];
-            albumAggregate?: null | components["schemas"]["ServerDownloadBehavior"];
+            songGroups?: null | components["schemas"]["ServerDownloadBehavior"];
+            albumGroups?: null | components["schemas"]["ServerDownloadBehavior"];
         };
         DownloadSettingsPatchDto: {
             output?: null | components["schemas"]["OutputSettingsPatchDto"];
@@ -11031,21 +11031,13 @@ export interface components {
             /** Format: date-time */
             createdAtUtc?: null | string;
             searchDefaultProjection?: null | components["schemas"]["ServerSearchDefaultProjectionKind"];
-            searchAggregatePresentation?: null | boolean;
+            searchGroupResults?: null | boolean;
             sourceDetail?: null | string;
         };
-        JobDraftDto: components["schemas"]["JobDraftDtoExtractJobDraftDto"] | components["schemas"]["JobDraftDtoGenericSearchJobDraftDto"] | components["schemas"]["JobDraftDtoTrackSearchJobDraftDto"] | components["schemas"]["JobDraftDtoAlbumSearchJobDraftDto"] | components["schemas"]["JobDraftDtoSongJobDraftDto"] | components["schemas"]["JobDraftDtoAlbumJobDraftDto"] | components["schemas"]["JobDraftDtoAggregateJobDraftDto"] | components["schemas"]["JobDraftDtoAlbumAggregateJobDraftDto"] | components["schemas"]["JobDraftDtoJobListJobDraftDto"] | components["schemas"]["JobDraftDtoRemoteFileJobDraftDto"] | components["schemas"]["JobDraftDtoRemoteDirectoryJobDraftDto"];
-        JobDraftDtoAggregateJobDraftDto: {
+        JobDraftDto: components["schemas"]["JobDraftDtoExtractJobDraftDto"] | components["schemas"]["JobDraftDtoGenericSearchJobDraftDto"] | components["schemas"]["JobDraftDtoTrackSearchJobDraftDto"] | components["schemas"]["JobDraftDtoAlbumSearchJobDraftDto"] | components["schemas"]["JobDraftDtoSongJobDraftDto"] | components["schemas"]["JobDraftDtoAlbumJobDraftDto"] | components["schemas"]["JobDraftDtoSongGroupsJobDraftDto"] | components["schemas"]["JobDraftDtoAlbumGroupsJobDraftDto"] | components["schemas"]["JobDraftDtoJobListJobDraftDto"] | components["schemas"]["JobDraftDtoRemoteFileJobDraftDto"] | components["schemas"]["JobDraftDtoRemoteDirectoryJobDraftDto"];
+        JobDraftDtoAlbumGroupsJobDraftDto: {
             /** @enum {string} */
-            kind?: "aggregate";
-            songQuery: components["schemas"]["SongQueryDto"];
-            downloadBehavior?: null | components["schemas"]["DownloadBehaviorPolicyDto"];
-            downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
-            provenance?: null | components["schemas"]["JobProvenanceDto"];
-        };
-        JobDraftDtoAlbumAggregateJobDraftDto: {
-            /** @enum {string} */
-            kind?: "album-aggregate";
+            kind?: "album-groups";
             albumQuery: components["schemas"]["AlbumQueryDto"];
             downloadBehavior?: null | components["schemas"]["DownloadBehaviorPolicyDto"];
             downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
@@ -11105,6 +11097,14 @@ export interface components {
             kind?: "remote-file";
             target: unknown;
             outputPathComponents?: unknown;
+            downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
+            provenance?: null | components["schemas"]["JobProvenanceDto"];
+        };
+        JobDraftDtoSongGroupsJobDraftDto: {
+            /** @enum {string} */
+            kind?: "song-groups";
+            songQuery: components["schemas"]["SongQueryDto"];
+            downloadBehavior?: null | components["schemas"]["DownloadBehaviorPolicyDto"];
             downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
             provenance?: null | components["schemas"]["JobProvenanceDto"];
         };
@@ -11343,7 +11343,7 @@ export interface components {
                             /** Format: uuid */
                             workflowId: string;
                             /** @enum {unknown} */
-                            kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+                            kind: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
                             itemName?: null | string;
                             queryText?: null | string;
                             appliedAutoProfiles: string[];
@@ -11356,7 +11356,7 @@ export interface components {
                             createdAtUtc?: null | string;
                             /** @enum {unknown} */
                             searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
-                            searchAggregatePresentation?: null | boolean;
+                            searchGroupResults?: null | boolean;
                             sourceDetail?: null | string;
                         };
                         lifecycle: {
@@ -11428,7 +11428,7 @@ export interface components {
                         /** Format: uuid */
                         workflowId: string;
                         /** @enum {unknown} */
-                        kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+                        kind: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
                         itemName?: null | string;
                         queryText?: null | string;
                         appliedAutoProfiles: string[];
@@ -11441,7 +11441,7 @@ export interface components {
                         createdAtUtc?: null | string;
                         /** @enum {unknown} */
                         searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
-                        searchAggregatePresentation?: null | boolean;
+                        searchGroupResults?: null | boolean;
                         sourceDetail?: null | string;
                     };
                     lifecycle?: {
@@ -11837,23 +11837,10 @@ export interface components {
             /** Format: uuid */
             sourceJobId?: null | string;
         };
-        JobPayloadDto: components["schemas"]["JobPayloadDtoExtractJobPayloadDto"] | components["schemas"]["JobPayloadDtoSearchJobPayloadDto"] | components["schemas"]["JobPayloadDtoSongJobPayloadDto"] | components["schemas"]["JobPayloadDtoAlbumJobPayloadDto"] | components["schemas"]["JobPayloadDtoAggregateJobPayloadDto"] | components["schemas"]["JobPayloadDtoAlbumAggregateJobPayloadDto"] | components["schemas"]["JobPayloadDtoJobListPayloadDto"] | components["schemas"]["JobPayloadDtoRetrieveFolderJobPayloadDto"] | components["schemas"]["JobPayloadDtoRemoteFileJobPayloadDto"] | components["schemas"]["JobPayloadDtoRemoteDirectoryJobPayloadDto"] | components["schemas"]["JobPayloadDtoGenericJobPayloadDto"];
-        JobPayloadDtoAggregateJobPayloadDto: {
+        JobPayloadDto: components["schemas"]["JobPayloadDtoExtractJobPayloadDto"] | components["schemas"]["JobPayloadDtoSearchJobPayloadDto"] | components["schemas"]["JobPayloadDtoSongJobPayloadDto"] | components["schemas"]["JobPayloadDtoAlbumJobPayloadDto"] | components["schemas"]["JobPayloadDtoSongGroupsJobPayloadDto"] | components["schemas"]["JobPayloadDtoAlbumGroupsJobPayloadDto"] | components["schemas"]["JobPayloadDtoJobListPayloadDto"] | components["schemas"]["JobPayloadDtoRetrieveFolderJobPayloadDto"] | components["schemas"]["JobPayloadDtoRemoteFileJobPayloadDto"] | components["schemas"]["JobPayloadDtoRemoteDirectoryJobPayloadDto"] | components["schemas"]["JobPayloadDtoGenericJobPayloadDto"];
+        JobPayloadDtoAlbumGroupsJobPayloadDto: {
             /** @enum {string} */
-            kind?: "aggregate";
-            query: components["schemas"]["SongQueryDto"];
-            /** Format: int32 */
-            songCount: number | string;
-            /** Format: int32 */
-            completedSongCount: number | string;
-            /** Format: int32 */
-            succeededSongCount: number | string;
-            /** Format: int32 */
-            failedSongCount: number | string;
-        };
-        JobPayloadDtoAlbumAggregateJobPayloadDto: {
-            /** @enum {string} */
-            kind?: "album-aggregate";
+            kind?: "album-groups";
             query: components["schemas"]["AlbumQueryDto"];
             /** Format: int32 */
             resultCount: number | string;
@@ -11956,7 +11943,20 @@ export interface components {
             revision: number | string;
             isComplete: boolean;
             /** @default false */
-            aggregatePresentation: boolean;
+            groupResults: boolean;
+        };
+        JobPayloadDtoSongGroupsJobPayloadDto: {
+            /** @enum {string} */
+            kind?: "song-groups";
+            query: components["schemas"]["SongQueryDto"];
+            /** Format: int32 */
+            songCount: number | string;
+            /** Format: int32 */
+            completedSongCount: number | string;
+            /** Format: int32 */
+            succeededSongCount: number | string;
+            /** Format: int32 */
+            failedSongCount: number | string;
         };
         JobPayloadDtoSongJobPayloadDto: {
             /** @enum {string} */
@@ -12162,7 +12162,7 @@ export interface components {
             discoveryObservedPeerCount?: null | number | string;
             stats?: null | components["schemas"]["JobSummaryStatsDto"];
             searchDefaultProjection?: null | components["schemas"]["ServerSearchDefaultProjectionKind"];
-            searchAggregatePresentation?: null | boolean;
+            searchGroupResults?: null | boolean;
             sourceDetail?: null | string;
         };
         JobSummaryStatsDto: {
@@ -12602,18 +12602,18 @@ export interface components {
             relax?: null | boolean;
             strictAlbumQuality?: null | boolean;
             artistMaybeWrong?: null | boolean;
-            isAggregate?: null | boolean;
+            groupResults?: null | boolean;
             /** Format: int32 */
-            minSharesAggregate?: null | number | string;
+            minGroupShares?: null | number | string;
             /** Format: int32 */
-            aggregateLengthTol?: null | number | string;
+            groupLengthTol?: null | number | string;
             /** Format: int32 */
             fallbackLevel?: null | number | string;
             /** Format: int32 */
             maxFallbackAttempts?: null | number | string;
             /** Format: int32 */
             maxStaleTime?: null | number | string;
-            clearMinSharesAggregate?: null | boolean;
+            clearMinGroupShares?: null | boolean;
         };
         SearchStateDto: {
             /** Format: uuid */
@@ -12626,7 +12626,7 @@ export interface components {
             resultCount: number | string;
             isComplete: boolean;
         };
-        SearchViewAggregateAlbumGroupDto: {
+        SearchViewAlbumGroupDto: {
             ref: string;
             query: components["schemas"]["AlbumQueryDto"];
             /** Format: int32 */
@@ -12635,35 +12635,15 @@ export interface components {
             selectableOptionCount: number | string;
             representative: components["schemas"]["SearchViewDirectoryDto"];
         };
-        SearchViewAggregateAlbumOptionPageDto: {
+        SearchViewAlbumGroupOptionPageDto: {
             revision: components["schemas"]["SearchViewRevisionDto"];
             groupRef: string;
             items: components["schemas"]["SearchViewDirectoryDto"][];
             nextCursor?: null | string;
         };
-        SearchViewAggregateAlbumPageDto: {
+        SearchViewAlbumGroupPageDto: {
             revision: components["schemas"]["SearchViewRevisionDto"];
-            items: components["schemas"]["SearchViewAggregateAlbumGroupDto"][];
-            nextCursor?: null | string;
-        };
-        SearchViewAggregateTrackGroupDto: {
-            ref: string;
-            query: components["schemas"]["SongQueryDto"];
-            /** Format: int32 */
-            shareCount: number | string;
-            /** Format: int64 */
-            selectableOptionCount: number | string;
-            representative: components["schemas"]["SearchViewFileDto"];
-        };
-        SearchViewAggregateTrackOptionPageDto: {
-            revision: components["schemas"]["SearchViewRevisionDto"];
-            groupRef: string;
-            items: components["schemas"]["SearchViewFileDto"][];
-            nextCursor?: null | string;
-        };
-        SearchViewAggregateTrackPageDto: {
-            revision: components["schemas"]["SearchViewRevisionDto"];
-            items: components["schemas"]["SearchViewAggregateTrackGroupDto"][];
+            items: components["schemas"]["SearchViewAlbumGroupDto"][];
             nextCursor?: null | string;
         };
         SearchViewChosenOptionDto: {
@@ -12812,6 +12792,26 @@ export interface components {
             counters: components["schemas"]["SearchViewCountersDto"];
             sortOrder?: components["schemas"]["ServerSearchViewSortOrder"];
         };
+        SearchViewTrackGroupDto: {
+            ref: string;
+            query: components["schemas"]["SongQueryDto"];
+            /** Format: int32 */
+            shareCount: number | string;
+            /** Format: int64 */
+            selectableOptionCount: number | string;
+            representative: components["schemas"]["SearchViewFileDto"];
+        };
+        SearchViewTrackGroupOptionPageDto: {
+            revision: components["schemas"]["SearchViewRevisionDto"];
+            groupRef: string;
+            items: components["schemas"]["SearchViewFileDto"][];
+            nextCursor?: null | string;
+        };
+        SearchViewTrackGroupPageDto: {
+            revision: components["schemas"]["SearchViewRevisionDto"];
+            items: components["schemas"]["SearchViewTrackGroupDto"][];
+            nextCursor?: null | string;
+        };
         SearchViewUpdateDto: {
             summary: components["schemas"]["SearchViewSummaryDto"];
             hasNewRevision: boolean;
@@ -12864,7 +12864,7 @@ export interface components {
         /** @enum {unknown} */
         ServerJobFailureReason: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
         /** @enum {unknown} */
-        ServerJobKind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+        ServerJobKind: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
         /** @enum {unknown} */
         ServerJobLifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
         /** @enum {unknown} */
@@ -12886,7 +12886,7 @@ export interface components {
         ServerSearchResultVisibility: "Public" | "Locked";
         ServerSearchSettingsBaselineKind: number;
         /** @enum {unknown} */
-        ServerSearchViewProjectionKind: "Files" | "GenericDirectories" | "AlbumDirectories" | "AggregateTracks" | "AggregateAlbums";
+        ServerSearchViewProjectionKind: "Files" | "GenericDirectories" | "AlbumDirectories" | "TrackGroups" | "AlbumGroups";
         /**
          * @default Relevance
          * @enum {unknown}
@@ -13252,7 +13252,7 @@ export interface components {
                         /** Format: uuid */
                         workflowId: string;
                         /** @enum {unknown} */
-                        kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+                        kind: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
                         itemName?: null | string;
                         queryText?: null | string;
                         appliedAutoProfiles: string[];
@@ -13265,7 +13265,7 @@ export interface components {
                         createdAtUtc?: null | string;
                         /** @enum {unknown} */
                         searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
-                        searchAggregatePresentation?: null | boolean;
+                        searchGroupResults?: null | boolean;
                         sourceDetail?: null | string;
                     };
                     lifecycle: {
@@ -13337,7 +13337,7 @@ export interface components {
                     /** Format: uuid */
                     workflowId: string;
                     /** @enum {unknown} */
-                    kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+                    kind: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
                     itemName?: null | string;
                     queryText?: null | string;
                     appliedAutoProfiles: string[];
@@ -13350,7 +13350,7 @@ export interface components {
                     createdAtUtc?: null | string;
                     /** @enum {unknown} */
                     searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
-                    searchAggregatePresentation?: null | boolean;
+                    searchGroupResults?: null | boolean;
                     sourceDetail?: null | string;
                 };
                 lifecycle?: {
@@ -13969,7 +13969,7 @@ export interface components {
                             /** Format: uuid */
                             workflowId: string;
                             /** @enum {unknown} */
-                            kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+                            kind: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
                             itemName?: null | string;
                             queryText?: null | string;
                             appliedAutoProfiles: string[];
@@ -13982,7 +13982,7 @@ export interface components {
                             createdAtUtc?: null | string;
                             /** @enum {unknown} */
                             searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
-                            searchAggregatePresentation?: null | boolean;
+                            searchGroupResults?: null | boolean;
                             sourceDetail?: null | string;
                         };
                         lifecycle: {
@@ -14054,7 +14054,7 @@ export interface components {
                         /** Format: uuid */
                         workflowId: string;
                         /** @enum {unknown} */
-                        kind: "extract" | "search" | "song" | "album" | "aggregate" | "album-aggregate" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
+                        kind: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
                         itemName?: null | string;
                         queryText?: null | string;
                         appliedAutoProfiles: string[];
@@ -14067,7 +14067,7 @@ export interface components {
                         createdAtUtc?: null | string;
                         /** @enum {unknown} */
                         searchDefaultProjection?: "GenericFile" | "Track" | "Album" | null;
-                        searchAggregatePresentation?: null | boolean;
+                        searchGroupResults?: null | boolean;
                         sourceDetail?: null | string;
                     };
                     lifecycle?: {
@@ -14578,12 +14578,7 @@ export interface components {
             /** Format: int32 */
             failedJobCount: number | string;
         };
-        SubmitAggregateJobRequestDto: {
-            songQuery: components["schemas"]["SongQueryDto"];
-            options?: null | components["schemas"]["SubmissionOptionsDto"];
-            downloadBehavior?: null | components["schemas"]["DownloadBehaviorPolicyDto"];
-        };
-        SubmitAlbumAggregateJobRequestDto: {
+        SubmitAlbumGroupsJobRequestDto: {
             albumQuery: components["schemas"]["AlbumQueryDto"];
             options?: null | components["schemas"]["SubmissionOptionsDto"];
             downloadBehavior?: null | components["schemas"]["DownloadBehaviorPolicyDto"];
@@ -14597,7 +14592,7 @@ export interface components {
             albumQuery: components["schemas"]["AlbumQueryDto"];
             options?: null | components["schemas"]["SubmissionOptionsDto"];
             /** @default false */
-            aggregatePresentation: boolean;
+            groupResults: boolean;
         };
         SubmitExtractJobRequestDto: {
             input?: null | string;
@@ -14615,6 +14610,11 @@ export interface components {
             queryText: string;
             options?: null | components["schemas"]["SubmissionOptionsDto"];
         };
+        SubmitSongGroupsJobRequestDto: {
+            songQuery: components["schemas"]["SongQueryDto"];
+            options?: null | components["schemas"]["SubmissionOptionsDto"];
+            downloadBehavior?: null | components["schemas"]["DownloadBehaviorPolicyDto"];
+        };
         SubmitSongJobRequestDto: {
             songQuery: components["schemas"]["SongQueryDto"];
             options?: null | components["schemas"]["SubmissionOptionsDto"];
@@ -14626,7 +14626,7 @@ export interface components {
             includeFullResults: boolean;
             options?: null | components["schemas"]["SubmissionOptionsDto"];
             /** @default false */
-            aggregatePresentation: boolean;
+            groupResults: boolean;
         };
         TrackBatchResolvedActivityDto: {
             /** Format: int32 */

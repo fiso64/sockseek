@@ -84,8 +84,8 @@ public enum ServerSearchViewProjectionKind
     Files,
     GenericDirectories,
     AlbumDirectories,
-    AggregateTracks,
-    AggregateAlbums,
+    TrackGroups,
+    AlbumGroups,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<ServerSearchViewSortOrder>))]

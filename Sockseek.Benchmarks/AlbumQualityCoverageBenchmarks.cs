@@ -84,8 +84,8 @@ public class AlbumQualityCoverageBenchmarks
             NoBrowseFolder = source.NoBrowseFolder,
             Relax = source.Relax,
             ArtistMaybeWrong = source.ArtistMaybeWrong,
-            IsAggregate = source.IsAggregate,
-            MinSharesAggregate = source.MinSharesAggregate,
-            AggregateLengthTol = source.AggregateLengthTol,
+            GroupResults = source.GroupResults,
+            MinGroupShares = source.MinGroupShares,
+            GroupLengthTol = source.GroupLengthTol,
         };
 }

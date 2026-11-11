@@ -20,12 +20,12 @@ public enum ServerJobKind
     /// <summary>Folder or album download job.</summary>
     [JsonStringEnumMemberName(ServerProtocol.JobKinds.Album)]
     Album,
-    /// <summary>Aggregate track search job.</summary>
-    [JsonStringEnumMemberName(ServerProtocol.JobKinds.Aggregate)]
-    Aggregate,
-    /// <summary>Aggregate album search job.</summary>
-    [JsonStringEnumMemberName(ServerProtocol.JobKinds.AlbumAggregate)]
-    AlbumAggregate,
+    /// <summary>Grouped track search job.</summary>
+    [JsonStringEnumMemberName(ServerProtocol.JobKinds.SongGroups)]
+    SongGroups,
+    /// <summary>Grouped album search job.</summary>
+    [JsonStringEnumMemberName(ServerProtocol.JobKinds.AlbumGroups)]
+    AlbumGroups,
     /// <summary>Container job that owns child jobs.</summary>
     [JsonStringEnumMemberName(ServerProtocol.JobKinds.JobList)]
     JobList,
@@ -243,8 +243,8 @@ public static class ServerProtocol
         public const string Search = "search";
         public const string Song = "song";
         public const string Album = "album";
-        public const string Aggregate = "aggregate";
-        public const string AlbumAggregate = "album-aggregate";
+        public const string SongGroups = "song-groups";
+        public const string AlbumGroups = "album-groups";
         public const string JobList = "job-list";
         public const string RetrieveFolder = "retrieve-folder";
         public const string RemoteFile = "remote-file";
@@ -278,10 +278,10 @@ public static class ServerProtocol
         public const string Song = "song";
         /// <summary>Draft for a folder or album download job.</summary>
         public const string Album = "album";
-        /// <summary>Draft for an aggregate track search job.</summary>
-        public const string Aggregate = "aggregate";
-        /// <summary>Draft for an aggregate album search job.</summary>
-        public const string AlbumAggregate = "album-aggregate";
+        /// <summary>Draft for a grouped track search job.</summary>
+        public const string SongGroups = "song-groups";
+        /// <summary>Draft for a grouped album search job.</summary>
+        public const string AlbumGroups = "album-groups";
         /// <summary>Draft for a nested job list.</summary>
         public const string JobList = "job-list";
         public const string RemoteFile = "remote-file";
@@ -381,8 +381,8 @@ public static class ServerProtocolEnumExtensions
             ServerJobKind.Search => ServerProtocol.JobKinds.Search,
             ServerJobKind.Song => ServerProtocol.JobKinds.Song,
             ServerJobKind.Album => ServerProtocol.JobKinds.Album,
-            ServerJobKind.Aggregate => ServerProtocol.JobKinds.Aggregate,
-            ServerJobKind.AlbumAggregate => ServerProtocol.JobKinds.AlbumAggregate,
+            ServerJobKind.SongGroups => ServerProtocol.JobKinds.SongGroups,
+            ServerJobKind.AlbumGroups => ServerProtocol.JobKinds.AlbumGroups,
             ServerJobKind.JobList => ServerProtocol.JobKinds.JobList,
             ServerJobKind.RetrieveFolder => ServerProtocol.JobKinds.RetrieveFolder,
             ServerJobKind.RemoteFile => ServerProtocol.JobKinds.RemoteFile,

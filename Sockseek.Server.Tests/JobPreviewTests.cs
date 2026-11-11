@@ -39,18 +39,18 @@ public sealed class JobPreviewTests
                 await store.InitializeAsync();
                 foreach (var scenario in new[]
                 {
-                    (Input: "https://open.spotify.com/playlist/source", Album: false, Aggregate: false, Label: "Spotify playlist · 2 songs"),
-                    (Input: "https://open.spotify.com/playlist/source", Album: true, Aggregate: false, Label: "Spotify playlist · 2 albums"),
-                    (Input: "https://open.spotify.com/playlist/source", Album: false, Aggregate: true, Label: "Spotify playlist · 2 jobs"),
-                    (Input: "https://open.spotify.com/playlist/source", Album: true, Aggregate: true, Label: "Spotify playlist · 2 jobs"),
-                    (Input: "spotify-likes", Album: false, Aggregate: false, Label: "Spotify liked songs · 2 songs"),
-                    (Input: "spotify-albums", Album: false, Aggregate: false, Label: "Spotify liked albums · 2 albums"),
-                    (Input: "https://open.spotify.com/album/source", Album: false, Aggregate: false, Label: "Spotify album"),
+                    (Input: "https://open.spotify.com/playlist/source", Album: false, SongGroups: false, Label: "Spotify playlist · 2 songs"),
+                    (Input: "https://open.spotify.com/playlist/source", Album: true, SongGroups: false, Label: "Spotify playlist · 2 albums"),
+                    (Input: "https://open.spotify.com/playlist/source", Album: false, SongGroups: true, Label: "Spotify playlist · 2 jobs"),
+                    (Input: "https://open.spotify.com/playlist/source", Album: true, SongGroups: true, Label: "Spotify playlist · 2 jobs"),
+                    (Input: "spotify-likes", Album: false, SongGroups: false, Label: "Spotify liked songs · 2 songs"),
+                    (Input: "spotify-albums", Album: false, SongGroups: false, Label: "Spotify liked albums · 2 albums"),
+                    (Input: "https://open.spotify.com/album/source", Album: false, SongGroups: false, Label: "Spotify album"),
                 })
                 {
                     var settings = new DownloadSettings();
                     settings.Extraction.UpgradeToAlbum = scenario.Album;
-                    settings.Search.IsAggregate = scenario.Aggregate;
+                    settings.Search.GroupResults = scenario.SongGroups;
                     var extract = new ExtractJob(scenario.Input, InputType.Spotify) { Config = settings };
                     Job extracted = scenario.Input.Contains("/album/", StringComparison.Ordinal)
                         ? new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })

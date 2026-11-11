@@ -213,11 +213,11 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
     public Task<JobSummaryDto> SubmitAlbumJobAsync(SubmitAlbumJobRequestDto request, CancellationToken ct = default)
         => SubmitAndSubscribeAsync(request.Options, options => api.SubmitAlbumJobAsync(request with { Options = options }, ct), ct);
 
-    public Task<JobSummaryDto> SubmitAggregateJobAsync(SubmitAggregateJobRequestDto request, CancellationToken ct = default)
-        => SubmitAndSubscribeAsync(request.Options, options => api.SubmitAggregateJobAsync(request with { Options = options }, ct), ct);
+    public Task<JobSummaryDto> SubmitSongGroupsJobAsync(SubmitSongGroupsJobRequestDto request, CancellationToken ct = default)
+        => SubmitAndSubscribeAsync(request.Options, options => api.SubmitSongGroupsJobAsync(request with { Options = options }, ct), ct);
 
-    public Task<JobSummaryDto> SubmitAlbumAggregateJobAsync(SubmitAlbumAggregateJobRequestDto request, CancellationToken ct = default)
-        => SubmitAndSubscribeAsync(request.Options, options => api.SubmitAlbumAggregateJobAsync(request with { Options = options }, ct), ct);
+    public Task<JobSummaryDto> SubmitAlbumGroupsJobAsync(SubmitAlbumGroupsJobRequestDto request, CancellationToken ct = default)
+        => SubmitAndSubscribeAsync(request.Options, options => api.SubmitAlbumGroupsJobAsync(request with { Options = options }, ct), ct);
 
     public Task<JobSummaryDto> SubmitJobListAsync(SubmitJobListRequestDto request, CancellationToken ct = default)
         => SubmitAndSubscribeAsync(request.Options, options => api.SubmitJobListAsync(request with { Options = options }, ct), ct);
@@ -313,28 +313,28 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         CancellationToken ct = default)
         => GetFolderResultsCoreAsync(jobId, request.AlbumQuery, request.IncludeFiles, ct);
 
-    public Task<SearchResultSnapshotDto<AggregateTrackCandidateDto>?> GetAggregateTrackResultsAsync(
+    public Task<SearchResultSnapshotDto<TrackGroupCandidateDto>?> GetTrackGroupResultsAsync(
         Guid jobId,
         CancellationToken ct = default)
-        => GetAggregateTrackResultsAsync(jobId, new AggregateTrackProjectionRequestDto(), ct);
+        => GetTrackGroupResultsAsync(jobId, new TrackGroupProjectionRequestDto(), ct);
 
-    public async Task<SearchResultSnapshotDto<AggregateTrackCandidateDto>?> GetAggregateTrackResultsAsync(
+    public async Task<SearchResultSnapshotDto<TrackGroupCandidateDto>?> GetTrackGroupResultsAsync(
         Guid jobId,
-        AggregateTrackProjectionRequestDto request,
+        TrackGroupProjectionRequestDto request,
         CancellationToken ct = default)
     {
         SearchViewSummaryDto view = await CreateReadySearchViewAsync(
             jobId,
             new CreateSearchViewRequestDto(
-                ServerSearchViewProjectionKind.AggregateTracks,
+                ServerSearchViewProjectionKind.TrackGroups,
                 request.SongQuery),
             ct).ConfigureAwait(false);
-        var items = new List<AggregateTrackCandidateDto>();
+        var items = new List<TrackGroupCandidateDto>();
         string? cursor = null;
         SearchViewRevisionDto? revision = null;
         do
         {
-            SearchViewAggregateTrackPageDto page = await api.GetSearchViewAggregateTracksAsync(
+            SearchViewTrackGroupPageDto page = await api.GetSearchViewTrackGroupsAsync(
                 view.ViewId,
                 view.Revision,
                 cursor,
@@ -342,12 +342,12 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                 ct).ConfigureAwait(false)
                 ?? throw new InvalidOperationException(ResultsExpiredMessage);
             revision ??= page.Revision;
-            foreach (SearchViewAggregateTrackGroupDto group in page.Items)
+            foreach (SearchViewTrackGroupDto group in page.Items)
             {
                 List<FileCandidateDto>? candidates = request.IncludeCandidates
-                    ? await ReadAggregateTrackOptionsAsync(view, group.Ref, ct).ConfigureAwait(false)
+                    ? await ReadTrackGroupOptionsAsync(view, group.Ref, ct).ConfigureAwait(false)
                     : null;
-                items.Add(new AggregateTrackCandidateDto(group.Query, null, candidates));
+                items.Add(new TrackGroupCandidateDto(group.Query, null, candidates));
             }
             cursor = page.NextCursor;
         }
@@ -355,28 +355,28 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         return Snapshot(revision ?? Revision(view), items);
     }
 
-    public Task<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?> GetAggregateAlbumResultsAsync(
+    public Task<SearchResultSnapshotDto<AlbumGroupCandidateDto>?> GetAlbumGroupResultsAsync(
         Guid jobId,
         CancellationToken ct = default)
-        => GetAggregateAlbumResultsAsync(jobId, new AggregateAlbumProjectionRequestDto(), ct);
+        => GetAlbumGroupResultsAsync(jobId, new AlbumGroupProjectionRequestDto(), ct);
 
-    public async Task<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?> GetAggregateAlbumResultsAsync(
+    public async Task<SearchResultSnapshotDto<AlbumGroupCandidateDto>?> GetAlbumGroupResultsAsync(
         Guid jobId,
-        AggregateAlbumProjectionRequestDto request,
+        AlbumGroupProjectionRequestDto request,
         CancellationToken ct = default)
     {
         SearchViewSummaryDto view = await CreateReadySearchViewAsync(
             jobId,
             new CreateSearchViewRequestDto(
-                ServerSearchViewProjectionKind.AggregateAlbums,
+                ServerSearchViewProjectionKind.AlbumGroups,
                 AlbumQuery: request.AlbumQuery),
             ct).ConfigureAwait(false);
-        var items = new List<AggregateAlbumCandidateDto>();
+        var items = new List<AlbumGroupCandidateDto>();
         string? cursor = null;
         SearchViewRevisionDto? revision = null;
         do
         {
-            SearchViewAggregateAlbumPageDto page = await api.GetSearchViewAggregateAlbumsAsync(
+            SearchViewAlbumGroupPageDto page = await api.GetSearchViewAlbumGroupsAsync(
                 view.ViewId,
                 view.Revision,
                 cursor,
@@ -384,12 +384,12 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                 ct).ConfigureAwait(false)
                 ?? throw new InvalidOperationException(ResultsExpiredMessage);
             revision ??= page.Revision;
-            foreach (SearchViewAggregateAlbumGroupDto group in page.Items)
+            foreach (SearchViewAlbumGroupDto group in page.Items)
             {
                 List<AlbumFolderDto>? folders = request.IncludeFolders
-                    ? await ReadAggregateAlbumOptionsAsync(view, group.Ref, ct).ConfigureAwait(false)
+                    ? await ReadAlbumGroupOptionsAsync(view, group.Ref, ct).ConfigureAwait(false)
                     : null;
-                items.Add(new AggregateAlbumCandidateDto(group.Query, null, folders));
+                items.Add(new AlbumGroupCandidateDto(group.Query, null, folders));
             }
             cursor = page.NextCursor;
         }
@@ -466,7 +466,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         return files;
     }
 
-    private async Task<List<FileCandidateDto>> ReadAggregateTrackOptionsAsync(
+    private async Task<List<FileCandidateDto>> ReadTrackGroupOptionsAsync(
         SearchViewSummaryDto view,
         string groupRef,
         CancellationToken ct)
@@ -475,8 +475,8 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         string? cursor = null;
         do
         {
-            SearchViewAggregateTrackOptionPageDto page = await api
-                .GetSearchViewAggregateTrackOptionsAsync(
+            SearchViewTrackGroupOptionPageDto page = await api
+                .GetSearchViewTrackGroupOptionsAsync(
                     view.ViewId,
                     groupRef,
                     view.Revision,
@@ -491,7 +491,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         return files;
     }
 
-    private async Task<List<AlbumFolderDto>> ReadAggregateAlbumOptionsAsync(
+    private async Task<List<AlbumFolderDto>> ReadAlbumGroupOptionsAsync(
         SearchViewSummaryDto view,
         string groupRef,
         CancellationToken ct)
@@ -500,8 +500,8 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         string? cursor = null;
         do
         {
-            SearchViewAggregateAlbumOptionPageDto page = await api
-                .GetSearchViewAggregateAlbumOptionsAsync(
+            SearchViewAlbumGroupOptionPageDto page = await api
+                .GetSearchViewAlbumGroupOptionsAsync(
                     view.ViewId,
                     groupRef,
                     view.Revision,

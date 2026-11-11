@@ -146,7 +146,7 @@ internal sealed class SongDownloadExecutor
             && song.Cts.IsCancellationRequested
             && song.FailureReason == JobFailureReason.Cancelled)
         {
-            // User cancelled only this embedded song; keep the album/aggregate parent running.
+            // User cancelled only this embedded song; keep the album/group parent running.
             return JobOutcome.Cancelled(JobOrchestrator.CancellationSourceForDerivedCancellation(song));
         }
         catch (OperationCanceledException) when (!groupCts.IsCancellationRequested && cancelGroupOnFail)
@@ -392,7 +392,7 @@ internal sealed class SongDownloadExecutor
         }
 
         // An explicit manual choice cannot fall back to another source. Keep
-        // discovery options intact for a still-open aggregate selection.
+        // discovery options intact for a still-open group selection.
         IReadOnlyList<FileCandidate>? candidates = song.DownloadBehavior == DownloadBehavior.Manual
             && song.ResolvedTarget is { } selected ? [selected] : song.Candidates;
 

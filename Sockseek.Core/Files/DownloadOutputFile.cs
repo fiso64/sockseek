@@ -44,7 +44,7 @@ public sealed class DownloadOutputFile
     private readonly List<string> originalLines;
     readonly Dictionary<string, IndexValue> previousRunData = new();
     // Duration-tolerant lookup only visits variants of the exact text identity,
-    // never every retained song for each aggregate completion/skip decision.
+    // never every retained song for each group completion/skip decision.
     private Dictionary<SongQuery, List<IndexValue>>? songVariants;
     private readonly List<JobList> owners = [];
     private readonly List<OutputNode> roots = [];
@@ -194,7 +194,7 @@ public sealed class DownloadOutputFile
         {
             if (!nodes.TryGetValue(changed.Id, out var matches))
             {
-                // New extractor/aggregate membership is structural work, not a
+                // New extractor/group membership is structural work, not a
                 // reason to rescan all siblings on ordinary track transitions.
                 for (int i = 0; i < owners.Count; i++) RefreshNode(roots[i], owners[i]);
                 if (!nodes.TryGetValue(changed.Id, out matches)) return;
@@ -219,8 +219,8 @@ public sealed class DownloadOutputFile
     {
         JobList list => list.Jobs,
         ExtractJob { Result: { } result } => [result],
-        AggregateJob aggregate => aggregate.Songs,
-        AlbumAggregateJob aggregate => aggregate.Albums,
+        SongGroupsJob group => group.Songs,
+        AlbumGroupsJob group => group.Albums,
         AlbumJob album => album.TrackJobs,
         _ => [],
     };
@@ -299,12 +299,12 @@ public sealed class DownloadOutputFile
         node.Search = song.Config?.Search ?? node.Parent?.Search;
         bool albumChild = node.Parent?.Kind is JobSnapshotKind.Album;
         if (albumChild) return;
-        if (node.Parent is { Kind: JobSnapshotKind.Aggregate } aggregate)
+        if (node.Parent is { Kind: JobSnapshotKind.SongGroups } group)
         {
-            if (successful || aggregate.SuccessfulChildren == 0 && ReferenceEquals(aggregate.Children.FirstOrDefault(), node))
+            if (successful || group.SuccessfulChildren == 0 && ReferenceEquals(group.Children.FirstOrDefault(), node))
                 PutIndex(node.Candidate, node.Search);
-            if (aggregate.SuccessfulChildren == 0 && aggregate.Children.FirstOrDefault()?.Candidate is { } fallback)
-                PutIndex(fallback, aggregate.Children[0].Search);
+            if (group.SuccessfulChildren == 0 && group.Children.FirstOrDefault()?.Candidate is { } fallback)
+                PutIndex(fallback, group.Children[0].Search);
         }
         else PutIndex(node.Candidate, node.Search);
     }
@@ -313,7 +313,7 @@ public sealed class DownloadOutputFile
     {
         if (Kind == OutputFileKind.Playlist) return;
         string key = candidate.ToKey();
-        if (!previousRunData.TryGetValue(key, out var value) && search?.IsAggregate == true)
+        if (!previousRunData.TryGetValue(key, out var value) && search?.GroupResults == true)
             value = FindSong(candidate, search);
         if (value is null)
         {
@@ -340,7 +340,7 @@ public sealed class DownloadOutputFile
             if (node.PlaylistLine is { } line) result.Add(line);
             return;
         }
-        if (node.Kind == JobSnapshotKind.Aggregate)
+        if (node.Kind == JobSnapshotKind.SongGroups)
         {
             if (node.SuccessfulChildren > 0)
                 foreach (var child in node.Children) { if (child.Successful) AddPlaylistLines(child, result); }
@@ -449,14 +449,14 @@ public sealed class DownloadOutputFile
         lock (locker)
         {
             if (previousRunData.TryGetValue(MakeSongKey(song), out var t)) return t.Entry;
-            return search?.IsAggregate == true ? FindSong(new IndexEntry { Artist = song.Query.Artist,
+            return search?.GroupResults == true ? FindSong(new IndexEntry { Artist = song.Query.Artist,
                 Album = song.Query.Album, Title = song.Query.Title, Length = song.Query.Length }, search)?.Entry : null;
         }
     }
 
     private IndexValue? FindSong(IndexEntry song, SearchSettings search)
     {
-        if (!search.IsAggregate) return null;
+        if (!search.GroupResults) return null;
         if (songVariants is null)
         {
             songVariants = new(new SongQueryComparer(ignoreCase: true));
@@ -464,7 +464,7 @@ public sealed class DownloadOutputFile
         }
         var query = new SongQuery { Artist = song.Artist, Album = song.Album, Title = song.Title, Length = song.Length };
         if (!songVariants.TryGetValue(query, out var variants)) return null;
-        var comparer = new SongQueryComparer(ignoreCase: true, search.AggregateLengthTol);
+        var comparer = new SongQueryComparer(ignoreCase: true, search.GroupLengthTol);
         return variants.FirstOrDefault(value => comparer.Equals(query, value.Query));
     }
 

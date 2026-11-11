@@ -125,13 +125,13 @@ internal sealed class DiscoveryCoordinator
                     EnsureDisplayIdsForExecutableSubtree(child);
                 break;
 
-            case AggregateJob aggregate:
-                foreach (var song in aggregate.Songs)
+            case SongGroupsJob group:
+                foreach (var song in group.Songs)
                     EnsureDisplayIdsForExecutableSubtree(song);
                 break;
 
-            case AlbumAggregateJob aggregate:
-                foreach (var album in aggregate.Albums)
+            case AlbumGroupsJob group:
+                foreach (var album in group.Albums)
                     EnsureDisplayIdsForExecutableSubtree(album);
                 break;
 
@@ -360,14 +360,14 @@ internal sealed class DiscoveryCoordinator
         return null;
     }
 
-    public async Task<JobOutcome?> ProcessAggregateDiscovery(AggregateJob job, JobContext ctx, CancellationToken parentToken)
+    public async Task<JobOutcome?> ProcessGroupDiscovery(SongGroupsJob job, JobContext ctx, CancellationToken parentToken)
     {
         await context.ClientManager.WaitUntilReadyAsync(job.Cts!.Token);
 
         var config = job.Config;
         var responseData = new ResponseData();
         var (searchOutcome, searchFailure) = await TrySearchWithReconnect(job, parentToken,
-            () => context.Runtime.Searcher.SearchAggregate(job, config.Search, responseData, job.Cts!.Token));
+            () => context.Runtime.Searcher.SearchGroup(job, config.Search, responseData, job.Cts!.Token));
         if (searchFailure != null)
             return searchFailure;
 
@@ -384,7 +384,7 @@ internal sealed class DiscoveryCoordinator
 
         if (!foundSomething)
         {
-            var outcome = DownloadOutcomes.NoMatchingDiscovery(responseData, "file result", "file results", "aggregate track candidates");
+            var outcome = DownloadOutcomes.NoMatchingDiscovery(responseData, "file result", "file results", "group track candidates");
             JobOutcomeCommitter.Commit(job, outcome);
 
             if (!config.PrintResults)
@@ -417,14 +417,14 @@ internal sealed class DiscoveryCoordinator
         return null;
     }
 
-    public async Task<JobOutcome> ProcessAlbumAggregateDiscovery(AlbumAggregateJob job, JobContext ctx, CancellationToken parentToken)
+    public async Task<JobOutcome> ProcessAlbumGroupsDiscovery(AlbumGroupsJob job, JobContext ctx, CancellationToken parentToken)
     {
         await context.ClientManager.WaitUntilReadyAsync(job.Cts!.Token);
 
         var config = job.Config;
         var responseData = new ResponseData();
         var (searchResult, searchFailure) = await TrySearchWithReconnect(job, parentToken,
-            () => context.Runtime.Searcher.SearchAggregateAlbum(job, config.Search, responseData, job.Cts!.Token));
+            () => context.Runtime.Searcher.SearchAlbumGroup(job, config.Search, responseData, job.Cts!.Token));
         if (searchFailure != null)
             return searchFailure;
 
@@ -454,7 +454,7 @@ internal sealed class DiscoveryCoordinator
 
         if (!foundSomething)
         {
-            var outcome = DownloadOutcomes.NoMatchingDiscovery(responseData, "file result", "file results", "album aggregate candidates");
+            var outcome = DownloadOutcomes.NoMatchingDiscovery(responseData, "file result", "file results", "album groups candidates");
             JobOutcomeCommitter.Commit(job, outcome);
             return outcome;
         }
@@ -468,17 +468,17 @@ internal sealed class DiscoveryCoordinator
 
         foreach (var aj in newAlbumJobs)
             aj.ItemName ??= job.ItemName;
-        var albumList = context.PrepareAggregateChildren(job, newAlbumJobs, ctx);
+        var albumList = context.PrepareGroupChildren(job, newAlbumJobs, ctx);
 
         job.UpdateActivity(JobActivityPhase.RunningChildren);
         await jobs.ProcessJob(albumList, job.Cts!.Token, job);
 
-        var finalOutcome = DeriveAlbumAggregateOutcome(job, albumList);
+        var finalOutcome = DeriveAlbumGroupsOutcome(job, albumList);
         JobOutcomeCommitter.Commit(job, finalOutcome);
         return finalOutcome;
     }
 
-    static JobOutcome DeriveAlbumAggregateOutcome(AlbumAggregateJob job, JobList albumList)
+    static JobOutcome DeriveAlbumGroupsOutcome(AlbumGroupsJob job, JobList albumList)
     {
         bool anySuccessful = job.Albums.Any(JobOrchestrator.IsSubtreeSuccessful);
         bool anyCancelled = job.Albums.Any(JobOrchestrator.HasCancelledDescendant);
@@ -631,7 +631,7 @@ internal sealed class DiscoveryCoordinator
             JobList list => $"{list.Jobs.Count} jobs",
             SongJob => "1 song",
             AlbumJob => "album",
-            AlbumAggregateJob => "album aggregate",
+            AlbumGroupsJob => "album groups",
             SearchJob => "search",
             RetrieveFolderJob => "folder retrieval",
             ExtractJob => "extract job",

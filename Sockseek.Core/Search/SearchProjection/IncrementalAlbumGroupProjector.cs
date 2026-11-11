@@ -39,7 +39,7 @@ internal readonly record struct AlbumProjectionFileCounts(
         => new(a.Total - b.Total, a.Public - b.Public, a.Locked - b.Locked, a.Preferred - b.Preferred, a.Other - b.Other);
 }
 
-public sealed record SearchViewProjectedAggregateAlbumGroup(
+public sealed record SearchViewProjectedAlbumGroup(
     int Index,
     PeerDirectoryIdentity StableIdentity,
     AlbumQuery Query,
@@ -51,29 +51,29 @@ public sealed record SearchViewProjectedAggregateAlbumGroup(
     internal AlbumProjectionFileCounts FileCounts { get; init; }
 }
 
-public sealed record AlbumAggregateSearchViewChanges(
+public sealed record AlbumGroupsSearchViewChanges(
     IReadOnlyList<int> AffectedGroupIndexes);
 
-public sealed class IncrementalAlbumAggregateProjector
+public sealed class IncrementalAlbumGroupProjector
 {
     private readonly AlbumQuery query;
     private readonly SearchSettings search;
     private readonly int maxDiff;
-    private readonly Dictionary<int, Dictionary<int, List<AlbumAggregateBucket>>> byTrackCountAndFirstLength = [];
+    private readonly Dictionary<int, Dictionary<int, List<AlbumGroupsBucket>>> byTrackCountAndFirstLength = [];
     private readonly Dictionary<AlbumFolder, SongQuery?> representativeQueries = [];
     private readonly Dictionary<PeerPathKey, int> folderOrder = [];
-    private readonly Dictionary<PeerPathKey, AlbumAggregateBucket> bucketByFolder = [];
-    private readonly AlbumFolderAggregateComparer folderComparer;
-    private readonly List<AlbumAggregateBucket> buckets = [];
+    private readonly Dictionary<PeerPathKey, AlbumGroupsBucket> bucketByFolder = [];
+    private readonly AlbumFolderGroupComparer folderComparer;
+    private readonly List<AlbumGroupsBucket> buckets = [];
     private readonly HashSet<PeerPathKey> seenFolders = [];
     private List<AlbumFolder> orderedFolders = [];
 
-    public IncrementalAlbumAggregateProjector(AlbumQuery query, SearchSettings search)
+    public IncrementalAlbumGroupProjector(AlbumQuery query, SearchSettings search)
     {
         this.query = query;
         this.search = search;
-        maxDiff = search.AggregateLengthTol;
-        folderComparer = new AlbumFolderAggregateComparer(query, search, folderOrder);
+        maxDiff = search.GroupLengthTol;
+        folderComparer = new AlbumFolderGroupComparer(query, search, folderOrder);
     }
 
     public int Count => seenFolders.Count;
@@ -111,7 +111,7 @@ public sealed class IncrementalAlbumAggregateProjector
     public int ApplyChanges(AlbumFolderProjectionChanges changes)
         => ApplyChanges(changes, null);
 
-    public AlbumAggregateSearchViewChanges ApplyChangesForSearchView(
+    public AlbumGroupsSearchViewChanges ApplyChangesForSearchView(
         AlbumFolderProjectionChanges changes)
     {
         var affected = new HashSet<int>();
@@ -193,9 +193,9 @@ public sealed class IncrementalAlbumAggregateProjector
             PeerPathKey key = FolderKey(folder);
             int index = folderOrder[key];
             AlbumFolder oldFolder = orderedFolders[index];
-            AlbumAggregateBucket bucket = bucketByFolder[key];
+            AlbumGroupsBucket bucket = bucketByFolder[key];
             if (bucket.RemoveVersion(key) == null)
-                throw new InvalidDataException("An updated album folder is missing from its aggregate bucket.");
+                throw new InvalidDataException("An updated album folder is missing from its group bucket.");
             representativeQueries.Remove(oldFolder);
             bucket.AddVersion(folder, CompareFolders);
             orderedFolders[index] = folder;
@@ -225,22 +225,22 @@ public sealed class IncrementalAlbumAggregateProjector
 
     public List<AlbumJob> Snapshot()
         => buckets
-            .Where(x => x.UserCount >= search.EffectiveMinSharesAggregate)
+            .Where(x => x.UserCount >= search.EffectiveMinGroupShares)
             .OrderByDescending(x => x.UserCount)
             .ThenBy(x => x.Index)
-            .Select(x => SearchResultProjector.CreateAggregateAlbumJob(query, x.Versions.ToList()))
+            .Select(x => SearchResultProjector.CreateAlbumGroupJob(query, x.Versions.ToList()))
             .ToList();
 
-    public List<SearchViewProjectedAggregateAlbumGroup> SnapshotForSearchView()
+    public List<SearchViewProjectedAlbumGroup> SnapshotForSearchView()
         => buckets
-            .Where(bucket => bucket.UserCount >= search.EffectiveMinSharesAggregate)
+            .Where(bucket => bucket.UserCount >= search.EffectiveMinGroupShares)
             .OrderByDescending(bucket => bucket.UserCount)
             .ThenBy(bucket => bucket.Index)
             .Select(ProjectGroup)
             .ToList();
 
-    internal SearchViewProjectedAggregateAlbumGroup? SnapshotGroupForSearchView(int index)
-        => index < buckets.Count && buckets[index].UserCount >= search.EffectiveMinSharesAggregate
+    internal SearchViewProjectedAlbumGroup? SnapshotGroupForSearchView(int index)
+        => index < buckets.Count && buckets[index].UserCount >= search.EffectiveMinGroupShares
             ? ProjectGroup(buckets[index])
             : null;
 
@@ -249,7 +249,7 @@ public sealed class IncrementalAlbumAggregateProjector
             ? (orderedFolders[folderOrder[key]], bucket.Index)
             : null;
 
-    private SearchViewProjectedAggregateAlbumGroup ProjectGroup(AlbumAggregateBucket bucket)
+    private SearchViewProjectedAlbumGroup ProjectGroup(AlbumGroupsBucket bucket)
     {
         AlbumProjectionFileCounts counts = bucket.FileCounts;
         IReadOnlyList<AlbumFolder> options = bucket.Versions.ToArray();
@@ -260,7 +260,7 @@ public sealed class IncrementalAlbumAggregateProjector
         AlbumQuery groupQuery = itemName == null
             ? new AlbumQuery(query)
             : new AlbumQuery(query) { Album = itemName };
-        return new SearchViewProjectedAggregateAlbumGroup(
+        return new SearchViewProjectedAlbumGroup(
             bucket.Index,
             bucket.RepresentativeFolder.DirectoryIdentity,
             groupQuery,
@@ -282,7 +282,7 @@ public sealed class IncrementalAlbumAggregateProjector
             byTrackCountAndFirstLength.Add(sortedLengths.Length, byFirstLength);
         }
 
-        AlbumAggregateBucket? matchingBucket = null;
+        AlbumGroupsBucket? matchingBucket = null;
         int firstLengthBand = LengthBand(sortedLengths[0]);
         for (int bandOffset = -1; bandOffset <= 1; bandOffset++)
         {
@@ -310,7 +310,7 @@ public sealed class IncrementalAlbumAggregateProjector
             return matchingBucket.Index;
         }
 
-        var newBucket = new AlbumAggregateBucket(buckets.Count, sortedLengths, folder);
+        var newBucket = new AlbumGroupsBucket(buckets.Count, sortedLengths, folder);
         buckets.Add(newBucket);
         if (!byFirstLength.TryGetValue(firstLengthBand, out var byLength))
         {
@@ -346,7 +346,7 @@ public sealed class IncrementalAlbumAggregateProjector
         PeerPathKey key = FolderKey(folder);
         seenFolders.Remove(key);
         representativeQueries.Remove(folder);
-        if (!bucketByFolder.Remove(key, out AlbumAggregateBucket? bucket))
+        if (!bucketByFolder.Remove(key, out AlbumGroupsBucket? bucket))
             return null;
         AlbumFolder? removed = bucket.RemoveVersion(key);
         if (removed != null && !ReferenceEquals(removed, folder))
@@ -358,12 +358,12 @@ public sealed class IncrementalAlbumAggregateProjector
     {
         while (buckets.Count > 0 && buckets[^1].Versions.Count == 0)
         {
-            AlbumAggregateBucket bucket = buckets[^1];
+            AlbumGroupsBucket bucket = buckets[^1];
             buckets.RemoveAt(buckets.Count - 1);
             int firstLengthBand = LengthBand(bucket.Lengths[0]);
-            Dictionary<int, List<AlbumAggregateBucket>> byFirstLength =
+            Dictionary<int, List<AlbumGroupsBucket>> byFirstLength =
                 byTrackCountAndFirstLength[bucket.Lengths.Length];
-            List<AlbumAggregateBucket> band = byFirstLength[firstLengthBand];
+            List<AlbumGroupsBucket> band = byFirstLength[firstLengthBand];
             band.Remove(bucket);
             if (band.Count == 0)
                 byFirstLength.Remove(firstLengthBand);
@@ -430,7 +430,7 @@ public sealed class IncrementalAlbumAggregateProjector
             ? folder.SearchRepresentativeAudioFilename
             : folder.Files.FirstOrDefault(f => !f.IsNotAudio)?.Filename;
 
-    private sealed class AlbumAggregateBucket
+    private sealed class AlbumGroupsBucket
     {
         public int Index { get; }
         public int[] Lengths { get; }
@@ -464,7 +464,7 @@ public sealed class IncrementalAlbumAggregateProjector
         }
 
 
-        public AlbumAggregateBucket(int index, int[] lengths, AlbumFolder folder)
+        public AlbumGroupsBucket(int index, int[] lengths, AlbumFolder folder)
         {
             Index = index;
             Lengths = lengths;

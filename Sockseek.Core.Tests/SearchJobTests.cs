@@ -514,7 +514,7 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void SearchJob_TypedAggregateProjection_UpdatesIncrementally()
+        public void SearchJob_TypedGroupProjection_UpdatesIncrementally()
         {
             var job = new SearchJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
             job.Session.AddResponse(new SearchResponse("User1", 1, true, 100, 0,
@@ -523,16 +523,16 @@ namespace Tests.Unit
             ]));
 
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            search.MinSharesAggregate = 1;
+            search.MinGroupShares = 1;
             var userSuccessCounts = new ConcurrentDictionary<string, int>();
-            var first = job.GetAggregateTracks(search, userSuccessCounts);
-            var second = job.GetAggregateTracks(search, userSuccessCounts);
+            var first = job.GetTrackGroups(search, userSuccessCounts);
+            var second = job.GetTrackGroups(search, userSuccessCounts);
 
             job.Session.AddResponse(new SearchResponse("User2", 1, true, 100, 0,
             [
                 TestHelpers.CreateSlFile(@"Music\ELO - Blue Sky.flac", length: 180),
             ]));
-            var updated = job.GetAggregateTracks(search, userSuccessCounts);
+            var updated = job.GetTrackGroups(search, userSuccessCounts);
 
             Assert.AreSame(first, second);
             Assert.AreEqual(1, first.Items.Count);
@@ -544,23 +544,23 @@ namespace Tests.Unit
 
         [TestMethod]
         [DataRow("album")]
-        [DataRow("aggregate")]
-        [DataRow("album-aggregate")]
+        [DataRow("song-groups")]
+        [DataRow("album-groups")]
         public void SearchJob_ReadOnlyProjectionDoesNotPollutePublicExecutionCache(string mode)
         {
             var query = new SongQuery { Artist = "Artist" };
             var albumQuery = new AlbumQuery { Artist = "Artist", Album = "Album" };
             var job = new SearchJob(query);
             var settings = TestHelpers.CreateDefaultSettings().Download.Search;
-            settings.MinSharesAggregate = 1;
+            settings.MinGroupShares = 1;
             var reputation = new ConcurrentDictionary<string, int>();
             List<FileCandidate> Read(bool includeLocked) => mode switch
             {
                 "album" => job.GetAlbumFolders(new FolderSearchProjection(albumQuery), settings, includeLocked)
                     .Items.SelectMany(folder => folder.Files).Select(file => file.Candidate).ToList(),
-                "aggregate" => job.GetAggregateTracks(new AggregateTrackProjection(query), settings, reputation, includeLocked)
+                "song-groups" => job.GetTrackGroups(new TrackGroupProjection(query), settings, reputation, includeLocked)
                     .Items.SelectMany(song => song.Candidates!).ToList(),
-                "album-aggregate" => job.GetAggregateAlbums(new AggregateAlbumProjection(albumQuery), settings, includeLocked)
+                "album-groups" => job.GetAlbumGroups(new AlbumGroupProjection(albumQuery), settings, includeLocked)
                     .Items.SelectMany(album => album.Results).SelectMany(folder => folder.Files).Select(file => file.Candidate).ToList(),
                 _ => throw new ArgumentOutOfRangeException(nameof(mode)),
             };
@@ -581,7 +581,7 @@ namespace Tests.Unit
             var executable = Read(false);
             Assert.AreEqual(1, executable.Count);
             Assert.AreEqual(SearchResultVisibility.Public, executable[0].Visibility);
-            if (mode != "aggregate")
+            if (mode != "song-groups")
             {
                 job.RecordRetrievedDirectory(new PeerDirectorySnapshot(
                     new PeerDirectoryIdentity("Peer", @"Artist\Album"),
@@ -599,7 +599,7 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void SearchJob_TypedAlbumAggregateProjection_UpdatesIncrementally()
+        public void SearchJob_TypedAlbumGroupsProjection_UpdatesIncrementally()
         {
             var job = new SearchJob(new AlbumQuery { Artist = "ELO", Album = "Time" });
             job.Session.AddResponse(new SearchResponse("User1", 1, true, 100, 0,
@@ -609,16 +609,16 @@ namespace Tests.Unit
             ]));
 
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            search.MinSharesAggregate = 1;
-            var first = job.GetAggregateAlbums(search);
-            var second = job.GetAggregateAlbums(search);
+            search.MinGroupShares = 1;
+            var first = job.GetAlbumGroups(search);
+            var second = job.GetAlbumGroups(search);
 
             job.Session.AddResponse(new SearchResponse("User2", 1, true, 100, 0,
             [
                 TestHelpers.CreateSlFile(@"Shared\ELO\Time\01. Prologue.flac", length: 60),
                 TestHelpers.CreateSlFile(@"Shared\ELO\Time\02. Twilight.flac", length: 209),
             ]));
-            var updated = job.GetAggregateAlbums(search);
+            var updated = job.GetAlbumGroups(search);
 
             Assert.AreSame(first, second);
             Assert.AreEqual(1, first.Items.Count);

@@ -103,14 +103,14 @@ it('does not start queued reads after navigation aborts an in-flight owner', asy
   expect(stopped).not.toHaveBeenCalled();
 });
 
-it('uses accepted search projection and aggregate presentation for compact mode badges', () => {
-  const search = { jobId: 'search', kind: 'search', searchAggregatePresentation: false } satisfies JobSummaryDto;
+it('uses accepted search projection and group presentation for compact mode badges', () => {
+  const search = { jobId: 'search', kind: 'search', searchGroupResults: false } satisfies JobSummaryDto;
   expect(searchJobMode({ ...search, searchDefaultProjection: 'GenericFile' })).toBe('generic');
   expect(searchJobMode({ ...search, searchDefaultProjection: 'Track' })).toBe('track');
   expect(searchJobMode({ ...search, searchDefaultProjection: 'Album' })).toBe('album');
-  expect(searchJobMode({ ...search, searchDefaultProjection: 'Track', searchAggregatePresentation: true })).toBe('song-aggregate');
-  expect(searchJobMode({ ...search, searchDefaultProjection: 'Album', searchAggregatePresentation: true })).toBe('album-aggregate');
-  expect(searchJobMode({ ...search, searchDefaultProjection: 'Track', searchAggregatePresentation: null })).toBeNull();
+  expect(searchJobMode({ ...search, searchDefaultProjection: 'Track', searchGroupResults: true })).toBe('song-groups');
+  expect(searchJobMode({ ...search, searchDefaultProjection: 'Album', searchGroupResults: true })).toBe('album-groups');
+  expect(searchJobMode({ ...search, searchDefaultProjection: 'Track', searchGroupResults: null })).toBeNull();
   expect(searchJobMode({ ...search, searchDefaultProjection: null })).toBeNull();
   expect(searchJobMode({ ...search, kind: 'song', searchDefaultProjection: 'Track' })).toBeNull();
 });

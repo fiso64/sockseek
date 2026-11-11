@@ -145,7 +145,7 @@ public sealed record SearchDirectoryObservationTarget(
     PeerDirectoryIdentity Identity,
     Guid ObservationId);
 
-public sealed record SearchViewAggregateTrackGroup(
+public sealed record SearchViewTrackGroup(
     string Ref,
     int Index,
     SongQuery Query,
@@ -153,23 +153,23 @@ public sealed record SearchViewAggregateTrackGroup(
     long SelectableOptionCount,
     SearchViewFile Representative);
 
-public sealed record SearchViewAggregateTrackPosition(
+public sealed record SearchViewTrackGroupPosition(
     int ShareCount,
     int Index,
     string Ref);
 
-public sealed record SearchViewAggregateTrackPage(
+public sealed record SearchViewTrackGroupPage(
     SearchViewRevision Revision,
-    IReadOnlyList<SearchViewAggregateTrackGroup> Items,
-    SearchViewAggregateTrackPosition? NextPosition);
+    IReadOnlyList<SearchViewTrackGroup> Items,
+    SearchViewTrackGroupPosition? NextPosition);
 
-public sealed record SearchViewAggregateTrackOptionPage(
+public sealed record SearchViewTrackGroupOptionPage(
     SearchViewRevision Revision,
     string GroupRef,
     IReadOnlyList<SearchViewFile> Items,
     SearchViewFilePosition? NextPosition);
 
-public sealed record SearchViewAggregateAlbumGroup(
+public sealed record SearchViewAlbumGroup(
     string Ref,
     int Index,
     AlbumQuery Query,
@@ -177,18 +177,18 @@ public sealed record SearchViewAggregateAlbumGroup(
     long SelectableOptionCount,
     SearchViewDirectory Representative);
 
-public sealed record SearchViewAggregateAlbumPosition(
+public sealed record SearchViewAlbumGroupPosition(
     int ShareCount,
     int Index,
     string Ref);
 
-public sealed record SearchViewAggregateAlbumPage(
+public sealed record SearchViewAlbumGroupPage(
     SearchViewRevision Revision,
-    IReadOnlyList<SearchViewAggregateAlbumGroup> Items,
-    SearchViewAggregateAlbumPosition? NextPosition,
+    IReadOnlyList<SearchViewAlbumGroup> Items,
+    SearchViewAlbumGroupPosition? NextPosition,
     IReadOnlyDictionary<string, SearchViewDirectoryFilePreview> DirectoryFilePreviews);
 
-public sealed record SearchViewAggregateAlbumOptionPage(
+public sealed record SearchViewAlbumGroupOptionPage(
     SearchViewRevision Revision,
     string GroupRef,
     IReadOnlyList<SearchViewDirectory> Items,
@@ -205,8 +205,8 @@ public sealed record SearchViewCommitItem(
     string Ref,
     SearchViewFile? File,
     SearchViewDirectory? Directory,
-    SearchViewAggregateTrackGroup? AggregateTrackGroup = null,
-    SearchViewAggregateAlbumGroup? AggregateAlbumGroup = null,
+    SearchViewTrackGroup? TrackGroup = null,
+    SearchViewAlbumGroup? AlbumGroup = null,
     string? ParentRef = null,
     IReadOnlyList<string>? ContainerRefs = null);
 
@@ -252,7 +252,7 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
         ImmutableSortedSet<SearchViewDirectoryFilePosition> Children,
         long PublicCount, long LockedCount, long KnownBytes, long UnknownSizes,
         Guid? ObservationId = null, ImmutableDictionary<string, long?>? RetrievedSizes = null);
-    internal sealed record TrackRow(SearchViewAggregateTrackGroup Value,
+    internal sealed record TrackRow(SearchViewTrackGroup Value,
         ImmutableSortedSet<SearchViewFilePosition> Options);
     internal sealed record AlbumRow(string Ref, int Index, AlbumQuery Query, int ShareCount,
         long OptionCount, string Representative, ImmutableHashSet<string> Options);
@@ -425,10 +425,10 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
                 next.Directories = next.Directories.Remove(key);
                 changedDirectories.Add(key);
             }
-            foreach (var group in update.ChangedAggregateTrackGroups ?? [])
+            foreach (var group in update.ChangedTrackGroups ?? [])
             {
                 SongQuery identity = group.StableQuery ?? group.Query;
-                string key = StableRef(summary.SourceJobId, "aggregate-track", identity.Artist, identity.Title,
+                string key = StableRef(summary.SourceJobId, "track-group", identity.Artist, identity.Title,
                     identity.Album, identity.URI, identity.Length.ToString(CultureInfo.InvariantCulture), identity.ArtistMaybeWrong.ToString());
                 next.Tracks.TryGetValue(key, out var old);
                 var options = old?.Options ?? FileSet(SearchViewSortOrder.Relevance);
@@ -443,7 +443,7 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
                     group.SelectableOptionCount, RequireFile(next, summary, group.Representative.Input).Value), options));
                 changedTracks.Add(key);
             }
-            foreach (var group in update.ChangedAggregateAlbumGroups ?? [])
+            foreach (var group in update.ChangedAlbumGroups ?? [])
             {
                 string key = AlbumRef(summary.SourceJobId, group.StableIdentity);
                 var old = next.Albums.GetValueOrDefault(key) ?? next.HiddenAlbums.GetValueOrDefault(key);
@@ -455,7 +455,7 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
                     DirectoryRef(summary.SourceJobId, group.Representative.DirectoryIdentity), options));
                 changedAlbums.Add(key);
             }
-            foreach (var identity in update.RemovedAggregateAlbumGroups ?? [])
+            foreach (var identity in update.RemovedAlbumGroups ?? [])
             {
                 string key = AlbumRef(summary.SourceJobId, identity);
                 if (next.Albums.TryGetValue(key, out var removed))
@@ -587,7 +587,7 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
         IEnumerable<string> changedTop = summary.ProjectionKind switch
         {
             SearchViewProjectionKind.Files => files, SearchViewProjectionKind.GenericDirectories or SearchViewProjectionKind.AlbumDirectories => directories,
-            SearchViewProjectionKind.AggregateTracks => tracks, SearchViewProjectionKind.AggregateAlbums => albums, _ => [],
+            SearchViewProjectionKind.TrackGroups => tracks, SearchViewProjectionKind.AlbumGroups => albums, _ => [],
         };
         foreach (string key in changedTop)
         {
@@ -608,7 +608,7 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
     internal static string DirectoryRef(Guid source, PeerDirectoryIdentity identity)
         => StableRef(source, "directory", identity.Username, identity.FolderPath);
     internal static string AlbumRef(Guid source, PeerDirectoryIdentity identity)
-        => StableRef(source, "aggregate-album", identity.Username, identity.FolderPath);
+        => StableRef(source, "album-group", identity.Username, identity.FolderPath);
     internal static Activity? StartActivity(string operation, Guid id, long revision)
         => Activities.StartActivity(operation)?.SetTag("view.id", id)?.SetTag("view.revision", revision);
     public void Clear()

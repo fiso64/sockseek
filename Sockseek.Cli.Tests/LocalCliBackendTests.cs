@@ -609,11 +609,11 @@ public class LocalCliBackendTests
     }
 
     [TestMethod]
-    public async Task GetAggregateTrackResultsAsync_WithIncludeCandidates_PopulatesCandidatesPerGroup()
+    public async Task GetTrackGroupResultsAsync_WithIncludeCandidates_PopulatesCandidatesPerGroup()
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-cli-backend-agg-track-" + Guid.NewGuid());
         // Same filename in two different folders → same inferred (artist, title) and same hash-derived length.
-        // They end up as two candidates for the same aggregate group.
+        // They end up as two candidates for the same result group.
         Directory.CreateDirectory(Path.Combine(musicRoot, "Folder1"));
         Directory.CreateDirectory(Path.Combine(musicRoot, "Folder2"));
         File.WriteAllText(Path.Combine(musicRoot, "Folder1", "Artist - Track One.mp3"), "a");
@@ -627,7 +627,7 @@ public class LocalCliBackendTests
             var downloadSettings = new DownloadSettings
             {
                 Output = { ParentDir = musicRoot, IncompleteAlbumAction = { Kind = IncompleteAlbumActionKind.Move, Path = Path.Combine(musicRoot, "failed") } },
-                Search = { MinSharesAggregate = 1 },
+                Search = { MinGroupShares = 1 },
             };
 
             await using var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
@@ -641,15 +641,15 @@ public class LocalCliBackendTests
             await WaitForConditionAsync(
                 backend,
                 () => searchJob.TerminalOutcome == JobTerminalOutcome.Succeeded,
-                "Timed out waiting for aggregate track search to complete.");
+                "Timed out waiting for group track search to complete.");
 
-            var result = await backend.GetAggregateTrackResultsAsync(
+            var result = await backend.GetTrackGroupResultsAsync(
                 searchJob.Id,
-                new AggregateTrackProjectionRequestDto(IncludeCandidates: true),
+                new TrackGroupProjectionRequestDto(IncludeCandidates: true),
                 cts.Token);
 
             Assert.IsNotNull(result);
-            Assert.AreEqual(1, result.Items.Count, "Expected one aggregate group for 'Artist - Track One'.");
+            Assert.AreEqual(1, result.Items.Count, "Expected one result group for 'Artist - Track One'.");
             var group = result.Items[0];
             Assert.IsNotNull(group.Candidates, "Candidates should be populated when IncludeCandidates = true.");
             Assert.AreEqual(2, group.Candidates!.Count, "Both file versions should be included as candidates.");
@@ -666,11 +666,11 @@ public class LocalCliBackendTests
     }
 
     [TestMethod]
-    public async Task GetAggregateAlbumResultsAsync_WithIncludeFolders_PopulatesFoldersPerBucket()
+    public async Task GetAlbumGroupResultsAsync_WithIncludeFolders_PopulatesFoldersPerBucket()
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-cli-backend-agg-album-" + Guid.NewGuid());
         // Two album folders with the same track filename → same hash-derived length →
-        // grouped into one aggregate bucket. MinSharesAggregate is set to 1 since both
+        // grouped into one group bucket. MinGroupShares is set to 1 since both
         // folders belong to the single mock "local" user.
         Directory.CreateDirectory(Path.Combine(musicRoot, "Artist", "Album A"));
         Directory.CreateDirectory(Path.Combine(musicRoot, "Artist", "Album B"));
@@ -685,7 +685,7 @@ public class LocalCliBackendTests
             var downloadSettings = new DownloadSettings
             {
                 Output = { ParentDir = musicRoot, IncompleteAlbumAction = { Kind = IncompleteAlbumActionKind.Move, Path = Path.Combine(musicRoot, "failed") } },
-                Search = { MinSharesAggregate = 1 },
+                Search = { MinGroupShares = 1 },
             };
 
             await using var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
@@ -699,15 +699,15 @@ public class LocalCliBackendTests
             await WaitForConditionAsync(
                 backend,
                 () => searchJob.TerminalOutcome == JobTerminalOutcome.Succeeded,
-                "Timed out waiting for aggregate album search to complete.");
+                "Timed out waiting for group album search to complete.");
 
-            var result = await backend.GetAggregateAlbumResultsAsync(
+            var result = await backend.GetAlbumGroupResultsAsync(
                 searchJob.Id,
-                new AggregateAlbumProjectionRequestDto(IncludeFolders: true),
+                new AlbumGroupProjectionRequestDto(IncludeFolders: true),
                 cts.Token);
 
             Assert.IsNotNull(result);
-            Assert.AreEqual(1, result.Items.Count, "Expected one aggregate bucket for the two album versions.");
+            Assert.AreEqual(1, result.Items.Count, "Expected one group bucket for the two album versions.");
             var bucket = result.Items[0];
             Assert.IsNotNull(bucket.Folders, "Folders should be populated when IncludeFolders = true.");
             Assert.AreEqual(2, bucket.Folders!.Count, "Both album folder versions should appear in the bucket.");

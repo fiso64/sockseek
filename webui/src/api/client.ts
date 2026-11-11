@@ -4,8 +4,8 @@ import type {
   CommitSearchViewSelectionResponseDto,
   DashboardAnalyticsDto,
   JobSummaryDto,
-  SearchViewAggregateAlbumPageDto,
-  SearchViewAggregateTrackPageDto,
+  SearchViewAlbumGroupPageDto,
+  SearchViewTrackGroupPageDto,
   SearchViewDirectoryPageDto,
   SearchViewFilePageDto,
   SearchViewSummaryDto,
@@ -137,19 +137,19 @@ export class DaemonApiClient {
     if (draft.resultMode === 'generic') {
       const request: Schema<'SubmitSearchJobRequestDto'> = { queryText: query, options };
       job = await this.http.post('/jobs/search', request, signal);
-    } else if (draft.resultMode === 'track' || draft.resultMode === 'song-aggregate') {
+    } else if (draft.resultMode === 'track' || draft.resultMode === 'song-groups') {
       const request: Schema<'SubmitTrackSearchJobRequestDto'> = {
         options,
         songQuery: songQuery(draft),
         includeFullResults: true,
-        aggregatePresentation: draft.resultMode === 'song-aggregate',
+        groupResults: draft.resultMode === 'song-groups',
       };
       job = await this.http.post('/jobs/search/tracks', request, signal);
     } else {
       const request: Schema<'SubmitAlbumSearchJobRequestDto'> = {
         options,
         albumQuery: albumQuery(draft),
-        aggregatePresentation: draft.resultMode === 'album-aggregate',
+        groupResults: draft.resultMode === 'album-groups',
       };
       job = await this.http.post('/jobs/search/albums', request, signal);
     }
@@ -157,13 +157,13 @@ export class DaemonApiClient {
     if (!job.jobId) throw new Error('The daemon accepted the search without returning a job ID.');
     const create: Schema<'CreateSearchViewRequestDto'> = {
       kind: searchViewKind(draft.resultMode),
-      songQuery: draft.resultMode === 'track' || draft.resultMode === 'song-aggregate'
+      songQuery: draft.resultMode === 'track' || draft.resultMode === 'song-groups'
         ? songQuery(draft)
         : null,
-      albumQuery: draft.resultMode === 'album' || draft.resultMode === 'album-aggregate'
+      albumQuery: draft.resultMode === 'album' || draft.resultMode === 'album-groups'
         ? albumQuery(draft)
         : null,
-      includeFullResults: draft.resultMode === 'track' || draft.resultMode === 'song-aggregate',
+      includeFullResults: draft.resultMode === 'track' || draft.resultMode === 'song-groups',
     };
     const view = await this.createSearchView(job.jobId, create, signal);
     return { job, view, draft: { ...draft } };
@@ -190,14 +190,14 @@ export class DaemonApiClient {
     // full rows even when its necessary conditions fail; creating the view
     // before reading that flag silently drops those rows on a reopened URL.
     const defaultMode: SearchResultMode | null = payload?.defaultProjection === 'Track'
-      ? (payload.aggregatePresentation ? 'song-aggregate' : 'track')
+      ? (payload.groupResults ? 'song-groups' : 'track')
       : payload?.defaultProjection === 'Album'
-        ? (payload.aggregatePresentation ? 'album-aggregate' : 'album')
+        ? (payload.groupResults ? 'album-groups' : 'album')
       : payload?.defaultProjection === 'GenericFile' ? 'generic'
       : detail.payload?.kind === 'song' ? 'track'
       : detail.payload?.kind === 'album' ? 'album'
-      : detail.payload?.kind === 'aggregate' ? 'song-aggregate'
-      : detail.payload?.kind === 'album-aggregate' ? 'album-aggregate' : null;
+      : detail.payload?.kind === 'song-groups' ? 'song-groups'
+      : detail.payload?.kind === 'album-groups' ? 'album-groups' : null;
     const mode = defaultMode && requestedMode
       && searchModeFamily(requestedMode) === searchModeFamily(defaultMode)
       ? requestedMode : defaultMode;
@@ -441,9 +441,9 @@ export class DaemonApiClient {
     );
   }
 
-  getSearchViewAggregateTracks(viewId: string, revision: number | string, cursor?: string | null, limit = nestedPageSize, signal?: AbortSignal): Promise<SearchViewAggregateTrackPageDto> {
+  getSearchViewTrackGroups(viewId: string, revision: number | string, cursor?: string | null, limit = nestedPageSize, signal?: AbortSignal): Promise<SearchViewTrackGroupPageDto> {
     return this.http.get(
-      `/search-views/${encodeURIComponent(viewId)}/aggregate-tracks${queryString({ revision, cursor, limit })}`,
+      `/search-views/${encodeURIComponent(viewId)}/track-groups${queryString({ revision, cursor, limit })}`,
       signal,
     );
   }
@@ -455,9 +455,9 @@ export class DaemonApiClient {
     );
   }
 
-  getSearchViewAggregateAlbums(viewId: string, revision: number | string, cursor?: string | null, limit = nestedPageSize, signal?: AbortSignal): Promise<SearchViewAggregateAlbumPageDto> {
+  getSearchViewAlbumGroups(viewId: string, revision: number | string, cursor?: string | null, limit = nestedPageSize, signal?: AbortSignal): Promise<SearchViewAlbumGroupPageDto> {
     return this.http.get(
-      `/search-views/${encodeURIComponent(viewId)}/aggregate-albums${queryString({ revision, cursor, limit })}`,
+      `/search-views/${encodeURIComponent(viewId)}/album-groups${queryString({ revision, cursor, limit })}`,
       signal,
     );
   }
@@ -466,14 +466,14 @@ export class DaemonApiClient {
     return this.http.post(`/search-views/${encodeURIComponent(viewId)}/directories/retrieve`, { revision, directory, idempotencyKey });
   }
 
-  getSearchViewAggregateTrackOptions(viewId: string, groupRef: string, revision: number | string,
-    cursor?: string | null, limit = defaultPageSize, signal?: AbortSignal): Promise<Schema<'SearchViewAggregateTrackOptionPageDto'>> {
-    return this.http.get(`/search-views/${encodeURIComponent(viewId)}/aggregate-tracks/${encodeURIComponent(groupRef)}/alternatives${queryString({ revision, cursor, limit })}`, signal);
+  getSearchViewTrackGroupOptions(viewId: string, groupRef: string, revision: number | string,
+    cursor?: string | null, limit = defaultPageSize, signal?: AbortSignal): Promise<Schema<'SearchViewTrackGroupOptionPageDto'>> {
+    return this.http.get(`/search-views/${encodeURIComponent(viewId)}/track-groups/${encodeURIComponent(groupRef)}/alternatives${queryString({ revision, cursor, limit })}`, signal);
   }
 
-  getSearchViewAggregateAlbumOptions(viewId: string, groupRef: string, revision: number | string,
-    cursor?: string | null, limit = nestedPageSize, signal?: AbortSignal): Promise<Schema<'SearchViewAggregateAlbumOptionPageDto'>> {
-    return this.http.get(`/search-views/${encodeURIComponent(viewId)}/aggregate-albums/${encodeURIComponent(groupRef)}/alternatives${queryString({ revision, cursor, limit })}`, signal);
+  getSearchViewAlbumGroupOptions(viewId: string, groupRef: string, revision: number | string,
+    cursor?: string | null, limit = nestedPageSize, signal?: AbortSignal): Promise<Schema<'SearchViewAlbumGroupOptionPageDto'>> {
+    return this.http.get(`/search-views/${encodeURIComponent(viewId)}/album-groups/${encodeURIComponent(groupRef)}/alternatives${queryString({ revision, cursor, limit })}`, signal);
   }
 
   resolveSearchViewChosenOptions(viewId: string, request: Schema<'ResolveSearchViewChosenOptionsRequestDto'>, signal?: AbortSignal): Promise<Schema<'ResolveSearchViewChosenOptionsResponseDto'>> {
@@ -495,25 +495,25 @@ function searchDraftFromDetail(
   kind: SearchViewSummaryDto['kind'],
 ): SearchDraft {
   const payload = detail.payload?.kind === 'search' ? detail.payload : null;
-  const song = payload?.songQuery ?? (detail.payload?.kind === 'song' || detail.payload?.kind === 'aggregate'
+  const song = payload?.songQuery ?? (detail.payload?.kind === 'song' || detail.payload?.kind === 'song-groups'
     ? detail.payload.query : null);
-  const album = payload?.albumQuery ?? (detail.payload?.kind === 'album' || detail.payload?.kind === 'album-aggregate'
+  const album = payload?.albumQuery ?? (detail.payload?.kind === 'album' || detail.payload?.kind === 'album-groups'
     ? detail.payload.query : null);
-  const aggregate = kind === 'AggregateTracks' || kind === 'AggregateAlbums';
-  const split = aggregate
+  const group = kind === 'TrackGroups' || kind === 'AlbumGroups';
+  const split = group
     ? Boolean(song?.title || album?.album || album?.searchHint)
     : Boolean(song?.artist || album?.artist || (album?.album && album?.searchHint));
   const modes: Record<SearchViewSummaryDto['kind'], SearchResultMode> = {
     Files: 'track',
     GenericDirectories: 'generic',
     AlbumDirectories: 'album',
-    AggregateTracks: 'song-aggregate',
-    AggregateAlbums: 'album-aggregate',
+    TrackGroups: 'song-groups',
+    AlbumGroups: 'album-groups',
   };
   return {
     mode: split ? 'split' : 'simple',
     resultMode: modes[kind],
-    query: split ? '' : (aggregate ? song?.artist ?? album?.artist : song?.title ?? album?.album ?? album?.searchHint) ?? payload?.queryText ?? detail.summary.queryText ?? detail.summary.itemName ?? '',
+    query: split ? '' : (group ? song?.artist ?? album?.artist : song?.title ?? album?.album ?? album?.searchHint) ?? payload?.queryText ?? detail.summary.queryText ?? detail.summary.itemName ?? '',
     artist: song?.artist ?? album?.artist ?? '',
     title: song?.title ?? album?.album ?? '',
     expectedLength: song?.length != null && Number(song.length) >= 0 ? Number(song.length) : undefined,

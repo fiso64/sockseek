@@ -530,7 +530,7 @@ public sealed class PersistenceWriterTests
         await writer.Transfers.Where(row => row.Id == transferId)
             .ExecuteUpdateAsync(update => update.SetProperty(row => row.TransferredBytes, 99));
 
-        // Commit between the overlap SELECT and the aggregate SELECT, not before/after the operation.
+        // Commit between the overlap SELECT and the group SELECT, not before/after the operation.
         var interceptor = new CommitAfterFirstReadInterceptor(() => transaction.CommitAsync());
         var options = new DbContextOptionsBuilder<SockseekDbContext>()
             .UseSqlite(writer.Database.GetConnectionString()).AddInterceptors(interceptor).Options;

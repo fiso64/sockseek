@@ -29,12 +29,12 @@ public sealed class PersistenceMaintenanceHostedService(
                 try
                 {
                     var started = TimeProvider.System.GetTimestamp();
-                    PersistenceRetentionResultDto? aggregate = null;
+                    PersistenceRetentionResultDto? group = null;
                     bool mayHaveMore;
                     do
                     {
                         var result = await coordinator.RunRetentionAsync(stoppingToken).ConfigureAwait(false);
-                        aggregate = Add(aggregate, result);
+                        group = Add(group, result);
                         mayHaveMore = MayHaveMore(result, options.RetentionBatchSize);
                         if (mayHaveMore)
                             await Task.Yield();
@@ -50,11 +50,11 @@ public sealed class PersistenceMaintenanceHostedService(
 
                     ServerLogMessages.PersistenceRetentionCompleted(
                         logger,
-                        aggregate!.PrunedJobs,
-                        aggregate.PrunedSearchResults,
-                        aggregate.PrunedTransfers,
-                        aggregate.PrunedChatMessages,
-                        aggregate.DurationMilliseconds);
+                        group!.PrunedJobs,
+                        group.PrunedSearchResults,
+                        group.PrunedTransfers,
+                        group.PrunedChatMessages,
+                        group.DurationMilliseconds);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -83,16 +83,16 @@ public sealed class PersistenceMaintenanceHostedService(
             || result.PrunedChatMessages >= batchSize;
 
     private static PersistenceRetentionResultDto Add(
-        PersistenceRetentionResultDto? aggregate,
+        PersistenceRetentionResultDto? group,
         PersistenceRetentionResultDto result)
-        => aggregate is null
+        => group is null
             ? result
             : new PersistenceRetentionResultDto(
-                aggregate.PrunedJobs + result.PrunedJobs,
-                aggregate.PrunedSearchResults + result.PrunedSearchResults,
-                aggregate.SearchesMarkedPruned + result.SearchesMarkedPruned,
-                aggregate.DurationMilliseconds + result.DurationMilliseconds,
-                aggregate.PrunedTransfers + result.PrunedTransfers,
-                aggregate.PrunedTransferAttempts + result.PrunedTransferAttempts,
-                aggregate.PrunedChatMessages + result.PrunedChatMessages);
+                group.PrunedJobs + result.PrunedJobs,
+                group.PrunedSearchResults + result.PrunedSearchResults,
+                group.SearchesMarkedPruned + result.SearchesMarkedPruned,
+                group.DurationMilliseconds + result.DurationMilliseconds,
+                group.PrunedTransfers + result.PrunedTransfers,
+                group.PrunedTransferAttempts + result.PrunedTransferAttempts,
+                group.PrunedChatMessages + result.PrunedChatMessages);
 }

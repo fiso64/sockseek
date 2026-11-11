@@ -113,9 +113,9 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             "statistics-unavailable-peer" => throw new IOException("Peer statistics unavailable."),
             _ => new Soulseek.UserStatistics(username, 0, 0, 0, 0),
         };
-        bool aggregateAlbumSearch = false;
-        bool mixedAggregateAlbumSearch = false;
-        bool pagedAggregateAlbumSearch = false;
+        bool albumGroupSearch = false;
+        bool mixedAlbumGroupSearch = false;
+        bool pagedAlbumGroupSearch = false;
         bool largePeerShares = false;
         bool largeMusicSearch = false;
         int musicSearchPeerCount = 100;
@@ -159,7 +159,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             new Soulseek.File(1, "Second song.txt", 128, ".txt", []),
             new Soulseek.File(1, "Extra song.txt", 128, ".txt", []),
         ])])
-            : aggregateAlbumSearch && username == "second-peer"
+            : albumGroupSearch && username == "second-peer"
             ? new Soulseek.BrowseResponse([new Soulseek.Directory(@"Second\Fixture Album", [
             new Soulseek.File(1, "01 - Intro.flac", 128, ".flac", []),
             new Soulseek.File(1, "02 - Finale.flac", 128, ".flac", []),
@@ -262,11 +262,11 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
         bool stagedLargeDirectorySearch = false;
         bool mixedVisibilitySearch = false;
         bool directorySelectionSearch = false;
-        bool aggregateSearch = false;
-        bool richAggregateSearch = false;
+        bool groupSearch = false;
+        bool richGroupSearch = false;
         bool longSongFallback = false;
         var fallbackDownloadTargets = new System.Collections.Concurrent.ConcurrentQueue<string>();
-        bool richAggregateAlbumSearch = false;
+        bool richAlbumGroupSearch = false;
         bool albumArtSearch = false;
         int albumArtFileCount = 1;
         bool bareFilenameSearch = false;
@@ -437,7 +437,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                          : $@"Second\Fixture Album\Art{index:D4}.jpg", 128, ".jpg", []))]));
                 return;
             }
-            if (pagedAggregateAlbumSearch)
+            if (pagedAlbumGroupSearch)
             {
                 receive(new Soulseek.SearchResponse("fixture-peer", 1, true, 3_000_000, 0,
                     Enumerable.Range(1, 25)
@@ -456,21 +456,21 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                         .ToArray()));
                 return;
             }
-            if (aggregateAlbumSearch)
+            if (albumGroupSearch)
             {
                 receive(new Soulseek.SearchResponse("fixture-peer", 1, true, 1_000_000, 0,
                     [new Soulseek.File(1, @"First\Fixture Album\01 - Intro.flac", 128, ".flac", []),
                  new Soulseek.File(1, @"First\Fixture Album\02 - Finale.flac", 128, ".flac", [])],
-                    lockedFileList: mixedAggregateAlbumSearch
+                    lockedFileList: mixedAlbumGroupSearch
                         ? [new Soulseek.File(1, @"First\Fixture Album\03 - Locked.flac", 256, ".flac", [])] : []));
                 receive(new Soulseek.SearchResponse("second-peer", 2, true, 1_000_000, 0,
                     [new Soulseek.File(1, @"Second\Fixture Album\01 - Intro.flac", 128, ".flac", []),
                  new Soulseek.File(1, @"Second\Fixture Album\02 - Finale.flac", 128, ".flac", [])],
-                    lockedFileList: mixedAggregateAlbumSearch
+                    lockedFileList: mixedAlbumGroupSearch
                         ? [new Soulseek.File(1, @"Second\Fixture Album\03 - Locked.flac", 256, ".flac", [])] : []));
                 return;
             }
-            if (richAggregateAlbumSearch)
+            if (richAlbumGroupSearch)
             {
                 // Album aggregation groups by track-length profile, so distinct
                 // profiles produce three groups while each peer pair remains equivalent.
@@ -493,7 +493,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                 receive(new Soulseek.SearchResponse("second-peer", 2, true, 1_000_000, 0, files));
                 return;
             }
-            if (aggregateSearch)
+            if (groupSearch)
             {
                 receive(new Soulseek.SearchResponse("fixture-peer", 1, true, 1_000_000, 0,
                     [new Soulseek.File(1, @"First\Fixture song.flac", 128, ".flac", [])]));
@@ -501,7 +501,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     [new Soulseek.File(1, @"Second\Fixture song.flac", 128, ".flac", [])]));
                 return;
             }
-            if (richAggregateSearch)
+            if (richGroupSearch)
             {
                 Soulseek.FileAttribute[] audio =
                 [
@@ -517,17 +517,17 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     [new Soulseek.File(1, @"Fixture\Fixture Alpha.mp3", 8_000_000, ".mp3", audio),
                  new Soulseek.File(1, @"Fixture\Fixture Beta.mp3", 8_000_000, ".mp3", audio),
                  new Soulseek.File(1, @"Fixture\Fixture Gamma.mp3", 8_000_000, ".mp3", audio)]));
-                if (nextSearchBatch is { } aggregateBatch)
+                if (nextSearchBatch is { } groupBatch)
                 {
-                    await aggregateBatch.Task.WaitAsync(cancellationToken);
+                    await groupBatch.Task.WaitAsync(cancellationToken);
                     receive(new Soulseek.SearchResponse("late-peer", 3, true, 20_000_000, 0,
                         [new Soulseek.File(1, @"Fixture\Fixture Alpha.mp3", 8_000_000, ".mp3", audio),
                      new Soulseek.File(1, @"Fixture\Fixture Gamma.mp3", 8_000_000, ".mp3", audio),
                      new Soulseek.File(1, @"Fixture\Fixture Delta.mp3", 8_000_000, ".mp3", audio)]));
                     receive(new Soulseek.SearchResponse("partner-peer", 4, true, 2_000_000, 0,
                         [new Soulseek.File(1, @"Fixture\Fixture Delta.mp3", 8_000_000, ".mp3", audio)]));
-                    if (finishSearch is { } aggregateFinish)
-                        await aggregateFinish.Task.WaitAsync(cancellationToken);
+                    if (finishSearch is { } groupFinish)
+                        await groupFinish.Task.WaitAsync(cancellationToken);
                 }
                 return;
             }
@@ -909,10 +909,10 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     nextSearchBatch = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     finishSearch = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     break;
-                case "aggregate-search": aggregateSearch = true; break;
-                case "rich-aggregate-search": richAggregateSearch = true; break;
-                case "staged-rich-aggregate-search":
-                    richAggregateSearch = true;
+                case "group-search": groupSearch = true; break;
+                case "rich-group-search": richGroupSearch = true; break;
+                case "staged-rich-group-search":
+                    richGroupSearch = true;
                     nextSearchBatch = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     finishSearch = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     break;
@@ -920,10 +920,10 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                 case "report-fallback-downloads":
                     Console.WriteLine("E2E_FALLBACK_DOWNLOADS " + JsonSerializer.Serialize(fallbackDownloadTargets.ToArray()));
                     break;
-                case "aggregate-album-search": aggregateAlbumSearch = true; break;
-                case "mixed-aggregate-album-search": aggregateAlbumSearch = true; mixedAggregateAlbumSearch = true; break;
-                case "rich-aggregate-album-search": richAggregateAlbumSearch = true; break;
-                case "paged-aggregate-album-search": pagedAggregateAlbumSearch = true; break;
+                case "album-group-search": albumGroupSearch = true; break;
+                case "mixed-album-group-search": albumGroupSearch = true; mixedAlbumGroupSearch = true; break;
+                case "rich-album-group-search": richAlbumGroupSearch = true; break;
+                case "paged-album-group-search": pagedAlbumGroupSearch = true; break;
                 case "album-art-search": albumArtSearch = true; break;
                 case "large-album-art-search": albumArtSearch = true; albumArtFileCount = 1001; break;
                 case "bare-filename-search": bareFilenameSearch = true; break;

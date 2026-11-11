@@ -97,12 +97,12 @@ public static class SubmissionIdentity
                 foreach (Job child in list.Jobs)
                     AssignTree(child, submissionId, createdAtUtc, JobSemanticRole.ExecutionChild);
                 break;
-            case AggregateJob aggregate:
-                foreach (SongJob song in aggregate.Songs)
+            case SongGroupsJob group:
+                foreach (SongJob song in group.Songs)
                     AssignTree(song, submissionId, createdAtUtc, JobSemanticRole.ExecutionChild);
                 break;
-            case AlbumAggregateJob aggregate:
-                foreach (AlbumJob album in aggregate.Albums)
+            case AlbumGroupsJob group:
+                foreach (AlbumJob album in group.Albums)
                     AssignTree(album, submissionId, createdAtUtc, JobSemanticRole.ExecutionChild);
                 break;
             case AlbumJob album:

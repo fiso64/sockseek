@@ -3,7 +3,7 @@
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import type { JobStateDto, Schema } from '../../api/types';
   import { searchViewUnavailable } from './controller';
-  import { allSearchResultsSelected, selectionUsesEarlierRevision as usesEarlierRevision, type AggregateOption } from './selection';
+  import { allSearchResultsSelected, selectionUsesEarlierRevision as usesEarlierRevision, type GroupOption } from './selection';
   import { DaemonApiError } from '../../api/http';
   import { formatCount, formatCountWithNoun, humanizeStateValue } from '../../app/format';
   import FileItemCard from '../../components/items/FileItemCard.svelte';
@@ -24,7 +24,7 @@
   import { buildSearchSelectionDownloadPatch, searchDownloadOptionDefaults, type SearchDownloadOptionDefaults } from './download-options';
   import type { UserLinkActions } from '../../app/navigation';
   import { audioAttributes as audio, type FolderItemFile } from '../presentation/items';
-  import { directoryTotals, searchModeFamily, searchModeLabel } from './model';
+  import { directoryTotals, isGroupSearchMode, searchModeFamily, searchModeLabel } from './model';
   import type { SearchRow, SearchViewState } from './controller';
 
   type OrdinaryRow = Extract<SearchRow, { kind: 'file' | 'directory' }>;
@@ -59,7 +59,7 @@
     onopenoptions: (ref: string) => void;
     oncloseoptions: () => void;
     onloadoptions: () => void;
-    onchooseoption: (groupRef: string, option: AggregateOption) => void;
+    onchooseoption: (groupRef: string, option: GroupOption) => void;
     ontogglealbumfile: (groupRef: string, fileRef: string, selected: boolean) => void;
     onviewdownloads: (submissionId: string) => void;
     onback: () => void;
@@ -155,14 +155,14 @@
     && String(viewState.selectionCounts.revision) === String(viewState.receipt.viewRevision)
     ? viewState.selectionCounts.publicFileCount
     : viewState.receipt?.submittedCount ?? 0);
-  let aggregateMode = $derived(viewState.draft?.resultMode?.includes('aggregate') ?? false);
+  let groupMode = $derived(viewState.draft != null && isGroupSearchMode(viewState.draft.resultMode));
   let refinementPending = $derived(viewState.refining || Boolean(localRefinementError || viewState.refinementError)
     || (baseline !== null && lastRequestedFingerprint !== currentFingerprint()));
 
   function emptyResultsHeading(): string {
     if (retentionNotice) return retentionNotice.title;
     if (!receivedFileCount()) return 'No results';
-    return aggregateMode ? 'No matching groups' : genericMode ? 'No matching directories' : 'No matching results';
+    return groupMode ? 'No matching groups' : genericMode ? 'No matching directories' : 'No matching results';
   }
 
   function receivedFileCount(): number {
@@ -174,7 +174,7 @@
     if (retentionNotice) return retentionNotice.detail;
     const count = receivedFileCount();
     if (!count) return 'No files were returned by peers.';
-    return `${formatCountWithNoun(count, 'file')} received, but none match the current ${filterText.trim() ? 'text filter or ' : ''}${aggregateMode ? 'conditions and grouping requirements' : 'result conditions'}.`;
+    return `${formatCountWithNoun(count, 'file')} received, but none match the current ${filterText.trim() ? 'text filter or ' : ''}${groupMode ? 'conditions and grouping requirements' : 'result conditions'}.`;
   }
 
   function currentFingerprint(): string {
@@ -300,7 +300,7 @@
   }
 
   function rowFullySelected(row: SearchRow): boolean {
-    if (row.kind === 'aggregate-album') return albumFull(row.ref);
+    if (row.kind === 'album-group') return albumFull(row.ref);
     if (row.kind !== 'directory') return isselected(row.ref);
     const children = viewState.directoryFiles.get(row.ref);
     const files = children ? children.items.map(child => child.file) : [row.value.bestChild];
@@ -320,7 +320,7 @@
       if (!rowFullySelected(row)) continue;
       let directory: Schema<'SearchViewDirectoryDto'>;
       if (row.kind === 'directory') directory = row.value;
-      else if (row.kind === 'aggregate-album' && (!viewState.chosenOptions.has(row.ref) || choiceIsCurrent(row.ref))) {
+      else if (row.kind === 'album-group' && (!viewState.chosenOptions.has(row.ref) || choiceIsCurrent(row.ref))) {
         const chosen = viewState.chosenOptions.get(row.ref);
         directory = chosen?.kind === 'album' ? chosen.value : row.value.representative;
       } else continue;
@@ -337,7 +337,7 @@
       preferredHelpPinned = false;
       preferredHelpButton?.blur();
       event.preventDefault();
-    } else if (viewState.aggregateOptions) oncloseoptions();
+    } else if (viewState.groupOptions) oncloseoptions();
     else if (downloadOptionsOpen) downloadOptionsOpen = false;
     else if (conditionsOpen) conditionsOpen = false;
   }
@@ -471,7 +471,7 @@
   }
 
   function hasUnreadySelectedChoice(): boolean {
-    return viewState.rows.some(row => (row.kind === 'aggregate-track' || row.kind === 'aggregate-album')
+    return viewState.rows.some(row => (row.kind === 'track-group' || row.kind === 'album-group')
       && isselected(row.ref) && viewState.chosenOptions.has(row.ref) && !choiceIsCurrent(row.ref));
   }
 
@@ -571,26 +571,26 @@
 
 <svelte:window onkeydown={windowKeydown} onpointerdown={windowPointerDown} />
 
-{#snippet aggregatePeerSummary(peer: Schema<'SearchViewFileDto'>['peer'])}
-  <div class="aggregate-peer-summary">
-    <span class="aggregate-peer-username"><UsernameLink username={peer.username} actions={userActions} /></span>
-    {#if peer.uploadSpeed != null}<span class="aggregate-peer-speed"><strong>{(Number(peer.uploadSpeed) / 1_000_000).toFixed(1)} MB/s</strong></span>{/if}
-    <span class="aggregate-peer-slot"><strong class:available={peer.hasFreeUploadSlot === true} class:unavailable={peer.hasFreeUploadSlot === false}>{peer.hasFreeUploadSlot == null ? '—' : peer.hasFreeUploadSlot ? 'Yes' : 'No'}</strong><small>free slot</small></span>
+{#snippet groupPeerSummary(peer: Schema<'SearchViewFileDto'>['peer'])}
+  <div class="group-peer-summary">
+    <span class="group-peer-username"><UsernameLink username={peer.username} actions={userActions} /></span>
+    {#if peer.uploadSpeed != null}<span class="group-peer-speed"><strong>{(Number(peer.uploadSpeed) / 1_000_000).toFixed(1)} MB/s</strong></span>{/if}
+    <span class="group-peer-slot"><strong class:available={peer.hasFreeUploadSlot === true} class:unavailable={peer.hasFreeUploadSlot === false}>{peer.hasFreeUploadSlot == null ? '—' : peer.hasFreeUploadSlot ? 'Yes' : 'No'}</strong><small>free slot</small></span>
   </div>
 {/snippet}
 
-{#snippet aggregateGroupCard(row: Extract<SearchRow, { kind: 'aggregate-track' | 'aggregate-album' }>)}
-  {#if row.kind === 'aggregate-track'}
+{#snippet groupGroupCard(row: Extract<SearchRow, { kind: 'track-group' | 'album-group' }>)}
+  {#if row.kind === 'track-group'}
     {@const representative = trackRepresentative(row.ref, row.value.representative)}
-    <section class:selected={isselected(row.ref)} class="aggregate-result-group" data-keyboard-item={row.ref} tabindex="-1">
-      <header class="aggregate-result-header">
-        <button type="button" class="aggregate-header-select-button" disabled={selectionReadOnly} aria-label={`${isselected(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.title ?? 'track'}`} aria-pressed={isselected(row.ref)} onclick={() => ontoggle(row.ref, !isselected(row.ref))}></button>
-        <div class="aggregate-result-identity"><strong>{row.value.query.title ?? 'Untitled track'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
-        <div class="aggregate-result-source">{@render aggregatePeerSummary(representative.peer)}</div>
-        <div class="aggregate-result-stats"><button type="button" class="aggregate-options-button" onclick={() => onopenoptions(row.ref)}>{formatCount(row.value.selectableOptionCount)} {Number(row.value.selectableOptionCount) === 1 ? 'option' : 'options'}</button></div>
+    <section class:selected={isselected(row.ref)} class="group-result-group" data-keyboard-item={row.ref} tabindex="-1">
+      <header class="group-result-header">
+        <button type="button" class="group-header-select-button" disabled={selectionReadOnly} aria-label={`${isselected(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.title ?? 'track'}`} aria-pressed={isselected(row.ref)} onclick={() => ontoggle(row.ref, !isselected(row.ref))}></button>
+        <div class="group-result-identity"><strong>{row.value.query.title ?? 'Untitled track'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
+        <div class="group-result-source">{@render groupPeerSummary(representative.peer)}</div>
+        <div class="group-result-stats"><button type="button" class="group-options-button" onclick={() => onopenoptions(row.ref)}>{formatCount(row.value.selectableOptionCount)} {Number(row.value.selectableOptionCount) === 1 ? 'option' : 'options'}</button></div>
       </header>
       {#if viewState.chosenOptions.has(row.ref) && !choiceIsCurrent(row.ref)}
-        <div class="resource-state-notice degraded aggregate-choice-notice" role="status">
+        <div class="resource-state-notice degraded group-choice-notice" role="status">
           <span class="resource-state-dot"></span>
           <span>{viewState.staleChoices.has(row.ref)
             ? 'Chosen source is no longer in these results. Select another option before downloading.'
@@ -609,15 +609,15 @@
     {@const files = children ? children.items.map((child) => folderFile(child.file, child.relativePath)) : [folderFile(directory.bestChild)]}
     {@const totals = directoryTotals(directory)}
     {@const retrieval = viewState.retrievals.get(directory.ref.ref)}
-    <section class:selected={albumFull(row.ref)} class:partial={albumPartial(row.ref)} class="aggregate-result-group" data-keyboard-item={row.ref} tabindex="-1">
-      <header class="aggregate-result-header">
-        <button type="button" class="aggregate-header-select-button" disabled={selectionReadOnly} aria-label={`${albumFull(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.album ?? 'album'}`} aria-pressed={albumFull(row.ref)} onclick={() => ontoggle(row.ref, !albumFull(row.ref))}></button>
-        <div class="aggregate-result-identity"><strong>{row.value.query.album ?? 'Untitled album'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
-        <div class="aggregate-result-source">{@render aggregatePeerSummary(directory.peer)}</div>
-        <div class="aggregate-result-stats"><button type="button" class="aggregate-options-button" onclick={() => onopenoptions(row.ref)}>{formatCount(row.value.selectableOptionCount)} {Number(row.value.selectableOptionCount) === 1 ? 'option' : 'options'}</button></div>
+    <section class:selected={albumFull(row.ref)} class:partial={albumPartial(row.ref)} class="group-result-group" data-keyboard-item={row.ref} tabindex="-1">
+      <header class="group-result-header">
+        <button type="button" class="group-header-select-button" disabled={selectionReadOnly} aria-label={`${albumFull(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.album ?? 'album'}`} aria-pressed={albumFull(row.ref)} onclick={() => ontoggle(row.ref, !albumFull(row.ref))}></button>
+        <div class="group-result-identity"><strong>{row.value.query.album ?? 'Untitled album'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
+        <div class="group-result-source">{@render groupPeerSummary(directory.peer)}</div>
+        <div class="group-result-stats"><button type="button" class="group-options-button" onclick={() => onopenoptions(row.ref)}>{formatCount(row.value.selectableOptionCount)} {Number(row.value.selectableOptionCount) === 1 ? 'option' : 'options'}</button></div>
       </header>
       {#if viewState.chosenOptions.has(row.ref) && !choiceIsCurrent(row.ref)}
-        <div class="resource-state-notice degraded aggregate-choice-notice" role="status">
+        <div class="resource-state-notice degraded group-choice-notice" role="status">
           <span class="resource-state-dot"></span>
           <span>{viewState.staleChoices.has(row.ref)
             ? 'Chosen folder is no longer in these results. Select another option before downloading.'
@@ -672,7 +672,7 @@
       {/if}
       {#if (!retentionNotice && !viewUnavailable) || viewState.rows.length > 0}
       {#if viewState.draft?.resultMode === 'generic'}<span>{formatCountWithNoun(viewState.summary?.counters.topLevelItemCount, hasBareFileGroups ? 'group' : 'directory', hasBareFileGroups ? 'groups' : 'directories')}</span>{/if}
-      {#if viewState.draft?.resultMode?.includes('aggregate')}<span>{formatCountWithNoun(viewState.summary?.counters.topLevelItemCount, 'group')}</span>{/if}
+      {#if groupMode}<span>{formatCountWithNoun(viewState.summary?.counters.topLevelItemCount, 'group')}</span>{/if}
       <span>{formatCountWithNoun(viewState.summary?.counters.publicFileCount, 'file')}</span>
       <span>{formatCount(viewState.summary?.counters.lockedFileCount)} locked</span>
       <span>{formatCountWithNoun(viewState.summary?.counters.observedPeerCount, 'peer')}</span>
@@ -746,7 +746,7 @@
           <Icon name="sliders" />
         </button>
       </ResultFilterControl>
-      {#if !aggregateMode}
+      {#if !groupMode}
         <div class="result-sort-control">
           <label for="result-sort">Sort</label>
           <select id="result-sort" value={sort} onchange={changeSort}>
@@ -861,11 +861,11 @@
     {:else}
       <div class="search-results-empty"><strong>{emptyResultsHeading()}</strong>{#if retentionNotice || searching || (viewState.summary?.isComplete && !viewState.refining)}<span>{emptyResultsDetail()}</span>{/if}</div>
     {/if}
-  {:else if viewState.draft?.resultMode === 'song-aggregate' || viewState.draft?.resultMode === 'album-aggregate'}
-    <div class="aggregate-results-list">
+  {:else if viewState.draft?.resultMode === 'song-groups' || viewState.draft?.resultMode === 'album-groups'}
+    <div class="group-results-list">
       {#each viewState.rows as row (row.ref)}
-        {#if row.kind === 'aggregate-track' || row.kind === 'aggregate-album'}
-          {@render aggregateGroupCard(row)}
+        {#if row.kind === 'track-group' || row.kind === 'album-group'}
+          {@render groupGroupCard(row)}
         {/if}
       {/each}
     </div>
@@ -966,38 +966,38 @@
   {/if}
 </section>
 
-{#if viewState.aggregateOptions}
-  {@const panel = viewState.aggregateOptions}
-  <div class="aggregate-options-modal">
-    <button type="button" class="aggregate-options-backdrop" aria-label="Close options" onclick={oncloseoptions}></button>
-    <div class="aggregate-options-dialog" role="dialog" aria-modal="true" aria-label={`${panel.title} options`}>
-      <header class="aggregate-options-header">
+{#if viewState.groupOptions}
+  {@const panel = viewState.groupOptions}
+  <div class="group-options-modal">
+    <button type="button" class="group-options-backdrop" aria-label="Close options" onclick={oncloseoptions}></button>
+    <div class="group-options-dialog" role="dialog" aria-modal="true" aria-label={`${panel.title} options`}>
+      <header class="group-options-header">
         <div>
           <strong>{panel.title}</strong>
           <small>{panel.artist ? `${panel.artist} · ` : ''}{formatCountWithNoun(panel.shareCount, 'share')} · {panel.items.length === panel.optionCount && !panel.nextCursor
             ? formatCountWithNoun(panel.optionCount, 'option')
             : `${formatCount(panel.items.length)} of ${formatCountWithNoun(panel.optionCount, 'option')}`}</small>
         </div>
-        <button type="button" class="aggregate-options-close" aria-label="Close options" onclick={oncloseoptions}>×</button>
+        <button type="button" class="group-options-close" aria-label="Close options" onclick={oncloseoptions}>×</button>
       </header>
-      <div class="aggregate-options-list">
+      <div class="group-options-list">
         {#each panel.items as option (option.ref)}
           {@const peer = option.value.peer}
-          <div class:current={(choiceIsCurrent(panel.groupRef) ? viewState.chosenOptions.get(panel.groupRef)?.ref : panel.representativeRef) === option.ref} class="aggregate-option">
-            <div class="aggregate-option-toolbar">
-              {@render aggregatePeerSummary(peer)}
-              <button type="button" class="aggregate-use-option" disabled={selectionReadOnly} onclick={() => onchooseoption(panel.groupRef, option)}>Use this option</button>
+          <div class:current={(choiceIsCurrent(panel.groupRef) ? viewState.chosenOptions.get(panel.groupRef)?.ref : panel.representativeRef) === option.ref} class="group-option">
+            <div class="group-option-toolbar">
+              {@render groupPeerSummary(peer)}
+              <button type="button" class="group-use-option" disabled={selectionReadOnly} onclick={() => onchooseoption(panel.groupRef, option)}>Use this option</button>
             </div>
-            <div class="aggregate-option-card-wrap">
+            <div class="group-option-card-wrap">
               {#if option.kind === 'track'}
-                <button type="button" class="aggregate-option-card-picker" disabled={selectionReadOnly} aria-label={`Use ${option.value.remoteFilename}`} onclick={() => onchooseoption(panel.groupRef, option)}></button>
+                <button type="button" class="group-option-card-picker" disabled={selectionReadOnly} aria-label={`Use ${option.value.remoteFilename}`} onclick={() => onchooseoption(panel.groupRef, option)}></button>
                 <FileItemCard path={option.value.remoteFilename} sizeBytes={Number(option.value.file.size)} audio={audio(option.value.file)} locked={option.value.visibility === 'Locked'} />
               {:else}
                 {@const children = viewState.directoryFiles.get(option.ref)}
                 {@const directory = children?.directorySummary ?? option.value}
                 {@const totals = directoryTotals(directory)}
                 {@const retrieval = viewState.retrievals.get(directory.ref.ref)}
-                <button type="button" class="aggregate-option-card-picker" disabled={selectionReadOnly} aria-label={`Use ${directory.ref.folderPath || 'Files without a folder'}`} onclick={() => onchooseoption(panel.groupRef, option)}></button>
+                <button type="button" class="group-option-card-picker" disabled={selectionReadOnly} aria-label={`Use ${directory.ref.folderPath || 'Files without a folder'}`} onclick={() => onchooseoption(panel.groupRef, option)}></button>
                 <FolderItemCard
                   contentsState={!directory.ref.folderPath ? undefined : retrieval?.loading ? 'retrieving' : retrieval?.error ? 'failed' : directory.retrievalState === 'Complete' ? 'complete' : 'partial'}
                   onloadfullcontents={() => onretrievedirectory(directory.ref.ref)}

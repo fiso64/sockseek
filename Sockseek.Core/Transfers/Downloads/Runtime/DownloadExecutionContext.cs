@@ -116,7 +116,7 @@ internal sealed class DownloadExecutionContext
         }
     }
 
-    public JobList PrepareAggregateChildren(Job owner, IEnumerable<Job> children, JobContext inherited)
+    public JobList PrepareGroupChildren(Job owner, IEnumerable<Job> children, JobContext inherited)
     {
         var group = new JobList(owner.ItemName, children)
         {
@@ -155,7 +155,7 @@ internal sealed class DownloadExecutionContext
     // Start an execution generation before publication, so even queued work can
     // be cancelled. Admission must keep this token rather than replacing it.
     // The cancellation parent can differ from the displayed parent (extraction
-    // results and aggregate grouping lists have their own hierarchy semantics).
+    // results and grouping lists have their own hierarchy semantics).
     public void RegisterForExecution(Job job, CancellationToken parentToken, Job? parent, DirectoryTransferEntry? directoryEntry = null)
     {
         job.Cts?.Dispose();

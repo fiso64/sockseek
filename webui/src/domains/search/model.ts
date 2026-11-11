@@ -1,11 +1,11 @@
 import type { Schema } from '../../api/types';
 
-export type SearchResultMode = 'generic' | 'track' | 'album' | 'song-aggregate' | 'album-aggregate';
+export type SearchResultMode = 'generic' | 'track' | 'album' | 'song-groups' | 'album-groups';
 export type SearchInputMode = 'simple' | 'split';
 export type SearchModeFamily = 'generic' | 'track' | 'album';
 
 const resultModes: readonly SearchResultMode[] = [
-  'generic', 'track', 'album', 'song-aggregate', 'album-aggregate',
+  'generic', 'track', 'album', 'song-groups', 'album-groups',
 ];
 
 export function parseSearchResultMode(value: string | null): SearchResultMode | null {
@@ -29,11 +29,11 @@ export function directoryTotals(directory: Pick<Schema<'SearchViewDirectoryDto'>
 }
 
 export function searchModeFamily(mode: SearchResultMode): SearchModeFamily {
-  return mode === 'generic' ? 'generic' : mode === 'album' || mode === 'album-aggregate' ? 'album' : 'track';
+  return mode === 'generic' ? 'generic' : mode === 'album' || mode === 'album-groups' ? 'album' : 'track';
 }
 
-export function isAggregateSearchMode(mode: SearchResultMode): boolean {
-  return mode === 'song-aggregate' || mode === 'album-aggregate';
+export function isGroupSearchMode(mode: SearchResultMode): boolean {
+  return mode === 'song-groups' || mode === 'album-groups';
 }
 
 export function searchJobDraft(draft: SearchDraft): Schema<'JobDraftDto'> {
@@ -81,8 +81,8 @@ export function searchModeLabel(mode: SearchResultMode): string {
     generic: 'File Search',
     track: 'Track Search',
     album: 'Album Search',
-    'song-aggregate': 'Song Aggregate',
-    'album-aggregate': 'Album Aggregate',
+    'song-groups': 'Song Groups',
+    'album-groups': 'Album Groups',
   }[mode];
 }
 
@@ -91,8 +91,8 @@ export function searchViewKind(mode: SearchResultMode): Schema<'ServerSearchView
     generic: 'GenericDirectories',
     track: 'Files',
     album: 'AlbumDirectories',
-    'song-aggregate': 'AggregateTracks',
-    'album-aggregate': 'AggregateAlbums',
+    'song-groups': 'TrackGroups',
+    'album-groups': 'AlbumGroups',
   };
   return kinds[mode];
 }
@@ -102,8 +102,8 @@ export function searchDelimiter(input: string): { index: number; length: number 
     .filter(item => item.index >= 0).sort((a, b) => a.index - b.index)[0] ?? null;
 }
 
-// Merging two aggregate fields keeps their meaning when submitted again.
-function aggregateInput(query: string): { artist: string | null; title: string | null } {
+// Merging two group fields keeps their meaning when submitted again.
+function groupInput(query: string): { artist: string | null; title: string | null } {
   const delimiter = searchDelimiter(query);
   return delimiter
     ? { artist: query.slice(0, delimiter.index).trim() || null, title: query.slice(delimiter.index + delimiter.length).trim() || null }
@@ -121,10 +121,10 @@ export function songQuery(draft: SearchDraft): Schema<'SongQueryDto'> {
       artistMaybeWrong: draft.artistMaybeWrong ?? false,
     };
   }
-  const aggregate = draft.resultMode === 'song-aggregate' ? aggregateInput(draft.query) : null;
+  const group = draft.resultMode === 'song-groups' ? groupInput(draft.query) : null;
   return {
-    artist: aggregate?.artist ?? null,
-    title: aggregate ? aggregate.title : draft.query.trim() || null,
+    artist: group?.artist ?? null,
+    title: group ? group.title : draft.query.trim() || null,
     album: draft.albumContext ?? null,
     uri: draft.sourceUri ?? null,
     length: draft.expectedLength ?? null,
@@ -142,10 +142,10 @@ export function albumQuery(draft: SearchDraft): Schema<'AlbumQueryDto'> {
       artistMaybeWrong: draft.artistMaybeWrong ?? false,
     };
   }
-  const aggregate = draft.resultMode === 'album-aggregate' ? aggregateInput(draft.query) : null;
+  const group = draft.resultMode === 'album-groups' ? groupInput(draft.query) : null;
   return {
-    artist: aggregate?.artist ?? null,
-    album: aggregate ? aggregate.title : draft.query.trim() || null,
+    artist: group?.artist ?? null,
+    album: group ? group.title : draft.query.trim() || null,
     searchHint: draft.albumSearchHint ?? null,
     uri: draft.sourceUri ?? null,
     artistMaybeWrong: draft.artistMaybeWrong ?? false,

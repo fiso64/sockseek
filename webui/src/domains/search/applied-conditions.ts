@@ -1,5 +1,5 @@
 import type { SearchConditions } from './config-state';
-import { isAggregateSearchMode, searchModeFamily, type SearchResultMode } from './model';
+import { isGroupSearchMode, searchModeFamily, type SearchResultMode } from './model';
 
 // Matches Core's SearchDefaults.Formats, not the shorter format-button suggestions.
 // The real-daemon browser journey verifies that its music defaults stay hidden.
@@ -24,17 +24,17 @@ export interface ConditionPill {
 
 /** One list owns visibility, presentation and removal; ranking preferences aren't filter pills. */
 export function conditionPills(mode: SearchResultMode, conditions: SearchConditions): ConditionPill[] {
-  const { common, track, album, aggregate } = conditions;
+  const { common, track, album, group } = conditions;
   const family = searchModeFamily(mode);
   const pills: ConditionPill[] = [];
   function add(label: string, remove: () => void, removeLabel = `Remove ${label} filter`): void {
     pills.push({ label, removeLabel, remove });
   }
 
-  if (isAggregateSearchMode(mode)) {
-    if (aggregate.minShares) add(`≥${aggregate.minShares} sharers`, () => { aggregate.minShares = ''; }, 'Remove minimum sharers filter');
-    if (aggregate.lengthTolerance && aggregate.lengthTolerance !== '3')
-      add(`group ±${aggregate.lengthTolerance}s`, () => { aggregate.lengthTolerance = '3'; }, 'Reset aggregate grouping tolerance');
+  if (isGroupSearchMode(mode)) {
+    if (group.minShares) add(`≥${group.minShares} sharers`, () => { group.minShares = ''; }, 'Remove minimum sharers filter');
+    if (group.lengthTolerance && group.lengthTolerance !== '3')
+      add(`group ±${group.lengthTolerance}s`, () => { group.lengthTolerance = '3'; }, 'Reset grouping tolerance');
   }
   for (const format of visibleFormatPills(mode, common.formats))
     add(`format: ${format}`, () => { common.formats = common.formats.filter(item => item !== format); }, `Remove ${format} format`);

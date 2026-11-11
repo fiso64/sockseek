@@ -174,7 +174,7 @@ public sealed class SockseekApiClient
     public async Task<JobSummaryDto> SubmitExtractJobAsync(SubmitExtractJobRequestDto request, CancellationToken ct = default)
         => await PostJobAsync("api/jobs/extract", request, ct);
 
-    /// <summary>Submits a generic search job. Use projection methods to view the same raw results as files, folders, aggregate tracks, or aggregate albums.</summary>
+    /// <summary>Submits a generic search job. Use projection methods to view the same raw results as files, folders, group tracks, or group albums.</summary>
     public async Task<JobSummaryDto> SubmitSearchJobAsync(SubmitSearchJobRequestDto request, CancellationToken ct = default)
         => await PostJobAsync("api/jobs/search", request, ct);
 
@@ -192,11 +192,11 @@ public sealed class SockseekApiClient
     public async Task<JobSummaryDto> SubmitAlbumJobAsync(SubmitAlbumJobRequestDto request, CancellationToken ct = default)
         => await PostJobAsync("api/jobs/downloads/album", request, ct);
 
-    public async Task<JobSummaryDto> SubmitAggregateJobAsync(SubmitAggregateJobRequestDto request, CancellationToken ct = default)
-        => await PostJobAsync("api/jobs/aggregate/tracks", request, ct);
+    public async Task<JobSummaryDto> SubmitSongGroupsJobAsync(SubmitSongGroupsJobRequestDto request, CancellationToken ct = default)
+        => await PostJobAsync("api/jobs/groups/tracks", request, ct);
 
-    public async Task<JobSummaryDto> SubmitAlbumAggregateJobAsync(SubmitAlbumAggregateJobRequestDto request, CancellationToken ct = default)
-        => await PostJobAsync("api/jobs/aggregate/albums", request, ct);
+    public async Task<JobSummaryDto> SubmitAlbumGroupsJobAsync(SubmitAlbumGroupsJobRequestDto request, CancellationToken ct = default)
+        => await PostJobAsync("api/jobs/groups/albums", request, ct);
 
     public async Task<JobSummaryDto> SubmitJobListAsync(SubmitJobListRequestDto request, CancellationToken ct = default)
         => await PostJobAsync("api/jobs/lists", request, ct);
@@ -366,55 +366,55 @@ public sealed class SockseekApiClient
             request,
             ct);
 
-    public Task<SearchViewAggregateTrackPageDto?> GetSearchViewAggregateTracksAsync(
+    public Task<SearchViewTrackGroupPageDto?> GetSearchViewTrackGroupsAsync(
         Guid viewId,
         long revision,
         string? cursor = null,
         int limit = ServerProtocol.DefaultNestedPageSize,
         CancellationToken ct = default)
-        => GetOptionalAsync<SearchViewAggregateTrackPageDto>(
-            $"api/search-views/{viewId}/aggregate-tracks"
+        => GetOptionalAsync<SearchViewTrackGroupPageDto>(
+            $"api/search-views/{viewId}/track-groups"
             + $"?revision={revision.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             + $"&limit={limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             + QueryPart("cursor", cursor),
             ct);
 
-    public Task<SearchViewAggregateTrackOptionPageDto?> GetSearchViewAggregateTrackOptionsAsync(
+    public Task<SearchViewTrackGroupOptionPageDto?> GetSearchViewTrackGroupOptionsAsync(
         Guid viewId,
         string groupRef,
         long revision,
         string? cursor = null,
         int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
-        => GetOptionalAsync<SearchViewAggregateTrackOptionPageDto>(
-            $"api/search-views/{viewId}/aggregate-tracks/{Uri.EscapeDataString(groupRef)}/alternatives"
+        => GetOptionalAsync<SearchViewTrackGroupOptionPageDto>(
+            $"api/search-views/{viewId}/track-groups/{Uri.EscapeDataString(groupRef)}/alternatives"
             + $"?revision={revision.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             + $"&limit={limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             + QueryPart("cursor", cursor),
             ct);
 
-    public Task<SearchViewAggregateAlbumPageDto?> GetSearchViewAggregateAlbumsAsync(
+    public Task<SearchViewAlbumGroupPageDto?> GetSearchViewAlbumGroupsAsync(
         Guid viewId,
         long revision,
         string? cursor = null,
         int limit = ServerProtocol.DefaultNestedPageSize,
         CancellationToken ct = default)
-        => GetOptionalAsync<SearchViewAggregateAlbumPageDto>(
-            $"api/search-views/{viewId}/aggregate-albums"
+        => GetOptionalAsync<SearchViewAlbumGroupPageDto>(
+            $"api/search-views/{viewId}/album-groups"
             + $"?revision={revision.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             + $"&limit={limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             + QueryPart("cursor", cursor),
             ct);
 
-    public Task<SearchViewAggregateAlbumOptionPageDto?> GetSearchViewAggregateAlbumOptionsAsync(
+    public Task<SearchViewAlbumGroupOptionPageDto?> GetSearchViewAlbumGroupOptionsAsync(
         Guid viewId,
         string groupRef,
         long revision,
         string? cursor = null,
         int limit = ServerProtocol.DefaultNestedPageSize,
         CancellationToken ct = default)
-        => GetOptionalAsync<SearchViewAggregateAlbumOptionPageDto>(
-            $"api/search-views/{viewId}/aggregate-albums/{Uri.EscapeDataString(groupRef)}/alternatives"
+        => GetOptionalAsync<SearchViewAlbumGroupOptionPageDto>(
+            $"api/search-views/{viewId}/album-groups/{Uri.EscapeDataString(groupRef)}/alternatives"
             + $"?revision={revision.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             + $"&limit={limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             + QueryPart("cursor", cursor),

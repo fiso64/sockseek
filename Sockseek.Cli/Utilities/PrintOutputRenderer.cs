@@ -197,13 +197,13 @@ internal static class JobPrintFormatter
                     yield return "  " + line;
                 break;
 
-            case AggregateJob aggregate:
-                foreach (var line in SongQueryFields(aggregate.Query))
+            case SongGroupsJob group:
+                foreach (var line in SongQueryFields(group.Query))
                     yield return "  " + line;
                 break;
 
-            case AlbumAggregateJob aggregate:
-                foreach (var line in AlbumQueryFields(aggregate.Query))
+            case AlbumGroupsJob group:
+                foreach (var line in AlbumQueryFields(group.Query))
                     yield return "  " + line;
                 break;
 
@@ -277,8 +277,8 @@ internal static class JobPrintFormatter
     {
         SongJob => "Song",
         AlbumJob => "Album",
-        AggregateJob => "Aggregate",
-        AlbumAggregateJob => "Album Aggregate",
+        SongGroupsJob => "Song Groups",
+        AlbumGroupsJob => "Album Groups",
         SearchJob => "Search",
         RetrieveFolderJob => "Retrieve Folder",
         JobList => "Job List",
@@ -315,14 +315,14 @@ internal static class ResultPrintFormatter
                 case SongJob song:
                     PrintSongResults(song, printOption);
                     break;
-                case AggregateJob aggregate:
-                    PrintAggregateResults(aggregate, printOption);
+                case SongGroupsJob group:
+                    PrintGroupResults(group, printOption);
                     break;
                 case AlbumJob album:
                     PrintAlbumResults(album, printOption, search);
                     break;
-                case AlbumAggregateJob aggregate:
-                    PrintAlbumAggregateResults(aggregate, printOption, search);
+                case AlbumGroupsJob group:
+                    PrintAlbumGroupsResults(group, printOption, search);
                     break;
                 default:
                     Printing.WriteLine("No results.");
@@ -392,48 +392,48 @@ internal static class ResultPrintFormatter
         }
     }
 
-    private static void PrintAggregateResults(AggregateJob aggregate, PrintOption printOption)
+    private static void PrintGroupResults(SongGroupsJob group, PrintOption printOption)
     {
-        var existing = aggregate.Songs.Where(IsAlreadyExistingResultJob).ToList();
-        var notFound = aggregate.Songs.Where(song => IsNotFoundFailure(song.FailureReason)).ToList();
+        var existing = group.Songs.Where(IsAlreadyExistingResultJob).ToList();
+        var notFound = group.Songs.Where(song => IsNotFoundFailure(song.FailureReason)).ToList();
 
         if (printOption.HasFlag(PrintOption.Json))
         {
-            JsonPrinter.PrintAggregateJson(aggregate.Songs.Where(s => s.IsPending));
+            JsonPrinter.PrintGroupJson(group.Songs.Where(s => s.IsPending));
         }
         else if (printOption.HasFlag(PrintOption.Link))
         {
-            var first = aggregate.Songs.SelectMany(song => song.Candidates ?? [])
+            var first = group.Songs.SelectMany(song => song.Candidates ?? [])
                 .FirstOrDefault(candidate => candidate.Visibility == SearchResultVisibility.Public);
             if (first != null)
                 Printing.PrintLink(first.Username, first.Filename);
         }
         else
         {
-            Printing.PrintTracksTbd(aggregate.Songs.Where(s => s.IsPending).ToList(), existing, notFound, false, printOption);
+            Printing.PrintTracksTbd(group.Songs.Where(s => s.IsPending).ToList(), existing, notFound, false, printOption);
         }
     }
 
-    private static void PrintAlbumAggregateResults(AlbumAggregateJob aggregate, PrintOption printOption, SearchSettings search)
+    private static void PrintAlbumGroupsResults(AlbumGroupsJob group, PrintOption printOption, SearchSettings search)
     {
-        if (aggregate.Albums.Count == 0)
+        if (group.Albums.Count == 0)
         {
             Printing.WriteLine("No results.");
             return;
         }
 
         bool nonVerbose = IsMachineReadable(printOption);
-        for (int i = 0; i < aggregate.Albums.Count; i++)
+        for (int i = 0; i < group.Albums.Count; i++)
         {
             PrintAlbumResults(
-                aggregate.Albums[i],
+                group.Albums[i],
                 printOption,
                 search,
-                aggregateResultIndex: i + 1,
-                aggregateResultCount: aggregate.Albums.Count,
-                aggregateDisplayName: aggregate.ToString(true));
+                groupResultIndex: i + 1,
+                groupResultCount: group.Albums.Count,
+                groupDisplayName: group.ToString(true));
 
-            if (!nonVerbose && i < aggregate.Albums.Count - 1)
+            if (!nonVerbose && i < group.Albums.Count - 1)
                 Printing.WriteLine();
         }
     }
@@ -442,9 +442,9 @@ internal static class ResultPrintFormatter
         AlbumJob album,
         PrintOption printOption,
         SearchSettings search,
-        int? aggregateResultIndex = null,
-        int? aggregateResultCount = null,
-        string? aggregateDisplayName = null)
+        int? groupResultIndex = null,
+        int? groupResultCount = null,
+        string? groupDisplayName = null)
     {
         if (printOption.HasFlag(PrintOption.Json))
         {
@@ -464,8 +464,8 @@ internal static class ResultPrintFormatter
             return;
         }
 
-        string displayName = aggregateDisplayName ?? album.ToString(true);
-        if (aggregateResultIndex is { } resultIndex && aggregateResultCount is { } resultCount)
+        string displayName = groupDisplayName ?? album.ToString(true);
+        if (groupResultIndex is { } resultIndex && groupResultCount is { } resultCount)
             Printing.WriteLine($"Result {resultIndex} of {resultCount} for album {displayName}:");
         else if (!printOption.HasFlag(PrintOption.Full))
             Printing.WriteLine($"Result 1 of {album.Results.Count} for album {displayName}:");

@@ -577,11 +577,11 @@
       onretry={() => { searchJobRetry++; void searchController.refresh(true); }}
       onloaddirectory={(ref) => void searchController.loadDirectoryFiles(ref)}
       onretrievedirectory={(ref) => void searchController.retrieveDirectory(ref)}
-      onopenoptions={(ref) => void searchController.openAggregateOptions(ref)}
-      oncloseoptions={() => searchController.closeAggregateOptions()}
-      onloadoptions={() => void searchController.loadMoreAggregateOptions()}
-      onchooseoption={(ref, option) => searchController.chooseAggregateOption(ref, option)}
-      ontogglealbumfile={(groupRef, fileRef, selected) => searchController.toggleAggregateAlbumFile(groupRef, fileRef, selected)}
+      onopenoptions={(ref) => void searchController.openGroupOptions(ref)}
+      oncloseoptions={() => searchController.closeGroupOptions()}
+      onloadoptions={() => void searchController.loadMoreGroupOptions()}
+      onchooseoption={(ref, option) => searchController.chooseGroupOption(ref, option)}
+      ontogglealbumfile={(groupRef, fileRef, selected) => searchController.toggleAlbumGroupFile(groupRef, fileRef, selected)}
       onviewdownloads={(id) => { jobLists.downloads.filterSubmission(id); jobsTab = 'downloads'; backToJobs(); }}
       onback={backToJobs}
       onsearchagain={() => void rerunActiveSearch()}

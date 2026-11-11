@@ -161,17 +161,17 @@ public class SettingsPatchTests
     {
         var file = new ConfigFile("none", []);
         string[] arguments = requested is { } count
-            ? ["--mock-files-dir", ".", "--min-shares-aggregate", count.ToString()]
+            ? ["--mock-files-dir", ".", "--min-group-shares", count.ToString()]
             : ["--mock-files-dir", "."];
         var invocation = ConfigManager.ParseInvocation(arguments);
         var (engine, root, cli, _, _) = ConfigManager.BindAll(file, invocation);
         var resolver = ConfigManager.CreateJobSettingsResolver(file, invocation, cli, engine: engine);
         var jobSettings = resolver.Resolve(root, new SongJob(new SongQuery()));
 
-        Assert.AreEqual(requested, root.Search.MinSharesAggregate);
-        Assert.AreEqual(expected, root.ResolveSearchSettings().EffectiveMinSharesAggregate);
-        Assert.AreEqual(requested, jobSettings.Search.MinSharesAggregate);
-        Assert.AreEqual(expected, jobSettings.ResolveSearchSettings().EffectiveMinSharesAggregate);
+        Assert.AreEqual(requested, root.Search.MinGroupShares);
+        Assert.AreEqual(expected, root.ResolveSearchSettings().EffectiveMinGroupShares);
+        Assert.AreEqual(requested, jobSettings.Search.MinGroupShares);
+        Assert.AreEqual(expected, jobSettings.ResolveSearchSettings().EffectiveMinGroupShares);
     }
 
     [TestMethod]
@@ -220,7 +220,7 @@ public class SettingsPatchTests
     [TestMethod]
     [DataRow("Unknown.Value")]
     [DataRow("RuntimePathContext.ConfigDir")]
-    [DataRow("DefaultMinSharesAggregate")]
+    [DataRow("DefaultMinGroupShares")]
     [DataRow("AppliedAutoProfiles")]
     [DataRow("Extraction.IsAlbum")]
     [DataRow("PrintJobs")]

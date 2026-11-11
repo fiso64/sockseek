@@ -30,8 +30,8 @@ export type SearchViewSummaryDto = Schema<'SearchViewSummaryDto'>;
 export type SearchViewUpdateDto = Schema<'SearchViewUpdateDto'>;
 export type SearchViewFilePageDto = Schema<'SearchViewFilePageDto'>;
 export type SearchViewDirectoryPageDto = Schema<'SearchViewDirectoryPageDto'>;
-export type SearchViewAggregateTrackPageDto = Schema<'SearchViewAggregateTrackPageDto'>;
-export type SearchViewAggregateAlbumPageDto = Schema<'SearchViewAggregateAlbumPageDto'>;
+export type SearchViewTrackGroupPageDto = Schema<'SearchViewTrackGroupPageDto'>;
+export type SearchViewAlbumGroupPageDto = Schema<'SearchViewAlbumGroupPageDto'>;
 export type CommitSearchViewSelectionResponseDto = Schema<'CommitSearchViewSelectionResponseDto'>;
 
 export type WireInteger = number | string;

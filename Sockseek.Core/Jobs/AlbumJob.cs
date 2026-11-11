@@ -165,11 +165,11 @@ namespace Sockseek.Core.Jobs;
         public override string ToString(bool noInfo)
             => ItemName ?? Query.ToString(noInfo);
 
-        public IEnumerable<Job> Upgrade(bool album, bool aggregate)
+        public IEnumerable<Job> Upgrade(bool album, bool group)
         {
-            if (aggregate)
+            if (group)
             {
-                var newJob = new AlbumAggregateJob(Query);
+                var newJob = new AlbumGroupsJob(Query);
                 newJob.CopySharedFieldsFrom(this);
                 newJob.ItemName ??= newJob.ToString(noInfo: true);
                 yield return newJob;

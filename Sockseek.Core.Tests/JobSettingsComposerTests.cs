@@ -15,8 +15,8 @@ public sealed class JobSettingsComposerTests
         {
             (JobSnapshotKind.Song, "song", (SearchDefaultProjectionKind?)null),
             (JobSnapshotKind.Album, "album", null),
-            (JobSnapshotKind.Aggregate, "aggregate", null),
-            (JobSnapshotKind.AlbumAggregate, "album-aggregate", null),
+            (JobSnapshotKind.SongGroups, "song-groups", null),
+            (JobSnapshotKind.AlbumGroups, "album-groups", null),
             (JobSnapshotKind.RemoteFile, "generic-file", null),
             (JobSnapshotKind.RemoteDirectory, "generic-directory", null),
             (JobSnapshotKind.Search, "song", SearchDefaultProjectionKind.Track),
@@ -63,11 +63,11 @@ public sealed class JobSettingsComposerTests
     }
 
     [TestMethod]
-    public void AggregateProjectionCapabilityDoesNotInventADefaultSearchMode()
+    public void GroupProjectionCapabilityDoesNotInventADefaultSearchMode()
     {
         var search = new SearchJob("query")
         {
-            DefaultAggregateAlbumProjection = new(new AlbumQuery { Artist = "Artist", Album = "Album" }),
+            DefaultAlbumGroupProjection = new(new AlbumQuery { Artist = "Artist", Album = "Album" }),
         };
         var profile = Profile("album", value => value.Search.MaxStaleTime = 4321,
             "download-mode == \"album\"");
@@ -150,11 +150,11 @@ public sealed class JobSettingsComposerTests
         foreach (bool matches in new[] { false, true })
         {
             var defaultProfile = Profile("default", settings => settings.Search.MaxStaleTime = 1);
-            var autoProfile = Profile("aggregate-auto", settings => settings.Search.MaxStaleTime = 2,
-                condition: "aggregate");
+            var autoProfile = Profile("group-auto", settings => settings.Search.MaxStaleTime = 2,
+                condition: "group");
             var namedProfile = Profile("named", settings => settings.Search.MaxStaleTime = 3);
             var launch = new SettingsPatch([new("Search.MaxStaleTime", 4)]);
-            var request = new SettingsPatch([new("Search.IsAggregate", matches), new("Search.MaxStaleTime", 5)]);
+            var request = new SettingsPatch([new("Search.GroupResults", matches), new("Search.MaxStaleTime", 5)]);
             var catalog = new ProfileCatalog
             {
                 DefaultProfile = defaultProfile,
@@ -176,8 +176,8 @@ public sealed class JobSettingsComposerTests
                 SubmissionSpecification.CreateShallow(job, detailed.Settings).EffectiveSettingsJson,
                 "Ordinary and detailed composition must resolve the same complete settings, even when no auto-profile matches.");
 
-            CollectionAssert.AreEqual(matches ? new[] { "aggregate-auto" } : [], settings.AppliedAutoProfiles.ToArray());
-            Assert.AreEqual(matches, settings.Search.IsAggregate);
+            CollectionAssert.AreEqual(matches ? new[] { "group-auto" } : [], settings.AppliedAutoProfiles.ToArray());
+            Assert.AreEqual(matches, settings.Search.GroupResults);
             Assert.AreEqual(5, settings.Search.MaxStaleTime);
         }
     }

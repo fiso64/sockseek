@@ -70,7 +70,7 @@ namespace Tests.Unit
         [TestMethod]
         [DataRow(false)]
         [DataRow(true)]
-        public async Task AutomaticTrackSearch_RejectsWrongLengthUntilFallbackRelaxesAdmission(bool aggregate)
+        public async Task AutomaticTrackSearch_RejectsWrongLengthUntilFallbackRelaxesAdmission(bool group)
         {
             var response = new SearchResponse("User", 1, true, 1000, 0,
             [
@@ -78,15 +78,15 @@ namespace Tests.Unit
             ]);
             var client = CreateMockClient([response]);
             var settings = TestHelpers.CreateDefaultSettings().Download;
-            settings.Search.MinSharesAggregate = 1;
+            settings.Search.MinGroupShares = 1;
             var searcher = CreateSearcher(client, settings);
             var query = new SongQuery { Artist = "Artist", Title = "Twilight", Length = 522 };
             async Task<(Job Job, int Candidates)> Discover()
             {
-                if (aggregate)
+                if (group)
                 {
-                    var job = new AggregateJob(query);
-                    await searcher.SearchAggregate(job, settings.Search, new ResponseData(), CancellationToken.None);
+                    var job = new SongGroupsJob(query);
+                    await searcher.SearchGroup(job, settings.Search, new ResponseData(), CancellationToken.None);
                     return (job, job.Songs.Sum(song => song.Candidates?.Count ?? 0));
                 }
                 var song = new SongJob(query);
@@ -111,12 +111,12 @@ namespace Tests.Unit
         [DataRow(true, 1000)]
         [DataRow(false, 0)]
         [DataRow(true, 0)]
-        public async Task ReadOnlyTrackDiscoveryIncludesLockedOnlyPeers(bool aggregate, int uploadSpeed)
+        public async Task ReadOnlyTrackDiscoveryIncludesLockedOnlyPeers(bool group, int uploadSpeed)
         {
             var client = CreateMockClient([new SearchResponse("private", 1, true, uploadSpeed, 0, [],
                 lockedFileList: [TestHelpers.CreateSlFile(@"Artist\Album\Track.flac", length: 180)])]);
             var settings = TestHelpers.CreateDefaultSettings().Download;
-            settings.Search.MinSharesAggregate = 1;
+            settings.Search.MinGroupShares = 1;
             settings.Search.FastSearch = true;
             using var searcher = CreateSearcher(client, settings);
             var query = new SongQuery { Artist = "Artist", Title = "Track" };
@@ -124,10 +124,10 @@ namespace Tests.Unit
             async Task<List<FileCandidate>> Discover(bool print)
             {
                 settings.PrintOption = print ? PrintOption.Results | PrintOption.Full : PrintOption.None;
-                if (aggregate)
+                if (group)
                 {
-                    var job = new AggregateJob(query) { Config = settings };
-                    await searcher.SearchAggregate(job, settings.Search, new ResponseData(), CancellationToken.None);
+                    var job = new SongGroupsJob(query) { Config = settings };
+                    await searcher.SearchGroup(job, settings.Search, new ResponseData(), CancellationToken.None);
                     return job.Songs.SelectMany(song => song.Candidates!).ToList();
                 }
                 var song = new SongJob(query) { Config = settings };
@@ -285,7 +285,7 @@ namespace Tests.Unit
         [DataRow(false, true)]
         [DataRow(true, false)]
         [DataRow(true, true)]
-        public async Task AlbumQualityUsesLockedEvidenceOnlyForReadOnlyDiscovery(bool aggregate, bool strict)
+        public async Task AlbumQualityUsesLockedEvidenceOnlyForReadOnlyDiscovery(bool group, bool strict)
         {
             var responses = new[]
             {
@@ -299,16 +299,16 @@ namespace Tests.Unit
             var settings = TestHelpers.CreateDefaultSettings().Download;
             settings.Search.NecessaryCond.Formats = ["flac"];
             settings.Search.StrictAlbumQuality = strict;
-            settings.Search.MinSharesAggregate = 1;
+            settings.Search.MinGroupShares = 1;
             using var searcher = CreateSearcher(client, settings);
             var query = new AlbumQuery { Artist = "Artist", Album = "Album" };
             async Task<List<AlbumFolder>> Discover(bool print)
             {
                 settings.PrintOption = print ? PrintOption.Results | PrintOption.Full : PrintOption.None;
-                if (aggregate)
+                if (group)
                 {
-                    var job = new AlbumAggregateJob(query) { Config = settings };
-                    var result = await searcher.SearchAggregateAlbum(job, settings.Search, new ResponseData(), CancellationToken.None);
+                    var job = new AlbumGroupsJob(query) { Config = settings };
+                    var result = await searcher.SearchAlbumGroup(job, settings.Search, new ResponseData(), CancellationToken.None);
                     return result.Albums.SelectMany(album => album.Results).ToList();
                 }
                 var album = new AlbumJob(query) { Config = settings };
@@ -934,7 +934,7 @@ namespace Tests.Unit
                 Length = 209,
             });
 
-            var upgraded = song.Upgrade(album: true, aggregate: false).Single();
+            var upgraded = song.Upgrade(album: true, group: false).Single();
             var album = (AlbumJob)upgraded;
 
             Assert.AreEqual("Electric Light Orchestra", album.Query.Artist);
@@ -1201,19 +1201,19 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public async Task AggregateAlbum_DiscographySearch_IdentifiesAllUniqueAlbums()
+        public async Task AlbumGroup_DiscographySearch_IdentifiesAllUniqueAlbums()
         {
             var index = CreateSophisticatedIndex();
             var client = new MockSoulseekClient(index);
             var config = TestHelpers.CreateDefaultSettings().Download;
-            config.Search.MinSharesAggregate = 1;
+            config.Search.MinGroupShares = 1;
 
             var registry = TestHelpers.CreateUserSuccessTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
-            var job = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
+            var job = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
             var responseData = new ResponseData();
 
-            var (results, _) = await searcher.SearchAggregateAlbum(job, config.Search, responseData, CancellationToken.None);
+            var (results, _) = await searcher.SearchAlbumGroup(job, config.Search, responseData, CancellationToken.None);
 
             // Expected groups:
             // 1. Time Standard (10 tracks, lengths 181..190 - shared by User1, User6)
@@ -1229,19 +1229,19 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public async Task AggregateAlbum_HighEntropy_FiltersByShares()
+        public async Task AlbumGroup_HighEntropy_FiltersByShares()
         {
             var index = CreateSophisticatedIndex();
             var client = new MockSoulseekClient(index);
             var config = TestHelpers.CreateDefaultSettings().Download;
-            config.Search.MinSharesAggregate = 2; // Only return if shared by 2+ peers
+            config.Search.MinGroupShares = 2; // Only return if shared by 2+ peers
 
             var registry = TestHelpers.CreateUserSuccessTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
-            var job = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
+            var job = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
             var responseData = new ResponseData();
 
-            var (results, _) = await searcher.SearchAggregateAlbum(job, config.Search, responseData, CancellationToken.None);
+            var (results, _) = await searcher.SearchAlbumGroup(job, config.Search, responseData, CancellationToken.None);
 
             // Only the "Standard Time" version (shared by User1 and User6) meets the threshold.
             Assert.AreEqual(1, results.Count, "High entropy filter (minShares=2) failed.");
@@ -1249,7 +1249,7 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void AggregateAlbums_AssignsItemNameFromFolderName()
+        public void AlbumGroups_AssignsItemNameFromFolderName()
         {
             var folders = new List<AlbumFolder>
             {
@@ -1257,17 +1257,17 @@ namespace Tests.Unit
             };
 
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            search.MinSharesAggregate = 1;
+            search.MinGroupShares = 1;
             var query = new AlbumQuery { Artist = "ELO", Album = "Time" };
 
             // Check full projector
-            var fullProjected = SearchResultProjector.AggregateAlbums(folders, query, search);
+            var fullProjected = SearchResultProjector.GroupAlbums(folders, query, search);
             Assert.AreEqual(1, fullProjected.Count);
             Assert.AreEqual("Time", fullProjected[0].ItemName, "Full projector should derive the item name from the representative folder path.");
             Assert.AreEqual("Time", fullProjected[0].Query.Album, "Full projector should use the representative folder name as the executable album query.");
 
             // Check incremental projector
-            var incrementalProjector = new IncrementalAlbumAggregateProjector(query, search);
+            var incrementalProjector = new IncrementalAlbumGroupProjector(query, search);
             incrementalProjector.AddRange(folders);
             var incrementalProjected = incrementalProjector.Snapshot();
             Assert.AreEqual(1, incrementalProjected.Count);
@@ -1276,7 +1276,7 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void IncrementalAggregateAlbums_DistinguishesSeparatorBearingIdentityComponents()
+        public void IncrementalAlbumGroups_DistinguishesSeparatorBearingIdentityComponents()
         {
             AlbumFolder[] folders =
             [
@@ -1284,8 +1284,8 @@ namespace Tests.Unit
                 AlbumFolder(@"alpha\beta", "Album", [180]),
             ];
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            search.MinSharesAggregate = 2;
-            var projector = new IncrementalAlbumAggregateProjector(
+            search.MinGroupShares = 2;
+            var projector = new IncrementalAlbumGroupProjector(
                 new AlbumQuery { Album = "Album" }, search);
 
             projector.AddRange(folders);
@@ -1295,9 +1295,9 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void AggregateAlbums_UsesSearchMetadataWithoutMaterializingFiles()
+        public void AlbumGroups_UsesSearchMetadataWithoutMaterializingFiles()
         {
-            List<AlbumFile> ThrowIfMaterialized() => throw new AssertFailedException("AggregateAlbums should not force AlbumFolder.Files when search metadata is available.");
+            List<AlbumFile> ThrowIfMaterialized() => throw new AssertFailedException("AlbumGroups should not force AlbumFolder.Files when search metadata is available.");
 
             var folders = new List<AlbumFolder>
             {
@@ -1317,10 +1317,10 @@ namespace Tests.Unit
                     searchRepresentativeAudioFilename: @"Shared\ELO\Time\02. Twilight.mp3"),
             };
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            search.MinSharesAggregate = 2;
-            search.AggregateLengthTol = 2;
+            search.MinGroupShares = 2;
+            search.GroupLengthTol = 2;
 
-            var results = SearchResultProjector.AggregateAlbums(
+            var results = SearchResultProjector.GroupAlbums(
                 folders,
                 new AlbumQuery { Artist = "ELO", Album = "Time" },
                 search);
@@ -1330,7 +1330,7 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void IncrementalAggregateTracks_MatchesFullAggregateTracks_WhenFedInChunks()
+        public void IncrementalTrackGroups_MatchesFullTrackGroups_WhenFedInChunks()
         {
             var rawResults = new List<(SearchResponse Response, Soulseek.File File)>();
             for (int user = 0; user < 6; user++)
@@ -1342,10 +1342,10 @@ namespace Tests.Unit
 
             var query = new SongQuery { Artist = "ELO", Title = "Blue Sky" };
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            search.MinSharesAggregate = 1;
+            search.MinGroupShares = 1;
             var counts = new ConcurrentDictionary<string, int>();
-            var expected = SearchResultProjector.AggregateTracks(rawResults, query, search, counts);
-            var incremental = new IncrementalAggregateTrackProjector(query, search, counts);
+            var expected = SearchResultProjector.GroupTracks(rawResults, query, search, counts);
+            var incremental = new IncrementalTrackGroupProjector(query, search, counts);
 
             foreach (var chunk in rawResults.Chunk(2))
                 incremental.AddRange(chunk);
@@ -1363,14 +1363,14 @@ namespace Tests.Unit
         [TestMethod]
         [DataRow(false)]
         [DataRow(true)]
-        public void IncrementalAggregateTracks_IgnoredPeersDoNotAbortOtherOptions(bool readView)
+        public void IncrementalTrackGroups_IgnoredPeersDoNotAbortOtherOptions(bool readView)
         {
             var settings = TestHelpers.CreateDefaultSettings().Download.Search;
-            settings.MinSharesAggregate = 2;
-            settings.AggregateLengthTol = -1;
+            settings.MinGroupShares = 2;
+            settings.GroupLengthTol = -1;
             var counts = new ConcurrentDictionary<string, int>();
             counts["ignored-first"] = counts["ignored-second"] = counts["ignored-late"] = settings.IgnoreOn;
-            var projector = new IncrementalAggregateTrackProjector(
+            var projector = new IncrementalTrackGroupProjector(
                 new SongQuery { Artist = "ELO", Title = "Blue Sky" }, settings, counts);
             SearchProjectionInput Input(long sequence, string user, int? length) => new(
                 sequence, 1, user, 1, @"Music\ELO - Blue Sky.mp3", 1000,
@@ -1400,17 +1400,17 @@ namespace Tests.Unit
         [TestMethod]
         [DataRow(false)]
         [DataRow(true)]
-        public void IncrementalAggregateTracks_LateTextMatchKeepsAdmissionTimePeerPenalties(bool readView)
+        public void IncrementalTrackGroups_LateTextMatchKeepsAdmissionTimePeerPenalties(bool readView)
         {
             var settings = new SearchSettings
             {
-                NecessaryCond = new(), PreferredCond = new(), MinSharesAggregate = 2,
+                NecessaryCond = new(), PreferredCond = new(), MinGroupShares = 2,
                 DownrankOn = -1, IgnoreOn = -2,
             };
             var counts = new ConcurrentDictionary<string, int>();
             counts["ignored"] = -2;
             counts["late"] = -1;
-            var projector = new IncrementalAggregateTrackProjector(
+            var projector = new IncrementalTrackGroupProjector(
                 new SongQuery { Artist = "ELO", Title = "Track" }, settings, counts, filterText: "Rare");
             SearchProjectionInput Input(long sequence, string user, string folder, int speed) => new(
                 sequence, 1, user, 1, folder + @"\ELO - Track.flac", 1000,
@@ -1442,13 +1442,13 @@ namespace Tests.Unit
         [TestMethod]
         [DataRow(false)]
         [DataRow(true)]
-        public void IncrementalAggregateTracks_RelaxationChangesVisibilityWithoutChangingTheGroup(bool initiallyRelaxed)
+        public void IncrementalTrackGroups_RelaxationChangesVisibilityWithoutChangingTheGroup(bool initiallyRelaxed)
         {
             var settings = new SearchSettings
             {
-                NecessaryCond = new(), PreferredCond = new(), MinSharesAggregate = 1, Relax = initiallyRelaxed,
+                NecessaryCond = new(), PreferredCond = new(), MinGroupShares = 1, Relax = initiallyRelaxed,
             };
-            var projector = new IncrementalAggregateTrackProjector(
+            var projector = new IncrementalTrackGroupProjector(
                 new SongQuery { Artist = "Expected", Title = "Song" }, settings);
             projector.AddRange([new SearchProjectionInput(1, 1, "Peer", 1,
                 @"Music\Other - Song.mp3", 1000, 320, null, null, 180, ".mp3",
@@ -1463,15 +1463,15 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void IncrementalAggregateTracks_DistinguishesSeparatorBearingIdentityComponents()
+        public void IncrementalTrackGroups_DistinguishesSeparatorBearingIdentityComponents()
         {
             var firstFile = TestHelpers.CreateSlFile(@"beta\Artist - Track.mp3", length: 180);
             var secondFile = TestHelpers.CreateSlFile("Artist - Track.mp3", length: 180);
             var first = new SearchResponse("alpha", 1, true, 1000, 0, [firstFile]);
             var second = new SearchResponse(@"alpha\beta", 1, true, 1000, 0, [secondFile]);
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            search.MinSharesAggregate = 1;
-            var incremental = new IncrementalAggregateTrackProjector(
+            search.MinGroupShares = 1;
+            var incremental = new IncrementalTrackGroupProjector(
                 new SongQuery { Artist = "Artist", Title = "Track" }, search);
 
             incremental.AddRange([(first, firstFile), (second, secondFile)]);
@@ -1480,7 +1480,7 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void IncrementalAggregateTracks_AppliesNecessaryFiltersLikeFullAggregateTracks()
+        public void IncrementalTrackGroups_AppliesNecessaryFiltersLikeFullTrackGroups()
         {
             var flac = TestHelpers.CreateSlFile(@"Music\ELO - Blue Sky.flac", length: 180);
             var mp3 = TestHelpers.CreateSlFile(@"Music\ELO - Blue Sky.mp3", length: 180);
@@ -1497,13 +1497,13 @@ namespace Tests.Unit
 
             var query = new SongQuery { Artist = "ELO", Title = "Blue Sky" };
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            search.MinSharesAggregate = 1;
+            search.MinGroupShares = 1;
             search.NecessaryCond.Formats = ["flac"];
             search.NecessaryCond.BannedUsers = ["BannedUser"];
             var counts = new ConcurrentDictionary<string, int>();
 
-            var expected = SearchResultProjector.AggregateTracks(rawResults, query, search, counts);
-            var incremental = new IncrementalAggregateTrackProjector(query, search, counts);
+            var expected = SearchResultProjector.GroupTracks(rawResults, query, search, counts);
+            var incremental = new IncrementalTrackGroupProjector(query, search, counts);
             incremental.AddRange(rawResults);
             var actual = incremental.Snapshot();
 
@@ -1516,7 +1516,7 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void AggregateTracks_DoesNotSortBucketByStrictArtist()
+        public void TrackGroups_DoesNotSortBucketByStrictArtist()
         {
             var artistMatch = TestHelpers.CreateSlFile(@"Music\Right Artist\Track.mp3", length: 200);
             var titleOnly = TestHelpers.CreateSlFile(@"Music\Other Artist\Track.mp3", length: 200);
@@ -1524,23 +1524,23 @@ namespace Tests.Unit
             var titleOnlyResponse = new SearchResponse("title-only", 1, true, 800 * 1024, 0, [titleOnly]);
 
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            search.MinSharesAggregate = 1;
+            search.MinGroupShares = 1;
             search.PreferredCond.StrictArtist = true;
             var counts = new ConcurrentDictionary<string, int>();
             var query = new SongQuery { Artist = "Right Artist", Title = "Track" };
 
-            var aggregate = SearchResultProjector.AggregateTracks(
+            var group = SearchResultProjector.GroupTracks(
                 [(artistResponse, artistMatch), (titleOnlyResponse, titleOnly)],
                 query,
                 search,
                 counts);
 
-            Assert.AreEqual(1, aggregate.Count);
-            Assert.AreEqual("title-only", aggregate[0].Candidates![0].Username);
+            Assert.AreEqual(1, group.Count);
+            Assert.AreEqual("title-only", group[0].Candidates![0].Username);
         }
 
         [TestMethod]
-        public void IncrementalAlbumAggregate_MatchesFullAggregate_WhenFedInChunks()
+        public void IncrementalAlbumGroups_MatchesFullGroup_WhenFedInChunks()
         {
             var folders = new List<AlbumFolder>
             {
@@ -1551,9 +1551,9 @@ namespace Tests.Unit
             };
             var query = new AlbumQuery { Artist = "ELO", Album = "Time" };
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            search.MinSharesAggregate = 1;
-            var expected = SearchResultProjector.AggregateAlbums(folders, query, search);
-            var incremental = new IncrementalAlbumAggregateProjector(query, search);
+            search.MinGroupShares = 1;
+            var expected = SearchResultProjector.GroupAlbums(folders, query, search);
+            var incremental = new IncrementalAlbumGroupProjector(query, search);
 
             foreach (var chunk in folders.Chunk(2))
                 incremental.AddRange(chunk);
@@ -1572,14 +1572,14 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void IncrementalAlbumAggregate_SortsEachBucketByAlbumSort()
+        public void IncrementalAlbumGroups_SortsEachBucketByAlbumSort()
         {
             var query = new AlbumQuery { Artist = "ELO", Album = "Time" };
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            search.MinSharesAggregate = 1;
+            search.MinGroupShares = 1;
             search.PreferredCond.Formats = ["flac"];
             var folderProjector = new IncrementalAlbumFolderProjector(query, search);
-            var aggregateProjector = new IncrementalAlbumAggregateProjector(query, search);
+            var groupProjector = new IncrementalAlbumGroupProjector(query, search);
 
             var responses = new[]
             {
@@ -1593,17 +1593,17 @@ namespace Tests.Unit
             {
                 var changes = folderProjector.AddRangeAndGetChanges(
                     response.Files.Select(file => (response, file)));
-                aggregateProjector.ApplyChanges(changes);
+                groupProjector.ApplyChanges(changes);
             }
 
             var albumFolders = folderProjector.Snapshot();
-            var aggregateBuckets = aggregateProjector.Snapshot();
+            var groupBuckets = groupProjector.Snapshot();
 
             AssertAlbumSortRanksLaterFlacAheadOfEarlierOpus(albumFolders);
-            Assert.AreEqual(2, aggregateBuckets.Count);
-            foreach (var bucket in aggregateBuckets)
+            Assert.AreEqual(2, groupBuckets.Count);
+            foreach (var bucket in groupBuckets)
                 Assert.AreEqual(2, bucket.Results.Count);
-            AssertBucketsSortedByAlbumSort(aggregateBuckets, albumFolders);
+            AssertBucketsSortedByAlbumSort(groupBuckets, albumFolders);
 
             static SearchResponse AlbumSearchResponse(
                 string username,
@@ -1657,7 +1657,7 @@ namespace Tests.Unit
                     CollectionAssert.AreEqual(
                         expected,
                         actual,
-                        $"Aggregate bucket '{bucket.ItemName}' should be sorted by the normal album-folder ranking.");
+                        $"Album group '{bucket.ItemName}' should be sorted by the normal album-folder ranking.");
                 }
             }
 
@@ -1666,41 +1666,41 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void IncrementalAlbumAggregate_AncillaryUpdateTouchesOnlyItsExistingGroup()
+        public void IncrementalAlbumGroups_AncillaryUpdateTouchesOnlyItsExistingGroup()
         {
             var query = new AlbumQuery { Artist = "ELO", Album = "Time" };
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            search.MinSharesAggregate = 1;
+            search.MinGroupShares = 1;
             var folders = new IncrementalAlbumFolderProjector(
                 query, search,
                 ignoreStringSortConditions: true,
                 sortMode: FolderSortMode.DeterministicUnranked);
-            var aggregate = new IncrementalAlbumAggregateProjector(query, search);
+            var group = new IncrementalAlbumGroupProjector(query, search);
             Soulseek.File first = TestHelpers.CreateSlFile(
                 @"ELO\Time A\01. Twilight.flac", length: 209);
             Soulseek.File second = TestHelpers.CreateSlFile(
                 @"ELO\Time B\01. Prologue.flac", length: 300);
             var firstResponse = new SearchResponse("a-peer", 1, true, 1000, 0, [first]);
             var secondResponse = new SearchResponse("b-peer", 1, true, 1000, 0, [second]);
-            aggregate.ApplyChangesForSearchView(folders.AddRangeAndGetChanges(
+            group.ApplyChangesForSearchView(folders.AddRangeAndGetChanges(
                 [(firstResponse, first), (secondResponse, second)]));
-            Assert.AreEqual(2, aggregate.SnapshotForSearchView().Count);
+            Assert.AreEqual(2, group.SnapshotForSearchView().Count);
 
             Soulseek.File artwork = TestHelpers.CreateSlFile(@"ELO\Time A\cover.jpg");
             var artworkResponse = new SearchResponse("a-peer", 1, true, 1000, 0, [artwork]);
             AlbumFolderProjectionChanges change = folders.AddRangeAndGetChanges(
                 [(artworkResponse, artwork)]);
             Assert.AreEqual(1, change.Updated.Count);
-            AlbumAggregateSearchViewChanges affected = aggregate.ApplyChangesForSearchView(change);
+            AlbumGroupsSearchViewChanges affected = group.ApplyChangesForSearchView(change);
 
             CollectionAssert.AreEqual(new[] { 0 }, affected.AffectedGroupIndexes.ToArray());
-            IReadOnlyList<SearchViewProjectedAggregateAlbumGroup> groups =
-                aggregate.SnapshotForSearchView();
+            IReadOnlyList<SearchViewProjectedAlbumGroup> groups =
+                group.SnapshotForSearchView();
             Assert.AreEqual(2, groups.Count);
             Assert.AreEqual(2, groups[0].Representative.Files.Count);
             Assert.AreEqual(1, groups[1].Representative.Files.Count);
 
-            var rebuilt = new IncrementalAlbumAggregateProjector(query, search);
+            var rebuilt = new IncrementalAlbumGroupProjector(query, search);
             rebuilt.Reset(change.Folders);
             CollectionAssert.AreEqual(
                 rebuilt.SnapshotForSearchView().Select(group =>
@@ -1712,11 +1712,11 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void AlbumAggregate_RealProjection_RanksBucketByFormatButNotStrictAlbum()
+        public void AlbumGroups_RealProjection_RanksBucketByFormatButNotStrictAlbum()
         {
             var query = new AlbumQuery { Artist = "ELO", Album = "Time" };
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            search.MinSharesAggregate = 1;
+            search.MinGroupShares = 1;
             search.PreferredCond.Formats = ["flac"];
             search.PreferredCond.StrictAlbum = true;
             var job = new SearchJob(query);
@@ -1727,11 +1727,11 @@ namespace Tests.Unit
             job.Session.AddResponse(opusStrictAlbum);
             job.Session.AddResponse(flacOtherAlbum);
 
-            var buckets = job.GetAggregateAlbums(search).Items;
+            var buckets = job.GetAlbumGroups(search).Items;
 
             Assert.AreEqual(1, buckets.Count);
             Assert.AreEqual("ZFlacOtherUser", buckets[0].Results[0].Username,
-                "The real album-aggregate projection should honor non-string preferences within a bucket while ignoring strict string ranking.");
+                "The real album-groups projection should honor non-string preferences within a bucket while ignoring strict string ranking.");
 
             static SearchResponse AlbumSearchResponse(
                 string username,
@@ -1754,7 +1754,7 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void IncrementalAlbumAggregate_DoesNotMergeSingleTrackAlbumsByLengthOnly()
+        public void IncrementalAlbumGroups_DoesNotMergeSingleTrackAlbumsByLengthOnly()
         {
             var folders = new List<AlbumFolder>
             {
@@ -1763,8 +1763,8 @@ namespace Tests.Unit
             };
             var query = new AlbumQuery { Artist = "ELO" };
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            search.MinSharesAggregate = 1;
-            var incremental = new IncrementalAlbumAggregateProjector(query, search);
+            search.MinGroupShares = 1;
+            var incremental = new IncrementalAlbumGroupProjector(query, search);
 
             incremental.AddRange(folders);
             var actual = incremental.Snapshot();
@@ -1773,23 +1773,23 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public void IncrementalAlbumAggregate_AppliesFolderUpdatesConservatively()
+        public void IncrementalAlbumGroups_AppliesFolderUpdatesConservatively()
         {
             var track1 = TestHelpers.CreateSlFile(@"ELO\Time\01. Twilight.flac", length: 209);
             var track2 = TestHelpers.CreateSlFile(@"ELO\Time\02. Yours Truly.flac", length: 200);
             var response = new SearchResponse("User1", 1, true, 1000, 0, [track1, track2]);
             var query = new AlbumQuery { Artist = "ELO", Album = "Time" };
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            search.MinSharesAggregate = 1;
+            search.MinGroupShares = 1;
             var folderProjector = new IncrementalAlbumFolderProjector(query, search);
-            var aggregateProjector = new IncrementalAlbumAggregateProjector(query, search);
+            var groupProjector = new IncrementalAlbumGroupProjector(query, search);
 
-            aggregateProjector.ApplyChanges(folderProjector.AddRangeAndGetChanges([(response, track1)]));
+            groupProjector.ApplyChanges(folderProjector.AddRangeAndGetChanges([(response, track1)]));
             var changes = folderProjector.AddRangeAndGetChanges([(response, track2)]);
-            aggregateProjector.ApplyChanges(changes);
+            groupProjector.ApplyChanges(changes);
 
-            var expected = SearchResultProjector.AggregateAlbums(changes.Folders, query, search);
-            var actual = aggregateProjector.Snapshot();
+            var expected = SearchResultProjector.GroupAlbums(changes.Folders, query, search);
+            var actual = groupProjector.Snapshot();
 
             Assert.AreEqual(expected.Count, actual.Count);
             Assert.AreEqual(2, actual[0].Results[0].SearchAudioFileCount);
@@ -1803,13 +1803,13 @@ namespace Tests.Unit
             => new(
                 username,
                 folderPath,
-                () => throw new AssertFailedException("Test aggregate should not materialize album files."),
+                () => throw new AssertFailedException("Test group should not materialize album files."),
                 searchAudioFileCount: lengths.Length,
                 searchSortedAudioLengths: lengths,
                 searchRepresentativeAudioFilename: representativeFilename ?? $@"{folderPath}\01. Track.mp3");
 
         [TestMethod]
-        public async Task SongAggregate_Comprehensive_GroupsEquivalentTracks()
+        public async Task SongGroup_Comprehensive_GroupsEquivalentTracks()
         {
             var index = new List<SearchResponse>();
             
@@ -1828,14 +1828,14 @@ namespace Tests.Unit
 
             var client = new MockSoulseekClient(index);
             var config = TestHelpers.CreateDefaultSettings().Download;
-            config.Search.MinSharesAggregate = 1;
+            config.Search.MinGroupShares = 1;
 
             var registry = TestHelpers.CreateUserSuccessTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
-            var job = new AggregateJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
+            var job = new SongGroupsJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
             var responseData = new ResponseData();
 
-            await searcher.SearchAggregate(job, config.Search, responseData, CancellationToken.None);
+            await searcher.SearchGroup(job, config.Search, responseData, CancellationToken.None);
 
             // Verified groups: 
             // 1. "Blue Sky" group (User1, User2)
@@ -1843,10 +1843,10 @@ namespace Tests.Unit
             var songs = job.Songs!;
             Assert.AreEqual(2, songs.Count);
             var shared = songs.FirstOrDefault(s => s.Candidates!.Count == 2);
-            Assert.IsNotNull(shared, "Failed to aggregate shared track version across users.");
+            Assert.IsNotNull(shared, "Failed to group shared track version across users.");
         }
         [TestMethod]
-        public async Task SongAggregate_NameVariations_GroupedByInference()
+        public async Task SongGroup_NameVariations_GroupedByInference()
         {
             var index = new List<SearchResponse>();
             
@@ -1863,14 +1863,14 @@ namespace Tests.Unit
 
             var client = CreateMockClient(index);
             var config = TestHelpers.CreateDefaultSettings().Download;
-            config.Search.MinSharesAggregate = 1;
+            config.Search.MinGroupShares = 1;
 
             var registry = TestHelpers.CreateUserSuccessTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
-            var job = new AggregateJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
+            var job = new SongGroupsJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
             var responseData = new ResponseData();
 
-            await searcher.SearchAggregate(job, config.Search, responseData, CancellationToken.None);
+            await searcher.SearchGroup(job, config.Search, responseData, CancellationToken.None);
 
             // Should all three group into one job after inference handles the name variations.
             var songs = job.Songs!;
@@ -1878,7 +1878,7 @@ namespace Tests.Unit
             Assert.AreEqual(3, songs.Single().Candidates!.Count);
         }
         [TestMethod]
-        public async Task SearchAggregate_ResultsSortedByPopularity()
+        public async Task SearchGroup_ResultsSortedByPopularity()
         {
             var index = new List<SearchResponse>();
             
@@ -1895,14 +1895,14 @@ namespace Tests.Unit
 
             var client = CreateMockClient(index);
             var config = TestHelpers.CreateDefaultSettings().Download;
-            config.Search.MinSharesAggregate = 1;
+            config.Search.MinGroupShares = 1;
 
             var registry = TestHelpers.CreateUserSuccessTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
-            var job = new AggregateJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
+            var job = new SongGroupsJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
             var responseData = new ResponseData();
 
-            await searcher.SearchAggregate(job, config.Search, responseData, CancellationToken.None);
+            await searcher.SearchGroup(job, config.Search, responseData, CancellationToken.None);
 
             // Version A has more shares (3) so it should be first, even though bitrate is lower.
             var songs = job.Songs!;
@@ -1912,7 +1912,7 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public async Task AggregateAlbum_ResultsSortedByPopularity()
+        public async Task AlbumGroup_ResultsSortedByPopularity()
         {
             var index = new List<SearchResponse>();
             
@@ -1929,14 +1929,14 @@ namespace Tests.Unit
 
             var client = CreateMockClient(index);
             var config = TestHelpers.CreateDefaultSettings().Download;
-            config.Search.MinSharesAggregate = 1;
+            config.Search.MinGroupShares = 1;
 
             var registry = TestHelpers.CreateUserSuccessTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
-            var job = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
+            var job = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
             var responseData = new ResponseData();
 
-            var (results, _) = await searcher.SearchAggregateAlbum(job, config.Search, responseData, CancellationToken.None);
+            var (results, _) = await searcher.SearchAlbumGroup(job, config.Search, responseData, CancellationToken.None);
 
             // First result should be the one with 2 shares.
             Assert.AreEqual(2, results.Count);
@@ -1945,7 +1945,7 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public async Task AggregateAlbum_SingleTrackAlbumsWithDifferentTitles_DoNotMergeByLengthOnly()
+        public async Task AlbumGroup_SingleTrackAlbumsWithDifferentTitles_DoNotMergeByLengthOnly()
         {
             var index = new List<SearchResponse>
             {
@@ -1961,14 +1961,14 @@ namespace Tests.Unit
 
             var client = CreateMockClient(index);
             var config = TestHelpers.CreateDefaultSettings().Download;
-            config.Search.MinSharesAggregate = 1;
+            config.Search.MinGroupShares = 1;
 
             var registry = TestHelpers.CreateUserSuccessTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
-            var job = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
+            var job = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
             var responseData = new ResponseData();
 
-            var (results, _) = await searcher.SearchAggregateAlbum(job, config.Search, responseData, CancellationToken.None);
+            var (results, _) = await searcher.SearchAlbumGroup(job, config.Search, responseData, CancellationToken.None);
 
             Assert.AreEqual(2, results.Count, "Single-track album versions should not merge just because lengths match.");
             Assert.IsTrue(results.Any(r => r.Results[0].Files.Any(f => f.Query.Title.Contains("Blue Sky"))));

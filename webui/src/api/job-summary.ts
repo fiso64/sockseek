@@ -32,7 +32,7 @@ export function jobStateSummary(job: JobStateDto): JobSummaryDto {
     role: job.display.role,
     createdAtUtc: job.display.createdAtUtc,
     searchDefaultProjection: job.display.searchDefaultProjection,
-    searchAggregatePresentation: job.display.searchAggregatePresentation,
+    searchGroupResults: job.display.searchGroupResults,
     stats: job.stats,
     sourceDetail: job.display.sourceDetail,
   };

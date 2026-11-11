@@ -12,7 +12,7 @@
     type SearchConfigTab as ConfigTab,
   } from '../domains/search/config-schema';
   import type { SearchModeFamily, SearchResultMode } from '../domains/search/model';
-  import { isAggregateSearchMode, searchModeFamily } from '../domains/search/model';
+  import { isGroupSearchMode, searchModeFamily } from '../domains/search/model';
   import SearchFormatControl from './SearchFormatControl.svelte';
 
 
@@ -44,7 +44,7 @@
 
   let family = $derived(configurationFamily ?? searchModeFamily(mode));
   let genericMode = $derived(family === 'generic');
-  let aggregateMode = $derived(isAggregateSearchMode(mode));
+  let groupMode = $derived(isGroupSearchMode(mode));
   let activeTab = $state<PanelTab>('conditions');
   $effect(() => { activeTab = section ?? initialTab; });
   let requiredTrackTitle = $state('');
@@ -222,12 +222,12 @@
           </section>
         {/if}
 
-        {#if aggregateMode}
+        {#if groupMode}
           <section class="search-config-section">
-            <h3>Aggregate grouping</h3>
+            <h3>Grouping</h3>
             <div class="config-grid">
-              <label><span>Minimum sharers</span><input type="number" min="1" step="1" bind:value={conditions.aggregate.minShares} /></label>
-              <label><span>Grouping tolerance <small>sec</small></span><input type="number" min="0" step="1" bind:value={conditions.aggregate.lengthTolerance} /></label>
+              <label><span>Minimum sharers</span><input type="number" min="1" step="1" bind:value={conditions.group.minShares} /></label>
+              <label><span>Grouping tolerance <small>sec</small></span><input type="number" min="0" step="1" bind:value={conditions.group.lengthTolerance} /></label>
             </div>
             <p class="download-option-note">Groups must have at least this many distinct sharers; tolerance controls near-length grouping.</p>
           </section>

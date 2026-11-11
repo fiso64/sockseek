@@ -369,7 +369,7 @@ sealed class ReadMetrics : IObserver<DiagnosticListener>, IObserver<KeyValuePair
     }
 
     // An interval includes other concurrent database callers too; these are
-    // aggregate diagnostic costs, not an exact per-writer attribution.
+    // group diagnostic costs, not an exact per-writer attribution.
     public string TakeDatabaseInterval()
         => $"db-interval-ef-sql-ms={TimeSpan.FromTicks(Interlocked.Exchange(ref intervalSqlTicks, 0)).TotalMilliseconds:F1} "
             + $"db-interval-commit-ms={TimeSpan.FromTicks(Interlocked.Exchange(ref intervalCommitTicks, 0)).TotalMilliseconds:F1} "

@@ -404,7 +404,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             sensitiveOutput ?? NullSensitiveOutput.Instance);
         _orchestrator = new JobOrchestrator(
             _executionContext,
-            child => _manualSelections!.TryFinalizeClosedAggregateSelectionForChildAsync(child));
+            child => _manualSelections!.TryFinalizeClosedGroupSelectionForChildAsync(child));
         _manualSelections = new ManualSelectionCoordinator(
             GetJob,
             _contexts,

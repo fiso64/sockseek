@@ -295,16 +295,16 @@ public class OpenApiContractTests
         JsonElement schemas = document.RootElement
             .GetProperty("components")
             .GetProperty("schemas");
-        JsonElement albumAggregateProperties = schemas.EnumerateObject()
-            .Single(schema => schema.Name.EndsWith(nameof(AlbumAggregateJobPayloadDto), StringComparison.Ordinal))
+        JsonElement albumGroupsProperties = schemas.EnumerateObject()
+            .Single(schema => schema.Name.EndsWith(nameof(AlbumGroupsJobPayloadDto), StringComparison.Ordinal))
             .Value.GetProperty("properties");
         foreach (string property in new[] { "completedAlbumCount", "succeededAlbumCount", "failedAlbumCount" })
-            Assert.IsTrue(albumAggregateProperties.TryGetProperty(property, out _),
-                $"Album-aggregate payload schema is missing {property}.");
+            Assert.IsTrue(albumGroupsProperties.TryGetProperty(property, out _),
+                $"Album-group payload schema is missing {property}.");
         foreach (var (payload, outcomeFields) in new[]
         {
-            (nameof(AlbumAggregateJobPayloadDto), new[] { "completedAlbumCount", "succeededAlbumCount", "failedAlbumCount" }),
-            (nameof(AggregateJobPayloadDto), new[] { "completedSongCount", "succeededSongCount", "failedSongCount" }),
+            (nameof(AlbumGroupsJobPayloadDto), new[] { "completedAlbumCount", "succeededAlbumCount", "failedAlbumCount" }),
+            (nameof(SongGroupsJobPayloadDto), new[] { "completedSongCount", "succeededSongCount", "failedSongCount" }),
             (nameof(JobListPayloadDto), new[] { "activeJobCount", "completedJobCount", "succeededJobCount", "failedJobCount" }),
         })
         {
@@ -461,10 +461,10 @@ public class OpenApiContractTests
             "/api/jobs/{jobId}/results/files/project",
             "/api/jobs/{jobId}/results/folders",
             "/api/jobs/{jobId}/results/folders/project",
-            "/api/jobs/{jobId}/results/aggregate-tracks",
-            "/api/jobs/{jobId}/results/aggregate-tracks/project",
-            "/api/jobs/{jobId}/results/aggregate-albums",
-            "/api/jobs/{jobId}/results/aggregate-albums/project",
+            "/api/jobs/{jobId}/results/track-groups",
+            "/api/jobs/{jobId}/results/track-groups/project",
+            "/api/jobs/{jobId}/results/album-groups",
+            "/api/jobs/{jobId}/results/album-groups/project",
         })
         {
             Assert.IsFalse(document.RootElement

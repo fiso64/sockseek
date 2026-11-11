@@ -22,12 +22,12 @@ public sealed class SearchViewCacheTests
     [TestMethod]
     [DataRow(SearchViewProjectionKind.GenericDirectories)]
     [DataRow(SearchViewProjectionKind.AlbumDirectories)]
-    [DataRow(SearchViewProjectionKind.AggregateAlbums)]
+    [DataRow(SearchViewProjectionKind.AlbumGroups)]
     public void LateLockedMemberChangesFolderRankWithoutChangingFileFactsOrOldPages(SearchViewProjectionKind kind)
     {
         var store = new SearchViewCache();
         var view = store.Create(Guid.NewGuid(), Definition(kind));
-        var settings = new SearchSettings { NecessaryCond = new(), PreferredCond = new() { ExcludeLocked = true }, NecessaryFolderCond = new(), MinSharesAggregate = 1 };
+        var settings = new SearchSettings { NecessaryCond = new(), PreferredCond = new() { ExcludeLocked = true }, NecessaryFolderCond = new(), MinGroupShares = 1 };
         var definition = new SearchViewProjectionDefinition(kind, new SongQuery { Artist = "Artist", Title = "Track" },
             new AlbumQuery { Artist = "Artist", Album = "Album" });
         var kernel = new SearchViewKernel(definition, settings);
@@ -40,8 +40,8 @@ public sealed class SearchViewCacheTests
         view = store.Publish(view.Id, kernel.Apply(inputs[..2], 2, false), "Live");
         var original = store.GetSnapshot(view.Id, view.Revision, default)!;
         Assert.AreEqual("Fast", original.GetDirectories(null, 100).Items[0].Username);
-        string? group = kind == SearchViewProjectionKind.AggregateAlbums ? original.GetAggregateAlbums(null, 100).Items.Single().Ref : null;
-        if (group != null) Assert.AreEqual("Fast", original.GetAggregateAlbumOptions(group, null, 100)!.Items[0].Username);
+        string? group = kind == SearchViewProjectionKind.AlbumGroups ? original.GetAlbumGroups(null, 100).Items.Single().Ref : null;
+        if (group != null) Assert.AreEqual("Fast", original.GetAlbumGroupOptions(group, null, 100)!.Items[0].Username);
         view = store.Publish(view.Id, kernel.Apply(inputs[2..], 3, true), "Complete");
         var current = store.GetSnapshot(view.Id, view.Revision, default)!;
         var folders = current.GetDirectories(null, 100).Items;
@@ -52,8 +52,8 @@ public sealed class SearchViewCacheTests
         Assert.AreEqual("Fast", original.GetDirectories(null, 100).Items[0].Username);
         if (group != null)
         {
-            Assert.AreEqual("Slow", current.GetAggregateAlbumOptions(group, null, 100)!.Items[0].Username);
-            Assert.AreEqual("Fast", original.GetAggregateAlbumOptions(group, null, 100)!.Items[0].Username);
+            Assert.AreEqual("Slow", current.GetAlbumGroupOptions(group, null, 100)!.Items[0].Username);
+            Assert.AreEqual("Fast", original.GetAlbumGroupOptions(group, null, 100)!.Items[0].Username);
         }
         var rebuilt = new SearchViewKernel(definition, settings).Apply(inputs, 3, true);
         Assert.AreEqual(view.Counters, rebuilt.Counters);
@@ -77,14 +77,14 @@ public sealed class SearchViewCacheTests
     [TestMethod]
     [DataRow(SearchViewProjectionKind.GenericDirectories)]
     [DataRow(SearchViewProjectionKind.AlbumDirectories)]
-    [DataRow(SearchViewProjectionKind.AggregateAlbums)]
+    [DataRow(SearchViewProjectionKind.AlbumGroups)]
     public void DirectorySnapshotsPreserveRevisionsRetrievalsAndOptions(SearchViewProjectionKind kind)
     {
         var store = new SearchViewCache();
 
         store.Create(Guid.NewGuid(), Definition(kind));
         var view = store.Create(Guid.NewGuid(), Definition(kind));
-        var settings = new SearchSettings { NecessaryCond = new(), PreferredCond = new(), NecessaryFolderCond = new(), MinSharesAggregate = 1 };
+        var settings = new SearchSettings { NecessaryCond = new(), PreferredCond = new(), NecessaryFolderCond = new(), MinGroupShares = 1 };
         var query = new SongQuery { Artist = "ELO", Title = "Track" };
         var kernel = new SearchViewKernel(new SearchViewProjectionDefinition(kind, query,
             new AlbumQuery { Artist = "ELO", Album = "Time" }, IncludeFullResults: true), settings);
@@ -114,12 +114,12 @@ public sealed class SearchViewCacheTests
                 var children = new List<SearchViewDirectoryFilePage>();
                 foreach (var item in folders.Items)
                     children.Add((store.GetSnapshot(view.Id, revision, default)?.GetDirectoryFiles(item.Ref, null, 500))!);
-                var albums = kind == SearchViewProjectionKind.AggregateAlbums
-                    ? store.GetSnapshot(view.Id, revision, default)?.GetAggregateAlbums(null, 100, initialFileLimit: 24) : null;
-                var options = new List<SearchViewAggregateAlbumOptionPage>();
+                var albums = kind == SearchViewProjectionKind.AlbumGroups
+                    ? store.GetSnapshot(view.Id, revision, default)?.GetAlbumGroups(null, 100, initialFileLimit: 24) : null;
+                var options = new List<SearchViewAlbumGroupOptionPage>();
                 if (albums != null)
                     foreach (var album in albums.Items)
-                        options.Add((store.GetSnapshot(view.Id, revision, default)?.GetAggregateAlbumOptions(album.Ref, null, 100, initialFileLimit: 24))!);
+                        options.Add((store.GetSnapshot(view.Id, revision, default)?.GetAlbumGroupOptions(album.Ref, null, 100, initialFileLimit: 24))!);
                 result.Add(JsonSerializer.Serialize(new { Folders = folders, Children = children, Albums = albums, Options = options }));
             }
             result.Add(JsonSerializer.Serialize(store.GetDirectoryObservation(view.SourceJobId, snapshot.Identity)));
@@ -411,7 +411,7 @@ public sealed class SearchViewCacheTests
     }
 
     [TestMethod]
-    public void AggregateRefsAndOptionsRemainStableAcrossViews()
+    public void GroupRefsAndOptionsRemainStableAcrossViews()
     {
         var store = new SearchViewCache();
 
@@ -422,25 +422,25 @@ public sealed class SearchViewCacheTests
             NecessaryCond = new FileConditions(),
             PreferredCond = new FileConditions(),
             NecessaryFolderCond = new FolderConditions(),
-            MinSharesAggregate = 1,
+            MinGroupShares = 1,
             Relax = true,
         };
         SearchViewKernelUpdate trackUpdate = new SearchViewKernel(
             new SearchViewProjectionDefinition(
-                SearchViewProjectionKind.AggregateTracks,
+                SearchViewProjectionKind.TrackGroups,
                 new SongQuery { Artist = "ELO" }),
             settings).Apply(
             [Input(1, "Peer", @"ELO - Track.flac", 900)], 1, false);
         SearchViewKernelUpdate albumUpdate = new SearchViewKernel(
             new SearchViewProjectionDefinition(
-                SearchViewProjectionKind.AggregateAlbums,
+                SearchViewProjectionKind.AlbumGroups,
                 AlbumQuery: new AlbumQuery { Artist = "ELO", Album = "Time" }),
             settings).Apply(
             [Input(1, "Peer", @"ELO\Time\01. Track.flac", 900)], 1, false);
         foreach (var (kind, update) in new[]
         {
-            (SearchViewProjectionKind.AggregateTracks, trackUpdate),
-            (SearchViewProjectionKind.AggregateAlbums, albumUpdate),
+            (SearchViewProjectionKind.TrackGroups, trackUpdate),
+            (SearchViewProjectionKind.AlbumGroups, albumUpdate),
         })
         {
             // Each mode's fixture describes a different raw search response.
@@ -449,26 +449,26 @@ public sealed class SearchViewCacheTests
             SearchViewInfo second = store.Create(source, Definition(kind));
             first = store.Publish(first.Id, update, "Live");
             second = store.Publish(second.Id, update, "Live");
-            string firstRef = kind == SearchViewProjectionKind.AggregateTracks
-                ? (store.GetSnapshot(first.Id, first.Revision, default)?.GetAggregateTracks(null, 10))!.Items.Single().Ref
-                : (store.GetSnapshot(first.Id, first.Revision, default)?.GetAggregateAlbums(null, 10))!.Items.Single().Ref;
-            string secondRef = kind == SearchViewProjectionKind.AggregateTracks
-                ? (store.GetSnapshot(second.Id, second.Revision, default)?.GetAggregateTracks(null, 10))!.Items.Single().Ref
-                : (store.GetSnapshot(second.Id, second.Revision, default)?.GetAggregateAlbums(null, 10))!.Items.Single().Ref;
+            string firstRef = kind == SearchViewProjectionKind.TrackGroups
+                ? (store.GetSnapshot(first.Id, first.Revision, default)?.GetTrackGroups(null, 10))!.Items.Single().Ref
+                : (store.GetSnapshot(first.Id, first.Revision, default)?.GetAlbumGroups(null, 10))!.Items.Single().Ref;
+            string secondRef = kind == SearchViewProjectionKind.TrackGroups
+                ? (store.GetSnapshot(second.Id, second.Revision, default)?.GetTrackGroups(null, 10))!.Items.Single().Ref
+                : (store.GetSnapshot(second.Id, second.Revision, default)?.GetAlbumGroups(null, 10))!.Items.Single().Ref;
             Assert.AreEqual(firstRef, secondRef, kind.ToString());
             retainedViews.AddRange([first, second]);
         }
         string ReadSnapshot(SearchViewInfo view)
         {
-            if (view.ProjectionKind == SearchViewProjectionKind.AggregateTracks)
+            if (view.ProjectionKind == SearchViewProjectionKind.TrackGroups)
             {
-                var page = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTracks(null, 100))!;
+                var page = (store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroups(null, 100))!;
                 return JsonSerializer.Serialize(new { Page = page,
-                    Options = store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTrackOptions(page.Items.Single().Ref, null, 500) });
+                    Options = store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroupOptions(page.Items.Single().Ref, null, 500) });
             }
-            var albums = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbums(null, 100, initialFileLimit: 24))!;
+            var albums = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroups(null, 100, initialFileLimit: 24))!;
             return JsonSerializer.Serialize(new { Page = albums,
-                Options = store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbumOptions(albums.Items.Single().Ref, null, 100, initialFileLimit: 24) });
+                Options = store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroupOptions(albums.Items.Single().Ref, null, 100, initialFileLimit: 24) });
         }
         foreach (var retainedView in retainedViews)
             Assert.IsNotNull(ReadSnapshot(retainedView));
@@ -702,38 +702,38 @@ public sealed class SearchViewCacheTests
     [DataRow(SearchViewProjectionKind.Files, "root")]
     [DataRow(SearchViewProjectionKind.GenericDirectories, "root")]
     [DataRow(SearchViewProjectionKind.AlbumDirectories, "root")]
-    [DataRow(SearchViewProjectionKind.AggregateTracks, "root")]
-    [DataRow(SearchViewProjectionKind.AggregateAlbums, "root")]
+    [DataRow(SearchViewProjectionKind.TrackGroups, "root")]
+    [DataRow(SearchViewProjectionKind.AlbumGroups, "root")]
     [DataRow(SearchViewProjectionKind.GenericDirectories, "children")]
-    [DataRow(SearchViewProjectionKind.AggregateTracks, "options")]
-    [DataRow(SearchViewProjectionKind.AggregateAlbums, "options")]
-    [DataRow(SearchViewProjectionKind.AggregateAlbums, "chosen")]
+    [DataRow(SearchViewProjectionKind.TrackGroups, "options")]
+    [DataRow(SearchViewProjectionKind.AlbumGroups, "options")]
+    [DataRow(SearchViewProjectionKind.AlbumGroups, "chosen")]
     public void PruningDuringAReadCannotReturnEmptyRowsWithNonemptyCounters(
         SearchViewProjectionKind kind, string read)
     {
         var clock = new MutableTimeProvider(DateTimeOffset.Parse("2026-08-30T00:00:00Z"));
         var store = new SearchViewCache(clock);
 
-        var projection = kind is SearchViewProjectionKind.AlbumDirectories or SearchViewProjectionKind.AggregateAlbums
+        var projection = kind is SearchViewProjectionKind.AlbumDirectories or SearchViewProjectionKind.AlbumGroups
             ? new SearchViewProjectionDefinition(kind, AlbumQuery: new AlbumQuery { Artist = "Artist", Album = "Album" })
             : new SearchViewProjectionDefinition(kind, new SongQuery { Artist = "Artist", Title = "Track" });
         var kernel = new SearchViewKernel(projection, new SearchSettings
         {
             NecessaryCond = new FileConditions(), PreferredCond = new FileConditions(),
-            NecessaryFolderCond = new FolderConditions(), MinSharesAggregate = 1,
+            NecessaryFolderCond = new FolderConditions(), MinGroupShares = 1,
         });
         SearchViewInfo view = store.Create(Guid.NewGuid(), Definition(kind), retention: TimeSpan.FromMinutes(1));
         view = store.Publish(view.Id, kernel.Apply([Input(1, "Peer", @"Artist\Album\01 - Track.flac", 900)], 1, true), "Complete");
         string? groupRef = null;
         string? directoryRef = null;
-        if (kind == SearchViewProjectionKind.AggregateAlbums)
+        if (kind == SearchViewProjectionKind.AlbumGroups)
         {
-            var group = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbums(null, 100))!.Items.Single();
+            var group = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroups(null, 100))!.Items.Single();
             groupRef = group.Ref;
             directoryRef = group.Representative.Ref;
         }
-        else if (kind == SearchViewProjectionKind.AggregateTracks)
-            groupRef = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTracks(null, 100))!.Items.Single().Ref;
+        else if (kind == SearchViewProjectionKind.TrackGroups)
+            groupRef = (store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroups(null, 100))!.Items.Single().Ref;
         else if (read == "children")
             directoryRef = (store.GetSnapshot(view.Id, view.Revision, default)?.GetDirectories(null, 100))!.Items.Single().Ref;
         int armed = 1;
@@ -763,8 +763,8 @@ public sealed class SearchViewCacheTests
         (SearchViewRevision?, int) RootPage() => kind switch
         {
             SearchViewProjectionKind.Files => FilePage(),
-            SearchViewProjectionKind.AggregateTracks => TrackPage(),
-            SearchViewProjectionKind.AggregateAlbums => AlbumPage(),
+            SearchViewProjectionKind.TrackGroups => TrackPage(),
+            SearchViewProjectionKind.AlbumGroups => AlbumPage(),
             _ => DirectoryPage(),
         };
         Assert.AreEqual(1, pruned);
@@ -783,10 +783,10 @@ public sealed class SearchViewCacheTests
             return (result?.Revision, result?.Items.Count ?? 0);
         }
         (SearchViewRevision?, int) TrackPage()
-        { var result = store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTracks(null, 100); return (result?.Revision, result?.Items.Count ?? 0); }
+        { var result = store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroups(null, 100); return (result?.Revision, result?.Items.Count ?? 0); }
         (SearchViewRevision?, int) AlbumPage()
         {
-            var result = store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbums(null, 100, initialFileLimit: 24);
+            var result = store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroups(null, 100, initialFileLimit: 24);
             if (result != null) AssertPreview(result.DirectoryFilePreviews, result.Items.Single().Representative.Ref);
             return (result?.Revision, result?.Items.Count ?? 0);
         }
@@ -797,12 +797,12 @@ public sealed class SearchViewCacheTests
         }
         (SearchViewRevision?, int) OptionPage()
         {
-            if (kind == SearchViewProjectionKind.AggregateTracks)
+            if (kind == SearchViewProjectionKind.TrackGroups)
             {
-                var result = store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTrackOptions(groupRef!, null, 100);
+                var result = store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroupOptions(groupRef!, null, 100);
                 return (result?.Revision, result?.Items.Count ?? 0);
             }
-            var albums = store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbumOptions(groupRef!, null, 100, initialFileLimit: 24);
+            var albums = store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroupOptions(groupRef!, null, 100, initialFileLimit: 24);
             if (albums != null) AssertPreview(albums.DirectoryFilePreviews, albums.Items.Single().Ref);
             return (albums?.Revision, albums?.Items.Count ?? 0);
         }
@@ -1166,7 +1166,7 @@ public sealed class SearchViewCacheTests
 
     [TestMethod]
     [DataRow(SearchViewProjectionKind.AlbumDirectories)]
-    [DataRow(SearchViewProjectionKind.AggregateAlbums)]
+    [DataRow(SearchViewProjectionKind.AlbumGroups)]
     public void AlbumParentAbsorbsEarlierChildrenWithoutRepublishingFileFacts(SearchViewProjectionKind kind)
     {
         var store = new SearchViewCache();
@@ -1175,7 +1175,7 @@ public sealed class SearchViewCacheTests
         var kernel = new SearchViewKernel(new SearchViewProjectionDefinition(kind,
             AlbumQuery: new AlbumQuery { Artist = "ELO", Album = "Time" }), new SearchSettings
         {
-            NecessaryCond = new(), PreferredCond = new(), NecessaryFolderCond = new(), MinSharesAggregate = 1,
+            NecessaryCond = new(), PreferredCond = new(), NecessaryFolderCond = new(), MinGroupShares = 1,
         });
         var first = Input(1, "Peer", @"ELO\Time\Bonus\01. Twilight.flac", 900);
         view = store.Publish(view.Id, kernel.Apply(
@@ -1467,16 +1467,16 @@ public sealed class SearchViewCacheTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public void AggregateTrackVisibilityBackfillsEarlierOptionsWithoutExposingHiddenCandidates(bool matchesLaterFilename)
+    public void TrackGroupVisibilityBackfillsEarlierOptionsWithoutExposingHiddenCandidates(bool matchesLaterFilename)
     {
         var store = new SearchViewCache();
 
-        var view = store.Create(Guid.NewGuid(), Definition(SearchViewProjectionKind.AggregateTracks));
+        var view = store.Create(Guid.NewGuid(), Definition(SearchViewProjectionKind.TrackGroups));
         var kernel = new SearchViewKernel(new SearchViewProjectionDefinition(
-            SearchViewProjectionKind.AggregateTracks, new SongQuery { Artist = "ELO" },
+            SearchViewProjectionKind.TrackGroups, new SongQuery { Artist = "ELO" },
             FilterText: matchesLaterFilename ? "Special" : null), new SearchSettings
             {
-                NecessaryCond = new(), PreferredCond = new(), MinSharesAggregate = 2,
+                NecessaryCond = new(), PreferredCond = new(), MinGroupShares = 2,
             });
         var firstInput = Input(1, "Peer-A", @"Other\ELO - Track.flac", 900);
         var firstUpdate = kernel.Apply([firstInput], 1, false);
@@ -1496,17 +1496,17 @@ public sealed class SearchViewCacheTests
             (store.GetSnapshot(view.Id, view.Revision, default)?.GetFiles(null, 500))!.Items.Count);
         view = store.Publish(view.Id, kernel.Apply(
             [Input(3, "Peer-C", @"Special\ELO - Track.flac", 900)], 3, true), "Complete");
-        var group = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTracks(null, 100))!.Items.Single();
+        var group = (store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroups(null, 100))!.Items.Single();
         Assert.AreEqual(3, group.ShareCount);
         Assert.AreEqual(2L, group.SelectableOptionCount);
         Assert.AreEqual(3L, view.Counters.ProjectedFileCount);
         Assert.AreEqual(0, (store.GetSnapshot(view.Id, hiddenRevision, default)?.GetFiles(null, 500))!.Items.Count);
-        Assert.IsNull(store.GetSnapshot(view.Id, hiddenRevision, default)?.GetAggregateTrackOptions(group.Ref, null, 500));
+        Assert.IsNull(store.GetSnapshot(view.Id, hiddenRevision, default)?.GetTrackGroupOptions(group.Ref, null, 500));
         var options = new List<SearchViewFile>();
         SearchViewFilePosition? after = null;
         do
         {
-            var page = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTrackOptions(group.Ref, after, 1))!;
+            var page = (store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroupOptions(group.Ref, after, 1))!;
             options.AddRange(page.Items);
             after = page.NextPosition;
         } while (after != null);
@@ -1517,25 +1517,25 @@ public sealed class SearchViewCacheTests
         Assert.AreEqual(1, selected.Count);
         Assert.AreEqual("Peer-A", selected[0].File!.Input.Username);
 
-        var retained = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTrackOptions(group.Ref, null, 500))!.Items;
+        var retained = (store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroupOptions(group.Ref, null, 500))!.Items;
         CollectionAssert.AreEquivalent(options.ToArray(), retained.ToArray());
     }
 
     [TestMethod]
-    public void AggregateTrackSummaryAndAlternativesAreRevisionBoundAndPaged()
+    public void TrackGroupSummaryAndAlternativesAreRevisionBoundAndPaged()
     {
         var store = new SearchViewCache();
 
-        SearchViewInfo view = store.Create(Guid.NewGuid(), Definition(SearchViewProjectionKind.AggregateTracks));
+        SearchViewInfo view = store.Create(Guid.NewGuid(), Definition(SearchViewProjectionKind.TrackGroups));
         var kernel = new SearchViewKernel(
             new SearchViewProjectionDefinition(
-                SearchViewProjectionKind.AggregateTracks,
+                SearchViewProjectionKind.TrackGroups,
                 new SongQuery { Artist = "ELO" }),
             new SearchSettings
             {
                 NecessaryCond = new FileConditions(),
                 PreferredCond = new FileConditions(),
-                MinSharesAggregate = 1,
+                MinGroupShares = 1,
                 Relax = true,
             },
             trackPeerIdentities: false);
@@ -1544,27 +1544,27 @@ public sealed class SearchViewCacheTests
                 1,
                 false), "Live");
         long firstRevision = view.Revision;
-        SearchViewAggregateTrackGroup first = (store.GetSnapshot(view.Id, firstRevision, default)?.GetAggregateTracks(null, 10))!.Items.Single();
+        SearchViewTrackGroup first = (store.GetSnapshot(view.Id, firstRevision, default)?.GetTrackGroups(null, 10))!.Items.Single();
         Assert.AreEqual(1, first.ShareCount);
 
         view = store.Publish(view.Id, kernel.Apply(
                 [Input(2, "Peer-B", @"ELO - Track.mp3", 192)],
                 2,
                 false), "Live");
-        SearchViewAggregateTrackGroup current = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTracks(null, 10))!.Items.Single();
+        SearchViewTrackGroup current = (store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroups(null, 10))!.Items.Single();
         Assert.AreEqual(first.Ref, current.Ref);
         Assert.AreEqual(2, current.ShareCount);
         Assert.AreEqual(new SearchViewSelectionCounts(1, 0, 1),
             store.GetSnapshot(view.Id, view.Revision, default)?.CountTopLevelSelection(RefSelectionMode.AllExcept, new HashSet<string>()));
-        Assert.AreEqual(1, (store.GetSnapshot(view.Id, firstRevision, default)?.GetAggregateTrackOptions(current.Ref, null, 10))!.Items.Count);
+        Assert.AreEqual(1, (store.GetSnapshot(view.Id, firstRevision, default)?.GetTrackGroupOptions(current.Ref, null, 10))!.Items.Count);
         var heldTrack = new Dictionary<string, string> { [current.Ref] = first.Representative.Ref };
         var resolvedTrack = store.GetSnapshot(view.Id, view.Revision, default)?.ResolveChosenOptions(heldTrack);
         Assert.AreEqual(first.Representative.Ref, resolvedTrack!.Tracks[current.Ref].Ref);
         Assert.AreEqual(0, resolvedTrack.Albums.Count);
         Assert.AreEqual(0, (store.GetSnapshot(view.Id, view.Revision, default)?.ResolveChosenOptions(new Dictionary<string, string> { [current.Ref] = "missing-option" }))!.Tracks.Count);
-        SearchViewAggregateTrackOptionPage firstPage = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTrackOptions(current.Ref, null, 1))!;
+        SearchViewTrackGroupOptionPage firstPage = (store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroupOptions(current.Ref, null, 1))!;
         Assert.IsNotNull(firstPage.NextPosition);
-        SearchViewAggregateTrackOptionPage secondPage = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTrackOptions(current.Ref, firstPage.NextPosition, 1))!;
+        SearchViewTrackGroupOptionPage secondPage = (store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroupOptions(current.Ref, firstPage.NextPosition, 1))!;
         Assert.AreEqual(2, firstPage.Items.Concat(secondPage.Items).Count());
 
         string optionRef = firstPage.Items[0].Ref;
@@ -1584,23 +1584,23 @@ public sealed class SearchViewCacheTests
             Input(4, "Peer-D", @"ELO - Last Song.flac", 256),
             Input(5, "Peer-E", @"ELO - Track.flac", 512),
         ], 5, true), "Complete");
-        var roots = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTracks(null, 2))!;
+        var roots = (store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroups(null, 2))!;
         Assert.IsNotNull(roots.NextPosition);
-        var tail = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTracks(roots.NextPosition, 2))!;
+        var tail = (store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroups(roots.NextPosition, 2))!;
         var all = roots.Items.Concat(tail.Items).ToArray();
         Assert.AreEqual(3, all.Length);
         Assert.AreEqual(3, all.Select(group => group.Ref).Distinct().Count());
         Assert.AreEqual(3, all.Single(group => group.Ref == first.Ref).ShareCount);
         foreach (var group in all)
         {
-            var options = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTrackOptions(group.Ref, null, 10))!.Items;
+            var options = (store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroupOptions(group.Ref, null, 10))!.Items;
             Assert.AreEqual(group.SelectableOptionCount, (long)options.Count);
             Assert.IsTrue(options.Any(file => file.Ref == group.Representative.Ref));
             string title = group.Query.Title;
             foreach (var file in options)
                 Assert.AreEqual($"ELO - {title}.flac", file.Input.Filename.Replace(".mp3", ".flac"));
         }
-        var historical = (store.GetSnapshot(view.Id, firstRevision, default)?.GetAggregateTracks(null, 10))!.Items;
+        var historical = (store.GetSnapshot(view.Id, firstRevision, default)?.GetTrackGroups(null, 10))!.Items;
         Assert.AreEqual(1, historical.Count);
         Assert.AreEqual(first.Ref, historical[0].Ref);
         Assert.AreEqual(first.ShareCount, historical[0].ShareCount);
@@ -1608,9 +1608,9 @@ public sealed class SearchViewCacheTests
 
         string RetainedPages() => JsonSerializer.Serialize(new
         {
-            Current = store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTracks(null, 2),
-            Historical = store.GetSnapshot(view.Id, firstRevision, default)?.GetAggregateTracks(null, 10),
-            Continuation = store.GetSnapshot(view.Id, firstPage.Revision.Revision, default)?.GetAggregateTrackOptions(first.Ref, firstPage.NextPosition, 1),
+            Current = store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroups(null, 2),
+            Historical = store.GetSnapshot(view.Id, firstRevision, default)?.GetTrackGroups(null, 10),
+            Continuation = store.GetSnapshot(view.Id, firstPage.Revision.Revision, default)?.GetTrackGroupOptions(first.Ref, firstPage.NextPosition, 1),
         });
         string retained = RetainedPages();
 
@@ -1619,18 +1619,18 @@ public sealed class SearchViewCacheTests
     }
 
     [TestMethod]
-    public void AggregateAlbumVisibilityBackfillsAndRestoresHistoricalDirectorySelections()
+    public void AlbumGroupVisibilityBackfillsAndRestoresHistoricalDirectorySelections()
     {
         var store = new SearchViewCache();
 
-        var view = store.Create(Guid.NewGuid(), Definition(SearchViewProjectionKind.AggregateAlbums));
+        var view = store.Create(Guid.NewGuid(), Definition(SearchViewProjectionKind.AlbumGroups));
         var query = new AlbumQuery { Artist = "ELO", Album = "Time" };
         var settings = new SearchSettings
         {
-            NecessaryCond = new(), PreferredCond = new(), NecessaryFolderCond = new(), MinSharesAggregate = 2,
+            NecessaryCond = new(), PreferredCond = new(), NecessaryFolderCond = new(), MinGroupShares = 2,
         };
         var kernel = new SearchViewKernel(new SearchViewProjectionDefinition(
-            SearchViewProjectionKind.AggregateAlbums, AlbumQuery: query, FilterText: "Special"), settings);
+            SearchViewProjectionKind.AlbumGroups, AlbumQuery: query, FilterText: "Special"), settings);
         var first = Input(1, "Peer-A", @"ELO\Time\01. Track.flac", 900);
         var hidden = kernel.Apply([first], 1, false);
         Assert.AreEqual(0, hidden.ChangedFiles.Count);
@@ -1645,8 +1645,8 @@ public sealed class SearchViewCacheTests
             [Input(2, "Peer-B", @"Special\ELO\Time\01. Track.flac", 900)
                 with { Visibility = SearchResultVisibility.Locked }], 2, false), "Live");
         long firstVisibleRevision = view.Revision;
-        var firstGroup = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbums(null, 10))!.Items.Single();
-        var initialOptions = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbumOptions(firstGroup.Ref, null, 10))!.Items;
+        var firstGroup = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroups(null, 10))!.Items.Single();
+        var initialOptions = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroupOptions(firstGroup.Ref, null, 10))!.Items;
         var a = initialOptions.Single(folder => folder.Username == "Peer-A");
         var b = initialOptions.Single(folder => folder.Username == "Peer-B");
         var firstFile = (store.GetSnapshot(view.Id, view.Revision, default)?.GetDirectoryFiles(a.Ref, null, 10))!.Items.Single();
@@ -1656,7 +1656,7 @@ public sealed class SearchViewCacheTests
         view = store.Publish(view.Id, kernel.Apply(
             [Input(3, "Peer-A", @"ELO\Time\02. Other.flac", 900)], 3, false), "Live");
         long gapRevision = view.Revision;
-        Assert.AreEqual(0, (store.GetSnapshot(view.Id, gapRevision, default)?.GetAggregateAlbums(null, 10))!.Items.Count);
+        Assert.AreEqual(0, (store.GetSnapshot(view.Id, gapRevision, default)?.GetAlbumGroups(null, 10))!.Items.Count);
         Assert.AreEqual(0, (store.GetSnapshot(view.Id, gapRevision, default)?.GetDirectories(null, 10))!.Items.Count);
         Assert.IsNull(store.GetSnapshot(view.Id, gapRevision, default)?.GetDirectoryFiles(a.Ref, null, 10));
 
@@ -1673,7 +1673,7 @@ public sealed class SearchViewCacheTests
         Assert.AreEqual(2, (store.GetSnapshot(view.Id, view.Revision, default)?.GetDirectoryFiles(b.Ref, null, 10))!.Items.Count);
         Assert.AreEqual(1, (store.GetSnapshot(view.Id, firstVisibleRevision, default)?.GetDirectoryFiles(a.Ref, null, 10))!.Items.Count);
         Assert.IsNull(store.GetSnapshot(view.Id, gapRevision, default)?.GetDirectoryFiles(a.Ref, null, 10));
-        Assert.AreEqual(0, (store.GetSnapshot(view.Id, gapRevision, default)?.GetAggregateAlbumOptions(firstGroup.Ref, null, 10))!.Items.Count);
+        Assert.AreEqual(0, (store.GetSnapshot(view.Id, gapRevision, default)?.GetAlbumGroupOptions(firstGroup.Ref, null, 10))!.Items.Count);
         Assert.AreEqual(0, ((store.GetSnapshot(view.Id, gapRevision, default)?.ReadDirectoryFileRefs([firstFile.Ref]) ?? [])).Count);
         Assert.AreEqual(new SearchViewSelectionCounts(0, 0, 0),
             store.GetSnapshot(view.Id, gapRevision, default)?.CountObservedDirectoryFiles(a.Ref));
@@ -1697,21 +1697,21 @@ public sealed class SearchViewCacheTests
     }
 
     [TestMethod]
-    public void AggregateAlbumSummaryAndDirectoryAlternativesAreRevisionBound()
+    public void AlbumGroupSummaryAndDirectoryAlternativesAreRevisionBound()
     {
         var store = new SearchViewCache();
 
-        SearchViewInfo view = store.Create(Guid.NewGuid(), Definition(SearchViewProjectionKind.AggregateAlbums));
+        SearchViewInfo view = store.Create(Guid.NewGuid(), Definition(SearchViewProjectionKind.AlbumGroups));
         var kernel = new SearchViewKernel(
             new SearchViewProjectionDefinition(
-                SearchViewProjectionKind.AggregateAlbums,
+                SearchViewProjectionKind.AlbumGroups,
                 AlbumQuery: new AlbumQuery { Artist = "ELO", Album = "Time" }),
             new SearchSettings
             {
                 NecessaryCond = new FileConditions(),
                 PreferredCond = new FileConditions(),
                 NecessaryFolderCond = new FolderConditions(),
-                MinSharesAggregate = 1,
+                MinGroupShares = 1,
             },
             trackPeerIdentities: false);
         view = store.Publish(view.Id, kernel.Apply(
@@ -1719,27 +1719,27 @@ public sealed class SearchViewCacheTests
                 1,
                 false), "Live");
         long firstRevision = view.Revision;
-        SearchViewAggregateAlbumGroup first = (store.GetSnapshot(view.Id, firstRevision, default)?.GetAggregateAlbums(null, 10))!.Items.Single();
+        SearchViewAlbumGroup first = (store.GetSnapshot(view.Id, firstRevision, default)?.GetAlbumGroups(null, 10))!.Items.Single();
         Assert.AreEqual(1, first.ShareCount);
-        Assert.AreEqual(1, (store.GetSnapshot(view.Id, firstRevision, default)?.GetAggregateAlbumOptions(first.Ref, null, 10))!.Items.Count);
+        Assert.AreEqual(1, (store.GetSnapshot(view.Id, firstRevision, default)?.GetAlbumGroupOptions(first.Ref, null, 10))!.Items.Count);
 
         SearchViewKernelUpdate secondUpdate = kernel.Apply(
             [Input(2, "Peer-B", @"ELO\Time\01. Track.flac", 900)],
             2,
             false);
         view = store.Publish(view.Id, secondUpdate, "Live");
-        SearchViewAggregateAlbumGroup current = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbums(null, 10))!.Items.Single();
+        SearchViewAlbumGroup current = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroups(null, 10))!.Items.Single();
         Assert.AreEqual(first.Ref, current.Ref);
         Assert.AreEqual(2, current.ShareCount);
-        SearchViewAggregateAlbumOptionPage pageOne = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbumOptions(current.Ref, null, 1, initialFileLimit: 1))!;
-        SearchViewAggregateAlbumOptionPage pageTwo = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbumOptions(current.Ref, pageOne.NextPosition, 1, initialFileLimit: 1))!;
+        SearchViewAlbumGroupOptionPage pageOne = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroupOptions(current.Ref, null, 1, initialFileLimit: 1))!;
+        SearchViewAlbumGroupOptionPage pageTwo = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroupOptions(current.Ref, pageOne.NextPosition, 1, initialFileLimit: 1))!;
         Assert.IsNotNull(pageOne.NextPosition);
         Assert.IsNull(pageTwo.NextPosition);
         CollectionAssert.AreEquivalent(new[] { "Peer-A", "Peer-B" },
             pageOne.Items.Concat(pageTwo.Items).Select(item => item.Username).ToArray());
         Assert.AreEqual(1, pageOne.DirectoryFilePreviews.Single().Value.Items.Count);
         Assert.AreEqual(1, pageTwo.DirectoryFilePreviews.Single().Value.Items.Count);
-        Assert.AreEqual(1, (store.GetSnapshot(view.Id, firstRevision, default)?.GetAggregateAlbumOptions(current.Ref, null, 10))!.Items.Count);
+        Assert.AreEqual(1, (store.GetSnapshot(view.Id, firstRevision, default)?.GetAlbumGroupOptions(current.Ref, null, 10))!.Items.Count);
         var heldAlbum = new Dictionary<string, string> { [current.Ref] = first.Representative.Ref };
         var resolvedAlbum = store.GetSnapshot(view.Id, view.Revision, default)?.ResolveChosenOptions(heldAlbum);
         Assert.AreEqual(first.Representative.Ref, resolvedAlbum!.Albums[current.Ref].Ref);
@@ -1766,8 +1766,8 @@ public sealed class SearchViewCacheTests
 
         // A later regrouping can remove one alternative without changing the
         // other. Earlier revisions must keep their original membership.
-        SearchViewProjectedAggregateAlbumGroup group =
-            secondUpdate.ChangedAggregateAlbumGroups!.Single();
+        SearchViewProjectedAlbumGroup group =
+            secondUpdate.ChangedAlbumGroups!.Single();
         AlbumFolder retained = group.Options.Single(option => option.Username == "Peer-A");
         long secondRevision = view.Revision;
         view = store.Publish(view.Id, secondUpdate with
@@ -1776,7 +1776,7 @@ public sealed class SearchViewCacheTests
             ConsumedSequence = 3,
             ChangedFiles = [],
             ChangedDirectories = [],
-            ChangedAggregateAlbumGroups =
+            ChangedAlbumGroups =
             [
                 group with
                 {
@@ -1787,13 +1787,13 @@ public sealed class SearchViewCacheTests
                 },
             ],
         }, "Live");
-        Assert.AreEqual(1, (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbumOptions(current.Ref, null, 10))!.Items.Count);
-        Assert.AreEqual(2, (store.GetSnapshot(view.Id, secondRevision, default)?.GetAggregateAlbumOptions(current.Ref, null, 10))!.Items.Count);
-        var historicalContinuation = (store.GetSnapshot(view.Id, secondRevision, default)?.GetAggregateAlbumOptions(current.Ref, pageOne.NextPosition, 1, initialFileLimit: 1))!;
+        Assert.AreEqual(1, (store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroupOptions(current.Ref, null, 10))!.Items.Count);
+        Assert.AreEqual(2, (store.GetSnapshot(view.Id, secondRevision, default)?.GetAlbumGroupOptions(current.Ref, null, 10))!.Items.Count);
+        var historicalContinuation = (store.GetSnapshot(view.Id, secondRevision, default)?.GetAlbumGroupOptions(current.Ref, pageOne.NextPosition, 1, initialFileLimit: 1))!;
         Assert.AreEqual(pageTwo.Items.Single().Ref, historicalContinuation.Items.Single().Ref);
         Assert.AreEqual(pageTwo.DirectoryFilePreviews.Single().Value.Items.Single().File.Ref,
             historicalContinuation.DirectoryFilePreviews.Single().Value.Items.Single().File.Ref);
-        Assert.AreEqual(1, (store.GetSnapshot(view.Id, firstRevision, default)?.GetAggregateAlbumOptions(current.Ref, null, 10))!.Items.Count);
+        Assert.AreEqual(1, (store.GetSnapshot(view.Id, firstRevision, default)?.GetAlbumGroupOptions(current.Ref, null, 10))!.Items.Count);
 
         SearchViewDirectory removed = pageOne.Items.Concat(pageTwo.Items)
             .Single(option => option.Username == "Peer-B");
@@ -1821,7 +1821,7 @@ public sealed class SearchViewCacheTests
             ChangedFiles = [],
             ChangedDirectories = [],
         }, "Live");
-        Assert.AreEqual(2, (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbumOptions(current.Ref, null, 10))!.Items.Count);
+        Assert.AreEqual(2, (store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroupOptions(current.Ref, null, 10))!.Items.Count);
         CollectionAssert.AreEquivalent(new[] { removed.Ref, removedChild.Ref },
             (ReadRemovedSelection(view.Revision)).Select(item => item.Ref).ToArray());
         Assert.AreEqual(0, (ReadRemovedSelection(removedRevision)).Length);
@@ -1838,7 +1838,7 @@ public sealed class SearchViewCacheTests
             Options = group.Options.Where(option => option.Username == "Peer-B").ToArray(),
         };
         void PublishGroups(int sourceRevision,
-            SearchViewProjectedAggregateAlbumGroup[] changed, PeerDirectoryIdentity[] removedGroups, int total)
+            SearchViewProjectedAlbumGroup[] changed, PeerDirectoryIdentity[] removedGroups, int total)
         {
             view = store.Publish(view.Id, secondUpdate with
             {
@@ -1847,8 +1847,8 @@ public sealed class SearchViewCacheTests
                 ConsumedSequence = sourceRevision,
                 ChangedFiles = [],
                 ChangedDirectories = [],
-                ChangedAggregateAlbumGroups = changed,
-                RemovedAggregateAlbumGroups = removedGroups,
+                ChangedAlbumGroups = changed,
+                RemovedAlbumGroups = removedGroups,
             }, "Live");
         }
         PublishGroups(5, [group with
@@ -1856,18 +1856,18 @@ public sealed class SearchViewCacheTests
             Representative = retained, Options = [retained], ShareCount = 1, SelectableOptionCount = 1,
         }, other], [], 2);
         long bothRevision = view.Revision;
-        var otherRef = (store.GetSnapshot(view.Id, bothRevision, default)?.GetAggregateAlbums(null, 10))!
+        var otherRef = (store.GetSnapshot(view.Id, bothRevision, default)?.GetAlbumGroups(null, 10))!
             .Items.Single(item => item.Ref != current.Ref).Ref;
         PublishGroups(6, [other with { Representative = retained, Options = [retained] }],
             [group.StableIdentity], 1);
         long groupRemovedRevision = view.Revision;
-        Assert.AreEqual(otherRef, (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbums(null, 10))!.Items.Single().Ref);
-        Assert.AreEqual("Peer-A", (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbumOptions(otherRef, null, 10))!.Items.Single().Username);
-        Assert.AreEqual("Peer-B", (store.GetSnapshot(view.Id, bothRevision, default)?.GetAggregateAlbumOptions(otherRef, null, 10))!.Items.Single().Username);
-        Assert.AreEqual(0, (store.GetSnapshot(view.Id, groupRemovedRevision, default)?.GetAggregateAlbumOptions(current.Ref, null, 10))!.Items.Count);
+        Assert.AreEqual(otherRef, (store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroups(null, 10))!.Items.Single().Ref);
+        Assert.AreEqual("Peer-A", (store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroupOptions(otherRef, null, 10))!.Items.Single().Username);
+        Assert.AreEqual("Peer-B", (store.GetSnapshot(view.Id, bothRevision, default)?.GetAlbumGroupOptions(otherRef, null, 10))!.Items.Single().Username);
+        Assert.AreEqual(0, (store.GetSnapshot(view.Id, groupRemovedRevision, default)?.GetAlbumGroupOptions(current.Ref, null, 10))!.Items.Count);
         PublishGroups(7, [other with { StableIdentity = group.StableIdentity, Index = group.Index }], [], 2);
-        Assert.AreEqual("Peer-B", (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbumOptions(current.Ref, null, 10))!.Items.Single().Username);
-        Assert.AreEqual(0, (store.GetSnapshot(view.Id, groupRemovedRevision, default)?.GetAggregateAlbumOptions(current.Ref, null, 10))!.Items.Count);
+        Assert.AreEqual("Peer-B", (store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroupOptions(current.Ref, null, 10))!.Items.Single().Username);
+        Assert.AreEqual(0, (store.GetSnapshot(view.Id, groupRemovedRevision, default)?.GetAlbumGroupOptions(current.Ref, null, 10))!.Items.Count);
     }
 
     [TestMethod]
@@ -1933,8 +1933,8 @@ public sealed class SearchViewCacheTests
     [DataRow(SearchViewProjectionKind.Files)]
     [DataRow(SearchViewProjectionKind.GenericDirectories)]
     [DataRow(SearchViewProjectionKind.AlbumDirectories)]
-    [DataRow(SearchViewProjectionKind.AggregateTracks)]
-    [DataRow(SearchViewProjectionKind.AggregateAlbums)]
+    [DataRow(SearchViewProjectionKind.TrackGroups)]
+    [DataRow(SearchViewProjectionKind.AlbumGroups)]
     public void TenThousandResultSelections_ResolveExactRootsAndChildren(
         SearchViewProjectionKind kind)
     {
@@ -1947,7 +1947,7 @@ public sealed class SearchViewCacheTests
             IncludeFullResults: true), new SearchSettings
             {
                 NecessaryCond = new FileConditions(), PreferredCond = new FileConditions(),
-                NecessaryFolderCond = new FolderConditions(), MinSharesAggregate = 1,
+                NecessaryFolderCond = new FolderConditions(), MinGroupShares = 1,
             }, retainProjectedRows: false, trackPeerIdentities: false);
         var inputs = Enumerable.Range(0, 100).SelectMany(peer =>
             Enumerable.Range(0, 10).SelectMany(album => Enumerable.Range(0, 10)
@@ -2002,23 +2002,23 @@ public sealed class SearchViewCacheTests
             targets.Add(("Directory", rootRef, null));
             targets.Add(("DirectoryFile", file.Ref, rootRef));
         }
-        else if (kind == SearchViewProjectionKind.AggregateTracks)
+        else if (kind == SearchViewProjectionKind.TrackGroups)
         {
-            var group = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTracks(null, 1))!.Items.Single();
+            var group = (store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroups(null, 1))!.Items.Single();
             rootRef = group.Ref;
-            var file = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateTrackOptions(group.Ref, null, 1))!.Items.Single();
-            targets.Add(("AggregateTrack", rootRef, null));
-            targets.Add(("AggregateTrackFile", file.Ref, rootRef));
+            var file = (store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroupOptions(group.Ref, null, 1))!.Items.Single();
+            targets.Add(("TrackGroup", rootRef, null));
+            targets.Add(("TrackGroupFile", file.Ref, rootRef));
         }
         else
         {
-            var group = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbums(null, 1))!.Items.Single();
+            var group = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroups(null, 1))!.Items.Single();
             rootRef = group.Ref;
-            var folder = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAggregateAlbumOptions(group.Ref, null, 1))!.Items.Single();
+            var folder = (store.GetSnapshot(view.Id, view.Revision, default)?.GetAlbumGroupOptions(group.Ref, null, 1))!.Items.Single();
             var file = (store.GetSnapshot(view.Id, view.Revision, default)?.GetDirectoryFiles(folder.Ref, null, 1))!.Items.Single();
-            targets.Add(("AggregateAlbum", rootRef, null));
-            targets.Add(("AggregateAlbumDirectory", folder.Ref, rootRef));
-            targets.Add(("AggregateAlbumFile", file.Ref, folder.Ref));
+            targets.Add(("AlbumGroup", rootRef, null));
+            targets.Add(("AlbumGroupDirectory", folder.Ref, rootRef));
+            targets.Add(("AlbumGroupFile", file.Ref, folder.Ref));
         }
         foreach (var target in targets)
         {

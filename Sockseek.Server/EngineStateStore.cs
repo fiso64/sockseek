@@ -1418,5 +1418,5 @@ internal sealed record EngineStateStoreRetainedWorkflowCounts(
     int DaemonWorkflowLinks,
     int ListProjections = 0,
     int ExtractReverseLinks = 0,
-    int AggregateProjections = 0,
-    int AlbumAggregateProjections = 0);
+    int GroupProjections = 0,
+    int AlbumGroupsProjections = 0);

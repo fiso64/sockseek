@@ -168,7 +168,7 @@ public static partial class ResultSorter
         SongQuery query,
         SearchSettings search)
     {
-        var groups = new SongQueryGroups<InferredResultGroup>(search.AggregateLengthTol,
+        var groups = new SongQueryGroups<InferredResultGroup>(search.GroupLengthTol,
             static (key, _) => new InferredResultGroup(key));
         var inferredByFilename = new Dictionary<string, SongQuery>();
         var inferredQueries = new Dictionary<(string Username, string Filename), InferredResultGroup>();

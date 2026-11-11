@@ -4,11 +4,11 @@ import type { AppIconName } from '../../app/icons';
 import type { SearchResultMode } from '../search/model';
 
 export function searchJobMode(job: JobSummaryDto): SearchResultMode | null {
-  if (job.kind !== 'search' || job.searchDefaultProjection == null || job.searchAggregatePresentation == null) return null;
+  if (job.kind !== 'search' || job.searchDefaultProjection == null || job.searchGroupResults == null) return null;
   switch (job.searchDefaultProjection) {
     case 'GenericFile': return 'generic';
-    case 'Track': return job.searchAggregatePresentation ? 'song-aggregate' : 'track';
-    case 'Album': return job.searchAggregatePresentation ? 'album-aggregate' : 'album';
+    case 'Track': return job.searchGroupResults ? 'song-groups' : 'track';
+    case 'Album': return job.searchGroupResults ? 'album-groups' : 'album';
   }
 }
 
@@ -19,8 +19,8 @@ export function jobKindLabel(kind: Schema<'ServerJobKind'> | null | undefined): 
     case 'remote-file': return 'Remote File';
     case 'remote-directory': return 'Remote Directory';
     case 'retrieve-folder': return 'Retrieve Folder';
-    case 'aggregate': return 'Song Aggregate';
-    case 'album-aggregate': return 'Album Aggregate';
+    case 'song-groups': return 'Song Groups';
+    case 'album-groups': return 'Album Groups';
     default: return humanizeStateValue(kind ?? 'Job');
   }
 }
@@ -30,8 +30,8 @@ export function jobKindIcon(kind: Schema<'ServerJobKind'> | undefined): AppIconN
     case 'search': return 'search';
     case 'song': return 'track';
     case 'album': return 'album';
-    case 'aggregate': return 'aggregate-job';
-    case 'album-aggregate': return 'album-aggregate-job';
+    case 'song-groups': return 'group-job';
+    case 'album-groups': return 'album-groups-job';
     case 'extract': return 'extract';
     case 'job-list': return 'job-list';
     case 'remote-file': return 'file';

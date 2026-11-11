@@ -228,8 +228,8 @@ public sealed class JobPlanner(
 
     private static int DirectChildCount(Job job) => job switch
     {
-        AggregateJob aggregate => aggregate.Songs.Count,
-        AlbumAggregateJob aggregate => aggregate.Albums.Count,
+        SongGroupsJob group => group.Songs.Count,
+        AlbumGroupsJob group => group.Albums.Count,
         AlbumJob album => album.TrackJobs.Count,
         RemoteDirectoryJob directory => directory.FileJobs.Count,
         _ => 0,

@@ -71,7 +71,7 @@ public sealed class AlbumSearchEvidence
             searchRepresentativeAudioFilename,
             searchAudioQualityCoverage,
             hasSearchMetadata,
-            aggregateSortEntry: null)
+            groupSortEntry: null)
     {
     }
 
@@ -82,7 +82,7 @@ public sealed class AlbumSearchEvidence
         string? searchRepresentativeAudioFilename,
         AlbumAudioQualityCoverage searchAudioQualityCoverage,
         bool hasSearchMetadata,
-        ResultSorter.SortEntry? aggregateSortEntry)
+        ResultSorter.SortEntry? groupSortEntry)
     {
         if (searchFileCount < 0)
             throw new ArgumentOutOfRangeException(nameof(searchFileCount));
@@ -96,7 +96,7 @@ public sealed class AlbumSearchEvidence
         SearchRepresentativeAudioFilename = searchRepresentativeAudioFilename;
         SearchAudioQualityCoverage = searchAudioQualityCoverage;
         HasSearchMetadata = hasSearchMetadata;
-        AggregateSortEntry = aggregateSortEntry;
+        GroupSortEntry = groupSortEntry;
     }
 
     public int SearchFileCount { get; }
@@ -105,7 +105,7 @@ public sealed class AlbumSearchEvidence
     public string? SearchRepresentativeAudioFilename { get; }
     public AlbumAudioQualityCoverage SearchAudioQualityCoverage { get; }
     public bool HasSearchMetadata { get; }
-    internal ResultSorter.SortEntry? AggregateSortEntry { get; }
+    internal ResultSorter.SortEntry? GroupSortEntry { get; }
 }
 
 /// <summary>Associates album query evidence with one exact peer target.</summary>

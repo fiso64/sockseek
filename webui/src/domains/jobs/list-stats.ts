@@ -21,11 +21,11 @@ export function automaticJobListStats(job: JobSummaryDto): string[] {
       if (!hasProgress && Number(stats.fileCount) > 0)
         values.push(`${formatCount(stats.fileCount)} files`);
       break;
-    case 'aggregate':
+    case 'song-groups':
       if (!values.length && memberCount != null) values.push(`${formatCount(stats.memberCount)} songs`);
       if (Number(stats.failedMemberCount) > 0) values.push(`${formatCount(stats.failedMemberCount)} failed`);
       break;
-    case 'album-aggregate':
+    case 'album-groups':
       if (!values.length && memberCount != null) values.push(`${formatCount(stats.memberCount)} albums`);
       if (Number(stats.failedMemberCount) > 0) values.push(`${formatCount(stats.failedMemberCount)} failed`);
       break;
@@ -55,7 +55,7 @@ export function automaticJobProgressPercent(job: JobSummaryDto): number | undefi
   if ((job.kind === 'album' || job.kind === 'remote-directory')
     && stats.progressPercent != null && Number.isFinite(Number(stats.progressPercent)))
     return Math.max(0, Math.min(100, Number(stats.progressPercent)));
-  if (!['album', 'remote-directory', 'aggregate', 'album-aggregate', 'job-list'].includes(job.kind ?? ''))
+  if (!['album', 'remote-directory', 'song-groups', 'album-groups', 'job-list'].includes(job.kind ?? ''))
     return undefined;
   const total = Number(stats.memberCount);
   const completed = Number(stats.completedMemberCount);

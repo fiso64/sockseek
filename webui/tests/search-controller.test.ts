@@ -71,25 +71,25 @@ describe('Search View request isolation', () => {
     expect(allSearchResultsSelected({ ...selection.value, summary: { ...view, kind: 'AlbumDirectories',
       counters: { ...view.counters, topLevelItemCount: 1 } },
       selectionRefs: new Set(['file']), selectionCounts: { revision: 1, selectedItemCount: 1, publicFileCount: 1, lockedFileCount: 0 } })).toBe(false);
-    expect(allSearchResultsSelected({ ...selection.value, summary: { ...view, kind: 'AggregateAlbums' },
+    expect(allSearchResultsSelected({ ...selection.value, summary: { ...view, kind: 'AlbumGroups' },
       selectionCounts: { revision: 1, selectedItemCount: 1, publicFileCount: 4, lockedFileCount: 0 } })).toBe(false);
   });
 
-  it.each(['track', 'generic', 'album', 'song-aggregate', 'album-aggregate'] as const)(
+  it.each(['track', 'generic', 'album', 'song-groups', 'album-groups'] as const)(
     'keeps an all-except %s selection exact while new results arrive', async mode => {
       const commits: Parameters<DaemonApiClient['commitSearchView']>[] = [];
       const counts: Schema<'CountSearchViewSelectionRequestDto'>[] = [];
       const view = (revision: number): SearchViewSummaryDto => ({ ...summary('search', revision),
         kind: mode === 'track' ? 'Files' : mode === 'generic' ? 'GenericDirectories'
-          : mode === 'album' ? 'AlbumDirectories' : mode === 'song-aggregate' ? 'AggregateTracks' : 'AggregateAlbums',
+          : mode === 'album' ? 'AlbumDirectories' : mode === 'song-groups' ? 'TrackGroups' : 'AlbumGroups',
         counters: { ...summary('search').counters, topLevelItemCount: revision + 1, selectableOptionCount: revision + 1 } });
       class Api extends DaemonApiClient {
         override async getSearchViewFiles(_id: string, revision: number | string) {
           return { revision: view(Number(revision)), items: [], nextCursor: null };
         }
         override getSearchViewDirectories = this.getSearchViewFiles;
-        override getSearchViewAggregateTracks = this.getSearchViewFiles;
-        override getSearchViewAggregateAlbums = this.getSearchViewFiles;
+        override getSearchViewTrackGroups = this.getSearchViewFiles;
+        override getSearchViewAlbumGroups = this.getSearchViewFiles;
         override async getSearchViewUpdate() { return { summary: view(2), hasNewRevision: true }; }
         override async countSearchViewSelection(_id: string, request: Schema<'CountSearchViewSelectionRequestDto'>) {
           counts.push(request);
@@ -1099,7 +1099,7 @@ describe('Search View request isolation', () => {
     } finally { unsubscribe(); controller.stop(); }
   });
 
-  it.each(['representative', 'alternative'])('restores continued files for a chosen aggregate album %s without duplicate reads', async chosen => {
+  it.each(['representative', 'alternative'])('restores continued files for a chosen group album %s without duplicate reads', async chosen => {
     let revision = 1;
     let rejectChoiceCheck = false;
     const directory = (ref: string, requested: number | string): Schema<'SearchViewDirectoryDto'> => {
@@ -1109,12 +1109,12 @@ describe('Search View request isolation', () => {
     };
     const reads: { ref: string; revision: number | string }[] = [];
     class Api extends DaemonApiClient {
-      override async getSearchViewAggregateAlbums(id: string, requested: number | string) {
+      override async getSearchViewAlbumGroups(id: string, requested: number | string) {
         return { revision: summary(id, Number(requested)), items: [{ ref: 'group',
           query: { artist: 'Artist', album: 'Album', artistMaybeWrong: false }, shareCount: 2,
           selectableOptionCount: 2, representative: directory('representative', requested) }], nextCursor: null };
       }
-      override async getSearchViewAggregateAlbumOptions(id: string) {
+      override async getSearchViewAlbumGroupOptions(id: string) {
         return { revision: summary(id), groupRef: 'group',
           items: [directory('representative', 1), directory('alternative', 1)], nextCursor: null };
       }
@@ -1139,16 +1139,16 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'aggregate', lifecycleState: 'Terminal' }, view: summary('aggregate'),
-        draft: { ...emptySearchDraft, resultMode: 'album-aggregate' } });
-      await controller.openAggregateOptions('group');
-      controller.chooseAggregateOption('group', controller.current().aggregateOptions!.items.find(option => option.ref === chosen)!);
+      await controller.open({ job: { jobId: 'group', lifecycleState: 'Terminal' }, view: summary('group'),
+        draft: { ...emptySearchDraft, resultMode: 'album-groups' } });
+      await controller.openGroupOptions('group');
+      controller.chooseGroupOption('group', controller.current().groupOptions!.items.find(option => option.ref === chosen)!);
       await controller.loadDirectoryFiles(chosen);
       // Keep the browser choice, but end the exact selection before following arrivals.
       controller.selectAll(false);
       const refreshed = new Promise<void>(resolve => {
         const unsubscribe = controller.subscribe(state => {
-          if (state.checkedChoiceRevisions.get('group') === 'aggregate:2'
+          if (state.checkedChoiceRevisions.get('group') === 'group:2'
             && state.directoryFiles.get(chosen)?.items.at(-1)?.ref === `${chosen}-continued-2`) {
             unsubscribe(); resolve();
           }
@@ -1171,7 +1171,7 @@ describe('Search View request isolation', () => {
       await failed;
       const retried = new Promise<void>(resolve => {
         const unsubscribe = controller.subscribe(state => {
-          if (state.checkedChoiceRevisions.get('group') === 'aggregate:3'
+          if (state.checkedChoiceRevisions.get('group') === 'group:3'
             && state.directoryFiles.get(chosen)?.items.at(-1)?.ref === `${chosen}-continued-3`) {
             unsubscribe(); resolve();
           }
@@ -1183,7 +1183,7 @@ describe('Search View request isolation', () => {
     } finally { controller.stop(); }
   });
 
-  it('keeps aggregate-album file choices in browser state until commit and freezes retries', async () => {
+  it('keeps album-group file choices in browser state until commit and freezes retries', async () => {
     const requests: Parameters<DaemonApiClient['commitSearchView']>[] = [];
     const directory = (ref: string): Schema<'SearchViewDirectoryDto'> => ({
       ref: { ref, username: ref, folderPath: `${ref}/album` }, visibility: 'Public', preferenceTier: 'Preferred',
@@ -1203,11 +1203,11 @@ describe('Search View request isolation', () => {
       file: { ...second.bestChild.file, name: 'Finale.flac' },
     }].map(file => ({ ref: file.ref, relativePath: file.file.name, file })), nextCursor: null };
     class Api extends DaemonApiClient {
-      override async getSearchViewAggregateAlbums(id: string) {
+      override async getSearchViewAlbumGroups(id: string) {
         return { revision: summary(id), items: [{ ref: 'group', query: { artist: 'Artist', album: 'Album',
           artistMaybeWrong: false }, shareCount: 2, selectableOptionCount: 2, representative: first }], nextCursor: null };
       }
-      override async getSearchViewAggregateAlbumOptions(id: string) {
+      override async getSearchViewAlbumGroupOptions(id: string) {
         return { revision: summary(id), groupRef: 'group', items: [first, second], nextCursor: null };
       }
       override async getSearchViewDirectoryFiles(id: string, ref: string) {
@@ -1224,16 +1224,16 @@ describe('Search View request isolation', () => {
       }
     }
     const view = summary('search');
-    view.kind = 'AggregateAlbums';
+    view.kind = 'AlbumGroups';
     view.counters.topLevelItemCount = 1;
     const controller = new SearchViewController(new Api(), 60_000);
     try {
       await controller.open({ job: { jobId: 'search' }, view,
-        draft: { ...emptySearchDraft, resultMode: 'album-aggregate' } });
-      await controller.openAggregateOptions('group');
+        draft: { ...emptySearchDraft, resultMode: 'album-groups' } });
+      await controller.openGroupOptions('group');
       expect(controller.current().directoryFiles.get('second')?.items).toHaveLength(2);
-      controller.chooseAggregateOption('group', controller.current().aggregateOptions!.items[1]!);
-      controller.toggleAggregateAlbumFile('group', 'second-intro', false);
+      controller.chooseGroupOption('group', controller.current().groupOptions!.items[1]!);
+      controller.toggleAlbumGroupFile('group', 'second-intro', false);
       expect(controller.current().albumFileSelections.get('group')?.mode).toBe('AllExcept');
       await controller.commit();
       await controller.commit();
@@ -1248,19 +1248,19 @@ describe('Search View request isolation', () => {
   it('refreshes an open alternatives dialog at a new revision and ignores an old option page', async () => {
     const first = directorySummary('first').bestChild;
     const second = directorySummary('second').bestChild;
-    const olderPage = deferred<Awaited<ReturnType<DaemonApiClient['getSearchViewAggregateTrackOptions']>>>();
+    const olderPage = deferred<Awaited<ReturnType<DaemonApiClient['getSearchViewTrackGroupOptions']>>>();
     let nextRevision = 2;
-    const view = summary('aggregate', 1);
-    view.kind = 'AggregateTracks';
+    const view = summary('group', 1);
+    view.kind = 'TrackGroups';
     view.counters.topLevelItemCount = 1;
     class Api extends DaemonApiClient {
-      override async getSearchViewAggregateTracks(id: string, revision: number | string) {
+      override async getSearchViewTrackGroups(id: string, revision: number | string) {
         return { revision: summary(id, Number(revision)), items: Number(revision) === 3 ? [] : [{
           ref: 'group', query: { artist: 'Artist', title: 'Title', artistMaybeWrong: false },
           shareCount: 2, selectableOptionCount: 2, representative: first,
         }], nextCursor: null };
       }
-      override getSearchViewAggregateTrackOptions(id: string, _group: string, revision: number | string, cursor?: string | null) {
+      override getSearchViewTrackGroupOptions(id: string, _group: string, revision: number | string, cursor?: string | null) {
         if (Number(revision) === 1 && cursor) return olderPage.promise;
         return Promise.resolve({ revision: summary(id, Number(revision)), groupRef: 'group',
           items: Number(revision) === 1 ? [first] : [second],
@@ -1272,14 +1272,14 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'aggregate' }, view,
-        draft: { ...emptySearchDraft, resultMode: 'song-aggregate' } });
-      await controller.openAggregateOptions('group');
-      const oldRequest = controller.loadMoreAggregateOptions();
-      expect(controller.current().aggregateOptions?.loading).toBe(true);
+      await controller.open({ job: { jobId: 'group' }, view,
+        draft: { ...emptySearchDraft, resultMode: 'song-groups' } });
+      await controller.openGroupOptions('group');
+      const oldRequest = controller.loadMoreGroupOptions();
+      expect(controller.current().groupOptions?.loading).toBe(true);
       const refreshed = new Promise<void>(resolve => {
         const unsubscribe = controller.subscribe(state => {
-          if (state.aggregateOptions?.revision === 2 && state.aggregateOptions.items[0]?.ref === second.ref) {
+          if (state.groupOptions?.revision === 2 && state.groupOptions.items[0]?.ref === second.ref) {
             unsubscribe();
             resolve();
           }
@@ -1287,17 +1287,17 @@ describe('Search View request isolation', () => {
       });
       await controller.refresh();
       await refreshed;
-      expect(controller.current().aggregateOptions?.items.map(item => item.ref)).toEqual([second.ref]);
-      olderPage.resolve({ revision: summary('aggregate', 1), groupRef: 'group', items: [first], nextCursor: null });
+      expect(controller.current().groupOptions?.items.map(item => item.ref)).toEqual([second.ref]);
+      olderPage.resolve({ revision: summary('group', 1), groupRef: 'group', items: [first], nextCursor: null });
       await oldRequest;
-      expect(controller.current().aggregateOptions?.items.map(item => item.ref)).toEqual([second.ref]);
+      expect(controller.current().groupOptions?.items.map(item => item.ref)).toEqual([second.ref]);
       nextRevision = 3;
       await controller.refresh();
-      expect(controller.current().aggregateOptions).toBeNull();
+      expect(controller.current().groupOptions).toBeNull();
     } finally { controller.stop(); }
   });
 
-  it('submits a locally chosen aggregate source and keeps retries identical', async () => {
+  it('submits a locally chosen group source and keeps retries identical', async () => {
     const requests: Parameters<DaemonApiClient['commitSearchView']>[] = [];
     const file = (ref: string, username: string): Schema<'SearchViewFileDto'> => ({
       ref, visibility: 'Public', preferenceTier: 'Preferred', necessaryConditionsSatisfied: true,
@@ -1308,11 +1308,11 @@ describe('Search View request isolation', () => {
     const first = file('first-option', 'first-peer');
     const second = file('second-option', 'second-peer');
     class Api extends DaemonApiClient {
-      override async getSearchViewAggregateTracks(id: string) {
+      override async getSearchViewTrackGroups(id: string) {
         return { revision: summary(id), items: [{ ref: 'group', query: { artist: 'Artist', title: 'Title',
           artistMaybeWrong: false }, shareCount: 2, selectableOptionCount: 2, representative: first }], nextCursor: null };
       }
-      override async getSearchViewAggregateTrackOptions(id: string) {
+      override async getSearchViewTrackGroupOptions(id: string) {
         return { revision: summary(id), groupRef: 'group', items: [first, second], nextCursor: null };
       }
       override async commitSearchView(...args: Parameters<DaemonApiClient['commitSearchView']>): Promise<Schema<'CommitSearchViewSelectionResponseDto'>> {
@@ -1321,16 +1321,16 @@ describe('Search View request isolation', () => {
       }
     }
     const view = summary('search');
-    view.kind = 'AggregateTracks';
+    view.kind = 'TrackGroups';
     view.counters.topLevelItemCount = 1;
     const controller = new SearchViewController(new Api(), 60_000);
     try {
       await controller.open({ job: { jobId: 'search' }, view,
-        draft: { ...emptySearchDraft, resultMode: 'song-aggregate' } });
-      await controller.openAggregateOptions('group');
-      const panel = controller.current().aggregateOptions;
+        draft: { ...emptySearchDraft, resultMode: 'song-groups' } });
+      await controller.openGroupOptions('group');
+      const panel = controller.current().groupOptions;
       expect(panel?.items.map(option => option.ref)).toEqual(['first-option', 'second-option']);
-      controller.chooseAggregateOption('group', panel!.items[1]!);
+      controller.chooseGroupOption('group', panel!.items[1]!);
       expect(controller.current().chosenOptions.get('group')?.ref).toBe('second-option');
       expect(controller.selectedCount()).toBe(1);
       await controller.commit();
@@ -1348,23 +1348,23 @@ describe('Search View request isolation', () => {
     } finally { controller.stop(); }
   });
 
-  it('rechecks an unselected aggregate choice at a new revision before reusing it', async () => {
+  it('rechecks an unselected group choice at a new revision before reusing it', async () => {
     const first = directorySummary('first').bestChild;
     const second = { ...directorySummary('second').bestChild, peer: { username: 'second-peer' } };
     const resolution = deferred<Schema<'ResolveSearchViewChosenOptionsResponseDto'>>();
     const commits: string[] = [];
     const checked: Schema<'ResolveSearchViewChosenOptionsRequestDto'>[] = [];
-    const view = summary('aggregate', 1);
-    view.kind = 'AggregateTracks';
+    const view = summary('group', 1);
+    view.kind = 'TrackGroups';
     view.counters.topLevelItemCount = 1;
     class Api extends DaemonApiClient {
-      override async getSearchViewAggregateTracks(id: string, revision: number | string) {
+      override async getSearchViewTrackGroups(id: string, revision: number | string) {
         return { revision: summary(id, Number(revision)), items: [{
           ref: 'group', query: { artist: 'Artist', title: 'Title', artistMaybeWrong: false },
           shareCount: 2, selectableOptionCount: 2, representative: first,
         }], nextCursor: null };
       }
-      override async getSearchViewAggregateTrackOptions(id: string, _group: string, revision: number | string) {
+      override async getSearchViewTrackGroupOptions(id: string, _group: string, revision: number | string) {
         return { revision: summary(id, Number(revision)), groupRef: 'group',
           items: Number(revision) === 1 ? [first, second] : [first], nextCursor: null };
       }
@@ -1385,15 +1385,15 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'aggregate' }, view,
-        draft: { ...emptySearchDraft, resultMode: 'song-aggregate' } });
-      await controller.openAggregateOptions('group');
-      controller.chooseAggregateOption('group', controller.current().aggregateOptions!.items[1]!);
+      await controller.open({ job: { jobId: 'group' }, view,
+        draft: { ...emptySearchDraft, resultMode: 'song-groups' } });
+      await controller.openGroupOptions('group');
+      controller.chooseGroupOption('group', controller.current().groupOptions!.items[1]!);
       controller.selectAll(false);
       await controller.refresh();
       expect(checked).toEqual([{ revision: 2, chosenOptions: { group: second.ref } }]);
       expect(controller.current().choiceValidationLoading).toBe(true);
-      expect(controller.current().checkedChoiceRevisions.get('group')).toBe('aggregate:1');
+      expect(controller.current().checkedChoiceRevisions.get('group')).toBe('group:1');
       await controller.commit();
       expect(commits).toEqual([]);
       const stale = new Promise<void>(resolve => {
@@ -1402,7 +1402,7 @@ describe('Search View request isolation', () => {
         });
         void unsubscribe;
       });
-      resolution.resolve({ revision: summary('aggregate', 2), items: [
+      resolution.resolve({ revision: summary('group', 2), items: [
         { groupRef: 'group', optionRef: second.ref, track: null, album: null },
       ] });
       await stale;
@@ -1410,8 +1410,8 @@ describe('Search View request isolation', () => {
       expect(controller.current().chosenOptions.get('group')?.ref).toBe(second.ref);
       await controller.commit();
       expect(commits).toEqual([]);
-      await controller.openAggregateOptions('group');
-      controller.chooseAggregateOption('group', controller.current().aggregateOptions!.items[0]!);
+      await controller.openGroupOptions('group');
+      controller.chooseGroupOption('group', controller.current().groupOptions!.items[0]!);
       expect(controller.current().staleChoices.has('group')).toBe(false);
       await controller.commit();
       expect(commits).toEqual([first.ref]);
@@ -1422,17 +1422,17 @@ describe('Search View request isolation', () => {
     const option = directorySummary('chosen').bestChild;
     const requests: Parameters<DaemonApiClient['commitSearchView']>[] = [];
     const unresolved = deferred<Schema<'ResolveSearchViewChosenOptionsResponseDto'>>();
-    const view = summary('aggregate', 1);
-    view.kind = 'AggregateTracks';
+    const view = summary('group', 1);
+    view.kind = 'TrackGroups';
     view.counters.topLevelItemCount = 1;
     class Api extends DaemonApiClient {
-      override async getSearchViewAggregateTracks(id: string, revision: number | string) {
+      override async getSearchViewTrackGroups(id: string, revision: number | string) {
         return { revision: summary(id, Number(revision)), items: [{
           ref: 'group', query: { artist: 'Artist', title: 'Title', artistMaybeWrong: false },
           shareCount: 1, selectableOptionCount: 1, representative: option,
         }], nextCursor: null };
       }
-      override async getSearchViewAggregateTrackOptions(id: string) {
+      override async getSearchViewTrackGroupOptions(id: string) {
         return { revision: summary(id, 1), groupRef: 'group', items: [option], nextCursor: null };
       }
       override async getSearchViewUpdate(id: string) { return { summary: summary(id, 2), hasNewRevision: true }; }
@@ -1447,10 +1447,10 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'aggregate', lifecycleState: 'Terminal' }, view,
-        draft: { ...emptySearchDraft, resultMode: 'song-aggregate' } });
-      await controller.openAggregateOptions('group');
-      controller.chooseAggregateOption('group', controller.current().aggregateOptions!.items[0]!);
+      await controller.open({ job: { jobId: 'group', lifecycleState: 'Terminal' }, view,
+        draft: { ...emptySearchDraft, resultMode: 'song-groups' } });
+      await controller.openGroupOptions('group');
+      controller.chooseGroupOption('group', controller.current().groupOptions!.items[0]!);
       await controller.commit();
       expect(controller.current().canRetryPendingCommit).toBe(true);
       await controller.refresh();
@@ -1465,22 +1465,22 @@ describe('Search View request isolation', () => {
   it('keeps an exact commit retry when a newer live revision hides the selected group', async () => {
     const option = directorySummary('chosen').bestChild;
     const requests: Parameters<DaemonApiClient['commitSearchView']>[] = [];
-    const view = summary('aggregate', 1);
-    view.kind = 'AggregateTracks';
+    const view = summary('group', 1);
+    view.kind = 'TrackGroups';
     view.counters.topLevelItemCount = 1;
     class Api extends DaemonApiClient {
-      override async getSearchViewAggregateTracks(id: string, revision: number | string) {
+      override async getSearchViewTrackGroups(id: string, revision: number | string) {
         return { revision: summary(id, Number(revision)), items: Number(revision) === 1 ? [{
           ref: 'group', query: { artist: 'Artist', title: 'Title', artistMaybeWrong: false },
           shareCount: 1, selectableOptionCount: 1, representative: option,
         }] : [], nextCursor: null };
       }
-      override async getSearchViewAggregateTrackOptions(id: string) {
+      override async getSearchViewTrackGroupOptions(id: string) {
         return { revision: summary(id, 1), groupRef: 'group', items: [option], nextCursor: null };
       }
       override async getSearchViewUpdate(id: string) {
         const updated = summary(id, 2);
-        updated.kind = 'AggregateTracks';
+        updated.kind = 'TrackGroups';
         updated.counters.topLevelItemCount = 0;
         return { summary: updated, hasNewRevision: true };
       }
@@ -1495,10 +1495,10 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'aggregate', lifecycleState: 'Terminal' }, view,
-        draft: { ...emptySearchDraft, resultMode: 'song-aggregate' } });
-      await controller.openAggregateOptions('group');
-      controller.chooseAggregateOption('group', controller.current().aggregateOptions!.items[0]!);
+      await controller.open({ job: { jobId: 'group', lifecycleState: 'Terminal' }, view,
+        draft: { ...emptySearchDraft, resultMode: 'song-groups' } });
+      await controller.openGroupOptions('group');
+      controller.chooseGroupOption('group', controller.current().groupOptions!.items[0]!);
       await controller.commit();
       await controller.refresh();
       expect(controller.selectedCount()).toBe(1);
@@ -1960,7 +1960,7 @@ describe('Search View request isolation', () => {
 
   it.each([
     ['track', 'Files'], ['generic', 'GenericDirectories'], ['album', 'AlbumDirectories'],
-    ['song-aggregate', 'AggregateTracks'], ['album-aggregate', 'AggregateAlbums'],
+    ['song-groups', 'TrackGroups'], ['album-groups', 'AlbumGroups'],
   ] as const)('can continue %s results after an in-flight page is superseded by a failed refinement', async (mode, kind) => {
     type EmptyPage = { revision: SearchViewSummaryDto; items: never[]; nextCursor: string | null };
     const oldPage = deferred<EmptyPage>();
@@ -1983,8 +1983,8 @@ describe('Search View request isolation', () => {
       override getSearchViewDirectories(...args: Parameters<DaemonApiClient['getSearchViewDirectories']>) {
         return read(args[0], args[1], args[2], args[3], args[5]);
       }
-      override getSearchViewAggregateTracks = read;
-      override getSearchViewAggregateAlbums = read;
+      override getSearchViewTrackGroups = read;
+      override getSearchViewAlbumGroups = read;
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {

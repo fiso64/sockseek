@@ -39,8 +39,8 @@ public sealed partial class SearchViewSnapshot
     internal readonly Dictionary<SearchViewSortOrder, ImmutableSortedSet<SearchViewFilePosition>> FileIndexes = [];
     internal readonly Dictionary<SearchViewSortOrder, ImmutableSortedSet<SearchViewDirectoryPosition>> DirectoryIndexes = [];
     internal readonly Dictionary<string, ImmutableSortedSet<SearchViewDirectoryPosition>> AlbumOptionIndexes = [];
-    internal ImmutableSortedSet<SearchViewAggregateTrackPosition> TrackIndex = ImmutableSortedSet.Create(TrackComparer);
-    internal ImmutableSortedSet<SearchViewAggregateAlbumPosition> AlbumIndex = ImmutableSortedSet.Create(AlbumComparer);
+    internal ImmutableSortedSet<SearchViewTrackGroupPosition> TrackIndex = ImmutableSortedSet.Create(TrackComparer);
+    internal ImmutableSortedSet<SearchViewAlbumGroupPosition> AlbumIndex = ImmutableSortedSet.Create(AlbumComparer);
 
     // Positions carry the exact keys used by their immutable index. Seeking never
     // scans earlier pages, and does not consult the latest projection revision.
@@ -65,10 +65,10 @@ public sealed partial class SearchViewSnapshot
             int result = StringComparer.Ordinal.Compare(a.RelativePath, b.RelativePath);
             return result != 0 ? result : StringComparer.Ordinal.Compare(a.Ref, b.Ref);
         });
-    internal static readonly IComparer<SearchViewAggregateTrackPosition> TrackComparer =
-        Comparer<SearchViewAggregateTrackPosition>.Create((a, b) => CompareGroup(a.ShareCount, a.Index, a.Ref, b.ShareCount, b.Index, b.Ref));
-    internal static readonly IComparer<SearchViewAggregateAlbumPosition> AlbumComparer =
-        Comparer<SearchViewAggregateAlbumPosition>.Create((a, b) => CompareGroup(a.ShareCount, a.Index, a.Ref, b.ShareCount, b.Index, b.Ref));
+    internal static readonly IComparer<SearchViewTrackGroupPosition> TrackComparer =
+        Comparer<SearchViewTrackGroupPosition>.Create((a, b) => CompareGroup(a.ShareCount, a.Index, a.Ref, b.ShareCount, b.Index, b.Ref));
+    internal static readonly IComparer<SearchViewAlbumGroupPosition> AlbumComparer =
+        Comparer<SearchViewAlbumGroupPosition>.Create((a, b) => CompareGroup(a.ShareCount, a.Index, a.Ref, b.ShareCount, b.Index, b.Ref));
 
     internal static int CompareGroup(int aCount, int aIndex, string aRef, int bCount, int bIndex, string bRef)
     {
@@ -198,14 +198,14 @@ public sealed partial class SearchViewSnapshot
             page.Items.Select(position => DirectoryFile(this, position)).ToArray(), page.Next, directory.Value);
     }
 
-    public SearchViewAggregateTrackPage GetAggregateTracks(SearchViewAggregateTrackPosition? after, int limit, CancellationToken cancellationToken = default)
+    public SearchViewTrackGroupPage GetTrackGroups(SearchViewTrackGroupPosition? after, int limit, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var page = Page(TrackIndex, after, limit);
         return new(Revision,
             page.Items.Select(position => Tracks[position.Ref].Value).ToArray(), page.Next);
     }
-    public SearchViewAggregateTrackOptionPage? GetAggregateTrackOptions(string groupRef, SearchViewFilePosition? after, int limit, CancellationToken cancellationToken = default)
+    public SearchViewTrackGroupOptionPage? GetTrackGroupOptions(string groupRef, SearchViewFilePosition? after, int limit, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!Tracks.TryGetValue(groupRef, out var group))
@@ -215,9 +215,9 @@ public sealed partial class SearchViewSnapshot
             page.Items.Select(position => Files[position.Ref].Value).ToArray(), page.Next);
     }
 
-    internal static SearchViewAggregateAlbumGroup Album(SearchViewSnapshot snapshot, AlbumRow row)
+    internal static SearchViewAlbumGroup Album(SearchViewSnapshot snapshot, AlbumRow row)
         => new(row.Ref, row.Index, row.Query, row.ShareCount, row.OptionCount, snapshot.Directories[row.Representative].Value);
-    public SearchViewAggregateAlbumPage GetAggregateAlbums(SearchViewAggregateAlbumPosition? after, int limit, int initialFileLimit = 0, CancellationToken cancellationToken = default)
+    public SearchViewAlbumGroupPage GetAlbumGroups(SearchViewAlbumGroupPosition? after, int limit, int initialFileLimit = 0, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var page = Page(AlbumIndex, after, limit);
@@ -239,7 +239,7 @@ public sealed partial class SearchViewSnapshot
         }
     }
 
-    public SearchViewAggregateAlbumOptionPage? GetAggregateAlbumOptions(string groupRef, SearchViewDirectoryPosition? after, int limit, int initialFileLimit = 0, CancellationToken cancellationToken = default)
+    public SearchViewAlbumGroupOptionPage? GetAlbumGroupOptions(string groupRef, SearchViewDirectoryPosition? after, int limit, int initialFileLimit = 0, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!Albums.TryGetValue(groupRef, out var group))
@@ -255,8 +255,8 @@ public sealed partial class SearchViewSnapshot
     public SearchViewChosenOptions ResolveChosenOptions(IReadOnlyDictionary<string, string> choices, int initialFileLimit = 0, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (View.ProjectionKind is not (SearchViewProjectionKind.AggregateTracks or SearchViewProjectionKind.AggregateAlbums))
-            throw new ArgumentException("Chosen options require an aggregate Search View.", nameof(choices));
+        if (View.ProjectionKind is not (SearchViewProjectionKind.TrackGroups or SearchViewProjectionKind.AlbumGroups))
+            throw new ArgumentException("Chosen options require a grouped Search View.", nameof(choices));
         var tracks = new Dictionary<string, SearchViewFile>(StringComparer.Ordinal);
         var albums = new Dictionary<string, SearchViewDirectory>(StringComparer.Ordinal);
         foreach (var (groupRef, optionRef) in choices)

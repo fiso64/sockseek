@@ -14,7 +14,7 @@ public class AlbumFolder
     public AlbumAudioQualityCoverage SearchAudioQualityCoverage => Evidence.SearchAudioQualityCoverage;
     public bool HasSearchMetadata => Evidence.HasSearchMetadata;
     public bool IsFullyRetrieved { get; set; }
-    internal ResultSorter.SortEntry? SearchAggregateSortEntry => Evidence.AggregateSortEntry;
+    internal ResultSorter.SortEntry? SearchGroupSortEntry => Evidence.GroupSortEntry;
 
     // Search metadata reads share admitted facts. Files remains the explicit
     // execution/CLI conversion, with independent lazy queries per snapshot.
@@ -89,7 +89,7 @@ public class AlbumFolder
         int searchAudioFileCount,
         int[] searchSortedAudioLengths,
         string? searchRepresentativeAudioFilename)
-        : this(username, folderPath, filesFactory, searchFileCount, searchAudioFileCount, searchSortedAudioLengths, searchRepresentativeAudioFilename, AlbumAudioQualityCoverage.Inactive(searchAudioFileCount), hasSearchMetadata: true, searchAggregateSortEntry: null)
+        : this(username, folderPath, filesFactory, searchFileCount, searchAudioFileCount, searchSortedAudioLengths, searchRepresentativeAudioFilename, AlbumAudioQualityCoverage.Inactive(searchAudioFileCount), hasSearchMetadata: true, searchGroupSortEntry: null)
     {
     }
 
@@ -135,7 +135,7 @@ public class AlbumFolder
         string? searchRepresentativeAudioFilename,
         AlbumAudioQualityCoverage searchAudioQualityCoverage,
         bool hasSearchMetadata,
-        ResultSorter.SortEntry? searchAggregateSortEntry = null)
+        ResultSorter.SortEntry? searchGroupSortEntry = null)
     {
         Username = username;
         FolderPath = folderPath;
@@ -147,6 +147,6 @@ public class AlbumFolder
             searchRepresentativeAudioFilename,
             searchAudioQualityCoverage,
             hasSearchMetadata,
-            searchAggregateSortEntry);
+            searchGroupSortEntry);
     }
 }

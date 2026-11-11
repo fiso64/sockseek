@@ -59,7 +59,7 @@ public static class ServerSnapshotMapper
             Stats: stats,
             SourceDetail: job.SourceDetail,
             SearchDefaultProjection: searchDefinition?.DefaultProjection.ToServer(),
-            SearchAggregatePresentation: searchDefinition?.AggregatePresentation);
+            SearchGroupResults: searchDefinition?.GroupResults);
     }
 
     public static JobSummaryDto ToSubmittedJobSummary(Job job, Guid? sourceJobId = null)
@@ -75,8 +75,8 @@ public static class ServerSnapshotMapper
         JobSnapshot job,
         Func<Guid, string?> getTransferState,
         JobOutcomeSummary? liveListOutcomes = null,
-        JobOutcomeSummary? liveAggregateOutcomes = null,
-        JobOutcomeSummary? liveAlbumAggregateOutcomes = null)
+        JobOutcomeSummary? liveGroupOutcomes = null,
+        JobOutcomeSummary? liveAlbumGroupsOutcomes = null)
         => job.Payload switch
         {
             ExtractJobSnapshotPayload extract => new ExtractJobPayloadDto(
@@ -100,7 +100,7 @@ public static class ServerSnapshotMapper
                 search.ResultCount,
                 search.Revision,
                 search.IsComplete,
-                search.Definition?.AggregatePresentation ?? false),
+                search.Definition?.GroupResults ?? false),
             SongJobSnapshotPayload song => ToSongJobPayloadDto(job, song, getTransferState(job.Id)),
             AlbumJobSnapshotPayload album => new AlbumJobPayloadDto(
                 ToAlbumQueryDto(album.Query),
@@ -122,10 +122,10 @@ public static class ServerSnapshotMapper
                     ?? remoteDirectory.ResolvedPlanSource?.SourceDirectory?.FolderPath,
                 ToDirectoryDownloadStateDto(remoteDirectory.Directory),
                 remoteDirectory.Manifest?.Plan.DisplayRoot ?? remoteDirectory.ResolvedPlanSource?.DisplayRoot ?? remoteDirectory.DirectorySource?.FolderPath),
-            AggregateJobSnapshotPayload aggregate => ToAggregatePayloadDto(aggregate, liveAggregateOutcomes),
-            AlbumAggregateJobSnapshotPayload albumAggregate => ToAlbumAggregatePayloadDto(
-                albumAggregate,
-                liveAlbumAggregateOutcomes),
+            SongGroupsJobSnapshotPayload group => ToGroupPayloadDto(group, liveGroupOutcomes),
+            AlbumGroupsJobSnapshotPayload albumGroups => ToAlbumGroupsPayloadDto(
+                albumGroups,
+                liveAlbumGroupsOutcomes),
             JobListSnapshotPayload list => ToJobListPayloadDto(list, liveListOutcomes),
             RetrieveFolderJobSnapshotPayload retrieve => new RetrieveFolderJobPayloadDto(
                 retrieve.Directory.FolderPath,
@@ -141,9 +141,9 @@ public static class ServerSnapshotMapper
                     ? RemoteDirectorySourceKindDto.PeerDirectory : RemoteDirectorySourceKindDto.Resolved,
                 directory.SourceUsername, directory.SourceFolderPath,
                 ToDirectoryDownloadStateDto(directory.Directory), directory.DisplayRoot),
-            AggregateExecutionPayload aggregate => new AggregateJobPayloadDto(
-                ToSongQueryDto(aggregate.Query), aggregate.Outcomes.Total, aggregate.Outcomes.Completed,
-                aggregate.Outcomes.Succeeded, aggregate.Outcomes.Failed),
+            SongGroupsExecutionPayload group => new SongGroupsJobPayloadDto(
+                ToSongQueryDto(group.Query), group.Outcomes.Total, group.Outcomes.Completed,
+                group.Outcomes.Succeeded, group.Outcomes.Failed),
             JobListExecutionPayload list => new JobListPayloadDto(
                 list.Outcomes.Total, list.Outcomes.Total - list.Outcomes.Completed,
                 list.Outcomes.Completed, list.Outcomes.Succeeded, list.Outcomes.Failed),
@@ -159,8 +159,8 @@ public static class ServerSnapshotMapper
     public static JobSummaryStatsDto? ToJobSummaryStats(
         JobSnapshot job,
         JobOutcomeSummary? liveListOutcomes = null,
-        JobOutcomeSummary? liveAggregateOutcomes = null,
-        JobOutcomeSummary? liveAlbumAggregateOutcomes = null)
+        JobOutcomeSummary? liveGroupOutcomes = null,
+        JobOutcomeSummary? liveAlbumGroupsOutcomes = null)
         => job.Payload switch
         {
             SongJobSnapshotPayload song => new(CandidateCount: song.CandidateCount),
@@ -169,9 +169,9 @@ public static class ServerSnapshotMapper
             RemoteFileJobSnapshotPayload file => new(KnownBytes: file.File.FileSize ?? file.Target.Size),
             RemoteDirectoryJobSnapshotPayload directory => ToDirectorySummaryStats(directory.Directory),
             RemoteDirectoryExecutionPayload directory => ToDirectorySummaryStats(directory.Directory),
-            AggregateJobSnapshotPayload aggregate => MemberStats(liveAggregateOutcomes ?? aggregate.Outcomes),
-            AggregateExecutionPayload aggregate => MemberStats(aggregate.Outcomes),
-            AlbumAggregateJobSnapshotPayload aggregate => AlbumAggregateStats(aggregate, liveAlbumAggregateOutcomes),
+            SongGroupsJobSnapshotPayload group => MemberStats(liveGroupOutcomes ?? group.Outcomes),
+            SongGroupsExecutionPayload group => MemberStats(group.Outcomes),
+            AlbumGroupsJobSnapshotPayload group => AlbumGroupsStats(group, liveAlbumGroupsOutcomes),
             JobListSnapshotPayload list => MemberStats(ListOutcomes(list, liveListOutcomes)),
             JobListExecutionPayload list => MemberStats(list.Outcomes),
             RetrieveFolderJobSnapshotPayload retrieve => new(NewFilesFoundCount: retrieve.NewFilesFoundCount),
@@ -193,19 +193,19 @@ public static class ServerSnapshotMapper
         => liveOutcomes ?? list.LogicalOutcomes ?? list.Jobs.Aggregate(new JobOutcomeSummary(),
             (summary, job) => summary.Include(job.LifecycleState, job.TerminalOutcome, job.SkipReason));
 
-    private static JobSummaryStatsDto AlbumAggregateStats(
-        AlbumAggregateJobSnapshotPayload aggregate, JobOutcomeSummary? registeredAlbums)
+    private static JobSummaryStatsDto AlbumGroupsStats(
+        AlbumGroupsJobSnapshotPayload group, JobOutcomeSummary? registeredAlbums)
     {
-        var (count, outcomes) = AlbumAggregateProgress(aggregate, registeredAlbums);
+        var (count, outcomes) = AlbumGroupsProgress(group, registeredAlbums);
         return new(MemberCount: count,
             CompletedMemberCount: outcomes.Completed, FailedMemberCount: outcomes.Failed);
     }
 
-    private static (int Count, JobOutcomeSummary Outcomes) AlbumAggregateProgress(
-        AlbumAggregateJobSnapshotPayload aggregate, JobOutcomeSummary? registeredAlbums)
+    private static (int Count, JobOutcomeSummary Outcomes) AlbumGroupsProgress(
+        AlbumGroupsJobSnapshotPayload group, JobOutcomeSummary? registeredAlbums)
     {
-        JobOutcomeSummary outcomes = registeredAlbums is { Total: > 0 } ? registeredAlbums.Value : aggregate.Albums;
-        return (aggregate.Albums.Total > 0 ? aggregate.Albums.Total : outcomes.Total, outcomes);
+        JobOutcomeSummary outcomes = registeredAlbums is { Total: > 0 } ? registeredAlbums.Value : group.Albums;
+        return (group.Albums.Total > 0 ? group.Albums.Total : outcomes.Total, outcomes);
     }
 
     public static string? RemoteDirectorySourceUsername(RemoteDirectoryJobSnapshotPayload directory)
@@ -233,26 +233,26 @@ public static class ServerSnapshotMapper
             outcomes.Failed);
     }
 
-    internal static AggregateJobPayloadDto ToAggregatePayloadDto(
-        AggregateJobSnapshotPayload aggregate,
+    internal static SongGroupsJobPayloadDto ToGroupPayloadDto(
+        SongGroupsJobSnapshotPayload group,
         JobOutcomeSummary? liveOutcomes = null)
     {
-        JobOutcomeSummary outcomes = liveOutcomes ?? aggregate.Outcomes;
+        JobOutcomeSummary outcomes = liveOutcomes ?? group.Outcomes;
         return new(
-            ToSongQueryDto(aggregate.Query),
+            ToSongQueryDto(group.Query),
             outcomes.Total,
             outcomes.Completed,
             outcomes.Succeeded,
             outcomes.Failed);
     }
 
-    internal static AlbumAggregateJobPayloadDto ToAlbumAggregatePayloadDto(
-        AlbumAggregateJobSnapshotPayload aggregate,
+    internal static AlbumGroupsJobPayloadDto ToAlbumGroupsPayloadDto(
+        AlbumGroupsJobSnapshotPayload group,
         JobOutcomeSummary? registeredAlbums = null)
     {
-        var (count, outcomes) = AlbumAggregateProgress(aggregate, registeredAlbums);
+        var (count, outcomes) = AlbumGroupsProgress(group, registeredAlbums);
         return new(
-            ToAlbumQueryDto(aggregate.Query),
+            ToAlbumQueryDto(group.Query),
             count,
             outcomes.Completed,
             outcomes.Succeeded,
@@ -357,8 +357,8 @@ public static class ServerSnapshotMapper
             JobSnapshotKind.Search => ServerJobKind.Search,
             JobSnapshotKind.Song => ServerJobKind.Song,
             JobSnapshotKind.Album => ServerJobKind.Album,
-            JobSnapshotKind.Aggregate => ServerJobKind.Aggregate,
-            JobSnapshotKind.AlbumAggregate => ServerJobKind.AlbumAggregate,
+            JobSnapshotKind.SongGroups => ServerJobKind.SongGroups,
+            JobSnapshotKind.AlbumGroups => ServerJobKind.AlbumGroups,
             JobSnapshotKind.JobList => ServerJobKind.JobList,
             JobSnapshotKind.RetrieveFolder => ServerJobKind.RetrieveFolder,
             JobSnapshotKind.RemoteFile => ServerJobKind.RemoteFile,
@@ -382,8 +382,8 @@ public static class ServerSnapshotMapper
         RemoteDirectoryJob => ServerJobKind.RemoteDirectory,
         JobList => ServerJobKind.JobList,
         RetrieveFolderJob => ServerJobKind.RetrieveFolder,
-        AggregateJob => ServerJobKind.Aggregate,
-        AlbumAggregateJob => ServerJobKind.AlbumAggregate,
+        SongGroupsJob => ServerJobKind.SongGroups,
+        AlbumGroupsJob => ServerJobKind.AlbumGroups,
         _ => ServerJobKind.Generic,
     };
 
@@ -503,7 +503,7 @@ public static class ServerSnapshotMapper
         {
             AlbumJobSnapshotPayload album => album.TrackJobs,
             RemoteDirectoryJobSnapshotPayload directory => directory.FileJobs,
-            AggregateJobSnapshotPayload aggregate => aggregate.Songs,
+            SongGroupsJobSnapshotPayload group => group.Songs,
             JobListSnapshotPayload list => list.Jobs,
             _ => [],
         };

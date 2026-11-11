@@ -203,7 +203,7 @@ public sealed class IncrementalResultSorter
     public ProjectedFileCandidate? Add(SearchProjectionInput input)
         => AddWithUserSuccessCount(input, userSuccessCount: null);
 
-    // Deferred aggregate ranking retains the workflow score at admission. It
+    // Deferred group ranking retains the workflow score at admission. It
     // must not re-admit ignored peers or change earlier ranking after failures.
     internal ProjectedFileCandidate? AddWithUserSuccessCount(SearchProjectionInput input, int? userSuccessCount)
     {
@@ -254,7 +254,7 @@ public sealed class IncrementalResultSorter
         foreach (var entry in added)
             UpdateBest(entry);
         // Arrival packet size must not decide ranking cost. In particular,
-        // aggregate buckets often receive one option at a time: merging their
+        // group buckets often receive one option at a time: merging their
         // entire ordered prefix on each arrival was quadratic in copies/bytes.
         if (pendingEntries.Count == 0)
             pendingEntries = added;

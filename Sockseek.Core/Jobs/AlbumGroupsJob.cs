@@ -4,7 +4,7 @@ using Sockseek.Core.Snapshots;
 namespace Sockseek.Core.Jobs;
     // Finds all distinct albums matching a query (e.g. by an artist); converts each to an AlbumJob added to the queue.
     // Has no download state of its own after conversion.
-    public class AlbumAggregateJob : Job, IUpgradeable
+    public class AlbumGroupsJob : Job, IUpgradeable
     {
         public AlbumQuery Query { get; set; }
 
@@ -14,7 +14,7 @@ namespace Sockseek.Core.Jobs;
 
         protected override bool DefaultCanBeSkipped => false;
 
-        // Populated after aggregate search: one AlbumJob per distinct album candidate.
+        // Populated after group search: one AlbumJob per distinct album candidate.
         private readonly JobMembers<AlbumJob> members;
         public IReadOnlyList<AlbumJob> Albums
         {
@@ -23,7 +23,7 @@ namespace Sockseek.Core.Jobs;
         }
         internal JobOutcomeSummary MemberOutcomes => members.Summary;
 
-        public AlbumAggregateJob(AlbumQuery query)
+        public AlbumGroupsJob(AlbumQuery query)
         {
             Query = query;
             members = new(false, NotifyStructureChanged);
@@ -32,7 +32,7 @@ namespace Sockseek.Core.Jobs;
         public override string ToString(bool noInfo)
             => ItemName ?? Query.ToString(noInfo);
 
-        public IEnumerable<Job> Upgrade(bool album, bool aggregate)
+        public IEnumerable<Job> Upgrade(bool album, bool group)
         {
             yield return this;
         }

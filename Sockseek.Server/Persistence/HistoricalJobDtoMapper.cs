@@ -101,7 +101,7 @@ internal static class HistoricalJobDtoMapper
             DiscoveryObservedPeerCount: ToNullableInt(job.DiscoveryObservedPeerCount),
             Stats: ServerSnapshotMapper.ToJobSummaryStats(snapshot),
             SearchDefaultProjection: searchDefinition?.DefaultProjection.ToServer(),
-            SearchAggregatePresentation: searchDefinition?.AggregatePresentation,
+            SearchGroupResults: searchDefinition?.GroupResults,
             SourceDetail: job.SourceDetail,
             PrintOption: ((PrintOption)job.PrintOption).ToServer());
     }

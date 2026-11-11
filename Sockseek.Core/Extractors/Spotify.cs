@@ -35,7 +35,7 @@ namespace Sockseek.Core.Extractors;
                 {
                     unit = kind == SourceKind.LikedAlbums ? "album" : "song";
                     if (source.Config.Extraction.UpgradeToAlbum) unit = "album";
-                    if (source.Config.Search.IsAggregate) unit = "job";
+                    if (source.Config.Search.GroupResults) unit = "job";
                 }
                 return new(Detail: label, UseResultName: true,
                     PreviewTitle: label, PreviewDetail: source.Input,

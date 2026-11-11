@@ -146,7 +146,7 @@ public sealed class JobReadState
             || previous.PrintOption != current.PrintOption || previous.SubmissionId != current.SubmissionId
             || previous.Role != current.Role || previous.CreatedAtUtc != current.CreatedAtUtc
             || previous.SearchDefaultProjection != current.SearchDefaultProjection
-            || previous.SearchAggregatePresentation != current.SearchAggregatePresentation
+            || previous.SearchGroupResults != current.SearchGroupResults
             || !previous.AppliedAutoProfiles.SequenceEqual(current.AppliedAutoProfiles)) fields |= JobFields.Display;
         if (previous.LifecycleState != current.LifecycleState || previous.ActivityPhase != current.ActivityPhase
             || previous.ActivityUntilUtc != current.ActivityUntilUtc || previous.TerminalOutcome != current.TerminalOutcome

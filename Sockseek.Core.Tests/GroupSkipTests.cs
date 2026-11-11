@@ -10,10 +10,10 @@ using Tests.ClientTests;
 namespace Tests.EndToEnd
 {
     [TestClass]
-    public class AggregateSkipTests
+    public class GroupSkipTests
     {
         [TestMethod]
-        public async Task AggregateDownload_SkipExisting_CorrectlySkipsAfterSearch()
+        public async Task GroupDownload_SkipExisting_CorrectlySkipsAfterSearch()
         {
             Console.ResetColor();
             Console.OutputEncoding = Encoding.UTF8;
@@ -42,8 +42,8 @@ namespace Tests.EndToEnd
                 dl.Output.WritePlaylist = false;
                 dl.Skip.SkipExisting = true;
                 dl.Skip.SkipMode = SkipMode.Name;
-                dl.Search.IsAggregate = true;
-                dl.Search.MinSharesAggregate = 1;
+                dl.Search.GroupResults = true;
+                dl.Search.MinGroupShares = 1;
 
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, eng);
                 var app = new DownloadEngine(eng, clientManager);
@@ -53,12 +53,12 @@ namespace Tests.EndToEnd
 
                 // Check the job queue to see if the track was marked as already existing
                 Assert.IsNotNull(app.Queue, "Queue should not be null");
-                var aggregateJob = app.Queue.AllJobs().OfType<AggregateJob>().FirstOrDefault();
-                Assert.IsNotNull(aggregateJob, "Should have found an AggregateJob");
+                var songGroupsJob = app.Queue.AllJobs().OfType<SongGroupsJob>().FirstOrDefault();
+                Assert.IsNotNull(songGroupsJob, "Should have found an SongGroupsJob");
                 
 
-                var song = aggregateJob.Songs.FirstOrDefault(s => s.Query.ToString(true).Contains("Artist1"));
-                Assert.IsNotNull(song, "Should have found the song in the aggregate job results");
+                var song = songGroupsJob.Songs.FirstOrDefault(s => s.Query.ToString(true).Contains("Artist1"));
+                Assert.IsNotNull(song, "Should have found the song in the group job results");
                 
                 // This is where it will fail if the regression is present:
                 // It will be 'Downloaded' instead of 'AlreadyExists' because it wasn't skipped.
@@ -75,7 +75,7 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task AggregateJob_SkipsExistingFilesOnRerun_IfAndOnlyIfWithinTolerance()
+        public async Task SongGroupsJob_SkipsExistingFilesOnRerun_IfAndOnlyIfWithinTolerance()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-test-out-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
@@ -100,9 +100,9 @@ namespace Tests.EndToEnd
                 dl.Output.ParentDir = outputDir;
                 dl.Output.WriteIndex = true;
                 dl.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
-                dl.Search.IsAggregate = true;
-                dl.Search.MinSharesAggregate = 1;
-                dl.Search.AggregateLengthTol = 3;
+                dl.Search.GroupResults = true;
+                dl.Search.MinGroupShares = 1;
+                dl.Search.GroupLengthTol = 3;
                 dl.Skip.SkipExisting = true;
 
                 // Run 1: 180s
@@ -112,7 +112,7 @@ namespace Tests.EndToEnd
                 app1.CompleteEnqueue();
                 await app1.RunAsync(CancellationToken.None);
 
-                var aggJob1 = app1.Queue.AllJobs().OfType<AggregateJob>().FirstOrDefault();
+                var aggJob1 = app1.Queue.AllJobs().OfType<SongGroupsJob>().FirstOrDefault();
                 Assert.AreEqual(JobTerminalOutcome.Succeeded, aggJob1!.Songs[0].TerminalOutcome);
                 int linesRun1 = File.ReadAllLines(dl.Output.IndexFilePath).Length;
 
@@ -123,10 +123,10 @@ namespace Tests.EndToEnd
                 app2.CompleteEnqueue();
                 await app2.RunAsync(CancellationToken.None);
 
-                var aggJob2 = app2.Queue.AllJobs().OfType<AggregateJob>().FirstOrDefault();
+                var aggJob2 = app2.Queue.AllJobs().OfType<SongGroupsJob>().FirstOrDefault();
                 Assert.IsNotNull(aggJob2);
                 Assert.AreEqual(1, aggJob2.Songs.Count);
-                Assert.IsTrue(aggJob2.Songs[0].IsSkippedAlreadyExists, "Aggregate job should skip existing files on rerun if within length tolerance.");
+                Assert.IsTrue(aggJob2.Songs[0].IsSkippedAlreadyExists, "Song Groups job should skip existing files on rerun if within length tolerance.");
                 int linesRun2 = File.ReadAllLines(dl.Output.IndexFilePath).Length;
                 Assert.AreEqual(linesRun1, linesRun2, "Index file should not duplicate entries when skipping within tolerance.");
 
@@ -137,10 +137,10 @@ namespace Tests.EndToEnd
                 app3.CompleteEnqueue();
                 await app3.RunAsync(CancellationToken.None);
 
-                var aggJob3 = app3.Queue.AllJobs().OfType<AggregateJob>().FirstOrDefault();
+                var aggJob3 = app3.Queue.AllJobs().OfType<SongGroupsJob>().FirstOrDefault();
                 Assert.IsNotNull(aggJob3);
                 Assert.AreEqual(1, aggJob3.Songs.Count);
-                Assert.AreEqual(JobTerminalOutcome.Succeeded, aggJob3.Songs[0].TerminalOutcome, "Aggregate job should NOT skip if the length is outside the aggregate tolerance.");
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, aggJob3.Songs[0].TerminalOutcome, "Song Groups job should NOT skip if the length is outside the group tolerance.");
                 int linesRun3 = File.ReadAllLines(dl.Output.IndexFilePath).Length;
                 Assert.IsTrue(linesRun3 > linesRun2, "Index file should append new entry for track outside tolerance.");
             }
@@ -151,16 +151,16 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task AlbumAggregateJob_MultipleAlbums_SkipsCorrectlyPerAlbumOnRerun()
+        public async Task AlbumGroupsJob_MultipleAlbums_SkipsCorrectlyPerAlbumOnRerun()
         {
-            // Regression: when an artist has multiple aggregate albums, all AlbumJobs were
+            // Regression: when an artist has multiple group albums, all AlbumJobs were
             // created with the original empty-album query, giving every album the same index key.
             // The last album to write would overwrite the others; on rerun every album matched
             // that single path, causing wrong skips and re-downloads.
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-test-out-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
 
-            // Two albums with different track lengths so they form distinct aggregate buckets.
+            // Two albums with different track lengths so they form distinct group buckets.
             var response = new Soulseek.SearchResponse("User1", 1, true, 100, 0,
             [
                 TestHelpers.CreateSlFile(@"Artist\Album A\01. Artist - Song.mp3", length: 100),
@@ -177,8 +177,8 @@ namespace Tests.EndToEnd
                 dl.Output.ParentDir = outputDir;
                 dl.Output.WriteIndex = true;
                 dl.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
-                dl.Search.IsAggregate = true;
-                dl.Search.MinSharesAggregate = 1;
+                dl.Search.GroupResults = true;
+                dl.Search.MinGroupShares = 1;
                 dl.Skip.SkipExisting = true;
 
                 // Run 1: download both albums.
@@ -187,7 +187,7 @@ namespace Tests.EndToEnd
                 app1.CompleteEnqueue();
                 await app1.RunAsync(CancellationToken.None);
 
-                var aggJob1 = app1.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
+                var aggJob1 = app1.Queue.AllJobs().OfType<AlbumGroupsJob>().FirstOrDefault();
                 Assert.IsNotNull(aggJob1);
                 Assert.AreEqual(2, aggJob1.Albums.Count, "Both albums should be found.");
                 Assert.IsTrue(aggJob1.Albums.All(a => a.TerminalOutcome == JobTerminalOutcome.Succeeded), "Both albums should download on first run.");
@@ -198,7 +198,7 @@ namespace Tests.EndToEnd
                 app2.CompleteEnqueue();
                 await app2.RunAsync(CancellationToken.None);
 
-                var aggJob2 = app2.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
+                var aggJob2 = app2.Queue.AllJobs().OfType<AlbumGroupsJob>().FirstOrDefault();
                 Assert.IsNotNull(aggJob2);
                 Assert.AreEqual(2, aggJob2.Albums.Count, "Both albums should be found on second run.");
                 Assert.IsTrue(aggJob2.Albums.All(a => a.IsSkippedAlreadyExists),
@@ -211,7 +211,7 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task AlbumAggregateJob_SkipDoesNotCorruptIndexState()
+        public async Task AlbumGroupsJob_SkipDoesNotCorruptIndexState()
         {
             // Regression: JobToIndexState had no case for AlreadyExists, so skipped albums
             // were written as Pending (state=0) to the index. The third run would then see
@@ -232,8 +232,8 @@ namespace Tests.EndToEnd
                 dl.Output.ParentDir = outputDir;
                 dl.Output.WriteIndex = true;
                 dl.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
-                dl.Search.IsAggregate = true;
-                dl.Search.MinSharesAggregate = 1;
+                dl.Search.GroupResults = true;
+                dl.Search.MinGroupShares = 1;
                 dl.Skip.SkipExisting = true;
 
                 async Task RunOnce()
@@ -253,7 +253,7 @@ namespace Tests.EndToEnd
                 app3.CompleteEnqueue();
                 await app3.RunAsync(CancellationToken.None);
 
-                var aggJob3 = app3.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
+                var aggJob3 = app3.Queue.AllJobs().OfType<AlbumGroupsJob>().FirstOrDefault();
                 Assert.IsNotNull(aggJob3);
                 Assert.AreEqual(1, aggJob3.Albums.Count);
                 Assert.IsTrue(aggJob3.Albums[0].IsSkippedAlreadyExists,
@@ -266,7 +266,7 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task AlbumAggregateJob_SkipsExistingAlbumsOnRerun()
+        public async Task AlbumGroupsJob_SkipsExistingAlbumsOnRerun()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-test-out-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
@@ -285,8 +285,8 @@ namespace Tests.EndToEnd
                 dl.Output.ParentDir = outputDir;
                 dl.Output.WriteIndex = true;
                 dl.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
-                dl.Search.IsAggregate = true;
-                dl.Search.MinSharesAggregate = 1;
+                dl.Search.GroupResults = true;
+                dl.Search.MinGroupShares = 1;
                 dl.Skip.SkipExisting = true;
 
                 var clientManager1 = TestHelpers.CreateMockClientManager(testClient, eng);
@@ -301,10 +301,10 @@ namespace Tests.EndToEnd
                 app2.CompleteEnqueue();
                 await app2.RunAsync(CancellationToken.None);
 
-                var aggJob = app2.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
+                var aggJob = app2.Queue.AllJobs().OfType<AlbumGroupsJob>().FirstOrDefault();
                 Assert.IsNotNull(aggJob);
                 Assert.AreEqual(1, aggJob.Albums.Count);
-                Assert.IsTrue(aggJob.Albums[0].IsSkippedAlreadyExists, "AlbumAggregate job should skip existing albums on rerun.");
+                Assert.IsTrue(aggJob.Albums[0].IsSkippedAlreadyExists, "AlbumGroups job should skip existing albums on rerun.");
             }
             finally
             {
@@ -313,7 +313,7 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task AlbumAggregateJob_NotFoundChild_DoesNotReportDone()
+        public async Task AlbumGroupsJob_NotFoundChild_DoesNotReportDone()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-test-out-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
@@ -339,27 +339,27 @@ namespace Tests.EndToEnd
                 Assert.IsTrue(missingAlbum.IsUnsuccessfulTerminal);
                 Assert.AreEqual(JobFailureReason.NoSearchResults, missingAlbum.FailureReason);
 
-                var aggregateSettings = new DownloadSettings();
-                aggregateSettings.Extraction.Input = "artist=Artist";
-                aggregateSettings.Extraction.IsAlbum = true;
-                aggregateSettings.Output.ParentDir = outputDir;
-                aggregateSettings.Output.WriteIndex = true;
-                aggregateSettings.Output.IndexFilePath = indexPath;
-                aggregateSettings.Search.IsAggregate = true;
-                aggregateSettings.Search.MinSharesAggregate = 1;
-                aggregateSettings.Skip.SkipNotFound = true;
+                var groupSettings = new DownloadSettings();
+                groupSettings.Extraction.Input = "artist=Artist";
+                groupSettings.Extraction.IsAlbum = true;
+                groupSettings.Output.ParentDir = outputDir;
+                groupSettings.Output.WriteIndex = true;
+                groupSettings.Output.IndexFilePath = indexPath;
+                groupSettings.Search.GroupResults = true;
+                groupSettings.Search.MinGroupShares = 1;
+                groupSettings.Skip.SkipNotFound = true;
 
                 var secondRun = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(new ClientTests.MockSoulseekClient([response]), eng));
-                secondRun.Enqueue(new ExtractJob(aggregateSettings.Extraction.Input, aggregateSettings.Extraction.InputType), aggregateSettings);
+                secondRun.Enqueue(new ExtractJob(groupSettings.Extraction.Input, groupSettings.Extraction.InputType), groupSettings);
                 secondRun.CompleteEnqueue();
                 await secondRun.RunAsync(CancellationToken.None);
 
-                var aggJob = secondRun.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
+                var aggJob = secondRun.Queue.AllJobs().OfType<AlbumGroupsJob>().FirstOrDefault();
                 Assert.IsNotNull(aggJob);
                 Assert.AreEqual(1, aggJob.Albums.Count);
                 Assert.AreEqual(JobTerminalOutcome.Skipped, aggJob.Albums[0].TerminalOutcome);
                 Assert.AreEqual(JobSkipReason.NotFoundLastTime, aggJob.Albums[0].SkipReason);
-                Assert.AreEqual(JobTerminalOutcome.Skipped, aggJob.TerminalOutcome, "Parent AlbumAggregateJob should not report Done when its only generated child was skipped.");
+                Assert.AreEqual(JobTerminalOutcome.Skipped, aggJob.TerminalOutcome, "Parent AlbumGroupsJob should not report Done when its only generated child was skipped.");
                 Assert.AreEqual(JobSkipReason.NotFoundLastTime, aggJob.SkipReason);
             }
             finally
@@ -369,7 +369,7 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task NormalJob_SkipsExistingFiles_RespectsLengthToleranceNotAggregateTol()
+        public async Task NormalJob_SkipsExistingFiles_RespectsLengthToleranceNotGroupTol()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-test-out-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
@@ -391,7 +391,7 @@ namespace Tests.EndToEnd
                 dl1.Output.ParentDir = outputDir;
                 dl1.Output.WriteIndex = true;
                 dl1.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
-                dl1.Search.IsAggregate = false;
+                dl1.Search.GroupResults = false;
                 dl1.Skip.SkipExisting = true;
 
                 var clientManager1 = TestHelpers.CreateMockClientManager(testClient1, eng);
@@ -411,9 +411,9 @@ namespace Tests.EndToEnd
                 dl2.Output.WriteIndex = true;
                 dl2.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
                 
-                dl2.Search.IsAggregate = false;
+                dl2.Search.GroupResults = false;
                 dl2.Search.NecessaryCond.LengthTolerance = 1; // Normal tolerance is tight (182 is outside)
-                dl2.Search.AggregateLengthTol = 5;            // Aggregate tolerance is loose (182 is inside)
+                dl2.Search.GroupLengthTol = 5;            // Grouping tolerance is loose (182 is inside)
                 dl2.Skip.SkipExisting = true;
 
                 var clientManager2 = TestHelpers.CreateMockClientManager(testClient2, eng);
@@ -426,7 +426,7 @@ namespace Tests.EndToEnd
                 Assert.IsNotNull(songJob2);
                 
                 // It should download again (Done), NOT AlreadyExists, because normal tolerance (1) applies.
-                Assert.AreEqual(JobTerminalOutcome.Succeeded, songJob2.TerminalOutcome, "Normal job should NOT use AggregateLengthTol to skip.");
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, songJob2.TerminalOutcome, "Normal job should NOT use GroupLengthTol to skip.");
             }
             finally
             {

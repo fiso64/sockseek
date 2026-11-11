@@ -237,13 +237,13 @@ public class SearchFallbackTests
     public void BatchAndIncrementalProjections_AgreeOnArtistAndTitleAlternatives()
     {
         var query = new SongQuery { Artist = "First;Second", Title = "Some Song (feat. Guest)", Length = 200 };
-        var search = new SearchSettings { MinSharesAggregate = 2 };
+        var search = new SearchSettings { MinGroupShares = 2 };
         search.NecessaryCond.StrictArtist = true;
         search.NecessaryCond.StrictTitle = true;
         search.PreferredCond.StrictArtist = true;
         var job = new SearchJob(query);
         job.Session.AddResponse(Response("Second", user: "One"));
-        Assert.AreEqual(0, job.GetAggregateTracks(search, new()).Items.Count);
+        Assert.AreEqual(0, job.GetTrackGroups(search, new()).Items.Count);
         job.Session.AddResponse(Response("Second", user: "Two"));
         job.Session.AddResponse(Response("Unrelated", user: "Wrong"));
 
@@ -253,8 +253,8 @@ public class SearchFallbackTests
         var batchFiles = SearchResultProjector.SortedTrackCandidates(filtered, query, search, new());
         CollectionAssert.AreEqual(batchFiles.Select(x => x.Target.Username).ToArray(), incrementalFiles.Select(x => x.Target.Username).ToArray());
 
-        var incremental = job.GetAggregateTracks(search, new()).Items;
-        var batch = SearchResultProjector.AggregateTracks(job.Snapshot(), query, search, new());
+        var incremental = job.GetTrackGroups(search, new()).Items;
+        var batch = SearchResultProjector.GroupTracks(job.Snapshot(), query, search, new());
         Assert.AreEqual(1, batch.Count);
         Assert.AreEqual(1, incremental.Count);
         Assert.AreEqual(2, incremental[0].Candidates?.Count);
@@ -265,7 +265,7 @@ public class SearchFallbackTests
     public void AlbumProjections_ApplyAnyArtistToRequiredAndPreferredMatching()
     {
         var query = new AlbumQuery { Artist = "First;Second", Album = "Some Album" };
-        var search = new SearchSettings { MinSharesAggregate = 2 };
+        var search = new SearchSettings { MinGroupShares = 2 };
         search.NecessaryCond.StrictArtist = true;
         search.PreferredCond.StrictArtist = true;
         var job = new SearchJob(query);
@@ -275,18 +275,18 @@ public class SearchFallbackTests
 
         Assert.AreEqual(2, job.GetAlbumFolders(search).Items.Count);
         Assert.AreEqual(2, SearchResultProjector.AlbumFolders(job.Snapshot(), query, search).Count);
-        Assert.AreEqual(1, job.GetAggregateAlbums(search).Items.Count);
+        Assert.AreEqual(1, job.GetAlbumGroups(search).Items.Count);
     }
 
     [TestMethod]
-    public async Task AggregateSearch_UsesFallbackAndRetainsSecondaryArtistGroups()
+    public async Task GroupSearch_UsesFallbackAndRetainsSecondaryArtistGroups()
     {
         var client = new MockSoulseekClient([Response("Second", user: "One"), Response("Second", user: "Two")]);
         using var searcher = CreateSearcher(client);
-        var job = new AggregateJob(new SongQuery { Artist = "First;Second", Title = "Some Song" });
+        var job = new SongGroupsJob(new SongQuery { Artist = "First;Second", Title = "Some Song" });
         var search = new SearchSettings();
         search.NecessaryCond.StrictArtist = true;
-        await searcher.SearchAggregate(job, search, new ResponseData(), CancellationToken.None);
+        await searcher.SearchGroup(job, search, new ResponseData(), CancellationToken.None);
 
         Assert.AreEqual(3, client.SearchCallCount);
         Assert.AreEqual(1, job.Songs.Count);

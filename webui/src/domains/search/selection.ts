@@ -2,12 +2,12 @@ import { randomUUID } from '../../app/uuid';
 import type { Schema, SearchViewSummaryDto } from '../../api/types';
 import { sameWireInteger } from '../../api/types';
 
-export type AggregateOption =
+export type GroupOption =
   | { kind: 'track'; ref: string; value: Schema<'SearchViewFileDto'> }
   | { kind: 'album'; ref: string; value: Schema<'SearchViewDirectoryDto'> };
 
 export interface SearchSelectionState {
-  readonly chosenOptions: ReadonlyMap<string, AggregateOption>;
+  readonly chosenOptions: ReadonlyMap<string, GroupOption>;
   readonly checkedChoiceRevisions: ReadonlyMap<string, string>;
   readonly staleChoices: ReadonlySet<string>;
   readonly albumFileSelections: ReadonlyMap<string, { mode: 'Only' | 'AllExcept'; refs: ReadonlySet<string> }>;
@@ -63,9 +63,9 @@ export function allSearchResultsSelected(state: DisplayedSelection): boolean {
     && !state.directoryPathRules.some(rule => !rule.selected);
   if (state.selectedAll) return state.selectionRefs.size === 0 && wholeRoots;
   // Ordinary views can also be fully selected one file at a time. Reuse the
-  // exact counts already requested by the toolbar; aggregate totals include
+  // exact counts already requested by the toolbar; group totals include
   // alternative sources, so their completeness is determined by group choices.
-  if (state.summary.kind !== 'AggregateTracks' && state.summary.kind !== 'AggregateAlbums'
+  if (state.summary.kind !== 'TrackGroups' && state.summary.kind !== 'AlbumGroups'
     && state.selectionCounts && sameWireInteger(state.selectionCounts.revision, state.summary.revision))
     return BigInt(state.summary.counters.projectedPublicFileCount) > 0n
       && BigInt(state.selectionCounts.publicFileCount) === BigInt(state.summary.counters.projectedPublicFileCount);
@@ -414,7 +414,7 @@ export class SearchSelection {
     return this.state.selectionNeedsReview || selectionUsesEarlierRevision({ ...this.state, summary: this.summary });
   }
 
-  choose(groupRef: string, option: AggregateOption): boolean {
+  choose(groupRef: string, option: GroupOption): boolean {
     if (this.selectionReadOnly()) return false;
     const chosenOptions = new Map(this.state.chosenOptions).set(groupRef, option);
     const checkedChoiceRevisions = new Map(this.state.checkedChoiceRevisions);
@@ -551,7 +551,7 @@ export class SearchSelection {
     return this.pending ??= {
       viewId: this.summary.viewId,
       request: structuredClone({ ...this.input(), options,
-        useRepresentativeWhenUnchosen: this.summary.kind === 'AggregateTracks' || this.summary.kind === 'AggregateAlbums',
+        useRepresentativeWhenUnchosen: this.summary.kind === 'TrackGroups' || this.summary.kind === 'AlbumGroups',
         idempotencyKey: randomUUID() }),
     };
   }

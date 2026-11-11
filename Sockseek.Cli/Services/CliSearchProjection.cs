@@ -18,11 +18,11 @@ internal sealed record FolderSearchProjectionRequestDto(
     AlbumQueryDto AlbumQuery,
     bool IncludeFiles = false);
 
-internal sealed record AggregateTrackProjectionRequestDto(
+internal sealed record TrackGroupProjectionRequestDto(
     SongQueryDto? SongQuery = null,
     bool IncludeCandidates = false);
 
-internal sealed record AggregateAlbumProjectionRequestDto(
+internal sealed record AlbumGroupProjectionRequestDto(
     AlbumQueryDto? AlbumQuery = null,
     bool IncludeFolders = false);
 
@@ -55,12 +55,12 @@ internal sealed record AlbumFolderDto(
     IReadOnlyList<FileCandidateDto>? Files = null,
     bool IsFullyRetrieved = false);
 
-internal sealed record AggregateTrackCandidateDto(
+internal sealed record TrackGroupCandidateDto(
     SongQueryDto Query,
     string? ItemName,
     List<FileCandidateDto>? Candidates = null);
 
-internal sealed record AggregateAlbumCandidateDto(
+internal sealed record AlbumGroupCandidateDto(
     AlbumQueryDto Query,
     string? ItemName,
     List<AlbumFolderDto>? Folders = null);

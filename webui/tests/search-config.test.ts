@@ -60,19 +60,19 @@ describe('resolved search configuration edits', () => {
     expect(() => searchExpectedLength('1.5')).toThrow('integer');
   });
 
-  it('clears an aggregate sharer filter while inheriting an empty grouping tolerance', () => {
-    const before = readSearchConditions({ minSharesAggregate: 2, aggregateLengthTol: 3 });
+  it('clears a grouped sharer filter while inheriting an empty grouping tolerance', () => {
+    const before = readSearchConditions({ minGroupShares: 2, groupLengthTol: 3 });
     const after = structuredClone(before);
-    after.aggregate.minShares = '';
-    after.aggregate.lengthTolerance = '';
-    expect(searchConditionsPatch('song-aggregate', before, after))
-      .toEqual({ minSharesAggregate: 1 });
-    (after.aggregate as { lengthTolerance: string | null }).lengthTolerance = null;
-    expect(searchConditionsPatch('album-aggregate', before, after))
-      .toEqual({ minSharesAggregate: 1 });
-    after.aggregate.lengthTolerance = '5';
-    expect(searchConditionsPatch('song-aggregate', before, after))
-      .toEqual({ minSharesAggregate: 1, aggregateLengthTol: 5 });
+    after.group.minShares = '';
+    after.group.lengthTolerance = '';
+    expect(searchConditionsPatch('song-groups', before, after))
+      .toEqual({ minGroupShares: 1 });
+    (after.group as { lengthTolerance: string | null }).lengthTolerance = null;
+    expect(searchConditionsPatch('album-groups', before, after))
+      .toEqual({ minGroupShares: 1 });
+    after.group.lengthTolerance = '5';
+    expect(searchConditionsPatch('song-groups', before, after))
+      .toEqual({ minGroupShares: 1, groupLengthTol: 5 });
   });
 
   it('retains existing overrides when another condition changes', () => {
@@ -107,7 +107,7 @@ describe('resolved search configuration edits', () => {
 it('hides only the complete built-in music format set, retaining other filters and generic formats', () => {
   const formats = ['ALAC', 'AAC', 'WAV', 'OPUS', 'M4A', 'OGG', 'FLAC', 'mp3', 'MP3'];
   const conditions = readSearchConditions({ necessaryCond: { formats: { replace: formats } } });
-  for (const mode of ['track', 'album', 'song-aggregate', 'album-aggregate'] as const) {
+  for (const mode of ['track', 'album', 'song-groups', 'album-groups'] as const) {
     expect(visibleFormatPills(mode, formats)).toEqual([]);
     expect(conditionPills(mode, conditions).length).toBe(0);
   }
@@ -116,8 +116,8 @@ it('hides only the complete built-in music format set, retaining other filters a
   expect(visibleFormatPills('track', ['FLAC'])).toEqual(['FLAC']);
   expect(visibleFormatPills('album', formats.slice(1))).toEqual(formats.slice(1));
   expect(visibleFormatPills('album', [...formats, 'APE'])).toEqual([...formats, 'APE']);
-  conditions.aggregate.minShares = '2';
-  expect(conditionPills('album-aggregate', conditions).length).toBeGreaterThan(0);
+  conditions.group.minShares = '2';
+  expect(conditionPills('album-groups', conditions).length).toBeGreaterThan(0);
   expect(conditionPills('track', conditions).length).toBe(0);
   conditions.common.minBitrate = '256';
   expect(conditionPills('track', conditions).length).toBeGreaterThan(0);
@@ -135,13 +135,13 @@ it('keeps required, preferred and separate draft values independent', () => {
   expect(second.album.strictAlbum).toBe(false);
 });
 
-it.each(['generic', 'track', 'album', 'song-aggregate', 'album-aggregate'] as const)(
+it.each(['generic', 'track', 'album', 'song-groups', 'album-groups'] as const)(
   'removes visible %s filters without changing ranking or unrelated conditions', mode => {
     const conditions = readSearchConditions({
       necessaryCond: { formats: { replace: ['flac', 'mp3'] }, minBitrate: 256, excludeLocked: true, strictArtist: true, strictTitle: true, strictAlbum: true },
       preferredCond: { formats: { replace: ['mp3'] }, excludeLocked: true },
       necessaryFolderCond: { requiredTrackTitles: { replace: ['One', 'Two'] } },
-      minSharesAggregate: 2, aggregateLengthTol: 5,
+      minGroupShares: 2, groupLengthTol: 5,
     }, 180);
     const ranking = structuredClone(conditions.ranking);
     const pills = conditionPills(mode, conditions);
@@ -151,7 +151,7 @@ it.each(['generic', 'track', 'album', 'song-aggregate', 'album-aggregate'] as co
     }
     expect(conditions.ranking).toEqual(ranking);
     if (mode === 'generic') expect(conditions.common.strictArtist).toBe(true);
-    if (mode === 'track' || mode === 'song-aggregate') {
+    if (mode === 'track' || mode === 'song-groups') {
       expect(conditions.album.requiredTrackTitles).toEqual(['One', 'Two']);
       expect(conditions.track.lengthTolerance).toBe('');
     } else expect(conditions.track.expectedLength).toBe('180');

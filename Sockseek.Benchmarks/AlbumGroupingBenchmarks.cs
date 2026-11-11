@@ -43,14 +43,14 @@ public partial class AlbumGroupingBenchmarks
         => SearchResultProjector.AlbumFolders(rawResults, albumQuery, search, userSuccessCounts).Count;
 
     [Benchmark]
-    public int Legacy_AlbumAggregate_GlobalFileSortThenGroup()
+    public int Legacy_AlbumGroups_GlobalFileSortThenGroup()
     {
         var folders = LegacyAlbumFolders(rawResults, albumQuery, search, userSuccessCounts);
-        return SearchResultProjector.AggregateAlbums(folders, albumQuery, search).Count;
+        return SearchResultProjector.GroupAlbums(folders, albumQuery, search).Count;
     }
 
     [Benchmark]
-    public int New_AlbumAggregate_GroupThenRankBuckets()
+    public int New_AlbumGroups_GroupThenRankBuckets()
     {
         var folders = SearchResultProjector.AlbumFolders(
             rawResults,
@@ -59,7 +59,7 @@ public partial class AlbumGroupingBenchmarks
             userSuccessCounts,
             ignoreStringSortConditions: true,
             sortMode: FolderSortMode.DeterministicUnranked);
-        return SearchResultProjector.AggregateAlbums(folders, albumQuery, search).Count;
+        return SearchResultProjector.GroupAlbums(folders, albumQuery, search).Count;
     }
 
     [Benchmark]
@@ -103,7 +103,7 @@ public partial class AlbumGroupingBenchmarks
     }
 
     [Benchmark]
-    public int Legacy_IncrementalAlbumAggregate_GlobalFileSort()
+    public int Legacy_IncrementalAlbumGroups_GlobalFileSort()
     {
         var sortQuery = SearchResultProjector.AlbumFileMatchQuery(albumQuery);
         var sorter = new IncrementalResultSorter(
@@ -129,13 +129,13 @@ public partial class AlbumGroupingBenchmarks
             search,
             sorter.Count);
 
-        var aggregateProjector = new IncrementalAlbumAggregateProjector(albumQuery, search);
-        aggregateProjector.AddRange(folders);
-        return aggregateProjector.Snapshot().Count;
+        var groupProjector = new IncrementalAlbumGroupProjector(albumQuery, search);
+        groupProjector.AddRange(folders);
+        return groupProjector.Snapshot().Count;
     }
 
     [Benchmark]
-    public int New_IncrementalAlbumAggregate_GroupThenRankBuckets()
+    public int New_IncrementalAlbumGroups_GroupThenRankBuckets()
     {
         var folderProjector = new IncrementalAlbumFolderProjector(
             albumQuery,
@@ -143,11 +143,11 @@ public partial class AlbumGroupingBenchmarks
             userSuccessCounts,
             ignoreStringSortConditions: true,
             sortMode: FolderSortMode.DeterministicUnranked);
-        var aggregateProjector = new IncrementalAlbumAggregateProjector(albumQuery, search);
+        var groupProjector = new IncrementalAlbumGroupProjector(albumQuery, search);
 
         var changes = folderProjector.AddRangeAndGetChanges(rawResults);
-        aggregateProjector.ApplyChanges(changes);
-        return aggregateProjector.Snapshot().Count;
+        groupProjector.ApplyChanges(changes);
+        return groupProjector.Snapshot().Count;
     }
 
     private static List<AlbumFolder> LegacyAlbumFolders(

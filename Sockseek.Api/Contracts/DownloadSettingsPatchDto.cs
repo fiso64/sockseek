@@ -66,13 +66,13 @@ public sealed record SearchSettingsPatchDto(
     bool? Relax = null,
     bool? StrictAlbumQuality = null,
     bool? ArtistMaybeWrong = null,
-    bool? IsAggregate = null,
-    int? MinSharesAggregate = null,
-    int? AggregateLengthTol = null,
+    bool? GroupResults = null,
+    int? MinGroupShares = null,
+    int? GroupLengthTol = null,
     int? FallbackLevel = null,
     int? MaxFallbackAttempts = null,
     int? MaxStaleTime = null,
-    bool? ClearMinSharesAggregate = null);
+    bool? ClearMinGroupShares = null);
 
 public sealed record FileConditionsPatchDto(
     int? LengthTolerance = null,

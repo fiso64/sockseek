@@ -136,9 +136,9 @@ internal static class EffectiveSettingsMapper
             settings.Relax,
             settings.StrictAlbumQuality,
             settings.ArtistMaybeWrong,
-            settings.IsAggregate,
-            settings.EffectiveMinSharesAggregate,
-            settings.AggregateLengthTol,
+            settings.GroupResults,
+            settings.EffectiveMinGroupShares,
+            settings.GroupLengthTol,
             settings.FallbackLevel,
             settings.MaxFallbackAttempts,
             settings.MaxStaleTime);

@@ -11,8 +11,8 @@ namespace Sockseek.Api;
 [JsonDerivedType(typeof(SearchJobPayloadDto), ServerProtocol.JobKinds.Search)]
 [JsonDerivedType(typeof(SongJobPayloadDto), ServerProtocol.JobKinds.Song)]
 [JsonDerivedType(typeof(AlbumJobPayloadDto), ServerProtocol.JobKinds.Album)]
-[JsonDerivedType(typeof(AggregateJobPayloadDto), ServerProtocol.JobKinds.Aggregate)]
-[JsonDerivedType(typeof(AlbumAggregateJobPayloadDto), ServerProtocol.JobKinds.AlbumAggregate)]
+[JsonDerivedType(typeof(SongGroupsJobPayloadDto), ServerProtocol.JobKinds.SongGroups)]
+[JsonDerivedType(typeof(AlbumGroupsJobPayloadDto), ServerProtocol.JobKinds.AlbumGroups)]
 [JsonDerivedType(typeof(JobListPayloadDto), ServerProtocol.JobKinds.JobList)]
 [JsonDerivedType(typeof(RetrieveFolderJobPayloadDto), ServerProtocol.JobKinds.RetrieveFolder)]
 [JsonDerivedType(typeof(RemoteFileJobPayloadDto), ServerProtocol.JobKinds.RemoteFile)]
@@ -105,7 +105,7 @@ public sealed record ExtractJobPayloadDto(
 /// <param name="SongQuery">Immutable file/track query, when applicable.</param>
 /// <param name="AlbumQuery">Immutable album query, when applicable.</param>
 /// <param name="IncludeFullResults">Whether the accepted file projection includes rows that fail necessary conditions.</param>
-/// <param name="AggregatePresentation">Whether the submitted search defaults to aggregate result groups.</param>
+/// <param name="GroupResults">Whether the submitted search defaults to group result groups.</param>
 /// <param name="Revision">Current raw observation revision.</param>
 public sealed record SearchJobPayloadDto(
     string QueryText,
@@ -116,13 +116,13 @@ public sealed record SearchJobPayloadDto(
     int ResultCount,
     int Revision,
     bool IsComplete,
-    bool AggregatePresentation = false) : JobPayloadDto;
+    bool GroupResults = false) : JobPayloadDto;
 
 /// <summary>An observed attempt, not a selected target or replay/download instruction.</summary>
 public sealed record AttemptedSongFileDto(PeerFileTargetDto Target, PeerInfoDto Peer);
 
 /// <summary>
-/// Payload for song jobs, including child song rows owned by album or aggregate jobs.
+/// Payload for song jobs, including child song rows owned by album or group jobs.
 /// </summary>
 /// <param name="JobId">
 /// Present when the row corresponds to a registered job and can be addressed directly.
@@ -200,9 +200,9 @@ public sealed record RemoteDirectoryJobPayloadDto(
     string? DisplayRoot = null) : JobPayloadDto;
 
 /// <summary>
-/// Payload for aggregate track download jobs.
+/// Payload for group track download jobs.
 /// </summary>
-public sealed record AggregateJobPayloadDto(
+public sealed record SongGroupsJobPayloadDto(
     SongQueryDto Query,
     int SongCount,
     int CompletedSongCount,
@@ -210,9 +210,9 @@ public sealed record AggregateJobPayloadDto(
     int FailedSongCount) : JobPayloadDto;
 
 /// <summary>
-/// Payload for album-aggregate jobs, which search for distinct album candidates.
+/// Payload for album-groups jobs, which search for distinct album candidates.
 /// </summary>
-public sealed record AlbumAggregateJobPayloadDto(
+public sealed record AlbumGroupsJobPayloadDto(
     AlbumQueryDto Query,
     int ResultCount,
     int CompletedAlbumCount,

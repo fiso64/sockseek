@@ -76,7 +76,7 @@ namespace Tests.ConfigTests
                 "profile-cond = input-type == \"youtube\" && download-mode == \"album\"\n" +
                 "max-stale-time = 10\n" +
                 "[profile-true-2]\n" +
-                "profile-cond = !aggregate\n" +
+                "profile-cond = !group\n" +
                 "fast-search = false\n" +
                 "[profile-false-1]\n" +
                 "profile-cond = input-type == \"string\"\n" +
@@ -435,13 +435,13 @@ namespace Tests.ConfigTests
         {
             var (file, root, _, args) = Bind(
                 "[auto]\nprofile-cond = interactive\nmax-stale-time = 10",
-                "--interactive", "--input-type", "youtube", "--album", "--aggregate");
+                "--interactive", "--input-type", "youtube", "--album", "--group");
 
             var result = Resolve(file, root, new CliSettings { InteractiveMode = true }, args);
 
             Assert.AreEqual(InputType.YouTube, result.Extraction.InputType);
             Assert.IsTrue(result.Extraction.IsAlbum);
-            Assert.IsTrue(result.Search.IsAggregate);
+            Assert.IsTrue(result.Search.GroupResults);
         }
     }
 
@@ -616,7 +616,7 @@ namespace Tests.ConfigTests
             dl = new DownloadSettings();
             dl.Extraction.InputType = InputType.YouTube;
             dl.Extraction.IsAlbum = true;
-            dl.Search.IsAggregate = false;
+            dl.Search.GroupResults = false;
             cli = new CliSettings { InteractiveMode = true };
         }
 
@@ -628,7 +628,7 @@ namespace Tests.ConfigTests
         {
             Assert.IsTrue(Satisfied("input-type == \"youtube\""));
             Assert.IsTrue(Satisfied("download-mode == \"album\""));
-            Assert.IsFalse(Satisfied("aggregate"));
+            Assert.IsFalse(Satisfied("group"));
             Assert.IsTrue(Satisfied("interactive"));
             Assert.IsTrue(Satisfied("album"));
             Assert.IsFalse(Satisfied("!interactive"));
@@ -639,16 +639,16 @@ namespace Tests.ConfigTests
         {
             Assert.IsTrue(Satisfied("album && input-type == \"youtube\""));
             Assert.IsFalse(Satisfied("album && input-type != \"youtube\""));
-            Assert.IsFalse(Satisfied("(interactive && aggregate)"));
-            Assert.IsTrue(Satisfied("album && (interactive || aggregate)"));
+            Assert.IsFalse(Satisfied("(interactive && group)"));
+            Assert.IsTrue(Satisfied("album && (interactive || group)"));
         }
 
         [TestMethod]
         public void ProfileConditionEvaluator_WithComplexOrConditions_EvaluatesCorrectly()
         {
-            Assert.IsTrue(Satisfied("input-type == \"spotify\" || aggregate || input-type == \"csv\" || interactive && album"));
-            Assert.IsTrue(Satisfied("input-type!=\"youtube\"||(album&&!interactive||(aggregate||interactive))"));
-            Assert.IsFalse(Satisfied("input-type!=\"youtube\"||(album&&!interactive||(aggregate||!interactive))"));
+            Assert.IsTrue(Satisfied("input-type == \"spotify\" || group || input-type == \"csv\" || interactive && album"));
+            Assert.IsTrue(Satisfied("input-type!=\"youtube\"||(album&&!interactive||(group||interactive))"));
+            Assert.IsFalse(Satisfied("input-type!=\"youtube\"||(album&&!interactive||(group||!interactive))"));
         }
 
         [TestMethod]
@@ -657,9 +657,9 @@ namespace Tests.ConfigTests
             (Job Job, string Mode)[] cases =
             [
                 (new SongJob(new SongQuery { Title = "test" }), "song"),
-                (new AggregateJob(new SongQuery { Title = "test" }), "aggregate"),
+                (new SongGroupsJob(new SongQuery { Title = "test" }), "song-groups"),
                 (new AlbumJob(new AlbumQuery { Album = "test" }), "album"),
-                (new AlbumAggregateJob(new AlbumQuery { Album = "test" }), "album-aggregate"),
+                (new AlbumGroupsJob(new AlbumQuery { Album = "test" }), "album-groups"),
                 (new RemoteFileJob(new PeerFileTarget(
                     new PeerFileIdentity("Peer", @"Share\File.bin"),
                     size: null,
@@ -669,7 +669,7 @@ namespace Tests.ConfigTests
             ];
             string[] modes =
             [
-                "song", "aggregate", "album", "album-aggregate",
+                "song", "song-groups", "album", "album-groups",
                 "generic-file", "generic-directory", "remote-file", "remote-directory",
             ];
 
@@ -719,13 +719,13 @@ namespace Tests.ConfigTests
             dl.Extraction.RequestedMode = ExtractionMode.Song;
             Assert.IsTrue(Satisfied("download-mode == \"song\""));
 
-            dl.Search.IsAggregate = true;
-            Assert.IsTrue(Satisfied("download-mode == \"aggregate\""));
+            dl.Search.GroupResults = true;
+            Assert.IsTrue(Satisfied("download-mode == \"song-groups\""));
 
             dl.Extraction.RequestedMode = ExtractionMode.Album;
-            Assert.IsTrue(Satisfied("download-mode == \"album-aggregate\""));
+            Assert.IsTrue(Satisfied("download-mode == \"album-groups\""));
 
-            dl.Search.IsAggregate = false;
+            dl.Search.GroupResults = false;
             dl.Extraction.RequestedMode = null;
             dl.Extraction.UpgradeToAlbum = true;
             Assert.IsTrue(Satisfied("download-mode == \"album\""));
@@ -739,7 +739,7 @@ namespace Tests.ConfigTests
 
             foreach (string mode in new[]
                      {
-                         "normal", "generic-file", "generic-directory", "song", "aggregate", "album", "album-aggregate",
+                         "normal", "generic-file", "generic-directory", "song", "song-groups", "album", "album-groups",
                      })
             {
                 Assert.IsFalse(Satisfied($"download-mode == \"{mode}\""),

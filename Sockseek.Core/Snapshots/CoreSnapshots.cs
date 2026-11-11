@@ -13,8 +13,8 @@ public enum JobSnapshotKind
     Search,
     Song,
     Album,
-    Aggregate,
-    AlbumAggregate,
+    SongGroups,
+    AlbumGroups,
     JobList,
     RetrieveFolder,
     RemoteFile,
@@ -270,7 +270,7 @@ public sealed record RemoteDirectoryJobSnapshotPayload(
     IReadOnlyList<JobSnapshot> FileJobs,
     DirectoryDownloadStateSnapshot Directory) : JobSnapshotPayload;
 
-public sealed record AggregateJobSnapshotPayload(
+public sealed record SongGroupsJobSnapshotPayload(
     SongQuerySnapshot Query,
     IReadOnlyList<JobSnapshot> Songs,
     SearchDefinition? Definition,
@@ -315,7 +315,7 @@ public readonly record struct JobOutcomeSummary(
             || (outcome == JobTerminalOutcome.Skipped && skipReason != JobSkipReason.AlreadyExists);
 }
 
-public sealed record AlbumAggregateJobSnapshotPayload(
+public sealed record AlbumGroupsJobSnapshotPayload(
     AlbumQuerySnapshot Query,
     JobOutcomeSummary Albums,
     SearchDefinition? Definition) : JobExecutionPayload;
@@ -406,7 +406,7 @@ public sealed record JobExecutionSnapshot : JobSnapshotHeader
             },
             (RemoteDirectoryExecutionPayload current, RemoteDirectoryJobSnapshotPayload old)
                 => old with { Directory = current.Directory },
-            (AggregateExecutionPayload current, AggregateJobSnapshotPayload old)
+            (SongGroupsExecutionPayload current, SongGroupsJobSnapshotPayload old)
                 => old with { Query = current.Query, Definition = current.Definition, Outcomes = current.Outcomes },
             (JobListExecutionPayload current, JobListSnapshotPayload old)
                 => old with { Count = current.Outcomes.Total, LogicalOutcomes = current.Outcomes },
@@ -428,7 +428,7 @@ public sealed record RemoteDirectoryExecutionPayload(
     string? SourceUsername, string? SourceFolderPath, string? DisplayRoot,
     DirectoryDownloadStateSnapshot Directory) : JobExecutionPayload;
 
-public sealed record AggregateExecutionPayload(
+public sealed record SongGroupsExecutionPayload(
     SongQuerySnapshot Query, SearchDefinition? Definition, JobOutcomeSummary Outcomes) : JobExecutionPayload;
 
 public sealed record JobListExecutionPayload(JobOutcomeSummary Outcomes) : JobExecutionPayload;

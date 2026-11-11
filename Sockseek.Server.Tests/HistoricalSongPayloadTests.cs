@@ -56,10 +56,10 @@ public sealed class HistoricalSongPayloadTests
     }
 
     [TestMethod]
-    public void RetainedAggregatePreservesOutcomeCountsAndInvalidRowsDoNotHideNeighbors()
+    public void RetainedGroupPreservesOutcomeCountsAndInvalidRowsDoNotHideNeighbors()
     {
-        var job = Job("Aggregate", new AggregateExecutionPayload(new(null, null, null, null, null, false), null, new(7, 7, 5, 2)));
-        var payload = (AggregateJobPayloadDto)HistoricalJobDtoMapper.ToPayload(job);
+        var job = Job("SongGroups", new SongGroupsExecutionPayload(new(null, null, null, null, null, false), null, new(7, 7, 5, 2)));
+        var payload = (SongGroupsJobPayloadDto)HistoricalJobDtoMapper.ToPayload(job);
         Assert.AreEqual(7, payload.SongCount);
         Assert.AreEqual(7, payload.CompletedSongCount);
         Assert.AreEqual(5, payload.SucceededSongCount);

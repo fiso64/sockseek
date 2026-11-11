@@ -97,12 +97,12 @@ public static class JobPreparer
                 ApplySearchSettingsToAlbumQuery(aj, search);
                 break;
 
-            case AggregateJob ag:
+            case SongGroupsJob ag:
                 foreach (var s in ag.Songs) ApplySearchSettings(s, search);
                 break;
 
-            case AlbumAggregateJob aaj:
-                ApplySearchSettingsToAlbumAggregateQuery(aaj, search);
+            case AlbumGroupsJob aaj:
+                ApplySearchSettingsToAlbumGroupsQuery(aaj, search);
                 break;
         }
     }
@@ -118,7 +118,7 @@ public static class JobPreparer
             aj.Query = new AlbumQuery(q) { ArtistMaybeWrong = amw };
     }
 
-    static void ApplySearchSettingsToAlbumAggregateQuery(AlbumAggregateJob aaj, SearchSettings search)
+    static void ApplySearchSettingsToAlbumGroupsQuery(AlbumGroupsJob aaj, SearchSettings search)
     {
         var q   = aaj.Query;
         bool amw = q.ArtistMaybeWrong;

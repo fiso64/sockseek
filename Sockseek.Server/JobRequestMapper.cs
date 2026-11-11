@@ -51,13 +51,13 @@ public static class JobRequestMapper
     public static SearchJob CreateTrackSearchJob(SubmitTrackSearchJobRequestDto request)
         => new(ToSongQuery(request.SongQuery), request.IncludeFullResults)
         {
-            AggregatePresentation = request.AggregatePresentation,
+            GroupResults = request.GroupResults,
         };
 
     public static SearchJob CreateAlbumSearchJob(SubmitAlbumSearchJobRequestDto request)
         => new(ToAlbumQuery(request.AlbumQuery))
         {
-            AggregatePresentation = request.AggregatePresentation,
+            GroupResults = request.GroupResults,
         };
 
     public static SongJob CreateSongJob(SubmitSongJobRequestDto request)
@@ -66,11 +66,11 @@ public static class JobRequestMapper
     public static AlbumJob CreateAlbumJob(SubmitAlbumJobRequestDto request)
         => ApplyDownloadBehavior(new AlbumJob(ToAlbumQuery(request.AlbumQuery)), request.DownloadBehavior);
 
-    public static AggregateJob CreateAggregateJob(SubmitAggregateJobRequestDto request)
-        => ApplyDownloadBehavior(new AggregateJob(ToSongQuery(request.SongQuery)), request.DownloadBehavior);
+    public static SongGroupsJob CreateSongGroupsJob(SubmitSongGroupsJobRequestDto request)
+        => ApplyDownloadBehavior(new SongGroupsJob(ToSongQuery(request.SongQuery)), request.DownloadBehavior);
 
-    public static AlbumAggregateJob CreateAlbumAggregateJob(SubmitAlbumAggregateJobRequestDto request)
-        => ApplyDownloadBehavior(new AlbumAggregateJob(ToAlbumQuery(request.AlbumQuery)), request.DownloadBehavior);
+    public static AlbumGroupsJob CreateAlbumGroupsJob(SubmitAlbumGroupsJobRequestDto request)
+        => ApplyDownloadBehavior(new AlbumGroupsJob(ToAlbumQuery(request.AlbumQuery)), request.DownloadBehavior);
 
     public static JobList CreateJobList(SubmitJobListRequestDto request)
         => CreateJobList(request.Name, request.Jobs);
@@ -88,12 +88,12 @@ public static class JobRequestMapper
             case ExtractJob extract when extract.Result != null:
                 AssignWorkflowId(extract.Result, workflowId);
                 break;
-            case AggregateJob aggregate:
-                foreach (var song in aggregate.Songs)
+            case SongGroupsJob group:
+                foreach (var song in group.Songs)
                     AssignWorkflowId(song, workflowId);
                 break;
-            case AlbumAggregateJob aggregate:
-                foreach (var album in aggregate.Albums)
+            case AlbumGroupsJob group:
+                foreach (var album in group.Albums)
                     AssignWorkflowId(album, workflowId);
                 break;
         }
@@ -171,8 +171,8 @@ public static class JobRequestMapper
             AlbumSearchJobDraftDto search => AlbumCommand(JobSnapshotKind.Search, search.AlbumQuery),
             SongJobDraftDto song => SongCommand(JobSnapshotKind.Song, song.SongQuery, song.DownloadBehavior),
             AlbumJobDraftDto album => AlbumCommand(JobSnapshotKind.Album, album.AlbumQuery, album.DownloadBehavior),
-            AggregateJobDraftDto aggregate => SongCommand(JobSnapshotKind.Aggregate, aggregate.SongQuery, aggregate.DownloadBehavior),
-            AlbumAggregateJobDraftDto aggregate => AlbumCommand(JobSnapshotKind.AlbumAggregate, aggregate.AlbumQuery, aggregate.DownloadBehavior),
+            SongGroupsJobDraftDto group => SongCommand(JobSnapshotKind.SongGroups, group.SongQuery, group.DownloadBehavior),
+            AlbumGroupsJobDraftDto group => AlbumCommand(JobSnapshotKind.AlbumGroups, group.AlbumQuery, group.DownloadBehavior),
             JobListJobDraftDto list => new()
             {
                 Kind = JobSnapshotKind.JobList, ItemName = list.Name,
@@ -190,8 +190,8 @@ public static class JobRequestMapper
             AlbumSearchJobDraftDto value => value.Provenance,
             SongJobDraftDto value => value.Provenance,
             AlbumJobDraftDto value => value.Provenance,
-            AggregateJobDraftDto value => value.Provenance,
-            AlbumAggregateJobDraftDto value => value.Provenance,
+            SongGroupsJobDraftDto value => value.Provenance,
+            AlbumGroupsJobDraftDto value => value.Provenance,
             JobListJobDraftDto value => value.Provenance,
             RemoteFileJobDraftDto value => value.Provenance,
             RemoteDirectoryJobDraftDto value => value.Provenance,
@@ -286,8 +286,8 @@ public static class JobRequestMapper
             AlbumSearchJobDraftDto typed => typed.DownloadSettings,
             SongJobDraftDto typed => typed.DownloadSettings,
             AlbumJobDraftDto typed => typed.DownloadSettings,
-            AggregateJobDraftDto typed => typed.DownloadSettings,
-            AlbumAggregateJobDraftDto typed => typed.DownloadSettings,
+            SongGroupsJobDraftDto typed => typed.DownloadSettings,
+            AlbumGroupsJobDraftDto typed => typed.DownloadSettings,
             JobListJobDraftDto typed => typed.DownloadSettings,
             RemoteFileJobDraftDto typed => typed.DownloadSettings,
             RemoteDirectoryJobDraftDto typed => typed.DownloadSettings,
@@ -379,8 +379,8 @@ public static class JobRequestMapper
         Default = dto.Default.ToCore(),
         Song = dto.Song?.ToCore(),
         Album = dto.Album?.ToCore(),
-        Aggregate = dto.Aggregate?.ToCore(),
-        AlbumAggregate = dto.AlbumAggregate?.ToCore(),
+        SongGroups = dto.SongGroups?.ToCore(),
+        AlbumGroups = dto.AlbumGroups?.ToCore(),
     };
 
     public static TJob ApplyDownloadBehavior<TJob>(TJob job, DownloadBehaviorPolicyDto? policy)
@@ -504,10 +504,10 @@ public static class JobRequestMapper
                 ?? BuildRelatedFolder(folderRef, albumJob.Results);
         }
 
-        if (sourceJob is AlbumAggregateJob aggregateJob)
+        if (sourceJob is AlbumGroupsJob songGroupsJob)
         {
             AlbumQuery? query = albumQuery == null ? null : ToAlbumQuery(albumQuery);
-            List<AlbumFolder> folders = aggregateJob.Albums
+            List<AlbumFolder> folders = songGroupsJob.Albums
                 .Where(album => query == null || AlbumQueriesEqual(album.Query, query))
                 .SelectMany(album => album.Results)
                 .ToList();
@@ -529,12 +529,12 @@ public static class JobRequestMapper
         IEnumerable<FileCandidate> candidates = sourceJob switch
         {
             SongJob song => song.Candidates ?? [],
-            AggregateJob aggregate => aggregate.Songs
+            SongGroupsJob group => group.Songs
                 .SelectMany(song => song.Candidates ?? []),
             AlbumJob album => album.Results
                 .SelectMany(folder => folder.Files)
                 .Select(file => file.Candidate),
-            AlbumAggregateJob aggregate => aggregate.Albums
+            AlbumGroupsJob group => group.Albums
                 .SelectMany(album => album.Results)
                 .SelectMany(folder => folder.Files)
                 .Select(file => file.Candidate),
@@ -557,9 +557,9 @@ public static class JobRequestMapper
                         candidate.Filename,
                         new SongQuery { Title = search.QueryText }),
                 SongJob song => song.Query,
-                AggregateJob aggregate => aggregate.Songs
+                SongGroupsJob group => group.Songs
                     .FirstOrDefault(song => song.Candidates?.Contains(candidate) == true)?.Query
-                    ?? Searcher.InferSongQuery(candidate.Filename, aggregate.Query),
+                    ?? Searcher.InferSongQuery(candidate.Filename, group.Query),
                 _ => Searcher.InferSongQuery(
                     candidate.Filename,
                     sourceJob.QueryTrack ?? new SongQuery()),
@@ -574,10 +574,10 @@ public static class JobRequestMapper
 
     public static void PropagateSourceMutationToFollowUp(Job sourceJob, Job followUpJob)
     {
-        // Aggregate-album children already retain the source mutation that owns
-        // the shared aggregate input; copying it to a separate follow-up would
+        // Album-group children already retain the source mutation that owns
+        // the shared group input; copying it to a separate follow-up would
         // let that follow-up retire the same source twice.
-        if (sourceJob is not AlbumAggregateJob)
+        if (sourceJob is not AlbumGroupsJob)
             followUpJob.CopySourceMutationFrom(sourceJob);
     }
 
@@ -590,7 +590,7 @@ public static class JobRequestMapper
             {
                 SearchJob search => search.DefaultFolderProjection?.Query,
                 AlbumJob album => album.Query,
-                AlbumAggregateJob aggregate => aggregate.Query,
+                AlbumGroupsJob group => group.Query,
                 _ => null,
             };
 
@@ -602,7 +602,7 @@ public static class JobRequestMapper
     {
         string? itemName = sourceJob is SearchJob
             {
-                DefaultAggregateAlbumProjection: not null,
+                DefaultAlbumGroupProjection: not null,
             } && !string.IsNullOrWhiteSpace(folder.FolderPath)
                 ? Utils.GetBaseNameSlsk(folder.FolderPath)
                 : sourceJob.ItemName;

@@ -3,8 +3,8 @@ import { DaemonApiClient, daemonApi, defaultPageSize, nestedPageSize, type Submi
 import type {
   CommitSearchViewSelectionResponseDto,
   Schema,
-  SearchViewAggregateAlbumPageDto,
-  SearchViewAggregateTrackPageDto,
+  SearchViewAlbumGroupPageDto,
+  SearchViewTrackGroupPageDto,
   SearchViewDirectoryPageDto,
   SearchViewFilePageDto,
   SearchViewSummaryDto,
@@ -13,21 +13,21 @@ import { sameWireInteger, wireInteger } from '../../api/types';
 import type { SearchDraft } from './model';
 import { DaemonApiError } from '../../api/http';
 import { SearchSelection, hasPublishedProjection, selectionCountKey,
-  type AggregateOption, type SearchSelectionState } from './selection';
+  type GroupOption, type SearchSelectionState } from './selection';
 
 export type SearchPage =
   | SearchViewFilePageDto
   | SearchViewDirectoryPageDto
-  | SearchViewAggregateTrackPageDto
-  | SearchViewAggregateAlbumPageDto;
+  | SearchViewTrackGroupPageDto
+  | SearchViewAlbumGroupPageDto;
 
 export type SearchRow =
   | { kind: 'file'; ref: string; value: SearchViewFilePageDto['items'][number] }
   | { kind: 'directory'; ref: string; value: SearchViewDirectoryPageDto['items'][number] }
-  | { kind: 'aggregate-track'; ref: string; value: SearchViewAggregateTrackPageDto['items'][number] }
-  | { kind: 'aggregate-album'; ref: string; value: SearchViewAggregateAlbumPageDto['items'][number] };
+  | { kind: 'track-group'; ref: string; value: SearchViewTrackGroupPageDto['items'][number] }
+  | { kind: 'album-group'; ref: string; value: SearchViewAlbumGroupPageDto['items'][number] };
 
-export interface AggregateOptionsPanel {
+export interface GroupOptionsPanel {
   groupRef: string;
   kind: 'track' | 'album';
   title: string;
@@ -36,7 +36,7 @@ export interface AggregateOptionsPanel {
   optionCount: number;
   representativeRef: string;
   revision: number | string;
-  items: AggregateOption[];
+  items: GroupOption[];
   nextCursor: string | null;
   loading: boolean;
   error: Error | null;
@@ -52,7 +52,7 @@ interface DirectoryFilesPage {
 }
 
 export interface SearchViewState extends SearchSelectionState {
-  aggregateOptions: AggregateOptionsPanel | null;
+  groupOptions: GroupOptionsPanel | null;
   choiceValidationLoading: boolean;
   choiceValidationError: Error | null;
   retrievals: ReadonlyMap<string, { loading: boolean; error: Error | null }>;
@@ -79,9 +79,9 @@ type Listener = (state: SearchViewState) => void;
 type ObserveView = (viewId: string, next: (summary: SearchViewSummaryDto) => void,
   error: (error: Error) => void, complete: () => void) => () => void;
 
-export function searchViewUnavailable(state: Pick<SearchViewState, 'error' | 'refinementError' | 'selectionCountsError' | 'choiceValidationError' | 'aggregateOptions' | 'directoryFiles'>): boolean {
+export function searchViewUnavailable(state: Pick<SearchViewState, 'error' | 'refinementError' | 'selectionCountsError' | 'choiceValidationError' | 'groupOptions' | 'directoryFiles'>): boolean {
   return [state.error, state.refinementError, state.selectionCountsError, state.choiceValidationError,
-    state.aggregateOptions?.error, ...[...state.directoryFiles.values()].map(files => files.error)]
+    state.groupOptions?.error, ...[...state.directoryFiles.values()].map(files => files.error)]
     .some(error => error instanceof DaemonApiError && error.status === 404);
 }
 
@@ -118,7 +118,7 @@ export class SearchViewController {
   private choiceRequest: AbortController | null = null;
   private choiceRequestKey: string | null = null;
   private state: Omit<SearchViewState, keyof SearchSelectionState | 'canRetryPendingCommit'> = {
-    aggregateOptions: null,
+    groupOptions: null,
     choiceValidationLoading: false,
     choiceValidationError: null,
     retrievals: new Map(),
@@ -233,7 +233,7 @@ export class SearchViewController {
     this.retrievalRequests.clear();
     this.state = {
       phase: 'loading',
-      aggregateOptions: null,
+      groupOptions: null,
       choiceValidationLoading: false,
       choiceValidationError: null,
       retrievals: new Map(),
@@ -326,7 +326,7 @@ export class SearchViewController {
       let view = await this.api.createSearchView(jobId, request, controller.signal);
       if (this.stopped || version !== this.refinementGeneration || controller.signal.aborted) return false;
       // A view is a replaceable projection of the same search. Selections and
-      // aggregate choices stay browser-owned; the daemon resolves their stable
+      // group choices stay browser-owned; the daemon resolves their stable
       // refs against the new view. Validate folder references before rebinding:
       // an absent AllExcept exclusion must never silently broaden the selection.
       this.generation += 1;
@@ -536,75 +536,75 @@ export class SearchViewController {
     this.emit();
   }
 
-  async openAggregateOptions(ref: string): Promise<void> {
+  async openGroupOptions(ref: string): Promise<void> {
     const summary = this.state.summary;
     const row = this.state.rows.find(row => row.ref === ref);
-    if (!summary || !row || (row.kind !== 'aggregate-track' && row.kind !== 'aggregate-album')) return;
-    this.state = { ...this.state, aggregateOptions: this.aggregateOptionsPanel(row, summary.revision) };
+    if (!summary || !row || (row.kind !== 'track-group' && row.kind !== 'album-group')) return;
+    this.state = { ...this.state, groupOptions: this.groupOptionsPanel(row, summary.revision) };
     this.emit();
-    await this.loadMoreAggregateOptions();
+    await this.loadMoreGroupOptions();
   }
 
-  private aggregateOptionsPanel(
-    row: Extract<SearchRow, { kind: 'aggregate-track' | 'aggregate-album' }>,
+  private groupOptionsPanel(
+    row: Extract<SearchRow, { kind: 'track-group' | 'album-group' }>,
     revision: number | string,
-  ): AggregateOptionsPanel {
+  ): GroupOptionsPanel {
     return {
       groupRef: row.ref,
-      kind: row.kind === 'aggregate-track' ? 'track' : 'album',
-      title: row.kind === 'aggregate-track' ? row.value.query.title ?? 'Untitled track' : row.value.query.album ?? 'Untitled album',
+      kind: row.kind === 'track-group' ? 'track' : 'album',
+      title: row.kind === 'track-group' ? row.value.query.title ?? 'Untitled track' : row.value.query.album ?? 'Untitled album',
       artist: row.value.query.artist ?? null,
       shareCount: Number(row.value.shareCount),
       optionCount: Number(row.value.selectableOptionCount),
-      representativeRef: row.kind === 'aggregate-track'
+      representativeRef: row.kind === 'track-group'
         ? row.value.representative.ref : row.value.representative.ref.ref,
       revision,
       items: [], nextCursor: null, loading: false, error: null,
     };
   }
 
-  closeAggregateOptions(): void {
-    this.state = { ...this.state, aggregateOptions: null };
+  closeGroupOptions(): void {
+    this.state = { ...this.state, groupOptions: null };
     this.emit();
   }
 
-  async loadMoreAggregateOptions(): Promise<void> {
+  async loadMoreGroupOptions(): Promise<void> {
     const summary = this.state.summary;
-    const panel = this.state.aggregateOptions;
+    const panel = this.state.groupOptions;
     if (!summary || !panel || panel.loading || (panel.items.length > 0 && !panel.nextCursor && !panel.error)) return;
     const generation = this.generation;
     const pending = { ...panel, loading: true, error: null };
-    this.state = { ...this.state, aggregateOptions: pending };
+    this.state = { ...this.state, groupOptions: pending };
     this.emit();
     try {
       const page = panel.kind === 'track'
-        ? await this.api.getSearchViewAggregateTrackOptions(summary.viewId, panel.groupRef, panel.revision, panel.nextCursor)
-        : await this.api.getSearchViewAggregateAlbumOptions(summary.viewId, panel.groupRef, panel.revision, panel.nextCursor);
-      if (this.stopped || generation !== this.generation || this.state.aggregateOptions !== pending) return;
+        ? await this.api.getSearchViewTrackGroupOptions(summary.viewId, panel.groupRef, panel.revision, panel.nextCursor)
+        : await this.api.getSearchViewAlbumGroupOptions(summary.viewId, panel.groupRef, panel.revision, panel.nextCursor);
+      if (this.stopped || generation !== this.generation || this.state.groupOptions !== pending) return;
       if (!sameWireInteger(page.revision.revision, panel.revision) || page.groupRef !== panel.groupRef)
-        throw new Error('Aggregate alternatives do not match the selected group and revision.');
-      const items: AggregateOption[] = panel.kind === 'track'
+        throw new Error('Group alternatives do not match the selected group and revision.');
+      const items: GroupOption[] = panel.kind === 'track'
         ? (page.items as Schema<'SearchViewFileDto'>[]).map(value => ({ kind: 'track', ref: value.ref, value }))
         : (page.items as Schema<'SearchViewDirectoryDto'>[]).map(value => ({ kind: 'album', ref: value.ref.ref, value }));
       const directoryFiles = new Map(this.state.directoryFiles);
       for (const item of items) if (item.kind === 'album') this.seedDirectoryPreview(item.value, directoryFiles);
-      this.state = { ...this.state, directoryFiles, aggregateOptions: {
+      this.state = { ...this.state, directoryFiles, groupOptions: {
         ...pending, items: [...pending.items, ...items], nextCursor: page.nextCursor ?? null, loading: false,
       } };
     } catch (error) {
-      if (this.stopped || generation !== this.generation || this.state.aggregateOptions !== pending) return;
-      this.state = { ...this.state, aggregateOptions: { ...pending, loading: false, error: asError(error) } };
+      if (this.stopped || generation !== this.generation || this.state.groupOptions !== pending) return;
+      this.state = { ...this.state, groupOptions: { ...pending, loading: false, error: asError(error) } };
     }
     this.emit();
   }
 
-  chooseAggregateOption(groupRef: string, option: AggregateOption): void {
-    const panel = this.state.aggregateOptions;
+  chooseGroupOption(groupRef: string, option: GroupOption): void {
+    const panel = this.state.groupOptions;
     if (!panel || panel.groupRef !== groupRef || panel.kind !== option.kind
       || !panel.items.some(item => item.ref === option.ref) || !this.selection.choose(groupRef, option)) return;
     const directoryFiles = new Map(this.state.directoryFiles);
     if (option.kind === 'album') this.seedDirectoryPreview(option.value, directoryFiles);
-    this.state = { ...this.state, directoryFiles, aggregateOptions: null, choiceValidationError: null, receipt: null };
+    this.state = { ...this.state, directoryFiles, groupOptions: null, choiceValidationError: null, receipt: null };
     this.emit();
     if (this.state.summary) this.validateVisibleChoices(this.state.summary);
     if (option.kind === 'album' && !option.value.initialFiles) void this.loadDirectoryFiles(option.ref);
@@ -612,24 +612,24 @@ export class SearchViewController {
 
   private hasVisibleDirectory(ref: string): boolean {
     if (this.state.rows.some(row => row.kind === 'directory' && row.ref === ref)) return true;
-    if (this.state.rows.some(row => row.kind === 'aggregate-album'
+    if (this.state.rows.some(row => row.kind === 'album-group'
       && (row.value.representative.ref.ref === ref
         || (this.selection.value.chosenOptions.get(row.ref)?.kind === 'album'
           && (this.selection.value.chosenOptions.get(row.ref)?.value as Schema<'SearchViewDirectoryDto'>).ref.ref === ref)))) return true;
-    return this.state.aggregateOptions?.items.some(option => option.kind === 'album' && option.ref === ref) ?? false;
+    return this.state.groupOptions?.items.some(option => option.kind === 'album' && option.ref === ref) ?? false;
   }
 
   async retrieveDirectory(ref: string): Promise<void> {
     const summary = this.state.summary;
     const row = this.state.rows.find(row => row.kind === 'directory' && row.ref === ref);
-    const aggregateDirectory = this.state.rows
-      .filter(row => row.kind === 'aggregate-album')
+    const groupDirectory = this.state.rows
+      .filter(row => row.kind === 'album-group')
       .map(row => this.selection.value.chosenOptions.get(row.ref)?.kind === 'album'
         ? this.selection.value.chosenOptions.get(row.ref)!.value as Schema<'SearchViewDirectoryDto'>
-        : row.kind === 'aggregate-album' ? row.value.representative : null)
+        : row.kind === 'album-group' ? row.value.representative : null)
       .find(directory => directory?.ref.ref === ref);
-    const panelDirectory = this.state.aggregateOptions?.items.find(option => option.kind === 'album' && option.ref === ref);
-    const directory = row?.kind === 'directory' ? row.value : aggregateDirectory
+    const panelDirectory = this.state.groupOptions?.items.find(option => option.kind === 'album' && option.ref === ref);
+    const directory = row?.kind === 'directory' ? row.value : groupDirectory
       ?? (panelDirectory?.kind === 'album' ? panelDirectory.value : null);
     if (!summary || !directory || this.state.retrievals.get(ref)?.loading
       || this.retrievalJobs.has(ref) || this.retrievalInFlight.has(ref)) return;
@@ -726,7 +726,7 @@ export class SearchViewController {
 
   private syncSelectionCounts(): void {
     const summary = this.state.summary;
-    if (!summary || this.stopped || !this.selection.needsCounts(this.visibleAggregateRefs())) {
+    if (!summary || this.stopped || !this.selection.needsCounts(this.visibleGroupRefs())) {
       this.countRequest?.abort();
       this.countRequest = null;
       this.countRequestKey = null;
@@ -763,14 +763,14 @@ export class SearchViewController {
     });
   }
 
-  private visibleAggregateRefs(): string[] {
-    return this.state.rows.filter(row => row.kind === 'aggregate-track' || row.kind === 'aggregate-album')
+  private visibleGroupRefs(): string[] {
+    return this.state.rows.filter(row => row.kind === 'track-group' || row.kind === 'album-group')
       .map(row => row.ref);
   }
 
-  toggleAggregateAlbumFile(groupRef: string, fileRef: string, selected: boolean): void {
-    const row = this.state.rows.find(row => row.kind === 'aggregate-album' && row.ref === groupRef);
-    if (row?.kind !== 'aggregate-album') return;
+  toggleAlbumGroupFile(groupRef: string, fileRef: string, selected: boolean): void {
+    const row = this.state.rows.find(row => row.kind === 'album-group' && row.ref === groupRef);
+    if (row?.kind !== 'album-group') return;
     const choice = this.selection.choiceIsCurrent(groupRef) ? this.selection.value.chosenOptions.get(groupRef) : null;
     const directoryRef = choice?.kind === 'album' ? choice.ref : row.value.representative.ref.ref;
     const files = this.state.directoryFiles.get(directoryRef);
@@ -789,7 +789,7 @@ export class SearchViewController {
     const retry = this.selection.retry(options);
     if (!retry && (this.state.refining || this.state.refinementError || searchViewUnavailable(this.state))) return;
     if (!retry && this.selectedCount() === 0) return;
-    if (!retry && this.selection.hasUnreadySelectedChoices(this.visibleAggregateRefs())) {
+    if (!retry && this.selection.hasUnreadySelectedChoices(this.visibleGroupRefs())) {
       this.state = { ...this.state, error: new Error('A chosen source changed. Recheck or reselect it before downloading.') };
       this.emit();
       return;
@@ -854,8 +854,8 @@ export class SearchViewController {
       const mode = this.state.draft?.resultMode;
       const directories = mode === 'generic' || mode === 'album'
         ? (pages as SearchViewDirectoryPageDto[]).flatMap(page => page.items)
-        : mode === 'album-aggregate'
-          ? (pages as SearchViewAggregateAlbumPageDto[]).flatMap(page => page.items.map(item => item.representative))
+        : mode === 'album-groups'
+          ? (pages as SearchViewAlbumGroupPageDto[]).flatMap(page => page.items.map(item => item.representative))
           : [];
       const orderingOnly = Boolean(options?.request) && !replacing;
       // Reordering the same snapshot cannot invalidate cached child pages or
@@ -875,7 +875,7 @@ export class SearchViewController {
       if (replacing) {
         this.selection.replaceProjection(summary, rebase, checked);
         this.state = { ...this.state, refining: false, refinementError: null, loadingMore: false,
-          aggregateOptions: null, retrievals: new Map(),
+          groupOptions: null, retrievals: new Map(),
           selectionCountsLoading: false, selectionCountsError: null,
           choiceValidationLoading: false, choiceValidationError: null, receipt: null };
       }
@@ -900,11 +900,11 @@ export class SearchViewController {
     if (mode === 'generic' || mode === 'album') {
       return this.api.getSearchViewDirectories(summary.viewId, summary.revision, cursor, nestedPageSize, sortOrder, signal);
     }
-    if (mode === 'song-aggregate') {
-      return this.api.getSearchViewAggregateTracks(summary.viewId, summary.revision, cursor, nestedPageSize, signal);
+    if (mode === 'song-groups') {
+      return this.api.getSearchViewTrackGroups(summary.viewId, summary.revision, cursor, nestedPageSize, signal);
     }
-    if (mode === 'album-aggregate') {
-      return this.api.getSearchViewAggregateAlbums(summary.viewId, summary.revision, cursor, nestedPageSize, signal);
+    if (mode === 'album-groups') {
+      return this.api.getSearchViewAlbumGroups(summary.viewId, summary.revision, cursor, nestedPageSize, signal);
     }
     return this.api.getSearchViewFiles(summary.viewId, summary.revision, cursor, defaultPageSize, sortOrder, signal);
   }
@@ -920,13 +920,13 @@ export class SearchViewController {
       for (const page of this.pages as SearchViewDirectoryPageDto[]) {
         for (const item of page.items) rows.push({ kind: 'directory', ref: item.ref.ref, value: item });
       }
-    } else if (mode === 'song-aggregate') {
-      for (const page of this.pages as SearchViewAggregateTrackPageDto[]) {
-        for (const item of page.items) rows.push({ kind: 'aggregate-track', ref: item.ref, value: item });
+    } else if (mode === 'song-groups') {
+      for (const page of this.pages as SearchViewTrackGroupPageDto[]) {
+        for (const item of page.items) rows.push({ kind: 'track-group', ref: item.ref, value: item });
       }
-    } else if (mode === 'album-aggregate') {
-      for (const page of this.pages as SearchViewAggregateAlbumPageDto[]) {
-        for (const item of page.items) rows.push({ kind: 'aggregate-album', ref: item.ref, value: item });
+    } else if (mode === 'album-groups') {
+      for (const page of this.pages as SearchViewAlbumGroupPageDto[]) {
+        for (const item of page.items) rows.push({ kind: 'album-group', ref: item.ref, value: item });
       }
     }
     const directoryFiles = refreshedDirectories ?? (sameWireInteger(this.state.summary?.revision ?? -1, summary.revision)
@@ -938,7 +938,7 @@ export class SearchViewController {
         if (!retrievals.has(row.ref)
           && (this.retrievalJobs.has(row.ref) || this.retrievalInFlight.has(row.ref)))
           retrievals.set(row.ref, { loading: true, error: null });
-      } else if (row.kind === 'aggregate-album') {
+      } else if (row.kind === 'album-group') {
         if (!directoryFiles.has(row.value.representative.ref.ref))
           this.seedDirectoryPreview(row.value.representative, directoryFiles);
         const ref = row.value.representative.ref.ref;
@@ -949,20 +949,20 @@ export class SearchViewController {
     }
     for (const files of directoryFiles.values())
       this.selection.rememberFiles(files.items);
-    const previousPanel = this.state.aggregateOptions;
+    const previousPanel = this.state.groupOptions;
     const panelNeedsNewRevision = Boolean(previousPanel && !sameWireInteger(previousPanel.revision, summary.revision));
     const panelRow = panelNeedsNewRevision && previousPanel
-      ? rows.find((row): row is Extract<SearchRow, { kind: 'aggregate-track' | 'aggregate-album' }> =>
-        row.ref === previousPanel.groupRef && (row.kind === 'aggregate-track' || row.kind === 'aggregate-album')
-        && (row.kind === 'aggregate-track' ? 'track' : 'album') === previousPanel.kind)
+      ? rows.find((row): row is Extract<SearchRow, { kind: 'track-group' | 'album-group' }> =>
+        row.ref === previousPanel.groupRef && (row.kind === 'track-group' || row.kind === 'album-group')
+        && (row.kind === 'track-group' ? 'track' : 'album') === previousPanel.kind)
       : null;
-    const aggregateOptions = panelNeedsNewRevision
-      ? panelRow ? this.aggregateOptionsPanel(panelRow, summary.revision) : null
+    const groupOptions = panelNeedsNewRevision
+      ? panelRow ? this.groupOptionsPanel(panelRow, summary.revision) : null
       : previousPanel;
     this.state = {
       ...this.state,
       phase: 'ready',
-      aggregateOptions,
+      groupOptions,
       directoryFiles,
       retrievals,
       summary,
@@ -972,11 +972,11 @@ export class SearchViewController {
     };
     this.emit();
     this.validateVisibleChoices(summary);
-    if (panelRow) void this.loadMoreAggregateOptions();
+    if (panelRow) void this.loadMoreGroupOptions();
   }
 
   private validateVisibleChoices(summary: SearchViewSummaryDto): void {
-    const choices = this.selection.choicesToValidate(this.visibleAggregateRefs());
+    const choices = this.selection.choicesToValidate(this.visibleGroupRefs());
     if (Object.keys(choices).length === 0) {
       this.choiceRequest?.abort();
       this.choiceRequest = null;

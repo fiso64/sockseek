@@ -190,8 +190,8 @@ public sealed class JobPlannerTests
         [
             new SongJob(new SongQuery { Artist = "Artist", Title = "Track" }),
             new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" }),
-            new AggregateJob(new SongQuery { Artist = "Artist", Title = "Track" }),
-            new AlbumAggregateJob(new AlbumQuery { Artist = "Artist", Album = "Album" }),
+            new SongGroupsJob(new SongQuery { Artist = "Artist", Title = "Track" }),
+            new AlbumGroupsJob(new AlbumQuery { Artist = "Artist", Album = "Album" }),
             new SearchJob("generic files"),
             new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" }),
             new SearchJob(new AlbumQuery { Artist = "Artist", Album = "Album" }),
@@ -223,11 +223,11 @@ public sealed class JobPlannerTests
                     case AlbumJob album:
                         await searcher.SearchAlbum(album, prepared.Config.Search, response, CancellationToken.None);
                         break;
-                    case AggregateJob aggregate:
-                        await searcher.SearchAggregate(aggregate, prepared.Config.Search, response, CancellationToken.None);
+                    case SongGroupsJob group:
+                        await searcher.SearchGroup(group, prepared.Config.Search, response, CancellationToken.None);
                         break;
-                    case AlbumAggregateJob aggregate:
-                        await searcher.SearchAggregateAlbum(aggregate, prepared.Config.Search, response, CancellationToken.None);
+                    case AlbumGroupsJob group:
+                        await searcher.SearchAlbumGroup(group, prepared.Config.Search, response, CancellationToken.None);
                         break;
                     case SearchJob search:
                         await searcher.Search(search, prepared.Config.Search, response, CancellationToken.None);
@@ -536,8 +536,8 @@ public sealed class JobPlannerTests
         [
             new SongJob(new SongQuery { Artist = "Artist", Title = "Track" }),
             new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" }),
-            new AggregateJob(new SongQuery { Artist = "Artist", Title = "Aggregate" }),
-            new AlbumAggregateJob(new AlbumQuery { Artist = "Artist", Album = "Aggregate album" }),
+            new SongGroupsJob(new SongQuery { Artist = "Artist", Title = "SongGroups" }),
+            new AlbumGroupsJob(new AlbumQuery { Artist = "Artist", Album = "Grouped album" }),
             new SearchJob("plain query"),
         ]);
         var planner = new JobPlanner(DefaultJobSettingsResolver.Instance);
@@ -567,10 +567,10 @@ public sealed class JobPlannerTests
     [DataRow(1, false, true, 1)]
     [DataRow(1, true, true, 1)]
     public void ExtractedCollectionKeepsPositionsWhenSingleOrUpgraded(
-        int count, bool album, bool aggregate, int firstItem)
+        int count, bool album, bool group, int firstItem)
     {
         var settings = new DownloadSettings();
-        settings.Search.IsAggregate = aggregate;
+        settings.Search.GroupResults = group;
         var extract = new ExtractJob("https://open.spotify.com/playlist/source", InputType.Spotify)
         {
             Config = settings,

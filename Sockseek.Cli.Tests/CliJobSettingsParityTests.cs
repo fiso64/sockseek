@@ -43,8 +43,8 @@ public sealed class CliJobSettingsParityTests
         var autoPatch = new SettingsPatch([new("Search.MaxStaleTime", 7654)]);
         var autoProfile = new SettingsProfile
         {
-            Name = "aggregate-request",
-            Condition = "aggregate",
+            Name = "group-request",
+            Condition = "group",
             Download = autoPatch,
         };
         var catalog = new ProfileCatalog
@@ -61,12 +61,12 @@ public sealed class CliJobSettingsParityTests
         var job = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" });
         resolver.SetJobOptions(job.Id, new SubmissionOptionsDto(
             DownloadSettings: new DownloadSettingsPatchDto(
-                Search: new SearchSettingsPatchDto(IsAggregate: true))));
+                Search: new SearchSettingsPatchDto(GroupResults: true))));
 
         DownloadSettings settings = resolver.Resolve(new DownloadSettings(), job);
 
-        CollectionAssert.Contains(settings.AppliedAutoProfiles.ToList(), "aggregate-request");
+        CollectionAssert.Contains(settings.AppliedAutoProfiles.ToList(), "group-request");
         Assert.AreEqual(7654, settings.Search.MaxStaleTime);
-        Assert.IsTrue(settings.Search.IsAggregate);
+        Assert.IsTrue(settings.Search.GroupResults);
     }
 }

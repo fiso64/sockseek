@@ -4,13 +4,13 @@ using Sockseek.Core.Settings;
 
 namespace Sockseek.Core.Services;
 
-internal sealed class AlbumFolderAggregateComparer : IComparer<AlbumFolder>
+internal sealed class AlbumFolderGroupComparer : IComparer<AlbumFolder>
 {
     private readonly ResultSorter.SortKeyContext keyContext;
     private readonly IReadOnlyDictionary<PeerPathKey, int> folderOrder;
     private readonly Dictionary<PeerPathKey, ResultSorter.SortEntry?> bestEntries = [];
 
-    public AlbumFolderAggregateComparer(
+    public AlbumFolderGroupComparer(
         AlbumQuery query,
         SearchSettings search,
         IReadOnlyDictionary<PeerPathKey, int> folderOrder)
@@ -94,8 +94,8 @@ internal sealed class AlbumFolderAggregateComparer : IComparer<AlbumFolder>
 
     private ResultSorter.SortEntry? BestEntry(AlbumFolder folder)
     {
-        if (folder.SearchAggregateSortEntry.HasValue)
-            return folder.SearchAggregateSortEntry;
+        if (folder.SearchGroupSortEntry.HasValue)
+            return folder.SearchGroupSortEntry;
 
         PeerPathKey key = FolderKey(folder);
         if (bestEntries.TryGetValue(key, out var cached))

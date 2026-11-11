@@ -10,12 +10,12 @@ export function jobHeaderStats(payload: Schema<'JobPayloadDto'> | null | undefin
       ...(Number(payload.resultCount) > 0 ? [formatCountWithNoun(payload.resultCount, 'folder')] : []),
       ...(Number(payload.directory.fileCount) > 0 ? [formatCountWithNoun(payload.directory.fileCount, 'file')] : []),
     ];
-    case 'aggregate': return [
+    case 'song-groups': return [
       formatCountWithNoun(payload.songCount, 'song'),
       `${formatCount(payload.succeededSongCount)} complete`,
       ...(Number(payload.failedSongCount) > 0 ? [`${formatCount(payload.failedSongCount)} failed`] : []),
     ];
-    case 'album-aggregate': return [
+    case 'album-groups': return [
       formatCountWithNoun(payload.resultCount, 'album'),
       `${formatCount(payload.succeededAlbumCount)} complete`,
       ...(Number(payload.failedAlbumCount) > 0 ? [`${formatCount(payload.failedAlbumCount)} failed`] : []),

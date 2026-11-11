@@ -43,10 +43,10 @@ public class CliBackendParityTests
                 var summary = await ctx.Backend.SubmitTrackSearchJobAsync(
                     new SubmitTrackSearchJobRequestDto(
                         new SongQueryDto("Artist", "Track One", "", "", -1, false),
-                        AggregatePresentation: true),
+                        GroupResults: true),
                     ctx.Token);
                 Assert.AreEqual(ServerSearchDefaultProjectionKind.Track, summary.SearchDefaultProjection, ctx.Name);
-                Assert.AreEqual(true, summary.SearchAggregatePresentation, ctx.Name);
+                Assert.AreEqual(true, summary.SearchGroupResults, ctx.Name);
                 try
                 {
                     JobSummaryDto? observedTerminal = await BackendTestWaiter.UntilAsync(
@@ -58,12 +58,12 @@ public class CliBackendParityTests
                     Assert.IsNotNull(observedTerminal);
                     JobSummaryDto terminal = observedTerminal;
                     Assert.AreEqual(summary.SearchDefaultProjection, terminal.SearchDefaultProjection, ctx.Name);
-                    Assert.AreEqual(summary.SearchAggregatePresentation, terminal.SearchAggregatePresentation, ctx.Name);
+                    Assert.AreEqual(summary.SearchGroupResults, terminal.SearchGroupResults, ctx.Name);
                     projections.Add(
                     [
                         $"{terminal.Kind}:{terminal.LifecycleState}:{terminal.ActivityPhase}:" +
                         $"{terminal.TerminalOutcome}:{terminal.ParentJobId.HasValue}:" +
-                        $"{terminal.SearchDefaultProjection}:{terminal.SearchAggregatePresentation}",
+                        $"{terminal.SearchDefaultProjection}:{terminal.SearchGroupResults}",
                     ]);
                 }
                 finally
@@ -125,7 +125,7 @@ public class CliBackendParityTests
                     Assert.AreEqual(liveTerminal.TerminalOutcome, retained.TerminalOutcome);
                     Assert.AreEqual(liveTerminal.ActivityPhase, retained.ActivityPhase);
                     Assert.AreEqual(ServerSearchDefaultProjectionKind.Track, retained.SearchDefaultProjection);
-                    Assert.AreEqual(false, retained.SearchAggregatePresentation);
+                    Assert.AreEqual(false, retained.SearchGroupResults);
 
                     var projection = await ctx.Backend.GetFileResultsAsync(summary.JobId, ctx.Token);
                     Assert.IsNotNull(projection);
@@ -200,12 +200,12 @@ public class CliBackendParityTests
                 new FolderSearchProjectionRequestDto(albumQuery, IncludeFiles: true), ctx.Token);
             Assert.IsNotNull(directories, ctx.Name);
             AssertFiles(directories.Items.SelectMany(folder => folder.Files!));
-            var tracks = await ctx.Backend.GetAggregateTrackResultsAsync(source.JobId,
-                new AggregateTrackProjectionRequestDto(query, IncludeCandidates: true), ctx.Token);
+            var tracks = await ctx.Backend.GetTrackGroupResultsAsync(source.JobId,
+                new TrackGroupProjectionRequestDto(query, IncludeCandidates: true), ctx.Token);
             Assert.IsNotNull(tracks, ctx.Name);
             AssertFiles(tracks.Items.SelectMany(group => group.Candidates!));
-            var albums = await ctx.Backend.GetAggregateAlbumResultsAsync(source.JobId,
-                new AggregateAlbumProjectionRequestDto(albumQuery, IncludeFolders: true), ctx.Token);
+            var albums = await ctx.Backend.GetAlbumGroupResultsAsync(source.JobId,
+                new AlbumGroupProjectionRequestDto(albumQuery, IncludeFolders: true), ctx.Token);
             Assert.IsNotNull(albums, ctx.Name);
             AssertFiles(albums.Items.SelectMany(group => group.Folders!).SelectMany(folder => folder.Files!));
             projections.Add(
@@ -227,10 +227,10 @@ public class CliBackendParityTests
             {
                 "song" => ctx.Backend.SubmitSongJobAsync(new SubmitSongJobRequestDto(query, options), ctx.Token),
                 "album" => ctx.Backend.SubmitAlbumJobAsync(new SubmitAlbumJobRequestDto(albumQuery, options), ctx.Token),
-                "aggregate" => ctx.Backend.SubmitAggregateJobAsync(new SubmitAggregateJobRequestDto(query, options), ctx.Token),
-                _ => ctx.Backend.SubmitAlbumAggregateJobAsync(new SubmitAlbumAggregateJobRequestDto(albumQuery, options), ctx.Token),
+                "song-groups" => ctx.Backend.SubmitSongGroupsJobAsync(new SubmitSongGroupsJobRequestDto(query, options), ctx.Token),
+                _ => ctx.Backend.SubmitAlbumGroupsJobAsync(new SubmitAlbumGroupsJobRequestDto(albumQuery, options), ctx.Token),
             };
-            string[] modes = ["song", "album", "aggregate", "album-aggregate"];
+            string[] modes = ["song", "album", "song-groups", "album-groups"];
             var outputs = new List<string>();
             foreach (string mode in modes)
             {
@@ -289,7 +289,7 @@ public class CliBackendParityTests
                     DownloadSettings: new DownloadSettingsPatchDto(
                         Search: new SearchSettingsPatchDto(
                             Relax: true,
-                            MinSharesAggregate: 1)));
+                            MinGroupShares: 1)));
                 JobSummaryDto search = await ctx.Backend.SubmitSearchJobAsync(
                     new SubmitSearchJobRequestDto("Artist Album", options),
                     ctx.Token);
@@ -312,17 +312,17 @@ public class CliBackendParityTests
                             new AlbumQueryDto(Artist: "Artist", Album: "Album"),
                             IncludeFiles: true),
                         ctx.Token))!;
-                SearchResultSnapshotDto<AggregateTrackCandidateDto> tracks = (await ctx.Backend
-                    .GetAggregateTrackResultsAsync(
+                SearchResultSnapshotDto<TrackGroupCandidateDto> tracks = (await ctx.Backend
+                    .GetTrackGroupResultsAsync(
                         search.JobId,
-                        new AggregateTrackProjectionRequestDto(
+                        new TrackGroupProjectionRequestDto(
                             new SongQueryDto(Artist: "Artist"),
                             IncludeCandidates: true),
                         ctx.Token))!;
-                SearchResultSnapshotDto<AggregateAlbumCandidateDto> albums = (await ctx.Backend
-                    .GetAggregateAlbumResultsAsync(
+                SearchResultSnapshotDto<AlbumGroupCandidateDto> albums = (await ctx.Backend
+                    .GetAlbumGroupResultsAsync(
                         search.JobId,
-                        new AggregateAlbumProjectionRequestDto(
+                        new AlbumGroupProjectionRequestDto(
                             new AlbumQueryDto(Artist: "Artist", Album: "Album"),
                             IncludeFolders: true),
                         ctx.Token))!;
@@ -416,7 +416,7 @@ public class CliBackendParityTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public async Task CliBackendParity_SongModes_DownloadExpectedFiles(bool aggregate)
+    public async Task CliBackendParity_SongModes_DownloadExpectedFiles(bool group)
     {
         await RunForEachBackendAsync(
             seedMusic: musicRoot =>
@@ -425,7 +425,7 @@ public class CliBackendParityTests
                 Directory.CreateDirectory(albumDir);
                 File.WriteAllText(Path.Combine(albumDir, "Artist - First.mp3"), "first");
                 File.WriteAllText(Path.Combine(albumDir, "Artist - Second.mp3"), "second");
-                if (aggregate)
+                if (group)
                 {
                     string alternative = Path.Combine(musicRoot, "Alternate", "Album");
                     Directory.CreateDirectory(alternative);
@@ -442,7 +442,7 @@ public class CliBackendParityTests
             },
             scenario: async ctx =>
             {
-                if (!aggregate)
+                if (!group)
                 {
                     var automatic = await ctx.Backend.SubmitSongJobAsync(
                         new SubmitSongJobRequestDto(new SongQueryDto("Artist", "First", "", "", -1, false)), ctx.Token);
@@ -451,13 +451,13 @@ public class CliBackendParityTests
                     CollectionAssert.AreEqual(new[] { "Album/Artist - First.mp3" }, ctx.DownloadedRelativePaths(), ctx.Name);
                 }
                 var query = new SongQueryDto("Artist", "", "", "", -1, false);
-                var summary = aggregate
-                    ? await ctx.Backend.SubmitAggregateJobAsync(new SubmitAggregateJobRequestDto(query), ctx.Token)
+                var summary = group
+                    ? await ctx.Backend.SubmitSongGroupsJobAsync(new SubmitSongGroupsJobRequestDto(query), ctx.Token)
                     : await ctx.Backend.SubmitSongJobAsync(new SubmitSongJobRequestDto(query,
                         DownloadBehavior: new DownloadBehaviorPolicyDto(Song: ServerDownloadBehavior.Manual)), ctx.Token);
 
                 string? selectedFilename = null;
-                if (!aggregate)
+                if (!group)
                 {
                     await WaitForJobStateAsync(ctx.Backend, summary.JobId, ExpectedJobStatus.AwaitingSelection);
                     var candidates = await ctx.Backend.GetFileResultsAsync(summary.JobId, ctx.Token);
@@ -481,14 +481,14 @@ public class CliBackendParityTests
                 await WaitForJobStateAsync(ctx.Backend, summary.JobId, ExpectedJobStatus.Succeeded);
                 await WaitForWorkflowStateAsync(ctx.Backend, summary.WorkflowId, ServerWorkflowState.Completed);
 
-                CollectionAssert.AreEqual(aggregate
+                CollectionAssert.AreEqual(group
                     ? new[] { "Album/Artist - First.mp3", "Album/Artist - Second.mp3" }
                     : new[] { "Album/Artist - First.mp3", $"song-output/picked/{selectedFilename}" }, ctx.DownloadedRelativePaths(),
                     $"{ctx.Name}: actual outputs {string.Join(", ", ctx.DownloadedRelativePaths())}");
-                if (!aggregate)
+                if (!group)
                     Assert.AreEqual(selectedFilename!.EndsWith("Second.mp3", StringComparison.Ordinal) ? "second" : "first",
                         await File.ReadAllTextAsync(Path.Combine(ctx.OutputDir, "song-output", "picked", selectedFilename)), ctx.Name);
-                if (aggregate) await AssertManualAggregateSongSelectionAsync(ctx);
+                if (group) await AssertManualGroupSongSelectionAsync(ctx);
                 else await AssertManualSongFailureAndRecoveryAsync(ctx);
             }, profiles: SongLayoutProfileCatalog());
     }
@@ -542,7 +542,7 @@ public class CliBackendParityTests
                     },
                     ctx.DownloadedRelativePaths(),
                     ctx.Name);
-                await AssertAutomaticAlbumDownloadAsync(ctx, aggregate: false, expectedTransferredBytes: 0, new Dictionary<string, string>
+                await AssertAutomaticAlbumDownloadAsync(ctx, group: false, expectedTransferredBytes: 0, new Dictionary<string, string>
                 {
                     ["automatic-output/Album/from-profile/01. Artist - Track One.mp3"] = "a",
                     ["automatic-output/Album/from-profile/02. Artist - Track Two.mp3"] = "b",
@@ -551,7 +551,7 @@ public class CliBackendParityTests
     }
 
     [TestMethod]
-    public async Task CliBackendParity_AlbumAggregateModes_PreserveChildAndOutputOptions()
+    public async Task CliBackendParity_AlbumGroupsModes_PreserveChildAndOutputOptions()
     {
         await RunForEachBackendAsync(
             seedMusic: musicRoot =>
@@ -566,23 +566,23 @@ public class CliBackendParityTests
             },
             scenario: async ctx =>
             {
-                var summary = await ctx.Backend.SubmitAlbumAggregateJobAsync(
-                    new SubmitAlbumAggregateJobRequestDto(
+                var summary = await ctx.Backend.SubmitAlbumGroupsJobAsync(
+                    new SubmitAlbumGroupsJobRequestDto(
                         new AlbumQueryDto("Artist", "", "", "", false),
-                        DownloadBehavior: new DownloadBehaviorPolicyDto(AlbumAggregate: ServerDownloadBehavior.Manual)),
+                        DownloadBehavior: new DownloadBehaviorPolicyDto(AlbumGroups: ServerDownloadBehavior.Manual)),
                     ctx.Token);
 
                 await WaitForJobStateAsync(ctx.Backend, summary.JobId, ExpectedJobStatus.AwaitingSelection);
 
-                var aggregate = await ctx.Backend.GetAggregateAlbumResultsAsync(
+                var group = await ctx.Backend.GetAlbumGroupResultsAsync(
                     summary.JobId,
-                    new AggregateAlbumProjectionRequestDto(IncludeFolders: true),
+                    new AlbumGroupProjectionRequestDto(IncludeFolders: true),
                     ctx.Token);
-                Assert.IsNotNull(aggregate, ctx.Name);
-                Assert.AreEqual(2, aggregate.Items.Count, ctx.Name);
+                Assert.IsNotNull(group, ctx.Name);
+                Assert.AreEqual(2, group.Items.Count, ctx.Name);
 
                 int exactPlans = 0;
-                foreach (var bucket in aggregate.Items)
+                foreach (var bucket in group.Items)
                 {
                     Assert.IsNotNull(bucket.Folders, ctx.Name);
                     Assert.IsTrue(bucket.Folders.Count > 0, ctx.Name);
@@ -634,7 +634,7 @@ public class CliBackendParityTests
 
                         // A further choice without new options must reuse the
                         // child's prepared settings, not reset Config to the
-                        // aggregate while retaining an incompatible context.
+                        // group while retaining an incompatible context.
                         var repeated = await ctx.Backend.StartFolderDownloadAsync(summary.JobId,
                             new StartFolderDownloadRequestDto(bucket.Folders[0].Ref,
                                 AlbumQuery: bucket.Query,
@@ -680,7 +680,7 @@ public class CliBackendParityTests
                     },
                     ctx.DownloadedRelativePaths(),
                     ctx.Name);
-                await AssertAutomaticAlbumDownloadAsync(ctx, aggregate: true, expectedTransferredBytes: 2, new Dictionary<string, string>
+                await AssertAutomaticAlbumDownloadAsync(ctx, group: true, expectedTransferredBytes: 2, new Dictionary<string, string>
                 {
                     ["automatic-output/Album One/from-profile/01. Artist - First.mp3"] = "a",
                     ["automatic-output/Album Two/from-profile/01. Artist - Second.mp3"] = "bb",
@@ -1003,7 +1003,7 @@ public class CliBackendParityTests
     [DataRow(true, true, true)]
     [DataRow(false, true, false)]
     [DataRow(true, true, false)]
-    public async Task CliBackendParity_ManualMusicSelectionClosesOrCancelsSelectedWork(bool albumMode, bool cancel, bool aggregate)
+    public async Task CliBackendParity_ManualMusicSelectionClosesOrCancelsSelectedWork(bool albumMode, bool cancel, bool group)
     {
         await RunForEachInjectedClientBackendAsync(() =>
         {
@@ -1022,17 +1022,17 @@ public class CliBackendParityTests
             if (albumMode)
             {
                 var query = new AlbumQueryDto("Artist", "Album", "", "", false);
-                source = aggregate
-                    ? await ctx.Backend.SubmitAlbumAggregateJobAsync(new SubmitAlbumAggregateJobRequestDto(query,
-                        DownloadBehavior: new DownloadBehaviorPolicyDto(AlbumAggregate: ServerDownloadBehavior.Manual)), ctx.Token)
+                source = group
+                    ? await ctx.Backend.SubmitAlbumGroupsJobAsync(new SubmitAlbumGroupsJobRequestDto(query,
+                        DownloadBehavior: new DownloadBehaviorPolicyDto(AlbumGroups: ServerDownloadBehavior.Manual)), ctx.Token)
                     : await ctx.Backend.SubmitAlbumJobAsync(new SubmitAlbumJobRequestDto(query,
                         DownloadBehavior: new DownloadBehaviorPolicyDto(Album: ServerDownloadBehavior.Manual)), ctx.Token);
                 await WaitForJobStateAsync(ctx.Backend, source.JobId, ExpectedJobStatus.AwaitingSelection);
                 IReadOnlyList<AlbumFolderDto> folders;
-                if (aggregate)
+                if (group)
                 {
-                    var groups = await ctx.Backend.GetAggregateAlbumResultsAsync(source.JobId,
-                        new AggregateAlbumProjectionRequestDto(IncludeFolders: true), ctx.Token);
+                    var groups = await ctx.Backend.GetAlbumGroupResultsAsync(source.JobId,
+                        new AlbumGroupProjectionRequestDto(IncludeFolders: true), ctx.Token);
                     Assert.IsNotNull(groups, ctx.Name);
                     folders = groups.Items.Single().Folders!;
                 }
@@ -1053,17 +1053,17 @@ public class CliBackendParityTests
             else
             {
                 var query = new SongQueryDto("Artist", "Track", "", "", -1, false);
-                source = aggregate
-                    ? await ctx.Backend.SubmitAggregateJobAsync(new SubmitAggregateJobRequestDto(query,
-                        DownloadBehavior: new DownloadBehaviorPolicyDto(Aggregate: ServerDownloadBehavior.Manual)), ctx.Token)
+                source = group
+                    ? await ctx.Backend.SubmitSongGroupsJobAsync(new SubmitSongGroupsJobRequestDto(query,
+                        DownloadBehavior: new DownloadBehaviorPolicyDto(SongGroups: ServerDownloadBehavior.Manual)), ctx.Token)
                     : await ctx.Backend.SubmitSongJobAsync(new SubmitSongJobRequestDto(query,
                         DownloadBehavior: new DownloadBehaviorPolicyDto(Song: ServerDownloadBehavior.Manual)), ctx.Token);
                 await WaitForJobStateAsync(ctx.Backend, source.JobId, ExpectedJobStatus.AwaitingSelection);
                 IReadOnlyList<FileCandidateDto> candidates;
-                if (aggregate)
+                if (group)
                 {
-                    var groups = await ctx.Backend.GetAggregateTrackResultsAsync(source.JobId,
-                        new AggregateTrackProjectionRequestDto(IncludeCandidates: true), ctx.Token);
+                    var groups = await ctx.Backend.GetTrackGroupResultsAsync(source.JobId,
+                        new TrackGroupProjectionRequestDto(IncludeCandidates: true), ctx.Token);
                     Assert.IsNotNull(groups, ctx.Name);
                     candidates = groups.Items.Single().Candidates!;
                 }
@@ -1082,7 +1082,7 @@ public class CliBackendParityTests
                     new StartFileDownloadsRequestDto([candidates[0].Ref]), ctx.Token); };
             }
             Assert.IsNotNull(child, ctx.Name);
-            if (!aggregate) Assert.AreEqual(source.JobId, child.JobId, ctx.Name);
+            if (!group) Assert.AreEqual(source.JobId, child.JobId, ctx.Name);
             await ctx.Gate!.WaitForStartedAsync();
             Assert.AreEqual(selectedUsername, ctx.Gate.BlockedUsername, ctx.Name);
             async Task AssertRejected()
@@ -1094,7 +1094,7 @@ public class CliBackendParityTests
                 }
                 else await Assert.ThrowsAsync<ArgumentException>(chooseAlternative);
             }
-            if (aggregate) await AssertRejected();
+            if (group) await AssertRejected();
             if (cancel)
             {
                 Assert.IsTrue(await ctx.Backend.CancelJobAsync(source.JobId, ctx.Token), ctx.Name);
@@ -1102,7 +1102,7 @@ public class CliBackendParityTests
                 // selected work, rather than waiting for the peer to finish it.
                 var cancellations = new List<(Guid, ServerJobCancellationSource)>
                     { (source.JobId, ServerJobCancellationSource.UserRequestedJob) };
-                if (aggregate) cancellations.Add((child.JobId, ServerJobCancellationSource.ParentJob));
+                if (group) cancellations.Add((child.JobId, ServerJobCancellationSource.ParentJob));
                 foreach (var (id, cause) in cancellations)
                 {
                     var detail = await BackendTestWaiter.UntilAsync(ctx.Backend,
@@ -1124,7 +1124,7 @@ public class CliBackendParityTests
                 await WaitForWorkflowStateAsync(ctx.Backend, source.WorkflowId, ServerWorkflowState.Completed);
             }
             var jobs = await ctx.Backend.GetJobsAsync(new JobQuery(null, null, null, source.WorkflowId, IncludeAll: true), ctx.Token);
-            Assert.AreEqual(aggregate ? 1 : 0, jobs.Count(job => job.SourceJobId == source.JobId
+            Assert.AreEqual(group ? 1 : 0, jobs.Count(job => job.SourceJobId == source.JobId
                 && job.Kind == (albumMode ? ServerJobKind.Album : ServerJobKind.Song)), ctx.Name);
         });
     }
@@ -1221,17 +1221,17 @@ public class CliBackendParityTests
         return new ProfileCatalog { NamedProfiles = [profile] };
     }
 
-    private static async Task AssertManualAggregateSongSelectionAsync(ParityBackendContext ctx)
+    private static async Task AssertManualGroupSongSelectionAsync(ParityBackendContext ctx)
     {
         string[] before = ctx.DownloadedRelativePaths();
-        var source = await ctx.Backend.SubmitAggregateJobAsync(new SubmitAggregateJobRequestDto(
+        var source = await ctx.Backend.SubmitSongGroupsJobAsync(new SubmitSongGroupsJobRequestDto(
             new SongQueryDto("Artist", "", "", "", -1, false),
             Options: new SubmissionOptionsDto(DownloadSettings: new DownloadSettingsPatchDto(
                 Skip: new SkipSettingsPatchDto(SkipExisting: true))),
-            DownloadBehavior: new DownloadBehaviorPolicyDto(Aggregate: ServerDownloadBehavior.Manual)), ctx.Token);
+            DownloadBehavior: new DownloadBehaviorPolicyDto(SongGroups: ServerDownloadBehavior.Manual)), ctx.Token);
         await WaitForJobStateAsync(ctx.Backend, source.JobId, ExpectedJobStatus.AwaitingSelection);
-        var groups = await ctx.Backend.GetAggregateTrackResultsAsync(source.JobId,
-            new AggregateTrackProjectionRequestDto(IncludeCandidates: true), ctx.Token);
+        var groups = await ctx.Backend.GetTrackGroupResultsAsync(source.JobId,
+            new TrackGroupProjectionRequestDto(IncludeCandidates: true), ctx.Token);
         Assert.IsNotNull(groups, ctx.Name);
         Assert.AreEqual(2, groups.Items.Count, ctx.Name);
         var chosenGroup = groups.Items[^1];
@@ -1239,13 +1239,13 @@ public class CliBackendParityTests
         Assert.AreEqual(2, chosenGroup.Candidates.Count, ctx.Name);
         var candidate = chosenGroup.Candidates[^1];
         string filename = Path.GetFileName(Utils.GetAsPathSlsk(candidate.Filename));
-        string output = Path.Combine(ctx.OutputDir, "manual-aggregate");
+        string output = Path.Combine(ctx.OutputDir, "manual-group");
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         var selected = await ctx.Backend.StartFileDownloadsAsync(source.JobId,
             new StartFileDownloadsRequestDto([candidate.Ref], new SubmissionOptionsDto(
                 ProfileNames: ["song-layout"], DownloadSettings: new DownloadSettingsPatchDto(
                     Output: new OutputSettingsPatchDto(ParentDir: output)))), ctx.Token);
-        Console.WriteLine($"CLI aggregate song selection {ctx.Name}: acceptance-ms={System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:F1}.");
+        Console.WriteLine($"CLI group song selection {ctx.Name}: acceptance-ms={System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:F1}.");
         Assert.IsNotNull(selected, ctx.Name);
         var child = selected.Single();
         Assert.AreEqual(source.WorkflowId, child.WorkflowId, ctx.Name);
@@ -1257,12 +1257,12 @@ public class CliBackendParityTests
         var song = Assert.IsInstanceOfType<SongJobPayloadDto>(childDetail?.Payload);
         Assert.AreEqual(candidate.Filename, song.ResolvedFilename, ctx.Name);
         Assert.AreEqual(candidate.Username, song.ResolvedUsername, ctx.Name);
-        var remainingGroups = await ctx.Backend.GetAggregateTrackResultsAsync(source.JobId,
-            new AggregateTrackProjectionRequestDto(IncludeCandidates: true), ctx.Token);
+        var remainingGroups = await ctx.Backend.GetTrackGroupResultsAsync(source.JobId,
+            new TrackGroupProjectionRequestDto(IncludeCandidates: true), ctx.Token);
         Assert.IsNotNull(remainingGroups, ctx.Name);
         Assert.AreEqual(2, remainingGroups.Items.Count, ctx.Name);
         Assert.IsTrue(remainingGroups.Items.All(group => group.Candidates?.Count == 2),
-            $"{ctx.Name}: executing a choice must preserve the open aggregate's discovery alternatives.");
+            $"{ctx.Name}: executing a choice must preserve the open group's discovery alternatives.");
         var siblingGroup = remainingGroups.Items.Single(group => group.Query.Title != chosenGroup.Query.Title);
         var siblingCandidate = siblingGroup.Candidates![0];
         var siblingSelection = await ctx.Backend.StartFileDownloadsAsync(source.JobId,
@@ -1279,14 +1279,14 @@ public class CliBackendParityTests
         var completed = await BackendTestWaiter.UntilAsync(ctx.Backend,
             ct => ctx.Backend.GetJobDetailAsync(source.JobId, ct),
             detail => detail?.Summary.LifecycleState == ServerJobLifecycleState.Terminal,
-            $"{ctx.Name}: manual aggregate selection never completed.");
+            $"{ctx.Name}: manual group selection never completed.");
         Assert.IsNotNull(completed, ctx.Name);
         Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, completed.Summary.TerminalOutcome,
-            $"{ctx.Name}: selected aggregate child succeeded but root is {completed.Summary.TerminalOutcome}: {completed.Summary.FailureReason}.");
+            $"{ctx.Name}: selected group child succeeded but root is {completed.Summary.TerminalOutcome}: {completed.Summary.FailureReason}.");
         await WaitForWorkflowStateAsync(ctx.Backend, source.WorkflowId, ServerWorkflowState.Completed);
         string expectedContent = filename.EndsWith("First.mp3", StringComparison.Ordinal) ? "first" : "second";
         Assert.AreEqual(expectedContent, await File.ReadAllTextAsync(Path.Combine(output, "from-profile", filename)), ctx.Name);
-        CollectionAssert.AreEqual(before.Append($"manual-aggregate/from-profile/{filename}")
+        CollectionAssert.AreEqual(before.Append($"manual-group/from-profile/{filename}")
             .OrderBy(path => path, StringComparer.Ordinal).ToArray(), ctx.DownloadedRelativePaths(), ctx.Name);
     }
 
@@ -1381,19 +1381,19 @@ public class CliBackendParityTests
     }
 
     private static async Task AssertAutomaticAlbumDownloadAsync(
-        ParityBackendContext ctx, bool aggregate, long expectedTransferredBytes,
+        ParityBackendContext ctx, bool group, long expectedTransferredBytes,
         IReadOnlyDictionary<string, string> expectedFiles)
     {
         string[] before = ctx.DownloadedRelativePaths();
         var options = new SubmissionOptionsDto(ProfileNames: ["album-layout"],
             DownloadSettings: new DownloadSettingsPatchDto(Output: new OutputSettingsPatchDto(
                 ParentDir: Path.Combine(ctx.OutputDir, "automatic-output"))));
-        var query = new AlbumQueryDto("Artist", aggregate ? "" : "Album", "", "", false);
+        var query = new AlbumQueryDto("Artist", group ? "" : "Album", "", "", false);
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
-        JobSummaryDto submitted = aggregate
-            ? await ctx.Backend.SubmitAlbumAggregateJobAsync(new SubmitAlbumAggregateJobRequestDto(query, options), ctx.Token)
+        JobSummaryDto submitted = group
+            ? await ctx.Backend.SubmitAlbumGroupsJobAsync(new SubmitAlbumGroupsJobRequestDto(query, options), ctx.Token)
             : await ctx.Backend.SubmitAlbumJobAsync(new SubmitAlbumJobRequestDto(query, options), ctx.Token);
-        Console.WriteLine($"CLI automatic album {ctx.Name}: aggregate={aggregate}, "
+        Console.WriteLine($"CLI automatic album {ctx.Name}: group={group}, "
             + $"acceptance-ms={System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:F1}.");
         Assert.IsNull(submitted.SourceJobId, ctx.Name);
         Assert.IsNull(submitted.ParentJobId, ctx.Name);
@@ -1405,10 +1405,10 @@ public class CliBackendParityTests
             () => ctx.Backend.GetJobDetailAsync(submitted.JobId, ctx.Token));
         Assert.IsNotNull(detail, ctx.Name);
         var directories = new List<DirectoryDownloadStateDto>();
-        if (aggregate)
+        if (group)
         {
-            Assert.IsInstanceOfType<AlbumAggregateJobPayloadDto>(detail.Payload);
-            var albums = (AlbumAggregateJobPayloadDto)detail.Payload!;
+            Assert.IsInstanceOfType<AlbumGroupsJobPayloadDto>(detail.Payload);
+            var albums = (AlbumGroupsJobPayloadDto)detail.Payload!;
             Assert.AreEqual(2, albums.ResultCount, ctx.Name);
             Assert.AreEqual(2, albums.CompletedAlbumCount, ctx.Name);
             Assert.AreEqual(2, albums.SucceededAlbumCount, ctx.Name);
@@ -1416,9 +1416,9 @@ public class CliBackendParityTests
             var children = await ReadMetadataAsync("root children", () => ctx.Backend.GetJobsAsync(
                 new JobQuery(null, null, null, null, ParentJobId: submitted.JobId, IncludeAll: true), ctx.Token));
             Assert.AreEqual(3, children.Count, ctx.Name);
-            var group = children.Single(child => child.Kind == ServerJobKind.JobList);
-            Assert.AreEqual(submitted.SubmissionId, group.SubmissionId, ctx.Name);
-            Assert.AreEqual(ServerJobRole.Orchestration, group.Role, ctx.Name);
+            var container = children.Single(child => child.Kind == ServerJobKind.JobList);
+            Assert.AreEqual(submitted.SubmissionId, container.SubmissionId, ctx.Name);
+            Assert.AreEqual(ServerJobRole.Orchestration, container.Role, ctx.Name);
             children = await ReadMetadataAsync("generated albums", () => ctx.Backend.GetJobsAsync(
                 new JobQuery(null, null, ServerJobKind.Album, null, ParentJobId: submitted.JobId, IncludeAll: true), ctx.Token));
             Assert.AreEqual(2, children.Count, ctx.Name);
@@ -1441,7 +1441,7 @@ public class CliBackendParityTests
             Assert.IsInstanceOfType<AlbumJobPayloadDto>(detail.Payload);
             directories.Add(((AlbumJobPayloadDto)detail.Payload!).Directory);
         }
-        Console.WriteLine($"CLI automatic album {ctx.Name}: aggregate={aggregate}, "
+        Console.WriteLine($"CLI automatic album {ctx.Name}: group={group}, "
             + $"metadata-ms={System.Diagnostics.Stopwatch.GetElapsedTime(metadataStarted).TotalMilliseconds:F1}.");
         Assert.AreEqual(expectedFiles.Count, directories.Sum(directory => directory.FileCount), ctx.Name);
         Assert.AreEqual(expectedFiles.Count, directories.Sum(directory => directory.SuccessfulFileCount), ctx.Name);
@@ -1450,7 +1450,7 @@ public class CliBackendParityTests
         Assert.AreEqual((long)expectedFiles.Sum(file => file.Value.Length), directories.Sum(directory => directory.TotalKnownBytes), ctx.Name);
         // Earlier manual outputs can be reused. Cached copies are successful
         // files, not additional network bytes; only the previously unselected
-        // aggregate child needs a new transfer.
+        // group child needs a new transfer.
         Assert.AreEqual(expectedTransferredBytes, directories.Sum(directory => directory.BytesTransferred), ctx.Name);
         Assert.IsTrue(directories.All(directory => directory.ProgressPercent == 100), ctx.Name);
         CollectionAssert.AreEqual(before.Concat(expectedFiles.Keys).Order(StringComparer.Ordinal).ToArray(),
@@ -1464,7 +1464,7 @@ public class CliBackendParityTests
             long issuedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             double gcBefore = GC.GetTotalPauseDuration().TotalMilliseconds;
             T result = await read();
-            Console.WriteLine($"CLI automatic album {ctx.Name}: aggregate={aggregate}, "
+            Console.WriteLine($"CLI automatic album {ctx.Name}: group={group}, "
                 + $"read={operation}, ms={System.Diagnostics.Stopwatch.GetElapsedTime(readStarted).TotalMilliseconds:F1}, "
                 + $"issued-at={issuedAt}, gc-ms={GC.GetTotalPauseDuration().TotalMilliseconds - gcBefore:F1}.");
             return result;
@@ -1479,7 +1479,7 @@ public class CliBackendParityTests
                 Options: new SubmissionOptionsDto(),
                 ResultDownloadBehavior: new DownloadBehaviorPolicyDto(
                     Album: ServerDownloadBehavior.Manual,
-                    AlbumAggregate: ServerDownloadBehavior.Manual)),
+                    AlbumGroups: ServerDownloadBehavior.Manual)),
             ctx.Token);
 
     private static SubmissionOptionsJobSettingsResolver CreateLocalResolver(
@@ -1767,7 +1767,7 @@ public class CliBackendParityTests
             Search =
             {
                 NoBrowseFolder = true,
-                MinSharesAggregate = 1,
+                MinGroupShares = 1,
             },
         };
 

@@ -418,11 +418,11 @@ public class StaleDownloadTests
     }
 
     [TestMethod]
-    public async Task AggregateDownload_StaleChildFailsAggregate()
+    public async Task GroupDownload_StaleChildFailsGroup()
     {
         var outputDir = CreateOutputDir();
         var file = TestHelpers.CreateSlFile(@"Music\Test Artist - Test Song.mp3", size: 5000, length: 180);
-        var response = CreateResponse("aggregate-user", file);
+        var response = CreateResponse("group-user", file);
         var downloadGate = new TestHelpers.DownloadGate();
         var client = new ClientTests.MockSoulseekClient([response])
         {
@@ -432,12 +432,12 @@ public class StaleDownloadTests
         var clock = new ManualTimeProvider();
         var engineSettings = CreateEngineSettings();
         var settings = CreateSettings(outputDir);
-        settings.Search.MinSharesAggregate = 1;
-        var aggregate = new AggregateJob(new SongQuery { Artist = "Test Artist", Title = "Test Song" });
+        settings.Search.MinGroupShares = 1;
+        var group = new SongGroupsJob(new SongQuery { Artist = "Test Artist", Title = "Test Song" });
         var engine = CreateEngine(engineSettings, client, clock);
 
         using var runCts = new CancellationTokenSource();
-        var runTask = Start(engine, aggregate, settings, runCts.Token);
+        var runTask = Start(engine, group, settings, runCts.Token);
         try
         {
             await downloadGate.WaitForStartedCountAsync(1);
@@ -447,8 +447,8 @@ public class StaleDownloadTests
             Assert.AreEqual(1, engine.RunStaleDownloadCheckForTesting());
 
             await runTask.WaitAsync(SignalTimeout);
-            AssertFailed(aggregate, JobFailureReason.AllDownloadsFailed);
-            Assert.IsTrue(aggregate.Songs.Any(song =>
+            AssertFailed(group, JobFailureReason.AllDownloadsFailed);
+            Assert.IsTrue(group.Songs.Any(song =>
                 song.FailureReason == JobFailureReason.AllDownloadsFailed
                 && StaleDownloadException.IsStaleFailureMessage(song.FailureMessage)));
         }
@@ -462,11 +462,11 @@ public class StaleDownloadTests
     }
 
     [TestMethod]
-    public async Task AlbumAggregateDownload_StaleTrackFailsAlbumAggregate()
+    public async Task AlbumGroupsDownload_StaleTrackFailsAlbumGroups()
     {
         var outputDir = CreateOutputDir();
         var file = TestHelpers.CreateSlFile(@"Music\Test Artist\Test Album\01. Test Artist - Test Song.mp3", size: 5000, length: 180);
-        var response = CreateResponse("album-aggregate-user", file);
+        var response = CreateResponse("album-groups-user", file);
         var downloadGate = new TestHelpers.DownloadGate();
         var client = new ClientTests.MockSoulseekClient([response])
         {
@@ -476,13 +476,13 @@ public class StaleDownloadTests
         var clock = new ManualTimeProvider();
         var engineSettings = CreateEngineSettings();
         var settings = CreateSettings(outputDir);
-        settings.Search.MinSharesAggregate = 1;
+        settings.Search.MinGroupShares = 1;
         settings.Search.NoBrowseFolder = true;
-        var aggregate = new AlbumAggregateJob(new AlbumQuery { Artist = "Test Artist" });
+        var group = new AlbumGroupsJob(new AlbumQuery { Artist = "Test Artist" });
         var engine = CreateEngine(engineSettings, client, clock);
 
         using var runCts = new CancellationTokenSource();
-        var runTask = Start(engine, aggregate, settings, runCts.Token);
+        var runTask = Start(engine, group, settings, runCts.Token);
         try
         {
             await downloadGate.WaitForStartedCountAsync(1);
@@ -492,8 +492,8 @@ public class StaleDownloadTests
             Assert.AreEqual(1, engine.RunStaleDownloadCheckForTesting());
 
             await runTask.WaitAsync(SignalTimeout);
-            AssertFailed(aggregate, JobFailureReason.AllDownloadsFailed);
-            Assert.IsTrue(aggregate.Albums.SelectMany(album => album.TrackJobs).Any(song =>
+            AssertFailed(group, JobFailureReason.AllDownloadsFailed);
+            Assert.IsTrue(group.Albums.SelectMany(album => album.TrackJobs).Any(song =>
                 song.FailureReason == JobFailureReason.AllDownloadsFailed
                 && StaleDownloadException.IsStaleFailureMessage(song.FailureMessage)));
         }

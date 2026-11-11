@@ -70,45 +70,45 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
-        app.MapGet("/api/search-views/{viewId:guid}/aggregate-tracks", GetAggregateTracks)
+        app.MapGet("/api/search-views/{viewId:guid}/track-groups", GetTrackGroups)
             .WithTags("Search Views")
-            .WithSummary("Pages aggregate-track group summaries from one immutable revision.")
-            .Produces<SearchViewAggregateTrackPageDto>()
+            .WithSummary("Pages track group summaries from one immutable revision.")
+            .Produces<SearchViewTrackGroupPageDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet(
-                "/api/search-views/{viewId:guid}/aggregate-tracks/{groupRef}/alternatives",
-                GetAggregateTrackOptions)
+                "/api/search-views/{viewId:guid}/track-groups/{groupRef}/alternatives",
+                GetTrackGroupOptions)
             .WithTags("Search Views")
-            .WithSummary("Pages one aggregate-track group's ordered alternatives.")
-            .Produces<SearchViewAggregateTrackOptionPageDto>()
+            .WithSummary("Pages one track group's ordered alternatives.")
+            .Produces<SearchViewTrackGroupOptionPageDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
-        app.MapGet("/api/search-views/{viewId:guid}/aggregate-albums", GetAggregateAlbums)
+        app.MapGet("/api/search-views/{viewId:guid}/album-groups", GetAlbumGroups)
             .WithTags("Search Views")
-            .WithSummary("Pages aggregate-album group summaries from one immutable revision.")
-            .Produces<SearchViewAggregateAlbumPageDto>()
+            .WithSummary("Pages album group summaries from one immutable revision.")
+            .Produces<SearchViewAlbumGroupPageDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet(
-                "/api/search-views/{viewId:guid}/aggregate-albums/{groupRef}/alternatives",
-                GetAggregateAlbumOptions)
+                "/api/search-views/{viewId:guid}/album-groups/{groupRef}/alternatives",
+                GetAlbumGroupOptions)
             .WithTags("Search Views")
-            .WithSummary("Pages one aggregate-album group's directory alternatives.")
-            .Produces<SearchViewAggregateAlbumOptionPageDto>()
+            .WithSummary("Pages one album group's directory alternatives.")
+            .Produces<SearchViewAlbumGroupOptionPageDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapPost("/api/search-views/{viewId:guid}/chosen-options/resolve", ResolveChosenOptions)
             .WithTags("Search Views")
-            .WithSummary("Reads exact browser-held aggregate choices in one Search View revision.")
+            .WithSummary("Reads exact browser-held group choices in one Search View revision.")
             .WithDescription("Returns a current option DTO or an explicit miss for each requested group. Choices remain client-owned and are never saved by this read.")
             .Produces<ResolveSearchViewChosenOptionsResponseDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
@@ -310,7 +310,7 @@ internal static class SearchViewEndpoints
         }
     }
 
-    private static async Task<IResult> GetAggregateTracks(
+    private static async Task<IResult> GetTrackGroups(
         Guid viewId,
         long revision,
         SearchViewCoordinator coordinator,
@@ -320,9 +320,9 @@ internal static class SearchViewEndpoints
     {
         try
         {
-            SearchViewAggregateTrackPageDto? page = coordinator.GetAggregateTracks(viewId, revision, cursor, limit ?? ServerProtocol.DefaultNestedPageSize, cancellationToken);
+            SearchViewTrackGroupPageDto? page = coordinator.GetTrackGroups(viewId, revision, cursor, limit ?? ServerProtocol.DefaultNestedPageSize, cancellationToken);
             return page == null
-                ? NotFound("The aggregate-track revision was not found.")
+                ? NotFound("The track-group revision was not found.")
                 : Results.Ok(page);
         }
         catch (Exception exception)
@@ -331,7 +331,7 @@ internal static class SearchViewEndpoints
         }
     }
 
-    private static async Task<IResult> GetAggregateTrackOptions(
+    private static async Task<IResult> GetTrackGroupOptions(
         Guid viewId,
         string groupRef,
         long revision,
@@ -342,9 +342,9 @@ internal static class SearchViewEndpoints
     {
         try
         {
-            SearchViewAggregateTrackOptionPageDto? page = coordinator.GetAggregateTrackOptions(viewId, groupRef, revision, cursor, limit ?? ServerProtocol.DefaultPageSize, cancellationToken);
+            SearchViewTrackGroupOptionPageDto? page = coordinator.GetTrackGroupOptions(viewId, groupRef, revision, cursor, limit ?? ServerProtocol.DefaultPageSize, cancellationToken);
             return page == null
-                ? NotFound("The aggregate-track group revision was not found.")
+                ? NotFound("The track group revision was not found.")
                 : Results.Ok(page);
         }
         catch (Exception exception)
@@ -353,7 +353,7 @@ internal static class SearchViewEndpoints
         }
     }
 
-    private static async Task<IResult> GetAggregateAlbums(
+    private static async Task<IResult> GetAlbumGroups(
         Guid viewId,
         long revision,
         SearchViewCoordinator coordinator,
@@ -363,9 +363,9 @@ internal static class SearchViewEndpoints
     {
         try
         {
-            SearchViewAggregateAlbumPageDto? page = coordinator.GetAggregateAlbums(viewId, revision, cursor, limit ?? ServerProtocol.DefaultNestedPageSize, cancellationToken);
+            SearchViewAlbumGroupPageDto? page = coordinator.GetAlbumGroups(viewId, revision, cursor, limit ?? ServerProtocol.DefaultNestedPageSize, cancellationToken);
             return page == null
-                ? NotFound("The aggregate-album revision was not found.")
+                ? NotFound("The album-group revision was not found.")
                 : Results.Ok(page);
         }
         catch (Exception exception)
@@ -374,7 +374,7 @@ internal static class SearchViewEndpoints
         }
     }
 
-    private static IResult GetAggregateAlbumOptions(
+    private static IResult GetAlbumGroupOptions(
         Guid viewId,
         string groupRef,
         long revision,
@@ -385,9 +385,9 @@ internal static class SearchViewEndpoints
     {
         try
         {
-            SearchViewAggregateAlbumOptionPageDto? page = coordinator.GetAggregateAlbumOptions(viewId, groupRef, revision, cursor, limit ?? ServerProtocol.DefaultNestedPageSize, cancellationToken);
+            SearchViewAlbumGroupOptionPageDto? page = coordinator.GetAlbumGroupOptions(viewId, groupRef, revision, cursor, limit ?? ServerProtocol.DefaultNestedPageSize, cancellationToken);
             return page == null
-                ? NotFound("The aggregate-album group revision was not found.")
+                ? NotFound("The album group revision was not found.")
                 : Results.Ok(page);
         }
         catch (Exception exception)

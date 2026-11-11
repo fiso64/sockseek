@@ -11,7 +11,7 @@ internal sealed record DirectoryTransferWorkItem(
     PeerFileTarget Target,
     string OutputPath);
 
-/// <summary>Runs already planned exact file transfers and aggregates child state.</summary>
+/// <summary>Runs already planned exact file transfers and groups child state.</summary>
 internal sealed class DirectoryTransferRunner
 {
     private readonly DownloadExecutionContext context;
@@ -62,7 +62,7 @@ internal sealed class DirectoryTransferRunner
             work,
             context.Runtime.ConcurrentJobLimit,
             item => RunChild(directory, item, config));
-        return AggregateOutcome(directory.FileJobs);
+        return GroupOutcome(directory.FileJobs);
     }
 
     private async Task RunChild(
@@ -122,7 +122,7 @@ internal sealed class DirectoryTransferRunner
         }
     }
 
-    private static JobOutcome AggregateOutcome(IReadOnlyList<FileDownloadJob> children)
+    private static JobOutcome GroupOutcome(IReadOnlyList<FileDownloadJob> children)
     {
         int successful = children.Count(child => child.IsSuccessfulTerminal);
         int cancelled = children.Count(child => child.FailureReason == JobFailureReason.Cancelled);

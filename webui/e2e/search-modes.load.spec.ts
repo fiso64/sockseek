@@ -29,7 +29,7 @@ async function waitForCompleteView(page: Page): Promise<Schema<'SearchViewRevisi
     'summary' in body ? body.summary : typeof body.revision === 'object' ? body.revision : body as Schema<'SearchViewSummaryDto'>;
   const response = await page.waitForResponse(async response => {
     const path = new URL(response.url()).pathname;
-    if (!response.ok() || !(/^\/api\/search-views\/[^/]+(?:\/updates|\/files|\/directories|\/aggregate-tracks|\/aggregate-albums)?$/.test(path)
+    if (!response.ok() || !(/^\/api\/search-views\/[^/]+(?:\/updates|\/files|\/directories|\/track-groups|\/album-groups)?$/.test(path)
       || /\/api\/jobs\/[^/]+\/search-views$/.test(path))) return false;
     const summary = revision(await response.json() as ResponseBody);
     return summary.isComplete && summary.retentionState === 'Complete';
@@ -41,8 +41,8 @@ const modes = [
   { label: 'File Search', kind: 'GenericDirectories', page: 'directories', selector: '.folder-item-card', expectedRoots: 1_000 },
   { label: 'Track Search', kind: 'Files', page: 'files', selector: '.file-item-card', expectedRoots: 10_000 },
   { label: 'Album Search', kind: 'AlbumDirectories', page: 'directories', selector: '.folder-item-card', expectedRoots: 1_000 },
-  { label: 'Song Aggregate', kind: 'AggregateTracks', page: 'aggregate-tracks', selector: '.aggregate-result-group', expectedRoots: 100 },
-  { label: 'Album Aggregate', kind: 'AggregateAlbums', page: 'aggregate-albums', selector: '.aggregate-result-group', expectedRoots: 10 },
+  { label: 'Song Groups', kind: 'TrackGroups', page: 'track-groups', selector: '.group-result-group', expectedRoots: 100 },
+  { label: 'Album Groups', kind: 'AlbumGroups', page: 'album-groups', selector: '.group-result-group', expectedRoots: 10 },
 ] as const;
 
 // Locator assertions remain the watchdogs. Observe DOM changes from the actual
@@ -105,12 +105,12 @@ for (const mode of modes) {
     // Observe the browser's own response, not a second test-only polling loop.
     // Include create for the valid case where projection already finished.
     const completedResponse = waitForCompleteView(page);
-    const trackRequest = mode.label === 'Song Aggregate' ? page.waitForRequest(request => request.method() === 'POST'
+    const trackRequest = mode.label === 'Song Groups' ? page.waitForRequest(request => request.method() === 'POST'
       && new URL(request.url()).pathname === '/api/jobs/search/tracks') : null;
     await page.locator('#global-search-simple').fill('Fixture');
     let submitInput = page.locator('#global-search-simple');
-    if (mode.label === 'Song Aggregate') {
-      // Aggregate track projection applies strict title/artist semantics.
+    if (mode.label === 'Song Groups') {
+      // Grouped track projection applies strict title/artist semantics.
       // Search by the known artist so the synthetic tracks remain comparable.
       await page.getByRole('button', { name: 'split', exact: true }).click();
       await page.locator('#global-search-artist').fill('Fixture Artist');
@@ -354,12 +354,12 @@ for (const mode of modes) {
     let flexiblePlan: { commitApiMs: number; manifestApiMs: number; completedDetailApiMs: number;
       initialAlternatives: number; remainingAlternatives: number; fileCount: number;
       rerunApiMs: number; replayedAlternatives: number } | undefined;
-    if (mode.kind === 'AggregateTracks' || mode.kind === 'AggregateAlbums') {
+    if (mode.kind === 'TrackGroups' || mode.kind === 'AlbumGroups') {
       const optionsStart = performance.now();
       const optionsResponse = page.waitForResponse(response => response.ok()
         && response.request().method() === 'GET'
         && new URL(response.url()).pathname.endsWith('/alternatives'));
-      await page.locator('.aggregate-options-button').first().click();
+      await page.locator('.group-options-button').first().click();
       const response = await optionsResponse;
       const optionPage = await response.json() as {
         groupRef: string; items: { ref: string | { ref: string; username: string; folderPath: string } }[];
@@ -368,7 +368,7 @@ for (const mode of modes) {
       optionsRows = optionPage.items.length;
       expect(optionsRows).toBeGreaterThan(0);
       expect(optionsRows).toBe(100);
-      await expect(page.getByRole('dialog').locator('.aggregate-option')).toHaveCount(optionsRows);
+      await expect(page.getByRole('dialog').locator('.group-option')).toHaveCount(optionsRows);
       optionsUiMs = Math.round(performance.now() - optionsStart);
       optionsApiMs = Math.round(response.request().timing().responseEnd);
       optionsBytes = (await response.body()).byteLength;
@@ -388,21 +388,21 @@ for (const mode of modes) {
           typeof item.ref === 'string' ? item.ref : item.ref.ref;
         expect(new Set([...optionPage.items, ...nextPage.items].map(ref)).size)
           .toBe(optionsRows + optionsMoreRows);
-        await expect(page.getByRole('dialog').locator('.aggregate-option'))
+        await expect(page.getByRole('dialog').locator('.group-option'))
           .toHaveCount(optionsRows + optionsMoreRows);
         optionsMoreUiMs = Math.round(performance.now() - moreStart);
         optionsMoreApiMs = Math.round(next.request().timing().responseEnd);
         expect(optionRequests).toHaveLength(2);
 
       }
-      if (mode.kind === 'AggregateAlbums') {
+      if (mode.kind === 'AlbumGroups') {
         const chosen = optionPage.items[25]!.ref;
         expect(typeof chosen).toBe('object');
         if (typeof chosen === 'string') throw new Error('Expected an album directory identity.');
-        await page.getByRole('dialog').locator('.aggregate-option')
+        await page.getByRole('dialog').locator('.group-option')
           .nth(25).getByRole('button', { name: 'Use this option', exact: true }).click();
-        const album = page.locator('.aggregate-result-group').first();
-        await expect(album.locator('.aggregate-result-source')).toContainText(chosen.username);
+        const album = page.locator('.group-result-group').first();
+        await expect(album.locator('.group-result-source')).toContainText(chosen.username);
         await album.getByRole('button', { name: /Deselect Fixture Album-00/ }).click();
         await album.locator('.folder-file-row input[type="checkbox"]').first().check();
         await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
@@ -499,9 +499,9 @@ for (const mode of modes) {
           fileCount: completed.manifest.items.length, rerunApiMs,
           replayedAlternatives: Number(replayed.detail.payload.resultCount) };
       }
-      if (mode.kind === 'AggregateTracks') {
+      if (mode.kind === 'TrackGroups') {
         const chosen = optionPage.items[5] as unknown as Schema<'SearchViewFileDto'>;
-        await page.getByRole('dialog').locator('.aggregate-option').nth(5)
+        await page.getByRole('dialog').locator('.group-option').nth(5)
           .getByRole('button', { name: 'Use this option', exact: true }).click();
         planCommitMs = await downloadOneFile({ username: chosen.peer.username,
           remotePath: chosen.remoteFilename, size: Number(chosen.file.size) },
@@ -727,8 +727,8 @@ for (const mode of modes) {
     let automaticPlan: { submitApiMs: number; heldRootApiMs: number; rootApiMs: number; jobsApiMs: number;
       summaryReads: { query: string; durationMs: number }[]; albums: number;
       files: number; browseCount: number; manifestApiMs: number[] } | undefined;
-    if (mode.kind === 'AlbumDirectories' || mode.kind === 'AggregateAlbums') {
-      const aggregate = mode.kind === 'AggregateAlbums';
+    if (mode.kind === 'AlbumDirectories' || mode.kind === 'AlbumGroups') {
+      const group = mode.kind === 'AlbumGroups';
       const outputDirectory = testInfo.outputPath('automatic-albums');
       const summaryReads: { query: string; durationMs: number }[] = [];
       const observeSummaryRead = (reply: import('@playwright/test').Response) => {
@@ -752,10 +752,10 @@ for (const mode of modes) {
       let submitApiMs: number;
       let heldRootApiMs: number;
       try {
-        const response = await measureApi(daemon.url, aggregate ? '/api/jobs/aggregate/albums' : '/api/jobs/downloads/album', {
+        const response = await measureApi(daemon.url, group ? '/api/jobs/groups/albums' : '/api/jobs/downloads/album', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            albumQuery: { artist: 'Fixture Artist', album: aggregate ? null : 'Fixture Album-00', artistMaybeWrong: false },
+            albumQuery: { artist: 'Fixture Artist', album: group ? null : 'Fixture Album-00', artistMaybeWrong: false },
             options: { outputParentDir: outputDirectory, downloadSettings: {
               search: { noBrowseFolder: false, necessaryCond: { strictAlbum: true,
                 // Exclude the peer whose full share was acquired above. This
@@ -776,14 +776,14 @@ for (const mode of modes) {
           writers: daemon.logs().filter(line => line.startsWith('E2E_METRIC writer-phases '))
             .map(line => JSON.parse(line.slice('E2E_METRIC writer-phases '.length))).slice(-20),
         }));
-        expect(root.kind).toBe(aggregate ? 'album-aggregate' : 'album');
+        expect(root.kind).toBe(group ? 'album-groups' : 'album');
         await page.goto(`/jobs/${root.jobId}`);
         await expect(page.locator('.automatic-job-detail h1')).toBeVisible();
         const heldResponse = await measureApi(daemon.url, `/api/jobs/${root.jobId}`);
         heldRootApiMs = heldResponse.elapsedMs;
         expect(heldResponse.ok, heldResponse.body).toBe(true);
         expect(heldRootApiMs, 'Automatic root metadata must not wait for peer indexing or held transfers.').toBeLessThan(100);
-        if (aggregate) {
+        if (group) {
           await expect(page.getByRole('heading', { name: 'Generated albums', exact: true })).toBeVisible();
           await expect(page.locator('.job-child-row')).toHaveCount(10);
           await expect(page.locator('.job-child-copy small')).toHaveText(Array(10).fill(/^Album ·/));
@@ -797,10 +797,10 @@ for (const mode of modes) {
       }
       // Observe the browser's actual live detail reconciliation, without a
       // second test-only status polling loop or a fixed transfer wait.
-      // The aggregate writes ~1 GB across 110 files and builds large peer
+      // The group writes ~1 GB across 110 files and builds large peer
       // indexes. Its I/O completion budget is separate from the 100-ms reads.
       await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveCount(0, {
-        timeout: mode.kind === 'AggregateAlbums' ? 60_000 : 30_000,
+        timeout: mode.kind === 'AlbumGroups' ? 60_000 : 30_000,
       });
       const rootResponse = await measureApi(daemon.url, `/api/jobs/${root.jobId}`);
       const rootApiMs = rootResponse.elapsedMs;
@@ -814,8 +814,8 @@ for (const mode of modes) {
       const jobs = JSON.parse(jobsResponse.body) as Schema<'JobSummaryDto'>[];
       expect(jobsApiMs, 'The small automatic workflow must have a fast job-summary read.').toBeLessThan(100);
       const albums = jobs.filter(job => job.kind === 'album');
-      expect(albums).toHaveLength(aggregate ? 10 : 1);
-      if (aggregate) expect(completedRoot.payload).toMatchObject({ kind: 'album-aggregate', resultCount: 10,
+      expect(albums).toHaveLength(group ? 10 : 1);
+      if (group) expect(completedRoot.payload).toMatchObject({ kind: 'album-groups', resultCount: 10,
         completedAlbumCount: 10, succeededAlbumCount: 10, failedAlbumCount: 0 });
       const folders: string[] = [];
       const peers = new Set<string>();
@@ -824,7 +824,7 @@ for (const mode of modes) {
       for (const album of albums) {
         expect(album.submissionId).toBe(root.submissionId);
         expect(album.workflowId).toBe(root.workflowId);
-        if (aggregate) expect(album.parentJobId).toBe(root.jobId);
+        if (group) expect(album.parentJobId).toBe(root.jobId);
         const detailResponse = await page.request.get(`/api/jobs/${album.jobId}`);
         expect(detailResponse.ok(), await detailResponse.text()).toBe(true);
         const detail = await detailResponse.json() as Schema<'JobDetailDto'>;
@@ -846,15 +846,15 @@ for (const mode of modes) {
         manifestApiMs.push(verified.manifestApiMs);
         physicalPaths.push(...verified.manifest.items.map(item => item.file!.downloadPath!));
       }
-      expect(folders.sort()).toEqual(Array.from({ length: aggregate ? 10 : 1 }, (_, album) =>
+      expect(folders.sort()).toEqual(Array.from({ length: group ? 10 : 1 }, (_, album) =>
         `Music\\Fixture Artist\\Fixture Album-${String(album).padStart(2, '0')}`));
-      expect(new Set(physicalPaths).size, 'Every album retains its own exact output files.').toBe((aggregate ? 10 : 1) * 11);
+      expect(new Set(physicalPaths).size, 'Every album retains its own exact output files.').toBe((group ? 10 : 1) * 11);
       const screenshot = testInfo.outputPath('automatic-albums-complete.png');
       await page.screenshot({ path: screenshot, animations: 'disabled' });
       await testInfo.attach(`${mode.label} direct automatic execution`, { path: screenshot, contentType: 'image/png' });
       const browseCount = await readBrowseCount() - browsesBefore;
       expect(browseCount, 'A fresh completed share is reused for every album from that same peer.').toBeLessThanOrEqual(peers.size);
-      if (!aggregate) expect(browseCount, 'The previous full-folder peer is excluded, so automatic Album acquires a fresh share.').toBe(1);
+      if (!group) expect(browseCount, 'The previous full-folder peer is excluded, so automatic Album acquires a fresh share.').toBe(1);
       page.off('response', observeSummaryRead);
       expect(summaryReads.length, 'Observe actual child-summary reads during automatic execution.').toBeGreaterThan(0);
       for (const read of summaryReads)
@@ -892,7 +892,7 @@ for (const mode of modes) {
     await page.getByRole('menuitemradio', { name: mode.label, exact: true }).click();
     await page.locator('#global-search-simple').fill('Fixture');
     let input = page.locator('#global-search-simple');
-    if (mode.kind === 'AggregateTracks') {
+    if (mode.kind === 'TrackGroups') {
       await page.getByRole('button', { name: 'split', exact: true }).click();
       input = page.locator('#global-search-artist');
       await input.fill('Fixture Artist');
@@ -978,8 +978,8 @@ for (const mode of modes) {
     await expect(page.locator(mode.selector).first()).toBeVisible();
     await expect(page.locator('.search-results-summary')).toContainText('Searching');
     const selected = page.locator(mode.selector).first();
-    if (mode.kind === 'AggregateTracks' || mode.kind === 'AggregateAlbums')
-      await selected.locator('.aggregate-header-select-button').click();
+    if (mode.kind === 'TrackGroups' || mode.kind === 'AlbumGroups')
+      await selected.locator('.group-header-select-button').click();
     else if (mode.kind === 'Files') await selected.getByRole('checkbox').check();
     else await selected.getByRole('checkbox', { name: /Select all files/ }).check();
     await expect(page.getByRole('button', { name: /^Download \d+$/, exact: true })).toBeVisible();
@@ -1055,8 +1055,8 @@ for (const mode of modes) {
       expect(Number(result.revision.counters.publicFileCount)).toBe(peerCount * 100);
       expect(Number(result.revision.counters.projectedFileCount)).toBe(peerCount * filesPerPeer);
       const roots = mode.kind === 'Files' ? peerCount * filesPerPeer
-        : mode.kind === 'AggregateTracks' ? filesPerPeer
-        : mode.kind === 'AggregateAlbums' ? (filtered ? 1 : 10)
+        : mode.kind === 'TrackGroups' ? filesPerPeer
+        : mode.kind === 'AlbumGroups' ? (filtered ? 1 : 10)
         : peerCount * (filtered ? 1 : 10);
       expect(Number(result.revision.counters.topLevelItemCount)).toBe(roots);
       expect(result.items).toHaveLength(Math.min(roots, mode.kind === 'Files' ? 500 : 100));
@@ -1100,10 +1100,10 @@ for (const mode of modes) {
 // No downloads compete for storage; the 10k journeys above own that behavior.
 for (const { mode, shape } of [
   ...modes.map(mode => ({ mode, shape: 'distributed' as const })),
-  ...modes.filter(mode => ['AlbumDirectories', 'AggregateAlbums'].includes(mode.kind))
+  ...modes.filter(mode => ['AlbumDirectories', 'AlbumGroups'].includes(mode.kind))
     .map(mode => ({ mode, shape: 'single-peer' as const })),
-  { mode: modes.find(mode => mode.kind === 'AggregateAlbums')!, shape: 'album-options' as const },
-  { mode: modes.find(mode => mode.kind === 'AggregateTracks')!, shape: 'track-groups' as const },
+  { mode: modes.find(mode => mode.kind === 'AlbumGroups')!, shape: 'album-options' as const },
+  { mode: modes.find(mode => mode.kind === 'TrackGroups')!, shape: 'track-groups' as const },
 ]) {
   const singlePeer = shape === 'single-peer';
   const manyOptions = shape === 'album-options';
@@ -1115,17 +1115,17 @@ for (const { mode, shape } of [
     await page.goto('/jobs');
     await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
     await page.getByRole('menuitemradio', { name: mode.label, exact: true }).click();
-    if (singlePeer && mode.kind === 'AggregateAlbums') {
+    if (singlePeer && mode.kind === 'AlbumGroups') {
       await page.getByRole('button', { name: 'Search configuration', exact: true }).click();
       const panel = page.getByRole('region', { name: 'Search configuration', exact: true });
       await panel.getByLabel('Minimum sharers').fill('1');
       await panel.getByRole('button', { name: 'Close search configuration', exact: true }).click();
     }
-    const expectedRoots = manyOptions ? 1 : singlePeer || manyGroups ? 10_000 : mode.kind.startsWith('Aggregate') ? mode.expectedRoots : mode.expectedRoots * 10;
+    const expectedRoots = manyOptions ? 1 : singlePeer || manyGroups ? 10_000 : mode.kind.endsWith('Groups') ? mode.expectedRoots : mode.expectedRoots * 10;
     const pageSize = mode.kind === 'Files' ? 500 : 100;
     const displayed = Math.min(expectedRoots, pageSize);
     type ResultPage = Schema<'SearchViewFilePageDto'> | Schema<'SearchViewDirectoryPageDto'>
-      | Schema<'SearchViewAggregateTrackPageDto'> | Schema<'SearchViewAggregateAlbumPageDto'>;
+      | Schema<'SearchViewTrackGroupPageDto'> | Schema<'SearchViewAlbumGroupPageDto'>;
     const rootPath = (url: URL) => new RegExp(`/api/search-views/[^/]+/${mode.page}$`).test(url.pathname);
     const dataRequests: string[] = [];
     page.on('request', request => {
@@ -1138,7 +1138,7 @@ for (const { mode, shape } of [
       && rootPath(new URL(response.url())) && (await response.json() as ResultPage).revision.isComplete);
     await page.locator('#global-search-simple').fill('Fixture');
     let input = page.locator('#global-search-simple');
-    if (mode.kind === 'AggregateTracks') {
+    if (mode.kind === 'TrackGroups') {
       await page.getByRole('button', { name: 'split', exact: true }).click();
       await page.locator('#global-search-artist').fill('Fixture Artist');
       input = page.locator('#global-search-artist');
@@ -1168,12 +1168,12 @@ for (const { mode, shape } of [
     expect(display.fullPageDomMs).not.toBeNull();
     const ref = (item: ResultPage['items'][number]) => typeof item.ref === 'string' ? item.ref : item.ref.ref;
     expect(new Set(first.items.map(ref)).size).toBe(displayed);
-    if (mode.kind === 'AggregateTracks' || mode.kind === 'AggregateAlbums') {
-      const groups = first.items as Array<Schema<'SearchViewAggregateTrackGroupDto'> | Schema<'SearchViewAggregateAlbumGroupDto'>>;
+    if (mode.kind === 'TrackGroups' || mode.kind === 'AlbumGroups') {
+      const groups = first.items as Array<Schema<'SearchViewTrackGroupDto'> | Schema<'SearchViewAlbumGroupDto'>>;
       expect(groups.every(group => group.shareCount === peers)).toBe(true);
       expect(groups.every(group => Number(group.selectableOptionCount) === peers)).toBe(true);
       if (manyGroups) {
-        const tracks = groups as Schema<'SearchViewAggregateTrackGroupDto'>[];
+        const tracks = groups as Schema<'SearchViewTrackGroupDto'>[];
         expect(new Set(tracks.map(group => group.query.title)).size).toBe(displayed);
       }
     }
@@ -1203,7 +1203,7 @@ for (const { mode, shape } of [
       expect(response.ok, response.body).toBe(true);
     }
     if (manyOptions) {
-      const alternatives = `/api/search-views/${final.viewId}/aggregate-albums/${ref(first.items[0]!)}/alternatives`;
+      const alternatives = `/api/search-views/${final.viewId}/album-groups/${ref(first.items[0]!)}/alternatives`;
       const alternativeRequests: string[] = [];
       const recordAlternative = (request: Request) => {
         const url = new URL(request.url());
@@ -1213,18 +1213,18 @@ for (const { mode, shape } of [
       const observeOptions = () => page.waitForResponse(response => response.ok()
         && new URL(response.url()).pathname === alternatives);
       const optionResponse = observeOptions();
-      await page.locator('.aggregate-options-button').click();
-      const options = await (await optionResponse).json() as Schema<'SearchViewAggregateAlbumOptionPageDto'>;
+      await page.locator('.group-options-button').click();
+      const options = await (await optionResponse).json() as Schema<'SearchViewAlbumGroupOptionPageDto'>;
       expect(options.items).toHaveLength(100);
       expect(options.nextCursor).toBeTruthy();
       expect(options.items.every(item => item.initialFiles?.items.length === 10)).toBe(true);
-      await expect(page.getByRole('dialog').locator('.aggregate-option')).toHaveCount(100);
+      await expect(page.getByRole('dialog').locator('.group-option')).toHaveCount(100);
       const moreResponse = observeOptions();
       await page.getByRole('button', { name: 'Load more', exact: true }).click();
       const more = await (await moreResponse).json() as typeof options;
       expect(more.items).toHaveLength(100);
       expect(new Set([...options.items, ...more.items].map(item => item.ref.ref)).size).toBe(200);
-      await expect(page.getByRole('dialog').locator('.aggregate-option')).toHaveCount(200);
+      await expect(page.getByRole('dialog').locator('.group-option')).toHaveCount(200);
       page.off('request', recordAlternative);
       expect(alternativeRequests).toHaveLength(2);
       expect(new Set(alternativeRequests).size).toBe(2);
@@ -1238,12 +1238,12 @@ for (const { mode, shape } of [
         reads.push({ path, elapsedMs: response.elapsedMs });
       }
     }
-    if (manyGroups || (singlePeer && mode.kind === 'AggregateAlbums')) {
+    if (manyGroups || (singlePeer && mode.kind === 'AlbumGroups')) {
       // All-except is the normal large selection. It includes unfetched groups,
       // and excluding one displayed group must update both the count and action.
-      const filesPerGroup = mode.kind === 'AggregateAlbums' ? 10 : 1;
+      const filesPerGroup = mode.kind === 'AlbumGroups' ? 10 : 1;
       const countPath = `/api/search-views/${final.viewId}/selection-counts`;
-      await page.locator('.aggregate-header-select-button').first().click();
+      await page.locator('.group-header-select-button').first().click();
       await expect(page.getByRole('button', { name: `Download ${filesPerGroup}`, exact: true })).toBeEnabled();
       const countRequests: string[] = [];
       const recordCount = (request: Request) => {
@@ -1257,14 +1257,14 @@ for (const { mode, shape } of [
       expect(await (await selectedAll).json()).toMatchObject({ publicFileCount: 10_000 * filesPerGroup,
         lockedFileCount: 0, selectedItemCount: 10_000 });
       await expect(page.getByRole('button', {
-        name: mode.kind === 'AggregateAlbums' ? 'Download 100,000' : 'Download 10,000', exact: true,
+        name: mode.kind === 'AlbumGroups' ? 'Download 100,000' : 'Download 10,000', exact: true,
       })).toBeEnabled();
       const excludedOne = countResponse();
-      await page.locator('.aggregate-result-group').first().getByRole('button', { pressed: true }).click();
+      await page.locator('.group-result-group').first().getByRole('button', { pressed: true }).click();
       expect(await (await excludedOne).json()).toMatchObject({ publicFileCount: 9_999 * filesPerGroup,
         lockedFileCount: 0, selectedItemCount: 9_999 });
       await expect(page.getByRole('button', {
-        name: mode.kind === 'AggregateAlbums' ? 'Download 99,990' : 'Download 9,999', exact: true,
+        name: mode.kind === 'AlbumGroups' ? 'Download 99,990' : 'Download 9,999', exact: true,
       })).toBeEnabled();
       page.off('request', recordCount);
       expect(countRequests).toHaveLength(2);
@@ -1299,13 +1299,13 @@ for (const { mode, shape } of [
           filterCreates.push(request.postData() ?? '');
         if (request.method() === 'POST' && url.pathname === '/api/jobs/search/tracks')
           repeatedSearches.push(url.pathname);
-        if (request.method() === 'GET' && url.pathname.endsWith('/aggregate-tracks'))
+        if (request.method() === 'GET' && url.pathname.endsWith('/track-groups'))
           filterRequests.push(url.pathname + url.search);
       };
       page.on('request', recordFilter);
       const filteredPage = page.waitForResponse(async response => {
-        if (!response.ok() || !new URL(response.url()).pathname.endsWith('/aggregate-tracks')) return false;
-        const body = await response.json() as Schema<'SearchViewAggregateTrackPageDto'>;
+        if (!response.ok() || !new URL(response.url()).pathname.endsWith('/track-groups')) return false;
+        const body = await response.json() as Schema<'SearchViewTrackGroupPageDto'>;
         return body.revision.viewId !== final.viewId && body.revision.isComplete;
       });
       const filteredDisplay = await page.evaluateHandle(() => {
@@ -1320,7 +1320,7 @@ for (const { mode, shape } of [
         };
         document.addEventListener('input', input, true);
         const observer = new MutationObserver(() => {
-          const groups = document.querySelectorAll('.aggregate-result-group');
+          const groups = document.querySelectorAll('.group-result-group');
           if (began && groups.length === 1 && groups[0]!.textContent?.includes('9999')) {
             const elapsed = performance.now() - began;
             const ready = [...document.querySelectorAll('button')]
@@ -1347,13 +1347,13 @@ for (const { mode, shape } of [
         } };
       });
       await page.getByRole('textbox', { name: 'Filter search results', exact: true }).fill('9999');
-      const filtered = await (await filteredPage).json() as Schema<'SearchViewAggregateTrackPageDto'>;
+      const filtered = await (await filteredPage).json() as Schema<'SearchViewTrackGroupPageDto'>;
       expect(filtered.items).toHaveLength(1);
       expect(filtered.revision.counters).toMatchObject({ publicFileCount: 100_000,
         projectedFileCount: 10, projectedPublicFileCount: 10, topLevelItemCount: 1, observedPeerCount: 10 });
       expect(filtered.items[0]!.query.title).toContain('9999');
       expect(filtered.items[0]!.shareCount).toBe(10);
-      await expect(page.locator('.aggregate-result-group')).toHaveCount(1);
+      await expect(page.locator('.group-result-group')).toHaveCount(1);
       await expect(page.locator('.result-refinement-status')).toHaveCount(0);
       await expect(page.locator('.search-results-summary')).toBeVisible();
       await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
@@ -1368,10 +1368,10 @@ for (const { mode, shape } of [
       expect(filterCreates).toHaveLength(1);
       expect(repeatedSearches).toHaveLength(0);
       expect(new Set(filterRequests).size).toBe(filterRequests.length);
-      const alternatives = `/api/search-views/${filtered.revision.viewId}/aggregate-tracks/${filtered.items[0]!.ref}/alternatives?revision=${filtered.revision.revision}&limit=500`;
+      const alternatives = `/api/search-views/${filtered.revision.viewId}/track-groups/${filtered.items[0]!.ref}/alternatives?revision=${filtered.revision.revision}&limit=500`;
       const options = await measureApi(daemon.url, alternatives);
       expect(options.ok, options.body).toBe(true);
-      expect((JSON.parse(options.body) as Schema<'SearchViewAggregateTrackOptionPageDto'>).items).toHaveLength(10);
+      expect((JSON.parse(options.body) as Schema<'SearchViewTrackGroupOptionPageDto'>).items).toHaveLength(10);
       expect(options.elapsedMs).toBeLessThan(100);
       await page.screenshot({ path: testInfo.outputPath('10k-song-groups-filtered.png') });
       console.log('PERF_GROUP_REFINEMENT ' + JSON.stringify({ ...filterTiming,

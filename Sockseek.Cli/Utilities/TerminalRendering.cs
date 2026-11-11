@@ -22,7 +22,7 @@ internal enum TerminalLogKind
     AlbumTrackFailed,
     ExtractedJobs,
     PlaylistCompleted,
-    AggregateCompleted,
+    GroupCompleted,
     Status,
 }
 
@@ -735,7 +735,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
         // TODO: smarter slot selection when rows overflow. Currently trims at the row level (keeps
         // last N rows). Instead, select which jobs to include at the job level before rendering,
         // by priority tier: (1) downloading, (2) searching/extracting/other active, (3) remaining
-        // live. Container jobs (AggregateJob, JobList) are pulled in via AddVisibleAncestors and
+        // live. Container jobs (SongGroupsJob, JobList) are pulled in via AddVisibleAncestors and
         // don't compete for slots independently. AlbumJobs use their own state (stable, not
         // derived from children) to avoid flickering during inter-track gaps.
         // Need to test if this approach is too jumpy or not.

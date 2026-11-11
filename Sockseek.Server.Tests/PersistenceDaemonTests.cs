@@ -793,7 +793,7 @@ public sealed class PersistenceDaemonTests
             DefaultDownload = new DownloadSettings
             {
                 Output = { ParentDir = outputDirectory },
-                Search = { MinSharesAggregate = 1 },
+                Search = { MinGroupShares = 1 },
             },
             Persistence = new ServerPersistenceOptions
             {
@@ -811,17 +811,17 @@ public sealed class PersistenceDaemonTests
             Guid fileViewId;
             long fileViewRevision;
             SearchViewFileDto expectedCandidate;
-            Guid aggregateTrackViewId;
-            long aggregateTrackViewRevision;
-            SearchViewAggregateTrackGroupDto expectedAggregateTrack;
+            Guid trackGroupViewId;
+            long trackGroupViewRevision;
+            SearchViewTrackGroupDto expectedTrackGroup;
             Guid albumSearchJobId;
             Guid albumWorkflowId;
             Guid directoryViewId;
             long directoryViewRevision;
             SearchViewDirectoryDto expectedFolder;
-            Guid aggregateAlbumViewId;
-            long aggregateAlbumViewRevision;
-            SearchViewAggregateAlbumGroupDto expectedAggregateAlbum;
+            Guid albumGroupViewId;
+            long albumGroupViewRevision;
+            SearchViewAlbumGroupDto expectedAlbumGroup;
 
             await using (var first = global::Tests.TestServerHost.Build([], options, "http://127.0.0.1:0"))
             {
@@ -853,15 +853,15 @@ public sealed class PersistenceDaemonTests
                         results.Items[0].RemoteFilename);
                     expectedCandidate = results.Items[0];
 
-                    SearchViewSummaryDto aggregateTrackView = await CreateCompleteSearchViewAsync(
+                    SearchViewSummaryDto trackGroupView = await CreateCompleteSearchViewAsync(
                         views,
                         search.JobId,
-                        new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.AggregateTracks));
-                    SearchViewAggregateTrackPageDto aggregateTracks = (views.GetAggregateTracks(aggregateTrackView.ViewId, aggregateTrackView.Revision, null, 10, CancellationToken.None))!;
-                    Assert.AreEqual(1, aggregateTracks.Items.Count);
-                    aggregateTrackViewId = aggregateTrackView.ViewId;
-                    aggregateTrackViewRevision = aggregateTrackView.Revision;
-                    expectedAggregateTrack = aggregateTracks.Items[0];
+                        new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.TrackGroups));
+                    SearchViewTrackGroupPageDto trackGroups = (views.GetTrackGroups(trackGroupView.ViewId, trackGroupView.Revision, null, 10, CancellationToken.None))!;
+                    Assert.AreEqual(1, trackGroups.Items.Count);
+                    trackGroupViewId = trackGroupView.ViewId;
+                    trackGroupViewRevision = trackGroupView.Revision;
+                    expectedTrackGroup = trackGroups.Items[0];
 
                     var albumSearch = await supervisor.Submissions.SubmitAlbumSearchJobAsync(
                         new SubmitAlbumSearchJobRequestDto(new AlbumQueryDto("Artist", "Album")),
@@ -879,15 +879,15 @@ public sealed class PersistenceDaemonTests
                     directoryViewId = directoryView.ViewId;
                     directoryViewRevision = directoryView.Revision;
                     expectedFolder = folders.Items[0];
-                    SearchViewSummaryDto aggregateAlbumView = await CreateCompleteSearchViewAsync(
+                    SearchViewSummaryDto albumGroupView = await CreateCompleteSearchViewAsync(
                         views,
                         albumSearch.JobId,
-                        new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.AggregateAlbums));
-                    SearchViewAggregateAlbumPageDto aggregateAlbums = (views.GetAggregateAlbums(aggregateAlbumView.ViewId, aggregateAlbumView.Revision, null, 10, CancellationToken.None))!;
-                    Assert.AreEqual(1, aggregateAlbums.Items.Count);
-                    aggregateAlbumViewId = aggregateAlbumView.ViewId;
-                    aggregateAlbumViewRevision = aggregateAlbumView.Revision;
-                    expectedAggregateAlbum = aggregateAlbums.Items[0];
+                        new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.AlbumGroups));
+                    SearchViewAlbumGroupPageDto albumGroups = (views.GetAlbumGroups(albumGroupView.ViewId, albumGroupView.Revision, null, 10, CancellationToken.None))!;
+                    Assert.AreEqual(1, albumGroups.Items.Count);
+                    albumGroupViewId = albumGroupView.ViewId;
+                    albumGroupViewRevision = albumGroupView.Revision;
+                    expectedAlbumGroup = albumGroups.Items[0];
                 }
                 finally
                 {
@@ -907,7 +907,7 @@ public sealed class PersistenceDaemonTests
                     Assert.IsNull(supervisor.GetRuntimeJob<Sockseek.Core.Jobs.Job>(sourceJobId));
 
                     var views = second.Services.GetRequiredService<SearchViewCoordinator>();
-                    foreach (Guid expired in new[] { fileViewId, aggregateTrackViewId, directoryViewId, aggregateAlbumViewId })
+                    foreach (Guid expired in new[] { fileViewId, trackGroupViewId, directoryViewId, albumGroupViewId })
                         Assert.IsNull(views.Get(expired, CancellationToken.None));
                     async Task<(Guid, long)> Rebuild(Guid source, ServerSearchViewProjectionKind kind)
                     {
@@ -915,9 +915,9 @@ public sealed class PersistenceDaemonTests
                         return (fresh.ViewId, fresh.Revision);
                     }
                     (fileViewId, fileViewRevision) = await Rebuild(sourceJobId, ServerSearchViewProjectionKind.Files);
-                    (aggregateTrackViewId, aggregateTrackViewRevision) = await Rebuild(sourceJobId, ServerSearchViewProjectionKind.AggregateTracks);
+                    (trackGroupViewId, trackGroupViewRevision) = await Rebuild(sourceJobId, ServerSearchViewProjectionKind.TrackGroups);
                     (directoryViewId, directoryViewRevision) = await Rebuild(albumSearchJobId, ServerSearchViewProjectionKind.AlbumDirectories);
-                    (aggregateAlbumViewId, aggregateAlbumViewRevision) = await Rebuild(albumSearchJobId, ServerSearchViewProjectionKind.AggregateAlbums);
+                    (albumGroupViewId, albumGroupViewRevision) = await Rebuild(albumSearchJobId, ServerSearchViewProjectionKind.AlbumGroups);
 
                     SearchViewFilePageDto historicalProjection = (views.GetFiles(fileViewId, fileViewRevision, null, 10, cancellationToken: CancellationToken.None))!;
                     Assert.AreEqual(1, historicalProjection.Items.Count);
@@ -948,37 +948,37 @@ public sealed class PersistenceDaemonTests
                     Assert.IsFalse(await supervisor.CompleteManualSelectionAsync(sourceJobId));
                     Assert.IsFalse(await supervisor.SkipManualSelectionAsync(sourceJobId));
 
-                    SearchViewAggregateTrackPageDto historicalTracks = (views.GetAggregateTracks(aggregateTrackViewId, aggregateTrackViewRevision, null, 10, CancellationToken.None))!;
+                    SearchViewTrackGroupPageDto historicalTracks = (views.GetTrackGroups(trackGroupViewId, trackGroupViewRevision, null, 10, CancellationToken.None))!;
                     Assert.AreEqual(1, historicalTracks.Items.Count);
-                    Assert.AreEqual(expectedAggregateTrack.Query, historicalTracks.Items[0].Query);
+                    Assert.AreEqual(expectedTrackGroup.Query, historicalTracks.Items[0].Query);
                     Assert.AreEqual(
-                        expectedAggregateTrack.Representative.Ref,
+                        expectedTrackGroup.Representative.Ref,
                         historicalTracks.Items[0].Representative.Ref);
-                    var trackOptions = (views.GetAggregateTrackOptions(aggregateTrackViewId, expectedAggregateTrack.Ref, aggregateTrackViewRevision, null, 10, CancellationToken.None))!;
+                    var trackOptions = (views.GetTrackGroupOptions(trackGroupViewId, expectedTrackGroup.Ref, trackGroupViewRevision, null, 10, CancellationToken.None))!;
                     Assert.AreEqual(1, trackOptions.Items.Count);
                     var chosenTrack = new CommitSearchViewSelectionRequestDto(
-                        aggregateTrackViewRevision,
-                        new RefSelectionExpressionDto(RefSelectionMode.Only, [expectedAggregateTrack.Ref]),
+                        trackGroupViewRevision,
+                        new RefSelectionExpressionDto(RefSelectionMode.Only, [expectedTrackGroup.Ref]),
                         Guid.NewGuid(),
                         ChosenOptions: new Dictionary<string, string>
                         {
-                            [expectedAggregateTrack.Ref] = trackOptions.Items[0].Ref,
+                            [expectedTrackGroup.Ref] = trackOptions.Items[0].Ref,
                         });
                     var chosenReceipt = (await views.Selections.CommitSelectionAsync(
-                        aggregateTrackViewId, chosenTrack, CancellationToken.None))!;
+                        trackGroupViewId, chosenTrack, CancellationToken.None))!;
                     Assert.AreEqual(1L, chosenReceipt.SubmittedCount);
                     await Assert.ThrowsExactlyAsync<IdempotencyConflictException>(() =>
-                        views.Selections.CommitSelectionAsync(aggregateTrackViewId,
+                        views.Selections.CommitSelectionAsync(trackGroupViewId,
                             chosenTrack with { ChosenOptions = new Dictionary<string, string>() },
                             CancellationToken.None));
                     var unavailableChoice = (await views.Selections.CommitSelectionAsync(
-                        aggregateTrackViewId,
+                        trackGroupViewId,
                         chosenTrack with
                         {
                             IdempotencyKey = Guid.NewGuid(),
                             ChosenOptions = new Dictionary<string, string>
                             {
-                                [expectedAggregateTrack.Ref] = "missing-option",
+                                [expectedTrackGroup.Ref] = "missing-option",
                             },
                         }, CancellationToken.None))!;
                     Assert.AreEqual(0L, unavailableChoice.SubmittedCount);
@@ -987,12 +987,12 @@ public sealed class PersistenceDaemonTests
                     SearchViewSummaryDto hiddenTrackView = await CreateCompleteSearchViewAsync(
                         views,
                         sourceJobId,
-                        new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.AggregateTracks,
+                        new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.TrackGroups,
                             FilterText: "no-such-track"));
-                    Assert.AreEqual(0, (views.GetAggregateTracks(hiddenTrackView.ViewId, hiddenTrackView.Revision, null, 10, CancellationToken.None))!.Items.Count);
+                    Assert.AreEqual(0, (views.GetTrackGroups(hiddenTrackView.ViewId, hiddenTrackView.Revision, null, 10, CancellationToken.None))!.Items.Count);
                     var hiddenChoiceCount = (views.Selections.CountSelection(hiddenTrackView.ViewId, new CountSearchViewSelectionRequestDto(hiddenTrackView.Revision,
                             new RefSelectionExpressionDto(RefSelectionMode.Only,
-                                [expectedAggregateTrack.Ref]),
+                                [expectedTrackGroup.Ref]),
                             ChosenOptions: chosenTrack.ChosenOptions), CancellationToken.None))!;
                     Assert.AreEqual(0L, hiddenChoiceCount.SelectedItemCount);
                     var hiddenChoiceReceipt = (await views.Selections.CommitSelectionAsync(
@@ -1012,25 +1012,25 @@ public sealed class PersistenceDaemonTests
                     Assert.AreEqual(1, historicalChildren.Items.Count);
                     Assert.AreEqual(expectedFolder.BestChild.Ref, historicalChildren.Items[0].Ref);
 
-                    SearchViewAggregateAlbumPageDto historicalAlbums = (views.GetAggregateAlbums(aggregateAlbumViewId, aggregateAlbumViewRevision, null, 10, CancellationToken.None))!;
+                    SearchViewAlbumGroupPageDto historicalAlbums = (views.GetAlbumGroups(albumGroupViewId, albumGroupViewRevision, null, 10, CancellationToken.None))!;
                     Assert.AreEqual(1, historicalAlbums.Items.Count);
-                    Assert.AreEqual(expectedAggregateAlbum.Query, historicalAlbums.Items[0].Query);
+                    Assert.AreEqual(expectedAlbumGroup.Query, historicalAlbums.Items[0].Query);
                     Assert.AreEqual(1, historicalAlbums.Items[0].Representative.InitialFiles?.Items.Count);
                     Assert.AreEqual(
-                        expectedAggregateAlbum.Representative.Ref,
+                        expectedAlbumGroup.Representative.Ref,
                         historicalAlbums.Items[0].Representative.Ref);
-                    var albumOptions = (views.GetAggregateAlbumOptions(aggregateAlbumViewId, expectedAggregateAlbum.Ref, aggregateAlbumViewRevision, null, 10, CancellationToken.None))!;
+                    var albumOptions = (views.GetAlbumGroupOptions(albumGroupViewId, expectedAlbumGroup.Ref, albumGroupViewRevision, null, 10, CancellationToken.None))!;
                     Assert.AreEqual(1, albumOptions.Items.Count);
                     Assert.AreEqual(1, albumOptions.Items[0].InitialFiles?.Items.Count);
                     var chosenAlbum = new CommitSearchViewSelectionRequestDto(
-                        aggregateAlbumViewRevision,
-                        new RefSelectionExpressionDto(RefSelectionMode.Only, [expectedAggregateAlbum.Ref]),
+                        albumGroupViewRevision,
+                        new RefSelectionExpressionDto(RefSelectionMode.Only, [expectedAlbumGroup.Ref]),
                         Guid.NewGuid(),
                         ChosenOptions: new Dictionary<string, string>
                         {
-                            [expectedAggregateAlbum.Ref] = albumOptions.Items[0].Ref.Ref,
+                            [expectedAlbumGroup.Ref] = albumOptions.Items[0].Ref.Ref,
                         });
-                    var chosenAlbumCount = (views.Selections.CountSelection(aggregateAlbumViewId, new CountSearchViewSelectionRequestDto(
+                    var chosenAlbumCount = (views.Selections.CountSelection(albumGroupViewId, new CountSearchViewSelectionRequestDto(
                             chosenAlbum.Revision, chosenAlbum.Selection,
                             ChosenOptions: chosenAlbum.ChosenOptions), CancellationToken.None))!;
                     Assert.AreEqual(albumOptions.Items[0].PublicMatchingFileCount,
@@ -1038,52 +1038,52 @@ public sealed class PersistenceDaemonTests
                     Assert.AreEqual(albumOptions.Items[0].LockedMatchingFileCount,
                         chosenAlbumCount.LockedFileCount);
                     var albumChoiceReceipt = (await views.Selections.CommitSelectionAsync(
-                        aggregateAlbumViewId, chosenAlbum, CancellationToken.None))!;
+                        albumGroupViewId, chosenAlbum, CancellationToken.None))!;
                     Assert.AreEqual(1L, albumChoiceReceipt.SubmittedCount);
-                    var chosenAlbumFiles = (views.GetDirectoryFiles(aggregateAlbumViewId, albumOptions.Items[0].Ref.Ref, aggregateAlbumViewRevision, null, 10, CancellationToken.None))!;
+                    var chosenAlbumFiles = (views.GetDirectoryFiles(albumGroupViewId, albumOptions.Items[0].Ref.Ref, albumGroupViewRevision, null, 10, CancellationToken.None))!;
                     Assert.AreEqual(1, chosenAlbumFiles.Items.Count);
                     var oneAlbumFile = chosenAlbum with
                     {
                         IdempotencyKey = Guid.NewGuid(),
                         AlbumFileSelections = new Dictionary<string, RefSelectionExpressionDto>
                         {
-                            [expectedAggregateAlbum.Ref] = new(
+                            [expectedAlbumGroup.Ref] = new(
                                 RefSelectionMode.Only, [chosenAlbumFiles.Items[0].Ref]),
                         },
                     };
-                    var oneAlbumFileCount = (views.Selections.CountSelection(aggregateAlbumViewId, new CountSearchViewSelectionRequestDto(
+                    var oneAlbumFileCount = (views.Selections.CountSelection(albumGroupViewId, new CountSearchViewSelectionRequestDto(
                             oneAlbumFile.Revision, oneAlbumFile.Selection,
                             ChosenOptions: oneAlbumFile.ChosenOptions,
                             AlbumFileSelections: oneAlbumFile.AlbumFileSelections), CancellationToken.None))!;
                     Assert.AreEqual(1L, oneAlbumFileCount.PublicFileCount);
                     Assert.AreEqual(0L, oneAlbumFileCount.LockedFileCount);
                     var oneFileReceipt = (await views.Selections.CommitSelectionAsync(
-                        aggregateAlbumViewId, oneAlbumFile, CancellationToken.None))!;
+                        albumGroupViewId, oneAlbumFile, CancellationToken.None))!;
                     Assert.AreEqual(1L, oneFileReceipt.SubmittedCount);
                     await Assert.ThrowsExactlyAsync<IdempotencyConflictException>(() =>
-                        views.Selections.CommitSelectionAsync(aggregateAlbumViewId,
+                        views.Selections.CommitSelectionAsync(albumGroupViewId,
                             oneAlbumFile with { AlbumFileSelections = null },
                             CancellationToken.None));
                     var wrongAlbumFile = (await views.Selections.CommitSelectionAsync(
-                        aggregateAlbumViewId,
+                        albumGroupViewId,
                         oneAlbumFile with
                         {
                             IdempotencyKey = Guid.NewGuid(),
                             AlbumFileSelections = new Dictionary<string, RefSelectionExpressionDto>
                             {
-                                [expectedAggregateAlbum.Ref] = new(RefSelectionMode.Only, ["missing-file"]),
+                                [expectedAlbumGroup.Ref] = new(RefSelectionMode.Only, ["missing-file"]),
                             },
                         }, CancellationToken.None))!;
                     Assert.AreEqual(0L, wrongAlbumFile.SubmittedCount);
                     Assert.AreEqual("invalid-item", wrongAlbumFile.RejectionReasons.Single().Reason);
                     var wrongAlbumChoice = (await views.Selections.CommitSelectionAsync(
-                        aggregateAlbumViewId,
+                        albumGroupViewId,
                         chosenAlbum with
                         {
                             IdempotencyKey = Guid.NewGuid(),
                             ChosenOptions = new Dictionary<string, string>
                             {
-                                [expectedAggregateAlbum.Ref] = "missing-option",
+                                [expectedAlbumGroup.Ref] = "missing-option",
                             },
                         }, CancellationToken.None))!;
                     Assert.AreEqual(0L, wrongAlbumChoice.SubmittedCount);

@@ -166,7 +166,7 @@ public class TrackJson
         };
 }
 
-public class AggregateTrackJson
+public class TrackGroupJson
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string Artist { get; set; } = null!;
@@ -233,7 +233,7 @@ public static class JsonPrinter
         Printing.WriteLine(JsonSerializer.Serialize(trackResults, _options));
     }
 
-    public static void PrintAggregateJson(IEnumerable<SongJob> songs)
+    public static void PrintGroupJson(IEnumerable<SongJob> songs)
     {
         var songList = songs.ToList();
         if (songList.Count == 0)
@@ -242,7 +242,7 @@ public static class JsonPrinter
             return;
         }
 
-        var aggregateTracks = songList.Select(s => new AggregateTrackJson
+        var trackGroups = songList.Select(s => new TrackGroupJson
         {
             Artist  = s.Query.Artist,
             Title   = s.Query.Title,
@@ -257,7 +257,7 @@ public static class JsonPrinter
                 .ToList() ?? new List<TrackResultJson>()
         }).ToList();
 
-        var json = JsonSerializer.Serialize(aggregateTracks, _options);
+        var json = JsonSerializer.Serialize(trackGroups, _options);
         Printing.WriteLine(json);
     }
 

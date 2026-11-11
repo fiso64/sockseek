@@ -6,7 +6,7 @@ import { showsSearchResults } from '../src/domains/jobs/presentation';
 
 it.each([
   ['song', 'track', 'Files'], ['album', 'album', 'AlbumDirectories'],
-  ['aggregate', 'song-aggregate', 'AggregateTracks'], ['album-aggregate', 'album-aggregate', 'AggregateAlbums'],
+  ['song-groups', 'song-groups', 'TrackGroups'], ['album-groups', 'album-groups', 'AlbumGroups'],
 ] as const)('opens CLI print-only %s jobs as results with their structured query', async (kind, mode, projection) => {
   const http = new DaemonHttpClient();
   const summary = { jobId: 'job', kind, printOption: 6 };
@@ -26,9 +26,9 @@ it.each([
 });
 
 it('keeps only known result modes in search-detail URLs', () => {
-  expect(searchJobPath('a/b', 'song-aggregate')).toBe('/jobs/a%2Fb?results=song-aggregate');
-  expect(parseSearchResultMode('song-aggregate')).toBe('song-aggregate');
-  expect(parseSearchResultMode('album-aggregate')).toBe('album-aggregate');
+  expect(searchJobPath('a/b', 'song-groups')).toBe('/jobs/a%2Fb?results=song-groups');
+  expect(parseSearchResultMode('song-groups')).toBe('song-groups');
+  expect(parseSearchResultMode('album-groups')).toBe('album-groups');
   expect(parseSearchResultMode('unknown')).toBeNull();
 });
 
@@ -51,14 +51,14 @@ it.each<SearchResultMode>(['album'])(
     const http = new DaemonHttpClient();
     const post = vi.spyOn(http, 'post').mockResolvedValueOnce({ jobId: 'job' })
       .mockResolvedValueOnce({ viewId: 'view' })
-      .mockResolvedValueOnce({ kind: resultMode === 'album' ? 'AlbumDirectories' : 'AggregateAlbums' });
+      .mockResolvedValueOnce({ kind: resultMode === 'album' ? 'AlbumDirectories' : 'AlbumGroups' });
     const client = new DaemonApiClient(http);
     await client.submitSearch({ ...emptySearchDraft, mode: 'simple', resultMode, query: '  Mint Jams  ' });
     const expected = { artist: null, album: 'Mint Jams', searchHint: null };
     expect(post.mock.calls[0]?.[1]).toMatchObject({ albumQuery: expected });
     expect(post.mock.calls[1]?.[1]).toMatchObject({ albumQuery: expected });
     vi.spyOn(http, 'get').mockResolvedValue({ summary: { jobId: 'job' }, payload: {
-      kind: 'search', defaultProjection: 'Album', aggregatePresentation: resultMode === 'album-aggregate',
+      kind: 'search', defaultProjection: 'Album', groupResults: resultMode === 'album-groups',
       albumQuery: expected,
     } });
     const opened = await client.openSearchJob({ jobId: 'job' });
@@ -67,27 +67,27 @@ it.each<SearchResultMode>(['album'])(
   },
 );
 
-it.each<SearchResultMode>(['song-aggregate', 'album-aggregate'])(
+it.each<SearchResultMode>(['song-groups', 'album-groups'])(
   'submits unsplit %s as an artist and restores it on reopen', async resultMode => {
     const http = new DaemonHttpClient();
-    const kind = resultMode === 'song-aggregate' ? 'AggregateTracks' : 'AggregateAlbums';
-    const field = resultMode === 'song-aggregate' ? 'songQuery' : 'albumQuery';
+    const kind = resultMode === 'song-groups' ? 'TrackGroups' : 'AlbumGroups';
+    const field = resultMode === 'song-groups' ? 'songQuery' : 'albumQuery';
     const post = vi.spyOn(http, 'post').mockResolvedValueOnce({ jobId: 'job' })
       .mockResolvedValueOnce({ viewId: 'view' }).mockResolvedValueOnce({ kind });
     const client = new DaemonApiClient(http);
     await client.submitSearch({ ...emptySearchDraft, mode: 'simple', resultMode, query: '  Casiopea  ' });
-    const query = resultMode === 'song-aggregate' ? { artist: 'Casiopea', title: null } : { artist: 'Casiopea', album: null, searchHint: null };
+    const query = resultMode === 'song-groups' ? { artist: 'Casiopea', title: null } : { artist: 'Casiopea', album: null, searchHint: null };
     expect(post.mock.calls[0]?.[1]).toMatchObject({ [field]: query });
     expect(post.mock.calls[1]?.[1]).toMatchObject({ [field]: query });
     vi.spyOn(http, 'get').mockResolvedValue({ summary: { jobId: 'job' }, payload: {
-      kind: 'search', defaultProjection: resultMode === 'song-aggregate' ? 'Track' : 'Album',
-      aggregatePresentation: true, [field]: query,
+      kind: 'search', defaultProjection: resultMode === 'song-groups' ? 'Track' : 'Album',
+      groupResults: true, [field]: query,
     } });
     const opened = await client.openSearchJob({ jobId: 'job' });
     expect(opened.draft).toMatchObject({ mode: 'simple', query: 'Casiopea', resultMode });
     const merged = { ...opened.draft, query: 'Casiopea - Take Me' };
-    expect(resultMode === 'song-aggregate' ? songQuery(merged) : albumQuery(merged))
-      .toMatchObject(resultMode === 'song-aggregate' ? { artist: 'Casiopea', title: 'Take Me' } : { artist: 'Casiopea', album: 'Take Me' });
+    expect(resultMode === 'song-groups' ? songQuery(merged) : albumQuery(merged))
+      .toMatchObject(resultMode === 'song-groups' ? { artist: 'Casiopea', title: 'Take Me' } : { artist: 'Casiopea', album: 'Take Me' });
   },
 );
 
@@ -118,17 +118,17 @@ it('uses only a compatible result mode when reopening a retained search', async 
   const http = new DaemonHttpClient();
   const post = vi.spyOn(http, 'post')
     .mockResolvedValueOnce({ kind: 'Files' })
-    .mockResolvedValueOnce({ kind: 'AggregateTracks' });
+    .mockResolvedValueOnce({ kind: 'TrackGroups' });
   vi.spyOn(http, 'get').mockResolvedValue({
     summary: { jobId: 'job' },
     payload: { kind: 'search', defaultProjection: 'Track', includeFullResults: true,
       songQuery: { title: 'Track', artistMaybeWrong: false } },
   });
   const client = new DaemonApiClient(http);
-  await client.openSearchJob({ jobId: 'job' }, undefined, undefined, 'album-aggregate');
-  await client.openSearchJob({ jobId: 'job' }, undefined, undefined, 'song-aggregate');
+  await client.openSearchJob({ jobId: 'job' }, undefined, undefined, 'album-groups');
+  await client.openSearchJob({ jobId: 'job' }, undefined, undefined, 'song-groups');
   expect(post.mock.calls[0]?.[1]).toMatchObject({ kind: 'Files', includeFullResults: true });
-  expect(post.mock.calls[1]?.[1]).toMatchObject({ kind: 'AggregateTracks', includeFullResults: true });
+  expect(post.mock.calls[1]?.[1]).toMatchObject({ kind: 'TrackGroups', includeFullResults: true });
 });
 
 it('retains the submitted settings when the caller edits its draft during submission', async () => {
@@ -146,7 +146,7 @@ it('retains the submitted settings when the caller edits its draft during submis
   expect(submitted.draft.searchSettings?.searchTimeout).toBe(1234);
 });
 
-it.each<SearchResultMode>(['generic', 'track', 'album', 'song-aggregate', 'album-aggregate'])(
+it.each<SearchResultMode>(['generic', 'track', 'album', 'song-groups', 'album-groups'])(
   'passes canonical search overrides on %s submissions', async (resultMode) => {
     const http = new DaemonHttpClient();
     const post = vi.spyOn(http, 'post').mockResolvedValueOnce({ jobId: 'job' }).mockResolvedValueOnce({ viewId: 'view' });

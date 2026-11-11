@@ -242,8 +242,8 @@ public sealed class IncrementalAlbumFolderProjector
 
     private int CompareRanked(AlbumFolder x, AlbumFolder y, long xFirstSequence, long yFirstSequence)
     {
-        ResultSorter.SortEntry? xEntry = x.SearchAggregateSortEntry;
-        ResultSorter.SortEntry? yEntry = y.SearchAggregateSortEntry;
+        ResultSorter.SortEntry? xEntry = x.SearchGroupSortEntry;
+        ResultSorter.SortEntry? yEntry = y.SearchGroupSortEntry;
         if (xEntry.HasValue && yEntry.HasValue)
         {
             int comparison = ResultSorter.AlbumBeforeQualitySortEntryComparer.Instance.Compare(

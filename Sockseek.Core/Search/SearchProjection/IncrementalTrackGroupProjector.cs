@@ -7,7 +7,7 @@ using SlFile = Soulseek.File;
 
 namespace Sockseek.Core.Services;
 
-public sealed record SearchViewProjectedAggregateTrackGroup(
+public sealed record SearchViewProjectedTrackGroup(
     int Index,
     SongQuery Query,
     int ShareCount,
@@ -16,16 +16,16 @@ public sealed record SearchViewProjectedAggregateTrackGroup(
     IReadOnlyList<ProjectedFileCandidate> NewOptions,
     SongQuery? StableQuery = null);
 
-public sealed class IncrementalAggregateTrackProjector
+public sealed class IncrementalTrackGroupProjector
 {
     private readonly SongQuery query;
     private readonly SearchSettings search;
     private readonly ConcurrentDictionary<string, int> userSuccessCounts;
-    private readonly SongQueryGroups<AggregateTrackBucket> buckets;
+    private readonly SongQueryGroups<TrackGroupBucket> buckets;
     private readonly Dictionary<string, SongQuery> inferredByFilename = new(StringComparer.Ordinal);
     private readonly HashSet<(PeerPathKey Path, SearchResultVisibility Visibility)> seen = [];
 
-    public IncrementalAggregateTrackProjector(
+    public IncrementalTrackGroupProjector(
         SongQuery query,
         SearchSettings search,
         ConcurrentDictionary<string, int>? userSuccessCounts = null,
@@ -35,8 +35,8 @@ public sealed class IncrementalAggregateTrackProjector
         this.search = search;
         this.userSuccessCounts = userSuccessCounts ?? new ConcurrentDictionary<string, int>();
         string? filter = string.IsNullOrWhiteSpace(filterText) ? null : filterText.Trim();
-        buckets = new(search.AggregateLengthTol,
-            (key, index) => new AggregateTrackBucket(index, key, query, search, this.userSuccessCounts, filter));
+        buckets = new(search.GroupLengthTol,
+            (key, index) => new TrackGroupBucket(index, key, query, search, this.userSuccessCounts, filter));
     }
 
     public int Count => seen.Count;
@@ -72,7 +72,7 @@ public sealed class IncrementalAggregateTrackProjector
             if (!seen.Add(seenKey) || !search.NecessaryCond.VisibilitySatisfies(input.Visibility))
                 continue;
 
-            if (applyRequiredConditions && !SearchResultProjector.AggregateTrackProjectionIncludes(input, query, search))
+            if (applyRequiredConditions && !SearchResultProjector.TrackGroupProjectionIncludes(input, query, search))
                 continue;
 
             var bucket = GetBucket(input);
@@ -83,11 +83,11 @@ public sealed class IncrementalAggregateTrackProjector
         return added;
     }
 
-    public IReadOnlyList<SearchViewProjectedAggregateTrackGroup> AddRangeForSearchView(
+    public IReadOnlyList<SearchViewProjectedTrackGroup> AddRangeForSearchView(
         IEnumerable<SearchProjectionInput> results)
     {
         var touched = new Dictionary<int, (
-            AggregateTrackBucket Bucket,
+            TrackGroupBucket Bucket,
             bool WasVisible,
             List<ProjectedFileCandidate> Added)>();
         foreach (SearchProjectionInput input in results)
@@ -96,7 +96,7 @@ public sealed class IncrementalAggregateTrackProjector
                 new PeerPathKey(input.Username, input.Filename),
                 input.Visibility);
             if (!seen.Add(seenKey)
-                || !SearchResultProjector.AggregateTrackProjectionIncludes(
+                || !SearchResultProjector.TrackGroupProjectionIncludes(
                     input,
                     query,
                     search))
@@ -104,7 +104,7 @@ public sealed class IncrementalAggregateTrackProjector
                 continue;
             }
 
-            AggregateTrackBucket bucket = GetBucket(input);
+            TrackGroupBucket bucket = GetBucket(input);
             bool wasVisible = IsVisible(bucket);
             ProjectedFileCandidate? projected = bucket.Add(input);
             // Hidden groups retain their candidates without allocating a public
@@ -119,10 +119,10 @@ public sealed class IncrementalAggregateTrackProjector
             if (projected is not null) change.Added.Add(projected);
         }
 
-        var changed = new List<SearchViewProjectedAggregateTrackGroup>();
+        var changed = new List<SearchViewProjectedTrackGroup>();
         foreach (var change in touched.Values.OrderBy(value => value.Bucket.Index))
         {
-            AggregateTrackBucket bucket = change.Bucket;
+            TrackGroupBucket bucket = change.Bucket;
             if (!IsVisible(bucket))
                 continue;
             changed.Add(ProjectGroup(bucket, change.WasVisible ? change.Added : null));
@@ -143,28 +143,28 @@ public sealed class IncrementalAggregateTrackProjector
             })
             .ToList();
 
-    public List<SearchViewProjectedAggregateTrackGroup> SnapshotForSearchView()
+    public List<SearchViewProjectedTrackGroup> SnapshotForSearchView()
         => buckets.Values
             .Where(IsVisible)
             .Select(bucket => ProjectGroup(bucket))
             .ToList();
 
-    internal SearchViewProjectedAggregateTrackGroup SnapshotGroupForSearchView(int index)
+    internal SearchViewProjectedTrackGroup SnapshotGroupForSearchView(int index)
     {
-        AggregateTrackBucket bucket = buckets.Values[index];
+        TrackGroupBucket bucket = buckets.Values[index];
         if (!IsVisible(bucket))
-            throw new InvalidOperationException("The aggregate track group is not visible.");
+            throw new InvalidOperationException("The group track group is not visible.");
         return ProjectGroup(bucket);
     }
 
-    private static SearchViewProjectedAggregateTrackGroup ProjectGroup(
-        AggregateTrackBucket bucket,
+    private static SearchViewProjectedTrackGroup ProjectGroup(
+        TrackGroupBucket bucket,
         IReadOnlyList<ProjectedFileCandidate>? added = null)
     {
         // Existing groups publish their delta. Full ordering belongs to a
         // requested snapshot or the group's first visible publication.
         IReadOnlyList<ProjectedFileCandidate> options = added ?? bucket.SortedProjected();
-        return new SearchViewProjectedAggregateTrackGroup(
+        return new SearchViewProjectedTrackGroup(
             bucket.Index,
             bucket.QueryWithKnownLength(),
             bucket.ShareCount,
@@ -174,7 +174,7 @@ public sealed class IncrementalAggregateTrackProjector
             new SongQuery(bucket.Query));
     }
 
-    private AggregateTrackBucket GetBucket(SearchProjectionInput input)
+    private TrackGroupBucket GetBucket(SearchProjectionInput input)
     {
         // Multiple peers commonly advertise the same spelling. Inference is
         // query-dependent but not peer/duration-dependent; retain it per view.
@@ -187,9 +187,9 @@ public sealed class IncrementalAggregateTrackProjector
         return buckets.GetOrAdd(key);
     }
 
-    private static bool IsVisible(AggregateTrackBucket bucket) => bucket.IsVisible;
+    private static bool IsVisible(TrackGroupBucket bucket) => bucket.IsVisible;
 
-    private sealed class AggregateTrackBucket
+    private sealed class TrackGroupBucket
     {
         private IncrementalResultSorter? sorter;
         private List<PendingCandidate>? pending;
@@ -216,7 +216,7 @@ public sealed class IncrementalAggregateTrackProjector
             }
         }
 
-        public AggregateTrackBucket(
+        public TrackGroupBucket(
             int index,
             SongQuery query,
             SongQuery sourceQuery,
@@ -252,7 +252,7 @@ public sealed class IncrementalAggregateTrackProjector
         public ProjectedFileCandidate? Add(SearchProjectionInput input)
         {
             firstKnownLength ??= input.Length;
-            // Sharers describe discoveries, as in full aggregate grouping.
+            // Sharers describe discoveries, as in full grouping.
             // Workflow-local ignored peers contribute no selectable options.
             users.Add(input.Username);
             int successCount = userSuccessCounts.GetValueOrDefault(input.Username, 0);
@@ -284,7 +284,7 @@ public sealed class IncrementalAggregateTrackProjector
             => filterText is not null && value.Contains(filterText, StringComparison.OrdinalIgnoreCase);
 
         private bool MeetsVisibility()
-            => matchesText && ShareCount >= search.EffectiveMinSharesAggregate
+            => matchesText && ShareCount >= search.EffectiveMinGroupShares
                 && (search.Relax || MatchesStrictQuery());
 
         private readonly record struct PendingCandidate(SearchProjectionInput Input, int UserSuccessCount);
@@ -299,7 +299,7 @@ public sealed class IncrementalAggregateTrackProjector
 
         // Group identity strings do not change as options arrive. Evaluate this
         // only when strict visibility is needed; Relax remains a caller policy.
-        public bool MatchesStrictQuery() => strictMatch ??= QueryMatching.AggregateIdentityMatches(Query, sourceQuery);
+        public bool MatchesStrictQuery() => strictMatch ??= QueryMatching.GroupIdentityMatches(Query, sourceQuery);
 
         public List<FileCandidate> SortedCandidates()
             => sorter!.SnapshotProjectedFiles()

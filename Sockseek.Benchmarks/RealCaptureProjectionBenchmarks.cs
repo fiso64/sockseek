@@ -145,23 +145,23 @@ public class RealCaptureProjectionBenchmarks
     }
 
     [Benchmark]
-    public int AggregateGroup()
-        => SearchResultProjector.AggregateTracks(rawResults, trackQuery, search, userSuccessCounts).Count;
+    public int TrackGrouping()
+        => SearchResultProjector.GroupTracks(rawResults, trackQuery, search, userSuccessCounts).Count;
 
     [Benchmark]
-    public int AggregateGroup_Streaming10Snapshots()
+    public int TrackGrouping_Streaming10Snapshots()
     {
         int count = 0;
         foreach (var snapshot in cumulativeResultSnapshots)
-            count += SearchResultProjector.AggregateTracks(snapshot, trackQuery, search, userSuccessCounts).Count;
+            count += SearchResultProjector.GroupTracks(snapshot, trackQuery, search, userSuccessCounts).Count;
         return count;
     }
 
     [Benchmark]
-    public int AggregateGroup_Incremental10Batches()
+    public int TrackGrouping_Incremental10Batches()
     {
         int count = 0;
-        var projector = new IncrementalAggregateTrackProjector(trackQuery, search, userSuccessCounts);
+        var projector = new IncrementalTrackGroupProjector(trackQuery, search, userSuccessCounts);
         foreach (var batch in resultBatches)
         {
             projector.AddRange(batch);
@@ -172,27 +172,27 @@ public class RealCaptureProjectionBenchmarks
     }
 
     [Benchmark]
-    public int AlbumAggregateGroup()
-        => SearchResultProjector.AggregateAlbums(albumFolders, albumQuery, search).Count;
+    public int AlbumGrouping()
+        => SearchResultProjector.GroupAlbums(albumFolders, albumQuery, search).Count;
 
     [Benchmark]
-    public int AlbumAggregateGroup_Streaming10Snapshots()
+    public int AlbumGrouping_Streaming10Snapshots()
     {
         int count = 0;
         foreach (var snapshot in cumulativeResultSnapshots)
         {
             var folders = SearchResultProjector.AlbumFolders(snapshot, albumQuery, search);
-            count += SearchResultProjector.AggregateAlbums(folders, albumQuery, search).Count;
+            count += SearchResultProjector.GroupAlbums(folders, albumQuery, search).Count;
         }
 
         return count;
     }
 
     [Benchmark]
-    public int AlbumAggregateGroup_Incremental10Batches()
+    public int AlbumGrouping_Incremental10Batches()
     {
         int count = 0;
-        var projector = new IncrementalAlbumAggregateProjector(albumQuery, search);
+        var projector = new IncrementalAlbumGroupProjector(albumQuery, search);
         foreach (var batch in albumFolderBatches)
         {
             projector.AddRange(batch);
@@ -203,7 +203,7 @@ public class RealCaptureProjectionBenchmarks
     }
 
     [Benchmark]
-    public int AlbumAggregateGroup_IncrementalAlbumFolders10Batches()
+    public int AlbumGrouping_IncrementalAlbumFolders10Batches()
     {
         int count = 0;
         var projector = new IncrementalAlbumFolderProjector(albumQuery, search, userSuccessCounts);
@@ -211,7 +211,7 @@ public class RealCaptureProjectionBenchmarks
         {
             projector.AddRange(batch);
             var folders = projector.Snapshot();
-            count += SearchResultProjector.AggregateAlbums(folders, albumQuery, search).Count;
+            count += SearchResultProjector.GroupAlbums(folders, albumQuery, search).Count;
         }
 
         return count;

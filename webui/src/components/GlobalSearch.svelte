@@ -75,25 +75,25 @@
   }
 
   const modes = [
-    { 
-      value: 'generic', label: 'File Search', icon: 'generic' as const, description: 
+    {
+      value: 'generic', label: 'File Search', icon: 'generic' as const, description:
       'Standard Soulseek file search. No music filters or ranking is applied by default.'
     },
-    { 
-      value: 'track', label: 'Track Search', icon: 'track' as const, description: 
+    {
+      value: 'track', label: 'Track Search', icon: 'track' as const, description:
       'Shows results as individual tracks. Uses music-oriented default filters and ranking.'
     },
-    { 
-      value: 'album', label: 'Album Search', icon: 'album' as const, description: 
-      'Shows results as albums. Uses music-oriented default filters and ranking.' 
+    {
+      value: 'album', label: 'Album Search', icon: 'album' as const, description:
+      'Shows results as albums. Uses music-oriented default filters and ranking.'
     },
-    { 
-      value: 'song-aggregate', label: 'Song Aggregate', icon: 'song-aggregate' as const, description: 
-      'Like Track Search, but combines matching copies from different peers into one result per song. Choose a copy within each result. Supports artist-only searches to show all distinct songs by an artist from Soulseek.' 
+    {
+      value: 'song-groups', label: 'Song Groups', icon: 'song-groups' as const, description:
+      'Like Track Search, but combines matching copies from different peers into one result per song. Choose a copy within each result. Supports artist-only searches to show all distinct songs by an artist from Soulseek.'
     },
-    { 
-      value: 'album-aggregate', label: 'Album Aggregate', icon: 'album-aggregate' as const, description: 
-      'Like Album Search, but combines matching album folders from different peers into one result per album. Choose a folder within each result. Supports artist-only searches to show all distinct songs by an artist from Soulseek.' 
+    {
+      value: 'album-groups', label: 'Album Groups', icon: 'album-groups' as const, description:
+      'Like Album Search, but combines matching album folders from different peers into one result per album. Choose a folder within each result. Supports artist-only searches to show all distinct songs by an artist from Soulseek.'
     },
   ];
   const userModes = [
@@ -133,8 +133,8 @@
       generic: 'Search files…',
       track: 'Search songs…',
       album: 'Search albums…',
-      'song-aggregate': 'Search songs by artist…',
-      'album-aggregate': 'Search albums by artist…',
+      'song-groups': 'Search songs by artist…',
+      'album-groups': 'Search albums by artist…',
     }[value.resultMode];
   }
 
@@ -162,7 +162,7 @@
     focusTitleAfterUpdate();
   }
 
-  let canMerge = $derived(!((value.resultMode === 'song-aggregate' || value.resultMode === 'album-aggregate')
+  let canMerge = $derived(!((value.resultMode === 'song-groups' || value.resultMode === 'album-groups')
     && !value.artist.trim() && value.title.trim()));
 
   function merge(): void {

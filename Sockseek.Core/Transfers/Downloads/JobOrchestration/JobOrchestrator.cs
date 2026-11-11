@@ -101,9 +101,9 @@ internal sealed class JobOrchestrator
         // Publish all known members, including nested lists, independently of
         // the execution window. Extracted/generated results enter here once
         // they have been prepared, without eagerly invoking any extractor.
-        // Both aggregate modes expose generated members under their semantic
+        // Both group modes expose generated members under their semantic
         // owner; the list still supplies scheduling and cancellation lifetime.
-        var childParent = parentJob is AggregateJob or AlbumAggregateJob ? parentJob : list;
+        var childParent = parentJob is SongGroupsJob or AlbumGroupsJob ? parentJob : list;
         foreach (var child in list.Jobs)
             RegisterExecutionTree(child, list.Cts!.Token, childParent);
     }
@@ -265,13 +265,13 @@ internal sealed class JobOrchestrator
                     yield return source;
                 break;
 
-            case AggregateJob aggregate:
-                foreach (var source in aggregate.Songs.SelectMany(CancellationSourcesFromSubtree))
+            case SongGroupsJob group:
+                foreach (var source in group.Songs.SelectMany(CancellationSourcesFromSubtree))
                     yield return source;
                 break;
 
-            case AlbumAggregateJob aggregate:
-                foreach (var source in aggregate.Albums.SelectMany(CancellationSourcesFromSubtree))
+            case AlbumGroupsJob group:
+                foreach (var source in group.Albums.SelectMany(CancellationSourcesFromSubtree))
                     yield return source;
                 break;
 
@@ -305,12 +305,12 @@ internal sealed class JobOrchestrator
                 if (extract.Result != null)
                     ApplyDownloadBehaviorPolicy(extract.Result, policy);
                 break;
-            case AggregateJob aggregate:
-                foreach (var song in aggregate.Songs)
+            case SongGroupsJob group:
+                foreach (var song in group.Songs)
                     ApplyDownloadBehaviorPolicy(song, policy);
                 break;
-            case AlbumAggregateJob aggregate:
-                foreach (var album in aggregate.Albums)
+            case AlbumGroupsJob group:
+                foreach (var album in group.Albums)
                     ApplyDownloadBehaviorPolicy(album, policy);
                 break;
         }
@@ -321,7 +321,7 @@ internal sealed class JobOrchestrator
         var ctx = context.Contexts.TryGetValue(jl.Id, out var c) ? c : null;
         var config = jl.Config!;
         jl.UpdateActivity(JobActivityPhase.RunningChildren);
-        var childParentJob = parentJob is AggregateJob or AlbumAggregateJob ? parentJob : jl;
+        var childParentJob = parentJob is SongGroupsJob or AlbumGroupsJob ? parentJob : jl;
         var batchOwner = childParentJob;
 
         if (ctx?.PreprocessTracks == true)
@@ -489,8 +489,8 @@ internal sealed class JobOrchestrator
         {
             JobList jl => jl.Jobs.All(IsSubtreeSuccessful),
             ExtractJob ej => ej.TerminalOutcome == JobTerminalOutcome.Succeeded && ej.Result != null && IsSubtreeSuccessful(ej.Result),
-            AlbumAggregateJob aag => aag.Albums.Count > 0 ? aag.Albums.All(IsSubtreeSuccessful) : IsSuccessfulTerminal(aag),
-            AggregateJob ag => ag.Songs.Count > 0 ? ag.Songs.All(IsSubtreeSuccessful) : IsSuccessfulTerminal(ag),
+            AlbumGroupsJob aag => aag.Albums.Count > 0 ? aag.Albums.All(IsSubtreeSuccessful) : IsSuccessfulTerminal(aag),
+            SongGroupsJob ag => ag.Songs.Count > 0 ? ag.Songs.All(IsSubtreeSuccessful) : IsSuccessfulTerminal(ag),
             _ => IsSuccessfulTerminal(job),
         };
     }
@@ -553,8 +553,8 @@ internal sealed class JobOrchestrator
         {
             JobList list => list.Jobs.Any(IsSubtreeUnsuccessful),
             DirectoryDownloadJob directory => directory.FileJobs.Any(IsSubtreeUnsuccessful),
-            AggregateJob aggregate => aggregate.Songs.Any(IsSubtreeUnsuccessful),
-            AlbumAggregateJob aggregate => aggregate.Albums.Any(IsSubtreeUnsuccessful),
+            SongGroupsJob group => group.Songs.Any(IsSubtreeUnsuccessful),
+            AlbumGroupsJob group => group.Albums.Any(IsSubtreeUnsuccessful),
             ExtractJob extract => extract.Result != null && IsSubtreeUnsuccessful(extract.Result),
             _ => false,
         };
@@ -573,8 +573,8 @@ internal sealed class JobOrchestrator
         {
             JobList list => list.Jobs.Any(HasCancelledDescendant),
             DirectoryDownloadJob directory => directory.FileJobs.Any(HasCancelledDescendant),
-            AggregateJob aggregate => aggregate.Songs.Any(song => song.FailureReason == JobFailureReason.Cancelled),
-            AlbumAggregateJob aggregate => aggregate.Albums.Any(HasCancelledDescendant),
+            SongGroupsJob group => group.Songs.Any(song => song.FailureReason == JobFailureReason.Cancelled),
+            AlbumGroupsJob group => group.Albums.Any(HasCancelledDescendant),
             ExtractJob extract => extract.Result != null && HasCancelledDescendant(extract.Result),
             _ => false,
         };
@@ -660,7 +660,7 @@ internal sealed class JobOrchestrator
 
         // ── source search / download ──────────────────────────────────────────
         // Leaf jobs hold a single job slot for their entire lifetime (search + download combined).
-        // Containers (AggregateJob, AlbumAggregateJob) don't hold a slot here; their children do.
+        // Containers (SongGroupsJob, AlbumGroupsJob) don't hold a slot here; their children do.
         if (job is FileDownloadJob or AlbumJob or SearchJob or RetrieveFolderJob)
             return await context.Runtime.WithJobSlot(job.Cts!.Token, () => ProcessLeafJobCore(job, ctx, parentToken, parentJob));
         else
@@ -689,14 +689,14 @@ internal sealed class JobOrchestrator
                 return outcome;
         }
 
-        if (job is AggregateJob aggregateJob)
+        if (job is SongGroupsJob songGroupsJob)
         {
-            if (await discovery.ProcessAggregateDiscovery(aggregateJob, ctx, parentToken) is { } outcome)
+            if (await discovery.ProcessGroupDiscovery(songGroupsJob, ctx, parentToken) is { } outcome)
                 return outcome;
         }
 
-        if (job is AlbumAggregateJob albumAggregateJob)
-            return await discovery.ProcessAlbumAggregateDiscovery(albumAggregateJob, ctx, parentToken);
+        if (job is AlbumGroupsJob albumGroupsJob)
+            return await discovery.ProcessAlbumGroupsDiscovery(albumGroupsJob, ctx, parentToken);
 
         if (config.PrintResults)
         {

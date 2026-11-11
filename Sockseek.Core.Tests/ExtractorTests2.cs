@@ -348,7 +348,7 @@ namespace Tests.ExtractorTests2
             var list = (JobList)result;
 
             Assert.AreEqual(1, list.Jobs.Count);
-            Assert.IsTrue(list.Jobs[0] is AlbumJob || list.Jobs[0] is AlbumAggregateJob);
+            Assert.IsTrue(list.Jobs[0] is AlbumJob || list.Jobs[0] is AlbumGroupsJob);
         }
 
         [TestMethod]
@@ -669,7 +669,7 @@ namespace Tests.ExtractorTests2
         }
 
         [TestMethod]
-        public async Task CsvInput_AggregateChildrenFail_RemoveFromSource_DoesNotClearRow()
+        public async Task CsvInput_GroupChildrenFail_RemoveFromSource_DoesNotClearRow()
         {
             var csvPath = Path.GetTempFileName() + ".csv";
             File.WriteAllText(csvPath, "artist,title\nFail,Song\n");
@@ -683,8 +683,8 @@ namespace Tests.ExtractorTests2
             dl.Extraction.Input = csvPath;
             dl.Extraction.InputType = InputType.CSV;
             dl.Extraction.RemoveTracksFromSource = true;
-            dl.Search.IsAggregate = true;
-            dl.Search.MinSharesAggregate = 1;
+            dl.Search.GroupResults = true;
+            dl.Search.MinGroupShares = 1;
 
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-test-csv-agg-rfs-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
@@ -697,13 +697,13 @@ namespace Tests.ExtractorTests2
                 app.CompleteEnqueue();
                 await app.RunAsync(CancellationToken.None);
 
-                var aggregateJob = app.Queue.AllJobs().OfType<AggregateJob>().FirstOrDefault();
-                Assert.IsNotNull(aggregateJob);
-                Assert.IsTrue(aggregateJob.IsUnsuccessfulTerminal);
+                var songGroupsJob = app.Queue.AllJobs().OfType<SongGroupsJob>().FirstOrDefault();
+                Assert.IsNotNull(songGroupsJob);
+                Assert.IsTrue(songGroupsJob.IsUnsuccessfulTerminal);
 
                 var lines = File.ReadAllLines(csvPath);
                 Assert.AreEqual("artist,title", lines[0]);
-                Assert.AreEqual("Fail,Song", lines[1], "Aggregate CSV row should NOT be cleared when its child download fails.");
+                Assert.AreEqual("Fail,Song", lines[1], "SongGroups CSV row should NOT be cleared when its child download fails.");
             }
             finally
             {
@@ -713,7 +713,7 @@ namespace Tests.ExtractorTests2
         }
 
         [TestMethod]
-        public async Task CsvInput_AlbumAggregateChildrenFail_RemoveFromSource_DoesNotClearRow()
+        public async Task CsvInput_AlbumGroupsChildrenFail_RemoveFromSource_DoesNotClearRow()
         {
             var csvPath = Path.GetTempFileName() + ".csv";
             File.WriteAllText(csvPath, "artist,title,album\nFail,,Album\n");
@@ -727,8 +727,8 @@ namespace Tests.ExtractorTests2
             dl.Extraction.Input = csvPath;
             dl.Extraction.InputType = InputType.CSV;
             dl.Extraction.RemoveTracksFromSource = true;
-            dl.Search.IsAggregate = true;
-            dl.Search.MinSharesAggregate = 1;
+            dl.Search.GroupResults = true;
+            dl.Search.MinGroupShares = 1;
             dl.Search.NoBrowseFolder = true;
 
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-test-csv-album-agg-rfs-" + Guid.NewGuid());
@@ -742,15 +742,15 @@ namespace Tests.ExtractorTests2
                 app.CompleteEnqueue();
                 await app.RunAsync(CancellationToken.None);
 
-                var aggregateJob = app.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
-                Assert.IsNotNull(aggregateJob);
+                var songGroupsJob = app.Queue.AllJobs().OfType<AlbumGroupsJob>().FirstOrDefault();
+                Assert.IsNotNull(songGroupsJob);
                 Assert.IsTrue(
-                    aggregateJob.Albums.Any(album => album.IsUnsuccessfulTerminal),
+                    songGroupsJob.Albums.Any(album => album.IsUnsuccessfulTerminal),
                     "At least one generated album child should have failed.");
 
                 var lines = File.ReadAllLines(csvPath);
                 Assert.AreEqual("artist,title,album", lines[0]);
-                Assert.AreEqual("Fail,,Album", lines[1], "Album aggregate CSV row should NOT be cleared when its child album fails.");
+                Assert.AreEqual("Fail,,Album", lines[1], "Album group CSV row should NOT be cleared when its child album fails.");
             }
             finally
             {

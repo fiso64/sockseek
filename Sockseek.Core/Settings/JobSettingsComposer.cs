@@ -60,7 +60,7 @@ public static class SearchSettingsBaselines
         { Kind: JobSnapshotKind.Search, SearchProjection: SearchDefaultProjectionKind.Track or SearchDefaultProjectionKind.Album }
             or { Kind: JobSnapshotKind.Search, MusicSearchDefaults: true }
             => SearchSettingsBaselineKind.Music,
-        { Kind: JobSnapshotKind.Song or JobSnapshotKind.Album or JobSnapshotKind.Aggregate or JobSnapshotKind.AlbumAggregate }
+        { Kind: JobSnapshotKind.Song or JobSnapshotKind.Album or JobSnapshotKind.SongGroups or JobSnapshotKind.AlbumGroups }
             => SearchSettingsBaselineKind.Music,
         _ => SearchSettingsBaselineKind.Generic,
     };

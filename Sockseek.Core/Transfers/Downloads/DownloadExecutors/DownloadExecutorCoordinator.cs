@@ -10,7 +10,7 @@ internal sealed class DownloadExecutorCoordinator
 {
     private readonly DownloadExecutionContext context;
     private readonly JobOrchestrator jobs;
-    private readonly AggregateDownloadExecutor aggregateDownloads;
+    private readonly GroupDownloadExecutor groupDownloads;
     private readonly SongDownloadExecutor songDownloads;
     private readonly AlbumDownloadExecutor albumDownloads;
     private readonly RemoteFileDownloadExecutor remoteFileDownloads;
@@ -22,7 +22,7 @@ internal sealed class DownloadExecutorCoordinator
         this.context = context;
         this.jobs = jobs;
         logger = context.LoggerFactory.CreateLogger<DownloadExecutorCoordinator>();
-        aggregateDownloads = new AggregateDownloadExecutor(context, jobs);
+        groupDownloads = new GroupDownloadExecutor(context, jobs);
         songDownloads = new SongDownloadExecutor(context, jobs);
         albumDownloads = new AlbumDownloadExecutor(context, jobs, songDownloads);
         remoteFileDownloads = new RemoteFileDownloadExecutor(context);
@@ -82,9 +82,9 @@ internal sealed class DownloadExecutorCoordinator
                     JobOutcomeCommitter.Commit(remoteDirectory, outcome);
                     break;
 
-                case AggregateJob ag:
+                case SongGroupsJob ag:
                     ag.UpdateActivity(JobActivityPhase.RunningChildren);
-                    outcome = await aggregateDownloads.ProcessAggregateDownload(ag, ctx);
+                    outcome = await groupDownloads.ProcessGroupDownload(ag, ctx);
                     JobOutcomeCommitter.Commit(ag, outcome);
                     break;
             }

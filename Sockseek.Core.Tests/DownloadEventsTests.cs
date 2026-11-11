@@ -754,7 +754,7 @@ namespace Tests.Eventing
         }
 
         [TestMethod]
-        public async Task ConcurrentJobs_LimitsSongsWithinAggregateJob()
+        public async Task ConcurrentJobs_LimitsSongsWithinSongGroupsJob()
         {
             var index = new List<SearchResponse>
             {
@@ -781,7 +781,7 @@ namespace Tests.Eventing
                     fileList: [TestHelpers.CreateSlFile(@"Live\ELO - Blue Sky (Live).mp3", length: 300)]),
             };
 
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-concurrent-aggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-concurrent-group-" + Guid.NewGuid());
             System.IO.Directory.CreateDirectory(outputDir);
 
             try
@@ -796,11 +796,11 @@ namespace Tests.Eventing
                 var downloadSettings = new DownloadSettings();
                 downloadSettings.Output.ParentDir = outputDir;
                 downloadSettings.Output.WriteIndex = false;
-                downloadSettings.Search.MinSharesAggregate = 1;
+                downloadSettings.Search.MinGroupShares = 1;
                 downloadSettings.Skip.SkipExisting = false;
 
-                var aggregateJob = new AggregateJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
-                SubmissionIdentity.AssignAccepted(aggregateJob, downloadSettings);
+                var songGroupsJob = new SongGroupsJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
+                SubmissionIdentity.AssignAccepted(songGroupsJob, downloadSettings);
                 var downloadGate = new TestHelpers.DownloadGate();
                 var client = new ClientTests.MockSoulseekClient(index)
                 {
@@ -837,19 +837,19 @@ namespace Tests.Eventing
                     }
                 };
 
-                engine.Enqueue(aggregateJob, downloadSettings);
+                engine.Enqueue(songGroupsJob, downloadSettings);
                 engine.CompleteEnqueue();
 
                 var runTask = engine.RunAsync(CancellationToken.None);
                 await downloadGate.WaitForStartedCountAsync(1);
-                Assert.AreEqual(1, downloadGate.StartedCount, "A second aggregate song must not start while the first holds the global job slot.");
+                Assert.AreEqual(1, downloadGate.StartedCount, "A second group song must not start while the first holds the global job slot.");
                 await CompleteRunWithBlockedDownloads(downloadGate, runTask);
 
-                Assert.IsTrue(aggregateJob.Songs.Count >= 2, "Aggregate should produce multiple song jobs for this test.");
-                Assert.AreEqual(1, maxActiveSongs, "--concurrent-jobs=1 should allow only one aggregate child song to download at a time.");
-                Assert.IsTrue(aggregateJob.Songs.All(song => song.TerminalOutcome == JobTerminalOutcome.Succeeded));
-                AssertAggregateRegistrationOwnership(aggregateJob, aggregateJob.Songs, registered);
-                AssertAggregateRetired(engine, aggregateJob, registered);
+                Assert.IsTrue(songGroupsJob.Songs.Count >= 2, "Song Groups should produce multiple song jobs for this test.");
+                Assert.AreEqual(1, maxActiveSongs, "--concurrent-jobs=1 should allow only one group child song to download at a time.");
+                Assert.IsTrue(songGroupsJob.Songs.All(song => song.TerminalOutcome == JobTerminalOutcome.Succeeded));
+                AssertGroupRegistrationOwnership(songGroupsJob, songGroupsJob.Songs, registered);
+                AssertGroupRetired(engine, songGroupsJob, registered);
             }
             finally
             {
@@ -859,7 +859,7 @@ namespace Tests.Eventing
         }
 
         [TestMethod]
-        public async Task ConcurrentJobs_LimitsAlbumsWithinAlbumAggregateJob()
+        public async Task ConcurrentJobs_LimitsAlbumsWithinAlbumGroupsJob()
         {
             var index = new List<SearchResponse>
             {
@@ -887,7 +887,7 @@ namespace Tests.Eventing
                     ]),
             };
 
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-concurrent-album-aggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-concurrent-album-groups-" + Guid.NewGuid());
             System.IO.Directory.CreateDirectory(outputDir);
 
             try
@@ -902,12 +902,12 @@ namespace Tests.Eventing
                 var downloadSettings = new DownloadSettings();
                 downloadSettings.Output.ParentDir = outputDir;
                 downloadSettings.Output.WriteIndex = false;
-                downloadSettings.Search.MinSharesAggregate = 1;
+                downloadSettings.Search.MinGroupShares = 1;
                 downloadSettings.Search.NoBrowseFolder = true;
                 downloadSettings.Skip.SkipExisting = false;
 
-                var aggregateJob = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
-                SubmissionIdentity.AssignAccepted(aggregateJob, downloadSettings);
+                var songGroupsJob = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
+                SubmissionIdentity.AssignAccepted(songGroupsJob, downloadSettings);
                 var downloadGate = new TestHelpers.DownloadGate();
                 var client = new ClientTests.MockSoulseekClient(index)
                 {
@@ -944,19 +944,19 @@ namespace Tests.Eventing
                     }
                 };
 
-                engine.Enqueue(aggregateJob, downloadSettings);
+                engine.Enqueue(songGroupsJob, downloadSettings);
                 engine.CompleteEnqueue();
 
                 var runTask = engine.RunAsync(CancellationToken.None);
                 await downloadGate.WaitForStartedCountAsync(1);
-                Assert.AreEqual(1, downloadGate.StartedCount, "A second aggregate album must not start while the first album job holds the global job slot.");
+                Assert.AreEqual(1, downloadGate.StartedCount, "A second group album must not start while the first album job holds the global job slot.");
                 await CompleteRunWithBlockedDownloads(downloadGate, runTask);
 
-                Assert.IsTrue(aggregateJob.Albums.Count >= 2, "Album aggregate should produce multiple album jobs for this test.");
-                Assert.AreEqual(1, maxActiveAlbums, "--concurrent-jobs=1 should allow only one album-aggregate child album to download at a time.");
-                Assert.IsTrue(aggregateJob.Albums.All(album => album.TerminalOutcome == JobTerminalOutcome.Succeeded));
-                AssertAggregateRegistrationOwnership(aggregateJob, aggregateJob.Albums, registered);
-                AssertAggregateRetired(engine, aggregateJob, registered);
+                Assert.IsTrue(songGroupsJob.Albums.Count >= 2, "Album group should produce multiple album jobs for this test.");
+                Assert.AreEqual(1, maxActiveAlbums, "--concurrent-jobs=1 should allow only one album-groups child album to download at a time.");
+                Assert.IsTrue(songGroupsJob.Albums.All(album => album.TerminalOutcome == JobTerminalOutcome.Succeeded));
+                AssertGroupRegistrationOwnership(songGroupsJob, songGroupsJob.Albums, registered);
+                AssertGroupRetired(engine, songGroupsJob, registered);
             }
             finally
             {
@@ -965,12 +965,12 @@ namespace Tests.Eventing
             }
         }
 
-        private static void AssertAggregateRetired(
+        private static void AssertGroupRetired(
             DownloadEngine engine, Job root, IReadOnlyList<JobRegisteredChange> registered)
         {
             Assert.AreEqual(0, engine.GetJobsByWorkflow(root.WorkflowId).Count);
             Assert.IsTrue(registered.All(change => engine.GetJob(change.Job.Id) == null),
-                "Terminal daemon aggregates must release their generated jobs.");
+                "Terminal daemon groups must release their generated jobs.");
             Assert.AreEqual(0, engine.RetainedStateCounts.Contexts,
                 "No child context may be left under an unrelated workflow lifetime.");
             Assert.AreEqual(0, engine.RetainedStateCounts.EventTransfers,
@@ -978,7 +978,7 @@ namespace Tests.Eventing
             Assert.IsNull(root.Cts);
         }
 
-        private static void AssertAggregateRegistrationOwnership(
+        private static void AssertGroupRegistrationOwnership(
             Job root, IEnumerable<Job> children, IReadOnlyList<JobRegisteredChange> registered)
         {
             var group = registered.Single(change => change.ParentJobId == root.Id
@@ -991,7 +991,7 @@ namespace Tests.Eventing
             {
                 var registration = registered.Single(change => change.Job.Id == child.Id);
                 Assert.AreEqual(root.Id, registration.ParentJobId,
-                    "Both aggregate modes expose generated members directly; the execution list is orchestration.");
+                    "Both group modes expose generated members directly; the execution list is orchestration.");
                 Assert.AreEqual(root.WorkflowId, registration.Job.WorkflowId,
                     "Children must have their final workflow identity at first publication.");
                 Assert.AreEqual(root.SubmissionId, registration.Job.SubmissionId);

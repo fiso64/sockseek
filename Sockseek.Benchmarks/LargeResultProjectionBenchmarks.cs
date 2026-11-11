@@ -79,8 +79,8 @@ public class LargeResultProjectionBenchmarks
             .Count;
 
     [Benchmark]
-    public int AggregateGroup()
-        => SearchResultProjector.AggregateTracks(
+    public int TrackGrouping()
+        => SearchResultProjector.GroupTracks(
                 trackResults,
                 trackQuery,
                 search,
@@ -88,6 +88,6 @@ public class LargeResultProjectionBenchmarks
             .Count;
 
     [Benchmark]
-    public int AlbumAggregateGroup()
-        => SearchResultProjector.AggregateAlbums(albumFolders, albumQuery, search).Count;
+    public int AlbumGrouping()
+        => SearchResultProjector.GroupAlbums(albumFolders, albumQuery, search).Count;
 }

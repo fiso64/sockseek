@@ -436,13 +436,13 @@ public class CliProgressReporter
         => kind is ServerJobKind.Extract
             or ServerJobKind.JobList
             or ServerJobKind.RetrieveFolder
-            or ServerJobKind.Aggregate
-            or ServerJobKind.AlbumAggregate;
+            or ServerJobKind.SongGroups
+            or ServerJobKind.AlbumGroups;
 
     private static bool IsContainerJobKind(ServerJobKind kind)
         => kind is ServerJobKind.JobList
-            or ServerJobKind.Aggregate
-            or ServerJobKind.AlbumAggregate
+            or ServerJobKind.SongGroups
+            or ServerJobKind.AlbumGroups
             or ServerJobKind.RemoteDirectory;
 
     private static bool IsTransparentContainer(
@@ -451,8 +451,8 @@ public class CliProgressReporter
         => job.Kind == ServerJobKind.JobList
             && job.ParentJobId is Guid parentId
             && jobsById.TryGetValue(parentId, out var parent)
-            && parent.Kind is ServerJobKind.Aggregate
-                or ServerJobKind.AlbumAggregate;
+            && parent.Kind is ServerJobKind.SongGroups
+                or ServerJobKind.AlbumGroups;
 
     private static string? GetContainerParentId(
         JobSummaryDto job,
@@ -521,8 +521,8 @@ public class CliProgressReporter
             return "Retrieve Folder";
         if (kind == ServerJobKind.JobList)
             return "Job List";
-        if (kind == ServerJobKind.AlbumAggregate)
-            return "Album Aggregate";
+        if (kind == ServerJobKind.AlbumGroups)
+            return "Album Groups";
 
         string kindText = kind.ToWireString();
         return $"{char.ToUpperInvariant(kindText[0])}{kindText[1..]}";

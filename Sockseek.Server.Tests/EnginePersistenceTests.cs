@@ -431,12 +431,12 @@ public sealed class EnginePersistenceTests
         ]);
         var remoteDirectory = new RemoteDirectoryJob(
             new RemoteDirectorySource.Resolved(resolvedPlan));
-        var albumAggregate = new AlbumAggregateJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
+        var albumGroups = new AlbumGroupsJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
         var completedAlbum = new AlbumJob(new AlbumQuery { Album = "Complete" });
         var failedAlbum = new AlbumJob(new AlbumQuery { Album = "Failed" });
         completedAlbum.SetDone();
         failedAlbum.Fail(JobFailureReason.Other);
-        albumAggregate.Albums = [completedAlbum, failedAlbum];
+        albumGroups.Albums = [completedAlbum, failedAlbum];
         var jobs = new (Job Job, Type PayloadType)[]
         {
             (new GenericTestJob("generic text"), typeof(GenericJobPayloadDto)),
@@ -446,8 +446,8 @@ public sealed class EnginePersistenceTests
             (exactSong, typeof(SongJobPayloadDto)),
             (cancelledSong, typeof(SongJobPayloadDto)),
             (new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" }), typeof(AlbumJobPayloadDto)),
-            (new AggregateJob(new SongQuery { Artist = "Artist", Title = "Track" }), typeof(AggregateJobPayloadDto)),
-            (albumAggregate, typeof(AlbumAggregateJobPayloadDto)),
+            (new SongGroupsJob(new SongQuery { Artist = "Artist", Title = "Track" }), typeof(SongGroupsJobPayloadDto)),
+            (albumGroups, typeof(AlbumGroupsJobPayloadDto)),
             (new JobList("list", [new SongJob(new SongQuery { Title = "child" })]), typeof(JobListPayloadDto)),
             (retrieve, typeof(RetrieveFolderJobPayloadDto)),
             (remoteFile, typeof(RemoteFileJobPayloadDto)),
@@ -517,12 +517,12 @@ public sealed class EnginePersistenceTests
         Assert.IsNull(directoryPayload.SourceFolderPath);
         Assert.AreEqual("planned", directoryPayload.Directory.Phase);
 
-        var aggregatePayload = (AlbumAggregateJobPayloadDto)HistoricalJobDtoMapper.ToPayload(
-            ToPersistedJob(mutations[albumAggregate.Id]));
-        Assert.AreEqual(2, aggregatePayload.ResultCount);
-        Assert.AreEqual(2, aggregatePayload.CompletedAlbumCount);
-        Assert.AreEqual(1, aggregatePayload.SucceededAlbumCount);
-        Assert.AreEqual(1, aggregatePayload.FailedAlbumCount);
+        var groupPayload = (AlbumGroupsJobPayloadDto)HistoricalJobDtoMapper.ToPayload(
+            ToPersistedJob(mutations[albumGroups.Id]));
+        Assert.AreEqual(2, groupPayload.ResultCount);
+        Assert.AreEqual(2, groupPayload.CompletedAlbumCount);
+        Assert.AreEqual(1, groupPayload.SucceededAlbumCount);
+        Assert.AreEqual(1, groupPayload.FailedAlbumCount);
 
     }
 

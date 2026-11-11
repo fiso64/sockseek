@@ -145,8 +145,8 @@ public sealed record SearchProjectionSettingsDefinition(
     bool StrictAlbumQuality,
     int DownrankOn,
     int IgnoreOn,
-    int MinSharesAggregate,
-    int AggregateLengthTolerance)
+    int MinGroupShares,
+    int GroupLengthTolerance)
 {
     public static SearchProjectionSettingsDefinition From(SearchSettings settings)
         => new(
@@ -157,8 +157,8 @@ public sealed record SearchProjectionSettingsDefinition(
             settings.StrictAlbumQuality,
             settings.DownrankOn,
             settings.EffectiveIgnoreOn,
-            settings.EffectiveMinSharesAggregate,
-            settings.AggregateLengthTol);
+            settings.EffectiveMinGroupShares,
+            settings.GroupLengthTol);
 
     public SearchSettings ToSettings()
     {
@@ -172,8 +172,8 @@ public sealed record SearchProjectionSettingsDefinition(
         settings.StrictAlbumQuality = StrictAlbumQuality;
         settings.DownrankOn = DownrankOn;
         settings.IgnoreOn = IgnoreOn;
-        settings.MinSharesAggregate = MinSharesAggregate;
-        settings.AggregateLengthTol = AggregateLengthTolerance;
+        settings.MinGroupShares = MinGroupShares;
+        settings.GroupLengthTol = GroupLengthTolerance;
         return settings;
     }
 }
@@ -187,7 +187,7 @@ public sealed record SearchDefinition(
     AlbumQueryDefinition? AlbumQuery,
     bool IncludeFullFileResults,
     SearchProjectionSettingsDefinition ProjectionSettings,
-    bool AggregatePresentation = false)
+    bool GroupResults = false)
 {
     public const int CurrentSchemaVersion = 1;
 
@@ -226,7 +226,7 @@ public sealed record SearchDefinition(
             albumQuery,
             includeFullResults,
             SearchProjectionSettingsDefinition.From(settings),
-            job.AggregatePresentation || job.Definition?.AggregatePresentation == true);
+            job.GroupResults || job.Definition?.GroupResults == true);
     }
 
     public static SearchDefinition Create(Job job, SearchSettings settings)
@@ -239,9 +239,9 @@ public sealed record SearchDefinition(
         return job switch
         {
             SongJob song => Create(SongQueryDefinition.From(song.Query), settings),
-            AggregateJob aggregate => Create(SongQueryDefinition.From(aggregate.Query), settings),
+            SongGroupsJob group => Create(SongQueryDefinition.From(group.Query), settings),
             AlbumJob album => Create(AlbumQueryDefinition.From(album.Query), settings),
-            AlbumAggregateJob aggregate => Create(AlbumQueryDefinition.From(aggregate.Query), settings),
+            AlbumGroupsJob group => Create(AlbumQueryDefinition.From(group.Query), settings),
             _ => throw new ArgumentException(
                 $"Job type '{job.GetType().Name}' does not execute a search.",
                 nameof(job)),
@@ -281,8 +281,8 @@ public sealed record SearchDefinition(
             throw new InvalidDataException("File search definition has no file query.");
         if (DefaultProjection == SearchDefaultProjectionKind.Album && AlbumQuery == null)
             throw new InvalidDataException("Album search definition has no album query.");
-        if (DefaultProjection == SearchDefaultProjectionKind.GenericFile && AggregatePresentation)
-            throw new InvalidDataException("Generic search definitions cannot request aggregate presentation.");
+        if (DefaultProjection == SearchDefaultProjectionKind.GenericFile && GroupResults)
+            throw new InvalidDataException("Generic search definitions cannot request group presentation.");
     }
 }
 

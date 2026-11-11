@@ -1,6 +1,6 @@
 import type { Schema } from '../../api/types';
 import { createEmptySearchConditions, type SearchConditions } from './config-state';
-import { isAggregateSearchMode, searchModeFamily, type SearchModeFamily, type SearchResultMode } from './model';
+import { isGroupSearchMode, searchModeFamily, type SearchModeFamily, type SearchResultMode } from './model';
 
 type Settings = Schema<'SearchSettingsPatchDto'>;
 type FileConditions = Schema<'FileConditionsPatchDto'>;
@@ -41,8 +41,8 @@ export function readSearchConditions(settings: Settings, expectedLength?: number
   result.album.minTrackCount = numberText(settings.necessaryFolderCond?.minTrackCount);
   result.album.maxTrackCount = numberText(settings.necessaryFolderCond?.maxTrackCount);
   result.album.requiredTrackTitles = [...(settings.necessaryFolderCond?.requiredTrackTitles?.replace ?? [])];
-  result.aggregate.minShares = numberText(settings.minSharesAggregate);
-  result.aggregate.lengthTolerance = numberText(settings.aggregateLengthTol);
+  result.group.minShares = numberText(settings.minGroupShares);
+  result.group.lengthTolerance = numberText(settings.groupLengthTol);
   return result;
 }
 
@@ -61,15 +61,15 @@ function changedNumber(before: unknown, after: unknown, label: string, clearValu
 /** Only edited fields become overrides; all other fields retain daemon inheritance. */
 export function searchConditionsPatch(mode: SearchResultMode, before: SearchConditions, after: SearchConditions): Settings {
   const patch = searchConditionsPatchForFamily(searchModeFamily(mode), before, after);
-  if (isAggregateSearchMode(mode)) {
-    const shares = changedNumber(before.aggregate.minShares, after.aggregate.minShares, 'minimum sharers', 1);
+  if (isGroupSearchMode(mode)) {
+    const shares = changedNumber(before.group.minShares, after.group.minShares, 'minimum sharers', 1);
     // Unlike a file-condition bound, grouping tolerance has no disabled state.
     // An empty field means inherit the resolved/default value.
-    const tolerance = String(after.aggregate.lengthTolerance ?? '').trim()
-      ? changedNumber(before.aggregate.lengthTolerance, after.aggregate.lengthTolerance, 'grouping tolerance')
+    const tolerance = String(after.group.lengthTolerance ?? '').trim()
+      ? changedNumber(before.group.lengthTolerance, after.group.lengthTolerance, 'grouping tolerance')
       : undefined;
-    if (shares !== undefined) patch.minSharesAggregate = shares;
-    if (tolerance !== undefined) patch.aggregateLengthTol = tolerance;
+    if (shares !== undefined) patch.minGroupShares = shares;
+    if (tolerance !== undefined) patch.groupLengthTol = tolerance;
   }
   return patch;
 }

@@ -54,7 +54,7 @@ internal readonly struct AlbumFolderProjectionPlan
     private readonly FolderSortMode sortMode;
     private readonly bool combineDiscs;
     private readonly bool enforceMinimumTrackCount;
-    private readonly ResultSorter.SortKeyContext aggregateSortKeyContext;
+    private readonly ResultSorter.SortKeyContext groupSortKeyContext;
 
     public AlbumFolderProjectionPlan(
         AlbumQuery query,
@@ -70,7 +70,7 @@ internal readonly struct AlbumFolderProjectionPlan
         this.enforceMinimumTrackCount = enforceMinimumTrackCount;
         combineDiscs = SearchResultProjector.CanCombineDiscDirectories(query);
         projectionFilter = ConditionSatisfactionPolicy.CreateAlbumSearchFilter(query, search);
-        aggregateSortKeyContext = ResultSorter.CreateSortKeyContext(
+        groupSortKeyContext = ResultSorter.CreateSortKeyContext(
             [],
             projectionFilter.SortQuery,
             search,
@@ -94,7 +94,7 @@ internal readonly struct AlbumFolderProjectionPlan
     {
         ResultSorter.SortEntry? entry = ResultSorter.CreateSortEntry(
             input,
-            aggregateSortKeyContext,
+            groupSortKeyContext,
             originalIndex);
         return entry is { } admitted
             && admitted.Key.ConditionFacts.NecessaryConditionsSatisfied

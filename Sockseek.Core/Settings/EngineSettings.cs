@@ -46,7 +46,7 @@ public class EngineSettings
     // ── Concurrency ───────────────────────────────────────────────────────────
 
     /// Global limit for concurrent leaf work. Counts direct song jobs, album jobs,
-    /// aggregate child song jobs, album-aggregate child album jobs, and standalone
+    /// group child song jobs, album-groups child album jobs, and standalone
     /// folder retrievals. Does not count extractor jobs or song jobs inside albums.
     [SettingOption("--cj", "--concurrent-jobs")]
     public int ConcurrentJobs { get; set; } = 20;
@@ -83,7 +83,7 @@ public class EngineSettings
 
     /// true = read audio tags from mock files (default). --mock-files-no-read-tags sets to false.
     /// A local mock library represents a single source.
-    public int DefaultMinSharesAggregate => string.IsNullOrEmpty(MockFilesDir) ? SearchSettings.DefaultMinShares : 1;
+    public int DefaultMinGroupShares => string.IsNullOrEmpty(MockFilesDir) ? SearchSettings.DefaultMinShares : 1;
 
     [SettingOption("--mock-files-no-read-tags", FixedValue = "false")]
     public bool MockFilesReadTags { get; set; } = true;

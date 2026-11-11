@@ -568,7 +568,7 @@ public sealed class EngineSupervisor : IDisposable
             var (candidate, searchQuery) = await searchResults.GetFileAsync(source, file, ct).ConfigureAwait(false);
 
             if ((request.RequestedMode is null or ServerExtractionMode.Song)
-                && sourceJob is AggregateJob && sourceJob.IsAwaitingSelection)
+                && sourceJob is SongGroupsJob && sourceJob.IsAwaitingSelection)
             {
                 DownloadEngine? engine;
                 lock (engineGate)
@@ -576,7 +576,7 @@ public sealed class EngineSupervisor : IDisposable
                 if (engine == null || !engine.TryStartManualSongSelection(sourceJobId, candidate,
                     song => Submissions.SettingsResolver.ApplyManualSelectionOptions(sourceJob, song, request.Options), out var selectedSong)
                     || selectedSong == null)
-                    throw new ArgumentException("The aggregate is no longer accepting selections.");
+                    throw new ArgumentException("The group is no longer accepting selections.");
                 summaries.Add(StateStore.GetJobSummary(selectedSong.Id) ?? BuildSubmittedJobSummary(selectedSong, sourceJobId));
                 continue;
             }
@@ -624,7 +624,7 @@ public sealed class EngineSupervisor : IDisposable
         lock (engineGate)
             engine = currentEngine;
 
-        bool manualSelection = sourceJob is AlbumJob or AlbumAggregateJob && sourceJob.IsAwaitingSelection;
+        bool manualSelection = sourceJob is AlbumJob or AlbumGroupsJob && sourceJob.IsAwaitingSelection;
         if (sourceJob is not null && engine?.TryStartManualAlbumSelection(
             sourceJobId,
             folder,

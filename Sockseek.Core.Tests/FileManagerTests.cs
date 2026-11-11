@@ -252,17 +252,17 @@ namespace Tests.FileManagerTests
     public class OutputScopeTests
     {
         [TestMethod]
-        public void ForPreparedJob_AddsFolderSegmentsForListAndAggregateContainers()
+        public void ForPreparedJob_AddsFolderSegmentsForListAndGroupContainers()
         {
             var output = new OutputSettings();
             var list = new JobList("Wishlist");
-            var aggregate = new AggregateJob(new SongQuery { Artist = "Artist1" }) { ItemName = "Artist1" };
-            var albumAggregate = new AlbumAggregateJob(new AlbumQuery { Artist = "Artist1" }) { ItemName = "Artist1 Albums" };
+            var group = new SongGroupsJob(new SongQuery { Artist = "Artist1" }) { ItemName = "Artist1" };
+            var albumGroups = new AlbumGroupsJob(new AlbumQuery { Artist = "Artist1" }) { ItemName = "Artist1 Albums" };
 
             var scope = OutputScope.Empty;
             scope = OutputScope.ForPreparedJob(list, scope, output);
-            scope = OutputScope.ForPreparedJob(aggregate, scope, output);
-            scope = OutputScope.ForPreparedJob(albumAggregate, scope, output);
+            scope = OutputScope.ForPreparedJob(group, scope, output);
+            scope = OutputScope.ForPreparedJob(albumGroups, scope, output);
 
             Assert.AreEqual(Path.Join("Wishlist", "Artist1", "Artist1 Albums"), scope.DefaultFolder);
         }
@@ -442,19 +442,19 @@ namespace Tests.FileManagerTests
         }
 
         [TestMethod]
-        public void AggregateJob_DefaultOrganization_GroupsGeneratedSongsInsideAggregateFolder()
+        public void SongGroupsJob_DefaultOrganization_GroupsGeneratedSongsInsideGroupFolder()
         {
-            var aggregate = new AggregateJob(new SongQuery { Artist = "Artist1" }) { ItemName = "Artist1" };
+            var group = new SongGroupsJob(new SongQuery { Artist = "Artist1" }) { ItemName = "Artist1" };
             var generatedSong = new SongJob(new SongQuery { Artist = "Artist1", Title = "Track1" });
 
-            var contexts = Prepare(aggregate);
-            generatedSong.Config = aggregate.Config;
+            var contexts = Prepare(group);
+            generatedSong.Config = group.Config;
             var manager = new FileManager(
                 generatedSong,
-                aggregate.Config.Output,
-                aggregate.Config.Extraction,
+                group.Config.Output,
+                group.Config.Extraction,
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance,
-                contexts[aggregate.Id].OutputScope);
+                contexts[group.Id].OutputScope);
 
             string target = manager.GetSavePath(@"User1\Artist1 - Track1.mp3");
 
@@ -462,19 +462,19 @@ namespace Tests.FileManagerTests
         }
 
         [TestMethod]
-        public void AlbumAggregateJob_DefaultOrganization_GroupsGeneratedAlbumsInsideAggregateFolder()
+        public void AlbumGroupsJob_DefaultOrganization_GroupsGeneratedAlbumsInsideGroupFolder()
         {
-            var aggregate = new AlbumAggregateJob(new AlbumQuery { Artist = "Artist1" }) { ItemName = "Artist1" };
+            var group = new AlbumGroupsJob(new AlbumQuery { Artist = "Artist1" }) { ItemName = "Artist1" };
             var generatedAlbum = new AlbumJob(new AlbumQuery { Artist = "Artist1", Album = "Album1" });
 
-            var contexts = Prepare(aggregate);
-            generatedAlbum.Config = aggregate.Config;
+            var contexts = Prepare(group);
+            generatedAlbum.Config = group.Config;
             var manager = new FileManager(
                 generatedAlbum,
-                aggregate.Config.Output,
-                aggregate.Config.Extraction,
+                group.Config.Output,
+                group.Config.Extraction,
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance,
-                contexts[aggregate.Id].OutputScope);
+                contexts[group.Id].OutputScope);
             manager.SetremoteBaseDir(AlbumRemoteDir);
 
             string target = manager.GetSavePath(AlbumRemoteTrack);

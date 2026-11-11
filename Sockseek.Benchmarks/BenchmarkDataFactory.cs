@@ -402,8 +402,8 @@ internal static class BenchmarkDataFactory
         var settings = new DownloadSettings().Search;
         settings.IgnoreOn = -1;
         settings.DownrankOn = 2;
-        settings.MinSharesAggregate = 2;
-        settings.AggregateLengthTol = 3;
+        settings.MinGroupShares = 2;
+        settings.GroupLengthTol = 3;
         return settings;
     }
 

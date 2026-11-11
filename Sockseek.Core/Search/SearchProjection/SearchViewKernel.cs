@@ -26,8 +26,8 @@ public enum SearchViewProjectionKind
     Files,
     GenericDirectories,
     AlbumDirectories,
-    AggregateTracks,
-    AggregateAlbums,
+    TrackGroups,
+    AlbumGroups,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<SearchViewSortOrder>))]
@@ -67,11 +67,11 @@ public sealed record SearchViewProjectionDefinition(
         if (Kind is SearchViewProjectionKind.Files or SearchViewProjectionKind.GenericDirectories
             && SongQuery == null)
             throw new ArgumentException("A file-based Search View requires a song query.");
-        if (Kind is SearchViewProjectionKind.AlbumDirectories or SearchViewProjectionKind.AggregateAlbums
+        if (Kind is SearchViewProjectionKind.AlbumDirectories or SearchViewProjectionKind.AlbumGroups
             && AlbumQuery == null)
             throw new ArgumentException("An album Search View requires an album query.");
-        if (Kind == SearchViewProjectionKind.AggregateTracks && SongQuery == null)
-            throw new ArgumentException("An aggregate-track Search View requires a song query.");
+        if (Kind == SearchViewProjectionKind.TrackGroups && SongQuery == null)
+            throw new ArgumentException("An track-group Search View requires a song query.");
         bool validOrder = Kind switch
         {
             SearchViewProjectionKind.Files or SearchViewProjectionKind.AlbumDirectories =>
@@ -89,7 +89,7 @@ public sealed record SearchViewProjectionDefinition(
                     or SearchViewSortOrder.FileCountDescending
                     or SearchViewSortOrder.DirectoryNameAscending
                     or SearchViewSortOrder.DirectoryNameDescending,
-            SearchViewProjectionKind.AggregateTracks or SearchViewProjectionKind.AggregateAlbums =>
+            SearchViewProjectionKind.TrackGroups or SearchViewProjectionKind.AlbumGroups =>
                 SortOrder == SearchViewSortOrder.Relevance,
             _ => false,
         };
@@ -122,16 +122,16 @@ public sealed record SearchViewKernelUpdate(
     IReadOnlyList<string>? ObservedUsernames = null,
     IReadOnlyList<SearchViewProjectedDirectory>? ChangedDirectories = null,
     IReadOnlyList<PeerDirectoryIdentity>? RemovedDirectories = null,
-    IReadOnlyList<SearchViewProjectedAggregateTrackGroup>? ChangedAggregateTrackGroups = null,
-    IReadOnlyList<SearchViewProjectedAggregateAlbumGroup>? ChangedAggregateAlbumGroups = null,
-    IReadOnlyList<PeerDirectoryIdentity>? RemovedAggregateAlbumGroups = null)
+    IReadOnlyList<SearchViewProjectedTrackGroup>? ChangedTrackGroups = null,
+    IReadOnlyList<SearchViewProjectedAlbumGroup>? ChangedAlbumGroups = null,
+    IReadOnlyList<PeerDirectoryIdentity>? RemovedAlbumGroups = null)
 {
     public bool HasProjectionChanges => ChangedFiles.Count > 0
         || (ChangedDirectories?.Count ?? 0) > 0
         || (RemovedDirectories?.Count ?? 0) > 0
-        || (ChangedAggregateTrackGroups?.Count ?? 0) > 0
-        || (ChangedAggregateAlbumGroups?.Count ?? 0) > 0
-        || (RemovedAggregateAlbumGroups?.Count ?? 0) > 0;
+        || (ChangedTrackGroups?.Count ?? 0) > 0
+        || (ChangedAlbumGroups?.Count ?? 0) > 0
+        || (RemovedAlbumGroups?.Count ?? 0) > 0;
 }
 
 public sealed record SearchViewKernelSeed(
@@ -147,8 +147,8 @@ public sealed record SearchViewKernelSnapshot(
     SearchViewCounters Counters,
     IReadOnlyList<ProjectedFileCandidate> Files,
     IReadOnlyList<SearchViewProjectedDirectory>? Directories = null,
-    IReadOnlyList<SearchViewProjectedAggregateTrackGroup>? AggregateTrackGroups = null,
-    IReadOnlyList<SearchViewProjectedAggregateAlbumGroup>? AggregateAlbumGroups = null);
+    IReadOnlyList<SearchViewProjectedTrackGroup>? TrackGroups = null,
+    IReadOnlyList<SearchViewProjectedAlbumGroup>? AlbumGroups = null);
 
 /// <summary>
 /// Storage-neutral incremental file-view owner. Live batches and retained
@@ -160,8 +160,8 @@ public sealed class SearchViewKernel
     private readonly object gate = new();
     private readonly IncrementalResultSorter? sorter;
     private readonly IncrementalAlbumFolderProjector? albumFolderProjector;
-    private readonly IncrementalAggregateTrackProjector? aggregateTrackProjector;
-    private readonly IncrementalAlbumAggregateProjector? aggregateAlbumProjector;
+    private readonly IncrementalTrackGroupProjector? trackGroupProjector;
+    private readonly IncrementalAlbumGroupProjector? albumGroupProjector;
     private readonly SearchViewProjectionKind projectionKind;
     private readonly string? filterText;
     private readonly Dictionary<PeerPathKey, DirectoryState> directories = [];
@@ -176,10 +176,10 @@ public sealed class SearchViewKernel
     // file retain that sequence, even when its folder disappears or is absorbed.
     // Restoring directory links must not republish its immutable file facts.
     private readonly HashSet<long> publishedAlbumSequences = [];
-    private readonly Dictionary<int, SearchViewProjectedAggregateAlbumGroup> visibleAggregateAlbumGroups = [];
-    private readonly Dictionary<PeerDirectoryIdentity, int> visibleAggregateAlbumIdentities = [];
-    private readonly HashSet<int> visibleAggregateTrackIndexes = [];
-    private readonly Dictionary<int, long> aggregateTrackSelectableCounts = [];
+    private readonly Dictionary<int, SearchViewProjectedAlbumGroup> visibleAlbumGroups = [];
+    private readonly Dictionary<PeerDirectoryIdentity, int> visibleAlbumGroupIdentities = [];
+    private readonly HashSet<int> visibleTrackGroupIndexes = [];
+    private readonly Dictionary<int, long> trackGroupSelectableCounts = [];
     private readonly bool trackPeerIdentities;
     private readonly HashSet<string> observedPeers = new(StringComparer.Ordinal);
     private long publicFileCount;
@@ -244,8 +244,8 @@ public sealed class SearchViewKernel
         if (projectionKind is not (SearchViewProjectionKind.Files
             or SearchViewProjectionKind.GenericDirectories
             or SearchViewProjectionKind.AlbumDirectories
-            or SearchViewProjectionKind.AggregateTracks
-            or SearchViewProjectionKind.AggregateAlbums))
+            or SearchViewProjectionKind.TrackGroups
+            or SearchViewProjectionKind.AlbumGroups))
             throw new NotSupportedException($"Search View projection '{projectionKind}' is not implemented yet.");
         var reputation = reputationSnapshot == null
             ? new ConcurrentDictionary<string, int>()
@@ -253,27 +253,27 @@ public sealed class SearchViewKernel
                 reputationSnapshot,
                 StringComparer.Ordinal);
         if (projectionKind is SearchViewProjectionKind.AlbumDirectories
-            or SearchViewProjectionKind.AggregateAlbums)
+            or SearchViewProjectionKind.AlbumGroups)
         {
             albumFolderProjector = new IncrementalAlbumFolderProjector(
                 projection.AlbumQuery!,
                 SettingsCloner.Clone(settings),
                 reputation,
                 ignoreStringSortConditions:
-                    projectionKind == SearchViewProjectionKind.AggregateAlbums,
-                sortMode: projectionKind == SearchViewProjectionKind.AggregateAlbums
+                    projectionKind == SearchViewProjectionKind.AlbumGroups,
+                sortMode: projectionKind == SearchViewProjectionKind.AlbumGroups
                     ? FolderSortMode.DeterministicUnranked
                     : FolderSortMode.AlbumRanked);
-            if (projectionKind == SearchViewProjectionKind.AggregateAlbums)
+            if (projectionKind == SearchViewProjectionKind.AlbumGroups)
             {
-                aggregateAlbumProjector = new IncrementalAlbumAggregateProjector(
+                albumGroupProjector = new IncrementalAlbumGroupProjector(
                     projection.AlbumQuery!,
                     SettingsCloner.Clone(settings));
             }
         }
-        else if (projectionKind == SearchViewProjectionKind.AggregateTracks)
+        else if (projectionKind == SearchViewProjectionKind.TrackGroups)
         {
-            aggregateTrackProjector = new IncrementalAggregateTrackProjector(
+            trackGroupProjector = new IncrementalTrackGroupProjector(
                 projection.SongQuery!,
                 SettingsCloner.Clone(settings),
                 reputation,
@@ -361,10 +361,10 @@ public sealed class SearchViewKernel
             IReadOnlyList<ProjectedFileCandidate> changed;
             IReadOnlyList<SearchViewProjectedDirectory>? changedDirectories = null;
             IReadOnlyList<PeerDirectoryIdentity>? removedDirectories = null;
-            IReadOnlyList<SearchViewProjectedAggregateTrackGroup>? changedTrackGroups = null;
-            IReadOnlyList<SearchViewProjectedAggregateAlbumGroup>? changedAlbumGroups = null;
+            IReadOnlyList<SearchViewProjectedTrackGroup>? changedTrackGroups = null;
+            IReadOnlyList<SearchViewProjectedAlbumGroup>? changedAlbumGroups = null;
             IReadOnlyList<PeerDirectoryIdentity>? removedAlbumGroups = null;
-            if (projectionKind == SearchViewProjectionKind.AggregateAlbums)
+            if (projectionKind == SearchViewProjectionKind.AlbumGroups)
             {
                 AlbumFolderProjectionChanges albumChanges = albumFolderProjector!
                     .AddRangeAndGetChanges(fresh);
@@ -372,36 +372,36 @@ public sealed class SearchViewKernel
                 // also reveal/retire untouched folders when greedy buckets regroup.
                 var affectedFolders = albumChanges.Added.Concat(albumChanges.Updated)
                     .Select(folder => new PeerPathKey(folder.Username, folder.FolderPath)).ToHashSet();
-                AlbumAggregateSearchViewChanges aggregateChanges = aggregateAlbumProjector!
+                AlbumGroupsSearchViewChanges groupChanges = albumGroupProjector!
                     .ApplyChangesForSearchView(albumChanges);
-                (changedAlbumGroups, removedAlbumGroups) = ApplyAggregateAlbumGroups(
-                    aggregateChanges.AffectedGroupIndexes, affectedFolders);
-                (changedDirectories, removedDirectories) = ApplyVisibleAggregateAlbumDirectories(affectedFolders);
+                (changedAlbumGroups, removedAlbumGroups) = ApplyAlbumGroups(
+                    groupChanges.AffectedGroupIndexes, affectedFolders);
+                (changedDirectories, removedDirectories) = ApplyVisibleAlbumGroupDirectories(affectedFolders);
                 changed = NewAlbumFiles(changedDirectories);
             }
-            else if (projectionKind == SearchViewProjectionKind.AggregateTracks)
+            else if (projectionKind == SearchViewProjectionKind.TrackGroups)
             {
-                var aggregateChanges = aggregateTrackProjector!
+                var groupChanges = trackGroupProjector!
                     .AddRangeForSearchView(fresh);
-                var changedVisible = new List<SearchViewProjectedAggregateTrackGroup>();
+                var changedVisible = new List<SearchViewProjectedTrackGroup>();
                 var changedFiles = new List<ProjectedFileCandidate>();
-                foreach (SearchViewProjectedAggregateTrackGroup change in aggregateChanges)
+                foreach (SearchViewProjectedTrackGroup change in groupChanges)
                 {
-                    bool alreadyVisible = visibleAggregateTrackIndexes.Contains(change.Index);
+                    bool alreadyVisible = visibleTrackGroupIndexes.Contains(change.Index);
                     // A late filename match may reveal a group that was already
                     // eligible upstream. Include its earlier options as well.
-                    SearchViewProjectedAggregateTrackGroup group = alreadyVisible
+                    SearchViewProjectedTrackGroup group = alreadyVisible
                         ? change
-                        : aggregateTrackProjector.SnapshotGroupForSearchView(change.Index);
+                        : trackGroupProjector.SnapshotGroupForSearchView(change.Index);
                     if (!alreadyVisible)
                     {
-                        visibleAggregateTrackIndexes.Add(group.Index);
+                        visibleTrackGroupIndexes.Add(group.Index);
                         topLevelItemCount++;
                     }
-                    aggregateTrackSelectableCounts.TryGetValue(group.Index, out long priorSelectable);
+                    trackGroupSelectableCounts.TryGetValue(group.Index, out long priorSelectable);
                     selectableOptionCount = checked(selectableOptionCount
                         + group.SelectableOptionCount - priorSelectable);
-                    aggregateTrackSelectableCounts[group.Index] = group.SelectableOptionCount;
+                    trackGroupSelectableCounts[group.Index] = group.SelectableOptionCount;
                     foreach (ProjectedFileCandidate file in group.NewOptions)
                     {
                         CountProjectedFile(file);
@@ -484,12 +484,12 @@ public sealed class SearchViewKernel
                         => albumDirectories.Values.ToArray(),
                     _ => null,
                 },
-                projectionKind == SearchViewProjectionKind.AggregateTracks
-                    ? aggregateTrackProjector!.SnapshotForSearchView()
+                projectionKind == SearchViewProjectionKind.TrackGroups
+                    ? trackGroupProjector!.SnapshotForSearchView()
                     : null,
-                projectionKind == SearchViewProjectionKind.AggregateAlbums
-                    ? aggregateAlbumProjector!.SnapshotForSearchView()
-                        .Where(MatchesAggregateAlbumGroup).ToArray()
+                projectionKind == SearchViewProjectionKind.AlbumGroups
+                    ? albumGroupProjector!.SnapshotForSearchView()
+                        .Where(MatchesAlbumGroup).ToArray()
                     : null);
         }
     }
@@ -523,7 +523,7 @@ public sealed class SearchViewKernel
             || (folder.ProjectionFiles ?? throw new InvalidDataException("A search folder has no projection facts."))
                 .Any(file => ContainsFilter(file.Input.Filename));
 
-    private bool MatchesAggregateAlbumGroup(SearchViewProjectedAggregateAlbumGroup group)
+    private bool MatchesAlbumGroup(SearchViewProjectedAlbumGroup group)
         => filterText == null
             || ContainsFilter(group.Query.Artist)
             || ContainsFilter(group.Query.Album)
@@ -742,15 +742,15 @@ public sealed class SearchViewKernel
 
     private (
         IReadOnlyList<SearchViewProjectedDirectory> Changed,
-        IReadOnlyList<PeerDirectoryIdentity> Removed) ApplyVisibleAggregateAlbumDirectories(
+        IReadOnlyList<PeerDirectoryIdentity> Removed) ApplyVisibleAlbumGroupDirectories(
         IEnumerable<PeerPathKey> affectedFolders)
     {
         var changed = new List<AlbumFolder>();
         var removed = new List<PeerDirectoryIdentity>();
         foreach (PeerPathKey key in affectedFolders)
         {
-            if (aggregateAlbumProjector!.FindFolderForSearchView(key) is { } current
-                && visibleAggregateAlbumGroups.ContainsKey(current.GroupIndex))
+            if (albumGroupProjector!.FindFolderForSearchView(key) is { } current
+                && visibleAlbumGroups.ContainsKey(current.GroupIndex))
             {
                 // A surviving root only appends immutable facts. Unchanged
                 // options need no directory rewrite when other peers arrive.
@@ -790,19 +790,19 @@ public sealed class SearchViewKernel
     }
 
     private (
-        IReadOnlyList<SearchViewProjectedAggregateAlbumGroup> Changed,
-        IReadOnlyList<PeerDirectoryIdentity> Removed) ApplyAggregateAlbumGroups(
+        IReadOnlyList<SearchViewProjectedAlbumGroup> Changed,
+        IReadOnlyList<PeerDirectoryIdentity> Removed) ApplyAlbumGroups(
         IReadOnlyList<int> affectedIndexes,
         HashSet<PeerPathKey> affectedFolders)
     {
-        var changed = new List<SearchViewProjectedAggregateAlbumGroup>();
+        var changed = new List<SearchViewProjectedAlbumGroup>();
         var removed = new List<PeerDirectoryIdentity>();
         foreach (int index in affectedIndexes)
         {
-            visibleAggregateAlbumGroups.TryGetValue(index, out var previous);
-            SearchViewProjectedAggregateAlbumGroup? group = aggregateAlbumProjector!
+            visibleAlbumGroups.TryGetValue(index, out var previous);
+            SearchViewProjectedAlbumGroup? group = albumGroupProjector!
                 .SnapshotGroupForSearchView(index);
-            if (group != null && !MatchesAggregateAlbumGroup(group))
+            if (group != null && !MatchesAlbumGroup(group))
                 group = null;
             if (previous != null)
             {
@@ -811,12 +811,12 @@ public sealed class SearchViewKernel
                 topLevelItemCount--;
                 selectableOptionCount -= previous.SelectableOptionCount;
                 ChangeAlbumProjectionFileCounts(previous.FileCounts, -1);
-                visibleAggregateAlbumGroups.Remove(index);
-                int priorIdentityCount = visibleAggregateAlbumIdentities[previous.StableIdentity];
+                visibleAlbumGroups.Remove(index);
+                int priorIdentityCount = visibleAlbumGroupIdentities[previous.StableIdentity];
                 if (priorIdentityCount == 1)
-                    visibleAggregateAlbumIdentities.Remove(previous.StableIdentity);
+                    visibleAlbumGroupIdentities.Remove(previous.StableIdentity);
                 else
-                    visibleAggregateAlbumIdentities[previous.StableIdentity] = priorIdentityCount - 1;
+                    visibleAlbumGroupIdentities[previous.StableIdentity] = priorIdentityCount - 1;
             }
             if (group == null)
             {
@@ -833,12 +833,12 @@ public sealed class SearchViewKernel
             ChangeAlbumProjectionFileCounts(counts, 1);
             // Retain the immutable publication itself: its old membership is
             // needed when a later change hides or regroups untouched options.
-            visibleAggregateAlbumGroups[index] = group;
-            visibleAggregateAlbumIdentities[group.StableIdentity] =
-                visibleAggregateAlbumIdentities.GetValueOrDefault(group.StableIdentity) + 1;
+            visibleAlbumGroups[index] = group;
+            visibleAlbumGroupIdentities[group.StableIdentity] =
+                visibleAlbumGroupIdentities.GetValueOrDefault(group.StableIdentity) + 1;
             if (previous == null
                 || previous.StableIdentity != group.StableIdentity
-                || !SameAggregateAlbumMembership(previous, group))
+                || !SameAlbumGroupMembership(previous, group))
             {
                 if (previous != null && previous.StableIdentity != group.StableIdentity)
                     removed.Add(previous.StableIdentity);
@@ -849,14 +849,14 @@ public sealed class SearchViewKernel
             .OrderByDescending(group => group.ShareCount)
             .ThenBy(group => group.Index)
             .ToArray(), removed
-            .Where(identity => !visibleAggregateAlbumIdentities.ContainsKey(identity))
+            .Where(identity => !visibleAlbumGroupIdentities.ContainsKey(identity))
             .Distinct()
             .ToArray());
     }
 
-    private static bool SameAggregateAlbumMembership(
-        SearchViewProjectedAggregateAlbumGroup left,
-        SearchViewProjectedAggregateAlbumGroup right)
+    private static bool SameAlbumGroupMembership(
+        SearchViewProjectedAlbumGroup left,
+        SearchViewProjectedAlbumGroup right)
     {
         if (left.ShareCount != right.ShareCount
             || left.SelectableOptionCount != right.SelectableOptionCount

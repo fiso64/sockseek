@@ -19,8 +19,8 @@ internal sealed class ManualSelectionCoordinator
     private readonly Func<Job, Task> flushTerminalEffects;
     private readonly Func<Job, bool> isSuccessfulTerminal;
     private readonly Action<Job> prepareSelectionSettings;
-    private readonly ConcurrentDictionary<Guid, Guid> aggregateParentByChildId = new();
-    private readonly ConcurrentDictionary<Guid, byte> closedAggregateSelections = new();
+    private readonly ConcurrentDictionary<Guid, Guid> groupParentByChildId = new();
+    private readonly ConcurrentDictionary<Guid, byte> closedGroupSelections = new();
     private readonly ConcurrentDictionary<Guid, byte> closedManualSelections = new();
 
     public ManualSelectionCoordinator(
@@ -59,23 +59,23 @@ internal sealed class ManualSelectionCoordinator
             if (source is SongJob directSong && directSong.IsAwaitingSelection
                 && !closedManualSelections.ContainsKey(directSong.Id))
                 song = directSong;
-            else if (source is AggregateJob aggregate && CanStartAggregateSelection(aggregate))
+            else if (source is SongGroupsJob group && CanStartGroupSelection(group))
             {
-                song = aggregate.Songs.FirstOrDefault(child => child.Candidates?.Any(file =>
+                song = group.Songs.FirstOrDefault(child => child.Candidates?.Any(file =>
                     string.Equals(file.Username, candidate.Username, StringComparison.Ordinal)
                     && string.Equals(file.Filename, candidate.Filename, StringComparison.Ordinal)
                     && file.Visibility == candidate.Visibility) == true);
-                if (song == null || !CanStartAggregateChild(song))
+                if (song == null || !CanStartGroupChild(song))
                     return false;
-                EnsureManualAggregateChildPrepared(aggregate, song);
+                EnsureManualGroupChildPrepared(group, song);
             }
             else
                 return false;
 
             song.ResolvedTarget = candidate;
-            // Aggregate groups remain a discovery surface while selection is open.
+            // Result groups remain a discovery surface while selection is open.
             // Execution pins the explicit manual target without discarding options.
-            if (source is not AggregateJob)
+            if (source is not SongGroupsJob)
                 song.Candidates = [candidate];
             ApplySelectionSettings(song, configureSelection);
             song.EnsureDisplayId();
@@ -105,13 +105,13 @@ internal sealed class ManualSelectionCoordinator
                 return true;
             }
 
-            if (sourceJob is AlbumAggregateJob aggregateJob && CanStartAggregateSelection(aggregateJob))
+            if (sourceJob is AlbumGroupsJob songGroupsJob && CanStartGroupSelection(songGroupsJob))
             {
-                var childAlbum = FindAggregateAlbumForSelection(aggregateJob, selectedFolder, albumQuery);
-                if (childAlbum == null || !CanStartAggregateChild(childAlbum))
+                var childAlbum = FindAlbumGroupForSelection(songGroupsJob, selectedFolder, albumQuery);
+                if (childAlbum == null || !CanStartGroupChild(childAlbum))
                     return false;
 
-                EnsureManualAggregateChildPrepared(aggregateJob, childAlbum);
+                EnsureManualGroupChildPrepared(songGroupsJob, childAlbum);
                 StartExistingAlbumSelection(childAlbum, selectedFolder, configureSelection);
                 selectedJob = childAlbum;
                 return true;
@@ -130,12 +130,12 @@ internal sealed class ManualSelectionCoordinator
                 return false;
             if (IsCancellationQueued(job))
                 return true;
-            if (job is AggregateJob or AlbumAggregateJob)
-                closedAggregateSelections[job.Id] = CancellationQueued;
+            if (job is SongGroupsJob or AlbumGroupsJob)
+                closedGroupSelections[job.Id] = CancellationQueued;
             else
                 closedManualSelections[job.Id] = CancellationQueued;
 
-            var selectedChildren = aggregateParentByChildId
+            var selectedChildren = groupParentByChildId
                 .Where(pair => pair.Value == job.Id)
                 .Select(pair => getJob(pair.Key)).OfType<Job>().ToArray();
             cancelSelection(job, source);
@@ -153,24 +153,24 @@ internal sealed class ManualSelectionCoordinator
     public async Task<bool> CompleteAsync(Guid jobId)
     {
         Job job;
-        bool aggregate;
+        bool group;
         lock (selectionGate)
         {
             var current = getJob(jobId);
             if (current == null || !current.IsAwaitingSelection || current.Config == null || IsCancellationQueued(current))
                 return false;
             job = current;
-            aggregate = job is AggregateJob or AlbumAggregateJob;
-            if (aggregate)
-                closedAggregateSelections.TryAdd(job.Id, 0);
+            group = job is SongGroupsJob or AlbumGroupsJob;
+            if (group)
+                closedGroupSelections.TryAdd(job.Id, 0);
             else
             {
                 closedManualSelections.TryAdd(job.Id, 0);
                 JobOutcomeCommitter.Commit(job, JobOutcome.Failed(JobFailureReason.NoMatchingResults));
             }
         }
-        if (aggregate)
-            await TryFinalizeClosedAggregateSelectionAsync(job);
+        if (group)
+            await TryFinalizeClosedGroupSelectionAsync(job);
         else
             await flushTerminalEffects(job);
         return true;
@@ -185,8 +185,8 @@ internal sealed class ManualSelectionCoordinator
             if (current == null || !current.IsAwaitingSelection || current.Config == null || IsCancellationQueued(current))
                 return false;
             job = current;
-            if (job is AggregateJob or AlbumAggregateJob)
-                closedAggregateSelections.TryAdd(job.Id, 0);
+            if (job is SongGroupsJob or AlbumGroupsJob)
+                closedGroupSelections.TryAdd(job.Id, 0);
             else
                 closedManualSelections.TryAdd(job.Id, 0);
             JobOutcomeCommitter.Commit(job, JobOutcome.Skipped(JobSkipReason.Manual));
@@ -195,12 +195,12 @@ internal sealed class ManualSelectionCoordinator
         return true;
     }
 
-    public async Task TryFinalizeClosedAggregateSelectionForChildAsync(Job child)
+    public async Task TryFinalizeClosedGroupSelectionForChildAsync(Job child)
     {
-        if (aggregateParentByChildId.TryGetValue(child.Id, out var aggregateId)
-            && getJob(aggregateId) is { } aggregateJob)
+        if (groupParentByChildId.TryGetValue(child.Id, out var groupId)
+            && getJob(groupId) is { } songGroupsJob)
         {
-            await TryFinalizeClosedAggregateSelectionAsync(aggregateJob);
+            await TryFinalizeClosedGroupSelectionAsync(songGroupsJob);
         }
     }
 
@@ -237,62 +237,62 @@ internal sealed class ManualSelectionCoordinator
         foreach (Guid jobId in ids)
         {
             closedManualSelections.TryRemove(jobId, out _);
-            closedAggregateSelections.TryRemove(jobId, out _);
-            aggregateParentByChildId.TryRemove(jobId, out _);
+            closedGroupSelections.TryRemove(jobId, out _);
+            groupParentByChildId.TryRemove(jobId, out _);
         }
 
-        foreach (var pair in aggregateParentByChildId.Where(pair => ids.Contains(pair.Value)))
-            aggregateParentByChildId.TryRemove(pair.Key, out _);
+        foreach (var pair in groupParentByChildId.Where(pair => ids.Contains(pair.Value)))
+            groupParentByChildId.TryRemove(pair.Key, out _);
     }
 
     private bool CanStartManualAlbumSelection(AlbumJob albumJob)
         => albumJob.DownloadBehavior == DownloadBehavior.Manual
             && !closedManualSelections.ContainsKey(albumJob.Id)
-            && (!aggregateParentByChildId.TryGetValue(albumJob.Id, out Guid parentId)
-                || !closedAggregateSelections.ContainsKey(parentId))
+            && (!groupParentByChildId.TryGetValue(albumJob.Id, out Guid parentId)
+                || !closedGroupSelections.ContainsKey(parentId))
             && (albumJob.IsAwaitingSelection
                 || albumJob.IsUnsuccessfulTerminal && albumJob.TerminalOutcome != JobTerminalOutcome.Cancelled);
 
-    private bool CanStartAggregateSelection(Job aggregate)
-        => aggregate.IsAwaitingSelection && !closedAggregateSelections.ContainsKey(aggregate.Id);
+    private bool CanStartGroupSelection(Job group)
+        => group.IsAwaitingSelection && !closedGroupSelections.ContainsKey(group.Id);
 
     private bool IsCancellationQueued(Job job)
         => closedManualSelections.TryGetValue(job.Id, out byte manual) && manual == CancellationQueued
-            || closedAggregateSelections.TryGetValue(job.Id, out byte aggregate) && aggregate == CancellationQueued;
+            || closedGroupSelections.TryGetValue(job.Id, out byte group) && group == CancellationQueued;
 
-    private bool CanStartAggregateChild(Job child)
+    private bool CanStartGroupChild(Job child)
         => !contexts.ContainsKey(child.Id)
             || child.LifecycleState is JobLifecycleState.AwaitingSelection or JobLifecycleState.Terminal;
 
-    internal int RetainedStateCount => aggregateParentByChildId.Count
-        + closedAggregateSelections.Count
+    internal int RetainedStateCount => groupParentByChildId.Count
+        + closedGroupSelections.Count
         + closedManualSelections.Count;
 
-    private static AlbumJob? FindAggregateAlbumForSelection(AlbumAggregateJob aggregateJob, AlbumFolder selectedFolder, AlbumQuery? albumQuery)
-        => aggregateJob.Albums.FirstOrDefault(album =>
+    private static AlbumJob? FindAlbumGroupForSelection(AlbumGroupsJob songGroupsJob, AlbumFolder selectedFolder, AlbumQuery? albumQuery)
+        => songGroupsJob.Albums.FirstOrDefault(album =>
             (albumQuery == null || AlbumQueriesEqual(album.Query, albumQuery))
             && album.Results.Any(folder => SameAlbumFolder(folder, selectedFolder)));
 
-    private void EnsureManualAggregateChildPrepared(Job aggregateJob, Job child)
+    private void EnsureManualGroupChildPrepared(Job songGroupsJob, Job child)
     {
         bool prepared = contexts.ContainsKey(child.Id);
-        child.WorkflowId = aggregateJob.WorkflowId;
+        child.WorkflowId = songGroupsJob.WorkflowId;
         // Retrying a prepared child must keep its settings paired with its
         // context, including any selection-specific output override.
         if (!prepared)
-            child.Config = aggregateJob.Config;
+            child.Config = songGroupsJob.Config;
         child.ItemName ??= child.ToString(noInfo: true);
         child.DownloadBehaviorPolicy = child is AlbumJob
             ? child.DownloadBehaviorPolicy with { Album = DownloadBehavior.Manual }
             : child.DownloadBehaviorPolicy with { Song = DownloadBehavior.Manual };
 
-        aggregateParentByChildId[child.Id] = aggregateJob.Id;
-        registerJob(child, aggregateJob, aggregateJob.Id);
+        groupParentByChildId[child.Id] = songGroupsJob.Id;
+        registerJob(child, songGroupsJob, songGroupsJob.Id);
 
         if (prepared)
             return;
 
-        var parentCtx = contexts.Get(aggregateJob);
+        var parentCtx = contexts.Get(songGroupsJob);
         contexts.Set(child, new JobContext
         {
             PreparationOwner = parentCtx.PreparationOwner,
@@ -307,17 +307,17 @@ internal sealed class ManualSelectionCoordinator
         observePreparedAutoProfiles(child);
     }
 
-    private async Task TryFinalizeClosedAggregateSelectionAsync(Job aggregateJob)
+    private async Task TryFinalizeClosedGroupSelectionAsync(Job songGroupsJob)
     {
         List<Job> closedChildren;
         bool completedRoot = false;
         lock (selectionGate)
         {
-            if (!closedAggregateSelections.ContainsKey(aggregateJob.Id) || IsCancellationQueued(aggregateJob))
+            if (!closedGroupSelections.ContainsKey(songGroupsJob.Id) || IsCancellationQueued(songGroupsJob))
                 return;
 
-            var selectedChildren = aggregateParentByChildId
-                .Where(pair => pair.Value == aggregateJob.Id)
+            var selectedChildren = groupParentByChildId
+                .Where(pair => pair.Value == songGroupsJob.Id)
                 .Select(pair => getJob(pair.Key))
                 .OfType<Job>()
                 .ToList();
@@ -330,19 +330,19 @@ internal sealed class ManualSelectionCoordinator
             foreach (Job child in closedChildren)
                 JobOutcomeCommitter.Commit(child, JobOutcome.Failed(JobFailureReason.NoMatchingResults));
 
-            if (aggregateJob.LifecycleState != JobLifecycleState.Terminal)
+            if (songGroupsJob.LifecycleState != JobLifecycleState.Terminal)
             {
                 var outcome = selectedChildren.Count > 0 && selectedChildren.All(isSuccessfulTerminal)
                     ? JobOutcome.Done()
                     : JobOutcome.Failed(JobFailureReason.NoMatchingResults);
-                JobOutcomeCommitter.Commit(aggregateJob, outcome);
+                JobOutcomeCommitter.Commit(songGroupsJob, outcome);
                 completedRoot = true;
             }
         }
         foreach (Job child in closedChildren)
             await flushTerminalEffects(child);
         if (completedRoot)
-            await flushTerminalEffects(aggregateJob);
+            await flushTerminalEffects(songGroupsJob);
     }
 
     private static bool SameAlbumFolder(AlbumFolder left, AlbumFolder right)

@@ -18,7 +18,7 @@ function observeRetirement(page: Page, jobId: string): Promise<void> {
   })));
 }
 
-test('retains 100-candidate Song and aggregate fallback without leaking peer penalties across workflows @Load', async ({ page, daemon }, testInfo) => {
+test('retains 100-candidate Song and group fallback without leaking peer penalties across workflows @Load', async ({ page, daemon }, testInfo) => {
   test.setTimeout(90_000);
   await daemon.command('long-song-fallback');
   const expectedPeers = Array.from({ length: 100 }, (_, index) => `Péér ${String(index).padStart(3, '0')}`);
@@ -28,15 +28,15 @@ test('retains 100-candidate Song and aggregate fallback without leaking peer pen
     browserDetailReads: number; childPageReads: number }[] = [];
   const workflowIds = new Set<string>();
 
-  for (const aggregate of [false, true]) {
-    const mode = aggregate ? 'aggregate' : 'song';
+  for (const group of [false, true]) {
+    const mode = group ? 'song-groups' : 'song';
     const output = testInfo.outputPath(`${mode}-output`);
     await daemon.command('hold-download');
     const started = performance.now();
-    const response = await measureApi(daemon.url, aggregate ? '/api/jobs/aggregate/tracks' : '/api/jobs/downloads/song', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+    const response = await measureApi(daemon.url, group ? '/api/jobs/groups/tracks' : '/api/jobs/downloads/song', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
         songQuery: { title: 'Song', artist: 'Artist', artistMaybeWrong: false },
         options: { outputParentDir: output, downloadSettings: {
-          search: { minSharesAggregate: 1 },
+          search: { minGroupShares: 1 },
           skip: { skipExisting: false },
           transfer: { maxDownloadRetries: 100, unknownErrorRetries: 0 },
         } },
@@ -57,7 +57,7 @@ test('retains 100-candidate Song and aggregate fallback without leaking peer pen
     };
     page.on('request', onRequest);
     await page.goto(`/jobs/${root.jobId}`);
-    if (aggregate) {
+    if (group) {
       await expect(page.locator('.job-child-row')).toHaveCount(1);
       await page.locator('.job-child-open').click();
     }
@@ -106,7 +106,7 @@ test('retains 100-candidate Song and aggregate fallback without leaking peer pen
     await daemon.command('report-fallback-downloads');
     const report = daemon.logs().reverse().find(line => line.startsWith('E2E_FALLBACK_DOWNLOADS '))!;
     expect(JSON.parse(report.slice('E2E_FALLBACK_DOWNLOADS '.length))).toEqual(
-      aggregate ? [...expectedPeers, ...expectedPeers] : expectedPeers);
+      group ? [...expectedPeers, ...expectedPeers] : expectedPeers);
 
     await expect(page.getByLabel('Connection status').locator('strong')).toContainText('Connected');
     await daemon.command('release-download');
@@ -129,11 +129,11 @@ test('retains 100-candidate Song and aggregate fallback without leaking peer pen
       resolvedUsername: 'Péér 099', resolvedFilename: expectedPath(99), resolvedSize: 1_024 });
     expect(await readRawSource()).toEqual(liveRaw);
 
-    if (aggregate) {
-      const aggregateResponse = await page.request.get(`/api/jobs/${root.jobId}`);
-      expect(aggregateResponse.ok(), await aggregateResponse.text()).toBe(true);
-      expect((await aggregateResponse.json() as Schema<'JobDetailDto'>).payload).toMatchObject({
-        kind: 'aggregate', songCount: 1, completedSongCount: 1, succeededSongCount: 1, failedSongCount: 0,
+    if (group) {
+      const groupResponse = await page.request.get(`/api/jobs/${root.jobId}`);
+      expect(groupResponse.ok(), await groupResponse.text()).toBe(true);
+      expect((await groupResponse.json() as Schema<'JobDetailDto'>).payload).toMatchObject({
+        kind: 'song-groups', songCount: 1, completedSongCount: 1, succeededSongCount: 1, failedSongCount: 0,
       });
       await page.goto(`/jobs/${root.jobId}`);
       await expect(page.locator('.job-run-progress-copy')).toContainText('1 of 1 complete');
@@ -179,7 +179,7 @@ test('retains 100-candidate Song and aggregate fallback without leaking peer pen
     // Only semantic jobs need detail reads; the execution wrapper needs none.
     // Count timer-driven reconciliations as measurements, not a wall-clock-sensitive budget.
     expect(new Set(browserDetailReads)).toEqual(new Set([root.jobId, songId].map(id => `/api/jobs/${id}`)));
-    if (aggregate) {
+    if (group) {
       expect(childPages.length).toBeGreaterThan(0);
       expect(childPages.every(query => query.get('kind') === 'song' && query.get('limit') === '100')).toBe(true);
     } else expect(childPages).toHaveLength(0);

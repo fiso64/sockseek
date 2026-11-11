@@ -81,15 +81,15 @@ namespace Sockseek.Core.Jobs;
         public override string ToString(bool noInfo)
             => ItemName ?? $"JobList ({Jobs.Count} jobs)";
 
-        public IEnumerable<Job> Upgrade(bool album, bool aggregate)
+        public IEnumerable<Job> Upgrade(bool album, bool group)
         {
-            if (!album && !aggregate)
+            if (!album && !group)
             {
                 yield return this;
                 yield break;
             }
 
-            if (album && !aggregate)
+            if (album && !group)
             {
                 var albumList = new JobList();
                 albumList.CopySharedFieldsFrom(this);
@@ -97,7 +97,7 @@ namespace Sockseek.Core.Jobs;
                 {
                     if (job is IUpgradeable u)
                     {
-                        foreach (var upgraded in u.Upgrade(album, aggregate))
+                        foreach (var upgraded in u.Upgrade(album, group))
                             albumList.Add(upgraded);
                     }
                     else
@@ -114,7 +114,7 @@ namespace Sockseek.Core.Jobs;
                 {
                     if (job is IUpgradeable u)
                     {
-                        foreach (var upgraded in u.Upgrade(album, aggregate))
+                        foreach (var upgraded in u.Upgrade(album, group))
                             yield return upgraded;
                     }
                     else

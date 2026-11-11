@@ -662,10 +662,10 @@ internal static partial class Program
                 new SongJob(ToSongQuery(node.SongQuery)),
             ServerJobKind.Album when node.AlbumQuery != null =>
                 new AlbumJob(ToAlbumQuery(node.AlbumQuery)),
-            ServerJobKind.Aggregate when node.SongQuery != null =>
-                new AggregateJob(ToSongQuery(node.SongQuery)),
-            ServerJobKind.AlbumAggregate when node.AlbumQuery != null =>
-                new AlbumAggregateJob(ToAlbumQuery(node.AlbumQuery)),
+            ServerJobKind.SongGroups when node.SongQuery != null =>
+                new SongGroupsJob(ToSongQuery(node.SongQuery)),
+            ServerJobKind.AlbumGroups when node.AlbumQuery != null =>
+                new AlbumGroupsJob(ToAlbumQuery(node.AlbumQuery)),
             _ => null,
         };
         if (job != null)
@@ -1187,7 +1187,7 @@ internal static partial class Program
     // recounted independently by each CLI/API consumer.
     private static bool IsRemoteInfrastructureJobKind(ServerJobKind kind)
         => kind is ServerJobKind.Extract or ServerJobKind.JobList or ServerJobKind.RetrieveFolder
-            or ServerJobKind.Aggregate or ServerJobKind.AlbumAggregate;
+            or ServerJobKind.SongGroups or ServerJobKind.AlbumGroups;
 
     private static void CountSummary(JobSummaryDto summary, ref int successes, ref int fails, ref int skipped)
     {
@@ -1364,23 +1364,23 @@ internal static partial class Program
                     ? await ToAlbumResultsJobAsync(backend, detail.Summary.JobId, album, detail.Summary, ct)
                     : ToAlbumJob(album, detail.Summary),
 
-            AggregateJobPayloadDto aggregate
+            SongGroupsJobPayloadDto group
                 => effectiveSettings.PrintResults
-                    ? await ToAggregateResultsJobAsync(
+                    ? await ToGroupResultsJobAsync(
                         backend,
                         detail.Summary.JobId,
-                        aggregate,
+                        group,
                         ct)
-                    : ToAggregateJob(aggregate, ChildrenOf(detail, details)),
+                    : ToSongGroupsJob(group, ChildrenOf(detail, details)),
 
-            AlbumAggregateJobPayloadDto albumAggregate
+            AlbumGroupsJobPayloadDto albumGroups
                 => effectiveSettings.PrintResults
-                    ? await ToAlbumAggregateResultsJobAsync(
+                    ? await ToAlbumGroupsResultsJobAsync(
                         backend,
                         detail.Summary.JobId,
-                        albumAggregate,
+                        albumGroups,
                         ct)
-                    : ToAlbumAggregateJob(albumAggregate, detail.Summary),
+                    : ToAlbumGroupsJob(albumGroups, detail.Summary),
 
             RetrieveFolderJobPayloadDto folder
                 => ToRetrieveFolderJob(folder, detail.Summary),
@@ -1498,19 +1498,19 @@ internal static partial class Program
         return job;
     }
 
-    private static async Task<Job?> ToAggregateResultsJobAsync(
+    private static async Task<Job?> ToGroupResultsJobAsync(
         ICliBackend backend,
-        Guid aggregateJobId,
-        AggregateJobPayloadDto aggregate,
+        Guid songGroupsJobId,
+        SongGroupsJobPayloadDto group,
         CancellationToken ct)
     {
         // Print-only discovery does not execute/register child jobs. Read the
         // same source projection as the UI instead of depending on those jobs.
-        var results = await backend.GetAggregateTrackResultsAsync(
-            aggregateJobId,
-            new AggregateTrackProjectionRequestDto(aggregate.Query, IncludeCandidates: true),
+        var results = await backend.GetTrackGroupResultsAsync(
+            songGroupsJobId,
+            new TrackGroupProjectionRequestDto(group.Query, IncludeCandidates: true),
             ct);
-        return results == null ? null : new AggregateJob(ToSongQuery(aggregate.Query))
+        return results == null ? null : new SongGroupsJob(ToSongQuery(group.Query))
         {
             Songs = results.Items.Select(result => new SongJob(ToSongQuery(result.Query))
             {
@@ -1520,17 +1520,17 @@ internal static partial class Program
         };
     }
 
-    private static async Task<Job?> ToAlbumAggregateResultsJobAsync(
+    private static async Task<Job?> ToAlbumGroupsResultsJobAsync(
         ICliBackend backend,
-        Guid aggregateJobId,
-        AlbumAggregateJobPayloadDto aggregate,
+        Guid songGroupsJobId,
+        AlbumGroupsJobPayloadDto group,
         CancellationToken ct)
     {
-        var results = await backend.GetAggregateAlbumResultsAsync(
-            aggregateJobId,
-            new AggregateAlbumProjectionRequestDto(aggregate.Query, IncludeFolders: true),
+        var results = await backend.GetAlbumGroupResultsAsync(
+            songGroupsJobId,
+            new AlbumGroupProjectionRequestDto(group.Query, IncludeFolders: true),
             ct);
-        return results == null ? null : new AlbumAggregateJob(ToAlbumQuery(aggregate.Query))
+        return results == null ? null : new AlbumGroupsJob(ToAlbumQuery(group.Query))
         {
             Albums = results.Items.Select(result => new AlbumJob(ToAlbumQuery(result.Query))
             {
@@ -1882,10 +1882,10 @@ internal static partial class Program
         return job;
     }
 
-    private static AggregateJob ToAggregateJob(
-        AggregateJobPayloadDto aggregate,
+    private static SongGroupsJob ToSongGroupsJob(
+        SongGroupsJobPayloadDto group,
         IEnumerable<JobDetailDto> children)
-        => new(ToSongQuery(aggregate.Query))
+        => new(ToSongQuery(group.Query))
         {
             Songs = children
                 .Select(child => child.Payload)
@@ -1894,9 +1894,9 @@ internal static partial class Program
                 .ToList(),
         };
 
-    private static AlbumAggregateJob ToAlbumAggregateJob(AlbumAggregateJobPayloadDto albumAggregate, JobSummaryDto? summary = null)
+    private static AlbumGroupsJob ToAlbumGroupsJob(AlbumGroupsJobPayloadDto albumGroups, JobSummaryDto? summary = null)
     {
-        var job = new AlbumAggregateJob(ToAlbumQuery(albumAggregate.Query));
+        var job = new AlbumGroupsJob(ToAlbumQuery(albumGroups.Query));
         if (summary != null)
             ApplyJobOutcome(job, summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason, summary.FailureReason, summary.FailureMessage, summary.CancellationSource);
         return job;

@@ -145,8 +145,8 @@ namespace Sockseek.Core;
     {
         Normal = 0,
         Album = 1,
-        Aggregate = 2,
-        AlbumAggregate = 3,
+        SongGroups = 2,
+        AlbumGroups = 3,
     }
 
     public enum PrintOption

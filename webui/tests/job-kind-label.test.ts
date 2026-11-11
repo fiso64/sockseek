@@ -5,8 +5,8 @@ import { jobKindLabel } from '../src/domains/jobs/kind';
 test.each([
   ['song', 'Song'],
   ['album', 'Album'],
-  ['aggregate', 'Song Aggregate'],
-  ['album-aggregate', 'Album Aggregate'],
+  ['song-groups', 'Song Groups'],
+  ['album-groups', 'Album Groups'],
   ['extract', 'Import'],
   ['job-list', 'Job List'],
   ['remote-file', 'Remote File'],

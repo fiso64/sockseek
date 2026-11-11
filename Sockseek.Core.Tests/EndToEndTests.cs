@@ -1552,10 +1552,10 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task PrintJobs_AggregateJob_DoesNotSearchOrDownload()
+        public async Task PrintJobs_SongGroupsJob_DoesNotSearchOrDownload()
         {
             var testClient = new ClientTests.MockSoulseekClient(TestHelpers.CreateTestIndex());
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-print-jobs-aggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-print-jobs-group-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
 
             try
@@ -1565,7 +1565,7 @@ namespace Tests.EndToEnd
                 rootSettings.Output.ParentDir = outputDir;
                 rootSettings.PrintOption = PrintOption.Jobs;
 
-                var aggregateJob = new AggregateJob(new SongQuery { Artist = "testartist" });
+                var songGroupsJob = new SongGroupsJob(new SongQuery { Artist = "testartist" });
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
                 var app = new DownloadEngine(engineSettings, clientManager);
                 var searched = false;
@@ -1575,14 +1575,14 @@ namespace Tests.EndToEnd
                         searched = true;
                 };
 
-                app.Enqueue(aggregateJob, rootSettings);
+                app.Enqueue(songGroupsJob, rootSettings);
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobTerminalOutcome.Succeeded, aggregateJob.TerminalOutcome);
-                Assert.IsFalse(searched, "Print-jobs mode should not search, even for aggregate jobs.");
-                Assert.AreEqual(0, aggregateJob.Songs.Count, "Print-jobs mode should not populate aggregate search results.");
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, songGroupsJob.TerminalOutcome);
+                Assert.IsFalse(searched, "Print-jobs mode should not search, even for group jobs.");
+                Assert.AreEqual(0, songGroupsJob.Songs.Count, "Print-jobs mode should not populate group search results.");
                 Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length,
                     "Print-jobs mode should not download files.");
             }
@@ -1664,7 +1664,7 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task PrintResults_AlbumAggregateJob_SearchesWithoutDownloading()
+        public async Task PrintResults_AlbumGroupsJob_SearchesWithoutDownloading()
         {
             var lengthOne = new Soulseek.FileAttribute(Soulseek.FileAttributeType.Length, 120);
             var lengthTwo = new Soulseek.FileAttribute(Soulseek.FileAttributeType.Length, 180);
@@ -1694,7 +1694,7 @@ namespace Tests.EndToEnd
                     ]),
             };
             var testClient = new ClientTests.MockSoulseekClient(index);
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-print-album-aggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-print-album-groups-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
 
             try
@@ -1704,7 +1704,7 @@ namespace Tests.EndToEnd
                 rootSettings.Output.ParentDir = outputDir;
                 rootSettings.PrintOption = PrintOption.Results;
 
-                var aggregateJob = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
+                var songGroupsJob = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
                 var app = new DownloadEngine(engineSettings, clientManager);
                 var searchedAlbumJobs = 0;
@@ -1714,18 +1714,18 @@ namespace Tests.EndToEnd
                         && change.Job.Kind == Sockseek.Core.Snapshots.JobSnapshotKind.Album)
                         searchedAlbumJobs++;
                 };
-                app.Enqueue(aggregateJob, rootSettings);
+                app.Enqueue(songGroupsJob, rootSettings);
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobTerminalOutcome.Succeeded, aggregateJob.TerminalOutcome);
-                Assert.IsTrue(aggregateJob.Albums.Count > 0, "Print-results mode should retain album-aggregate candidates for printing.");
-                Assert.AreEqual(4, aggregateJob.Discovery?.RawResultCount, "Live discovery count should remain the raw file-hit count, not the projected album-bucket count.");
-                Assert.IsTrue(aggregateJob.Albums.Count < aggregateJob.Discovery?.RawResultCount, "This fixture must keep projected album buckets fewer than raw file hits.");
-                Assert.AreEqual(0, searchedAlbumJobs, "Print-results mode should not re-search album-aggregate candidate albums.");
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, songGroupsJob.TerminalOutcome);
+                Assert.IsTrue(songGroupsJob.Albums.Count > 0, "Print-results mode should retain album-groups candidates for printing.");
+                Assert.AreEqual(4, songGroupsJob.Discovery?.RawResultCount, "Live discovery count should remain the raw file-hit count, not the projected album-bucket count.");
+                Assert.IsTrue(songGroupsJob.Albums.Count < songGroupsJob.Discovery?.RawResultCount, "This fixture must keep projected album buckets fewer than raw file hits.");
+                Assert.AreEqual(0, searchedAlbumJobs, "Print-results mode should not re-search album-groups candidate albums.");
                 Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length,
-                    "Print-results mode should not download album-aggregate files.");
+                    "Print-results mode should not download album-groups files.");
             }
             finally
             {
@@ -1735,7 +1735,7 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task AlbumAggregateJob_DownloadsResolvedAlbumCandidatesWithoutResearchingThem()
+        public async Task AlbumGroupsJob_DownloadsResolvedAlbumCandidatesWithoutResearchingThem()
         {
             var lengthOne = new Soulseek.FileAttribute(Soulseek.FileAttributeType.Length, 120);
             var lengthTwo = new Soulseek.FileAttribute(Soulseek.FileAttributeType.Length, 180);
@@ -1765,7 +1765,7 @@ namespace Tests.EndToEnd
                     ]),
             };
             var testClient = new ClientTests.MockSoulseekClient(index);
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-download-album-aggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-download-album-groups-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
 
             try
@@ -1775,7 +1775,7 @@ namespace Tests.EndToEnd
                 rootSettings.Output.ParentDir = outputDir;
                 rootSettings.Search.NoBrowseFolder = true;
 
-                var aggregateJob = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
+                var songGroupsJob = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
                 var app = new DownloadEngine(engineSettings, clientManager);
                 var searchedAlbumJobs = 0;
@@ -1789,17 +1789,17 @@ namespace Tests.EndToEnd
                         && change.Job.Kind == Sockseek.Core.Snapshots.JobSnapshotKind.Album)
                         albumDownloadsStarted++;
                 };
-                app.Enqueue(aggregateJob, rootSettings);
+                app.Enqueue(songGroupsJob, rootSettings);
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobTerminalOutcome.Succeeded, aggregateJob.TerminalOutcome);
-                Assert.IsTrue(aggregateJob.Albums.Count > 0, "Album aggregate should produce resolved album candidates.");
-                Assert.AreEqual(0, searchedAlbumJobs, "Resolved album-aggregate candidates should not run a second album search.");
-                Assert.IsTrue(albumDownloadsStarted > 0, "Resolved album-aggregate candidates should still enter album download.");
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, songGroupsJob.TerminalOutcome);
+                Assert.IsTrue(songGroupsJob.Albums.Count > 0, "Album group should produce resolved album candidates.");
+                Assert.AreEqual(0, searchedAlbumJobs, "Resolved album-groups candidates should not run a second album search.");
+                Assert.IsTrue(albumDownloadsStarted > 0, "Resolved album-groups candidates should still enter album download.");
                 Assert.IsTrue(Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length > 0,
-                    "Album aggregate should download files from the resolved candidate album.");
+                    "Album group should download files from the resolved candidate album.");
             }
             finally
             {
@@ -2147,10 +2147,10 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task AlbumAggregateJob_FailsWhenNoAlbumsAreFound()
+        public async Task AlbumGroupsJob_FailsWhenNoAlbumsAreFound()
         {
             var testClient = new ClientTests.MockSoulseekClient([]);
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-empty-album-aggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-empty-album-groups-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
 
             try
@@ -2158,20 +2158,20 @@ namespace Tests.EndToEnd
                 var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
                 var rootSettings = new DownloadSettings();
                 rootSettings.Output.ParentDir = outputDir;
-                rootSettings.Search.MinSharesAggregate = 1;
+                rootSettings.Search.MinGroupShares = 1;
 
-                var aggregateJob = new AlbumAggregateJob(new AlbumQuery { Artist = "Missing Artist" });
+                var songGroupsJob = new AlbumGroupsJob(new AlbumQuery { Artist = "Missing Artist" });
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
                 var app = new DownloadEngine(engineSettings, clientManager);
 
-                app.Enqueue(aggregateJob, rootSettings);
+                app.Enqueue(songGroupsJob, rootSettings);
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.IsTrue(aggregateJob.IsUnsuccessfulTerminal);
-                Assert.AreEqual(JobFailureReason.NoSearchResults, aggregateJob.FailureReason);
-                Assert.AreEqual(0, aggregateJob.Albums.Count);
+                Assert.IsTrue(songGroupsJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.NoSearchResults, songGroupsJob.FailureReason);
+                Assert.AreEqual(0, songGroupsJob.Albums.Count);
             }
             finally
             {
@@ -2181,7 +2181,7 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task AggregateJob_DownloadsResolvedSongCandidatesWithoutResearchingThem()
+        public async Task SongGroupsJob_DownloadsResolvedSongCandidatesWithoutResearchingThem()
         {
             var length = new Soulseek.FileAttribute(Soulseek.FileAttributeType.Length, 180);
             var index = new List<Soulseek.SearchResponse>
@@ -2208,7 +2208,7 @@ namespace Tests.EndToEnd
                     ]),
             };
             var testClient = new ClientTests.MockSoulseekClient(index);
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-download-aggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-download-group-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
 
             try
@@ -2216,10 +2216,10 @@ namespace Tests.EndToEnd
                 var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
                 var rootSettings = new DownloadSettings();
                 rootSettings.Output.ParentDir = outputDir;
-                rootSettings.Search.MinSharesAggregate = 1;
+                rootSettings.Search.MinGroupShares = 1;
                 rootSettings.Skip.SkipExisting = false;
 
-                var aggregateJob = new AggregateJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
+                var songGroupsJob = new SongGroupsJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
                 var app = new DownloadEngine(engineSettings, clientManager);
 
@@ -2232,14 +2232,14 @@ namespace Tests.EndToEnd
                         songSearchesStarted++;
                 };
                 app.Events.DownloadStarted += _ => downloadsStarted++;
-                app.Enqueue(aggregateJob, rootSettings);
+                app.Enqueue(songGroupsJob, rootSettings);
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.IsTrue(aggregateJob.Songs.Count > 0, "Aggregate should produce resolved song candidates.");
-                Assert.AreEqual(0, songSearchesStarted, "Resolved aggregate child songs should not run a second song search.");
-                Assert.IsTrue(downloadsStarted > 0, "Resolved aggregate child songs should still download.");
+                Assert.IsTrue(songGroupsJob.Songs.Count > 0, "Song Groups should produce resolved song candidates.");
+                Assert.AreEqual(0, songSearchesStarted, "Resolved group child songs should not run a second song search.");
+                Assert.IsTrue(downloadsStarted > 0, "Resolved group child songs should still download.");
             }
             finally
             {

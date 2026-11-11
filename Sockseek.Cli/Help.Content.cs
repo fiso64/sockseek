@@ -240,15 +240,15 @@ public static partial class Help
                                     custom path, 'delete' to delete them, or 'keep' to leave
                                     them where they are.
 
-  Aggregate Download Options
+  Group Download Options
 
-    -g, --aggregate                 Aggregate download mode: Find and download all distinct
+    -g, --group                     Group download mode: Find and download all distinct
                                     songs associated with the provided artist, album, or title.
-    --aggregate-length-tol <tol>    Max length tolerance in seconds to consider two tracks or
+    --group-length-tol <tol>        Max length tolerance in seconds to consider two tracks or
                                     albums equal. (Default: 3)
-    --min-shares-aggregate <num>    Minimum number of shares of a track or album for it to be
-                                    downloaded in aggregate mode. (Default: 2)
-    --relax-filtering               Slightly relax file filtering in aggregate mode to include
+    --min-group-shares <num>        Minimum number of shares of a track or album for it to be
+                                    downloaded in group mode. (Default: 2)
+    --relax-filtering               Slightly relax file filtering in group mode to include
                                     more results
 
   Daemon / Remote Options
@@ -304,12 +304,6 @@ public static partial class Help
                                     Room-message retention (default: 30)
     --exclude-locked                Exclude locked files from search results (default: false)
     --pref-exclude-locked           Prefer unlocked results (default: true)
-
-    Jobs, transfer history/accounting and private messages are kept indefinitely by default, with no
-    job-count cleanup threshold. Raw search results and room messages expire after 30 days; their
-    options also accept forever. A finite transfer-retention policy purges history and accounting,
-    reducing the statistics available for that period. Removing a transfer from the UI only hides it
-    and preserves statistics. Neither action deletes downloaded files.
 
   Remote User Commands
 
@@ -571,32 +565,32 @@ Download modes
 
     See Album options for album-specific options.
 
-  Album Aggregate
-    Album aggregate mode is activated when -g/--aggregate is enabled for album inputs. In this mode,
+  Album Groups
+    Album Groups mode is activated when -g/--group is enabled for album inputs. In this mode,
     Sockseek will attempt to group folders returned by Soulseek and download one of each distinct
     album, starting with the one shared by the most peers.
-    Note that --min-shares-aggregate is set to 2 by default, meaning that albums shared by only one
-    user will be ignored. Album-aggregate mode can be used to determine the most common version of a
+    Note that --min-group-shares is set to 2 by default, meaning that albums shared by only one user
+    will be ignored. Album Groups mode can be used to determine the most common version of a
     particular album, or download the most popular (or all) albums by an artist. It's recommended to
     pair it with -t/--interactive.
     Example:
 
     sockseek ""artist=Artist Name"" -gt
 
-    See Aggregate options for aggregate options.
+    See Grouping options for group options.
 
-  Song Aggregate
-    Song aggregate mode is enabled with --aggregate --song (or -gs for short). Sockseek will attempt
-    to group files returned by Soulseek and download one of each distinct song, starting with the
-    one shared by the most peers.
-    As in album aggregate mode, --min-shares-aggregate is set to 2 by default, meaning that songs
-    shared by only one user will be ignored. This mode is useful for downloading all songs by an
-    artist available on Soulseek.
+  Song Groups
+    Song Groups mode is enabled with --group --song (or -gs for short). Sockseek will attempt to
+    group files returned by Soulseek and download one of each distinct song, starting with the one
+    shared by the most peers.
+    As in Album Groups mode, --min-group-shares is set to 2 by default, meaning that songs shared by
+    only one user will be ignored. This mode is useful for downloading all songs by an artist
+    available on Soulseek.
     Example:
 
     sockseek ""artist=Artist Name"" -gs
 
-    See Aggregate options for aggregate options.";
+    See Grouping options for group options.";
 
     const string fileConditionsHelp = @"
 File conditions
@@ -772,9 +766,9 @@ Configuration
     following variables are available:
 
     input-type        (""youtube""|""csv""|""string""|""bandcamp""|""spotify""|""list""|""soulseek""|""musicbrainz""|""none"")
-    download-mode     (""song""|""aggregate""|""album""|""album-aggregate""|""generic-file""|""generic-directory"")
+    download-mode     (""song""|""song-groups""|""album""|""album-groups""|""generic-file""|""generic-directory"")
     album             (bool)
-    aggregate         (bool)
+    group             (bool)
     interactive       (bool)
     progress-json     (bool)
     no-progress       (bool)";

@@ -96,15 +96,15 @@ namespace Tests.Index
         }
 
         [TestMethod]
-        public void IncrementalAggregateIndexPreservesDurationToleranceAndUnknownLength()
+        public void IncrementalGroupIndexPreservesDurationToleranceAndUnknownLength()
         {
             var original = new SongJob(new SongQuery { Artist = "Artist", Title = "Track", Length = 180 });
             var different = new SongJob(new SongQuery { Artist = "Other", Title = "Track", Length = 182 });
             var unknown = new SongJob(new SongQuery { Artist = "Artist", Title = "Track", Length = -1 });
             var variant = new SongJob(new SongQuery { Artist = "ARTIST", Title = "TRACK", Length = 182 });
-            var settings = new DownloadSettings { Search = new SearchSettings { IsAggregate = true, AggregateLengthTol = 3 } };
-            var aggregate = new AggregateJob(new SongQuery { Artist = "Artist" }) { Config = settings, Songs = [variant] };
-            var queue = new JobList("Tracks", [original, different, unknown, aggregate]);
+            var settings = new DownloadSettings { Search = new SearchSettings { GroupResults = true, GroupLengthTol = 3 } };
+            var group = new SongGroupsJob(new SongQuery { Artist = "Artist" }) { Config = settings, Songs = [variant] };
+            var queue = new JobList("Tracks", [original, different, unknown, group]);
             var editor = new DownloadOutputFile(testM3uPath, queue, OutputFileKind.Index, false);
             foreach (var song in new[] { original, different, unknown, variant })
             {
@@ -127,7 +127,7 @@ namespace Tests.Index
         {
             var songs = Enumerable.Range(0, 10_000).Select(i => new SongJob(
                 new SongQuery { Artist = "Artist", Title = "Track " + i })
-                { Config = new DownloadSettings { Search = new SearchSettings { IsAggregate = true } } }).ToArray();
+                { Config = new DownloadSettings { Search = new SearchSettings { GroupResults = true } } }).ToArray();
             var queue = new JobList("Tracks", songs);
             var index = new DownloadOutputFile(testM3uPath, queue, OutputFileKind.Index, false);
             var playlist = new DownloadOutputFile(testM3uPath + ".playlist", queue, OutputFileKind.Playlist, false);
@@ -150,7 +150,7 @@ namespace Tests.Index
                 allocated = GC.GetAllocatedBytesForCurrentThread();
                 var retained = new DownloadOutputFile(testM3uPath, new JobList(), OutputFileKind.Index, true, readOnly: true);
                 allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
-                Assert.IsLessThan(20_000_000L, allocated, "Ordinary index reads must not prepare aggregate lookup state.");
+                Assert.IsLessThan(20_000_000L, allocated, "Ordinary index reads must not prepare group lookup state.");
                 Assert.AreEqual(10_000, retained.GetPreviousRunData().Count);
                 Assert.AreEqual(songs[^1].DownloadPath, retained.PreviousRunResult(songs[^1])?.DownloadPath);
                 Assert.IsFalse(retained.PublishPending());

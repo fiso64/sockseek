@@ -315,9 +315,9 @@ public static partial class ProfileConditionEvaluator
                     job.Value.RequestedMode ?? settings.Extraction.RequestedMode),
             { Kind: JobSnapshotKind.Search, SearchProjection: SearchDefaultProjectionKind.Album } => "album",
             { Kind: JobSnapshotKind.Search, SearchProjection: SearchDefaultProjectionKind.Track } => "song",
-            { Kind: JobSnapshotKind.AlbumAggregate } => "album-aggregate",
+            { Kind: JobSnapshotKind.AlbumGroups } => "album-groups",
             { Kind: JobSnapshotKind.Album } => "album",
-            { Kind: JobSnapshotKind.Aggregate } => "aggregate",
+            { Kind: JobSnapshotKind.SongGroups } => "song-groups",
             { Kind: JobSnapshotKind.Song } => "song",
             { Kind: JobSnapshotKind.RemoteFile } => GenericFileMode,
             { Kind: JobSnapshotKind.RemoteDirectory } => GenericDirectoryMode,
@@ -332,8 +332,8 @@ public static partial class ProfileConditionEvaluator
         {
             "input-type" => inputType.ToString().ToLower(),
             "download-mode" => mode,
-            "album" => mode is "album" or "album-aggregate",
-            "aggregate" => settings.Search.IsAggregate || mode is "aggregate" or "album-aggregate",
+            "album" => mode is "album" or "album-groups",
+            "group" or "aggregate" => settings.Search.GroupResults || mode is "song-groups" or "album-groups",
             _ when context?.Values.TryGetValue(var, out var value) == true => value,
             _ => throw new Exception($"Input error: Unrecognized profile condition variable '{var}'"),
         };
@@ -382,8 +382,8 @@ public static partial class ProfileConditionEvaluator
 
         return mode switch
         {
-            "album" when settings.Search.IsAggregate => "album-aggregate",
-            "song" when settings.Search.IsAggregate => "aggregate",
+            "album" when settings.Search.GroupResults => "album-groups",
+            "song" when settings.Search.GroupResults => "song-groups",
             _ => mode,
         };
     }

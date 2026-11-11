@@ -16,7 +16,7 @@ export function completedExtract(job: JobSummaryDto): boolean {
 export function showsSearchResults(job: JobSummaryDto): boolean {
   // ServerPrintOption.Results | Link | Json, matching DownloadSettings.PrintResults.
   return job.kind === 'search' || Boolean((job.printOption ?? 0) & (2 | 8 | 16))
-    && ['song', 'album', 'aggregate', 'album-aggregate'].includes(job.kind ?? '');
+    && ['song', 'album', 'song-groups', 'album-groups'].includes(job.kind ?? '');
 }
 
 /** Presentation only: extraction and its executable result remain distinct jobs. */

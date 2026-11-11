@@ -45,43 +45,43 @@ public static partial class SearchResultProjector
             .ToList();
     }
 
-    public static List<SongJob> AggregateTracks(
+    public static List<SongJob> GroupTracks(
         IEnumerable<(SearchResponse Response, Soulseek.File File)> rawResults,
         SongQuery query,
         SearchSettings search,
         ConcurrentDictionary<string, int> userSuccessCounts)
-        => AggregateTracks(rawResults.Select((result, index) => SearchProjectionInput.FromLive(
+        => GroupTracks(rawResults.Select((result, index) => SearchProjectionInput.FromLive(
             index + 1L, index + 1, result.Response, result.File, DateTimeOffset.UnixEpoch)),
             query, search, userSuccessCounts);
 
-    public static List<SongJob> AggregateTracks(
+    public static List<SongJob> GroupTracks(
         IEnumerable<SearchProjectionInput> rawResults,
         SongQuery query,
         SearchSettings search,
         ConcurrentDictionary<string, int> userSuccessCounts)
-        => AggregateTracks(rawResults, query, search, userSuccessCounts, requiredConditionsAlreadyApplied: false);
+        => GroupTracks(rawResults, query, search, userSuccessCounts, requiredConditionsAlreadyApplied: false);
 
-    internal static List<SongJob> AggregateTracks(
+    internal static List<SongJob> GroupTracks(
         IEnumerable<SearchProjectionInput> rawResults,
         SongQuery query,
         SearchSettings search,
         ConcurrentDictionary<string, int> userSuccessCounts,
         bool requiredConditionsAlreadyApplied)
     {
-        var projector = new IncrementalAggregateTrackProjector(query, search, userSuccessCounts);
+        var projector = new IncrementalTrackGroupProjector(query, search, userSuccessCounts);
         if (requiredConditionsAlreadyApplied) projector.AddAdmittedRange(rawResults);
         else projector.AddRange(rawResults);
         return projector.Snapshot();
     }
 
-    internal static bool AggregateTrackProjectionIncludes(
+    internal static bool TrackGroupProjectionIncludes(
         SearchResponse response,
         Soulseek.File file,
         SongQuery query,
         SearchSettings search)
         => ConditionSatisfactionPolicy.SearchFileSatisfies(search.NecessaryCond, response, file, query);
 
-    internal static bool AggregateTrackProjectionIncludes(
+    internal static bool TrackGroupProjectionIncludes(
         SearchProjectionInput input,
         SongQuery query,
         SearchSettings search)
@@ -229,24 +229,24 @@ public static partial class SearchResultProjector
     private static string? RepresentativeAudioFilename(List<AlbumFolderFile> folderFiles)
         => folderFiles.FirstOrDefault(f => f.IsMusic).Input?.Filename;
 
-    public static List<AlbumJob> AggregateAlbums(
+    public static List<AlbumJob> GroupAlbums(
         IEnumerable<AlbumFolder> albums,
         AlbumQuery query,
         SearchSettings search)
     {
-        var projector = new IncrementalAlbumAggregateProjector(query, search);
+        var projector = new IncrementalAlbumGroupProjector(query, search);
         projector.ResetBatch(albums);
         return projector.Snapshot();
     }
 
-    internal static AlbumJob CreateAggregateAlbumJob(AlbumQuery query, List<AlbumFolder> versions)
+    internal static AlbumJob CreateAlbumGroupJob(AlbumQuery query, List<AlbumFolder> versions)
     {
         var repFolder = versions.FirstOrDefault()?.FolderPath;
         var itemName = !string.IsNullOrWhiteSpace(repFolder)
             ? Utils.GetBaseNameSlsk(repFolder)
             : null;
         // Populate Album so each job gets a unique index key. Without this, all
-        // aggregate album jobs share the same key (artist + empty album), causing
+        // group album jobs share the same key (artist + empty album), causing
         // index collisions: the last write wins and all albums on rerun match the
         // same path.
         var jobQuery = !string.IsNullOrWhiteSpace(itemName)
@@ -296,7 +296,7 @@ public static partial class SearchResultProjector
     {
         int separator = LastDirectorySeparator(filename);
         // Bare files have no advertised album folder. They remain available in
-        // raw, File, Track and aggregate-track projections.
+        // raw, File, Track and track-group projections.
         if (separator <= 0) return [];
         ReadOnlySpan<char> folder = filename[..separator];
         if (combineDiscs && DiscPatternRegex().IsMatch(folder[(LastDirectorySeparator(folder) + 1)..]))
@@ -365,7 +365,7 @@ public static partial class SearchResultProjector
         private bool hasLockedFile;
         private EvaluatedAlbumProjectionInput? folderBest;
         public EvaluatedAlbumProjectionInput FolderBest => folderBest ??= BuildFolderBest();
-        public ResultSorter.SortEntry AggregateSortEntry => FolderBest.SortEntry;
+        public ResultSorter.SortEntry GroupSortEntry => FolderBest.SortEntry;
 
         private EvaluatedAlbumProjectionInput BuildFolderBest()
         {
@@ -410,7 +410,7 @@ public static partial class SearchResultProjector
         public void RefreshInactiveQualityCoverage()
             => QualityCoverage = AlbumAudioQualityCoverage.Inactive(MusicCount);
 
-        private void AddAggregateBest(EvaluatedAlbumProjectionInput evaluated)
+        private void AddGroupBest(EvaluatedAlbumProjectionInput evaluated)
         {
             if (ResultSorter.SortEntryComparer.Instance.Compare(evaluated.SortEntry, Best.SortEntry) < 0)
                 Best = evaluated;
@@ -424,7 +424,7 @@ public static partial class SearchResultProjector
             folderBest = null;
             if (file.IsMusic)
                 MusicCount++;
-            AddAggregateBest(evaluated);
+            AddGroupBest(evaluated);
         }
 
         public void AddRange(AlbumFolderBuilder other)
@@ -432,7 +432,7 @@ public static partial class SearchResultProjector
             Files.AddRange(other.Files);
             hasLockedFile |= other.hasLockedFile;
             folderBest = null;
-            AddAggregateBest(other.Best);
+            AddGroupBest(other.Best);
             MusicCount += other.MusicCount;
         }
     }
@@ -459,7 +459,7 @@ public static partial class SearchResultProjector
                 return -1;
 
             int beforeQualityComparison = ResultSorter.AlbumBeforeQualitySortEntryComparer.Instance.Compare(
-                x.AggregateSortEntry, y.AggregateSortEntry);
+                x.GroupSortEntry, y.GroupSortEntry);
             if (beforeQualityComparison != 0)
                 return beforeQualityComparison;
 
@@ -484,10 +484,10 @@ public static partial class SearchResultProjector
                     return comparison;
             }
 
-            int aggregateComparison = ResultSorter.SortEntryComparer.Instance.Compare(
-                x.AggregateSortEntry, y.AggregateSortEntry);
-            if (aggregateComparison != 0)
-                return aggregateComparison;
+            int groupComparison = ResultSorter.SortEntryComparer.Instance.Compare(
+                x.GroupSortEntry, y.GroupSortEntry);
+            if (groupComparison != 0)
+                return groupComparison;
 
             int usernameComparison = string.Compare(x.Username, y.Username, StringComparison.Ordinal);
             return usernameComparison != 0

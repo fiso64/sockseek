@@ -314,11 +314,11 @@ public static class CoreSnapshotFactory
                 album.ExecutedSearchDefinition,
                 CreateDirectoryManifest(album)),
             RemoteDirectoryJob remoteDirectory => CreateRemoteDirectoryPayload(remoteDirectory, visited),
-            AggregateJob aggregate => new AggregateJobSnapshotPayload(
-                CreateSongQuery(aggregate.Query),
-                SnapshotCollections.Freeze(aggregate.Songs.Select(song => CreateJob(song, 0, visited))),
-                aggregate.ExecutedSearchDefinition,
-                aggregate.MemberOutcomes),
+            SongGroupsJob group => new SongGroupsJobSnapshotPayload(
+                CreateSongQuery(group.Query),
+                SnapshotCollections.Freeze(group.Songs.Select(song => CreateJob(song, 0, visited))),
+                group.ExecutedSearchDefinition,
+                group.MemberOutcomes),
             JobList list => new JobListSnapshotPayload(
                 list.Count,
                 SnapshotCollections.Freeze(list.Jobs.Select(child => CreateJob(child, 0, visited))),
@@ -376,9 +376,9 @@ public static class CoreSnapshotFactory
                 album.ResolvedTarget == null ? null : CreateAlbumFolderSummary(album.ResolvedTarget),
                 CreateDirectoryDownloadState(album), album.ExecutedSearchDefinition),
             RemoteDirectoryJob directory => CreateRemoteDirectoryExecution(directory),
-            AggregateJob aggregate => new AggregateExecutionPayload(
-                CreateSongQuery(aggregate.Query), aggregate.ExecutedSearchDefinition, aggregate.MemberOutcomes),
-            AlbumAggregateJob aggregate => CreateAlbumAggregatePayload(aggregate),
+            SongGroupsJob group => new SongGroupsExecutionPayload(
+                CreateSongQuery(group.Query), group.ExecutedSearchDefinition, group.MemberOutcomes),
+            AlbumGroupsJob group => CreateAlbumGroupsPayload(group),
             JobList list => new JobListExecutionPayload(list.MemberOutcomes),
             RetrieveFolderJob retrieve => new RetrieveFolderExecutionPayload(
                 new(retrieve.Directory.Username, retrieve.Directory.FolderPath), retrieve.NewFilesFoundCount,
@@ -409,10 +409,10 @@ public static class CoreSnapshotFactory
             CreateDirectoryDownloadState(job));
     }
 
-    private static AlbumAggregateJobSnapshotPayload CreateAlbumAggregatePayload(
-        AlbumAggregateJob job)
+    private static AlbumGroupsJobSnapshotPayload CreateAlbumGroupsPayload(
+        AlbumGroupsJob job)
     {
-        return new AlbumAggregateJobSnapshotPayload(
+        return new AlbumGroupsJobSnapshotPayload(
             CreateAlbumQuery(job.Query),
             job.MemberOutcomes,
             job.ExecutedSearchDefinition);
@@ -520,8 +520,8 @@ public static class CoreSnapshotFactory
             AlbumJob => JobSnapshotKind.Album,
             RemoteFileJob => JobSnapshotKind.RemoteFile,
             RemoteDirectoryJob => JobSnapshotKind.RemoteDirectory,
-            AggregateJob => JobSnapshotKind.Aggregate,
-            AlbumAggregateJob => JobSnapshotKind.AlbumAggregate,
+            SongGroupsJob => JobSnapshotKind.SongGroups,
+            AlbumGroupsJob => JobSnapshotKind.AlbumGroups,
             JobList => JobSnapshotKind.JobList,
             RetrieveFolderJob => JobSnapshotKind.RetrieveFolder,
             _ => JobSnapshotKind.Generic,

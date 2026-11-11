@@ -37,11 +37,11 @@ internal static class JobInfoPrinter
             case ExtractJobPayloadDto extract:
                 PrintExtract(extract, children);
                 break;
-            case AggregateJobPayloadDto agg:
-                PrintAggregate(agg, children);
+            case SongGroupsJobPayloadDto agg:
+                PrintGroup(agg, children);
                 break;
-            case AlbumAggregateJobPayloadDto albumAgg:
-                PrintAlbumAggregate(albumAgg, children);
+            case AlbumGroupsJobPayloadDto albumAgg:
+                PrintAlbumGroups(albumAgg, children);
                 break;
             case JobListPayloadDto list:
                 PrintJobList(list, children);
@@ -136,7 +136,7 @@ internal static class JobInfoPrinter
             Field("Result job", $"[{result.DisplayId:000}] {result.Kind}");
     }
 
-    private static void PrintAggregate(AggregateJobPayloadDto p, IReadOnlyList<JobSummaryDto> children)
+    private static void PrintGroup(SongGroupsJobPayloadDto p, IReadOnlyList<JobSummaryDto> children)
     {
         var queryText = FormatSongQuery(p.Query);
         if (queryText != null) Field("Query", queryText);
@@ -152,7 +152,7 @@ internal static class JobInfoPrinter
         }
     }
 
-    private static void PrintAlbumAggregate(AlbumAggregateJobPayloadDto p, IReadOnlyList<JobSummaryDto> children)
+    private static void PrintAlbumGroups(AlbumGroupsJobPayloadDto p, IReadOnlyList<JobSummaryDto> children)
     {
         var queryText = FormatAlbumQuery(p.Query);
         if (queryText != null) Field("Query", queryText);

@@ -24,6 +24,52 @@ namespace Sockseek.Persistence.Tests;
 public sealed class SqliteInitializationTests
 {
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SearchGroupsMigrationPreservesSettingsAndUserText(bool sharedSettings)
+    {
+        await using var database = new TemporaryDatabase();
+        await using var context = await database.Factory.CreateDbContextAsync();
+        await context.Database.MigrateAsync();
+        Guid runtime = Guid.NewGuid(), submission = Guid.NewGuid();
+        const string artist = "Aggregate / album-aggregate / \"isAggregate\":true [testing]";
+        var settings = new DownloadSettings { Search = new() { GroupResults = true, MinGroupShares = 4, GroupLengthTol = 7 } };
+        var specification = SubmissionSpecification.Create(new SongGroupsJob(new SongQuery { Artist = artist }), settings);
+        if (sharedSettings)
+            specification = specification with { Command = specification.Command with {
+                PlannedEffectiveSettingsJson = specification.EffectiveSettingsJson, PlannedCredentialBindings = [] } };
+        string current = SubmissionSpecificationCodec.Serialize(specification);
+        context.RuntimeSessions.Add(new RuntimeSessionEntity { Id = runtime, Version = "migration" });
+        context.Submissions.Add(new SubmissionEntity { Id = submission, SpecificationSchemaVersion = 5, Revision = 1,
+            Specification = new() { Json = current }, CommitReceiptJson = """{"kind":"song-groups","searchGroupResults":true}""" });
+        var job = JobRow(Guid.NewGuid(), runtime, 1, "Terminal", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        job.Kind = "AlbumGroups";
+        job.PayloadJson = """{"Definition":{"GroupResults":true,"Conditions":{"MinGroupShares":4,"GroupLengthTolerance":7}}}""";
+        job.SubmissionId = submission;
+        context.Jobs.Add(job);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+        await context.GetService<IMigrator>().MigrateAsync("20261107230000_JobPrintOption");
+        Assert.AreEqual("AlbumAggregate", (await context.Jobs.AsNoTracking().SingleAsync()).Kind);
+        using (var old = System.Text.Json.JsonDocument.Parse((await context.Set<SubmissionSpecificationEntity>().AsNoTracking().SingleAsync()).Json))
+        using (var oldSettings = System.Text.Json.JsonDocument.Parse(old.RootElement.GetProperty("effectiveSettingsJson").GetString()!))
+            Assert.IsTrue(oldSettings.RootElement.GetProperty("search").GetProperty("isAggregate").GetBoolean());
+        await context.Database.MigrateAsync();
+        var restored = SubmissionSpecificationCodec.Deserialize((await context.Set<SubmissionSpecificationEntity>().AsNoTracking().SingleAsync()).Json);
+        Assert.AreEqual(artist, ((SongGroupsJob)restored.MaterializeJob()).Query.Artist);
+        var restoredSettings = restored.MaterializeSettings().Search;
+        Assert.IsTrue(restoredSettings.GroupResults);
+        Assert.AreEqual(4, restoredSettings.MinGroupShares);
+        Assert.AreEqual(7, restoredSettings.GroupLengthTol);
+        Assert.AreEqual("AlbumGroups", (await context.Jobs.AsNoTracking().SingleAsync()).Kind);
+        using var payload = System.Text.Json.JsonDocument.Parse((await context.Jobs.AsNoTracking().SingleAsync()).PayloadJson!);
+        Assert.IsTrue(payload.RootElement.GetProperty("Definition").GetProperty("GroupResults").GetBoolean());
+        using var receipt = System.Text.Json.JsonDocument.Parse((await context.Submissions.AsNoTracking().SingleAsync()).CommitReceiptJson!);
+        Assert.AreEqual("song-groups", receipt.RootElement.GetProperty("kind").GetString());
+        Assert.IsTrue(receipt.RootElement.GetProperty("searchGroupResults").GetBoolean());
+    }
+
+    [TestMethod]
     public async Task PrintModeUpgradeRecoversAcceptedIntent()
     {
         await using var database = new TemporaryDatabase();

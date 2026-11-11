@@ -867,11 +867,11 @@ public sealed class JobPreviewCoordinator(
             {
                 DownloadSettings = WithoutCredentials(value.DownloadSettings),
             },
-            AggregateJobDraftDto value => value with
+            SongGroupsJobDraftDto value => value with
             {
                 DownloadSettings = WithoutCredentials(value.DownloadSettings),
             },
-            AlbumAggregateJobDraftDto value => value with
+            AlbumGroupsJobDraftDto value => value with
             {
                 DownloadSettings = WithoutCredentials(value.DownloadSettings),
             },

@@ -743,7 +743,7 @@ public class RemoteCliBackendTests
     }
 
     [TestMethod]
-    public async Task InteractiveCliCoordinator_AlbumAggregatePromptsEachBucket()
+    public async Task InteractiveCliCoordinator_AlbumGroupsPromptsEachBucket()
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-remote-interactive-agg-music-" + Guid.NewGuid());
         string outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-remote-interactive-agg-out-" + Guid.NewGuid());
@@ -777,7 +777,7 @@ public class RemoteCliBackendTests
                 Search =
                 {
                     NoBrowseFolder = true,
-                    MinSharesAggregate = 1,
+                    MinGroupShares = 1,
                 },
             },
             Profiles = ProfileCatalog.Empty,
@@ -815,13 +815,13 @@ public class RemoteCliBackendTests
                     Options: new SubmissionOptionsDto(
                         OutputParentDir: outputDir,
                         ProfileContext: new Dictionary<string, bool> { ["interactive"] = true },
-                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch(["ELO", "--album", "--aggregate", "--min-shares-aggregate", "1", "--no-browse-folder"])))),
+                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch(["ELO", "--album", "--group", "--min-group-shares", "1", "--no-browse-folder"])))),
                 CancellationToken.None);
 
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             await coordinator.RunUntilCompleteAsync(summary.WorkflowId, timeout.Token);
 
-            Assert.AreEqual(2, promptedBuckets.Count, "Each album-aggregate bucket should reach the interactive picker.");
+            Assert.AreEqual(2, promptedBuckets.Count, "Each album-groups bucket should reach the interactive picker.");
             Assert.IsTrue(promptedBuckets.Any(x => x.Contains("Time", StringComparison.OrdinalIgnoreCase)));
             Assert.IsTrue(promptedBuckets.Any(x => x.Contains("Discovery", StringComparison.OrdinalIgnoreCase)));
 
@@ -1057,8 +1057,8 @@ public class RemoteCliBackendTests
     [TestMethod]
     [DataRow("song", "Artist - Track One")]
     [DataRow("album", "Artist - Album")]
-    [DataRow("aggregate", "Artist")]
-    [DataRow("album-aggregate", "Artist")]
+    [DataRow("song-groups", "Artist")]
+    [DataRow("album-groups", "Artist")]
     public async Task RemoteCliBackend_ResultsFullRendersSharedConditionFactsWithoutDownloading(string mode, string query)
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-remote-print-test-" + Guid.NewGuid());
@@ -1117,10 +1117,10 @@ public class RemoteCliBackendTests
                 },
             };
 
-            var args = new List<string> { query, "--print-results-full", "--min-shares-aggregate", "1" };
+            var args = new List<string> { query, "--print-results-full", "--min-group-shares", "1" };
             if (mode == "song") args.Add("--song");
-            if (mode is "album" or "album-aggregate") args.Add("--album");
-            if (mode is "aggregate" or "album-aggregate") args.Add("--aggregate");
+            if (mode is "album" or "album-groups") args.Add("--album");
+            if (mode is "song-groups" or "album-groups") args.Add("--group");
             var summary = await backend.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(
                     query,

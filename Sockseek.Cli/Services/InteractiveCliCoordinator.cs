@@ -101,9 +101,9 @@ internal sealed class InteractiveCliCoordinator
                     await HandleManualAlbumJobAsync(summary.JobId, ct);
                     startedFollowUp = true;
                 }
-                else if (summary.Kind == ServerJobKind.AlbumAggregate)
+                else if (summary.Kind == ServerJobKind.AlbumGroups)
                 {
-                    await HandleManualAlbumAggregateJobAsync(summary.JobId, ct);
+                    await HandleManualAlbumGroupsJobAsync(summary.JobId, ct);
                     startedFollowUp = true;
                 }
             }
@@ -231,15 +231,15 @@ internal sealed class InteractiveCliCoordinator
         await EnqueueInteractiveAlbumJobAsync(session, outcome.Selection, ct);
     }
 
-    private async Task HandleManualAlbumAggregateJobAsync(Guid albumAggregateJobId, CancellationToken ct)
+    private async Task HandleManualAlbumGroupsJobAsync(Guid albumGroupsJobId, CancellationToken ct)
     {
-        var detail = await backend.GetJobDetailAsync(albumAggregateJobId, ct);
-        if (detail?.Payload is not AlbumAggregateJobPayloadDto albumAggregate)
+        var detail = await backend.GetJobDetailAsync(albumGroupsJobId, ct);
+        if (detail?.Payload is not AlbumGroupsJobPayloadDto albumGroups)
             return;
 
-        var projection = await backend.GetAggregateAlbumResultsAsync(
-            albumAggregateJobId,
-            new AggregateAlbumProjectionRequestDto(albumAggregate.Query, IncludeFolders: true),
+        var projection = await backend.GetAlbumGroupResultsAsync(
+            albumGroupsJobId,
+            new AlbumGroupProjectionRequestDto(albumGroups.Query, IncludeFolders: true),
             ct);
 
         var buckets = projection?.Items
@@ -249,8 +249,8 @@ internal sealed class InteractiveCliCoordinator
         if (buckets.Count == 0)
         {
             if (ConsoleInputManager.Reporter != null)
-                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumAggregateJob", detail.Summary.QueryText ?? "", "No matching results");
-            await backend.CompleteManualSelectionAsync(albumAggregateJobId, ct);
+                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumGroupsJob", detail.Summary.QueryText ?? "", "No matching results");
+            await backend.CompleteManualSelectionAsync(albumGroupsJobId, ct);
             return;
         }
 
@@ -261,12 +261,12 @@ internal sealed class InteractiveCliCoordinator
         {
             var folders = bucket.Folders!.Select(CliSearchProjectionMapper.ToCore).ToList();
             var session = new InteractiveAlbumSession(
-                albumAggregateJobId,
+                albumGroupsJobId,
                 new AlbumJob(ToAlbumQuery(bucket.Query)) { ItemName = bucket.ItemName, Results = folders },
                 bucket.Query,
                 folders,
                 OptionsForWorkflow(detail.Summary.WorkflowId),
-                InteractiveAlbumResultKind.AggregateAlbum);
+                InteractiveAlbumResultKind.AlbumGroup);
 
             var outcome = interactiveEnabled
                 ? await PromptForAlbumSelectionAsync(session, InteractiveAlbumPromptPurpose.NewAlbumPrompt)
@@ -286,9 +286,9 @@ internal sealed class InteractiveCliCoordinator
         }
 
         if (!selectedAnyBucket && skippedAnyBucket)
-            await backend.SkipManualSelectionAsync(albumAggregateJobId, ct);
+            await backend.SkipManualSelectionAsync(albumGroupsJobId, ct);
         else
-            await backend.CompleteManualSelectionAsync(albumAggregateJobId, ct);
+            await backend.CompleteManualSelectionAsync(albumGroupsJobId, ct);
     }
 
     private async Task HandleCompletedInteractiveAlbumAsync(
@@ -376,7 +376,7 @@ internal sealed class InteractiveCliCoordinator
         AlbumFolder? refreshed = session.ResultKind switch
         {
             InteractiveAlbumResultKind.Folder => await RefreshFolderProjectionAsync(session, folder, ct),
-            InteractiveAlbumResultKind.AggregateAlbum => await RefreshAggregateAlbumProjectionAsync(session, folder, ct),
+            InteractiveAlbumResultKind.AlbumGroup => await RefreshAlbumGroupProjectionAsync(session, folder, ct),
             _ => null,
         };
 
@@ -400,11 +400,11 @@ internal sealed class InteractiveCliCoordinator
             .FirstOrDefault(candidate => FolderKey(candidate).Equals(FolderKey(folder), StringComparison.OrdinalIgnoreCase));
     }
 
-    private async Task<AlbumFolder?> RefreshAggregateAlbumProjectionAsync(InteractiveAlbumSession session, AlbumFolder folder, CancellationToken ct)
+    private async Task<AlbumFolder?> RefreshAlbumGroupProjectionAsync(InteractiveAlbumSession session, AlbumFolder folder, CancellationToken ct)
     {
-        var projection = await backend.GetAggregateAlbumResultsAsync(
+        var projection = await backend.GetAlbumGroupResultsAsync(
             session.SourceSearchJobId,
-            new AggregateAlbumProjectionRequestDto(session.Query, IncludeFolders: true),
+            new AlbumGroupProjectionRequestDto(session.Query, IncludeFolders: true),
             ct);
         return projection?.Items
             .SelectMany(album => album.Folders ?? [])
@@ -530,8 +530,8 @@ internal sealed class InteractiveCliCoordinator
 
     private static DownloadBehaviorPolicyDto InteractiveDownloadBehavior(DownloadBehaviorPolicyDto? existing)
         => existing == null
-            ? new DownloadBehaviorPolicyDto(Album: ServerDownloadBehavior.Manual, AlbumAggregate: ServerDownloadBehavior.Manual)
-            : existing with { Album = ServerDownloadBehavior.Manual, AlbumAggregate = ServerDownloadBehavior.Manual };
+            ? new DownloadBehaviorPolicyDto(Album: ServerDownloadBehavior.Manual, AlbumGroups: ServerDownloadBehavior.Manual)
+            : existing with { Album = ServerDownloadBehavior.Manual, AlbumGroups = ServerDownloadBehavior.Manual };
 
     private SubmissionOptionsDto OptionsForWorkflow(Guid workflowId)
         => (rootOptions ?? new SubmissionOptionsDto()) with { WorkflowId = workflowId };
@@ -546,7 +546,7 @@ internal sealed class InteractiveCliCoordinator
     private enum InteractiveAlbumResultKind
     {
         Folder,
-        AggregateAlbum,
+        AlbumGroup,
     }
 
     private sealed class InteractiveAlbumSession

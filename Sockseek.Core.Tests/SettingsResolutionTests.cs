@@ -96,16 +96,16 @@ public class SettingsResolutionTests
         var oneShot = SearchResultProjector.AlbumFolders(job.Snapshot(), query, settings.ResolveSearchSettings());
         Assert.HasCount(2, incremental.Items);
         CollectionAssert.AreEquivalent(oneShot.Select(f => f.Username).ToArray(), incremental.Items.Select(f => f.Username).ToArray());
-        var aggregate = job.GetAggregateAlbums(settings.Search);
-        Assert.HasCount(1, aggregate.Items);
-        Assert.HasCount(2, aggregate.Items[0].Results);
+        var group = job.GetAlbumGroups(settings.Search);
+        Assert.HasCount(1, group.Items);
+        Assert.HasCount(2, group.Items[0].Results);
 
         settings.Output.AlbumArtOnly = false;
         Assert.IsEmpty(job.GetAlbumFolders(settings.Search).Items, "Returning to audio mode must apply the preserved conditions.");
     }
 
     [TestMethod]
-    public void ArtworkTrackProjections_IgnoreAudioConditionsInTrackAndAggregateViews()
+    public void ArtworkTrackProjections_IgnoreAudioConditionsInTrackAndGroupViews()
     {
         var settings = ArtworkSettings();
         var query = new SongQuery { Artist = "Artist", Title = "Track", Album = "Album", Length = 200 };
@@ -114,20 +114,20 @@ public class SettingsResolutionTests
         job.Session.AddResponse(Response("flac", "Artist", "flac"));
 
         Assert.HasCount(2, job.GetSortedTrackCandidates(settings.Search, new()).Items);
-        var aggregate = job.GetAggregateTracks(settings.Search, new ConcurrentDictionary<string, int>());
-        Assert.AreEqual(2, aggregate.Items.Sum(track => track.Candidates?.Count ?? 0));
+        var group = job.GetTrackGroups(settings.Search, new ConcurrentDictionary<string, int>());
+        Assert.AreEqual(2, group.Items.Sum(track => track.Candidates?.Count ?? 0));
     }
 
     [TestMethod]
-    public void AggregateProjection_UsesBackendDefaultsWithoutOverwritingTheRequestedThreshold()
+    public void GroupProjection_UsesBackendDefaultsWithoutOverwritingTheRequestedThreshold()
     {
         var settings = new DownloadSettings();
         var job = new SearchJob(new AlbumQuery { Artist = "Artist", Album = "Album" }) { Config = settings };
         job.Session.AddResponse(Response("one-source", "Artist", "mp3"));
-        Assert.IsEmpty(job.GetAggregateAlbums(settings.Search).Items);
-        settings.DefaultMinSharesAggregate = 1;
-        Assert.HasCount(1, job.GetAggregateAlbums(settings.Search).Items);
-        Assert.IsNull(settings.Search.MinSharesAggregate);
+        Assert.IsEmpty(job.GetAlbumGroups(settings.Search).Items);
+        settings.DefaultMinGroupShares = 1;
+        Assert.HasCount(1, job.GetAlbumGroups(settings.Search).Items);
+        Assert.IsNull(settings.Search.MinGroupShares);
     }
 
     [TestMethod]
@@ -170,7 +170,7 @@ public class SettingsResolutionTests
     {
         var settings = new DownloadSettings();
         settings.Output.AlbumArtOnly = true;
-        settings.Search.MinSharesAggregate = 1;
+        settings.Search.MinGroupShares = 1;
         settings.Search.NecessaryCond = new FileConditions
         {
             Formats = ["flac"], MinBitrate = 1000, MinSampleRate = 96000, MinBitDepth = 24,

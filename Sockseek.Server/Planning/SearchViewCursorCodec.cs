@@ -82,47 +82,47 @@ public sealed class SearchViewCursorCodec
         return payload.DirectoryFilePosition;
     }
 
-    public string EncodeAggregateTracks(
+    public string EncodeTrackGroups(
         Guid viewId,
         long revision,
-        SearchViewAggregateTrackPosition position)
+        SearchViewTrackGroupPosition position)
         => Encode(new CursorPayload(
-            1, "aggregate-tracks", viewId, revision, null, null, null, null)
+            1, "track-groups", viewId, revision, null, null, null, null)
         {
-            AggregateTrackPosition = position,
+            TrackGroupPosition = position,
         });
 
-    public SearchViewAggregateTrackPosition DecodeAggregateTracks(
+    public SearchViewTrackGroupPosition DecodeTrackGroups(
         string cursor,
         Guid viewId,
         long revision)
     {
         CursorPayload payload = Decode(cursor);
-        if (payload.Kind != "aggregate-tracks"
+        if (payload.Kind != "track-groups"
             || payload.ViewId != viewId
             || payload.Revision != revision
-            || payload.AggregateTrackPosition == null)
+            || payload.TrackGroupPosition == null)
             throw Invalid();
-        return payload.AggregateTrackPosition;
+        return payload.TrackGroupPosition;
     }
 
-    public string EncodeAggregateTrackOptions(
+    public string EncodeTrackGroupOptions(
         Guid viewId,
         string groupRef,
         long revision,
         SearchViewFilePosition position)
         => Encode(new CursorPayload(
-            1, "aggregate-track-options", viewId, revision,
+            1, "track-group-options", viewId, revision,
             position, null, null, groupRef));
 
-    public SearchViewFilePosition DecodeAggregateTrackOptions(
+    public SearchViewFilePosition DecodeTrackGroupOptions(
         string cursor,
         Guid viewId,
         string groupRef,
         long revision)
     {
         CursorPayload payload = Decode(cursor);
-        if (payload.Kind != "aggregate-track-options"
+        if (payload.Kind != "track-group-options"
             || payload.ViewId != viewId
             || payload.Revision != revision
             || !string.Equals(payload.ParentRef, groupRef, StringComparison.Ordinal)
@@ -131,47 +131,47 @@ public sealed class SearchViewCursorCodec
         return payload.FilePosition;
     }
 
-    public string EncodeAggregateAlbums(
+    public string EncodeAlbumGroups(
         Guid viewId,
         long revision,
-        SearchViewAggregateAlbumPosition position)
+        SearchViewAlbumGroupPosition position)
         => Encode(new CursorPayload(
-            1, "aggregate-albums", viewId, revision, null, null, null, null)
+            1, "album-groups", viewId, revision, null, null, null, null)
         {
-            AggregateAlbumPosition = position,
+            AlbumGroupPosition = position,
         });
 
-    public SearchViewAggregateAlbumPosition DecodeAggregateAlbums(
+    public SearchViewAlbumGroupPosition DecodeAlbumGroups(
         string cursor,
         Guid viewId,
         long revision)
     {
         CursorPayload payload = Decode(cursor);
-        if (payload.Kind != "aggregate-albums"
+        if (payload.Kind != "album-groups"
             || payload.ViewId != viewId
             || payload.Revision != revision
-            || payload.AggregateAlbumPosition == null)
+            || payload.AlbumGroupPosition == null)
             throw Invalid();
-        return payload.AggregateAlbumPosition;
+        return payload.AlbumGroupPosition;
     }
 
-    public string EncodeAggregateAlbumOptions(
+    public string EncodeAlbumGroupOptions(
         Guid viewId,
         string groupRef,
         long revision,
         SearchViewDirectoryPosition position)
         => Encode(new CursorPayload(
-            1, "aggregate-album-options", viewId, revision,
+            1, "album-group-options", viewId, revision,
             null, position, null, groupRef));
 
-    public SearchViewDirectoryPosition DecodeAggregateAlbumOptions(
+    public SearchViewDirectoryPosition DecodeAlbumGroupOptions(
         string cursor,
         Guid viewId,
         string groupRef,
         long revision)
     {
         CursorPayload payload = Decode(cursor);
-        if (payload.Kind != "aggregate-album-options"
+        if (payload.Kind != "album-group-options"
             || payload.ViewId != viewId
             || payload.Revision != revision
             || !string.Equals(payload.ParentRef, groupRef, StringComparison.Ordinal)
@@ -206,7 +206,7 @@ public sealed class SearchViewCursorCodec
         string? ParentRef)
     {
         public ServerSearchViewSortOrder? SortOrder { get; init; }
-        public SearchViewAggregateTrackPosition? AggregateTrackPosition { get; init; }
-        public SearchViewAggregateAlbumPosition? AggregateAlbumPosition { get; init; }
+        public SearchViewTrackGroupPosition? TrackGroupPosition { get; init; }
+        public SearchViewAlbumGroupPosition? AlbumGroupPosition { get; init; }
     }
 }

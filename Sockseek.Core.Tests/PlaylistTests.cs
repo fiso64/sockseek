@@ -26,16 +26,16 @@ namespace Tests.Playlist
         }
 
         [TestMethod]
-        public void IncrementalPlaylistKeepsSourceOrderAcrossLateAlbumsAggregatesAndSharedOwners()
+        public void IncrementalPlaylistKeepsSourceOrderAcrossLateAlbumsGroupsAndSharedOwners()
         {
             File.WriteAllText(testM3uPath, "# Existing playlist\nexisting.mp3\n");
             var first = new SongJob(new SongQuery { Title = "First" });
             var album = new AlbumJob(new AlbumQuery { Album = "Late Album" });
             var failed = new SongJob(new SongQuery { Title = "Failed variant" });
             var successful = new SongJob(new SongQuery { Title = "Good variant" });
-            var aggregate = new AggregateJob(new SongQuery { Title = "Variants" }) { Songs = [failed, successful] };
+            var group = new SongGroupsJob(new SongQuery { Title = "Variants" }) { Songs = [failed, successful] };
             var extraction = new ExtractJob("late source");
-            var queue = new JobList("Tracks", [first, album, aggregate, first, extraction]);
+            var queue = new JobList("Tracks", [first, album, group, first, extraction]);
             var editor = new DownloadOutputFile(testM3uPath, queue, OutputFileKind.Playlist, false);
             failed.Fail(JobFailureReason.NoMatchingResults);
             editor.Observe(failed);
@@ -51,7 +51,7 @@ namespace Tests.Playlist
             first.SetDone("Music/first.mp3");
             editor.Observe(first);
             // A resume wrapper has another identity but the same memberships.
-            editor.AttachOwner(new JobList("Resume", [first, album, aggregate]), synthetic: true);
+            editor.AttachOwner(new JobList("Resume", [first, album, group]), synthetic: true);
             var last = new SongJob(new SongQuery { Title = "Last" });
             extraction.Result = last;
             editor.AttachOwner(new JobList("More tracks", [last]), synthetic: true);
@@ -106,11 +106,11 @@ namespace Tests.Playlist
         }
 
         [TestMethod]
-        public void Playlist_AggregateJob_OnlyEmitsSuccessfulVariant()
+        public void Playlist_SongGroupsJob_OnlyEmitsSuccessfulVariant()
         {
             var queue = new JobList("Test Queue");
 
-            var agg = new AggregateJob(new SongQuery { Artist = "Artist", Title = "Title" });
+            var agg = new SongGroupsJob(new SongQuery { Artist = "Artist", Title = "Title" });
             var variant1 = new SongJob(new SongQuery { Artist = "Artist", Title = "Title" });
             variant1.Fail(JobFailureReason.NoMatchingResults);
             var variant2 = new SongJob(new SongQuery { Artist = "Artist", Title = "Title (Remix)" });

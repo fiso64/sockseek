@@ -97,7 +97,7 @@ public sealed record SubmissionSpecification(
         {
             SearchJob searchJob => CaptureSearch(searchJob.Definition)
                 ?? SearchDefinition.Create(searchJob, settings),
-            SongJob or AlbumJob or AggregateJob or AlbumAggregateJob =>
+            SongJob or AlbumJob or SongGroupsJob or AlbumGroupsJob =>
                 SearchDefinition.Create(job, settings),
             _ => null,
         };
@@ -339,8 +339,8 @@ public sealed record SubmissionSpecification(
                 PeerFile = song.ExactTarget,
             },
             AlbumJob album => CaptureAlbum(command, album),
-            AggregateJob aggregate => command with { SongQuery = SongQueryDefinition.From(aggregate.Query) },
-            AlbumAggregateJob aggregate => command with { AlbumQuery = AlbumQueryDefinition.From(aggregate.Query) },
+            SongGroupsJob group => command with { SongQuery = SongQueryDefinition.From(group.Query) },
+            AlbumGroupsJob group => command with { AlbumQuery = AlbumQueryDefinition.From(group.Query) },
             JobList list => command with
             {
                 Children = includeDescendants
@@ -418,8 +418,8 @@ public sealed record SubmissionSpecification(
             JobSnapshotKind.Search => new SearchJob(command.QueryText!),
             JobSnapshotKind.Song => new SongJob(command.SongQuery!.ToQuery()),
             JobSnapshotKind.Album => new AlbumJob(command.AlbumQuery!.ToQuery()),
-            JobSnapshotKind.Aggregate => new AggregateJob(command.SongQuery!.ToQuery()),
-            JobSnapshotKind.AlbumAggregate => new AlbumAggregateJob(command.AlbumQuery!.ToQuery()),
+            JobSnapshotKind.SongGroups => new SongGroupsJob(command.SongQuery!.ToQuery()),
+            JobSnapshotKind.AlbumGroups => new AlbumGroupsJob(command.AlbumQuery!.ToQuery()),
             JobSnapshotKind.JobList => new JobList(
                 command.ItemName,
                 command.Children!.Select(child => JobFrom(child, settings))),
@@ -611,8 +611,8 @@ public sealed record SubmissionSpecification(
                 && (command.Input.Length > 0
                     || command.HasPlannedExtraction && command.PlannedExtractionFailure is not null),
             JobSnapshotKind.Search => !string.IsNullOrWhiteSpace(command.QueryText),
-            JobSnapshotKind.Song or JobSnapshotKind.Aggregate => command.SongQuery != null,
-            JobSnapshotKind.Album or JobSnapshotKind.AlbumAggregate => command.AlbumQuery != null,
+            JobSnapshotKind.Song or JobSnapshotKind.SongGroups => command.SongQuery != null,
+            JobSnapshotKind.Album or JobSnapshotKind.AlbumGroups => command.AlbumQuery != null,
             JobSnapshotKind.JobList => command.Children != null,
             JobSnapshotKind.RetrieveFolder => command.PeerDirectory != null,
             JobSnapshotKind.RemoteFile => command.PeerFile != null
@@ -721,8 +721,8 @@ public sealed record SubmissionSpecification(
         SearchJob => JobSnapshotKind.Search,
         SongJob => JobSnapshotKind.Song,
         AlbumJob => JobSnapshotKind.Album,
-        AggregateJob => JobSnapshotKind.Aggregate,
-        AlbumAggregateJob => JobSnapshotKind.AlbumAggregate,
+        SongGroupsJob => JobSnapshotKind.SongGroups,
+        AlbumGroupsJob => JobSnapshotKind.AlbumGroups,
         JobList => JobSnapshotKind.JobList,
         RetrieveFolderJob => JobSnapshotKind.RetrieveFolder,
         RemoteFileJob => JobSnapshotKind.RemoteFile,

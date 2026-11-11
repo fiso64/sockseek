@@ -78,11 +78,11 @@ internal sealed class LocalCliBackend
     public Task<JobSummaryDto> SubmitAlbumJobAsync(SubmitAlbumJobRequestDto request, CancellationToken ct = default)
         => SubmitJobAsync(JobRequestMapper.CreateAlbumJob(request), request.Options, ct);
 
-    public Task<JobSummaryDto> SubmitAggregateJobAsync(SubmitAggregateJobRequestDto request, CancellationToken ct = default)
-        => SubmitJobAsync(JobRequestMapper.CreateAggregateJob(request), request.Options, ct);
+    public Task<JobSummaryDto> SubmitSongGroupsJobAsync(SubmitSongGroupsJobRequestDto request, CancellationToken ct = default)
+        => SubmitJobAsync(JobRequestMapper.CreateSongGroupsJob(request), request.Options, ct);
 
-    public Task<JobSummaryDto> SubmitAlbumAggregateJobAsync(SubmitAlbumAggregateJobRequestDto request, CancellationToken ct = default)
-        => SubmitJobAsync(JobRequestMapper.CreateAlbumAggregateJob(request), request.Options, ct);
+    public Task<JobSummaryDto> SubmitAlbumGroupsJobAsync(SubmitAlbumGroupsJobRequestDto request, CancellationToken ct = default)
+        => SubmitJobAsync(JobRequestMapper.CreateAlbumGroupsJob(request), request.Options, ct);
 
     public Task<JobSummaryDto> SubmitJobListAsync(SubmitJobListRequestDto request, CancellationToken ct = default)
     {
@@ -276,10 +276,10 @@ internal sealed class LocalCliBackend
             Items: folders.Select(folder => CliSearchProjectionMapper.ToDto(folder, includeFiles)).ToList()));
     }
 
-    public Task<SearchResultSnapshotDto<AggregateTrackCandidateDto>?> GetAggregateTrackResultsAsync(Guid jobId, CancellationToken ct = default)
-        => GetAggregateTrackResultsAsync(jobId, new AggregateTrackProjectionRequestDto(), ct);
+    public Task<SearchResultSnapshotDto<TrackGroupCandidateDto>?> GetTrackGroupResultsAsync(Guid jobId, CancellationToken ct = default)
+        => GetTrackGroupResultsAsync(jobId, new TrackGroupProjectionRequestDto(), ct);
 
-    public Task<SearchResultSnapshotDto<AggregateTrackCandidateDto>?> GetAggregateTrackResultsAsync(Guid jobId, AggregateTrackProjectionRequestDto request, CancellationToken ct = default)
+    public Task<SearchResultSnapshotDto<TrackGroupCandidateDto>?> GetTrackGroupResultsAsync(Guid jobId, TrackGroupProjectionRequestDto request, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
 
@@ -287,43 +287,43 @@ internal sealed class LocalCliBackend
         if (searchJob?.Config != null)
         {
             var projection = request.SongQuery != null
-                ? new AggregateTrackProjection(JobRequestMapper.ToSongQuery(request.SongQuery))
-                : searchJob.DefaultAggregateTrackProjection
+                ? new TrackGroupProjection(JobRequestMapper.ToSongQuery(request.SongQuery))
+                : searchJob.DefaultTrackGroupProjection
                     ?? (searchJob.DefaultFileProjection is { } fileProjection
-                        ? new AggregateTrackProjection(fileProjection.Query)
-                        : new AggregateTrackProjection(new SongQuery { Title = searchJob.QueryText }));
+                        ? new TrackGroupProjection(fileProjection.Query)
+                        : new TrackGroupProjection(new SongQuery { Title = searchJob.QueryText }));
             bool includeCandidates = request.IncludeCandidates;
-            var snapshot = searchJob.GetAggregateTracks(projection, searchJob.Config.Search, engine.GetUserSuccessCounts(searchJob.WorkflowId), includeLocked: true);
-            return Task.FromResult<SearchResultSnapshotDto<AggregateTrackCandidateDto>?>(new(
+            var snapshot = searchJob.GetTrackGroups(projection, searchJob.Config.Search, engine.GetUserSuccessCounts(searchJob.WorkflowId), includeLocked: true);
+            return Task.FromResult<SearchResultSnapshotDto<TrackGroupCandidateDto>?>(new(
                 snapshot.Revision,
                 snapshot.IsComplete,
-                snapshot.Items.Select(song => new AggregateTrackCandidateDto(
+                snapshot.Items.Select(song => new TrackGroupCandidateDto(
                     ServerSnapshotMapper.ToSongQueryDto(song.Query),
                     song.ItemName,
                     includeCandidates ? song.Candidates?.Select(CliSearchProjectionMapper.ToDto).ToList() : null)).ToList()));
         }
 
-        var aggregateJob = GetRuntimeJob<AggregateJob>(jobId);
-        if (aggregateJob == null)
-            return Task.FromResult<SearchResultSnapshotDto<AggregateTrackCandidateDto>?>(null);
+        var songGroupsJob = GetRuntimeJob<SongGroupsJob>(jobId);
+        if (songGroupsJob == null)
+            return Task.FromResult<SearchResultSnapshotDto<TrackGroupCandidateDto>?>(null);
 
-        bool includeAggregateCandidates = request.IncludeCandidates;
-        return Task.FromResult<SearchResultSnapshotDto<AggregateTrackCandidateDto>?>(new(
+        bool includeGroupCandidates = request.IncludeCandidates;
+        return Task.FromResult<SearchResultSnapshotDto<TrackGroupCandidateDto>?>(new(
             Revision: 0,
-            IsComplete: aggregateJob.LifecycleState is not (JobLifecycleState.Pending or JobLifecycleState.Running),
-            Items: aggregateJob.Songs.Select(song => new AggregateTrackCandidateDto(
+            IsComplete: songGroupsJob.LifecycleState is not (JobLifecycleState.Pending or JobLifecycleState.Running),
+            Items: songGroupsJob.Songs.Select(song => new TrackGroupCandidateDto(
                 ServerSnapshotMapper.ToSongQueryDto(song.Query),
                 song.ItemName,
-                includeAggregateCandidates ? song.Candidates?.Select(CliSearchProjectionMapper.ToDto).ToList() : null)).ToList()));
+                includeGroupCandidates ? song.Candidates?.Select(CliSearchProjectionMapper.ToDto).ToList() : null)).ToList()));
     }
 
-    public Task<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?> GetAggregateAlbumResultsAsync(Guid jobId, CancellationToken ct = default)
-        => GetAggregateAlbumResultsCoreAsync(jobId, null, ct);
+    public Task<SearchResultSnapshotDto<AlbumGroupCandidateDto>?> GetAlbumGroupResultsAsync(Guid jobId, CancellationToken ct = default)
+        => GetAlbumGroupResultsCoreAsync(jobId, null, ct);
 
-    public Task<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?> GetAggregateAlbumResultsAsync(Guid jobId, AggregateAlbumProjectionRequestDto request, CancellationToken ct = default)
-        => GetAggregateAlbumResultsCoreAsync(jobId, request, ct);
+    public Task<SearchResultSnapshotDto<AlbumGroupCandidateDto>?> GetAlbumGroupResultsAsync(Guid jobId, AlbumGroupProjectionRequestDto request, CancellationToken ct = default)
+        => GetAlbumGroupResultsCoreAsync(jobId, request, ct);
 
-    private Task<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?> GetAggregateAlbumResultsCoreAsync(Guid jobId, AggregateAlbumProjectionRequestDto? request, CancellationToken ct = default)
+    private Task<SearchResultSnapshotDto<AlbumGroupCandidateDto>?> GetAlbumGroupResultsCoreAsync(Guid jobId, AlbumGroupProjectionRequestDto? request, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
 
@@ -331,37 +331,37 @@ internal sealed class LocalCliBackend
         if (searchJob?.Config != null)
         {
             var projection = request?.AlbumQuery != null
-                ? new AggregateAlbumProjection(JobRequestMapper.ToAlbumQuery(request.AlbumQuery))
-                : searchJob.DefaultAggregateAlbumProjection
+                ? new AlbumGroupProjection(JobRequestMapper.ToAlbumQuery(request.AlbumQuery))
+                : searchJob.DefaultAlbumGroupProjection
                     ?? (searchJob.DefaultFolderProjection is { } folderProjection
-                        ? new AggregateAlbumProjection(folderProjection.Query)
+                        ? new AlbumGroupProjection(folderProjection.Query)
                         : null);
             if (projection == null)
-                throw new ArgumentException("Aggregate album projection requires an album query.");
+                throw new ArgumentException("Grouped album projection requires an album query.");
 
             bool includeFolders = request?.IncludeFolders ?? false;
-            var snapshot = searchJob.GetAggregateAlbums(projection, searchJob.Config.Search, includeLocked: true);
-            return Task.FromResult<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?>(new(
+            var snapshot = searchJob.GetAlbumGroups(projection, searchJob.Config.Search, includeLocked: true);
+            return Task.FromResult<SearchResultSnapshotDto<AlbumGroupCandidateDto>?>(new(
                 snapshot.Revision,
                 snapshot.IsComplete,
-                snapshot.Items.Select(album => new AggregateAlbumCandidateDto(
+                snapshot.Items.Select(album => new AlbumGroupCandidateDto(
                     ServerSnapshotMapper.ToAlbumQueryDto(album.Query),
                     album.ItemName,
                     includeFolders ? [..album.Results.Select(f => CliSearchProjectionMapper.ToDto(f, includeFiles: true))] : null)).ToList()));
         }
 
-        var albumAggregateJob = GetRuntimeJob<AlbumAggregateJob>(jobId);
-        if (albumAggregateJob == null)
-            return Task.FromResult<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?>(null);
+        var albumGroupsJob = GetRuntimeJob<AlbumGroupsJob>(jobId);
+        if (albumGroupsJob == null)
+            return Task.FromResult<SearchResultSnapshotDto<AlbumGroupCandidateDto>?>(null);
 
-        bool includeAggregateFolders = request?.IncludeFolders ?? false;
-        return Task.FromResult<SearchResultSnapshotDto<AggregateAlbumCandidateDto>?>(new(
+        bool includeGroupFolders = request?.IncludeFolders ?? false;
+        return Task.FromResult<SearchResultSnapshotDto<AlbumGroupCandidateDto>?>(new(
             Revision: 0,
-            IsComplete: albumAggregateJob.LifecycleState is not (JobLifecycleState.Pending or JobLifecycleState.Running),
-            Items: albumAggregateJob.Albums.Select(album => new AggregateAlbumCandidateDto(
+            IsComplete: albumGroupsJob.LifecycleState is not (JobLifecycleState.Pending or JobLifecycleState.Running),
+            Items: albumGroupsJob.Albums.Select(album => new AlbumGroupCandidateDto(
                 ServerSnapshotMapper.ToAlbumQueryDto(album.Query),
                 album.ItemName,
-                includeAggregateFolders ? [..album.Results.Select(f => CliSearchProjectionMapper.ToDto(f, includeFiles: true))] : null)).ToList()));
+                includeGroupFolders ? [..album.Results.Select(f => CliSearchProjectionMapper.ToDto(f, includeFiles: true))] : null)).ToList()));
     }
 
     public Task<JobSummaryDto?> StartRetrieveFolderAsync(Guid sourceJobId, RetrieveFolderRequestDto request, CancellationToken ct = default)
@@ -460,12 +460,12 @@ internal sealed class LocalCliBackend
                 throw new ArgumentException("Requested file was not found in this job's file candidates.");
 
             if ((request.RequestedMode is null or ServerExtractionMode.Song)
-                && sourceJob is AggregateJob && sourceJob.IsAwaitingSelection)
+                && sourceJob is SongGroupsJob && sourceJob.IsAwaitingSelection)
             {
                 if (!engine.TryStartManualSongSelection(sourceJobId, candidate,
                     song => ApplyManualSelectionOptions(sourceJob, song, request.Options), out var selectedSong)
                     || selectedSong == null)
-                    throw new ArgumentException("The aggregate is no longer accepting selections.");
+                    throw new ArgumentException("The group is no longer accepting selections.");
                 summaries.Add(stateStore.GetJobSummary(selectedSong.Id) ?? BuildSubmittedJobSummary(selectedSong, sourceJobId));
                 continue;
             }
@@ -534,7 +534,7 @@ internal sealed class LocalCliBackend
             sourceJob,
             request.AlbumQuery);
 
-        bool manualSelection = sourceJob.IsAwaitingSelection && sourceJob is AlbumJob or AlbumAggregateJob;
+        bool manualSelection = sourceJob.IsAwaitingSelection && sourceJob is AlbumJob or AlbumGroupsJob;
         if (engine.TryStartManualAlbumSelection(
             sourceJobId,
             folder,
@@ -546,7 +546,7 @@ internal sealed class LocalCliBackend
             },
             out var selectedAlbum))
         {
-            if (sourceJob is AlbumAggregateJob)
+            if (sourceJob is AlbumGroupsJob)
                 stateStore.SetSourceJob(selectedAlbum!.Id, sourceJobId);
 
             return Task.FromResult<JobSummaryDto?>(stateStore.GetJobSummary(selectedAlbum!.Id) ?? BuildSubmittedJobSummary(selectedAlbum!, sourceJobId));

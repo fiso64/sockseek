@@ -47,7 +47,7 @@ export interface SearchConditions {
   common: CommonSearchConditions;
   track: TrackSearchConditions;
   album: AlbumSearchConditions;
-  aggregate: {
+  group: {
     minShares: string;
     lengthTolerance: string;
   };
@@ -66,7 +66,7 @@ export function createEmptySearchConditions(): SearchConditions {
       requiredTrackTitles: [],
       strictAlbumQuality: false,
     },
-    aggregate: { minShares: '', lengthTolerance: '' },
+    group: { minShares: '', lengthTolerance: '' },
     ranking: createEmptySearchRanking(),
   };
 }

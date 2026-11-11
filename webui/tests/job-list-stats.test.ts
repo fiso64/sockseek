@@ -12,7 +12,7 @@ test('shows daemon-owned container progress and failure counts without reading c
   expect(automaticJobListStats(row('job-list', {
     memberCount: 12, completedMemberCount: 8, failedMemberCount: 1,
   }))).toEqual(['8/12 complete', '1 failed']);
-  expect(automaticJobListStats(row('album-aggregate', {
+  expect(automaticJobListStats(row('album-groups', {
     memberCount: 5, completedMemberCount: 2, failedMemberCount: 0,
   }))).toEqual(['2/5 complete']);
   expect(automaticJobListStats(row('album', {
@@ -22,7 +22,7 @@ test('shows daemon-owned container progress and failure counts without reading c
 });
 
 test('handles unavailable summary statistics without inventing progress', () => {
-  expect(automaticJobListStats(row('aggregate', {
+  expect(automaticJobListStats(row('song-groups', {
     memberCount: 3, completedMemberCount: null, failedMemberCount: null,
   }))).toEqual(['3 songs']);
   expect(automaticJobListStats(row('job-list'))).toEqual([]);
@@ -39,10 +39,10 @@ test('uses byte progress for directories and count progress for running containe
   expect(automaticJobProgressPercent(row('album', {
     memberCount: 4, completedMemberCount: 1, progressPercent: 45.5,
   }, 'Running'))).toBe(45.5);
-  expect(automaticJobProgressPercent(row('aggregate', {
+  expect(automaticJobProgressPercent(row('song-groups', {
     memberCount: 5, completedMemberCount: 2,
   }, 'Running'))).toBe(40);
-  expect(automaticJobProgressPercent(row('album-aggregate', {
+  expect(automaticJobProgressPercent(row('album-groups', {
     memberCount: 0, completedMemberCount: 0,
   }, 'Running'))).toBeUndefined();
   expect(automaticJobProgressPercent(row('job-list', {

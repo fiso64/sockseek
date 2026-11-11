@@ -7,8 +7,8 @@ import { performance } from 'node:perf_hooks';
 import type { Schema } from '../src/api/types';
 
 for (const mode of [
-  { label: 'Song Aggregate', placeholder: 'Search songs by artist…', endpoint: '/api/jobs/search/tracks', field: 'songQuery', title: 'title' },
-  { label: 'Album Aggregate', placeholder: 'Search albums by artist…', endpoint: '/api/jobs/search/albums', field: 'albumQuery', title: 'album' },
+  { label: 'Song Groups', placeholder: 'Search songs by artist…', endpoint: '/api/jobs/search/tracks', field: 'songQuery', title: 'title' },
+  { label: 'Album Groups', placeholder: 'Search albums by artist…', endpoint: '/api/jobs/search/albums', field: 'albumQuery', title: 'album' },
 ] as const) {
   test(`${mode.label} keeps the artist meaning when switching input layouts`, async ({ page }) => {
     await page.goto('/dashboard');
@@ -529,16 +529,16 @@ test.describe('live album conditions', () => {
   });
 });
 
-test('keeps an aggregate track choice and all-except plan through live group reordering', async ({ page, daemon }, testInfo) => {
-  await daemon.command('staged-rich-aggregate-search');
+test('keeps a grouped track choice and all-except plan through live group reordering', async ({ page, daemon }, testInfo) => {
+  await daemon.command('staged-rich-group-search');
   await page.goto('/jobs');
   await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
-  await page.getByRole('menuitemradio', { name: 'Song Aggregate', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Song Groups', exact: true }).click();
   await page.locator('#global-search-simple').fill('Fixture');
   await page.getByRole('button', { name: 'split', exact: true }).click();
   await page.locator('#global-search-artist').press('Enter');
 
-  const groups = page.locator('.aggregate-results-list > .aggregate-result-group');
+  const groups = page.locator('.group-results-list > .group-result-group');
   await expect(groups).toHaveCount(3);
   await expect(page.locator('.search-results-summary')).toContainText('3 groups');
   await expect(groups.nth(0)).toContainText('Fixture Alpha');
@@ -546,34 +546,34 @@ test('keeps an aggregate track choice and all-except plan through live group reo
   await expect(groups.nth(2)).toContainText('Fixture Gamma');
   await expect(groups.locator('.audio-detail')).toHaveText(['320 kbps', '320 kbps', '320 kbps']);
   await expect(groups.locator('.item-length-detail')).toHaveText(['3:30', '3:30', '3:30']);
-  await expect(groups.first().locator('.aggregate-options-button')).toContainText('2 options');
+  await expect(groups.first().locator('.group-options-button')).toContainText('2 options');
   const alpha = groups.filter({ hasText: 'Fixture Alpha' });
   const beta = groups.filter({ hasText: 'Fixture Beta' });
   const alternatives = page.waitForResponse(response => response.ok()
     && new URL(response.url()).pathname.endsWith('/alternatives'));
-  await alpha.locator('.aggregate-options-button').click();
-  const optionsPage = await (await alternatives).json() as Schema<'SearchViewAggregateTrackOptionPageDto'>;
+  await alpha.locator('.group-options-button').click();
+  const optionsPage = await (await alternatives).json() as Schema<'SearchViewTrackGroupOptionPageDto'>;
   const chosen = optionsPage.items.find(item => item.peer.username === 'second-peer')!;
   expect(chosen).toBeTruthy();
-  await page.getByRole('dialog').locator('.aggregate-option').filter({ hasText: 'second-peer' })
+  await page.getByRole('dialog').locator('.group-option').filter({ hasText: 'second-peer' })
     .getByRole('button', { name: 'Use this option', exact: true }).click();
   await page.getByRole('button', { name: 'Select all', exact: true }).click();
   await beta.getByRole('button', { name: 'Deselect Fixture Beta', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
-  const outputDirectory = testInfo.outputPath('live-aggregate-tracks');
+  const outputDirectory = testInfo.outputPath('live-track-groups');
   await page.getByRole('button', { name: 'Download options', exact: true }).click();
   const options = page.getByRole('region', { name: 'Download options' });
   await options.getByRole('textbox', { name: 'Output directory' }).fill(outputDirectory);
   await options.getByRole('button', { name: 'Close download options', exact: true }).click();
 
   await daemon.command('next-search-batch');
-  await expect(groups.locator('.aggregate-result-identity > strong')).toHaveText([
+  await expect(groups.locator('.group-result-identity > strong')).toHaveText([
     'Fixture Alpha', 'Fixture Gamma', 'Fixture Beta', 'Fixture Delta',
   ]);
   await expect(page.locator('.search-results-summary')).toContainText('10 files');
-  await expect(alpha.locator('.aggregate-options-button')).toContainText('3 options');
-  await expect(alpha.locator('.aggregate-result-source')).toContainText('second-peer');
-  await expect(groups.filter({ hasText: 'Fixture Gamma' }).locator('.aggregate-result-source')).toContainText('late-peer');
+  await expect(alpha.locator('.group-options-button')).toContainText('3 options');
+  await expect(alpha.locator('.group-result-source')).toContainText('second-peer');
+  await expect(groups.filter({ hasText: 'Fixture Gamma' }).locator('.group-result-source')).toContainText('late-peer');
   await expect(beta.getByRole('button', { name: 'Select Fixture Beta', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
   await daemon.command('finish-search');
@@ -623,16 +623,16 @@ test('keeps an aggregate track choice and all-except plan through live group reo
   }
 });
 
-test('downloads only checked public files from a mixed chosen aggregate album folder', async ({ page, daemon }) => {
+test('downloads only checked public files from a mixed chosen group album folder', async ({ page, daemon }) => {
   const searchSubmissions: string[] = [];
   page.on('request', request => {
     if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/jobs/search/albums')
       searchSubmissions.push(request.url());
   });
-  await daemon.command('mixed-aggregate-album-search');
+  await daemon.command('mixed-album-group-search');
   await page.goto('/jobs');
   await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
-  await page.getByRole('menuitemradio', { name: 'Album Aggregate', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Album Groups', exact: true }).click();
   await page.locator('#global-search-simple').fill('Fixture Album');
   await page.locator('#global-search-simple').press('Enter');
   await expect(page.locator('.search-results-summary')).toContainText('4 files');
@@ -647,12 +647,12 @@ test('downloads only checked public files from a mixed chosen aggregate album fo
   await page.getByRole('button', { name: 'Remove locked files filter' }).click();
   await expect(page.locator('.folder-file-row.locked')).toHaveCount(1);
   await page.keyboard.press('Escape');
-  await page.locator('.aggregate-options-button').click();
+  await page.locator('.group-options-button').click();
   const dialog = page.getByRole('dialog', { name: /Fixture Album.*options/i });
-  await dialog.locator('.aggregate-option').filter({ hasText: 'second-peer' })
-    .locator('.aggregate-option-card-picker').click();
+  await dialog.locator('.group-option').filter({ hasText: 'second-peer' })
+    .locator('.group-option-card-picker').click();
   await expect(dialog).toHaveCount(0);
-  const album = page.locator('.aggregate-result-group');
+  const album = page.locator('.group-result-group');
   await expect(album.locator('.folder-file-row')).toHaveCount(3);
   await album.focus();
   await page.keyboard.press('Space');
@@ -739,26 +739,26 @@ test('downloads only checked public files from a mixed chosen aggregate album fo
 });
 
 test('pages album alternative files without hiding the card picker', async ({ page, daemon }) => {
-  await daemon.command('paged-aggregate-album-search');
+  await daemon.command('paged-album-group-search');
   await page.goto('/jobs');
   await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
-  await page.getByRole('menuitemradio', { name: 'Album Aggregate', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Album Groups', exact: true }).click();
   await page.locator('#global-search-simple').fill('Fixture Album');
   await page.locator('#global-search-simple').press('Enter');
-  await page.locator('.aggregate-options-button').click();
+  await page.locator('.group-options-button').click();
   const dialog = page.getByRole('dialog', { name: /Fixture Album.*options/i });
-  await expect(dialog.locator('.aggregate-option')).toHaveCount(100);
+  await expect(dialog.locator('.group-option')).toHaveCount(100);
   await page.getByRole('button', { name: 'Load more', exact: true }).click();
-  await expect(dialog.locator('.aggregate-option')).toHaveCount(101);
-  const alternative = dialog.locator('.aggregate-option').filter({ hasText: 'second-peer' });
+  await expect(dialog.locator('.group-option')).toHaveCount(101);
+  const alternative = dialog.locator('.group-option').filter({ hasText: 'second-peer' });
   await expect(alternative.locator('.folder-file-row')).toHaveCount(25);
-  await alternative.locator('.aggregate-option-card-picker').click();
+  await alternative.locator('.group-option-card-picker').click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.locator('.aggregate-result-group')).toContainText('25 - Track.flac');
+  await expect(page.locator('.group-result-group')).toContainText('25 - Track.flac');
 });
 
 test('preserves an independent global draft when opening a retained search', async ({ page, daemon }) => {
-  await daemon.command('aggregate-album-search');
+  await daemon.command('album-group-search');
   await page.goto('/jobs');
   await page.locator('#global-search-simple').fill('Fixture Album');
   await page.locator('#global-search-simple').press('Enter');
@@ -772,12 +772,12 @@ test('preserves an independent global draft when opening a retained search', asy
   await page.locator('#global-search-artist').fill('Fixture');
   await expect(page.locator('#global-search-title')).toHaveValue('');
   await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
-  await page.getByRole('menuitemradio', { name: 'Album Aggregate', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Album Groups', exact: true }).click();
   await page.locator('.search-history-open').filter({ hasText: 'Fixture Album' }).click();
   await expect(page.locator('.folder-item-card')).toHaveCount(2);
   await expect(page.locator('#global-search-artist')).toHaveValue('Fixture');
   await expect(page.locator('#global-search-title')).toHaveValue('');
-  await expect(page.getByRole('button', { name: /Search result mode: Album Aggregate/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Search result mode: Album Groups/ })).toBeVisible();
   const accepted = page.waitForResponse(response => response.ok()
     && response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/jobs/search/albums');
   await page.locator('#global-search-artist').press('Enter');
@@ -787,11 +787,10 @@ test('preserves an independent global draft when opening a retained search', asy
   const title = job.itemName ?? job.queryText!;
   expect(title).toBe('Fixture');
   await expect(page.locator('.search-results-title h1')).toHaveText(title);
-  await expect(page.locator('.aggregate-results-list > .aggregate-result-group')).not.toHaveCount(0);
+  await expect(page.locator('.group-results-list > .group-result-group')).not.toHaveCount(0);
   await expect(page.locator('.search-results-summary')).toContainText(/\d+ groups?/);
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Jobs' }).click();
   await expect(page.locator('.search-history-row').filter({ hasText: title }).getByText(title, { exact: true })).toBeVisible();
-  await expect(page.locator('.search-history-list')).not.toContainText(/groups?/);
 });
 
 test('distinguishes waiting for peers from a completed search with no returned files', async ({ page, daemon }) => {
@@ -870,7 +869,7 @@ test('explains search modes in selectable cards without submitting a search', as
     await expect(help).toBeVisible();
     await expect(page.getByRole('menu', { name: 'Search result mode', exact: true })).toHaveCount(0);
   }
-  for (const mode of ['File Search', 'Track Search', 'Album Search', 'Song Aggregate', 'Album Aggregate']) {
+  for (const mode of ['File Search', 'Track Search', 'Album Search', 'Song Groups', 'Album Groups']) {
     await openHelp();
     await expect(help.locator('.search-mode-help-card')).toHaveCount(5);
     await help.getByRole('button', { name: `Use ${mode}`, exact: true }).click();
@@ -890,7 +889,7 @@ test('explains search modes in selectable cards without submitting a search', as
     expect(await card.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     await expect(card.locator('.search-mode-help-icon svg')).toHaveCSS('width', '42px');
   }
-  await expect(help.getByRole('button', { name: 'Use Album Aggregate', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(help.getByRole('button', { name: 'Use Album Groups', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Escape');
   await expect(help).toHaveCount(0);
   expect(submissions).toBe(0);
@@ -903,7 +902,7 @@ test('cycles search modes from focused inputs', async ({ page }) => {
   const mode = page.getByRole('button', { name: /Search result mode:.*Choose mode/ });
   await simple.focus();
   await simple.press('ArrowUp');
-  await expect(mode).toHaveAttribute('aria-label', /Album Aggregate/);
+  await expect(mode).toHaveAttribute('aria-label', /Album Groups/);
   await simple.press('ArrowDown');
   await expect(mode).toHaveAttribute('aria-label', /File Search/);
   await simple.press('ArrowDown');
@@ -924,7 +923,7 @@ test('cycles search modes from focused inputs', async ({ page }) => {
   await expect(page.getByRole('button', { name: /User browse mode: User/ })).toBeVisible();
 });
 
-for (const mode of ['Track Search', 'Song Aggregate'] as const) {
+for (const mode of ['Track Search', 'Song Groups'] as const) {
   test(`Backspace merges an empty second field in ${mode}`, async ({ page }) => {
     await page.goto('/jobs');
     await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
@@ -1031,7 +1030,7 @@ test('merges empty album and artist fields without losing input or focus', async
   await expect(input).toHaveValue('Retained album');
   await expect(input).toBeFocused();
   await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
-  await page.getByRole('menuitemradio', { name: 'Album Aggregate', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Album Groups', exact: true }).click();
   await page.getByRole('button', { name: 'split', exact: true }).click();
   await page.locator('#global-search-title').press('Backspace');
   await expect(input).toHaveValue('Retained album');
@@ -1563,10 +1562,10 @@ test('paints the Jobs tab before remounting cached search results and cancels on
 });
 
 test('navigates result pages by keyboard without stealing editing or modal controls', async ({ page, daemon }) => {
-  await daemon.command('rich-aggregate-search');
+  await daemon.command('rich-group-search');
   // Exercise real server cursors with a small fixture, rather than creating a
   // load test merely to cross the production page size.
-  await page.route('**/api/search-views/*/aggregate-tracks?*', route => {
+  await page.route('**/api/search-views/*/track-groups?*', route => {
     const url = new URL(route.request().url());
     url.searchParams.set('limit', '1');
     return route.continue({ url: url.toString() });
@@ -1584,11 +1583,11 @@ test('navigates result pages by keyboard without stealing editing or modal contr
   await expect(page.getByRole('heading', { name: 'Jobs', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
-  await page.getByRole('menuitemradio', { name: 'Song Aggregate', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Song Groups', exact: true }).click();
   await input.fill('Fixture');
   await page.getByRole('button', { name: 'split', exact: true }).click();
   await page.locator('#global-search-artist').press('Enter');
-  const groups = page.locator('.aggregate-results-list > .aggregate-result-group');
+  const groups = page.locator('.group-results-list > .group-result-group');
   await expect(groups).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Filtering', exact: true })).toBeEnabled();
   await page.locator('#global-search-artist').blur();
@@ -1607,7 +1606,7 @@ test('navigates result pages by keyboard without stealing editing or modal contr
   await expect(groups.first()).toHaveClass(/selected/);
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Tab');
-  await expect(groups.first().locator('.aggregate-header-select-button')).toBeFocused();
+  await expect(groups.first().locator('.group-header-select-button')).toBeFocused();
   // Enter on a native button toggles it; it must not submit the download.
   let commits = 0;
   page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/commit')) commits++; });

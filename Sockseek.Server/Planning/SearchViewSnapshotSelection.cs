@@ -13,8 +13,8 @@ public sealed partial class SearchViewSnapshot
             SearchViewProjectionKind.Files when snapshot.Files.TryGetValue(key, out var row) => new(key, row.Value, null),
             SearchViewProjectionKind.GenericDirectories or SearchViewProjectionKind.AlbumDirectories when snapshot.Directories.TryGetValue(key, out var row)
                 => new(key, null, row.Value),
-            SearchViewProjectionKind.AggregateTracks when snapshot.Tracks.TryGetValue(key, out var row) => new(key, null, null, row.Value),
-            SearchViewProjectionKind.AggregateAlbums when snapshot.Albums.TryGetValue(key, out var row)
+            SearchViewProjectionKind.TrackGroups when snapshot.Tracks.TryGetValue(key, out var row) => new(key, null, null, row.Value),
+            SearchViewProjectionKind.AlbumGroups when snapshot.Albums.TryGetValue(key, out var row)
                 => new(key, null, null, null, Album(snapshot, row)),
             _ => null,
         };
@@ -23,17 +23,17 @@ public sealed partial class SearchViewSnapshot
     {
         SearchViewProjectionKind.Files => snapshot.Files.Keys,
         SearchViewProjectionKind.GenericDirectories or SearchViewProjectionKind.AlbumDirectories => snapshot.Directories.Keys,
-        SearchViewProjectionKind.AggregateTracks => snapshot.Tracks.Keys,
-        SearchViewProjectionKind.AggregateAlbums => snapshot.Albums.Keys,
+        SearchViewProjectionKind.TrackGroups => snapshot.Tracks.Keys,
+        SearchViewProjectionKind.AlbumGroups => snapshot.Albums.Keys,
         _ => throw new ArgumentException("Unknown Search View projection.", nameof(projection)),
     };
 
     internal static SearchViewSelectionCounts ItemCounts(SearchViewCommitItem? item, SearchViewSnapshot snapshot)
     {
         if (item == null) return new(0, 0, 0);
-        var file = item.File ?? item.AggregateTrackGroup?.Representative;
+        var file = item.File ?? item.TrackGroup?.Representative;
         if (file != null) return file.Input.Visibility == SearchResultVisibility.Public ? new(1, 0, 1) : new(0, 1, 1);
-        var directory = snapshot.Directories[(item.Directory ?? item.AggregateAlbumGroup!.Representative).Ref];
+        var directory = snapshot.Directories[(item.Directory ?? item.AlbumGroup!.Representative).Ref];
         return new(directory.PublicCount, directory.LockedCount, 1);
     }
 
@@ -102,7 +102,7 @@ public sealed partial class SearchViewSnapshot
             if (TopItem(this, projectionKind, key) is { } item) yield return item;
         }
         if (mode != RefSelectionMode.Only || projectionKind == SearchViewProjectionKind.Files) yield break;
-        if (projectionKind == SearchViewProjectionKind.AggregateAlbums)
+        if (projectionKind == SearchViewProjectionKind.AlbumGroups)
             foreach (string key in refs.Order(StringComparer.Ordinal))
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -120,7 +120,7 @@ public sealed partial class SearchViewSnapshot
                 string? parent = DirectoryParents(this, key).Order(StringComparer.Ordinal).FirstOrDefault();
                 if (parent != null) yield return new(key, file.Value, null, ParentRef: parent);
             }
-            else if (projectionKind == SearchViewProjectionKind.AggregateTracks)
+            else if (projectionKind == SearchViewProjectionKind.TrackGroups)
             {
                 var parents = (Parents.GetValueOrDefault(key) ?? []).Where(Tracks.ContainsKey)
                     .Order(StringComparer.Ordinal).ToArray();
@@ -141,7 +141,7 @@ public sealed partial class SearchViewSnapshot
         }
     }
 
-    public IEnumerable<SearchViewFile> ReadPublicAggregateTrackOptions(string groupRef, CancellationToken cancellationToken = default)
+    public IEnumerable<SearchViewFile> ReadPublicTrackGroupOptions(string groupRef, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!Tracks.TryGetValue(groupRef, out var group)) yield break;
@@ -152,7 +152,7 @@ public sealed partial class SearchViewSnapshot
             if (file.Input.Visibility == SearchResultVisibility.Public) yield return file;
         }
     }
-    public IEnumerable<SearchViewDirectory> ReadPublicAggregateAlbumOptions(string groupRef, CancellationToken cancellationToken = default)
+    public IEnumerable<SearchViewDirectory> ReadPublicAlbumGroupOptions(string groupRef, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!Albums.TryGetValue(groupRef, out var group)) yield break;

@@ -93,7 +93,7 @@ sockseek "your-input" -n 20 --print jobs-full
 
 ### Download all albums by an artist interactively
 
-[Aggregate mode](#album-aggregate) (`-g`) can group results by album, giving you several folder choices for each one. Albums which are shared the most are sorted first. In interactive mode (`-t`), you can pick which albums to download and which particular version to use. Run it like this:
+[Album Groups mode](#album-groups) (`-g`) ca grouped results by album, giving you several folder choices for each one. Albums which are shared the most are sorted first. In interactive mode (`-t`), you can pick which albums to download and which particular version to use. Run it like this:
 
 ```bash
 sockseek "artist=Artist Name" -gt
@@ -144,8 +144,8 @@ Sockseek searches the Soulseek P2P network. Sources like Spotify and YouTube are
 - [Download modes](#download-modes)
   - [Song](#song)
   - [Album](#album)
-  - [Album Aggregate](#album-aggregate)
-  - [Song Aggregate](#song-aggregate)
+  - [Album Groups](#album-groups)
+  - [Song Groups](#song-groups)
 - [Daemon / remote mode](#daemon--remote-mode)
 - [Configuration](#configuration)
 - [File conditions](#file-conditions)
@@ -188,8 +188,8 @@ See [CSV options](#csv-file-options) for all options.
  - [Download modes](#download-modes)
    - [Song](#song)
    - [Album](#album)
-   - [Album Aggregate](#album-aggregate)
-   - [Song Aggregate](#song-aggregate)
+   - [Album Groups](#album-groups)
+   - [Song Groups](#song-groups)
  - [Daemon / remote mode](#daemon--remote-mode)
  - [Configuration](#configuration)
  - [File conditions](#file-conditions)
@@ -209,7 +209,7 @@ See [YouTube options](#youtube-options) for all options.
 
 ### Spotify
 
-Spotify inputs support:  
+Spotify inputs support:
 
 - Public and private playlist URLs
 - Album URLs
@@ -359,7 +359,7 @@ Any input type                conditions (optional)           pref. conditions (
 Here is an example list file:
 
 ```yaml
-"Artist - Album"                "strict-album=true; album-track-count>=13"   "br >= 320"             
+"Artist - Album"                "strict-album=true; album-track-count>=13"   "br >= 320"
 
 # Treat string input as song download with the s: prefix
 s:"Artist - Song"               strict-title=true
@@ -383,7 +383,7 @@ Sources usually decide for themselves whether they contain songs or albums. Stri
 
 ### Song
 
-Song mode is the default for playlists from streaming platforms and CSV song lists, and downloads one file per item. Use `-s/--song` for string/list input that should be treated as a song search. 
+Song mode is the default for playlists from streaming platforms and CSV song lists, and downloads one file per item. Use `-s/--song` for string/list input that should be treated as a song search.
 
 Example:
 
@@ -403,11 +403,11 @@ sockseek "Artist - Album Name" -t
 
 See [Album options](#album-download-options) for album-specific options.
 
-### Album Aggregate
+### Album Groups
 
-Album aggregate mode is activated when `-g/--aggregate` is enabled for album inputs. In this mode, Sockseek will attempt to group folders returned by Soulseek and download one of each distinct album, starting with the one shared by the most peers.
+Album Groups mode is activated when `-g/--group` is enabled for album inputs. In this mode, Sockseek will attempt to group folders returned by Soulseek and download one of each distinct album, starting with the one shared by the most peers.
 
-Note that `--min-shares-aggregate` is set to 2 by default, meaning that albums shared by only one user will be ignored. Album-aggregate mode can be used to determine the most common version of a particular album, or download the most popular (or all) albums by an artist. It's recommended to pair it with `-t`/`--interactive`. 
+Note that `--min-group-shares` is set to 2 by default, meaning that albums shared by only one user will be ignored. Album Groups mode can be used to determine the most common version of a particular album, or download the most popular (or all) albums by an artist. It's recommended to pair it with `-t`/`--interactive`.
 
 Example:
 
@@ -415,13 +415,13 @@ Example:
 sockseek "artist=Artist Name" -gt
 ```
 
-See [Aggregate options](#aggregate-download-options) for aggregate options.
+See [Grouping options](#group-download-options) for group options.
 
-### Song Aggregate
+### Song Groups
 
-Song aggregate mode is enabled with `--aggregate --song` (or `-gs` for short). Sockseek will attempt to group files returned by Soulseek and download one of each distinct song, starting with the one shared by the most peers. 
+Song Groups mode is enabled with `--group --song` (or `-gs` for short). Sockseek will attempt to group files returned by Soulseek and download one of each distinct song, starting with the one shared by the most peers.
 
-As in album aggregate mode, `--min-shares-aggregate` is set to 2 by default, meaning that songs shared by only one user will be ignored. This mode is useful for downloading all songs by an artist available on Soulseek. 
+As in Album Groups mode, `--min-group-shares` is set to 2 by default, meaning that songs shared by only one user will be ignored. This mode is useful for downloading all songs by an artist available on Soulseek.
 
 Example:
 
@@ -429,7 +429,7 @@ Example:
 sockseek "artist=Artist Name" -gs
 ```
 
-See [Aggregate options](#aggregate-download-options) for aggregate options.
+See [Grouping options](#group-download-options) for group options.
 
 <!-- sockseek-help:end -->
 
@@ -494,9 +494,9 @@ Sockseek supports configuration profiles:
 pref-format = flac,wav
 ```
 
-To activate the above profile, use `--profile lossless`. This will apply all of its options. Your manual CLI options still take precedence.  
+To activate the above profile, use `--profile lossless`. This will apply all of its options. Your manual CLI options still take precedence.
 
-To list all configured profiles, run `--profile help`.  
+To list all configured profiles, run `--profile help`.
 
 ### Auto-profiles
 
@@ -519,14 +519,14 @@ profile-cond = download-mode == "generic-file" || download-mode == "generic-dire
 name-format = {peer-username}/{foldername}/{filename}
 ```
 
-The following operators are supported for use in `profile-cond`: `&&`, `||`, `==`, `!=`, `!{bool}`.  
+The following operators are supported for use in `profile-cond`: `&&`, `||`, `==`, `!=`, `!{bool}`.
 The following variables are available:
 
 ```
 input-type        ("youtube"|"csv"|"string"|"bandcamp"|"spotify"|"list"|"soulseek"|"musicbrainz"|"none")
-download-mode     ("song"|"aggregate"|"album"|"album-aggregate"|"generic-file"|"generic-directory")
+download-mode     ("song"|"song-groups"|"album"|"album-groups"|"generic-file"|"generic-directory")
 album             (bool)
-aggregate         (bool)
+group             (bool)
 interactive       (bool)
 progress-json     (bool)
 no-progress       (bool)
@@ -538,7 +538,7 @@ no-progress       (bool)
 
 ## File conditions
 
-`pref-*` options change how results are **ranked**; they never filter anything out. `--pref-format flac` means Sockseek will prefer flac when available, but will still download mp3 if no flac is found. By contrast, conditions without the `pref` prefix are mandatory. For example, `--format flac` will reject non-flac files entirely. 
+`pref-*` options change how results are **ranked**; they never filter anything out. `--pref-format flac` means Sockseek will prefer flac when available, but will still download mp3 if no flac is found. By contrast, conditions without the `pref` prefix are mandatory. For example, `--format flac` will reject non-flac files entirely.
 
 _Note: Format conditions are UNORDERED! `--pref-format mp3,flac` is the same as `flac,mp3`._
 
@@ -564,7 +564,7 @@ pref-strict-title = true
 pref-strict-album = true
 ```
 
-For album downloads, conditions like format, bitrate and sample rate operate based on coverage: A folder with 9 FLAC files and 1 MP3 is preferred over a mostly-MP3 folder, and the selected folder is still downloaded as a whole. Use `--strict-album-quality` to require every audio file in the folder to satisfy the conditions. 
+For album downloads, conditions like format, bitrate and sample rate operate based on coverage: A folder with 9 FLAC files and 1 MP3 is preferred over a mostly-MP3 folder, and the selected folder is still downloaded as a whole. Use `--strict-album-quality` to require every audio file in the folder to satisfy the conditions.
 
 See [the options reference](#filtering--ranking-options) for all filtering and ranking options.
 
@@ -580,7 +580,7 @@ For debugging, you can run a song search with `--print results-full` to reveal t
 
 Some info may be unavailable depending on the client used by the peer (like the bitrate). This is why if you set a `--min-bitrate`, Sockseek will still accept any file with **unknown** bitrate as a precaution.
 
-To reject all files where one or more of the checked properties is null (unknown), use `--strict-conditions`.  
+To reject all files where one or more of the checked properties is null (unknown), use `--strict-conditions`.
 
 This flag should be used with care: It's easy to accidentally exclude all files from users with
 certain clients. For example, because the standard Soulseek client does not broadcast the bitrate,
@@ -599,16 +599,16 @@ reference, also available with `sockseek --help variables`.
 
 Sockseek can format the downloaded filenames using `--name-format <yourformat>`. Variables enclosed in `{}` will be replaced by the corresponding file tag value.
 Name format supports subdirectories as well as conditional expressions like `{tag1|tag2}` - If
-tag1 is null, use tag2 (can be chained). Examples: 
+tag1 is null, use tag2 (can be chained). Examples:
 
-- `{artist} - {title}`  
+- `{artist} - {title}`
     Always name it 'Artist - Title'. Because some files on Soulseek are untagged, the
     following is generally preferred:
-- `{artist( - )title|filename}`  
+- `{artist( - )title|filename}`
     Everything inside round parentheses `()` inside braces `{}` is treated as a raw string and ignored in the null check. Here, if artist and title are both not null, name it 'Artist - Title', otherwise use the original filename.
-- `{albumartist(/)album(/)track(. )title|(missing-tags/)slsk-foldername(/)slsk-filename}`  
+- `{albumartist(/)album(/)track(. )title|(missing-tags/)slsk-foldername(/)slsk-filename}`
     Sort files into artist/album folders if all tags are present, otherwise put them in
-    the 'missing-tags' folder.   
+    the 'missing-tags' folder.
 <!-- sockseek-help:end -->
 
 <!-- sockseek-help:start(variables) -->
@@ -628,7 +628,7 @@ relative-path                   Relative directory plus filename, without the ex
 foldername / slsk-foldername    Selected root plus relative directory; for a direct
                                 file, its immediate remote parent folder
 item-name                       Current song, album, file, or folder name
-default-folder                  Default Sockseek folder for the current job 
+default-folder                  Default Sockseek folder for the current job
                                 (e.g. Spotify playlist name)
 output-dir / outputdir          Output parent directory (--output)
 type                            Job type (Song, Album, RemoteFile, RemoteDirectory, ..)
@@ -680,7 +680,7 @@ Hint: You can use `--mock-files-dir` to test your commands (see [Testing Options
 
 Every on-complete command must include the `--` delimiter. Sockseek options go before it; everything after it is the command passed to the OS.
 
-When passing an on-complete action on the command line, quote the whole value so the delimiter is part of the `--on-complete` argument: 
+When passing an on-complete action on the command line, quote the whole value so the delimiter is part of the `--on-complete` argument:
 
 ```bash
 --on-complete "when=success scope=album -- notify-send \"Downloaded\" \"{path}\""
@@ -724,7 +724,7 @@ skip-reason         AlreadyExists, NotFoundLastTime, Manual, or Filtered;
 failure-reason      None, InvalidSearchString, OutOfDownloadRetries,
                     AllDownloadsFailed, Other, ExtractionFailed, Cancelled,
                     ChildJobsFailed, NoSearchResults, or NoMatchingResults
-                    
+
 exitcode            Previous command's exit code
 stdout              Previous command's stdout
 stderr              Previous command's stderr
@@ -735,7 +735,7 @@ first-stderr        First command's stderr
 
 Sockseek captures stdout/stderr for ordinary on-complete commands, so chained commands can use output variables from the previous ones. Commands launched with `shell` cannot use stdout/stderr.
 
-For album-only (`scope=album`) actions, tag-based variables such as `{title}`, `{artist}`, and `{album}` are read from the first audio file in the album. 
+For album-only (`scope=album`) actions, tag-based variables such as `{title}`, `{artist}`, and `{album}` are read from the first audio file in the album.
 
 ### Examples
 
@@ -844,7 +844,7 @@ bash "https://youtube.com/playlist/id" --get-deleted
 
 ### Show artist songs which you don't have
 
-[Song aggregate](#song-aggregate) mode can be used in combination with `--skip-music-dir` to show all songs by an artist on Soulseek which are not in your music library:
+[Song Groups](#song-groups) mode can be used in combination with `--skip-music-dir` to show all songs by an artist on Soulseek which are not in your music library:
 
 ```bash
 sockseek "artist=MC MENTAL" -s -g --skip-music-dir "path/to/music" --print results
@@ -862,7 +862,7 @@ You can easily build a wishlist downloader. Create a file named `wishlist.txt`, 
 "Another Album"                         banned-users=user-sharing-bad-files
 "Album With Pref. Conditions"           format=mp3,flac                         format=flac
 
-s:"MC MENTAL - MC MENTAL @ HIS BEST, length=242" 
+s:"MC MENTAL - MC MENTAL @ HIS BEST, length=242"
 ```
 
 Add a profile to your `sockseek.conf`:
@@ -870,7 +870,7 @@ Add a profile to your `sockseek.conf`:
 ```ini
 [wishlist]
 # Will look for wishlist.txt in the same folder as your sockseek.conf
-input = {configdir}/wishlist.txt 
+input = {configdir}/wishlist.txt
 input-type = list
 log-file = {configdir}/wishlist.log
 
@@ -904,7 +904,7 @@ Now set up a cron job (on Linux) scheduled task (on Windows) to periodically run
 sockseek --profile wishlist
 ```
 
-You can also just manually run it, for example in interactive mode (`-t`). 
+You can also just manually run it, for example in interactive mode (`-t`).
 
 <!-- sockseek-help:start(notes-and-tips) -->
 
@@ -935,7 +935,7 @@ sockseek "Artist - Album" --album-track-count 10
 
 Use inequalities like `10+` or `12-` when expanded or incomplete editions are acceptable. You can also add `--strict-album` to require the album name in the folder path.
 
-**It didn't find a song or album.**  
+**It didn't find a song or album.**
 This usually means one of two things:
 
 1. Your searches are non-standard, like an uncommon artist spelling. You can try cleaning them up with options like `--regex` and `--remove-ft`. See also the next section.
@@ -984,7 +984,7 @@ Most used flags at a glance:
 ```text
 -s, --song                      Treat string input as song search
 -t, --interactive               Pick from album results before downloading
--g, --aggregate                 Download distinct songs/albums from grouped results
+-g, --group                     Download distinct songs/albums from grouped results
 -o, --output-dir <path>         Download directory
 --pref-format <formats>         Preferred formats for ranking, e.g. flac,wav. Unordered.
 --format <formats>              Required accepted formats. Unordered.
@@ -1214,7 +1214,7 @@ Most used flags at a glance:
                                 - for inequalities, e.g '5+' for five or more tracks.
                                 Spotify/Bandcamp inputs automatically set album-track-count
                                 to n+.
---strict-album-quality          Require every audio file in an album folder to satisfy 
+--strict-album-quality          Require every audio file in an album folder to satisfy
                                 required quality conditions such as --format, bitrate, sample
                                 rate, and bit depth. By default mixed-quality folders are
                                 ranked by coverage.
@@ -1239,16 +1239,16 @@ Most used flags at a glance:
                                 them where they are.
 ```
 
-#### Aggregate Download Options
+#### Group Download Options
 
 ```
--g, --aggregate                 Aggregate download mode: Find and download all distinct
+-g, --group                     Group download mode: Find and download all distinct
                                 songs associated with the provided artist, album, or title.
---aggregate-length-tol <tol>    Max length tolerance in seconds to consider two tracks or
+--group-length-tol <tol>        Max length tolerance in seconds to consider two tracks or
                                 albums equal. (Default: 3)
---min-shares-aggregate <num>    Minimum number of shares of a track or album for it to be
-                                downloaded in aggregate mode. (Default: 2)
---relax-filtering               Slightly relax file filtering in aggregate mode to include
+--min-group-shares <num>        Minimum number of shares of a track or album for it to be
+                                downloaded in group mode. (Default: 2)
+--relax-filtering               Slightly relax file filtering in group mode to include
                                 more results
 ```
 #### Daemon / Remote Options

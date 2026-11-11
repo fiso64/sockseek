@@ -64,8 +64,8 @@ public sealed class CliSearchViewParityTests
     [TestMethod]
     [DataRow("song")]
     [DataRow("album")]
-    [DataRow("aggregate")]
-    [DataRow("album-aggregate")]
+    [DataRow("song-groups")]
+    [DataRow("album-groups")]
     public void ResultOutputUsesRetainedFactsAndPublicLinkTargets(string mode)
     {
         var query = new SongQuery { Title = "Track" };
@@ -94,8 +94,8 @@ public sealed class CliSearchViewParityTests
         {
             "song" => song,
             "album" => album,
-            "aggregate" => new AggregateJob(query) { Songs = [song] },
-            "album-aggregate" => new AlbumAggregateJob(albumQuery) { Albums = [album] },
+            "song-groups" => new SongGroupsJob(query) { Songs = [song] },
+            "album-groups" => new AlbumGroupsJob(albumQuery) { Albums = [album] },
             _ => throw new ArgumentOutOfRangeException(nameof(mode)),
         };
         using var output = new StringWriter();
@@ -126,7 +126,7 @@ public sealed class CliSearchViewParityTests
         output.GetStringBuilder().Clear();
         using (Printing.RedirectOutput(output))
             Printing.PrintResults(job, PrintOption.Link, settings.Search);
-        Assert.AreEqual(mode is "album" or "album-aggregate"
+        Assert.AreEqual(mode is "album" or "album-groups"
             ? "slsk://peer/Music/" : "slsk://peer/Music/Track.flac", output.ToString().Trim());
         song.Candidates.Remove(candidate);
         album.Results.RemoveAll(folder => folder.Username == "peer");

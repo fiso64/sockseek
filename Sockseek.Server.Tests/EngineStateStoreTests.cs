@@ -424,7 +424,7 @@ public class EngineStateStoreTests
         Assert.AreEqual(createdAt, state.ToSummary().CreatedAtUtc);
 
         var search = new SearchJob(new SongQuery { Title = "Track search" })
-            { WorkflowId = job.WorkflowId, AggregatePresentation = true };
+            { WorkflowId = job.WorkflowId, GroupResults = true };
         Register(store, search);
         Assert.IsNull(store.GetWorkflowSnapshot(job.WorkflowId).Jobs
             .Single(row => row.JobId == search.Id).Display.SearchDefaultProjection);
@@ -436,7 +436,7 @@ public class EngineStateStoreTests
         var searchDisplay = batches.SelectMany(batch => batch.State.Jobs)
             .Last(delta => delta.JobId == search.Id && delta.Display is not null).Display!;
         Assert.AreEqual(ServerSearchDefaultProjectionKind.Track, searchDisplay.SearchDefaultProjection);
-        Assert.IsTrue(searchDisplay.SearchAggregatePresentation);
+        Assert.IsTrue(searchDisplay.SearchGroupResults);
         Assert.AreEqual(searchDisplay, store.GetWorkflowSnapshot(job.WorkflowId).Jobs
             .Single(row => row.JobId == search.Id).Display);
     }
@@ -1840,41 +1840,41 @@ public class EngineStateStoreTests
     }
 
     [TestMethod]
-    public void AggregatePayload_IncludesSongOutcomeCounts()
+    public void GroupPayload_IncludesSongOutcomeCounts()
     {
         var store = new EngineStateStore();
-        var aggregate = new AggregateJob(new SongQuery { Artist = "Artist" });
+        var group = new SongGroupsJob(new SongQuery { Artist = "Artist" });
         var s1 = new SongJob(new SongQuery { Title = "One" }); s1.SetDone();
         var s2 = new SongJob(new SongQuery { Title = "Two" }); s2.Fail(JobFailureReason.Other);
         var s3 = new SongJob(new SongQuery { Title = "Three" }); s3.UpdateActivity(JobActivityPhase.Downloading);
-        aggregate.Songs = [s1, s2, s3];
+        group.Songs = [s1, s2, s3];
 
-        Register(store, aggregate);
+        Register(store, group);
 
-        var payload = store.GetJobDetail(aggregate.Id)?.Payload as AggregateJobPayloadDto;
+        var payload = store.GetJobDetail(group.Id)?.Payload as SongGroupsJobPayloadDto;
         Assert.IsNotNull(payload);
         Assert.AreEqual(3, payload.SongCount);
         Assert.AreEqual(2, payload.CompletedSongCount);
         Assert.AreEqual(1, payload.SucceededSongCount);
         Assert.AreEqual(1, payload.FailedSongCount);
-        var firstStats = store.GetJobDetail(aggregate.Id)!.Summary.Stats;
+        var firstStats = store.GetJobDetail(group.Id)!.Summary.Stats;
         Assert.IsNotNull(firstStats);
         Assert.AreEqual(3, firstStats.MemberCount);
         Assert.AreEqual(2, firstStats.CompletedMemberCount);
         Assert.AreEqual(1, firstStats.FailedMemberCount);
 
-        // The aggregate snapshot still contains the original running child.
-        // A child event must update the aggregate projection without rebuilding
+        // The group snapshot still contains the original running child.
+        // A child event must update the group projection without rebuilding
         // that nested snapshot during each detail read.
         s3.SetDone();
         UpdateState(store, s3);
-        payload = store.GetJobDetail(aggregate.Id)?.Payload as AggregateJobPayloadDto;
+        payload = store.GetJobDetail(group.Id)?.Payload as SongGroupsJobPayloadDto;
         Assert.IsNotNull(payload);
         Assert.AreEqual(3, payload.SongCount);
         Assert.AreEqual(3, payload.CompletedSongCount);
         Assert.AreEqual(2, payload.SucceededSongCount);
         Assert.AreEqual(1, payload.FailedSongCount);
-        Assert.AreEqual(3, store.GetJobDetail(aggregate.Id)!.Summary.Stats!.CompletedMemberCount);
+        Assert.AreEqual(3, store.GetJobDetail(group.Id)!.Summary.Stats!.CompletedMemberCount);
     }
 
     [TestMethod]
@@ -2109,29 +2109,29 @@ public class EngineStateStoreTests
     }
 
     [TestMethod]
-    public void AlbumAggregatePayload_CountsProducedAlbumDescendants()
+    public void AlbumGroupsPayload_CountsProducedAlbumDescendants()
     {
         var store = new EngineStateStore();
-        var aggregate = new AlbumAggregateJob(new AlbumQuery { Artist = "Artist" });
+        var group = new AlbumGroupsJob(new AlbumQuery { Artist = "Artist" });
         var list = new JobList("albums");
         var firstAlbum = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "One" });
         var secondAlbum = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Two" });
         list.Add(firstAlbum);
         list.Add(secondAlbum);
 
-        Register(store, aggregate);
-        Register(store, list, aggregate);
+        Register(store, group);
+        Register(store, list, group);
         Register(store, firstAlbum, list);
         Register(store, secondAlbum, list);
 
-        var payload = store.GetJobDetail(aggregate.Id)?.Payload as AlbumAggregateJobPayloadDto;
+        var payload = store.GetJobDetail(group.Id)?.Payload as AlbumGroupsJobPayloadDto;
         Assert.IsNotNull(payload);
         Assert.AreEqual(2, payload.ResultCount);
         Assert.AreEqual(0, payload.CompletedAlbumCount);
 
         firstAlbum.SetDone();
         UpdateState(store, firstAlbum);
-        payload = store.GetJobDetail(aggregate.Id)?.Payload as AlbumAggregateJobPayloadDto;
+        payload = store.GetJobDetail(group.Id)?.Payload as AlbumGroupsJobPayloadDto;
         Assert.IsNotNull(payload);
         Assert.AreEqual(1, payload.CompletedAlbumCount);
         Assert.AreEqual(1, payload.SucceededAlbumCount);
@@ -2139,12 +2139,12 @@ public class EngineStateStoreTests
 
         secondAlbum.Fail(JobFailureReason.Other);
         UpdateState(store, secondAlbum);
-        payload = store.GetJobDetail(aggregate.Id)?.Payload as AlbumAggregateJobPayloadDto;
+        payload = store.GetJobDetail(group.Id)?.Payload as AlbumGroupsJobPayloadDto;
         Assert.IsNotNull(payload);
         Assert.AreEqual(2, payload.CompletedAlbumCount);
         Assert.AreEqual(1, payload.SucceededAlbumCount);
         Assert.AreEqual(1, payload.FailedAlbumCount);
-        var stats = store.GetJobDetail(aggregate.Id)!.Summary.Stats;
+        var stats = store.GetJobDetail(group.Id)!.Summary.Stats;
         Assert.IsNotNull(stats);
         Assert.AreEqual(2, stats.MemberCount);
         Assert.AreEqual(2, stats.CompletedMemberCount);

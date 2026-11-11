@@ -93,11 +93,11 @@ namespace Sockseek.Core.Jobs;
         public override string ToString(bool noInfo) => Query.ToString(noInfo);
         public override string ToString()             => Query.ToString();
 
-        public IEnumerable<Job> Upgrade(bool album, bool aggregate)
+        public IEnumerable<Job> Upgrade(bool album, bool group)
         {
-            if (album && aggregate)
+            if (album && group)
             {
-                var newJob = new AlbumAggregateJob(AlbumQuery.FromSongQuery(Query));
+                var newJob = new AlbumGroupsJob(AlbumQuery.FromSongQuery(Query));
                 newJob.CopySharedFieldsFrom(this);
                 if (Query.Title.Length > 0)
                 {
@@ -119,9 +119,9 @@ namespace Sockseek.Core.Jobs;
                 newJob.UpgradeSources.Add(new SongQuery(Query));
                 yield return newJob;
             }
-            else if (aggregate)
+            else if (group)
             {
-                var newJob = new AggregateJob(Query);
+                var newJob = new SongGroupsJob(Query);
                 newJob.CopySharedFieldsFrom(this);
                 newJob.ItemName ??= newJob.ToString(noInfo: true);
                 yield return newJob;
