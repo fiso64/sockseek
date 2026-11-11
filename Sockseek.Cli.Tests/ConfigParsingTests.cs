@@ -20,6 +20,39 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
+        public void RetentionDefaultsAndExplicitPoliciesMatchTheDaemon()
+        {
+            var file = new ConfigFile("none", new Dictionary<string, ProfileEntry>());
+            var defaults = ConfigManager.BindAll(file, []).Daemon;
+            var server = new ServerPersistenceOptions();
+            Assert.IsNull(defaults.CompletedJobRetention);
+            Assert.IsNull(defaults.UnsuccessfulJobRetention);
+            Assert.IsNull(defaults.TransferRetention);
+            Assert.IsNull(defaults.PrivateMessageRetention);
+            Assert.AreEqual(defaults.CompletedJobRetention, server.CompletedJobHistoryAge);
+            Assert.AreEqual(defaults.UnsuccessfulJobRetention, server.UnsuccessfulJobHistoryAge);
+            Assert.AreEqual(defaults.TransferRetention, server.TransferHistoryAge);
+            Assert.AreEqual(TimeSpan.FromDays(30), defaults.SearchResultRetention);
+            Assert.AreEqual(defaults.SearchResultRetention, server.SearchResultAge);
+            Assert.AreEqual(defaults.RoomMessageRetention, server.RoomMessageHistoryAge);
+            var configured = ConfigManager.BindAll(file, [
+                "--successful-job-retention-days", "90", "--unsuccessful-job-retention-days", "180",
+                "--transfer-retention-days", "30", "--search-result-retention-days", "forever",
+            ]).Daemon;
+            Assert.AreEqual(TimeSpan.FromDays(90), configured.CompletedJobRetention);
+            Assert.AreEqual(TimeSpan.FromDays(180), configured.UnsuccessfulJobRetention);
+            Assert.AreEqual(TimeSpan.FromDays(30), configured.TransferRetention);
+            Assert.IsNull(configured.SearchResultRetention);
+            var forever = ConfigManager.BindAll(file, [
+                "--successful-job-retention-days", "90", "--successful-job-retention-days", "forever",
+                "--unsuccessful-job-retention-days", "forever", "--transfer-retention-days", "forever",
+            ]).Daemon;
+            Assert.IsNull(forever.CompletedJobRetention);
+            Assert.IsNull(forever.UnsuccessfulJobRetention);
+            Assert.IsNull(forever.TransferRetention);
+        }
+
+        [TestMethod]
         public void Defaults_NecessaryCondFormats_AreSet()
         {
             var config = Cfg();

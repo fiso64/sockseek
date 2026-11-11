@@ -39,11 +39,10 @@ public sealed class ServerPersistenceOptions
     public TimeSpan TransferProgressFlushInterval { get; set; } = TimeSpan.FromSeconds(3);
     public bool RetentionEnabled { get; set; } = true;
     public TimeSpan RetentionInterval { get; set; } = TimeSpan.FromHours(24);
-    public TimeSpan? CompletedJobHistoryAge { get; set; } = TimeSpan.FromDays(90);
-    public TimeSpan? UnsuccessfulJobHistoryAge { get; set; } = TimeSpan.FromDays(180);
-    public int? MaximumRetainedJobs { get; set; } = 100_000;
+    public TimeSpan? CompletedJobHistoryAge { get; set; }
+    public TimeSpan? UnsuccessfulJobHistoryAge { get; set; }
     public TimeSpan? SearchResultAge { get; set; } = TimeSpan.FromDays(30);
-    public TimeSpan? TransferHistoryAge { get; set; } = TimeSpan.FromDays(90);
+    public TimeSpan? TransferHistoryAge { get; set; }
     public TimeSpan? PrivateMessageHistoryAge { get; set; }
     public TimeSpan? RoomMessageHistoryAge { get; set; } = TimeSpan.FromDays(30);
     public int RetentionBatchSize { get; set; } = 500;

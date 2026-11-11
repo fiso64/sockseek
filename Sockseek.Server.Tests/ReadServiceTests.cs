@@ -91,7 +91,7 @@ public sealed class ReadServiceTests
         {
             Enabled = true, DataDirectory = directory, RetentionEnabled = false,
             CompletedJobHistoryAge = TimeSpan.FromDays(30), UnsuccessfulJobHistoryAge = null,
-            SearchResultAge = null, TransferHistoryAge = null, MaximumRetainedJobs = null,
+            SearchResultAge = null, TransferHistoryAge = null,
         } });
         var persistence = new PersistenceCoordinator(options);
         await persistence.StartAsync(CancellationToken.None);

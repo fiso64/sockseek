@@ -1722,7 +1722,6 @@ internal static partial class Program
                 TransferHistoryAge = daemonSettings.TransferRetention,
                 PrivateMessageHistoryAge = daemonSettings.PrivateMessageRetention,
                 RoomMessageHistoryAge = daemonSettings.RoomMessageRetention,
-                MaximumRetainedJobs = daemonSettings.MaximumRetainedJobs,
             },
         };
 

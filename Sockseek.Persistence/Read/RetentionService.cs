@@ -1,7 +1,4 @@
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
-using Microsoft.EntityFrameworkCore.Storage;
-using Sockseek.Persistence.Planning;
 using Microsoft.EntityFrameworkCore;
 using Sockseek.Persistence.Write;
 
@@ -9,18 +6,16 @@ namespace Sockseek.Persistence.Read;
 
 public sealed record PersistenceRetentionOptions
 {
-    public TimeSpan? CompletedJobHistoryAge { get; init; } = TimeSpan.FromDays(90);
-    public TimeSpan? UnsuccessfulJobHistoryAge { get; init; } = TimeSpan.FromDays(180);
-    public int? MaximumRetainedJobs { get; init; } = 100_000;
+    public TimeSpan? CompletedJobHistoryAge { get; init; }
+    public TimeSpan? UnsuccessfulJobHistoryAge { get; init; }
     public TimeSpan? SearchResultAge { get; init; } = TimeSpan.FromDays(30);
-    public TimeSpan? TransferHistoryAge { get; init; } = TimeSpan.FromDays(90);
+    public TimeSpan? TransferHistoryAge { get; init; }
     public int BatchSize { get; init; } = 500;
 
     public void Validate()
     {
         ValidateAge(CompletedJobHistoryAge, nameof(CompletedJobHistoryAge));
         ValidateAge(UnsuccessfulJobHistoryAge, nameof(UnsuccessfulJobHistoryAge));
-        if (MaximumRetainedJobs <= 0) throw new ArgumentOutOfRangeException(nameof(MaximumRetainedJobs));
         ValidateAge(SearchResultAge, nameof(SearchResultAge));
         ValidateAge(TransferHistoryAge, nameof(TransferHistoryAge));
         if (BatchSize <= 0) throw new ArgumentOutOfRangeException(nameof(BatchSize));
@@ -60,7 +55,7 @@ public sealed class RetentionService(
 
         // Raw search-result retention is independent of job-history retention.
         // Prune eligible raw rows first, then protect every job that still owns
-        // raw rows from both the age policy and the maximum job count.
+        // raw rows from the job age policy.
         var searchesQuery = context.SearchJobs
             .Where(search => search.ResultPersistenceState != "Pruned");
         searchesQuery = searchCutoff.HasValue
@@ -103,35 +98,23 @@ public sealed class RetentionService(
                 || unsuccessfulJobCutoff.HasValue && job.TerminalOutcome != "Succeeded" && job.CompletedAtUtc < unsuccessfulJobCutoff);
         else
             agedJobs = agedJobs.Where(_ => false);
-        var agedJobIds = await agedJobs
+        var agedJobsToPrune = await agedJobs
             .OrderBy(job => job.CompletedAtUtc)
-            .Select(job => job.Id)
+            .Select(job => new { job.Id, job.SubmissionId })
             .Take(options.BatchSize)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        int retainedCount = await context.Jobs.CountAsync(cancellationToken).ConfigureAwait(false);
-        int excess = options.MaximumRetainedJobs.HasValue
-            ? Math.Max(0, retainedCount - options.MaximumRetainedJobs.Value)
-            : 0;
-        int remainingExcess = Math.Max(0, excess - agedJobIds.Count);
-        if (agedJobIds.Count < options.BatchSize && remainingExcess > 0)
-        {
-            var countIds = await context.Jobs.AsNoTracking()
-                .Where(job => job.LifecycleState == "Terminal"
-                    && !agedJobIds.Contains(job.Id)
-                    && !context.SearchResults.Any(result => result.SearchJobId == job.Id))
-                .OrderBy(job => job.CompletedAtUtc)
-                .Select(job => job.Id)
-                .Take(Math.Min(options.BatchSize - agedJobIds.Count, remainingExcess))
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-            agedJobIds.AddRange(countIds);
-        }
-
         int prunedJobs = 0;
-        if (agedJobIds.Count > 0)
-            prunedJobs = await context.Jobs.Where(job => agedJobIds.Contains(job.Id)).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+        if (agedJobsToPrune.Count > 0)
+        {
+            var ids = agedJobsToPrune.Select(job => job.Id).ToArray();
+            prunedJobs = await context.Jobs.Where(job => ids.Contains(job.Id))
+                .ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+            var submissions = agedJobsToPrune.Where(job => job.SubmissionId.HasValue)
+                .Select(job => job.SubmissionId!.Value).Distinct().ToArray();
+            await SubmissionStore.DeleteEmptyAsync(context, submissions, cancellationToken).ConfigureAwait(false);
+        }
 
         int prunedAttempts = 0;
         int prunedTransfers = 0;

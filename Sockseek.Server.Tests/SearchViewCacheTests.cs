@@ -238,7 +238,7 @@ public sealed class SearchViewCacheTests
         var retention = new Sockseek.Persistence.Read.RetentionService(directory.Writes, new()
         {
             SearchResultAge = TimeSpan.FromDays(1), CompletedJobHistoryAge = null, UnsuccessfulJobHistoryAge = null,
-            MaximumRetainedJobs = null, TransferHistoryAge = null,
+            TransferHistoryAge = null,
         }, clock);
         if (!pruneRawFirst)
         {

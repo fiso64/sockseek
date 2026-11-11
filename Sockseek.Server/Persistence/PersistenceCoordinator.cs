@@ -85,7 +85,6 @@ public sealed class PersistenceCoordinator(
         {
             CompletedJobHistoryAge = options.Persistence.CompletedJobHistoryAge,
             UnsuccessfulJobHistoryAge = options.Persistence.UnsuccessfulJobHistoryAge,
-            MaximumRetainedJobs = options.Persistence.MaximumRetainedJobs,
             SearchResultAge = options.Persistence.SearchResultAge,
             TransferHistoryAge = options.Persistence.TransferHistoryAge,
             BatchSize = options.Persistence.RetentionBatchSize,

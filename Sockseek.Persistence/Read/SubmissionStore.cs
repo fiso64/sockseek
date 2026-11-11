@@ -274,15 +274,28 @@ public sealed class SubmissionStore(
             var jobs = context.Jobs.Where(job => job.SubmissionId == submissionId);
             if (await jobs.AnyAsync(job => job.LifecycleState != "Terminal", ct).ConfigureAwait(false))
                 return new(submissionId, 0, 0, 1, "nonterminal-jobs");
-            await context.Submissions.Where(item => item.RerunOfSubmissionId == submissionId)
-                .ExecuteUpdateAsync(setters => setters.SetProperty(item => item.RerunOfSubmissionId, (Guid?)null), ct)
-                .ConfigureAwait(false);
             int deleted = await jobs.ExecuteDeleteAsync(ct).ConfigureAwait(false);
-            await context.Submissions.Where(item => item.Id == submissionId).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+            await DeleteEmptyAsync(context, [submissionId], ct).ConfigureAwait(false);
             return new(submissionId, 1, deleted, 0, null);
         });
         await inbox.EnqueueCommandAsync(command, cancellationToken).ConfigureAwait(false);
         return await command.Task.ConfigureAwait(false);
+    }
+
+    internal static async Task DeleteEmptyAsync(SockseekDbContext context, Guid[] candidates, CancellationToken ct)
+    {
+        if (candidates.Length == 0) return;
+        // Restrict cleanup to submissions whose jobs this transaction deleted.
+        // An unrelated empty submission may be accepted and awaiting admission.
+        var empty = context.Submissions.Where(item => candidates.Contains(item.Id)
+            && !context.Jobs.Any(job => job.SubmissionId == item.Id));
+        var emptyIds = empty.Select(item => item.Id);
+        await context.Submissions.Where(item => item.RerunOfSubmissionId.HasValue
+                && emptyIds.Contains(item.RerunOfSubmissionId.Value))
+            .ExecuteUpdateAsync(setters => setters.SetProperty(item => item.RerunOfSubmissionId, (Guid?)null), ct)
+            .ConfigureAwait(false);
+        // Specifications cascade; the submission row owns its acceptance receipt.
+        await empty.ExecuteDeleteAsync(ct).ConfigureAwait(false);
     }
 
     private static async Task<IReadOnlyList<T>> WithJobCountsAsync<T>(

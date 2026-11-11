@@ -48,32 +48,18 @@ public class DaemonSettings
     public string? DataDirectory { get; set; }
     [SettingOption("--no-retention", FixedValue = "false")]
     public bool RetentionEnabled { get; set; } = true;
-    public TimeSpan? CompletedJobRetention { get; set; } = TimeSpan.FromDays(90);
-    public TimeSpan? UnsuccessfulJobRetention { get; set; } = TimeSpan.FromDays(180);
+    [SettingOption("--successful-job-retention-days", Parser = nameof(ParseRetentionDays))]
+    public TimeSpan? CompletedJobRetention { get; set; }
+    [SettingOption("--unsuccessful-job-retention-days", Parser = nameof(ParseRetentionDays))]
+    public TimeSpan? UnsuccessfulJobRetention { get; set; }
     [SettingOption("--search-result-retention-days", Parser = nameof(ParseRetentionDays))]
     public TimeSpan? SearchResultRetention { get; set; } = TimeSpan.FromDays(30);
     [SettingOption("--transfer-retention-days", Parser = nameof(ParseRetentionDays))]
-    public TimeSpan? TransferRetention { get; set; } = TimeSpan.FromDays(90);
+    public TimeSpan? TransferRetention { get; set; }
     [SettingOption("--private-message-retention-days", Parser = nameof(ParseRetentionDays))]
     public TimeSpan? PrivateMessageRetention { get; set; }
     [SettingOption("--room-message-retention-days", Parser = nameof(ParseRetentionDays))]
     public TimeSpan? RoomMessageRetention { get; set; } = TimeSpan.FromDays(30);
-    public int? MaximumRetainedJobs { get; set; } = 100_000;
-    [SettingOption("--successful-job-retention-days")]
-    private static void ConfigureCompletedRetention(SettingWriter changes, string value)
-        => ConfigureJobRetention(changes, nameof(CompletedJobRetention), value);
-
-    [SettingOption("--unsuccessful-job-retention-days")]
-    private static void ConfigureUnsuccessfulRetention(SettingWriter changes, string value)
-        => ConfigureJobRetention(changes, nameof(UnsuccessfulJobRetention), value);
-
-    private static void ConfigureJobRetention(SettingWriter changes, string member, string value)
-    {
-        TimeSpan? duration = ParseRetentionDays(value, changes.Flag);
-        changes.Set(member, duration);
-        if (duration == null) changes.Set(nameof(MaximumRetainedJobs), null);
-    }
-
     private static TimeSpan? ParseRetentionDays(string value, string flag)
     {
         if (value.Equals("forever", StringComparison.OrdinalIgnoreCase)) return null;

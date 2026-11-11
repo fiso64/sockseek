@@ -291,11 +291,11 @@ public static partial class Help
     --data-dir <path>               Directory for daemon data, including sockseek.db
     --no-retention                  Disable scheduled history retention
     --successful-job-retention-days <days|forever>
-                                    Successful job retention (default: 90)
+                                    Successful job retention (default: forever)
     --unsuccessful-job-retention-days <days|forever>
-                                    Failed, cancelled, and interrupted job retention (default: 180)
+                                    Failed, cancelled, and interrupted job retention (default: forever)
     --transfer-retention-days <days|forever>
-                                    Transfer history retention (default: 90)
+                                    Transfer history, attempts and byte accounting retention (default: forever)
     --search-result-retention-days <days|forever>
                                     Raw search-result retention (default: 30)
     --private-message-retention-days <days|forever>
@@ -304,6 +304,12 @@ public static partial class Help
                                     Room-message retention (default: 30)
     --exclude-locked                Exclude locked files from search results (default: false)
     --pref-exclude-locked           Prefer unlocked results (default: true)
+
+    Jobs, transfer history/accounting and private messages are kept indefinitely by default, with no
+    job-count cleanup threshold. Raw search results and room messages expire after 30 days; their
+    options also accept forever. A finite transfer-retention policy purges history and accounting,
+    reducing the statistics available for that period. Removing a transfer from the UI only hides it
+    and preserves statistics. Neither action deletes downloaded files.
 
   Remote User Commands
 

@@ -1291,11 +1291,11 @@ sockseek auth keys revoke <id>  Revoke a key; offline commands require the daemo
 --data-dir <path>               Directory for daemon data, including sockseek.db
 --no-retention                  Disable scheduled history retention
 --successful-job-retention-days <days|forever>
-                                Successful job retention (default: 90)
+                                Successful job retention (default: forever)
 --unsuccessful-job-retention-days <days|forever>
-                                Failed, cancelled, and interrupted job retention (default: 180)
+                                Failed, cancelled, and interrupted job retention (default: forever)
 --transfer-retention-days <days|forever>
-                                Transfer history retention (default: 90)
+                                Transfer history, attempts and byte accounting retention (default: forever)
 --search-result-retention-days <days|forever>
                                 Raw search-result retention (default: 30)
 --private-message-retention-days <days|forever>

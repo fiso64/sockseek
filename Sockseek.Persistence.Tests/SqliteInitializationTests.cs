@@ -703,7 +703,7 @@ public sealed class SqliteInitializationTests
     }
 
     [TestMethod]
-    public async Task Retention_PrunesOnlyTerminalJobs_AndMarksSearchResultsPruned()
+    public async Task Retention_DefaultsPreserveHistory_AndExplicitAgesPruneOnlyTerminalRows()
     {
         await using var database = new TemporaryDatabase();
         await database.Initializer.InitializeAsync();
@@ -792,15 +792,26 @@ public sealed class SqliteInitializationTests
             await context.SaveChangesAsync();
         }
 
-        var retention = new RetentionService(
-            database.Writes,
-            new PersistenceRetentionOptions { BatchSize = 10 },
-            new FixedTimeProvider(now));
+        var defaults = await new RetentionService(database.Writes, new(), new FixedTimeProvider(now)).RunBatchAsync();
+        Assert.AreEqual(new RetentionResult(0, 1, 1, 0, 0), defaults);
+        await using (var context = await database.Factory.CreateDbContextAsync())
+        {
+            Assert.AreEqual(3, await context.Jobs.CountAsync());
+            Assert.AreEqual(2, await context.Transfers.CountAsync());
+            Assert.AreEqual(1, await context.TransferAttempts.CountAsync());
+            Assert.AreEqual(123L, await context.TransferByteBuckets.SumAsync(bucket => bucket.Bytes));
+        }
+        var retention = new RetentionService(database.Writes, new PersistenceRetentionOptions
+        {
+            CompletedJobHistoryAge = TimeSpan.FromDays(90),
+            UnsuccessfulJobHistoryAge = TimeSpan.FromDays(180),
+            TransferHistoryAge = TimeSpan.FromDays(90), BatchSize = 10,
+        }, new FixedTimeProvider(now));
         var result = await retention.RunBatchAsync();
 
         Assert.AreEqual(1, result.PrunedJobs);
-        Assert.AreEqual(1, result.PrunedSearchResults);
-        Assert.AreEqual(1, result.SearchesMarkedPruned);
+        Assert.AreEqual(0, result.PrunedSearchResults);
+        Assert.AreEqual(0, result.SearchesMarkedPruned);
         Assert.AreEqual(1, result.PrunedTransfers);
         Assert.AreEqual(1, result.PrunedTransferAttempts);
         await using (var context = await database.Factory.CreateDbContextAsync())
@@ -871,95 +882,50 @@ public sealed class SqliteInitializationTests
     }
 
     [TestMethod]
-    public async Task Retention_MaximumCount_PrunesOldestTerminalRowsButNeverActiveRows()
+    public async Task RetentionCleansOnlySubmissionsWhoseLastJobWasPruned()
     {
         await using var database = new TemporaryDatabase();
         await database.Initializer.InitializeAsync();
         var now = new DateTimeOffset(2035, 7, 1, 0, 0, 0, TimeSpan.Zero);
-        Guid runtimeId = Guid.NewGuid();
-        var terminalIds = Enumerable.Range(0, 5).Select(_ => Guid.NewGuid()).ToArray();
-        Guid activeId = Guid.NewGuid();
+        Guid runtime = Guid.NewGuid(), expired = Guid.NewGuid(), partial = Guid.NewGuid(), pending = Guid.NewGuid();
+        Guid succeeded = Guid.NewGuid(), failed = Guid.NewGuid(), active = Guid.NewGuid(), transfer = Guid.NewGuid();
         await using (var context = await database.Factory.CreateDbContextAsync())
         {
-            context.RuntimeSessions.Add(new RuntimeSessionEntity
-            {
-                Id = runtimeId,
-                StartedAtUtc = now.AddDays(-10).ToUnixTimeMilliseconds(),
-                Version = "test",
-            });
-            for (int index = 0; index < terminalIds.Length; index++)
-            {
-                var completed = now.AddDays(-10 + index);
-                context.Jobs.Add(JobRow(
-                    terminalIds[index], runtimeId, index + 1, "Terminal", completed, completed));
-            }
-            context.Jobs.Add(JobRow(activeId, runtimeId, 100, "Running", now.AddDays(-20), null));
+            context.RuntimeSessions.Add(new() { Id = runtime, Version = "test" });
+            foreach (Guid id in new[] { expired, partial, pending })
+                context.Submissions.Add(new() { Id = id, SpecificationSchemaVersion = 1,
+                    Specification = new() { Json = "{}" }, CommitFingerprint = "fingerprint",
+                    CommitReceiptJson = "{}", Revision = 1, RerunOfSubmissionId = id == partial ? expired : null });
+            var oldSuccess = JobRow(succeeded, runtime, 1, "Terminal", now.AddDays(-200), now.AddDays(-200));
+            oldSuccess.SubmissionId = expired;
+            var oldFailure = JobRow(failed, runtime, 2, "Terminal", now.AddDays(-200), now.AddDays(-200));
+            oldFailure.TerminalOutcome = "Failed";
+            oldFailure.SubmissionId = partial;
+            var running = JobRow(active, runtime, 3, "Running", now.AddDays(-200), null);
+            running.SubmissionId = partial;
+            context.Jobs.AddRange(oldSuccess, oldFailure, running);
+            context.Transfers.Add(new() { Id = transfer, JobId = succeeded, LastRuntimeId = runtime,
+                Direction = "Download", Source = "SoulseekPeer", State = "Completed", TerminalOutcome = "Succeeded",
+                CompletedAtUtc = now.AddDays(-200).ToUnixTimeMilliseconds(), FailureReason = "None", Revision = 1 });
             await context.SaveChangesAsync();
         }
-
-        var retention = new RetentionService(database.Writes, new PersistenceRetentionOptions
+        var defaults = await new RetentionService(database.Writes, new(), new FixedTimeProvider(now)).RunBatchAsync();
+        Assert.AreEqual(0, defaults.PrunedJobs);
+        var result = await new RetentionService(database.Writes, new()
         {
-            CompletedJobHistoryAge = null,
-            UnsuccessfulJobHistoryAge = null,
-            MaximumRetainedJobs = 4,
-            SearchResultAge = null,
-            TransferHistoryAge = null,
-            BatchSize = 10,
-        }, new FixedTimeProvider(now));
-        var result = await retention.RunBatchAsync();
-
+            CompletedJobHistoryAge = TimeSpan.FromDays(90), UnsuccessfulJobHistoryAge = TimeSpan.FromDays(180),
+        }, new FixedTimeProvider(now)).RunBatchAsync();
         Assert.AreEqual(2, result.PrunedJobs);
         await using var verify = await database.Factory.CreateDbContextAsync();
-        Assert.IsTrue(await verify.Jobs.AnyAsync(job => job.Id == activeId));
-        Assert.IsFalse(await verify.Jobs.AnyAsync(job => job.Id == terminalIds[0]));
-        Assert.IsFalse(await verify.Jobs.AnyAsync(job => job.Id == terminalIds[1]));
-        Assert.AreEqual(4, await verify.Jobs.CountAsync());
-    }
-
-    [TestMethod]
-    public async Task Retention_AgeSelectionReducesTheRemainingMaximumCountDeficit()
-    {
-        await using var database = new TemporaryDatabase();
-        await database.Initializer.InitializeAsync();
-        var now = new DateTimeOffset(2035, 7, 1, 0, 0, 0, TimeSpan.Zero);
-        Guid runtimeId = Guid.NewGuid();
-        var ids = Enumerable.Range(0, 110).Select(_ => Guid.NewGuid()).ToArray();
-        await using (var context = await database.Factory.CreateDbContextAsync())
-        {
-            context.RuntimeSessions.Add(new RuntimeSessionEntity
-            {
-                Id = runtimeId,
-                StartedAtUtc = now.AddDays(-100).ToUnixTimeMilliseconds(),
-                Version = "test",
-            });
-            for (int index = 0; index < ids.Length; index++)
-            {
-                DateTimeOffset completed = index < 10
-                    ? now.AddDays(-100 + index)
-                    : now.AddDays(-10).AddMinutes(index);
-                context.Jobs.Add(JobRow(
-                    ids[index], runtimeId, index + 1, "Terminal", completed, completed));
-            }
-            await context.SaveChangesAsync();
-        }
-
-        var retention = new RetentionService(database.Writes, new PersistenceRetentionOptions
-        {
-            CompletedJobHistoryAge = TimeSpan.FromDays(30),
-            UnsuccessfulJobHistoryAge = TimeSpan.FromDays(30),
-            MaximumRetainedJobs = 100,
-            SearchResultAge = null,
-            TransferHistoryAge = null,
-            BatchSize = 100,
-        }, new FixedTimeProvider(now));
-
-        RetentionResult result = await retention.RunBatchAsync();
-
-        Assert.AreEqual(10, result.PrunedJobs);
-        await using var verify = await database.Factory.CreateDbContextAsync();
-        Assert.AreEqual(100, await verify.Jobs.CountAsync());
-        foreach (Guid id in ids.Take(10))
-            Assert.IsFalse(await verify.Jobs.AnyAsync(job => job.Id == id));
+        Assert.IsFalse(await verify.Submissions.AnyAsync(row => row.Id == expired));
+        Assert.IsFalse(await verify.Set<SubmissionSpecificationEntity>().AnyAsync(row => row.SubmissionId == expired));
+        Assert.AreEqual(2, await verify.Submissions.CountAsync());
+        Assert.AreEqual(2, await verify.Set<SubmissionSpecificationEntity>().CountAsync());
+        var retained = await verify.Submissions.SingleAsync(row => row.Id == partial);
+        Assert.IsNull(retained.RerunOfSubmissionId);
+        Assert.IsNotNull(retained.CommitReceiptJson);
+        Assert.AreEqual(active, (await verify.Jobs.SingleAsync()).Id);
+        Assert.IsNull((await verify.Transfers.SingleAsync(row => row.Id == transfer)).JobId);
     }
 
     [TestMethod]
@@ -1008,7 +974,6 @@ public sealed class SqliteInitializationTests
         {
             CompletedJobHistoryAge = TimeSpan.FromDays(30),
             UnsuccessfulJobHistoryAge = TimeSpan.FromDays(30),
-            MaximumRetainedJobs = null,
             SearchResultAge = TimeSpan.FromDays(90),
             TransferHistoryAge = null,
             BatchSize = 10,
@@ -1091,7 +1056,6 @@ public sealed class SqliteInitializationTests
         {
             CompletedJobHistoryAge = null,
             UnsuccessfulJobHistoryAge = null,
-            MaximumRetainedJobs = null,
             SearchResultAge = TimeSpan.FromDays(30),
             TransferHistoryAge = null,
             BatchSize = 50,

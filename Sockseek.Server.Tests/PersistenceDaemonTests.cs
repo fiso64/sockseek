@@ -279,7 +279,8 @@ public sealed class PersistenceDaemonTests
         string directory = Directory.CreateTempSubdirectory("sockseek-startup-retention-").FullName;
         var options = Options.Create(new ServerOptions
         {
-            Persistence = new ServerPersistenceOptions { Enabled = true, DataDirectory = directory },
+            Persistence = new ServerPersistenceOptions
+            { Enabled = true, DataDirectory = directory, TransferHistoryAge = TimeSpan.FromDays(90) },
         });
         var persistence = new PersistenceCoordinator(options);
         using var maintenance = new PersistenceMaintenanceHostedService(persistence, options,
@@ -446,6 +447,7 @@ public sealed class PersistenceDaemonTests
                     Enabled = true,
                     DataDirectory = Path.GetDirectoryName(databasePath),
                     RetentionEnabled = false,
+                    TransferHistoryAge = TimeSpan.FromDays(90),
                 },
             };
             var app = global::Tests.TestServerHost.Build([], options, "http://127.0.0.1:0");
