@@ -1,33 +1,3 @@
-export interface CommonSearchConditions {
-  formats: string[];
-  minBitrate: string;
-  maxBitrate: string;
-  minSampleRate: string;
-  maxSampleRate: string;
-  minBitDepth: string;
-  maxBitDepth: string;
-  rejectUnknownMetadata: boolean;
-  strictArtist: boolean;
-  excludeLocked: boolean;
-  allowedUsers: string;
-  bannedUsers: string;
-}
-
-export interface TrackSearchConditions {
-  strictTitle: boolean;
-  expectedLength: string;
-  lengthTolerance: string;
-  acceptNoLength: boolean;
-}
-
-export interface AlbumSearchConditions {
-  strictAlbum: boolean;
-  minTrackCount: string;
-  maxTrackCount: string;
-  requiredTrackTitles: string[];
-  strictAlbumQuality: boolean;
-}
-
 export interface CommonSearchRanking {
   formats: string[];
   minBitrate: string;
@@ -51,6 +21,22 @@ export interface AlbumSearchRanking {
   strictAlbum: boolean;
 }
 
+export interface CommonSearchConditions extends CommonSearchRanking {
+  rejectUnknownMetadata: boolean;
+}
+
+export interface TrackSearchConditions extends TrackSearchRanking {
+  expectedLength: string;
+  acceptNoLength: boolean;
+}
+
+export interface AlbumSearchConditions extends AlbumSearchRanking {
+  minTrackCount: string;
+  maxTrackCount: string;
+  requiredTrackTitles: string[];
+  strictAlbumQuality: boolean;
+}
+
 export interface SearchRankingPreferences {
   common: CommonSearchRanking;
   track: TrackSearchRanking;
@@ -69,38 +55,18 @@ export interface SearchConditions {
 }
 
 export function createEmptySearchConditions(): SearchConditions {
+  const { common, track, album } = createEmptySearchRanking();
   return {
-    common: {
-      formats: [],
-      minBitrate: '',
-      maxBitrate: '',
-      minSampleRate: '',
-      maxSampleRate: '',
-      minBitDepth: '',
-      maxBitDepth: '',
-      rejectUnknownMetadata: false,
-      strictArtist: false,
-      excludeLocked: false,
-      allowedUsers: '',
-      bannedUsers: '',
-    },
-    track: {
-      strictTitle: false,
-      expectedLength: '',
-      lengthTolerance: '',
-      acceptNoLength: true,
-    },
+    common: { ...common, rejectUnknownMetadata: false },
+    track: { ...track, expectedLength: '', acceptNoLength: true },
     album: {
-      strictAlbum: false,
+      ...album,
       minTrackCount: '',
       maxTrackCount: '',
       requiredTrackTitles: [],
       strictAlbumQuality: false,
     },
-    aggregate: {
-      minShares: '',
-      lengthTolerance: '',
-    },
+    aggregate: { minShares: '', lengthTolerance: '' },
     ranking: createEmptySearchRanking(),
   };
 }

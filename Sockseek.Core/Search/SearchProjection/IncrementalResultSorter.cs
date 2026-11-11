@@ -64,7 +64,7 @@ public sealed record ProjectedFileCandidate(
     {
         var facts = ConditionFacts.WithLockedFolder();
         return facts == ConditionFacts ? this : this with { ConditionFacts = facts,
-            SortKey = SortKey with { HighFlags = ResultSorter.WithoutLockedPreference(SortKey.HighFlags) } };
+            SortKey = SortKey.WithoutLockedPreference() };
     }
 }
 
@@ -75,7 +75,37 @@ public readonly record struct SearchProjectionSortKey(
     int InferredTrackCount,
     int UploadSpeedMedium,
     int BitRate,
-    int StableTieBreaker);
+    int StableTieBreaker) : IComparable<SearchProjectionSortKey>
+{
+    // Availability follows the sixteen identity/quality flags. Construction and
+    // folder adjustment share these positions; neither reevaluates conditions.
+    private const uint UnlockedPreference = 1u << 15;
+    private const uint AllPreferences = 1u << 14;
+    private const uint FreeSlot = 1u << 13;
+
+    internal static uint AvailabilityFlags(bool unlocked, bool allPreferences, bool freeSlot)
+        => (unlocked ? UnlockedPreference : 0) | (allPreferences ? AllPreferences : 0) | (freeSlot ? FreeSlot : 0);
+
+    internal SearchProjectionSortKey WithoutLockedPreference()
+        => this with { HighFlags = HighFlags & ~(UnlockedPreference | AllPreferences) };
+
+    // Larger keys rank better. Result lists reverse this comparison.
+    public int CompareTo(SearchProjectionSortKey other)
+    {
+        int comparison = HighFlags.CompareTo(other.HighFlags);
+        if (comparison != 0) return comparison;
+        comparison = UploadSpeedFast.CompareTo(other.UploadSpeedFast);
+        if (comparison != 0) return comparison;
+        comparison = MidFlags.CompareTo(other.MidFlags);
+        if (comparison != 0) return comparison;
+        comparison = InferredTrackCount.CompareTo(other.InferredTrackCount);
+        if (comparison != 0) return comparison;
+        comparison = UploadSpeedMedium.CompareTo(other.UploadSpeedMedium);
+        if (comparison != 0) return comparison;
+        comparison = BitRate.CompareTo(other.BitRate);
+        return comparison != 0 ? comparison : StableTieBreaker.CompareTo(other.StableTieBreaker);
+    }
+}
 
 public sealed class SearchProjectionSortKeyComparer : IComparer<SearchProjectionSortKey>
 {
@@ -83,23 +113,7 @@ public sealed class SearchProjectionSortKeyComparer : IComparer<SearchProjection
 
     private SearchProjectionSortKeyComparer() { }
 
-    public int Compare(SearchProjectionSortKey x, SearchProjectionSortKey y)
-    {
-        int comparison = y.HighFlags.CompareTo(x.HighFlags);
-        if (comparison != 0) return comparison;
-        comparison = y.UploadSpeedFast.CompareTo(x.UploadSpeedFast);
-        if (comparison != 0) return comparison;
-        comparison = y.MidFlags.CompareTo(x.MidFlags);
-        if (comparison != 0) return comparison;
-        comparison = y.InferredTrackCount.CompareTo(x.InferredTrackCount);
-        if (comparison != 0) return comparison;
-        comparison = y.UploadSpeedMedium.CompareTo(x.UploadSpeedMedium);
-        if (comparison != 0) return comparison;
-        comparison = y.BitRate.CompareTo(x.BitRate);
-        return comparison != 0
-            ? comparison
-            : y.StableTieBreaker.CompareTo(x.StableTieBreaker);
-    }
+    public int Compare(SearchProjectionSortKey x, SearchProjectionSortKey y) => y.CompareTo(x);
 }
 
 public sealed class IncrementalResultSorter
@@ -312,5 +326,5 @@ public sealed class IncrementalResultSorter
         => new(
             entry.Input,
             entry.Key.ConditionFacts,
-            entry.Key.PersistenceKey);
+            entry.Key.Rank);
 }

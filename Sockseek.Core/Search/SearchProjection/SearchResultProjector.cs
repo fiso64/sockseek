@@ -373,9 +373,10 @@ public static partial class SearchResultProjector
             // when its best-quality track is public. Individual file facts stay
             // unchanged. Membership changes invalidate this small cached value.
             if (!hasLockedFile) return Best;
-            var key = Best.SortEntry.Key.ForLockedFolder();
-            return Best with { SortEntry = Best.SortEntry with { Key = key },
-                File = Best.File with { ConditionFacts = key.ConditionFacts, SortKey = key.PersistenceKey } };
+            var file = Best.File.ForLockedFolder();
+            if (ReferenceEquals(file, Best.File)) return Best;
+            var key = Best.SortEntry.Key with { Rank = file.SortKey, ConditionFacts = file.ConditionFacts };
+            return Best with { SortEntry = Best.SortEntry with { Key = key }, File = file };
         }
 
         public AlbumFolderBuilder(

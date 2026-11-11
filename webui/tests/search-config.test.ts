@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { hasAppliedConditions, visibleFormatPills } from '../src/domains/search/applied-conditions';
+import { createEmptySearchConditions } from '../src/domains/search/config-state';
+import { conditionPills, visibleFormatPills } from '../src/domains/search/applied-conditions';
 import { readSearchConditions, rebaseSearchConditions, searchConditionsPatch, searchConditionsPatchForFamily, mergeSearchSettings, searchExpectedLength } from '../src/domains/search/config-mapping';
 
 describe('resolved search configuration edits', () => {
@@ -12,7 +13,7 @@ describe('resolved search configuration edits', () => {
     after.ranking.track.strictTitle = false;
     after.ranking.common.excludeLocked = false;
     after.common.excludeLocked = true;
-    expect(hasAppliedConditions('track', after)).toBe(true);
+    expect(conditionPills('track', after).length).toBeGreaterThan(0);
     expect(searchConditionsPatch('track', before, after)).toEqual({ preferredCond: { formats: { replace: [] }, strictTitle: false, excludeLocked: false }, necessaryCond: { excludeLocked: true } });
   });
 
@@ -108,16 +109,51 @@ it('hides only the complete built-in music format set, retaining other filters a
   const conditions = readSearchConditions({ necessaryCond: { formats: { replace: formats } } });
   for (const mode of ['track', 'album', 'song-aggregate', 'album-aggregate'] as const) {
     expect(visibleFormatPills(mode, formats)).toEqual([]);
-    expect(hasAppliedConditions(mode, conditions)).toBe(false);
+    expect(conditionPills(mode, conditions).length).toBe(0);
   }
   expect(visibleFormatPills('generic', formats)).toEqual(formats);
-  expect(hasAppliedConditions('generic', conditions)).toBe(true);
+  expect(conditionPills('generic', conditions).length).toBeGreaterThan(0);
   expect(visibleFormatPills('track', ['FLAC'])).toEqual(['FLAC']);
   expect(visibleFormatPills('album', formats.slice(1))).toEqual(formats.slice(1));
   expect(visibleFormatPills('album', [...formats, 'APE'])).toEqual([...formats, 'APE']);
   conditions.aggregate.minShares = '2';
-  expect(hasAppliedConditions('album-aggregate', conditions)).toBe(true);
-  expect(hasAppliedConditions('track', conditions)).toBe(false);
+  expect(conditionPills('album-aggregate', conditions).length).toBeGreaterThan(0);
+  expect(conditionPills('track', conditions).length).toBe(0);
   conditions.common.minBitrate = '256';
-  expect(hasAppliedConditions('track', conditions)).toBe(true);
+  expect(conditionPills('track', conditions).length).toBeGreaterThan(0);
 });
+
+
+it('keeps required, preferred and separate draft values independent', () => {
+  const first = createEmptySearchConditions(), second = createEmptySearchConditions();
+  first.common.formats.push('FLAC');
+  first.track.strictTitle = true;
+  first.album.strictAlbum = true;
+  expect(first.ranking).toEqual(second.ranking);
+  expect(second.common.formats).toEqual([]);
+  expect(second.track.strictTitle).toBe(false);
+  expect(second.album.strictAlbum).toBe(false);
+});
+
+it.each(['generic', 'track', 'album', 'song-aggregate', 'album-aggregate'] as const)(
+  'removes visible %s filters without changing ranking or unrelated conditions', mode => {
+    const conditions = readSearchConditions({
+      necessaryCond: { formats: { replace: ['flac', 'mp3'] }, minBitrate: 256, excludeLocked: true, strictArtist: true, strictTitle: true, strictAlbum: true },
+      preferredCond: { formats: { replace: ['mp3'] }, excludeLocked: true },
+      necessaryFolderCond: { requiredTrackTitles: { replace: ['One', 'Two'] } },
+      minSharesAggregate: 2, aggregateLengthTol: 5,
+    }, 180);
+    const ranking = structuredClone(conditions.ranking);
+    const pills = conditionPills(mode, conditions);
+    for (const [i, pill] of pills.entries()) {
+      pill.remove();
+      expect(conditionPills(mode, conditions)).toHaveLength(pills.length - i - 1);
+    }
+    expect(conditions.ranking).toEqual(ranking);
+    if (mode === 'generic') expect(conditions.common.strictArtist).toBe(true);
+    if (mode === 'track' || mode === 'song-aggregate') {
+      expect(conditions.album.requiredTrackTitles).toEqual(['One', 'Two']);
+      expect(conditions.track.lengthTolerance).toBe('');
+    } else expect(conditions.track.expectedLength).toBe('180');
+  },
+);

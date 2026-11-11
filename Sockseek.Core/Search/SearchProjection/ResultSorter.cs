@@ -515,26 +515,12 @@ public static partial class ResultSorter
             => y.Key.CompareAlbumBeforeQualityTo(x.Key);
     }
 
-    internal readonly struct SortKey : IComparable<SortKey>
+    internal readonly record struct SortKey : IComparable<SortKey>
     {
-        private readonly uint highFlags;
-        private readonly uint midFlags;
-        private readonly int uploadSpeedFast;
-        private readonly int inferredTrackCount;
-        private readonly int uploadSpeedMedium;
-        private readonly int bitRate;
-        private readonly int randomTiebreaker;
         private readonly uint albumBeforeQualityFlags;
 
-        public SearchConditionFacts ConditionFacts { get; }
-        public SearchProjectionSortKey PersistenceKey => new(
-            highFlags,
-            uploadSpeedFast,
-            midFlags,
-            inferredTrackCount,
-            uploadSpeedMedium,
-            bitRate,
-            randomTiebreaker);
+        public SearchConditionFacts ConditionFacts { get; init; }
+        public SearchProjectionSortKey Rank { get; init; }
 
         public SortKey(
             bool userSuccessAboveDownrank,
@@ -566,182 +552,44 @@ public static partial class ResultSorter
             int randomTiebreaker,
             SearchConditionFacts conditionFacts)
         {
-            highFlags = PackHighFlags(
-                userSuccessAboveDownrank,
-                necessaryConditionsMet,
-                preferredUserConditionsMet,
-                hasValidLength,
-                bracketCheckPassed,
-                strictTitleMatch,
-                fuzzyTitleMatch,
-                strictAlbumMatch,
-                fuzzyAlbumMatch,
-                strictArtistMatch,
-                fuzzyArtistMatch,
-                lengthToleranceMatch,
-                formatMatch,
-                bitrateMatch,
-                sampleRateMatch,
-                bitDepthMatch,
-                unlockedMatch,
-                rankingPreferencesMet,
-                hasFreeUploadSlot);
-            this.uploadSpeedFast = uploadSpeedFast;
-            midFlags = PackMidFlags(nonAlbumModeStrictString, albumModeStrictString, strictArtistString);
-            this.inferredTrackCount = inferredTrackCount;
-            this.uploadSpeedMedium = uploadSpeedMedium;
-            this.bitRate = bitRate;
-            this.randomTiebreaker = randomTiebreaker;
-            albumBeforeQualityFlags = PackAlbumBeforeQualityFlags(
-                userSuccessAboveDownrank,
-                necessaryConditionsMet,
-                preferredUserConditionsMet,
-                hasValidLength,
-                bracketCheckPassed,
-                strictTitleMatch,
-                fuzzyTitleMatch,
-                strictAlbumMatch,
-                fuzzyAlbumMatch,
-                strictArtistMatch,
-                fuzzyArtistMatch,
-                lengthToleranceMatch);
+            // Identity beats quality: an MP3 from the requested album outranks
+            // a FLAC from an unrelated album. Album coverage uses this prefix too.
+            var identity = BoolSortKey.CreateDescending()
+                .Then(userSuccessAboveDownrank)
+                .Then(necessaryConditionsMet)
+                .Then(preferredUserConditionsMet)
+                .Then(hasValidLength)
+                .Then(bracketCheckPassed)
+                .Then(strictTitleMatch)
+                .Then(fuzzyTitleMatch)
+                .Then(strictAlbumMatch)
+                .Then(fuzzyAlbumMatch)
+                .Then(strictArtistMatch)
+                .Then(fuzzyArtistMatch)
+                .Then(lengthToleranceMatch);
+            albumBeforeQualityFlags = identity.Value;
+            uint highFlags = identity
+                .Then(formatMatch)
+                .Then(bitrateMatch)
+                .Then(sampleRateMatch)
+                .Then(bitDepthMatch)
+                .Value | SearchProjectionSortKey.AvailabilityFlags(unlockedMatch, rankingPreferencesMet, hasFreeUploadSlot);
+            uint midFlags = BoolSortKey.CreateDescending()
+                .Then(nonAlbumModeStrictString)
+                .Then(albumModeStrictString)
+                .Then(strictArtistString).Value;
+            Rank = new(highFlags, uploadSpeedFast, midFlags,
+                inferredTrackCount, uploadSpeedMedium, bitRate, randomTiebreaker);
             // Facts describe public condition semantics, independently of the
             // ranking policy encoded above (which may deliberately ignore strings).
             ConditionFacts = conditionFacts;
         }
 
-        private SortKey(SortKey source, SearchConditionFacts facts)
-        {
-            this = source;
-            highFlags = WithoutLockedPreference(source.highFlags);
-            ConditionFacts = facts;
-        }
-
-        internal SortKey ForLockedFolder()
-        {
-            var facts = ConditionFacts.WithLockedFolder();
-            return facts != ConditionFacts ? new(this, facts) : this;
-        }
-
         internal int CompareAlbumBeforeQualityTo(SortKey other)
             => albumBeforeQualityFlags.CompareTo(other.albumBeforeQualityFlags);
 
-        public int CompareTo(SortKey other)
-        {
-            int comparison = highFlags.CompareTo(other.highFlags);
-            if (comparison != 0) return comparison;
-
-            comparison = uploadSpeedFast.CompareTo(other.uploadSpeedFast);
-            if (comparison != 0) return comparison;
-
-            comparison = midFlags.CompareTo(other.midFlags);
-            if (comparison != 0) return comparison;
-
-            comparison = inferredTrackCount.CompareTo(other.inferredTrackCount);
-            if (comparison != 0) return comparison;
-
-            comparison = uploadSpeedMedium.CompareTo(other.uploadSpeedMedium);
-            if (comparison != 0) return comparison;
-
-            comparison = bitRate.CompareTo(other.bitRate);
-            if (comparison != 0) return comparison;
-
-            return randomTiebreaker.CompareTo(other.randomTiebreaker);
-        }
-
-        private static uint PackHighFlags(
-            bool userSuccessAboveDownrank,
-            bool necessaryConditionsMet,
-            bool preferredUserConditionsMet,
-            bool hasValidLength,
-            bool bracketCheckPassed,
-            bool strictTitleMatch,
-            bool fuzzyTitleMatch,
-            bool strictAlbumMatch,
-            bool fuzzyAlbumMatch,
-            bool strictArtistMatch,
-            bool fuzzyArtistMatch,
-            bool lengthToleranceMatch,
-            bool formatMatch,
-            bool bitrateMatch,
-            bool sampleRateMatch,
-            bool bitDepthMatch,
-            bool unlockedMatch,
-            bool rankingPreferencesMet,
-            bool hasFreeUploadSlot)
-        {
-            return BoolSortKey.CreateDescending()
-                .Then(userSuccessAboveDownrank)
-                .Then(necessaryConditionsMet)
-                .Then(preferredUserConditionsMet)
-                .Then(hasValidLength)
-                .Then(bracketCheckPassed)
-                .Then(strictTitleMatch)
-                .Then(fuzzyTitleMatch)
-                // Identity beats quality preferences: an MP3 from the requested album is a better
-                // candidate than a FLAC from an unrelated album.
-                .Then(strictAlbumMatch)
-                .Then(fuzzyAlbumMatch)
-                .Then(strictArtistMatch)
-                .Then(fuzzyArtistMatch)
-                .Then(lengthToleranceMatch)
-                .Then(formatMatch)
-                .Then(bitrateMatch)
-                .Then(sampleRateMatch)
-                .Then(bitDepthMatch)
-                .Then(unlockedMatch)
-                .Then(rankingPreferencesMet)
-                .Then(hasFreeUploadSlot)
-                .Value;
-        }
-
-        private static uint PackAlbumBeforeQualityFlags(
-            bool userSuccessAboveDownrank,
-            bool necessaryConditionsMet,
-            bool preferredUserConditionsMet,
-            bool hasValidLength,
-            bool bracketCheckPassed,
-            bool strictTitleMatch,
-            bool fuzzyTitleMatch,
-            bool strictAlbumMatch,
-            bool fuzzyAlbumMatch,
-            bool strictArtistMatch,
-            bool fuzzyArtistMatch,
-            bool lengthToleranceMatch)
-        {
-            return BoolSortKey.CreateDescending()
-                .Then(userSuccessAboveDownrank)
-                .Then(necessaryConditionsMet)
-                .Then(preferredUserConditionsMet)
-                .Then(hasValidLength)
-                .Then(bracketCheckPassed)
-                .Then(strictTitleMatch)
-                .Then(fuzzyTitleMatch)
-                .Then(strictAlbumMatch)
-                .Then(fuzzyAlbumMatch)
-                .Then(strictArtistMatch)
-                .Then(fuzzyArtistMatch)
-                .Then(lengthToleranceMatch)
-                .Value;
-        }
-
-        private static uint PackMidFlags(
-            bool nonAlbumModeStrictString,
-            bool albumModeStrictString,
-            bool strictArtistString)
-        {
-            return BoolSortKey.CreateDescending()
-                .Then(nonAlbumModeStrictString)
-                .Then(albumModeStrictString)
-                .Then(strictArtistString)
-                .Value;
-        }
+        public int CompareTo(SortKey other) => Rank.CompareTo(other.Rank);
     }
-
-    // PackHighFlags positions: availability follows the quality flags, then
-    // all-preferences and free-slot flags. Folder lifting clears the first two
-    // without changing the actual peer speed or evaluating conditions again.
-    internal static uint WithoutLockedPreference(uint flags) => flags & ~((1u << 15) | (1u << 14));
 
     private readonly struct BoolSortKey
     {

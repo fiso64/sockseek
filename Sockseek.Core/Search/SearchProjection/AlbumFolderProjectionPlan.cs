@@ -99,7 +99,7 @@ internal readonly struct AlbumFolderProjectionPlan
         return entry is { } admitted
             && admitted.Key.ConditionFacts.NecessaryConditionsSatisfied
                 ? new EvaluatedAlbumProjectionInput(
-                    new ProjectedFileCandidate(input, admitted.Key.ConditionFacts, admitted.Key.PersistenceKey), admitted,
+                    new ProjectedFileCandidate(input, admitted.Key.ConditionFacts, admitted.Key.Rank), admitted,
                     SearchResultProjector.AlbumDirectoryPath(input.Filename, combineDiscs))
                 : null;
     }

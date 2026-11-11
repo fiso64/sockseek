@@ -18,7 +18,6 @@
   import SearchConditionPills from '../../components/SearchConditionPills.svelte';
   import SearchConfigPanel from '../../components/SearchConfigPanel.svelte';
   import { anchoredPopover } from '../../lib/anchored-menu';
-  import { hasAppliedConditions } from './applied-conditions';
   import { readSearchConditions, searchConditionsPatch, searchExpectedLength, mergeSearchSettings } from './config-mapping';
   import { createEmptySearchConditions, type SearchConditions } from './config-state';
   import type { DownloadOptions } from '../jobs/download-options';
@@ -767,8 +766,8 @@
         </div>
       {/if}
     </div>
-    {#if viewState.draft && hasAppliedConditions(viewState.draft.resultMode, conditions)}
-      <div class="result-condition-pills"><SearchConditionPills mode={viewState.draft.resultMode} bind:conditions /></div>
+    {#if viewState.draft}
+      <SearchConditionPills mode={viewState.draft.resultMode} bind:conditions />
     {/if}
     {#if conditionsOpen && viewState.draft}
       <section data-shortcuts-blocked="true" bind:this={conditionsPopover} class="search-config-popover results-config-popover" aria-label="Result search configuration" use:anchoredPopover={{ anchor: conditionsButton, align: 'start', gap: 8, viewportMargin: 16, minHeight: 240 }}>
