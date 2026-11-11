@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { keyboardList } from '../../lib/keyboard';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import type { JobStateDto, Schema } from '../../api/types';
@@ -116,12 +117,13 @@
   let configurationLoading = $state(false);
   let configurationError = $state<Error | null>(null);
   let conditionsOpen = $state(false);
+  let conditionsInitialTab = $state<'conditions' | 'ranking'>('conditions');
   let preferredHelpOpen = $state(false);
   let preferredHelpPinned = false;
   let preferredHelpHovered = false;
   let preferredHelpButton = $state<HTMLButtonElement>();
   let preferredHelpPanel = $state<HTMLElement>();
-  let conditionsButton = $state<HTMLButtonElement>();
+  let conditionsAnchor = $state<HTMLButtonElement>();
   let conditionsPopover = $state<HTMLElement>();
   let lastRequestedFingerprint = $state<string | null>(null);
   let localRefinementError = $state<Error | null>(null);
@@ -348,7 +350,7 @@
       preferredHelpOpen = false;
       preferredHelpPinned = false;
     }
-    if (!conditionsOpen || conditionsButton?.contains(event.target) || conditionsPopover?.contains(event.target)) return;
+    if (!conditionsOpen || conditionsAnchor?.contains(event.target) || conditionsPopover?.contains(event.target)) return;
     conditionsOpen = false;
   }
   let downloadOptionsOpen = $state(false);
@@ -742,7 +744,7 @@
   <div class="result-refine-wrap">
     <div class="result-refine-row">
       <ResultFilterControl bind:value={() => filterText, changeFilter} placeholder={genericMode ? 'Filter files or directories…' : 'Filter results…'} ariaLabel="Filter search results">
-        <button bind:this={conditionsButton} type="button" class:active={conditionsOpen} class="edit-conditions-button" aria-label="Filtering" title="Filtering" aria-expanded={conditionsOpen} disabled={configurationLoading || !baseline} onclick={() => (conditionsOpen = !conditionsOpen)}>
+        <button type="button" class:active={conditionsOpen} class="edit-conditions-button" aria-label="Filtering" title="Filtering" aria-expanded={conditionsOpen} disabled={configurationLoading || !baseline} onclick={(event) => { conditionsAnchor = event.currentTarget; conditionsInitialTab = 'conditions'; conditionsOpen = !conditionsOpen; }}>
           <Icon name="sliders" />
         </button>
       </ResultFilterControl>
@@ -770,8 +772,8 @@
       <SearchConditionPills mode={viewState.draft.resultMode} bind:conditions />
     {/if}
     {#if conditionsOpen && viewState.draft}
-      <section data-shortcuts-blocked="true" bind:this={conditionsPopover} class="search-config-popover results-config-popover" aria-label="Result search configuration" use:anchoredPopover={{ anchor: conditionsButton, align: 'start', gap: 8, viewportMargin: 16, minHeight: 240 }}>
-        <SearchConfigPanel mode={viewState.draft.resultMode} bind:conditions title="Search configuration" initialTab="conditions" onclose={() => (conditionsOpen = false)} />
+      <section data-shortcuts-blocked="true" bind:this={conditionsPopover} class="search-config-popover results-config-popover" aria-label="Result search configuration" use:anchoredPopover={{ anchor: conditionsAnchor, align: 'start', gap: 8, viewportMargin: 16, minHeight: 240 }}>
+        <SearchConfigPanel mode={viewState.draft.resultMode} bind:conditions title="Search configuration" initialTab={conditionsInitialTab} onclose={() => (conditionsOpen = false)} />
       </section>
     {/if}
   </div>
@@ -876,17 +878,28 @@
             <span>{tier === 'Preferred' ? 'Preferred matches' : 'Other matches'}</span><small>{count}</small>
             {#if tier === 'Preferred'}
               <span class="preferred-help" role="group" aria-label="Preferred match information" onpointerenter={(event) => { if (event.pointerType !== 'touch') { preferredHelpHovered = true; preferredHelpOpen = true; } }}
-                onpointerleave={() => { preferredHelpHovered = false; if (!preferredHelpPinned && document.activeElement !== preferredHelpButton) preferredHelpOpen = false; }}>
+                onpointerleave={(event) => { preferredHelpHovered = false; if (!preferredHelpPinned && !event.currentTarget.contains(document.activeElement)) preferredHelpOpen = false; }}
+                onfocusout={(event) => { if (!preferredHelpPinned && !preferredHelpHovered && !(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) preferredHelpOpen = false; }}>
                 <button bind:this={preferredHelpButton} type="button" class="preferred-help-button" aria-label="About preferred matches"
-                  aria-expanded={preferredHelpOpen} aria-describedby={preferredHelpOpen ? 'preferred-matches-help' : undefined}
+                  aria-expanded={preferredHelpOpen} aria-haspopup="dialog" aria-controls={preferredHelpOpen ? 'preferred-matches-help' : undefined}
                   onfocus={() => preferredHelpOpen = true}
-                  onblur={() => { if (!preferredHelpPinned && !preferredHelpHovered) preferredHelpOpen = false; }}
                   onclick={() => { preferredHelpPinned = !preferredHelpPinned; preferredHelpOpen = preferredHelpPinned; }}><Icon name="help" /></button>
                 {#if preferredHelpOpen}
-                  <span bind:this={preferredHelpPanel} id="preferred-matches-help" role="tooltip" class="preferred-help-panel"
+                  <span bind:this={preferredHelpPanel} id="preferred-matches-help" role="dialog" aria-label="Preferred matches" class="preferred-help-panel"
                     use:anchoredPopover={{ anchor: preferredHelpButton, align: 'start', gap: 0, viewportMargin: 12, minHeight: 100 }}>
                     <strong>Preferred matches</strong>
-                    <span>These results meet your preferences in Search configuration → Ranking, such as preferred formats and audio quality. Results that do not meet those preferences appear below under Other matches.</span>
+                    <span>These results satisfy all your ranking conditions when using "Relevance" sorting. Other matches remain available below.</span>
+                    <span>Edit your preferences in your config, e.g. set <code>pref-format = flac</code> to prefer FLAC files.</span>
+                    <span><button type="button" class="edit-preferences-button" disabled={configurationLoading || !baseline}
+                      onclick={async () => {
+                        conditionsAnchor = preferredHelpButton;
+                        conditionsInitialTab = 'ranking';
+                        conditionsOpen = true;
+                        preferredHelpOpen = false;
+                        preferredHelpPinned = false;
+                        await tick();
+                        conditionsPopover?.querySelector<HTMLButtonElement>('[aria-current="page"]')?.focus();
+                      }}>Edit preferences</button> for this search only.</span>
                   </span>
                 {/if}
               </span>

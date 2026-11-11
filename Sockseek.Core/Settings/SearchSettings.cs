@@ -54,11 +54,7 @@ public class SearchSettings
     public FileConditions PreferredCond { get; set; } = new()
     {
         ExcludeLocked     = true,
-        Formats          = ["mp3"],
         LengthTolerance  = 3,
-        MinBitrate       = 200,
-        MaxBitrate       = 2500,
-        MaxSampleRate    = 48000,
         StrictTitle      = true,
         StrictAlbum      = true,
     };

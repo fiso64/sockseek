@@ -187,12 +187,12 @@ public static partial class Help
     --cond <conditions>             Semicolon-delimited required conditions
 
     --pref-format <formats>         Preferred format(s) for ranking. Use --format to require
-                                    formats strictly. Comma-separated, unordered. (def.: mp3)
+                                    formats strictly. Comma-separated, unordered.
     --pref-length-tol <sec>         Preferred length tolerance, -1 to disable (default: 3)
-    --pref-min-bitrate <rate>       Preferred minimum bitrate (default: 200)
-    --pref-max-bitrate <rate>       Preferred maximum bitrate (default: 2500)
+    --pref-min-bitrate <rate>       Preferred minimum bitrate
+    --pref-max-bitrate <rate>       Preferred maximum bitrate
     --pref-min-samplerate <rate>    Preferred minimum sample rate
-    --pref-max-samplerate <rate>    Preferred maximum sample rate (default: 48000)
+    --pref-max-samplerate <rate>    Preferred maximum sample rate
     --pref-min-bitdepth <depth>     Preferred minimum bit depth
     --pref-max-bitdepth <depth>     Preferred maximum bit depth
     --pref-strict-title             Prefer filenames containing the track title
@@ -605,13 +605,11 @@ File conditions
   format = mp3,flac,ogg,m4a,opus,wav,aac,alac
   length-tol = 3
 
-  The default preferred conditions are:
+  The default preferred conditions favour matching, unlocked results, without a format, bitrate,
+  sample-rate or bit-depth preference:
 
-  pref-format = mp3
+  pref-exclude-locked = true
   pref-length-tol = 3
-  pref-min-bitrate = 200
-  pref-max-bitrate = 2500
-  pref-max-samplerate = 48000
 
   # Prefer files whose paths contain the supplied title and album.
   # Changing these is not recommended.

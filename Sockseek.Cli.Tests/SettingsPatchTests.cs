@@ -109,13 +109,14 @@ public class SettingsPatchTests
     {
         var settings = new DownloadSettings();
         settings.Output.AlbumArtOption = AlbumArtOption.Most;
+        settings.Search.PreferredCond.MinBitrate = 192;
         var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--strict-artist", "--album-art-only"])!;
 
         RoundTrip(patch).ApplyTo(settings);
 
         Assert.AreEqual(AlbumArtOption.Most, settings.Output.AlbumArtOption);
         Assert.IsTrue(settings.Search.NecessaryCond.StrictArtist);
-        Assert.AreEqual(200, settings.Search.PreferredCond.MinBitrate);
+        Assert.AreEqual(192, settings.Search.PreferredCond.MinBitrate);
     }
 
     [TestMethod]

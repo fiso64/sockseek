@@ -13,7 +13,7 @@ namespace Sockseek.Server.UserProfiles;
 /// The last reader releases the watch; a replacement waits for that release so a
 /// late Unwatch can never remove the replacement's subscription.
 /// </summary>
-public sealed class UserPresenceService(
+public sealed partial class UserPresenceService(
     Func<ISoulseekClient?> clientProvider,
     Func<CancellationToken, Task> ensureSessionStarted,
     ILogger<UserPresenceService> logger) : IAsyncDisposable
@@ -122,7 +122,7 @@ public sealed class UserPresenceService(
             catch (OperationCanceledException) when (watch.Stop.IsCancellationRequested) { throw; }
             catch (Exception exception)
             {
-                logger.LogDebug(exception, "Presence waiting for Soulseek for {PeerHash}", LogIdentity.PeerHash(watch.Username));
+                LogFailure(logger, exception, "login", LogIdentity.PeerHash(watch.Username));
                 // Keep the reader attached: a later login restores its watch too.
             }
             while (!watch.Stop.IsCancellationRequested)
@@ -167,7 +167,7 @@ public sealed class UserPresenceService(
                 {
                     lock (sync)
                         if (!request.IsCancellationRequested) Publish(watch, UserPresenceState.Unavailable);
-                    logger.LogDebug(exception, "Presence watch failed for {PeerHash}", LogIdentity.PeerHash(watch.Username));
+                    LogFailure(logger, exception, "watch", LogIdentity.PeerHash(watch.Username));
                 }
                 try
                 {
@@ -184,7 +184,7 @@ public sealed class UserPresenceService(
                         try { await session.UnwatchUserAsync(watch.Username).ConfigureAwait(false); }
                         catch (Exception exception)
                         {
-                            logger.LogDebug(exception, "Presence release failed for {PeerHash}", LogIdentity.PeerHash(watch.Username));
+                            LogFailure(logger, exception, "release", LogIdentity.PeerHash(watch.Username));
                         }
                     }
                 }
@@ -194,7 +194,7 @@ public sealed class UserPresenceService(
         catch (Exception exception)
         {
             lock (sync) Publish(watch, UserPresenceState.Unavailable);
-            logger.LogDebug(exception, "Presence startup failed for {PeerHash}", LogIdentity.PeerHash(watch.Username));
+            LogFailure(logger, exception, "startup", LogIdentity.PeerHash(watch.Username));
         }
         finally
         {
@@ -248,6 +248,10 @@ public sealed class UserPresenceService(
         await Task.WhenAll(pending).ConfigureAwait(false);
         connection.Dispose();
     }
+
+    [LoggerMessage(EventId = 4105, EventName = "user-presence.operation-failed",
+        Level = LogLevel.Debug, Message = "Presence {Operation} failed for peer hash {PeerHash}")]
+    private static partial void LogFailure(ILogger logger, Exception exception, string operation, string peerHash);
 
     private static bool IsConnected(SoulseekClientStates state)
         => state.HasFlag(SoulseekClientStates.Connected) && state.HasFlag(SoulseekClientStates.LoggedIn);

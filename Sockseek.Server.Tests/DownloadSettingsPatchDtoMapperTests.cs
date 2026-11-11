@@ -13,6 +13,7 @@ public sealed class DownloadSettingsPatchDtoMapperTests
     {
         var settings = new DownloadSettings();
         settings.Search.PreferredCond.MaxSampleRate = 48000;
+        settings.Search.PreferredCond.MaxBitrate = 1000;
         settings.Search.NecessaryCond.MinBitrate = 192;
         settings.Search.NecessaryFolderCond.MinTrackCount = 3;
         var patch = new DownloadSettingsPatchDto(Search: new SearchSettingsPatchDto(
@@ -25,7 +26,7 @@ public sealed class DownloadSettingsPatchDtoMapperTests
         Assert.IsNull(settings.Search.PreferredCond.MaxSampleRate);
         Assert.IsNull(settings.Search.NecessaryCond.MinBitrate);
         Assert.IsNull(settings.Search.NecessaryFolderCond.MinTrackCount);
-        Assert.AreEqual(2500, settings.Search.PreferredCond.MaxBitrate);
+        Assert.AreEqual(1000, settings.Search.PreferredCond.MaxBitrate);
         CollectionAssert.IsSubsetOf(
             new[] {
                 "Search.NecessaryCond.MinBitrate",

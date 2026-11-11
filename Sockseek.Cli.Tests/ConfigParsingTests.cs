@@ -62,12 +62,13 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void Defaults_PreferredCondBitrate_IsSet()
+        public void Defaults_PreferredConditions_HaveNoEncodingPreference()
         {
             var config = Cfg();
-            Assert.IsNotNull(config.Search.PreferredCond.MinBitrate);
-            Assert.IsNotNull(config.Search.PreferredCond.MaxBitrate);
-            Assert.IsTrue(config.Search.PreferredCond.MinBitrate > 0);
+            Assert.AreEqual(0, config.Search.PreferredCond.Formats.Length);
+            Assert.IsNull(config.Search.PreferredCond.MinBitrate);
+            Assert.IsNull(config.Search.PreferredCond.MaxBitrate);
+            Assert.IsNull(config.Search.PreferredCond.MaxSampleRate);
         }
 
         [TestMethod]
@@ -810,9 +811,9 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void AlbumArtOnly_PreservesConditions()
         {
-            var (_, dl, _) = Bind("x", "--album-art-only");
+            var (_, dl, _) = Bind("x", "--album-art-only", "--pref-format", "flac");
             CollectionAssert.AreEqual(SearchDefaults.Formats.ToArray(), dl.Search.NecessaryCond.Formats);
-            CollectionAssert.AreEqual(new[] { "mp3" }, dl.Search.PreferredCond.Formats);
+            CollectionAssert.AreEqual(new[] { "flac" }, dl.Search.PreferredCond.Formats);
         }
 
         [TestMethod]

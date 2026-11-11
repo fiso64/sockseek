@@ -1460,6 +1460,9 @@ input[type="checkbox"]:indeterminate {
 }
 .result-tier-heading small { display: grid; place-items: center; min-width: 20px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--surface-subtle); color: var(--muted); font-size: 0.6rem; letter-spacing: 0; }
 .result-tier-heading.preferred { color: var(--accent); }
+.edit-preferences-button { padding: 2px 4px; border: 0; border-radius: 4px; background: transparent; color: var(--accent-text); font: inherit; font-weight: 400; letter-spacing: normal; text-transform: none; cursor: pointer; }
+.edit-preferences-button:hover:not(:disabled), .edit-preferences-button:focus-visible { background: var(--accent-soft); color: var(--accent-text); }
+.edit-preferences-button:disabled { opacity: .5; cursor: default; }
 .preferred-help { display: inline-flex; position: relative; }
 .preferred-help-button { display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
 .preferred-help-button .app-icon { --app-icon-size: 15px; }

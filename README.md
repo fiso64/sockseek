@@ -19,8 +19,7 @@ This project was formerly named `sldl` (and `slsk-batchdl` before that). See [he
    username = your-soulseek-username
    password = your-soulseek-password
    output-dir = path/to/your/download/folder
-   # Sockseek prefers mp3 by default. To prefer FLAC (will still
-   # fall back to mp3 if unavailable):
+   # Optional: prefer FLAC while keeping other formats as fallbacks:
    # pref-format = flac
    ```
 
@@ -552,16 +551,15 @@ length-tol = 3
 The default preferred conditions are:
 
 ```ini
-pref-format = mp3
-pref-length-tol = 3
-pref-min-bitrate = 200
-pref-max-bitrate = 2500
-pref-max-samplerate = 48000
-
 # Prefer files whose paths contain the supplied title and album.
 # Changing these is not recommended.
 pref-strict-title = true
 pref-strict-album = true
+
+# Prefer results that aren't locked. This is only relevant for
+# interactive searches in the webui. Automated downloads always
+# ignore locked items.
+pref-exclude-locked = true
 ```
 
 For album downloads, conditions like format, bitrate and sample rate operate based on coverage: A folder with 9 FLAC files and 1 MP3 is preferred over a mostly-MP3 folder, and the selected folder is still downloaded as a whole. Use `--strict-album-quality` to require every audio file in the folder to satisfy the conditions.
@@ -1183,12 +1181,12 @@ Most used flags at a glance:
 --cond <conditions>             Semicolon-delimited required conditions
 
 --pref-format <formats>         Preferred format(s) for ranking. Use --format to require
-                                formats strictly. Comma-separated, unordered. (def.: mp3)
+                                formats strictly. Comma-separated, unordered.
 --pref-length-tol <sec>         Preferred length tolerance, -1 to disable (default: 3)
---pref-min-bitrate <rate>       Preferred minimum bitrate (default: 200)
---pref-max-bitrate <rate>       Preferred maximum bitrate (default: 2500)
+--pref-min-bitrate <rate>       Preferred minimum bitrate
+--pref-max-bitrate <rate>       Preferred maximum bitrate
 --pref-min-samplerate <rate>    Preferred minimum sample rate
---pref-max-samplerate <rate>    Preferred maximum sample rate (default: 48000)
+--pref-max-samplerate <rate>    Preferred maximum sample rate
 --pref-min-bitdepth <depth>     Preferred minimum bit depth
 --pref-max-bitdepth <depth>     Preferred maximum bit depth
 --pref-strict-title             Prefer filenames containing the track title

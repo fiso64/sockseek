@@ -110,10 +110,12 @@ public sealed class JobSettingsComposerTests
         Assert.AreEqual(track.Search.NecessaryCond, album.Search.NecessaryCond);
         Assert.AreEqual(track.Search.PreferredCond, album.Search.PreferredCond);
         CollectionAssert.AreEqual(SearchDefaults.Formats.ToArray(), track.Search.NecessaryCond.Formats);
-        CollectionAssert.AreEqual(new[] { "mp3" }, track.Search.PreferredCond.Formats);
+        Assert.AreEqual(0, track.Search.PreferredCond.Formats.Length);
         Assert.AreEqual(3, track.Search.NecessaryCond.LengthTolerance);
-        Assert.AreEqual(200, track.Search.PreferredCond.MinBitrate);
-        Assert.AreEqual(48000, track.Search.PreferredCond.MaxSampleRate);
+        Assert.IsNull(track.Search.PreferredCond.MinBitrate);
+        Assert.IsNull(track.Search.PreferredCond.MaxBitrate);
+        Assert.IsNull(track.Search.PreferredCond.MaxSampleRate);
+        Assert.AreEqual(3, track.Search.PreferredCond.LengthTolerance);
         Assert.IsTrue(track.Search.PreferredCond.StrictTitle);
         Assert.IsTrue(track.Search.PreferredCond.StrictAlbum);
         Assert.IsFalse(track.Search.NecessaryCond.ExcludeLocked);
