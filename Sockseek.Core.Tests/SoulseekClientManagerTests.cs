@@ -105,8 +105,8 @@ public class SoulseekClientManagerTests
         SoulseekClientOptions options =
             SoulseekClientManager.CreateClientOptions(settings, 1, router);
 
-        Assert.AreEqual(7, options.MaximumConcurrentUploads);
-        Assert.AreEqual(123 * 1_024, options.MaximumUploadSpeed);
+        Assert.AreEqual(int.MaxValue, options.MaximumConcurrentUploads);
+        Assert.AreEqual(123, options.MaximumUploadSpeed);
         Assert.AreEqual(
             SoulseekClientManager.PeerConnectionInactivityTimeoutMilliseconds,
             options.TransferConnectionOptions.InactivityTimeout);

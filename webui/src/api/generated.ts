@@ -10521,6 +10521,11 @@ export interface components {
             rejectedCount: number | string;
             rejectionReasons: components["schemas"]["SubmissionReasonCountDto"][];
         };
+        ConfigurationStatusDto: {
+            watching: boolean;
+            restartRequired: boolean;
+            reloadFailed: boolean;
+        };
         ConversationPageDto: {
             items: components["schemas"]["ConversationSummaryDto"][];
             nextCursor?: null | string;
@@ -10622,6 +10627,7 @@ export interface components {
              * @default 0
              */
             terminalTransferCommitRevision: number | string;
+            configuration?: null | components["schemas"]["ConfigurationStatusDto"];
         };
         DashboardAnalyticsComparisonDto: {
             /** Format: date-time */
@@ -11307,6 +11313,11 @@ export interface components {
                      * @default 0
                      */
                     terminalTransferCommitRevision: number | string;
+                    configuration?: {
+                        watching: boolean;
+                        restartRequired: boolean;
+                        reloadFailed: boolean;
+                    };
                 };
                 workflows: {
                     /** Format: int64 */
@@ -12913,6 +12924,7 @@ export interface components {
             /** Format: int32 */
             restartCount: number | string;
             persistence?: null | components["schemas"]["PersistenceStatusDto"];
+            configuration?: null | components["schemas"]["ConfigurationStatusDto"];
         };
         /** @enum {unknown} */
         ServerUserNotificationKind: "PrivateMessage" | "RoomMention";
@@ -13216,6 +13228,11 @@ export interface components {
                  * @default 0
                  */
                 terminalTransferCommitRevision: number | string;
+                configuration?: {
+                    watching: boolean;
+                    restartRequired: boolean;
+                    reloadFailed: boolean;
+                };
             };
             workflows: {
                 /** Format: int64 */
@@ -13933,6 +13950,11 @@ export interface components {
                      * @default 0
                      */
                     terminalTransferCommitRevision: number | string;
+                    configuration?: {
+                        watching: boolean;
+                        restartRequired: boolean;
+                        reloadFailed: boolean;
+                    };
                 };
                 workflows: {
                     /** Format: int64 */

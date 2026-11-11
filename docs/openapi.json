@@ -12904,6 +12904,25 @@
           }
         }
       },
+      "ConfigurationStatusDto": {
+        "required": [
+          "watching",
+          "restartRequired",
+          "reloadFailed"
+        ],
+        "type": "object",
+        "properties": {
+          "watching": {
+            "type": "boolean"
+          },
+          "restartRequired": {
+            "type": "boolean"
+          },
+          "reloadFailed": {
+            "type": "boolean"
+          }
+        }
+      },
       "ConversationPageDto": {
         "required": [
           "items"
@@ -13357,6 +13376,16 @@
             ],
             "format": "int64",
             "default": 0
+          },
+          "configuration": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConfigurationStatusDto"
+              }
+            ]
           }
         }
       },
@@ -16672,6 +16701,25 @@
                     ],
                     "format": "int64",
                     "default": 0
+                  },
+                  "configuration": {
+                    "required": [
+                      "watching",
+                      "restartRequired",
+                      "reloadFailed"
+                    ],
+                    "type": "object",
+                    "properties": {
+                      "watching": {
+                        "type": "boolean"
+                      },
+                      "restartRequired": {
+                        "type": "boolean"
+                      },
+                      "reloadFailed": {
+                        "type": "boolean"
+                      }
+                    }
                   }
                 }
               },
@@ -23410,6 +23458,16 @@
                 "$ref": "#/components/schemas/PersistenceStatusDto"
               }
             ]
+          },
+          "configuration": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConfigurationStatusDto"
+              }
+            ]
           }
         }
       },
@@ -24741,6 +24799,25 @@
                 ],
                 "format": "int64",
                 "default": 0
+              },
+              "configuration": {
+                "required": [
+                  "watching",
+                  "restartRequired",
+                  "reloadFailed"
+                ],
+                "type": "object",
+                "properties": {
+                  "watching": {
+                    "type": "boolean"
+                  },
+                  "restartRequired": {
+                    "type": "boolean"
+                  },
+                  "reloadFailed": {
+                    "type": "boolean"
+                  }
+                }
               }
             }
           },
@@ -27731,6 +27808,25 @@
                     ],
                     "format": "int64",
                     "default": 0
+                  },
+                  "configuration": {
+                    "required": [
+                      "watching",
+                      "restartRequired",
+                      "reloadFailed"
+                    ],
+                    "type": "object",
+                    "properties": {
+                      "watching": {
+                        "type": "boolean"
+                      },
+                      "restartRequired": {
+                        "type": "boolean"
+                      },
+                      "reloadFailed": {
+                        "type": "boolean"
+                      }
+                    }
                   }
                 }
               },

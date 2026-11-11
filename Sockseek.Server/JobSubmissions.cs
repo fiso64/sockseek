@@ -29,8 +29,8 @@ public sealed class JobSubmissions
     private readonly ServerOptions options;
     private readonly EngineSettings engineSettings;
     private readonly DownloadSettings defaultDownloadSettings;
-    private readonly ProfileCatalog profileCatalog;
-    private readonly SubmissionOptionsJobSettingsResolver jobSettingsResolver;
+    private sealed record Configuration(ProfileCatalog Profiles, SubmissionOptionsJobSettingsResolver Resolver);
+    private Configuration configuration;
     private readonly PersistenceCoordinator? persistence;
     private readonly EngineStateStore StateStore;
     private readonly DaemonRuntime runtime;
@@ -39,7 +39,7 @@ public sealed class JobSubmissions
     private readonly ILogger<JobSubmissions> logger;
 
     internal DownloadSettings DefaultDownloadSettings => defaultDownloadSettings;
-    internal SubmissionOptionsJobSettingsResolver SettingsResolver => jobSettingsResolver;
+    internal SubmissionOptionsJobSettingsResolver SettingsResolver => Volatile.Read(ref configuration).Resolver;
 
     internal JobSubmissions(ServerOptions options, EngineSettings engineSettings,
         PersistenceCoordinator? persistence, EngineStateStore stateStore, DaemonRuntime runtime,
@@ -61,8 +61,15 @@ public sealed class JobSubmissions
         defaultDownloadSettings.DefaultMinGroupShares = engineSettings.DefaultMinGroupShares;
         var pathContext = new PathVariableContext(ConfigDir: options.ConfigDir);
         SettingsNormalizer.NormalizeDownloadPaths(defaultDownloadSettings, pathContext);
-        profileCatalog = options.Profiles ?? ProfileCatalog.Empty;
-        jobSettingsResolver = CreateJobSettingsResolver(options, profileCatalog, pathContext);
+        var profiles = options.Profiles ?? ProfileCatalog.Empty;
+        configuration = new(profiles, CreateJobSettingsResolver(options, profiles, pathContext));
+    }
+
+    public void ReloadProfiles(ProfileCatalog profiles)
+    {
+        var resolver = CreateJobSettingsResolver(options, profiles,
+            new PathVariableContext(ConfigDir: options.ConfigDir), SettingsResolver.Options);
+        Volatile.Write(ref configuration, new(profiles, resolver));
     }
 
     private static JobSummaryDto BuildSubmittedJobSummary(Job job, Guid? sourceJobId = null)
@@ -71,7 +78,8 @@ public sealed class JobSubmissions
     private static SubmissionOptionsJobSettingsResolver CreateJobSettingsResolver(
         ServerOptions options,
         ProfileCatalog profiles,
-        PathVariableContext pathContext)
+        PathVariableContext pathContext,
+        SubmissionOptionsStore? optionsStore = null)
     {
         SettingsPatch launchPatch = DownloadSettingsPatchDtoMapper.ToCore(options.LaunchDownloadSettings);
         SettingsPatch operatorPatch = DownloadSettingsPatchDtoMapper.ToCore(options.OperatorDownloadSettings);
@@ -86,11 +94,11 @@ public sealed class JobSubmissions
                 SettingsNormalizer.NormalizeDownloadPaths(settings, pathContext);
             },
             operatorDefault: operatorPatch);
-        return new SubmissionOptionsJobSettingsResolver(profilesResolver);
+        return new SubmissionOptionsJobSettingsResolver(profilesResolver, optionsStore);
     }
 
     public IReadOnlyList<ProfileSummaryDto> GetProfiles()
-        => profileCatalog.NamedProfiles
+        => Volatile.Read(ref configuration).Profiles.NamedProfiles
             .Select(profile => new ProfileSummaryDto(
                 profile.Name,
                 profile.Condition,
@@ -104,14 +112,15 @@ public sealed class JobSubmissions
         SubmitExtractJobRequestDto request,
         CancellationToken ct)
     {
+        var resolver = SettingsResolver;
         if (request.ArtifactId == null)
         {
-            var resolved = ResolveExtractInput(new ExtractJobDraftDto(request.Input, request.InputType), request.Options);
+            var resolved = ResolveExtractInput(new ExtractJobDraftDto(request.Input, request.InputType), request.Options, resolver);
             request = request with { Input = resolved.Input, InputType = resolved.InputType };
             return await SubmitJobAsync(
                 JobRequestMapper.CreateExtractJob(request),
                 request.Options,
-                ct).ConfigureAwait(false);
+                ct, resolver: resolver).ConfigureAwait(false);
         }
         if (inputArtifacts == null)
             throw new InputArtifactUnavailableException(
@@ -151,7 +160,7 @@ public sealed class JobSubmissions
                 ct,
                 submissionId: submissionId,
                 sourceRevision: job.PlannedSourceRevision,
-                artifactId: request.ArtifactId).ConfigureAwait(false);
+                artifactId: request.ArtifactId, resolver: resolver).ConfigureAwait(false);
         }
         finally
         {
@@ -192,14 +201,15 @@ public sealed class JobSubmissions
 
     public Task<JobSummaryDto> SubmitJobListAsync(SubmitJobListRequestDto request, CancellationToken ct)
     {
+        var resolver = SettingsResolver;
         var job = JobRequestMapper.CreateJobList(request);
         JobRequestMapper.ApplyDraftDownloadSettings(
             job,
             request.Jobs,
-            (item, patch) => jobSettingsResolver.SetJobOptions(
+            (item, patch) => resolver.SetJobOptions(
                 item.Id,
                 new SubmissionOptionsDto(DownloadSettings: patch)));
-        return SubmitJobAsync(job, request.Options, ct, request.Jobs);
+        return SubmitJobAsync(job, request.Options, ct, request.Jobs, resolver: resolver);
     }
 
     public Task<StartUserShareDownloadsResponseDto> SubmitUserShareDownloadsAsync(
@@ -245,6 +255,7 @@ public sealed class JobSubmissions
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.Job);
+        var resolver = SettingsResolver;
         JobSettingsContext job = JobRequestMapper.CreateSettingsContext(request.Job);
         bool isProvisional = request.Job is ExtractJobDraftDto
         {
@@ -259,13 +270,13 @@ public sealed class JobSubmissions
         {
             DownloadSettings = combinedPatch,
         };
-        JobSettingsCompositionResult result = jobSettingsResolver.ResolveDetailed(job, requestOptions);
+        JobSettingsCompositionResult result = resolver.ResolveDetailed(job, requestOptions);
         bool containsRemoteTransfer = ValidateDraftSubmissionSettings(
             job,
             request.Job,
             result.Settings,
             requestOptions,
-            combinedPatch);
+            combinedPatch, resolver);
         if (containsRemoteTransfer)
             RemoteTransferSettingsValidator.ValidateExplicitNameFormat(options.LaunchDownloadSettings);
         return EffectiveSettingsMapper.ToDto(result, requestOptions.ProfileNames) with
@@ -279,7 +290,8 @@ public sealed class JobSubmissions
         JobDraftDto draft,
         DownloadSettings effectiveSettings,
         SubmissionOptionsDto submissionOptions,
-        DownloadSettingsPatchDto? explicitPatch)
+        DownloadSettingsPatchDto? explicitPatch,
+        SubmissionOptionsJobSettingsResolver resolver)
     {
         bool containsRemoteTransfer = RemoteTransferSubmissionPolicy
             .IsOrdinaryRemoteTransfer(job, effectiveSettings);
@@ -297,7 +309,7 @@ public sealed class JobSubmissions
                     childPatch == null
                         ? null
                         : new SubmissionOptionsDto(DownloadSettings: childPatch));
-                DownloadSettings childSettings = jobSettingsResolver.ResolveWithOptions(
+                DownloadSettings childSettings = resolver.ResolveWithOptions(
                     effectiveSettings,
                     child,
                     childOptions,
@@ -307,7 +319,7 @@ public sealed class JobSubmissions
                     childDraft,
                     childSettings,
                     submissionOptions,
-                    childPatch);
+                    childPatch, resolver);
             }
         }
 
@@ -323,9 +335,10 @@ public sealed class JobSubmissions
         IReadOnlyList<JobDraftDto>? childDrafts = null,
         Guid? submissionId = null,
         SubmissionSourceRevision? sourceRevision = null,
-        string? artifactId = null)
+        string? artifactId = null,
+        SubmissionOptionsJobSettingsResolver? resolver = null)
         => SubmitJobAsync(job, options, ct, static (summary, _) => summary,
-            childDrafts, submissionId, sourceRevision, artifactId);
+            childDrafts, submissionId, sourceRevision, artifactId, resolver: resolver);
 
     private async Task<TReceipt> SubmitJobAsync<TReceipt>(
         Job job,
@@ -336,8 +349,10 @@ public sealed class JobSubmissions
         Guid? submissionId = null,
         SubmissionSourceRevision? sourceRevision = null,
         string? artifactId = null,
-        string? commitFingerprint = null)
+        string? commitFingerprint = null,
+        SubmissionOptionsJobSettingsResolver? resolver = null)
     {
+        resolver ??= SettingsResolver;
         using var activity = SubmissionActivities.StartActivity("submission.accept");
         activity?.SetTag("job.id", job.Id);
         ct.ThrowIfCancellationRequested();
@@ -345,19 +360,19 @@ public sealed class JobSubmissions
         if (options?.WorkflowId is Guid workflowId)
             job.WorkflowId = workflowId;
         JobRequestMapper.AssignWorkflowId(job, job.WorkflowId);
-        jobSettingsResolver.SetWorkflowOptions(job.WorkflowId, options);
+        resolver.SetWorkflowOptions(job.WorkflowId, options);
 
-        var settings = jobSettingsResolver.Resolve(defaultDownloadSettings, job);
+        var settings = resolver.Resolve(defaultDownloadSettings, job);
 
         ValidateExplicitRemoteTransferOverrides(
-            job, options?.DownloadSettings, settings, childDrafts: childDrafts);
+            job, options?.DownloadSettings, settings, resolver, childDrafts: childDrafts);
         RemoteTransferSubmissionPolicy.NormalizeSettings(job, settings);
 
-        if (!CanAcceptLoginRequiredJobs() && ContainsLoginRequiredJob(job, settings, jobSettingsResolver))
+        if (!CanAcceptLoginRequiredJobs() && ContainsLoginRequiredJob(job, settings, resolver))
             throw new ArgumentException("This server is not configured for Soulseek login. Configure username/password, enable random login, or use a non-login submission.");
         activity?.AddEvent(new("prepared"));
 
-        await new JobPlanner(jobSettingsResolver).PrepareResolvedAsync(job, settings, ct).ConfigureAwait(false);
+        await new JobPlanner(resolver).PrepareResolvedAsync(job, settings, ct).ConfigureAwait(false);
         activity?.AddEvent(new("planned"));
         SubmissionSpecification specification = SubmissionSpecification.Create(job);
         SubmissionIdentity.AssignAccepted(
@@ -380,10 +395,11 @@ public sealed class JobSubmissions
         return receipt;
     }
 
-    private ExtractJobDraftDto ResolveExtractInput(ExtractJobDraftDto draft, SubmissionOptionsDto? options)
+    private static ExtractJobDraftDto ResolveExtractInput(ExtractJobDraftDto draft, SubmissionOptionsDto? options,
+        SubmissionOptionsJobSettingsResolver resolver)
     {
         if (!string.IsNullOrWhiteSpace(draft.Input)) return draft;
-        DownloadSettings settings = jobSettingsResolver.ResolveDetailed(
+        DownloadSettings settings = resolver.ResolveDetailed(
             JobRequestMapper.CreateSettingsContext(draft, allowMissingInput: true),
             SubmissionOptionsStore.Merge(options, new SubmissionOptionsDto(DownloadSettings: draft.DownloadSettings))).Settings;
         string? input = settings.Extraction.Input;
@@ -401,15 +417,16 @@ public sealed class JobSubmissions
         IReadOnlyDictionary<string, SubmissionSourceRevision>? artifactRevisions,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        var resolver = SettingsResolver;
         ArgumentNullException.ThrowIfNull(draft);
         if (draft is ExtractJobDraftDto { ArtifactId: null } extract && string.IsNullOrWhiteSpace(extract.Input))
-            draft = ResolveExtractInput(extract, submissionOptions);
+            draft = ResolveExtractInput(extract, submissionOptions, resolver);
         Job root = JobRequestMapper.CreateJob(draft);
         if (submissionOptions?.WorkflowId is Guid workflowId)
             root.WorkflowId = workflowId;
         JobRequestMapper.AssignWorkflowId(root, root.WorkflowId);
         AttachArtifactRevisions(root, artifactRevisions);
-        var settingsResolver = jobSettingsResolver.CreateScope(root.WorkflowId);
+        var settingsResolver = resolver.CreateScope(root.WorkflowId);
         settingsResolver.SetWorkflowOptions(root.WorkflowId, submissionOptions);
         JobRequestMapper.ApplyDraftDownloadSettings(
             root,
@@ -488,15 +505,16 @@ public sealed class JobSubmissions
     internal DownloadSettings PrepareSearchViewSelectionJob(
         Job job,
         SubmissionOptionsDto? options,
+        SubmissionOptionsJobSettingsResolver resolver,
         bool allowSearchViewAlbumFolderOption = false)
     {
         ArgumentNullException.ThrowIfNull(job);
-        DownloadSettings settings = jobSettingsResolver.ResolveFollowUp(job, options);
+        DownloadSettings settings = resolver.ResolveFollowUp(job, options);
         ValidateExplicitRemoteTransferOverrides(
             job,
             options?.DownloadSettings,
             settings,
-            allowSearchViewAlbumFolderOption);
+            resolver, allowSearchViewAlbumFolderOption);
         RemoteTransferSubmissionPolicy.NormalizeSettings(job, settings);
         job.PlannedSettings = JobSettingsSnapshot.Capture(settings);
         return settings;
@@ -537,6 +555,7 @@ public sealed class JobSubmissions
         Job job,
         DownloadSettingsPatchDto? patch,
         DownloadSettings effectiveSettings,
+        SubmissionOptionsJobSettingsResolver resolver,
         bool allowSearchViewAlbumFolderOption = false,
         IReadOnlyList<JobDraftDto>? childDrafts = null)
     {
@@ -544,22 +563,13 @@ public sealed class JobSubmissions
                 job,
                 effectiveSettings,
                 patch,
-                ResolveChildSettings,
+                (parent, child, _) => resolver.Resolve(parent, child, JobSettingsInheritance.SearchConstraints),
                 childDrafts,
                 allowSearchViewAlbumFolderOption))
             return;
 
         RemoteTransferSettingsValidator.ValidateExplicitNameFormat(options.LaunchDownloadSettings);
     }
-
-    private DownloadSettings ResolveChildSettings(
-        DownloadSettings parentSettings,
-        Job child,
-        DownloadSettingsPatchDto? _)
-        => jobSettingsResolver.Resolve(
-            parentSettings,
-            child,
-            JobSettingsInheritance.SearchConstraints);
 
     private static bool ContainsLoginRequiredJob(
         Job job, DownloadSettings settings, IJobSettingsResolver resolver)
@@ -691,18 +701,19 @@ public sealed class JobSubmissions
         Job followUpJob,
         DownloadSettings settings,
         SubmissionOptionsDto? options,
-        CancellationToken ct)
+        CancellationToken ct,
+        SubmissionOptionsJobSettingsResolver resolver)
     {
         if (sourceJob is not null)
         {
             followUpJob.WorkflowId = sourceJob.WorkflowId;
             JobRequestMapper.PropagateSourceMutationToFollowUp(sourceJob, followUpJob);
         }
-        jobSettingsResolver.SetIsolatedJobOptions(followUpJob.Id, options);
+        resolver.SetIsolatedJobOptions(followUpJob.Id, options);
         ValidateExplicitRemoteTransferOverrides(
             followUpJob,
             options?.DownloadSettings,
-            settings);
+            settings, resolver);
         RemoteTransferSubmissionPolicy.NormalizeSettings(followUpJob, settings);
         await AcceptAsync(followUpJob, settings, sourceJobId, ct).ConfigureAwait(false);
         return StateStore.GetJobSummary(followUpJob.Id) ?? BuildSubmittedJobSummary(followUpJob, sourceJobId);

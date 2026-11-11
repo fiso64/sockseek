@@ -5,7 +5,7 @@ using Sockseek.Core.Services;
 
 namespace Sockseek.Core.UserProfiles;
 
-/// <summary>Immutable daemon-lifetime local profile advertised to allowed peers.</summary>
+/// <summary>Immutable local profile snapshot advertised to allowed peers.</summary>
 public sealed record LocalUserProfile(string Description, UserPicture? Picture)
 {
     public static async Task<LocalUserProfile> LoadAsync(

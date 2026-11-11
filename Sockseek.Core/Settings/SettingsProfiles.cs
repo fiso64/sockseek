@@ -234,8 +234,12 @@ public static partial class ProfileConditionEvaluator
     public static bool Satisfied(string cond, DownloadSettings settings, Job? job = null, ProfileContext? context = null)
         => SatisfiedForContext(cond, settings, job is null ? (JobSettingsContext?)null : (JobSettingsContext)job, context);
 
+    /// Checks syntax without assuming the request's custom profile-context values.
+    public static void Validate(string condition)
+        => SatisfiedForContext(condition, new DownloadSettings(), null, validationOnly: true);
+
     internal static bool SatisfiedForContext(
-        string cond, DownloadSettings settings, JobSettingsContext? job, ProfileContext? context = null)
+        string cond, DownloadSettings settings, JobSettingsContext? job, ProfileContext? context = null, bool validationOnly = false)
     {
         var tokens = new Queue<string>(CondTokenRegex().Split(cond).Where(t => !string.IsNullOrWhiteSpace(t)));
 
@@ -285,11 +289,11 @@ public static partial class ProfileConditionEvaluator
                 if (tokens.Count == 0)
                     throw new Exception($"Input error: Missing comparison value after '{op}'");
                 string val = tokens.Dequeue().Trim('"').ToLower();
-                string? cur = GetVarValue(tok, settings, job, context)?.ToString()?.ToLower();
+                string? cur = validationOnly ? null : GetVarValue(tok, settings, job, context)?.ToString()?.ToLower();
                 return op == "==" ? cur == val : cur != val;
             }
 
-            object? value = GetVarValue(tok, settings, job, context);
+            object? value = validationOnly ? false : GetVarValue(tok, settings, job, context);
             if (value is bool boolean)
                 return boolean;
             throw new Exception($"Input error: Profile condition variable '{tok}' requires a comparison");

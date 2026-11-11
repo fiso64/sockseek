@@ -7,6 +7,10 @@ namespace Sockseek.Core.Settings;
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field)]
 public sealed class SettingIgnoreAttribute : Attribute;
 
+/// The daemon's runtime owner supports applying this setting without restart.
+[AttributeUsage(AttributeTargets.Property | AttributeTargets.Field)]
+public sealed class SettingReloadableAttribute : Attribute;
+
 public enum OptionValueKind { Auto, None, Boolean, Required }
 
 /// CLI names live beside the setting/default, or on a method for a compound option.

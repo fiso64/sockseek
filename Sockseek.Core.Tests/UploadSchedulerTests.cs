@@ -8,6 +8,21 @@ namespace Tests.Core;
 public sealed class UploadSchedulerTests
 {
     [TestMethod]
+    public void SlotChangesReleaseQueuedWorkAndLetActiveTransfersFinish()
+    {
+        var scheduler = CreateScheduler(slots: 1);
+        var a = Admit(scheduler, "Alice", "a");
+        var b = Admit(scheduler, "Bob", "b");
+        var c = Admit(scheduler, "Carol", "c");
+        Assert.AreEqual(b.Id, scheduler.SetSlots(2).Single().Entry.TransferId);
+        Assert.AreEqual(0, scheduler.SetSlots(1).Count);
+        Assert.AreEqual(2, scheduler.GetRuntimeSnapshot().ActiveSlots);
+        Assert.AreEqual(1, scheduler.GetRuntimeSnapshot().TotalSlots);
+        Assert.AreEqual(0, scheduler.Terminalize(a.Id).Grants.Count);
+        AssertGrant(scheduler.Terminalize(b.Id), c.Id);
+    }
+
+    [TestMethod]
     public void Scheduler_IsStrictRoundRobinAndFifoWithinUser()
     {
         var scheduler = CreateScheduler(slots: 1);

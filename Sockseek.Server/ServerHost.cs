@@ -23,7 +23,8 @@ namespace Sockseek.Server;
 
 public static class ServerHost
 {
-    public static WebApplication Build(string[] args, ServerOptions? options = null, string? url = null, bool logToConsole = true)
+    public static WebApplication Build(string[] args, ServerOptions? options = null, string? url = null, bool logToConsole = true,
+        Action<IServiceCollection>? configureServices = null)
     {
         var serverArguments = AuthenticationOptions.MapArguments(args, out var trustedProxies);
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -334,6 +335,7 @@ public static class ServerHost
         builder.Services.AddHostedService<EngineRuntimeHostedService>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<SearchViewCoordinator>());
 
+        configureServices?.Invoke(builder.Services);
         var app = builder.Build();
 
         // Resolve the live contract before accepting requests. Lazy configuration

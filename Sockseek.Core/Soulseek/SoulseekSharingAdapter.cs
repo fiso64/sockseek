@@ -6,6 +6,7 @@ using Sockseek.Core.Diagnostics;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Sharing;
 using Sockseek.Core.Transfers.Uploads;
+using Sockseek.Core.UserProfiles;
 using Soulseek;
 using SlDirectory = Soulseek.Directory;
 using SlFile = Soulseek.File;
@@ -73,10 +74,9 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
     private readonly RepeatedWarningGate warningGate = new();
     private readonly UploadCoordinator uploads;
     private readonly PeerRestrictionPolicy restrictions;
-    private readonly UploadSettings uploadSettings;
+    private UploadSettings uploadSettings;
     private readonly Func<ISoulseekClient?> clientProvider;
-    private readonly string userDescription;
-    private readonly byte[]? userPicture;
+    private LocalUserProfile profile;
     private readonly bool uploadServingEnabled;
     private readonly SemaphoreSlim searchConcurrency =
         new(IncomingSearchConcurrency, IncomingSearchConcurrency);
@@ -95,9 +95,8 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
         PeerRestrictionPolicy restrictions,
         UploadSettings uploadSettings,
         Func<ISoulseekClient?> clientProvider,
-        string? userDescription = null,
+        LocalUserProfile? localProfile = null,
         bool uploadServingEnabled = true,
-        byte[]? userPicture = null,
         ILogger? logger = null)
     {
         this.logger = logger ?? NullLogger.Instance;
@@ -106,10 +105,13 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
         this.restrictions = restrictions ?? throw new ArgumentNullException(nameof(restrictions));
         this.uploadSettings = uploadSettings ?? throw new ArgumentNullException(nameof(uploadSettings));
         this.clientProvider = clientProvider ?? throw new ArgumentNullException(nameof(clientProvider));
-        this.userDescription = userDescription ?? "";
-        this.userPicture = userPicture?.ToArray();
+        profile = localProfile ?? new LocalUserProfile("", null);
         this.uploadServingEnabled = uploadServingEnabled;
     }
+
+    public void UpdateUploadSettings(UploadSettings settings) => Volatile.Write(ref uploadSettings, settings);
+
+    public void UpdateLocalProfile(LocalUserProfile localProfile) => Volatile.Write(ref profile, localProfile);
 
     public bool TryUpdateExcludedSearchPhrases(IReadOnlyCollection<string> phrases)
     {
@@ -327,6 +329,7 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
         string username,
         IPEndPoint endpoint)
     {
+        LocalUserProfile currentProfile = Volatile.Read(ref profile);
         if (disposed
             || !IsValidUsername(username)
             || restrictions.IsUploadAccessBlocked(username, endpoint))
@@ -334,16 +337,16 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
             return Task.FromResult(new UserInfo("", 0, 0, false));
         }
         if (!catalogs.TryAcquire(out IShareCatalogLease? lease) || lease is null)
-            return Task.FromResult(new UserInfo(userDescription, 0, 0, false, userPicture));
+            return Task.FromResult(new UserInfo(currentProfile.Description, 0, 0, false, currentProfile.Picture?.Bytes));
         lease.Dispose();
 
         UploadQueueRuntimeSnapshot capacity = uploads.GetQueueSnapshot();
         return Task.FromResult(new UserInfo(
-            userDescription,
+            currentProfile.Description,
             uploadServingEnabled ? capacity.TotalSlots : 0,
             capacity.QueuedFiles,
             uploadServingEnabled && uploads.CouldStartImmediately(username),
-            userPicture));
+            currentProfile.Picture?.Bytes));
     }
 
     public async Task EnqueueUploadAsync(
@@ -427,7 +430,7 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
     }
 
     private int EffectiveUploadSpeedBytesPerSecond
-        => uploadSettings.SpeedLimitKiBPerSecond is { } kib
+        => Volatile.Read(ref uploadSettings).SpeedLimitKiBPerSecond is { } kib
             ? Math.Min(uploads.MeasuredUploadSpeed, checked(kib * 1_024))
             : uploads.MeasuredUploadSpeed;
 

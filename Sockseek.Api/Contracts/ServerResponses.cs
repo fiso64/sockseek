@@ -21,7 +21,11 @@ public sealed record ServerStatusDto(
     int TotalWorkflowCount,
     int ActiveWorkflowCount,
     int RestartCount,
-    PersistenceStatusDto? Persistence = null);
+    PersistenceStatusDto? Persistence = null,
+    ConfigurationStatusDto? Configuration = null);
+
+/// <summary>File reload state. Restart-required settings remain at their startup values.</summary>
+public sealed record ConfigurationStatusDto(bool Watching, bool RestartRequired, bool ReloadFailed);
 
 public sealed record PersistenceStatusDto(
     bool Enabled,

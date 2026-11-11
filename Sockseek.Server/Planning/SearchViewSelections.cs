@@ -92,6 +92,7 @@ public sealed class SearchViewSelections
 
     public ResolveSearchViewSelectionSettingsResponseDto? ResolveSelectionSettings(Guid viewId, ResolveSearchViewSelectionSettingsRequestDto request, CancellationToken cancellationToken)
     {
+        var settingsResolver = submissions.SettingsResolver;
         ArgumentNullException.ThrowIfNull(request);
         var directoryPathRules = ValidateSelection(request.Revision, request.Selection,
             request.IncludedFileRefs, null, null, null, request.DirectoryPathRules);
@@ -152,7 +153,7 @@ public sealed class SearchViewSelections
                     job,
                     options: null,
                     allowSearchViewAlbumFolderOption: view.ProjectionKind == SearchViewProjectionKind.AlbumDirectories
-                        && job is RemoteDirectoryJob);
+                        && job is RemoteDirectoryJob, resolver: settingsResolver);
                 variants.Add(kind, new SearchViewSelectionSettingsVariantDto(
                     kind, EffectiveSettingsMapper.ToSafeSettings(settings)));
             }
@@ -438,6 +439,7 @@ public sealed class SearchViewSelections
         string commitFingerprint,
         CancellationToken cancellationToken)
     {
+        var settingsResolver = submissions.SettingsResolver;
         var started = Stopwatch.StartNew();
 
         SearchViewChosenOptions? resolvedChoices = request.ChosenOptions is { Count: > 0 }
@@ -576,7 +578,7 @@ public sealed class SearchViewSelections
                     job,
                     OptionsForSelectionJob(request.Options, sourceView.ProjectionKind, job),
                     allowSearchViewAlbumFolderOption: sourceView.ProjectionKind == SearchViewProjectionKind.AlbumDirectories
-                        && job is RemoteDirectoryJob);
+                        && job is RemoteDirectoryJob, resolver: settingsResolver);
                 if (sourceView.ProjectionKind == SearchViewProjectionKind.AlbumDirectories
                     && item.Directory is { } selectedDirectory
                     && job is RemoteDirectoryJob selectedJob

@@ -16,6 +16,34 @@ namespace Tests.Server;
 public class EngineSupervisorTests
 {
     [TestMethod]
+    public async Task ProfileReloadDoesNotChangeAnInProgressPreview()
+    {
+        static ProfileCatalog Profiles(string format) => new()
+        {
+            DefaultProfile = new SettingsProfile
+            {
+                Download = new SettingsPatch([new("Search.PreferredCond.Formats", new[] { format })]),
+            },
+        };
+        using var supervisor = CreateSupervisor(Path.GetTempPath(), Path.GetTempPath(), profiles: Profiles("mp3"));
+        var draft = new JobListJobDraftDto("preview", [new GenericSearchJobDraftDto("first"), new GenericSearchJobDraftDto("second")]);
+        await using var preview = supervisor.Submissions.PlanDraftAsync(draft, null, null, CancellationToken.None).GetAsyncEnumerator();
+        Assert.IsTrue(await preview.MoveNextAsync());
+        var reviewedRoot = preview.Current;
+        supervisor.Submissions.ReloadProfiles(Profiles("flac"));
+        int children = 0;
+        while (await preview.MoveNextAsync())
+        {
+            children++;
+            CollectionAssert.AreEqual(new[] { "mp3" }, preview.Current.ReadSettings()!.Search.PreferredCond.Formats);
+        }
+        Assert.AreEqual(2, children);
+        CollectionAssert.AreEqual(new[] { "mp3" }, reviewedRoot.ReadSettings()!.Search.PreferredCond.Formats);
+        var current = supervisor.Submissions.ResolveEffectiveSettings(new(new GenericSearchJobDraftDto("new")));
+        CollectionAssert.AreEqual(new[] { "flac" }, current.Settings.Values.Search!.PreferredCond!.Formats!.Replace!.ToArray());
+    }
+
+    [TestMethod]
     public void BulkTransferCancellation_IsolatesRacesRejectionsAndFailures()
     {
         Guid succeeded = Guid.NewGuid();

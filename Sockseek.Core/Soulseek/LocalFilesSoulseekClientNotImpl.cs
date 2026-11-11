@@ -236,7 +236,8 @@ namespace Sockseek.Core.Services
 
         public Task<bool> ReconfigureOptionsAsync(SoulseekClientOptionsPatch patch, CancellationToken? cancellationToken = null)
         {
-            throw new NotImplementedException();
+            // The local-files client has no network transfers to throttle.
+            return Task.FromResult(false);
         }
 
         public Task RemovePrivateRoomMemberAsync(string roomName, string username, CancellationToken? cancellationToken = null)

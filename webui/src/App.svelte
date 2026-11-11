@@ -673,7 +673,7 @@
   {:else if activePage === 'chat'}
     <ChatPage {liveClient} {liveStatus} runtime={liveState.daemon?.chat} {userActions} initialUsername={initialChatUsername} />
   {:else}
-    <SettingsPage />
+    <SettingsPage configuration={liveState.daemon?.configuration} />
   {/if}
 </AppShell>
 

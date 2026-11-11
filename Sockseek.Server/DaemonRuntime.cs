@@ -265,6 +265,13 @@ public sealed class DaemonRuntime
 
     }
 
+    public Task ReloadConfigurationAsync(EngineSettings settings, CancellationToken cancellationToken = default)
+    {
+        SharingRuntime sharing = Sharing
+            ?? throw new InvalidOperationException("The daemon runtime is not running.");
+        return sharing.ReloadConfigurationAsync(settings, cancellationToken);
+    }
+
     internal static SoulseekClientStatusDto ToSoulseekClientStatusDto(SoulseekClientStates state)
     {
         var flags = Enum.GetValues<SoulseekClientStates>()

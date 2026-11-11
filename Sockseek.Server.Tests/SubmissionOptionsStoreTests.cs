@@ -10,6 +10,35 @@ namespace Sockseek.Server.Tests;
 public sealed class SubmissionOptionsStoreTests
 {
     [TestMethod]
+    public void WorkflowAndPlanningScopeKeepProfilesAcrossReloadWhileNewWorkUsesNewProfiles()
+    {
+        static ProfileJobSettingsResolver Profiles(int value) => new(null, new ProfileCatalog
+        {
+            DefaultProfile = new SettingsProfile { Download = new SettingsPatch([new("Search.MaxStaleTime", value)]) },
+        }, [], null);
+        var old = new SubmissionOptionsJobSettingsResolver(Profiles(17));
+        var existing = new SearchJob("existing");
+        old.SetWorkflowOptions(existing.WorkflowId, null);
+        var scope = old.CreateScope(existing.WorkflowId);
+        var updated = new SubmissionOptionsJobSettingsResolver(Profiles(23), old.Options);
+        var added = new SearchJob("new");
+        updated.SetWorkflowOptions(added.WorkflowId, null);
+        var inherited = new DownloadSettings();
+        var followUp = new SearchJob("isolated") { WorkflowId = existing.WorkflowId };
+        updated.SetIsolatedJobOptions(followUp.Id, null);
+        Assert.AreEqual(23, old.Resolve(inherited, followUp).Search.MaxStaleTime);
+
+        Assert.AreEqual(17, scope.Resolve(inherited, existing).Search.MaxStaleTime);
+        Assert.AreEqual(17, updated.Resolve(inherited, existing).Search.MaxStaleTime);
+        // The running engine can retain its original adapter; workflow state
+        // carries the generation chosen at admission for newly accepted jobs.
+        Assert.AreEqual(23, old.Resolve(inherited, added).Search.MaxStaleTime);
+        Assert.AreEqual(23, updated.ResolveDetailed(new SearchJob("draft"), null).Settings.Search.MaxStaleTime);
+        old.RetireWorkflow(existing.WorkflowId, [existing.Id], old.CaptureWorkflowVersion(existing.WorkflowId));
+        Assert.AreEqual(23, updated.Resolve(inherited, existing).Search.MaxStaleTime);
+    }
+
+    [TestMethod]
     public void ItemPatchComposesOverWorkflowProfilesAndPatch()
     {
         var store = new SubmissionOptionsStore();
@@ -121,7 +150,7 @@ public sealed class SubmissionOptionsStoreTests
         Assert.AreEqual(new DownloadSettings().Search.MaxStaleTime, separate.Search.MaxStaleTime);
         Assert.AreEqual("workflow-output", resolver.Resolve(inherited, ordinary).Output.ParentDir);
         var detailed = inner.ResolveDetailed(inherited, ordinary,
-            request: resolver.Options.GetRequestLayers(ordinary));
+            request: resolver.Options.GetResolution(ordinary).Request);
         Assert.AreEqual("request", detailed.Provenance["Output.ParentDir"]);
         Assert.AreEqual("request", detailed.Provenance["Search.MaxStaleTime"]);
     }

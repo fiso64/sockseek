@@ -469,6 +469,8 @@ Sockseek will look for a file named sockseek.conf in the following locations:
 
 Use `--config <path>` to choose a config file, `--config none` or `--no-config` to skip config loading.
 
+The daemon automatically reloads config changes; share changes require a rescan, and some settings still require a restart.
+
 ### Syntax
 
 Example config file:
@@ -1287,6 +1289,7 @@ sockseek auth keys revoke <id>  Revoke a key; offline commands require the daemo
                                 Replace usernames whose incoming DMs are discarded. Prefix with '+ ' to append.
 --chat-room <name>              Replace rooms joined by the daemon. Prefix with '+ ' to append.
 --data-dir <path>               Directory for daemon data, including sockseek.db
+--no-config-watch               Disable automatic daemon config-file reload
 --no-retention                  Disable scheduled history retention
 --successful-job-retention-days <days|forever>
                                 Successful job retention (default: forever)

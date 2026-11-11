@@ -177,7 +177,8 @@ public sealed record DaemonStateDto(
     NotificationSummaryDto Notifications,
     // Post-commit invalidation for retained transfer analytics. Active progress
     // can also change accounting, so clients keep their periodic fallback.
-    long TerminalTransferCommitRevision = 0);
+    long TerminalTransferCommitRevision = 0,
+    ConfigurationStatusDto? Configuration = null);
 
 [JsonConverter(typeof(JsonStringEnumConverter<DaemonFeatureState>))]
 public enum DaemonFeatureState

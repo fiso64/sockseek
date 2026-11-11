@@ -36,6 +36,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         "Soulseek server kicked this client, probably because the same account logged in elsewhere.";
 
     private readonly EngineSettings _initialSettings;
+    private int? maximumUploadSpeed;
     private readonly ISoulseekInboundRequestRouter? inboundRouter;
     private readonly LocalUserProfile? localProfile;
     private readonly Func<TimeSpan, CancellationToken, Task> monitorDelay;
@@ -116,6 +117,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         ILogger<SoulseekClientManager>? logger = null)
     {
         _initialSettings = initialSettings ?? throw new ArgumentNullException(nameof(initialSettings));
+        maximumUploadSpeed = initialSettings.Uploads.SpeedLimitKiBPerSecond ?? int.MaxValue;
         this.monitorDelay = monitorDelay ?? throw new ArgumentNullException(nameof(monitorDelay));
         this.inboundRouter = inboundRouter;
         this.localProfile = localProfile;
@@ -453,6 +455,30 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         }
     }
 
+    public async Task UpdateUploadSpeedLimitAsync(int? kibPerSecond, CancellationToken cancellationToken = default)
+    {
+        // Soulseek.NET accepts KiB/s here, unlike search responses (bytes/s).
+        int speed = kibPerSecond ?? int.MaxValue;
+        await _initializationSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (maximumUploadSpeed == speed) return;
+            if (_client is not null)
+                await _client.ReconfigureOptionsAsync(new SoulseekClientOptionsPatch(
+                    maximumUploadSpeed: speed), cancellationToken).ConfigureAwait(false);
+            // Also applies when the network client has not been created yet.
+            maximumUploadSpeed = speed;
+        }
+        catch
+        {
+            // The library may apply the limit before a server notification fails.
+            // Force the next reload to reconcile it instead of assuming no change.
+            maximumUploadSpeed = null;
+            throw;
+        }
+        finally { _initializationSemaphore.Release(); }
+    }
+
     private ISoulseekClient CreateClientInstance(EngineSettings settings)
     {
         SoulseekLogMessages.CreatingClient(logger);
@@ -472,7 +498,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
             int startingToken = CreateRandomStartingToken();
             return new SoulseekClient(
                 SockseekSoulseekClientIdentity.MinorVersion,
-                CreateClientOptions(settings, startingToken, inboundRouter, localProfile));
+                CreateClientOptions(settings, startingToken, inboundRouter, localProfile, maximumUploadSpeed));
         }
     }
 
@@ -483,7 +509,8 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         EngineSettings settings,
         int startingToken,
         ISoulseekInboundRequestRouter? inboundRouter = null,
-        LocalUserProfile? localProfile = null)
+        LocalUserProfile? localProfile = null,
+        int? maximumUploadSpeedOverride = null)
     {
         var serverConnectionOptions = new ConnectionOptions(
             connectTimeout: settings.ConnectTimeout,
@@ -514,9 +541,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
             picture: localProfile?.Picture?.Bytes
         ));
 
-        int maximumUploadSpeed = settings.Uploads.SpeedLimitKiBPerSecond is { } kib
-            ? checked(kib * 1_024)
-            : int.MaxValue;
+        int maximumUploadSpeed = maximumUploadSpeedOverride ?? settings.Uploads.SpeedLimitKiBPerSecond ?? int.MaxValue;
         Func<string, int, SearchQuery, Task<SearchResponse?>>? searchResolver =
             inboundRouter is null ? null : inboundRouter.ResolveSearchAsync;
         Func<string, System.Net.IPEndPoint, Task<BrowseResponse>>? browseResolver =
@@ -536,7 +561,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
             serverConnectionOptions: serverConnectionOptions,
             listenPort: settings.ListenPort ?? 49998,
             maximumConcurrentSearches: int.MaxValue, // this is limited later in the searcher code
-            maximumConcurrentUploads: settings.Uploads.Slots,
+            maximumConcurrentUploads: int.MaxValue, // UploadScheduler owns admission, including live slot changes.
             maximumUploadSpeed: maximumUploadSpeed,
             searchResponseResolver: searchResolver,
             browseResponseResolver: browseResolver,
@@ -557,7 +582,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
                 serverConnectionOptions: serverConnectionOptions,
                 enableListener: false,
                 maximumConcurrentSearches: int.MaxValue,
-                maximumConcurrentUploads: settings.Uploads.Slots,
+                maximumConcurrentUploads: int.MaxValue, // UploadScheduler owns admission, including live slot changes.
                 maximumUploadSpeed: maximumUploadSpeed,
                 searchResponseResolver: searchResolver,
                 browseResponseResolver: browseResolver,

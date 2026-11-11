@@ -348,7 +348,8 @@ public sealed class EngineSupervisor : IDisposable
             stats.TotalWorkflowCount,
             stats.ActiveWorkflowCount,
             restartCount,
-            persistenceStatus);
+            persistenceStatus,
+            stats.Configuration);
     }
 
     private PersistenceStatusDto GetPersistenceStatus()
@@ -535,6 +536,7 @@ public sealed class EngineSupervisor : IDisposable
 
     public async Task<IReadOnlyList<JobSummaryDto>?> StartFileDownloadsAsync(Guid sourceJobId, StartFileDownloadsRequestDto request, CancellationToken ct)
     {
+        var resolver = Submissions.SettingsResolver;
         if (request.Files.Count == 0)
             throw new ArgumentException("At least one file is required.");
         if (request.RequestedMode == ServerExtractionMode.Album)
@@ -558,7 +560,7 @@ public sealed class EngineSupervisor : IDisposable
             lock (engineGate)
                 engine = currentEngine;
             if (engine?.TryStartManualSongSelection(sourceJobId, candidate,
-                song => Submissions.SettingsResolver.ApplyManualSelectionOptions(sourceJob, song, request.Options), out _) != true)
+                song => resolver.ApplyManualSelectionOptions(sourceJob, song, request.Options), out _) != true)
                 throw new ArgumentException("The song is no longer awaiting selection.");
             return new List<JobSummaryDto> { StateStore.GetJobSummary(manualSong.Id) ?? BuildSubmittedJobSummary(manualSong, sourceJobId) };
         }
@@ -574,7 +576,7 @@ public sealed class EngineSupervisor : IDisposable
                 lock (engineGate)
                     engine = currentEngine;
                 if (engine == null || !engine.TryStartManualSongSelection(sourceJobId, candidate,
-                    song => Submissions.SettingsResolver.ApplyManualSelectionOptions(sourceJob, song, request.Options), out var selectedSong)
+                    song => resolver.ApplyManualSelectionOptions(sourceJob, song, request.Options), out var selectedSong)
                     || selectedSong == null)
                     throw new ArgumentException("The group is no longer accepting selections.");
                 summaries.Add(StateStore.GetJobSummary(selectedSong.Id) ?? BuildSubmittedJobSummary(selectedSong, sourceJobId));
@@ -590,8 +592,8 @@ public sealed class EngineSupervisor : IDisposable
             followUpJob.ItemName = source.ItemName;
             followUpJob.WorkflowId = source.WorkflowId;
 
-            var followUpSettings = Submissions.SettingsResolver.ResolveFollowUp(followUpJob, request.Options);
-            summaries.Add(await Submissions.SubmitFollowUpJobAsync(sourceJobId, sourceJob, followUpJob, followUpSettings, request.Options, ct));
+            var followUpSettings = resolver.ResolveFollowUp(followUpJob, request.Options);
+            summaries.Add(await Submissions.SubmitFollowUpJobAsync(sourceJobId, sourceJob, followUpJob, followUpSettings, request.Options, ct, resolver));
         }
 
         return summaries;
@@ -599,6 +601,7 @@ public sealed class EngineSupervisor : IDisposable
 
     public async Task<JobSummaryDto?> StartFolderDownloadAsync(Guid sourceJobId, StartFolderDownloadRequestDto request, CancellationToken ct)
     {
+        var resolver = Submissions.SettingsResolver;
         if (request.RequestedMode == ServerExtractionMode.Song)
             throw new ArgumentException("A directory selection cannot be interpreted as one song.");
         var source = await searchResults.GetSourceAsync(sourceJobId, ct).ConfigureAwait(false);
@@ -614,10 +617,10 @@ public sealed class EngineSupervisor : IDisposable
             var directoryJob = JobRequestMapper.CreateRemoteDirectoryDownload(folder, request.Selection);
             directoryJob.ItemName = source.ItemName;
             directoryJob.WorkflowId = source.WorkflowId;
-            var directorySettings = Submissions.SettingsResolver.ResolveFollowUp(directoryJob, request.Options);
+            var directorySettings = resolver.ResolveFollowUp(directoryJob, request.Options);
             return await Submissions.SubmitFollowUpJobAsync(
                 sourceJobId, sourceJob, directoryJob, directorySettings,
-                request.Options, ct);
+                request.Options, ct, resolver);
         }
 
         DownloadEngine? engine;
@@ -632,7 +635,7 @@ public sealed class EngineSupervisor : IDisposable
             album =>
             {
                 JobRequestMapper.ApplyFolderDownloadSelection(album, request.Selection);
-                Submissions.SettingsResolver.ApplyManualSelectionOptions(sourceJob, album, request.Options);
+                resolver.ApplyManualSelectionOptions(sourceJob, album, request.Options);
             },
             out var selectedAlbum) == true)
         {
@@ -654,9 +657,9 @@ public sealed class EngineSupervisor : IDisposable
                 };
         if (sourceJob is null) JobRequestMapper.ApplyFolderDownloadSelection(albumJob, request.Selection);
 
-        var followUpSettings = Submissions.SettingsResolver.ResolveFollowUp(albumJob, request.Options);
+        var followUpSettings = resolver.ResolveFollowUp(albumJob, request.Options);
 
-        return await Submissions.SubmitFollowUpJobAsync(sourceJobId, sourceJob, albumJob, followUpSettings, request.Options, ct);
+        return await Submissions.SubmitFollowUpJobAsync(sourceJobId, sourceJob, albumJob, followUpSettings, request.Options, ct, resolver);
     }
 
     public async Task<bool> CompleteManualSelectionAsync(Guid jobId)

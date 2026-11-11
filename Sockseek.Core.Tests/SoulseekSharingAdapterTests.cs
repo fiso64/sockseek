@@ -6,6 +6,7 @@ using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Sharing;
 using Sockseek.Core.Transfers.Uploads;
+using Sockseek.Core.UserProfiles;
 using Soulseek;
 
 namespace Sockseek.Core.Tests;
@@ -212,8 +213,7 @@ public sealed class SoulseekSharingAdapterTests
             }),
             new UploadSettings { Slots = 1 },
             () => null,
-            "hello",
-            userPicture: picture);
+            new LocalUserProfile("hello", new UserPicture(picture, "image/jpeg", 1, 1, "test")));
         var endpoint = new IPEndPoint(IPAddress.Loopback, 1234);
 
         UserInfo allowed = await adapter.ResolveUserInfoAsync("allowed", endpoint);
@@ -224,6 +224,11 @@ public sealed class SoulseekSharingAdapterTests
         UserInfo blocked = await adapter.ResolveUserInfoAsync("blocked", endpoint);
         Assert.AreEqual("", blocked.Description);
         Assert.IsFalse(blocked.HasPicture);
+
+        adapter.UpdateLocalProfile(new LocalUserProfile("updated", null));
+        allowed = await adapter.ResolveUserInfoAsync("allowed", endpoint);
+        Assert.AreEqual("updated", allowed.Description);
+        Assert.IsFalse(allowed.HasPicture);
     }
 
     [TestMethod]

@@ -15,8 +15,10 @@ public sealed class PeerRestrictionSettings
 
 public sealed class UploadAccessSettings
 {
+    [SettingReloadable]
     public List<string> BlockedUsernames { get; set; } = [];
 
+    [SettingReloadable]
     public List<string> BlockedIpAddresses { get; set; } = [];
     [SettingOption("--upload-blocked-user", DefaultProfileOnly = true)]
     private static void ConfigureUser(SettingWriter changes, string value)
@@ -30,6 +32,7 @@ public sealed class UploadAccessSettings
 
 public sealed class PrivateMessageAccessSettings
 {
+    [SettingReloadable]
     public List<string> BlockedUsernames { get; set; } = [];
     [SettingOption("--private-message-blocked-user", DefaultProfileOnly = true)]
     private static void ConfigureUser(SettingWriter changes, string value)

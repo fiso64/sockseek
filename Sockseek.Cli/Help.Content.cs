@@ -289,6 +289,7 @@ public static partial class Help
                                     Replace usernames whose incoming DMs are discarded. Prefix with '+ ' to append.
     --chat-room <name>              Replace rooms joined by the daemon. Prefix with '+ ' to append.
     --data-dir <path>               Directory for daemon data, including sockseek.db
+    --no-config-watch               Disable automatic daemon config-file reload
     --no-retention                  Disable scheduled history retention
     --successful-job-retention-days <days|forever>
                                     Successful job retention (default: forever)
@@ -605,16 +606,17 @@ File conditions
   format = mp3,flac,ogg,m4a,opus,wav,aac,alac
   length-tol = 3
 
-  The default preferred conditions favour matching, unlocked results, without a format, bitrate,
-  sample-rate or bit-depth preference:
-
-  pref-exclude-locked = true
-  pref-length-tol = 3
+  The default preferred conditions are:
 
   # Prefer files whose paths contain the supplied title and album.
   # Changing these is not recommended.
   pref-strict-title = true
   pref-strict-album = true
+
+  # Prefer results that aren't locked. This is only relevant for
+  # interactive searches in the webui. Automated downloads always
+  # ignore locked items.
+  pref-exclude-locked = true
 
   For album downloads, conditions like format, bitrate and sample rate operate based on coverage: A
   folder with 9 FLAC files and 1 MP3 is preferred over a mostly-MP3 folder, and the selected folder
@@ -719,6 +721,8 @@ Configuration
     - {sockseek executable dir}/sockseek.conf
     Use --config <path> to choose a config file, --config none or --no-config to skip config
     loading.
+    The daemon automatically reloads config changes; share changes require a rescan, and some
+    settings still require a restart.
 
   Syntax
     Example config file:

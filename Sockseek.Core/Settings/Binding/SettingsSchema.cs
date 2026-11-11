@@ -41,6 +41,7 @@ public sealed class SettingsSchema
 
     public static SettingsSchema For(Type type) => schemas.GetOrAdd(type, static type => new(type));
     public IReadOnlyList<SettingMember> Leaves => leaves;
+    public SettingMember GetMember(string path) => members[path];
 
     public IReadOnlyList<SettingOption> Options
     {
@@ -171,7 +172,7 @@ public sealed class SettingsSchema
         return copy;
     }
 
-    internal static bool ValuesEqual(object? left, object? right)
+    public static bool ValuesEqual(object? left, object? right)
     {
         if (Equals(left, right)) return true;
         if (left == null || right == null || left.GetType() != right.GetType()) return false;
@@ -233,10 +234,12 @@ public sealed class SettingMember
         this.parents = parents;
         this.member = member;
         ValueType = SettingsSchema.MemberType(member);
+        Reloadable = member.IsDefined(typeof(SettingReloadableAttribute));
     }
 
     public string Path { get; }
     public Type ValueType { get; }
+    public bool Reloadable { get; }
     public object? Get(object root) => SettingsSchema.Get(member, SettingsSchema.Parent(root, parents));
     internal void Set(object root, object? value) => SettingsSchema.Set(member, SettingsSchema.Parent(root, parents), value);
 

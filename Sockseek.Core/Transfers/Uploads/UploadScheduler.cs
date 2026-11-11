@@ -71,7 +71,7 @@ public sealed record UploadQueuePage(
 public sealed class UploadScheduler
 {
     private readonly object sync = new();
-    private readonly int slots;
+    private int slots;
     private readonly Dictionary<Guid, Entry> entries = [];
     private readonly Dictionary<DuplicateKey, Guid> duplicateIndex = [];
     private readonly Dictionary<string, UserState> users = new(StringComparer.Ordinal);
@@ -142,6 +142,21 @@ public sealed class UploadScheduler
                 UploadAdmissionResultKind.Accepted,
                 Snapshot(entry),
                 grants);
+        }
+    }
+
+    public IReadOnlyList<UploadSchedulerGrant> SetSlots(int value)
+    {
+        if (value is < 1 or > SharingSettingsValidator.MaximumUploadSlots)
+            throw new ArgumentOutOfRangeException(nameof(value));
+        lock (sync)
+        {
+            if (slots == value) return [];
+            slots = value;
+            queueRevision++;
+            // Lowering the limit lets active transfers finish; raising it
+            // immediately admits waiting users through the normal scheduler.
+            return TakeAvailableGrants();
         }
     }
 

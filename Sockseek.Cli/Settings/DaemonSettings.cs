@@ -6,6 +6,9 @@ namespace Sockseek.Cli;
 /// Settings consumed by the CLI launcher when hosting `Sockseek daemon`.
 public class DaemonSettings
 {
+    [SettingOption("--no-config-watch", DefaultProfileOnly = true)]
+    public bool NoConfigWatch { get; set; }
+
     [SettingOption("--web-username", DefaultProfileOnly = true)]
     public string WebUsername { get; set; } = "admin";
     [SettingOption("--web-password-file", DefaultProfileOnly = true)]

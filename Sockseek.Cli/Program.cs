@@ -1727,7 +1727,12 @@ internal static partial class Program
 
         // A published CLI carries the WebUI beside the executable. Resolve
         // static assets there even when launched from a different directory.
-        var app = ServerHost.Build(args, options, url);
+        var app = ServerHost.Build(args, options, url, configureServices: services =>
+            services.AddHostedService(provider => new DaemonConfigWatcher(
+                configFile, invocation, daemonSettings.NoConfigWatch,
+                provider.GetRequiredService<EngineSupervisor>(),
+                provider.GetRequiredService<Sockseek.Server.PeerRestrictions.PeerRestrictionCoordinator>(),
+                provider.GetRequiredService<ILogger<DaemonConfigWatcher>>())));
         var logger = app.Services.GetRequiredService<ILoggerFactory>()
             .CreateLogger("Sockseek.Cli.Daemon");
         CliLogMessages.DaemonStarting(logger, url);

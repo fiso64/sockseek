@@ -19,6 +19,9 @@ namespace Sockseek.Server;
 public sealed class SharingRuntime : IAsyncDisposable
 {
     private readonly EngineSettings settings;
+    private sealed record ShareConfiguration(SharingSettings Settings, string Hash);
+    private ShareConfiguration shareConfiguration;
+    private UploadSettings uploadSettings;
     private readonly ILogger<SharingRuntime> logger;
     private readonly FeatureHealthLogger sharingHealthLog;
     private readonly FeatureHealthLogger uploadHealthLog;
@@ -49,6 +52,8 @@ public sealed class SharingRuntime : IAsyncDisposable
         ILogger<UploadCoordinator>? uploadLogger = null)
     {
         this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        shareConfiguration = new(settings.Sharing, SharingSettingsFingerprint.Compute(settings.Sharing));
+        uploadSettings = settings.Uploads;
         this.soulseek = soulseek ?? throw new ArgumentNullException(nameof(soulseek));
         this.logger = logger ?? NullLogger<SharingRuntime>.Instance;
         sharingHealthLog = new FeatureHealthLogger(this.logger, "sharing");
@@ -74,9 +79,8 @@ public sealed class SharingRuntime : IAsyncDisposable
             Restrictions,
             settings.Uploads,
             () => manager.Client,
-            soulseek.LocalProfile.Description,
+            soulseek.LocalProfile,
             uploadServingEnabled: settings.ListenPort is not null,
-            userPicture: soulseek.LocalProfile.Picture?.Bytes,
             logger: this.logger);
         ClientManager = manager;
         inboundRegistration = soulseek.InboundRequests.Attach(Adapter);
@@ -92,7 +96,7 @@ public sealed class SharingRuntime : IAsyncDisposable
     public UploadScheduler Scheduler { get; }
     public UploadCoordinator Uploads { get; }
     public SoulseekSharingAdapter Adapter { get; }
-    public string SettingsHash { get; private set; } = "";
+    public string SettingsHash => Volatile.Read(ref shareConfiguration).Hash;
     public event Action<SharingStateDto, UploadRuntimeStateDto>? StateChanged;
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -100,7 +104,6 @@ public sealed class SharingRuntime : IAsyncDisposable
         if (started)
             return;
         started = true;
-        SettingsHash = SharingSettingsFingerprint.Compute(settings.Sharing);
         bool ready = await catalogs.InitializeAsync(
             SettingsHash,
             cancellationToken).ConfigureAwait(false);
@@ -154,10 +157,15 @@ public sealed class SharingRuntime : IAsyncDisposable
     public async ValueTask<ShareScanResult> ScanNowAsync(
         CancellationToken cancellationToken = default)
     {
+        // One scan retains one configuration even when the file changes midway.
+        ShareConfiguration configuration = Volatile.Read(ref shareConfiguration);
+        SharingSettings current = configuration.Settings;
         ShareScanResult result = await scans.ScanAsync(
-            settings.Sharing,
-            SettingsHash,
+            current,
+            configuration.Hash,
             cancellationToken).ConfigureAwait(false);
+        if (current.Roots.Count > 0 && !ClientManager.IsConnectedAndLoggedIn)
+            sessionStartupTask = StartSessionForSharingAsync(lifetime.Token);
         // Catalog publication is authoritative even if the connected server
         // rejects or delays this derived count update. Reconnect retries it.
         await RequestCountPublication().ConfigureAwait(false);
@@ -352,6 +360,8 @@ public sealed class SharingRuntime : IAsyncDisposable
 
     public SharingStateDto GetSharingState()
     {
+        ShareConfiguration configuration = Volatile.Read(ref shareConfiguration);
+        SharingSettings current = configuration.Settings;
         ShareCatalogMetadata? metadata = catalogs.CurrentMetadata;
         ShareScanStateDto? active;
         ShareScanStateDto? last;
@@ -360,12 +370,17 @@ public sealed class SharingRuntime : IAsyncDisposable
             active = activeScan;
             last = lastScan;
         }
-        bool configured = settings.Sharing.Roots.Count > 0;
+        bool configured = current.Roots.Count > 0;
         bool catalogReady = metadata is not null;
         bool catalogStale = catalogReady && last?.Phase == ServerShareScanPhase.Failed;
         DaemonFeatureState state;
         string? reason;
-        if (!configured)
+        if (catalogReady && metadata!.SettingsHash != configuration.Hash)
+        {
+            state = DaemonFeatureState.Degraded;
+            reason = "RescanRequired";
+        }
+        else if (!configured)
         {
             state = DaemonFeatureState.Disabled;
             reason = "NotConfigured";
@@ -399,7 +414,7 @@ public sealed class SharingRuntime : IAsyncDisposable
         return new SharingStateDto(
             state,
             reason,
-            settings.Sharing.Roots
+            current.Roots
                 .Select(root => root.EffectiveAlias)
                 .Order(StringComparer.Ordinal)
                 .ToArray(),
@@ -419,7 +434,7 @@ public sealed class SharingRuntime : IAsyncDisposable
 
     public UploadRuntimeStateDto GetUploadRuntimeState()
     {
-        bool configured = settings.Sharing.Roots.Count > 0;
+        bool configured = Volatile.Read(ref shareConfiguration).Settings.Roots.Count > 0;
         bool listenerReady = ClientManager.IsConnectedAndLoggedIn
                              && settings.ListenPort is not null;
         bool catalogReady = catalogs.CurrentMetadata is not null;
@@ -453,7 +468,35 @@ public sealed class SharingRuntime : IAsyncDisposable
             queue.QueuedFiles,
             queue.QueuedBytes,
             queue.QueueRevision,
-            settings.Uploads.SpeedLimitKiBPerSecond);
+            Volatile.Read(ref uploadSettings).SpeedLimitKiBPerSecond);
+    }
+
+    public async Task ReloadConfigurationAsync(EngineSettings candidate, CancellationToken cancellationToken = default)
+    {
+        // The client also reconciles an uncertain limit after a failed network
+        // notification. Normally this is a no-op when the speed is unchanged.
+        await ClientManager.UpdateUploadSpeedLimitAsync(candidate.Uploads.SpeedLimitKiBPerSecond, cancellationToken).ConfigureAwait(false);
+        if (await soulseek.ReloadProfileAsync(candidate, cancellationToken).ConfigureAwait(false))
+            Adapter.UpdateLocalProfile(soulseek.LocalProfile);
+
+        bool uploadsChanged = !SettingsSchema.ValuesEqual(uploadSettings, candidate.Uploads);
+        bool slotsChanged = uploadSettings.Slots != candidate.Uploads.Slots;
+        if (uploadsChanged)
+        {
+            Volatile.Write(ref uploadSettings, candidate.Uploads);
+            Adapter.UpdateUploadSettings(candidate.Uploads);
+        }
+
+        bool sharesChanged = false;
+        if (!SettingsSchema.ValuesEqual(shareConfiguration.Settings, candidate.Sharing))
+        {
+            string hash = SharingSettingsFingerprint.Compute(candidate.Sharing);
+            sharesChanged = hash != SettingsHash;
+            Volatile.Write(ref shareConfiguration, new(candidate.Sharing, hash));
+            if (sharesChanged) SharingLogMessages.RescanRequired(logger);
+        }
+        if (slotsChanged) Uploads.SetSlots(candidate.Uploads.Slots); // Publishes the changed queue and runtime state.
+        else if (uploadsChanged || sharesChanged) PublishState();
     }
 
     public ShareScanStateDto? GetScan(Guid scanId)
@@ -623,6 +666,8 @@ public sealed class SharingRuntime : IAsyncDisposable
 
 internal static partial class SharingLogMessages
 {
+    [LoggerMessage(4310, LogLevel.Information, "Shared folders or filters changed; rescan shares to apply the new configuration", EventName = "sharing.rescan-required")]
+    public static partial void RescanRequired(ILogger logger);
     [LoggerMessage(
         EventId = 4301,
         EventName = "sharing.catalog-loaded",

@@ -214,9 +214,12 @@ namespace Tests.ClientTests
             throw new NotImplementedException();
         }
 
+        public SoulseekClientOptionsPatch? LastOptionsPatch { get; private set; }
+
         public Task<bool> ReconfigureOptionsAsync(SoulseekClientOptionsPatch patch, CancellationToken? cancellationToken = null)
         {
-            throw new NotImplementedException();
+            LastOptionsPatch = patch;
+            return Task.FromResult(false);
         }
 
         public Task RemovePrivateRoomMemberAsync(string roomName, string username, CancellationToken? cancellationToken = null)

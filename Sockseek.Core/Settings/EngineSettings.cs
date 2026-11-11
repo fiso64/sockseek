@@ -41,6 +41,7 @@ public class EngineSettings
     // ── Sharing ───────────────────────────────────────────────────────────────
 
     [SettingOption("--user-description")]
+    [SettingReloadable]
     public string? UserDescription { get; set; }
 
     // ── Concurrency ───────────────────────────────────────────────────────────
@@ -94,6 +95,7 @@ public class EngineSettings
     [SettingOption("--mock-files-fail-downloads")]
     public int MockFilesFailDownloads { get; set; }
     [SettingOption("--user-picture", DefaultProfileOnly = true)]
+    [SettingReloadable]
     public string? UserPicturePath { get; set; }
     public SharingSettings Sharing { get; set; } = new();
     public UploadSettings Uploads { get; set; } = new();

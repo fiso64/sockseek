@@ -7,6 +7,7 @@
   import Modal from '../../components/Modal.svelte';
   import Icon from '../../components/Icon.svelte';
 
+  let { configuration }: { configuration?: Schema<'ConfigurationStatusDto'> | null } = $props();
   const http = new DaemonHttpClient();
   let keys = $state<Schema<'ApiKeyDto'>[]>([]);
   let loading = $state(true);
@@ -74,6 +75,20 @@
       <button class="auth-button sign-out" onclick={() => void logout()} disabled={pending}><Icon name="log-out" />Sign out</button>
     {/if}
   </header>
+  {#if configuration?.reloadFailed}
+    <div class="resource-state-notice unavailable" role="alert">
+      <span class="resource-state-dot" aria-hidden="true"></span>
+      <span>{configuration.watching
+        ? 'Configuration could not be reloaded. Check the daemon log and configuration file.'
+        : 'Configuration watching stopped. Check the daemon log and restart to resume automatic reloading.'}</span>
+    </div>
+  {/if}
+  {#if configuration?.restartRequired}
+    <div class="resource-state-notice degraded" role="status">
+      <span class="resource-state-dot" aria-hidden="true"></span>
+      <span>Some configuration changes require a daemon restart.</span>
+    </div>
+  {/if}
   <section class="settings-section" aria-labelledby="keys-heading">
     <div class="section-heading key-heading">
       <div><h2 id="keys-heading">API keys</h2><p>Connect the remote CLI or other integrations. Each key grants full access.</p></div>

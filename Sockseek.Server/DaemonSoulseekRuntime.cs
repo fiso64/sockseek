@@ -11,9 +11,11 @@ namespace Sockseek.Server;
 public sealed class DaemonSoulseekRuntime : IAsyncDisposable
 {
     private readonly EngineSettings settings;
+    private readonly ILogger? logger;
     private readonly CancellationTokenSource lifetime = new();
     private readonly object startupGate = new();
     private Task? startupTask;
+    private string? profilePicturePath;
 
     public DaemonSoulseekRuntime(
         EngineSettings settings,
@@ -23,11 +25,13 @@ public sealed class DaemonSoulseekRuntime : IAsyncDisposable
         PeerRestrictionPolicy? restrictions = null)
     {
         this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        this.logger = logger;
         InboundRequests = new SoulseekInboundRequestRouter();
         Restrictions = restrictions ?? new PeerRestrictionPolicy(settings.PeerRestrictions);
         LocalProfile = localProfile ?? new LocalUserProfile(
             UserProfileText.NormalizeDescription(settings.UserDescription),
             null);
+        profilePicturePath = settings.UserPicturePath;
         ClientManager = new SoulseekClientManager(
             settings,
             clientFactory?.Invoke(settings),
@@ -39,7 +43,19 @@ public sealed class DaemonSoulseekRuntime : IAsyncDisposable
     public SoulseekClientManager ClientManager { get; }
     public SoulseekInboundRequestRouter InboundRequests { get; }
     public PeerRestrictionPolicy Restrictions { get; }
-    public LocalUserProfile LocalProfile { get; }
+    public LocalUserProfile LocalProfile { get; private set; }
+
+    public async Task<bool> ReloadProfileAsync(EngineSettings candidate, CancellationToken cancellationToken = default)
+    {
+        string description = UserProfileText.NormalizeDescription(candidate.UserDescription);
+        if (profilePicturePath == candidate.UserPicturePath && LocalProfile.Description == description)
+            return false;
+        LocalProfile = profilePicturePath == candidate.UserPicturePath
+            ? LocalProfile with { Description = description }
+            : await LocalUserProfile.LoadAsync(candidate, cancellationToken, logger).ConfigureAwait(false);
+        profilePicturePath = candidate.UserPicturePath;
+        return true;
+    }
 
     public Task EnsureStartedAsync(CancellationToken cancellationToken = default)
     {

@@ -570,16 +570,13 @@ public sealed class EngineStateStore
     {
         lock (gate)
         {
-            var next = new DaemonStateDto(
-                daemonState.Revision + 1,
-                soulseekClient,
-                restartCount,
-                searchRateLimitResetsAtUtc,
-                daemonState.Sharing,
-                daemonState.Uploads,
-                daemonState.Chat,
-                daemonState.Notifications,
-                daemonState.TerminalTransferCommitRevision);
+            var next = daemonState with
+            {
+                Revision = daemonState.Revision + 1,
+                SoulseekClient = soulseekClient,
+                RestartCount = restartCount,
+                SearchRateLimitResetsAtUtc = searchRateLimitResetsAtUtc,
+            };
             if (daemonState with { Revision = 0 } == next with { Revision = 0 })
                 return;
 
@@ -628,6 +625,17 @@ public sealed class EngineStateStore
             searchRateLimitResetsAtUtc = daemonState.SearchRateLimitResetsAtUtc;
 
         UpdateDaemonState(soulseekClient, restartCount, searchRateLimitResetsAtUtc);
+    }
+
+    public void UpdateConfigurationStatus(ConfigurationStatusDto status)
+    {
+        lock (gate)
+        {
+            if (daemonState.Configuration == status) return;
+            daemonState = daemonState with { Revision = daemonState.Revision + 1, Configuration = status };
+            AppendDaemonChanges(StateDelta.Empty with { Daemon = daemonState }, DateTimeOffset.UtcNow);
+        }
+        PublishStateChanges();
     }
 
     public void UpdateSharingRuntime(
@@ -806,7 +814,7 @@ public sealed class EngineStateStore
 
     public ServerStatusDto GetStatistics()
     {
-        lock (gate) return jobState.GetStatistics();
+        lock (gate) return jobState.GetStatistics() with { Configuration = daemonState.Configuration };
     }
 
     public void MarkActiveJobsInfrastructureFailed(string reason, string? detail = null)

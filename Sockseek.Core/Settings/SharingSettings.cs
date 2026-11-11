@@ -3,14 +3,17 @@ using Sockseek.Core.Sharing;
 namespace Sockseek.Core.Settings;
 
 /// <summary>
-/// Daemon-lifetime settings for the local public share catalog.
+/// Settings for the local public share catalog; each scan captures one snapshot.
 /// </summary>
 public sealed class SharingSettings
 {
+    [SettingReloadable]
     public List<ShareRootSettings> Roots { get; set; } = [];
 
+    [SettingReloadable]
     public List<string> ExcludedDirectories { get; set; } = [];
 
+    [SettingReloadable]
     public List<string> Filters { get; set; } = [];
 
     [SettingOption("--share-scan-on-start", DefaultProfileOnly = true)]

@@ -406,46 +406,64 @@ public static partial class ConfigManager
     }
 
     private static ConfigFile ParseConfigFile(string path)
+        => ParseConfigText(path, File.ReadAllText(path));
+
+    internal static ConfigFile ParseConfigText(string path, string text)
     {
         var profiles = new Dictionary<string, ProfileBuilder>();
         var curProfile = "default";
         bool hasAutoProfiles = false;
 
-        foreach (var (line, lineNum) in File.ReadAllLines(path).Select((l, n) => (l.Trim(), n)))
+        using var reader = new StringReader(text);
+        int lineNum = 0;
+        while (reader.ReadLine() is { } rawLine)
         {
-            if (line.Length == 0 || line.StartsWith('#')) continue;
-
-            if (line.StartsWith('[') && line.EndsWith(']'))
+            lineNum++;
+            string line = rawLine.Trim();
+            try
             {
-                curProfile = line[1..^1];
-                continue;
-            }
+                if (line.Length == 0 || line.StartsWith('#')) continue;
 
-            int eq = line.IndexOf('=');
-            if (eq <= 0 || eq == line.Length - 1)
-                throw new Exception($"Input error: Error parsing config '{path}' at line {lineNum}");
-
-            var parts = line.Split('=', 2, StringSplitOptions.TrimEntries);
-            string key = parts[0];
-            string val = parts[1];
-            if (val.Length >= 2 && val[0] == '"' && val[^1] == '"')
-                val = val[1..^1];
-
-            if (!profiles.ContainsKey(curProfile))
-                profiles[curProfile] = new ProfileBuilder(curProfile);
-
-            if (key == "profile-cond")
-            {
-                if (curProfile != "default")
+                if (line.StartsWith('[') && line.EndsWith(']'))
                 {
-                    profiles[curProfile].Condition = val;
-                    hasAutoProfiles = true;
+                    curProfile = line[1..^1];
+                    continue;
+                }
+
+                int eq = line.IndexOf('=');
+                if (eq <= 0 || eq == line.Length - 1)
+                    throw new Exception($"Input error: Error parsing config '{path}' at line {lineNum}");
+
+                var parts = line.Split('=', 2, StringSplitOptions.TrimEntries);
+                string key = parts[0];
+                string val = parts[1];
+                if (val.Length >= 2 && val[0] == '"' && val[^1] == '"')
+                    val = val[1..^1];
+
+                if (!profiles.ContainsKey(curProfile))
+                    profiles[curProfile] = new ProfileBuilder(curProfile);
+
+                if (key == "profile-cond")
+                {
+                    if (curProfile != "default")
+                    {
+                        ProfileConditionEvaluator.Validate(val);
+                        profiles[curProfile].Condition = val;
+                        hasAutoProfiles = true;
+                    }
+                }
+                else
+                {
+                    string flag = key.Length == 1 ? $"-{key}" : $"--{key}";
+                    BindOption(profiles[curProfile], flag, val);
                 }
             }
-            else
+            catch (Exception exception)
             {
-                string flag = key.Length == 1 ? $"-{key}" : $"--{key}";
-                BindOption(profiles[curProfile], flag, val);
+                // Preserve the original CLI error, but give daemon reload logs
+                // a useful location without exposing a supplied value/secret.
+                exception.Data["ConfigLine"] = lineNum;
+                throw;
             }
         }
 

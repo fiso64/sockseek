@@ -231,6 +231,12 @@ public sealed class UploadCoordinator : IAsyncDisposable
     public event Action<UploadTransferSnapshot>? TransferChanged;
     public event Action? QueueChanged;
 
+    public void SetSlots(int slots)
+    {
+        Dispatch(scheduler.SetSlots(slots));
+        PublishQueueChanged();
+    }
+
     // Unknown until this process completes an upload; a configured limit is not
     // evidence of available bandwidth. No request or persistent cache per search.
     public int MeasuredUploadSpeed => Volatile.Read(ref measuredUploadSpeed);
