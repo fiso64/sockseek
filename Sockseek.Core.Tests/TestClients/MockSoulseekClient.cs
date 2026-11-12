@@ -20,7 +20,11 @@ namespace Tests.ClientTests
 
         public SoulseekClientStates State { get; private set; } = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
 
-        public SoulseekClientOptions Options => throw new NotImplementedException();
+        public SoulseekClientOptions Options { get; } = new(enableListener: false);
+        public string Address => "server.test";
+        public System.Net.IPAddress IPAddress => System.Net.IPAddress.Loopback;
+        public System.Net.IPEndPoint IPEndPoint => new(IPAddress, 2271);
+        public int? Port => 2271;
 
         private List<Soulseek.SearchResponse> index;
         private readonly HashSet<string> failingUsers;

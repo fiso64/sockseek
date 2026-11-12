@@ -1704,6 +1704,7 @@ internal static partial class Program
         var options = new ServerOptions
         {
             Authentication = daemonSettings.CreateAuthenticationOptions(),
+            WebUi = daemonSettings.CreateWebUiOptions(),
             Engine = CreateDaemonEngineSettings(engineSettings),
             LaunchDownloadSettings = DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings),
             LaunchProfileNames = invocation.ProfileName?
@@ -1729,7 +1730,7 @@ internal static partial class Program
         // static assets there even when launched from a different directory.
         var app = ServerHost.Build(args, options, url, configureServices: services =>
             services.AddHostedService(provider => new DaemonConfigWatcher(
-                configFile, invocation, daemonSettings.NoConfigWatch,
+                configFile, invocation, daemonSettings.NoConfigWatch, options,
                 provider.GetRequiredService<EngineSupervisor>(),
                 provider.GetRequiredService<Sockseek.Server.PeerRestrictions.PeerRestrictionCoordinator>(),
                 provider.GetRequiredService<ILogger<DaemonConfigWatcher>>())));

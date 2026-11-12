@@ -65,7 +65,10 @@
   let jobRouteError = $state<Error | null>(null);
   let openingJobKey = $state<string | null>(null);
   const searchModeByJob = new Map<string, SearchResultMode>();
-  let search = $state<SearchDraft>({ ...emptySearchDraft });
+  let search = $state<SearchDraft>({ ...emptySearchDraft,
+    resultMode: parseSearchResultMode(document.documentElement.dataset.searchMode ?? null)
+      ?? emptySearchDraft.resultMode,
+  });
   let userBrowse = $state<{ query: string; mode: UserBrowseView }>({ query: '', mode: 'user' });
   let systemTab = $state<SystemTab>('status');
   let userBrowsers = $state({ user: userBrowserSession(), shares: userBrowserSession() });

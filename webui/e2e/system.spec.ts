@@ -88,3 +88,30 @@ test('browses the served catalog and confirms cleanup without deleting active wo
   await expect(page.locator('.file-item-card')).toHaveCount(0);
 
 });
+
+
+test('applies configured search defaults and theme before JavaScript, including automatic theme changes', async ({ page, daemon, browser }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(14, 15, 16)');
+  await expect(page.getByRole('button', { name: /^Search result mode:/ })).toHaveAttribute('aria-label', /Album Search/);
+
+  await daemon.command('webui-settings:light:track');
+  // Even the unauthenticated shell renders the configured theme without JS.
+  const context = await browser.newContext({ javaScriptEnabled: false, colorScheme: 'dark' });
+  try {
+    const shell = await context.newPage();
+    await shell.goto(new URL('/index.html', page.url()).href);
+    await expect(shell.locator('body')).toHaveCSS('background-color', 'rgb(244, 244, 243)');
+  } finally { await context.close(); }
+  await page.reload();
+  await expect(page.getByRole('button', { name: /^Search result mode:/ })).toHaveAttribute('aria-label', /Track Search/);
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(244, 244, 243)');
+
+  await daemon.command('webui-settings:auto:album-groups');
+  await page.goto('/system');
+  await expect(page.getByRole('button', { name: /^Search result mode:/ })).toHaveAttribute('aria-label', /Album Groups/);
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(244, 244, 243)');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(14, 15, 16)');
+});

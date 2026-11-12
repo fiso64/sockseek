@@ -1260,6 +1260,8 @@ sockseek daemon                 Start the HTTP/SignalR daemon instead of running
 --web-password-file <path>      WebUI password file; required unless a hash or --no-auth is set
 --web-password-hash <hash>      Alternative to the password file; use auth hash-password
 --web-session-lifetime <time>   Fixed session duration (default: 7.00:00:00)
+--web-theme <theme>            WebUI theme: dark (default), light, auto
+--web-default-search-mode <mode>  generic, track, album (default), song-groups, album-groups
 --trusted-proxies <ips>         Forwarding proxy addresses (default: 127.0.0.1,::1)
 --allow-http-auth              Permit plaintext HTTP credentials/cookies (default: false)
 --no-auth                      Grant anonymous full access (default: false)

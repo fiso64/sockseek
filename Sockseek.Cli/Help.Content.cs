@@ -260,6 +260,8 @@ public static partial class Help
     --web-password-file <path>      WebUI password file; required unless a hash or --no-auth is set
     --web-password-hash <hash>      Alternative to the password file; use auth hash-password
     --web-session-lifetime <time>   Fixed session duration (default: 7.00:00:00)
+    --web-theme <theme>            WebUI theme: dark (default), light, auto
+    --web-default-search-mode <mode>  generic, track, album (default), song-groups, album-groups
     --trusted-proxies <ips>         Forwarding proxy addresses (default: 127.0.0.1,::1)
     --allow-http-auth              Permit plaintext HTTP credentials/cookies (default: false)
     --no-auth                      Grant anonymous full access (default: false)
@@ -722,7 +724,8 @@ Configuration
     Use --config <path> to choose a config file, --config none or --no-config to skip config
     loading.
     The daemon automatically reloads config changes; share changes require a rescan, and some
-    settings still require a restart.
+    settings still require a restart. WebUI defaults use web-theme = dark (light or auto also
+    supported) and web-default-search-mode = album; refresh the browser after changing them.
 
   Syntax
     Example config file:

@@ -24,6 +24,7 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
     private readonly EngineSettings startupEngine;
     private EngineSettings? appliedEngine;
     private readonly DaemonSettings startupDaemon;
+    private readonly ServerOptions serverOptions;
     private readonly Channel<bool> changes = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
     {
         SingleReader = true, FullMode = BoundedChannelFullMode.DropOldest,
@@ -33,12 +34,13 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
     private bool watching;
     private bool restartRequired;
 
-    internal DaemonConfigWatcher(ConfigFile initial, ParsedInvocation invocation, bool disabled,
+    internal DaemonConfigWatcher(ConfigFile initial, ParsedInvocation invocation, bool disabled, ServerOptions serverOptions,
         EngineSupervisor supervisor, PeerRestrictionCoordinator restrictions, ILogger<DaemonConfigWatcher> logger)
     {
         path = string.IsNullOrEmpty(initial.Path) || initial.Path == "none" ? "" : Path.GetFullPath(initial.Path);
         this.invocation = invocation;
         this.disabled = disabled;
+        this.serverOptions = serverOptions;
         this.supervisor = supervisor;
         this.restrictions = restrictions;
         this.logger = logger;
@@ -115,16 +117,19 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
             // Compare only effective settings: overridden file values do not
             // require restart. Existing schema metadata avoids a second option list.
             SettingsSchema schema = SettingsSchema.For(typeof(EngineSettings));
+            SettingsSchema daemonSchema = SettingsSchema.For(typeof(DaemonSettings));
             var restartChanges = (SettingsPatch.Difference(startupEngine, engine)?.Operations ?? [])
                 .Where(change => !schema.GetMember(change.Path).Reloadable)
                 .Select(change => "Engine." + change.Path)
                 .Concat((SettingsPatch.Difference(startupDaemon, daemon)?.Operations ?? [])
+                    .Where(change => !daemonSchema.GetMember(change.Path).Reloadable)
                     .Select(change => "Daemon." + change.Path)).ToArray();
 
             applying = true;
             if (appliedEngine is null || (SettingsPatch.Difference(appliedEngine, engine)?.Operations ?? [])
                 .Any(change => schema.GetMember(change.Path).Reloadable))
                 await supervisor.Runtime.ReloadConfigurationAsync(engine, cancellationToken).ConfigureAwait(false);
+            serverOptions.WebUi = daemon.CreateWebUiOptions();
             supervisor.Submissions.ReloadProfiles(profiles);
             restrictions.ReloadConfigured(engine.PeerRestrictions);
             restartRequired = restartChanges.Length != 0;

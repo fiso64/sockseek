@@ -364,25 +364,7 @@ public static class ServerHost
             }
         });
 
-        string webRootPath = app.Environment.WebRootPath
-            ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
-        bool hasWebUi = File.Exists(Path.Combine(webRootPath, "index.html"));
-        var webUiStaticFiles = new StaticFileOptions
-        {
-            OnPrepareResponse = context =>
-            {
-                string path = context.Context.Request.Path.Value ?? string.Empty;
-                context.Context.Response.Headers.CacheControl = path.StartsWith(
-                    "/assets/", StringComparison.Ordinal)
-                    ? "public,max-age=31536000,immutable"
-                    : "no-cache";
-            },
-        };
-        if (hasWebUi)
-        {
-            app.UseDefaultFiles();
-            app.UseStaticFiles(webUiStaticFiles);
-        }
+        bool hasWebUi = WebUiHosting.Map(app);
 
         // The public SPA shell/assets must load before the authenticated API boundary.
         app.UseOperatorAuthentication();
@@ -394,8 +376,6 @@ public static class ServerHost
                 .AllowAnonymous()
                 .ExcludeFromDescription();
         app.Map("/api/{**unmatched}", () => Results.NotFound());
-        if (hasWebUi)
-            app.MapFallbackToFile("index.html", webUiStaticFiles).AllowAnonymous();
         return app;
     }
 

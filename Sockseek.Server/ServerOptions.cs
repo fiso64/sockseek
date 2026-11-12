@@ -7,6 +7,7 @@ namespace Sockseek.Server;
 
 public sealed class ServerOptions
 {
+    public WebUiOptions WebUi { get; set; } = new();
     public string Name { get; set; } = "Sockseek";
     public Authentication.AuthenticationOptions Authentication { get; set; } = new();
     /// <summary>Maximum time allowed for graceful connection and service shutdown.</summary>
@@ -25,6 +26,8 @@ public sealed class ServerOptions
     public Func<EngineSettings, ISoulseekClient>? ClientFactory { get; set; }
     public ServerPersistenceOptions Persistence { get; set; } = new();
 }
+
+public sealed record WebUiOptions(string Theme = "dark", string DefaultSearchMode = "album");
 
 public sealed class ServerPersistenceOptions
 {

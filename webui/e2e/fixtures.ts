@@ -58,7 +58,7 @@ export async function deferInitialDaemonSnapshot(page: Page): Promise<() => void
   return release;
 }
 
-type FixtureCommand = `prune-search-results:${string}` | `wait-job-complete:${string}` | 'hold-download' | 'wait-download-started' | 'wait-search-started' | 'release-download' | 'reject-next-download' | 'report-peer-browses' | 'music-search' | 'ordinary-track-search'
+type FixtureCommand = `webui-settings:${'dark' | 'light' | 'auto'}:${'generic' | 'track' | 'album' | 'song-groups' | 'album-groups'}` | `prune-search-results:${string}` | `wait-job-complete:${string}` | 'hold-download' | 'wait-download-started' | 'wait-search-started' | 'release-download' | 'reject-next-download' | 'report-peer-browses' | 'music-search' | 'ordinary-track-search'
   | 'large-search' | 'large-directory-search' | 'large-distributed-search' | 'staged-large-directory-search' | 'large-music-search' | 'large-music-search-100k' | 'large-single-peer-music-search' | 'large-varied-music-search' | 'large-shared-album-search' | 'paced-music-search' | 'large-peer-shares' | 'large-retained-transfers' | 'retained-imports' | 'expire-search-views' | 'expire-job-previews' | 'forget-job-previews' | 'mixed-visibility-search' | 'staged-rich-group-search'
   | 'empty-search' | 'staged-search' | 'next-search-batch' | 'finish-search' | 'incoming-chat' | 'directory-selection-search' | 'concurrent-retrieval-search' | 'mixed-retrieval-search' | 'hold-directory-browse' | 'release-directory-browse' | 'group-search' | 'rich-group-search' | 'album-group-search' | 'rich-album-group-search' | 'paged-album-group-search'
   | 'fail-next-upload' | 'request-upload' | 'request-queued-upload' | 'release-upload' | 'incoming-room-chat' | 'seed-chat-history' | 'seed-chat-outage'

@@ -1,51 +1,29 @@
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #252624;
-  background: #f4f4f3;
+  color-scheme: dark;
+  color: var(--text);
+  background: var(--bg);
   font-synthesis: none;
-  --bg: #f4f4f3;
-  --surface: #fdfdfc;
-  --surface-subtle: #f8f8f6;
-  --surface-raised: #ffffff;
-  --text: #252624;
-  --muted: #73746f;
-  --faint: #9a9b96;
-  --border: #dfdfdc;
-  --border-strong: #c8c8c3;
+  --bg: light-dark(#f4f4f3, #0e0f10);
+  --surface: light-dark(#fdfdfc, #151617);
+  --surface-subtle: light-dark(#f8f8f6, #1a1b1d);
+  --surface-raised: light-dark(#ffffff, #202123);
+  --text: light-dark(#252624, #ebebea);
+  --muted: light-dark(#73746f, #9d9d99);
+  --faint: light-dark(#9a9b96, #74746f);
+  --border: light-dark(#dfdfdc, #2b2c2d);
+  --border-strong: light-dark(#c8c8c3, #3b3c3d);
   --accent: #5f8ff7;
-  --accent-strong: #4b7fe9;
-  --accent-soft: #e4ebfb;
-  --accent-text: #435d92;
-  --success: #3f8d69;
-  --warning: #b58038;
-  --danger: #b65b63;
+  --accent-strong: light-dark(#4b7fe9, #78a3ff);
+  --accent-soft: light-dark(#e4ebfb, #21293b);
+  --accent-text: light-dark(#435d92, #a2bbf1);
+  --success: light-dark(#3f8d69, #69b58c);
+  --warning: light-dark(#b58038, #d0a15c);
+  --danger: light-dark(#b65b63, #df7e86);
   --sidebar-width: 184px;
   --content-max-width: 90rem;
   --content-gutter: clamp(20px, 4vw, 44px);
   --search-controls-max-width: 76rem;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #ebebea;
-    background: #0e0f10;
-    --bg: #0e0f10;
-    --surface: #151617;
-    --surface-subtle: #1a1b1d;
-    --surface-raised: #202123;
-    --text: #ebebea;
-    --muted: #9d9d99;
-    --faint: #74746f;
-    --border: #2b2c2d;
-    --border-strong: #3b3c3d;
-    --accent: #5f8ff7;
-    --accent-strong: #78a3ff;
-    --accent-soft: #21293b;
-    --accent-text: #a2bbf1;
-    --success: #69b58c;
-    --warning: #d0a15c;
-    --danger: #df7e86;
-  }
 }
 
 * { box-sizing: border-box; }
@@ -79,34 +57,24 @@ input[type="checkbox"] {
   height: 15px;
   margin: 0;
   flex: 0 0 auto;
-  accent-color: var(--accent);
+  appearance: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-subtle);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 11px 11px;
 }
-
+input[type="checkbox"]:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong)); }
+input[type="checkbox"]:checked {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.2 6.2 4.7 8.5 9.8 3.3' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
 input[type="checkbox"]:indeterminate {
-  accent-color: var(--faint);
-}
-
-@media (prefers-color-scheme: dark) {
-  input[type="checkbox"] {
-    appearance: none;
-    border: 1px solid var(--border-strong);
-    border-radius: 3px;
-    background: #111214;
-    background-position: center;
-    background-repeat: no-repeat;
-    background-size: 11px 11px;
-  }
-  input[type="checkbox"]:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong)); }
-  input[type="checkbox"]:checked {
-    border-color: var(--accent);
-    background-color: var(--accent);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.2 6.2 4.7 8.5 9.8 3.3' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  }
-  input[type="checkbox"]:indeterminate {
-    border-color: color-mix(in srgb, var(--muted) 70%, var(--border-strong));
-    background-color: color-mix(in srgb, var(--muted) 45%, var(--surface));
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6h7' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
-  }
+  border-color: color-mix(in srgb, var(--muted) 70%, var(--border-strong));
+  background-color: color-mix(in srgb, var(--muted) 45%, var(--surface));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6h7' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
 }
 
 .app-shell {

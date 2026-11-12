@@ -689,6 +689,15 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             if (command == "stop") break;
             switch (command)
             {
+                case string preferences when preferences.StartsWith("webui-settings:", StringComparison.Ordinal):
+                {
+                    string[] parts = preferences.Split(':');
+                    app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<ServerOptions>>().Value.WebUi = new()
+                    {
+                        Theme = parts[1], DefaultSearchMode = parts[2],
+                    };
+                    break;
+                }
                 case "presence-away": peer.RaiseUserStatus("Presence Peer", Soulseek.UserPresence.Away); break;
                 case "terminal-transfer-committed":
                     app.Services.GetRequiredService<EngineStateStore>().NotifyTerminalTransferCommitted();

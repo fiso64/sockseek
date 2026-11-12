@@ -6,6 +6,16 @@ namespace Sockseek.Cli;
 /// Settings consumed by the CLI launcher when hosting `Sockseek daemon`.
 public class DaemonSettings
 {
+    [SettingOption("--web-theme", DefaultProfileOnly = true), SettingReloadable]
+    [Required, RegularExpression("^(dark|light|auto)$")]
+    public string WebTheme { get; set; } = "dark";
+
+    [SettingOption("--web-default-search-mode", DefaultProfileOnly = true), SettingReloadable]
+    [Required, RegularExpression("^(generic|track|album|song-groups|album-groups)$")]
+    public string WebDefaultSearchMode { get; set; } = "album";
+
+    public Server.WebUiOptions CreateWebUiOptions() => new(WebTheme, WebDefaultSearchMode);
+
     [SettingOption("--no-config-watch", DefaultProfileOnly = true)]
     public bool NoConfigWatch { get; set; }
 

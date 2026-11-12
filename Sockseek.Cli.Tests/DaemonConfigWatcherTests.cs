@@ -20,6 +20,29 @@ namespace Tests;
 public sealed class DaemonConfigWatcherTests
 {
     [TestMethod]
+    public async Task WebUiPreferencesReloadWithValidationAndCliPrecedence()
+    {
+        await using var fixture = new Fixture("web-theme = light\nweb-default-search-mode = track",
+            ["--web-default-search-mode", "song-groups"]);
+        await fixture.StartRuntimeAsync();
+        Assert.AreEqual("light", fixture.ServerOptions.WebUi.Theme);
+        Assert.AreEqual("song-groups", fixture.ServerOptions.WebUi.DefaultSearchMode);
+        fixture.Write("web-theme = auto\nweb-default-search-mode = album-groups");
+        Assert.IsTrue(await fixture.Watcher.ReloadAsync());
+        Assert.AreEqual("auto", fixture.ServerOptions.WebUi.Theme);
+        Assert.AreEqual("song-groups", fixture.ServerOptions.WebUi.DefaultSearchMode);
+        Assert.IsFalse(fixture.Supervisor.GetStatus().Configuration!.RestartRequired);
+        fixture.Write("web-theme = invalid");
+        Assert.IsFalse(await fixture.Watcher.ReloadAsync());
+        Assert.AreEqual("auto", fixture.ServerOptions.WebUi.Theme);
+        fixture.Write("web-default-search-mode = invalid");
+        Assert.IsFalse(await fixture.Watcher.ReloadAsync());
+        fixture.Write("");
+        Assert.IsTrue(await fixture.Watcher.ReloadAsync());
+        Assert.AreEqual("dark", fixture.ServerOptions.WebUi.Theme);
+    }
+
+    [TestMethod]
     public async Task RuntimeReloadUpdatesProfileAndUploadLimitsAndUsesNewRootsOnRescan()
     {
         await using var fixture = new Fixture("", []);
@@ -151,6 +174,7 @@ public sealed class DaemonConfigWatcherTests
         public EngineSupervisor Supervisor { get; }
         public PeerRestrictionCoordinator Restrictions { get; }
         public DaemonConfigWatcher Watcher { get; }
+        public ServerOptions ServerOptions { get; }
         public ReloadLog Log { get; } = new();
         public MockSoulseekClient Client { get; } = new([]);
         private readonly CancellationTokenSource lifetime = new();
@@ -165,14 +189,15 @@ public sealed class DaemonConfigWatcherTests
             var (engine, _, _, daemon, _) = ConfigManager.BindAll(file, invocation);
             var options = Options.Create(new ServerOptions
             {
-                Engine = engine, Profiles = ConfigManager.CreateProfileCatalog(file), ConfigDir = file.ConfigDir,
+                WebUi = daemon.CreateWebUiOptions(), Engine = engine, Profiles = ConfigManager.CreateProfileCatalog(file), ConfigDir = file.ConfigDir,
                 LaunchDownloadSettings = DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings),
                 ClientFactory = _ => Client,
                 Persistence = new() { DataDirectory = System.IO.Path.GetDirectoryName(Path)! },
             });
+            ServerOptions = options.Value;
             Supervisor = new EngineSupervisor(options);
             Restrictions = new(options, new PersistenceCoordinator(options), NullLogger<PeerRestrictionCoordinator>.Instance);
-            Watcher = new(file, invocation, daemon.NoConfigWatch, Supervisor, Restrictions, Log);
+            Watcher = new(file, invocation, daemon.NoConfigWatch, options.Value, Supervisor, Restrictions, Log);
         }
         public void Write(string text) => File.WriteAllText(Path, text);
         public async Task StartRuntimeAsync()
