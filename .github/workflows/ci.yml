@@ -96,7 +96,8 @@ jobs:
         retention-days: 7
 
   webui:
-    runs-on: ubuntu-latest
+    # Match an OS supported by the pinned Playwright browser/dependency bundle.
+    runs-on: ubuntu-24.04
     timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.full_load) && 15 || 7 }}
     steps:
     - uses: actions/checkout@v7

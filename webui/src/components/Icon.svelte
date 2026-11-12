@@ -4,17 +4,18 @@
   interface Props {
     name: AppIconName;
     class?: string;
+    spin?: boolean;
   }
 
-  let { name, class: className = '' }: Props = $props();
+  let { name, class: className = '', spin = false }: Props = $props();
 </script>
 
-<svg class={`app-icon ${className}`} viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+<svg class={`app-icon ${className}`} class:spinning={spin} viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
   {#if name === 'search-split' || name === 'search-merge'}
     <rect x="3.5" y="6.5" width="17" height="11" rx="2" />
     {#if name === 'search-split'}<path d="M12 6.5v11" />{/if}
   {:else if name === 'refresh'}
-    <path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.5-1L20 9M4 15l2.4 3A7 7 0 0 0 17.9 17" />
+    <path d="M3 12a9 9 0 0 1 9-9c2.5 0 4.9 1 6.7 2.8L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9c-2.5 0-4.9-1-6.7-2.8L3 16M8 16H3v5" />
   {:else if name === 'help'}
     <circle cx="12" cy="12" r="9" />
     <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.8-2.5 2-2.5 4" />
@@ -147,3 +148,9 @@
     <path d="M13 3.5V8h4M12 17v-6M9.5 13.5 12 11l2.5 2.5" />
   {/if}
 </svg>
+
+<style>
+  .spinning { animation: icon-spin 1s linear infinite; transform-origin: center; }
+  @keyframes icon-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
+</style>

@@ -666,7 +666,7 @@ public sealed class SharingRuntime : IAsyncDisposable
 
 internal static partial class SharingLogMessages
 {
-    [LoggerMessage(4310, LogLevel.Information, "Shared folders or filters changed; rescan shares to apply the new configuration", EventName = "sharing.rescan-required")]
+    [LoggerMessage(4317, LogLevel.Information, "Shared folders or filters changed; rescan shares to apply the new configuration", EventName = "sharing.rescan-required")]
     public static partial void RescanRequired(ILogger logger);
     [LoggerMessage(
         EventId = 4301,

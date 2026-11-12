@@ -3,11 +3,18 @@
   import { DaemonHttpClient } from '../../api/http';
   import { browserSession } from '../../api/session.svelte';
   import type { Schema } from '../../api/types';
+  import type { LiveConnectionStatus } from '../../api/live';
+  import { formatCountWithNoun } from '../../app/format';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import Modal from '../../components/Modal.svelte';
   import Icon from '../../components/Icon.svelte';
+  import Notice from '../../components/Notice.svelte';
 
-  let { configuration }: { configuration?: Schema<'ConfigurationStatusDto'> | null } = $props();
+  let { configuration, sharing, liveStatus }: {
+    configuration?: Schema<'ConfigurationStatusDto'> | null;
+    sharing?: Schema<'SharingStateDto'> | null;
+    liveStatus: LiveConnectionStatus;
+  } = $props();
   const http = new DaemonHttpClient();
   let keys = $state<Schema<'ApiKeyDto'>[]>([]);
   let loading = $state(true);
@@ -18,6 +25,24 @@
   let created = $state<Schema<'CreatedApiKeyDto'> | null>(null);
   let revoking = $state<Schema<'ApiKeyDto'> | null>(null);
   let copyNotice = $state('');
+  let scanPending = $state(false);
+  let scanError = $state<string | null>(null);
+  let requestedScanId = $state<string | null>(null);
+  const scanning = $derived(scanPending || !!sharing?.activeScan);
+  const scanDisabled = $derived(scanning || !sharing || sharing.state === 'Disabled' || liveStatus !== 'connected');
+  const completedScan = $derived(sharing?.lastScan?.scanId === requestedScanId ? sharing.lastScan : null);
+
+  async function rescan(): Promise<void> {
+    if (scanDisabled) return;
+    scanPending = true;
+    scanError = null;
+    requestedScanId = null;
+    try {
+      const result = await http.post<Schema<'StartShareScanResponseDto'>>('/sharing/scans');
+      requestedScanId = result.scan.scanId;
+    } catch (cause) { scanError = message(cause); }
+    finally { scanPending = false; }
+  }
 
   onMount(() => {
     const abort = new AbortController();
@@ -71,23 +96,42 @@
 <section class="page settings-page">
   <header class="page-heading settings-heading">
     <h1>Settings</h1>
-    {#if browserSession.data?.authenticationEnabled}
-      <button class="auth-button sign-out" onclick={() => void logout()} disabled={pending}><Icon name="log-out" />Sign out</button>
-    {/if}
+    <div class="settings-actions">
+      <button class="auth-button" onclick={() => void rescan()} disabled={scanDisabled}
+        title={sharing?.state === 'Disabled' ? 'Configure shared folders before rescanning.' : undefined}>
+        <Icon name="refresh" spin={scanning} />{scanning ? 'Scanning…' : 'Rescan shares'}
+      </button>
+      {#if browserSession.data?.authenticationEnabled}
+        <button class="auth-button" onclick={() => void logout()} disabled={pending}><Icon name="log-out" />Sign out</button>
+      {/if}
+    </div>
   </header>
   {#if configuration?.reloadFailed}
-    <div class="resource-state-notice unavailable" role="alert">
-      <span class="resource-state-dot" aria-hidden="true"></span>
+    <Notice variant="unavailable">
       <span>{configuration.watching
         ? 'Configuration could not be reloaded. Check the daemon log and configuration file.'
         : 'Configuration watching stopped. Check the daemon log and restart to resume automatic reloading.'}</span>
-    </div>
+    </Notice>
   {/if}
   {#if configuration?.restartRequired}
-    <div class="resource-state-notice degraded" role="status">
-      <span class="resource-state-dot" aria-hidden="true"></span>
+    <Notice variant="degraded">
       <span>Some configuration changes require a daemon restart.</span>
-    </div>
+    </Notice>
+  {/if}
+  {#if scanError}
+    <Notice variant="unavailable" ondismiss={() => scanError = null}>{scanError}</Notice>
+  {:else if sharing?.activeScan}
+    <Notice variant="loading">
+      <span>Scanning shares: {formatCountWithNoun(sharing.activeScan.filesDiscovered, 'file')} found.</span>
+    </Notice>
+  {:else if completedScan}
+    <Notice variant={completedScan.phase === 'Failed' ? 'unavailable'
+      : Number(completedScan.errorCount) > 0 || completedScan.phase === 'Cancelled' ? 'degraded' : ''}
+      ondismiss={() => requestedScanId = null}>
+      <span>{completedScan.phase === 'Failed' ? 'Share scan failed. Check the daemon log.'
+        : completedScan.phase === 'Cancelled' ? 'Share scan cancelled.'
+        : `Share scan complete: ${formatCountWithNoun(completedScan.filesDiscovered, 'file')}${Number(completedScan.errorCount) > 0 ? `, ${formatCountWithNoun(completedScan.errorCount, 'error')} (see daemon log)` : ''}.`}</span>
+    </Notice>
   {/if}
   <section class="settings-section" aria-labelledby="keys-heading">
     <div class="section-heading key-heading">
@@ -135,8 +179,9 @@
 {/if}
 
 <style>
-  .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-  .sign-out { display: inline-flex; align-items: center; gap: 7px; --app-icon-size: 16px; }
+  .page-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+  .settings-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .settings-actions button { display: inline-flex; align-items: center; gap: 7px; --app-icon-size: 16px; }
   .settings-section { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); padding: 18px; margin-bottom: 14px; }
   .section-heading, li { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
   .section-heading > div, li > div { min-width: 0; overflow-wrap: anywhere; }
@@ -159,5 +204,9 @@
   input { width: 100%; min-height: 36px; padding: 8px 10px; font-size: .875rem; }
   .error { margin: 0; color: var(--danger); }
   .settings-section > .error { margin-top: 14px; }
-  @media (max-width: 600px) { input { font-size: 1rem; } }
+  @media (max-width: 600px) {
+    input { font-size: 1rem; }
+    .settings-actions { gap: 6px; }
+    .settings-actions button { padding-inline: 6px; gap: 5px; }
+  }
 </style>
