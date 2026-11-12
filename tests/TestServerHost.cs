@@ -23,7 +23,7 @@ internal static class TestServerHost
         // Ordinary host fixtures have already created their isolated data root.
         // Reuse schema construction only; startup still validates/opens the copy.
         // Missing roots and existing/corrupt databases retain real startup behavior.
-        if (options?.Persistence is { Enabled: true, DataDirectory: { } directory }
+        if (options.Persistence is { Enabled: true, DataDirectory: { } directory }
             && Directory.Exists(directory))
         {
             string path = SockseekDataPaths.ResolveDatabasePath(directory);

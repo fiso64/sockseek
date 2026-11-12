@@ -23,6 +23,7 @@ public sealed class DaemonRuntime
 {
     private readonly ServerOptions options;
     private readonly EngineSettings engineSettings;
+    private EngineSettings? appliedConfiguration;
     private readonly EngineStateStore StateStore;
     private readonly PersistenceCoordinator? persistence;
     private readonly ILoggerFactory loggerFactory;
@@ -43,6 +44,7 @@ public sealed class DaemonRuntime
     {
         this.options = options;
         this.engineSettings = engineSettings;
+        appliedConfiguration = engineSettings;
         StateStore = stateStore;
         this.persistence = persistence;
         this.loggerFactory = loggerFactory;
@@ -265,11 +267,29 @@ public sealed class DaemonRuntime
 
     }
 
-    public Task ReloadConfigurationAsync(EngineSettings settings, CancellationToken cancellationToken = default)
+    /// <summary>Apply supported changes through the existing feature owners. Calls are serialized by the config watcher.</summary>
+    public async Task ReloadConfigurationAsync(EngineSettings candidate, WebUiOptions webUi,
+        CancellationToken cancellationToken = default)
     {
-        SharingRuntime sharing = Sharing
-            ?? throw new InvalidOperationException("The daemon runtime is not running.");
-        return sharing.ReloadConfigurationAsync(settings, cancellationToken);
+        // Keep restart-only values at startup even when their enclosing group
+        // also contains reloadable settings. The attribute controls actual input
+        // to the owners as well as the restart notice.
+        var active = SettingsCloner.Clone(engineSettings);
+        var schema = SettingsSchema.For(typeof(EngineSettings));
+        new SettingsPatch((SettingsPatch.Difference(engineSettings, candidate)?.Operations ?? [])
+            .Where(change => schema.GetMember(change.Path).Reloadable).ToArray()).ApplyTo(active);
+        if (appliedConfiguration is null || !SettingsSchema.ValuesEqual(appliedConfiguration, active))
+        {
+            SharingRuntime sharing = Sharing
+                ?? throw new InvalidOperationException("The daemon runtime is not running.");
+            // A failed network operation may have partially applied; retry the
+            // owners even if the next edit restores the previous configuration.
+            appliedConfiguration = null;
+            await sharing.ReloadConfigurationAsync(active, cancellationToken).ConfigureAwait(false);
+            sharing.Restrictions.ReloadConfigured(active.PeerRestrictions);
+            appliedConfiguration = active;
+        }
+        options.WebUi = webUi;
     }
 
     internal static SoulseekClientStatusDto ToSoulseekClientStatusDto(SoulseekClientStates state)

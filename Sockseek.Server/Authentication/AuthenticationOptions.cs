@@ -5,44 +5,6 @@ namespace Sockseek.Server.Authentication;
 
 public sealed class AuthenticationOptions
 {
-    // Standalone hosting uses ASP.NET configuration; expose the same public spellings as the CLI.
-    internal static string[] MapArguments(string[] args, out string[]? trustedProxies)
-    {
-        trustedProxies = null;
-        var mapped = new List<string>();
-        for (int i = 0; i < args.Length; i++)
-        {
-            string[] parts = args[i].Split('=', 2);
-            string? member = parts[0] switch
-            {
-                "--web-username" => nameof(Username), "--web-password-file" => nameof(PasswordFile),
-                "--web-password-hash" => nameof(PasswordHash), "--web-session-lifetime" => nameof(SessionLifetime),
-                "--trusted-proxies" => nameof(TrustedProxies), "--no-auth" => nameof(Enabled),
-                "--allow-http-auth" => nameof(AllowHttp), _ => null,
-            };
-            if (member is null) { mapped.Add(args[i]); continue; }
-            bool boolean = member is nameof(Enabled) or nameof(AllowHttp);
-            string value;
-            if (parts.Length == 2) value = parts[1];
-            else if (i + 1 < args.Length && (!boolean || bool.TryParse(args[i + 1], out _))) value = args[++i];
-            else if (boolean) value = "true";
-            else throw new ArgumentException($"{parts[0]} requires a value.");
-            if (member == nameof(Enabled))
-            {
-                if (!bool.TryParse(value, out bool disabled)) throw new ArgumentException("--no-auth requires a boolean.");
-                value = (!disabled).ToString();
-            }
-            if (member == nameof(TrustedProxies))
-            {
-                // Indexed configuration merges arrays across providers. A CLI list must replace
-                // every configured address, including when the operator explicitly clears it.
-                trustedProxies = value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            }
-            else mapped.Add($"--SockseekServer:Authentication:{member}={value}");
-        }
-        return mapped.ToArray();
-    }
-
     public bool Enabled { get; set; } = true;
     public string Username { get; set; } = "admin";
     public string? PasswordFile { get; set; }

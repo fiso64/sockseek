@@ -187,17 +187,16 @@ public sealed class DaemonConfigWatcherTests
             var file = ConfigManager.Load(Path);
             var invocation = ConfigManager.ParseInvocation(args);
             var (engine, _, _, daemon, _) = ConfigManager.BindAll(file, invocation);
-            var options = Options.Create(new ServerOptions
-            {
-                WebUi = daemon.CreateWebUiOptions(), Engine = engine, Profiles = ConfigManager.CreateProfileCatalog(file), ConfigDir = file.ConfigDir,
-                LaunchDownloadSettings = DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings),
-                ClientFactory = _ => Client,
-                Persistence = new() { DataDirectory = System.IO.Path.GetDirectoryName(Path)! },
-            });
+            var configured = daemon.CreateServerOptions(engine, file, invocation);
+            configured.ClientFactory = _ => Client;
+            configured.Persistence.Enabled = false;
+            configured.Persistence.DataDirectory = System.IO.Path.GetDirectoryName(Path)!;
+            var options = Options.Create(configured);
             ServerOptions = options.Value;
-            Supervisor = new EngineSupervisor(options);
             Restrictions = new(options, new PersistenceCoordinator(options), NullLogger<PeerRestrictionCoordinator>.Instance);
-            Watcher = new(file, invocation, daemon.NoConfigWatch, options.Value, Supervisor, Restrictions, Log);
+            Supervisor = new EngineSupervisor(options, null, null, retireTerminalWorkflows: true,
+                peerRestrictions: Restrictions.Policy);
+            Watcher = new(file, invocation, daemon.NoConfigWatch, Supervisor, Log);
         }
         public void Write(string text) => File.WriteAllText(Path, text);
         public async Task StartRuntimeAsync()

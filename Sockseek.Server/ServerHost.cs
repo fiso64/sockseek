@@ -23,29 +23,20 @@ namespace Sockseek.Server;
 
 public static class ServerHost
 {
-    public static WebApplication Build(string[] args, ServerOptions? options = null, string? url = null, bool logToConsole = true,
+    internal static bool IsOpenApiGeneration => Assembly.GetEntryAssembly()?.GetName().Name?
+        .Contains("getdocument", StringComparison.OrdinalIgnoreCase) == true;
+
+    public static WebApplication Build(string[] args, ServerOptions options, string? url = null, bool logToConsole = true,
         Action<IServiceCollection>? configureServices = null)
     {
-        var serverArguments = AuthenticationOptions.MapArguments(args, out var trustedProxies);
+        ArgumentNullException.ThrowIfNull(options);
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
-            Args = serverArguments,
+            Args = args,
             ContentRootPath = AppContext.BaseDirectory,
         });
-        string entryAssemblyName = Assembly.GetEntryAssembly()?.GetName().Name ?? "";
-        bool isOpenApiGeneration = entryAssemblyName.Contains(
-            "getdocument",
-            StringComparison.OrdinalIgnoreCase);
-        EngineSettings loggingSettings;
-        if (options is not null)
-        {
-            loggingSettings = options.Engine;
-        }
-        else
-        {
-            loggingSettings = new EngineSettings { LogLevel = LogLevel.Debug };
-            builder.Configuration.GetSection("SockseekServer:Engine").Bind(loggingSettings);
-        }
+        bool isOpenApiGeneration = IsOpenApiGeneration;
+        EngineSettings loggingSettings = options.Engine;
         builder.Logging.ClearProviders();
         // Keep the factory permissive so each provider can enforce its own
         // level. In particular, the Debug file must remain independent of the
@@ -67,21 +58,7 @@ public static class ServerHost
         if (!string.IsNullOrWhiteSpace(url))
             builder.WebHost.UseUrls(url);
 
-        if (options != null)
-            builder.Services.AddSingleton<IOptions<ServerOptions>>(Options.Create(options));
-        else
-        {
-            builder.Services.Configure<ServerOptions>(builder.Configuration.GetSection("SockseekServer"));
-            builder.Services.PostConfigure<ServerOptions>(configured =>
-            {
-                var proxies = trustedProxies
-                    ?? builder.Configuration.GetSection("SockseekServer:Authentication:TrustedProxies").Get<string[]>();
-                if (proxies is not null)
-                    configured.Authentication.TrustedProxies = proxies;
-            });
-            if (!isOpenApiGeneration && builder.Configuration["SockseekServer:Persistence:Enabled"] == null)
-                builder.Services.PostConfigure<ServerOptions>(configured => configured.Persistence.Enabled = true);
-        }
+        builder.Services.AddSingleton<IOptions<ServerOptions>>(Options.Create(options));
 
         builder.Services.AddOptions<HostOptions>()
             .Configure<IOptions<ServerOptions>>((host, server) =>

@@ -43,6 +43,12 @@ namespace Tests.ConfigParsingTests
             Assert.AreEqual(TimeSpan.FromDays(180), configured.UnsuccessfulJobRetention);
             Assert.AreEqual(TimeSpan.FromDays(30), configured.TransferRetention);
             Assert.IsNull(configured.SearchResultRetention);
+            var mapped = configured.CreateServerOptions(new EngineSettings(), file, ConfigManager.ParseInvocation([]));
+            Assert.IsTrue(mapped.Persistence.Enabled);
+            Assert.AreEqual(TimeSpan.FromDays(90), mapped.Persistence.CompletedJobHistoryAge);
+            Assert.AreEqual(TimeSpan.FromDays(180), mapped.Persistence.UnsuccessfulJobHistoryAge);
+            Assert.AreEqual(TimeSpan.FromDays(30), mapped.Persistence.TransferHistoryAge);
+            Assert.IsNull(mapped.Persistence.SearchResultAge);
             var forever = ConfigManager.BindAll(file, [
                 "--successful-job-retention-days", "90", "--successful-job-retention-days", "forever",
                 "--unsuccessful-job-retention-days", "forever", "--transfer-retention-days", "forever",

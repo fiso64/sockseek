@@ -4,7 +4,6 @@ using Microsoft.Extensions.Logging;
 using Sockseek.Api;
 using Sockseek.Core.Settings;
 using Sockseek.Server;
-using Sockseek.Server.PeerRestrictions;
 
 namespace Sockseek.Cli;
 
@@ -19,12 +18,9 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
     private readonly ParsedInvocation invocation;
     private readonly bool disabled;
     private readonly EngineSupervisor supervisor;
-    private readonly PeerRestrictionCoordinator restrictions;
     private readonly ILogger logger;
     private readonly EngineSettings startupEngine;
-    private EngineSettings? appliedEngine;
     private readonly DaemonSettings startupDaemon;
-    private readonly ServerOptions serverOptions;
     private readonly Channel<bool> changes = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
     {
         SingleReader = true, FullMode = BoundedChannelFullMode.DropOldest,
@@ -34,18 +30,15 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
     private bool watching;
     private bool restartRequired;
 
-    internal DaemonConfigWatcher(ConfigFile initial, ParsedInvocation invocation, bool disabled, ServerOptions serverOptions,
-        EngineSupervisor supervisor, PeerRestrictionCoordinator restrictions, ILogger<DaemonConfigWatcher> logger)
+    internal DaemonConfigWatcher(ConfigFile initial, ParsedInvocation invocation, bool disabled,
+        EngineSupervisor supervisor, ILogger<DaemonConfigWatcher> logger)
     {
         path = string.IsNullOrEmpty(initial.Path) || initial.Path == "none" ? "" : Path.GetFullPath(initial.Path);
         this.invocation = invocation;
         this.disabled = disabled;
-        this.serverOptions = serverOptions;
         this.supervisor = supervisor;
-        this.restrictions = restrictions;
         this.logger = logger;
         (startupEngine, _, _, startupDaemon, _) = ConfigManager.BindAll(initial, invocation);
-        appliedEngine = startupEngine;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -126,14 +119,9 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
                     .Select(change => "Daemon." + change.Path)).ToArray();
 
             applying = true;
-            if (appliedEngine is null || (SettingsPatch.Difference(appliedEngine, engine)?.Operations ?? [])
-                .Any(change => schema.GetMember(change.Path).Reloadable))
-                await supervisor.Runtime.ReloadConfigurationAsync(engine, cancellationToken).ConfigureAwait(false);
-            serverOptions.WebUi = daemon.CreateWebUiOptions();
+            await supervisor.Runtime.ReloadConfigurationAsync(engine, daemon.CreateWebUiOptions(), cancellationToken).ConfigureAwait(false);
             supervisor.Submissions.ReloadProfiles(profiles);
-            restrictions.ReloadConfigured(engine.PeerRestrictions);
             restartRequired = restartChanges.Length != 0;
-            appliedEngine = engine;
             appliedText = text;
             rejectedText = null;
             supervisor.StateStore.UpdateConfigurationStatus(new(watching, restartRequired, false));
@@ -146,11 +134,7 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
         {
             // Config parser exception messages can embed a supplied password/token.
             // Report the category, never the raw exception or candidate values.
-            if (applying)
-            {
-                appliedEngine = null;
-                appliedText = null;
-            }
+            if (applying) appliedText = null;
             if (applying || exception is IOException or UnauthorizedAccessException) rejectedText = null;
             supervisor.StateStore.UpdateConfigurationStatus(new(watching, restartRequired, true));
             ReloadRejected(logger, exception.GetType().Name, exception.Data["ConfigLine"] is int line ? $" at line {line}" : "");

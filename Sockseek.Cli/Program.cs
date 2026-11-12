@@ -158,7 +158,7 @@ internal static partial class Program
         {
             try
             {
-                await RunDaemonAsync(bindArgs, invocation, configFile, engineSettings, rootSettings, daemonSettings);
+                await RunDaemonAsync(invocation, configFile, engineSettings, daemonSettings);
             }
             catch (ArgumentException ex)
             {
@@ -1692,47 +1692,21 @@ internal static partial class Program
     }
 
     private static async Task RunDaemonAsync(
-        string[] args,
         ParsedInvocation invocation,
         ConfigFile configFile,
         EngineSettings engineSettings,
-        DownloadSettings rootSettings,
         DaemonSettings daemonSettings)
     {
         var url = BuildDaemonListenUrl(daemonSettings);
         EnsureDaemonEndpointAvailable(daemonSettings);
-        var options = new ServerOptions
-        {
-            Authentication = daemonSettings.CreateAuthenticationOptions(),
-            WebUi = daemonSettings.CreateWebUiOptions(),
-            Engine = CreateDaemonEngineSettings(engineSettings),
-            LaunchDownloadSettings = DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings),
-            LaunchProfileNames = invocation.ProfileName?
-                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                ?? [],
-            Profiles = ConfigManager.CreateProfileCatalog(configFile),
-            ConfigDir = configFile.ConfigDir,
-            Persistence = new ServerPersistenceOptions
-            {
-                Enabled = true,
-                DataDirectory = daemonSettings.DataDirectory,
-                RetentionEnabled = daemonSettings.RetentionEnabled,
-                CompletedJobHistoryAge = daemonSettings.CompletedJobRetention,
-                UnsuccessfulJobHistoryAge = daemonSettings.UnsuccessfulJobRetention,
-                SearchResultAge = daemonSettings.SearchResultRetention,
-                TransferHistoryAge = daemonSettings.TransferRetention,
-                PrivateMessageHistoryAge = daemonSettings.PrivateMessageRetention,
-                RoomMessageHistoryAge = daemonSettings.RoomMessageRetention,
-            },
-        };
+        var options = daemonSettings.CreateServerOptions(engineSettings, configFile, invocation);
 
         // A published CLI carries the WebUI beside the executable. Resolve
         // static assets there even when launched from a different directory.
-        var app = ServerHost.Build(args, options, url, configureServices: services =>
+        var app = ServerHost.Build([], options, url, configureServices: services =>
             services.AddHostedService(provider => new DaemonConfigWatcher(
-                configFile, invocation, daemonSettings.NoConfigWatch, options,
+                configFile, invocation, daemonSettings.NoConfigWatch,
                 provider.GetRequiredService<EngineSupervisor>(),
-                provider.GetRequiredService<Sockseek.Server.PeerRestrictions.PeerRestrictionCoordinator>(),
                 provider.GetRequiredService<ILogger<DaemonConfigWatcher>>())));
         var logger = app.Services.GetRequiredService<ILoggerFactory>()
             .CreateLogger("Sockseek.Cli.Daemon");
@@ -1748,14 +1722,6 @@ internal static partial class Program
         {
             CliLogMessages.DaemonStopped(logger);
         }
-    }
-
-    internal static EngineSettings CreateDaemonEngineSettings(EngineSettings settings)
-    {
-        EngineSettings daemonSettings = SettingsCloner.Clone(settings);
-        if (daemonSettings.LogLevel == LogLevel.Information)
-            daemonSettings.LogLevel = LogLevel.Debug;
-        return daemonSettings;
     }
 
     internal static void EnsureDaemonEndpointAvailable(DaemonSettings daemonSettings)

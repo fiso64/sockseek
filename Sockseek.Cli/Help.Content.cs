@@ -724,8 +724,7 @@ Configuration
     Use --config <path> to choose a config file, --config none or --no-config to skip config
     loading.
     The daemon automatically reloads config changes; share changes require a rescan, and some
-    settings still require a restart. WebUI defaults use web-theme = dark (light or auto also
-    supported) and web-default-search-mode = album; refresh the browser after changing them.
+    settings still require a restart.
 
   Syntax
     Example config file:

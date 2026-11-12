@@ -22,31 +22,16 @@ public sealed class PeerRestrictionPersistenceUnavailableException(
 public sealed class PeerRestrictionCoordinator(
     IOptions<ServerOptions> options,
     PersistenceCoordinator persistence,
-    ILogger<PeerRestrictionCoordinator> logger,
-    IOptionsMonitor<ServerOptions>? optionsMonitor = null) : IHostedService, IAsyncDisposable
+    ILogger<PeerRestrictionCoordinator> logger) : IHostedService, IAsyncDisposable
 {
     private PeerRestrictionOverrideStore? store;
     private Exception? initializationFailure;
-    private IDisposable? reloadRegistration;
     private readonly SemaphoreSlim mutationGate = new(1, 1);
 
     public PeerRestrictionPolicy Policy { get; } = new(options.Value.Engine.PeerRestrictions);
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        reloadRegistration = optionsMonitor?.OnChange(updated =>
-        {
-            try
-            {
-                Policy.ReloadConfigured(updated.Engine.PeerRestrictions);
-                ServerLogMessages.PeerRestrictionsReloaded(logger);
-            }
-            catch (Exception exception)
-            {
-                ServerLogMessages.PeerRestrictionsReloadRejected(logger, exception);
-            }
-        });
-
         PeerRestrictionOverrideStore? candidate = persistence.PeerRestrictions;
         if (candidate is null)
         {
@@ -157,9 +142,6 @@ public sealed class PeerRestrictionCoordinator(
         }
     }
 
-    public void ReloadConfigured(PeerRestrictionSettings settings)
-        => Policy.ReloadConfigured(settings);
-
     private static UsernameRestrictionStateDto ToDto(
         UsernameRestrictionSnapshot snapshot,
         string username)
@@ -184,8 +166,6 @@ public sealed class PeerRestrictionCoordinator(
 
     public ValueTask DisposeAsync()
     {
-        reloadRegistration?.Dispose();
-        reloadRegistration = null;
         store = null;
         mutationGate.Dispose();
         return ValueTask.CompletedTask;

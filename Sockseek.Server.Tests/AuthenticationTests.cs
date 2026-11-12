@@ -276,18 +276,6 @@ public sealed class AuthenticationTests
         {
             PasswordFile = "unread-file", PasswordHash = secret,
         }.PreparePassword());
-
-        foreach (string replacement in new[] { "192.0.2.30", "" })
-        {
-            await using var configured = Sockseek.Server.ServerHost.Build([
-                "--SockseekServer:Authentication:TrustedProxies:0", "192.0.2.10",
-                "--SockseekServer:Authentication:TrustedProxies:1", "192.0.2.20",
-                "--trusted-proxies", replacement,
-            ], logToConsole: false);
-            var proxies = configured.Services.GetRequiredService<IOptions<ServerOptions>>().Value.Authentication.TrustedProxies;
-            CollectionAssert.AreEqual(replacement.Length == 0 ? Array.Empty<string>() : new[] { replacement }, proxies,
-                "A public CLI override must replace the entire configured proxy list, not retain old indexes.");
-        }
     }
 
     [TestMethod]

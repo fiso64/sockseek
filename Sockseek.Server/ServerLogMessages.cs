@@ -38,9 +38,6 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4010, LogLevel.Error, "Scheduled persistence retention failed")]
     internal static partial void PersistenceRetentionFailed(ILogger logger, Exception exception);
 
-    [LoggerMessage(4011, LogLevel.Critical, "Unhandled server startup or runtime error")]
-    internal static partial void UnhandledServerError(ILogger logger, Exception exception);
-
     [LoggerMessage(4012, LogLevel.Warning, "Request for {Feature} could not start because the feature is unavailable")]
     internal static partial void FeatureRequestUnavailable(ILogger logger, string feature);
 
@@ -119,12 +116,6 @@ internal static partial class ServerLogMessages
 
     [LoggerMessage(4542, LogLevel.Error, "Search View {ViewId} could not replay retrieval observation {ObservationId}")]
     internal static partial void SearchViewRetrievalReplayFailed(ILogger logger, Exception exception, Guid viewId, Guid observationId);
-
-    [LoggerMessage(4550, LogLevel.Information, "Peer restriction configured baselines reloaded")]
-    internal static partial void PeerRestrictionsReloaded(ILogger logger);
-
-    [LoggerMessage(4551, LogLevel.Warning, "Peer restriction configured baseline reload was rejected; the prior snapshot remains active")]
-    internal static partial void PeerRestrictionsReloadRejected(ILogger logger, Exception exception);
 
     [LoggerMessage(4552, LogLevel.Warning, "Peer restriction override persistence is unavailable; configured restriction baselines remain active")]
     internal static partial void PeerRestrictionsUnavailable(ILogger logger);

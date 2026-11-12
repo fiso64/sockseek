@@ -64,14 +64,25 @@ public class ConfigIsolationTests
             File.WriteAllText(password, "  private password  \r\n");
             File.WriteAllText(key, "fixture-api-key\n");
             File.WriteAllText(config, $"web-password-file = {password}\nweb-username = operator\n"
-                + $"remote = https://sockseek.example\nremote-api-key-file = {key}\n");
-            var bound = ConfigManager.BindAll(ConfigManager.Load(config),
+                + $"remote = https://sockseek.example\nremote-api-key-file = {key}\ntrusted-proxies = 192.0.2.1,192.0.2.2\n");
+            var file = ConfigManager.Load(config);
+            var invocation = ConfigManager.ParseInvocation(
                 ["--web-session-lifetime", "3.00:00:00", "--trusted-proxies", "127.0.0.2,::1"]);
+            var bound = ConfigManager.BindAll(file, invocation);
+            var host = bound.Daemon.CreateServerOptions(bound.Engine, file, invocation);
             Assert.AreEqual("operator", bound.Daemon.WebUsername);
             Assert.AreEqual(TimeSpan.FromDays(3), bound.Daemon.WebSessionLifetime);
             CollectionAssert.AreEqual(new[] { "127.0.0.2", "::1" }, bound.Daemon.TrustedProxies);
             Assert.AreEqual("  private password  ", Sockseek.Server.Authentication.AuthenticationOptions.ReadSecretFile(password));
-            Assert.IsNotNull(bound.Daemon.CreateAuthenticationOptions().PreparePassword());
+            Assert.AreEqual("operator", host.Authentication.Username);
+            Assert.AreEqual(TimeSpan.FromDays(3), host.Authentication.SessionLifetime);
+            CollectionAssert.AreEqual(new[] { "127.0.0.2", "::1" }, host.Authentication.TrustedProxies);
+            Assert.IsNotNull(host.Authentication.PreparePassword());
+            bound.Daemon.TrustedProxies[0] = "192.0.2.99";
+            Assert.AreEqual("127.0.0.2", host.Authentication.TrustedProxies[0]);
+            var cleared = ConfigManager.BindAll(file, ["--trusted-proxies", ""]);
+            Assert.AreEqual(0, cleared.Daemon.CreateServerOptions(cleared.Engine, file, invocation).Authentication.TrustedProxies.Length);
+            CollectionAssert.AreEqual(new[] { "127.0.0.1", "::1" }, new DaemonSettings().TrustedProxies);
             using var http = bound.Remote.CreateHttpClient();
             Assert.AreEqual(443, http.BaseAddress!.Port);
             Assert.AreEqual("fixture-api-key", http.DefaultRequestHeaders.GetValues("X-API-Key").Single());
