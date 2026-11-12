@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net;
 using Soulseek;
 using Sockseek.Core.Models;
 using Sockseek.Core.PeerBrowsing;
@@ -22,7 +23,13 @@ namespace Sockseek.Core.Services
 
         public SoulseekClientStates State => SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
 
-        public SoulseekClientOptions Options => throw new NotImplementedException();
+        public SoulseekClientOptions Options { get; } = new(enableListener: false);
+
+        // Local-file execution has no Soulseek server or listener.
+        public string Address => null!;
+        public IPAddress IPAddress => null!;
+        public IPEndPoint IPEndPoint => null!;
+        public int? Port => null;
 
         private List<Soulseek.SearchResponse> index;
         private readonly bool slowMode;

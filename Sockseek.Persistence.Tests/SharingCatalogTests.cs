@@ -2,6 +2,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Diagnostics;
 using Sockseek.Core.Sharing;
 using Sockseek.Persistence.Sharing;
+using Sockseek.Persistence.PeerBrowsing;
+using Sockseek.Core.PeerBrowsing;
 
 namespace Sockseek.Persistence.Tests;
 
@@ -33,6 +35,23 @@ public sealed class SharingCatalogTests
         Assert.AreEqual(3, browse.Count);
         Assert.IsTrue(browse.Any(x => x.Directory.RemotePath == @"Music\Empty"));
         Assert.AreEqual(0, browse.Single(x => x.Directory.RemotePath == @"Music\Empty").Files.Count);
+
+        var tree = await PeerBrowseArtifact.FromCatalogAsync(reader, CancellationToken.None);
+        var root = tree.ReadDirectories(null, null, false, null, null, 100, CancellationToken.None).Items.Single();
+        Assert.AreEqual(1L, root.RecursiveFileCount);
+        var folders = tree.ReadDirectories(root.DirectoryId, null, false, null, null, 1, CancellationToken.None);
+        Assert.IsNotNull(folders.NextId);
+        var next = tree.ReadDirectories(root.DirectoryId, null, false, folders.Items[0].DisplayPath,
+            folders.NextId, 1, CancellationToken.None);
+        Assert.AreEqual("Empty", next.Items.Single().Name);
+        var files = tree.ReadFiles(folders.Items[0].DirectoryId, null, null, null, 500, CancellationToken.None);
+        Assert.AreEqual(fixture.File.SizeBytes, files.Items.Single().Size);
+        var filtered = tree.Search("Café", null, null, null, 100, CancellationToken.None);
+        Assert.AreEqual(1L, filtered.PublicMatchingFileCount);
+        Assert.AreEqual(0L, filtered.LockedMatchingFileCount);
+        Assert.AreEqual(1, filtered.Items.Count(item => item.Kind == PeerBrowseSearchEntryKind.File));
+        Assert.AreEqual(2, filtered.Items.Count(item => item.Kind == PeerBrowseSearchEntryKind.Directory));
+
     }
 
     [TestMethod]

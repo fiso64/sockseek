@@ -590,6 +590,11 @@ public sealed class SockseekApiClient
         CancellationToken ct = default)
         => GetOptionalAsync<SubmissionDetailDto>($"api/submissions/{submissionId}", ct);
 
+    public Task<DeleteCompletedJobsResponseDto> DeleteCompletedJobsAsync(
+        CompletedJobCategory category, CancellationToken ct = default)
+        => PostRequiredAsync<DeleteCompletedJobsResponseDto, DeleteCompletedJobsRequestDto>(
+            "api/jobs/delete-completed", new(category), ct);
+
     public Task<DeleteSubmissionResponseDto> DeleteSubmissionAsync(Guid submissionId, CancellationToken ct = default)
         => DeleteRequiredAsync<DeleteSubmissionResponseDto>($"api/submissions/{submissionId}", ct);
 
@@ -705,6 +710,28 @@ public sealed class SockseekApiClient
 
     public Task<SharingStateDto> GetSharingAsync(CancellationToken ct = default)
         => GetRequiredAsync<SharingStateDto>("api/sharing", ct);
+
+    public Task<PageDto<BrowseDirectoryEntryDto>> GetSharedDirectoriesAsync(
+        Guid generationId, long? parentId = null, string? cursor = null,
+        int limit = ServerProtocol.DefaultNestedPageSize, CancellationToken ct = default)
+        => GetRequiredAsync<PageDto<BrowseDirectoryEntryDto>>(
+            $"api/sharing/catalogs/{generationId}/directories?limit={limit}"
+            + QueryPart("parentId", parentId?.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            + QueryPart("cursor", cursor), ct);
+
+    public Task<PageDto<BrowseFileEntryDto>> GetSharedFilesAsync(
+        Guid generationId, long directoryId, string? cursor = null,
+        int limit = ServerProtocol.DefaultPageSize, CancellationToken ct = default)
+        => GetRequiredAsync<PageDto<BrowseFileEntryDto>>(
+            $"api/sharing/catalogs/{generationId}/directories/{directoryId}/files?limit={limit}"
+            + QueryPart("cursor", cursor), ct);
+
+    public Task<BrowseSearchPageDto> SearchSharesAsync(
+        Guid generationId, string query, string? cursor = null,
+        int limit = ServerProtocol.DefaultNestedPageSize, CancellationToken ct = default)
+        => GetRequiredAsync<BrowseSearchPageDto>(
+            $"api/sharing/catalogs/{generationId}/search?query={Uri.EscapeDataString(query)}&limit={limit}"
+            + QueryPart("cursor", cursor), ct);
 
     public async Task<StartShareScanResponseDto> StartShareScanAsync(
         CancellationToken ct = default)

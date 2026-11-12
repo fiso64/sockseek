@@ -7,9 +7,20 @@ export interface PageState { directoryCursor: string | null; fileCursor: string 
  * Requests and DOM remain owned by the mounted page, not by this cache. */
 export interface UserBrowserSession {
   username: string;
+  shares: ShareBrowserSession;
   snapshot?: {
     profile: UserProfileDto | null;
     browse: UserBrowseDto | null;
+  };
+}
+
+export function userBrowserSession(username = ''): UserBrowserSession {
+  return { username, shares: {} };
+}
+
+export interface ShareBrowserSession {
+  snapshot?: {
+    browseId: string;
     directories: Map<string, BrowseDirectoryEntryDto>;
     childDirectoryIds: Map<string, string[]>;
     filesByDirectory: Map<string, BrowseFileEntryDto[]>;
@@ -27,8 +38,4 @@ export interface UserBrowserSession {
     selectedDirectoryTotals: Map<string, number>;
     selectedFileIsPublic: Map<string, boolean>;
   };
-}
-
-export function userBrowserSession(username = ''): UserBrowserSession {
-  return { username };
 }

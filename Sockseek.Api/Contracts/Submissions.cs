@@ -45,3 +45,9 @@ public sealed record DeleteSubmissionResponseDto(
     int AffectedJobCount,
     int RejectedSubmissionCount,
     IReadOnlyList<SubmissionReasonCountDto> RejectionReasons);
+
+[JsonConverter(typeof(JsonStringEnumConverter<CompletedJobCategory>))]
+public enum CompletedJobCategory { Searches, Downloads }
+
+public sealed record DeleteCompletedJobsRequestDto([property: JsonRequired] CompletedJobCategory Category);
+public sealed record DeleteCompletedJobsResponseDto(int DeletedSubmissions, int DeletedJobs, int SkippedSubmissions);

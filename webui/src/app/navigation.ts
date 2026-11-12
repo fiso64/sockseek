@@ -8,7 +8,7 @@ export const navigationItems = [
   { id: 'users', label: 'Users', icon: 'user', placement: 'primary' },
   { id: 'shares', label: 'Shares', icon: 'folder', placement: 'primary' },
   { id: 'chat', label: 'Chat', icon: 'chat', placement: 'primary' },
-  { id: 'settings', label: 'Settings', icon: 'settings', placement: 'secondary' },
+  { id: 'system', label: 'System', icon: 'settings', placement: 'secondary' },
 ] as const satisfies readonly {
   id: string;
   label: string;

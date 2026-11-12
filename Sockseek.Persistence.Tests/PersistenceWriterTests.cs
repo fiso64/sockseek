@@ -22,6 +22,50 @@ namespace Sockseek.Persistence.Tests;
 public sealed class PersistenceWriterTests
 {
     [TestMethod]
+    public async Task CompletedCleanupIncludesEveryTerminalOutcomeAndKeepsActiveAndUnadmittedSubmissions()
+    {
+        await using var database = new WriterDatabase();
+        var runtime = (await new PersistenceRuntimeSession(database.Factory).StartAsync("cleanup")).Runtime;
+        Guid search = Guid.NewGuid(), download = Guid.NewGuid(), active = Guid.NewGuid(), failed = Guid.NewGuid(), empty = Guid.NewGuid(), cancelled = Guid.NewGuid(), interrupted = Guid.NewGuid();
+        await using (var context = await database.Factory.CreateDbContextAsync())
+        {
+            foreach (var id in new[] { search, download, active, failed, empty, cancelled, interrupted })
+                context.Submissions.Add(new SubmissionEntity { Id = id, SpecificationSchemaVersion = 1,
+                    Specification = new() { Json = "{}" }, Revision = 1 });
+            long displayId = 0;
+            JobEntity JobRow(Guid submission, string kind, string outcome = "Succeeded", string role = "UserRoot") => new()
+            {
+                Id = Guid.NewGuid(), DisplayId = ++displayId, SubmissionId = submission, WorkflowId = Guid.NewGuid(), LastRuntimeId = runtime.RuntimeId,
+                CompletedAtUtc = outcome == "None" ? null : 1,
+                Kind = kind, SemanticRole = role, LifecycleState = outcome == "None" ? "Running" : "Terminal", TerminalOutcome = outcome,
+            };
+            context.Jobs.AddRange(JobRow(search, "Search"), JobRow(download, "Album"), JobRow(download, "RemoteFile", "Skipped", "ExecutionChild"),
+                JobRow(active, "Album"), JobRow(active, "RemoteFile", "None", "ExecutionChild"),
+                JobRow(failed, "Album"), JobRow(failed, "RemoteFile", "Failed", "ExecutionChild"),
+                JobRow(cancelled, "Search", "Cancelled"), JobRow(interrupted, "Album", "Interrupted"));
+            await context.SaveChangesAsync();
+        }
+        var options = new PersistenceWriterOptions();
+        var health = new PersistenceHealth();
+        var inbox = new PersistenceInbox(options, health);
+        var store = new SubmissionStore(database.Factory, inbox);
+        Task writing = new PersistenceWriter(database.Factory, inbox, health, options).RunAsync(CancellationToken.None);
+        try
+        {
+            CollectionAssert.AreEquivalent(new[] { search, cancelled }, (await store.GetCompletedIdsAsync(true)).ToArray());
+            CollectionAssert.AreEquivalent(new[] { download, failed, interrupted }, (await store.GetCompletedIdsAsync(false)).ToArray());
+            var result = await store.DeleteManyAsync([search, download, active, failed, cancelled, interrupted]);
+            Assert.AreEqual(5, result.Sum(item => item.AffectedSubmissionCount));
+            Assert.AreEqual(7, result.Sum(item => item.AffectedJobCount));
+            Assert.AreEqual(1, result.Single(item => item.SubmissionId == active).RejectedSubmissionCount);
+            await using var read = await database.Factory.CreateDbContextAsync();
+            CollectionAssert.AreEquivalent(new[] { active, empty }, await read.Submissions.Select(row => row.Id).ToArrayAsync());
+            Assert.AreEqual(2, await read.Set<SubmissionSpecificationEntity>().CountAsync());
+        }
+        finally { inbox.Complete(); await writing; }
+    }
+
+    [TestMethod]
     public async Task SubmissionDeletionSettlesQueuedWritesAndPreservesTransfers()
     {
         await using var database = new WriterDatabase();

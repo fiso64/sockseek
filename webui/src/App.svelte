@@ -17,7 +17,8 @@
   import UsersPage from './domains/users/UsersPage.svelte';
   import { userBrowserSession, type UserBrowseView } from './domains/users/session';
   import ChatPage from './domains/chat/ChatPage.svelte';
-  import SettingsPage from './domains/settings/SettingsPage.svelte';
+  import SystemPage from './domains/system/SystemPage.svelte';
+  import type { SystemTab } from './domains/system/tabs';
   import { DaemonLiveClient, type LiveConnectionStatus } from './api/live';
   import { jobStateSummary } from './api/job-summary';
   import { updatedJob } from './api/state.svelte';
@@ -66,6 +67,7 @@
   const searchModeByJob = new Map<string, SearchResultMode>();
   let search = $state<SearchDraft>({ ...emptySearchDraft });
   let userBrowse = $state<{ query: string; mode: UserBrowseView }>({ query: '', mode: 'user' });
+  let systemTab = $state<SystemTab>('status');
   let userBrowsers = $state({ user: userBrowserSession(), shares: userBrowserSession() });
   let userView = $derived<UserBrowseView>(activePage === 'shares' ? 'shares' : 'user');
   let activeUsername = $derived(userBrowsers[userView].username);
@@ -192,7 +194,12 @@
       initialChatUsername = parts[1] === 'users' && parts[2] ? decodeSegment(parts[2]) : null;
       return;
     }
-    if (root === 'downloads' || root === 'uploads' || root === 'settings' || root === 'dashboard') {
+    if (root === 'system') {
+      activePage = 'system';
+      systemTab = parts[1] === 'shares' || parts[1] === 'management' || parts[1] === 'api' ? parts[1] : 'status';
+      return;
+    }
+    if (root === 'downloads' || root === 'uploads' || root === 'dashboard') {
       activePage = root;
       return;
     }
@@ -266,6 +273,7 @@
   });
 
   function navigate(page: PageId): void {
+    if (page === 'system') systemTab = 'status';
     if (composingJob && composingJobCommitPending) return;
     cancelDeferredSearchRender();
     const wasOnJobs = activePage === 'jobs';
@@ -673,7 +681,8 @@
   {:else if activePage === 'chat'}
     <ChatPage {liveClient} {liveStatus} runtime={liveState.daemon?.chat} {userActions} initialUsername={initialChatUsername} />
   {:else}
-    <SettingsPage configuration={liveState.daemon?.configuration} sharing={liveState.daemon?.sharing} {liveStatus} />
+    <SystemPage daemon={liveState.daemon} {liveStatus} {liveClient} tab={systemTab}
+      ontabchange={tab => { systemTab = tab; setPath(tab === 'status' ? '/system' : `/system/${tab}`); }} />
   {/if}
 </AppShell>
 

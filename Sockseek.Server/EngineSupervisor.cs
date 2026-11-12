@@ -339,6 +339,7 @@ public sealed class EngineSupervisor : IDisposable
                           ?? currentEngine?.ClientState
                           ?? SoulseekClientStates.None;
 
+        var client = Runtime.SoulseekSession?.Client;
         var stats = StateStore.GetStatistics();
         var persistenceStatus = GetPersistenceStatus();
         return new ServerStatusDto(
@@ -349,7 +350,9 @@ public sealed class EngineSupervisor : IDisposable
             stats.ActiveWorkflowCount,
             restartCount,
             persistenceStatus,
-            stats.Configuration);
+            stats.Configuration,
+            new SoulseekConnectionDto(Runtime.SoulseekSession?.LoggedInUsername, client?.Address, client?.Port,
+                client?.IPEndPoint?.ToString(), client?.Options.EnableListener == true ? client.Options.ListenPort : null));
     }
 
     private PersistenceStatusDto GetPersistenceStatus()
@@ -455,14 +458,14 @@ public sealed class EngineSupervisor : IDisposable
             return currentEngine?.WaitForSubmissionAsync(submissionId, cancellationToken) ?? Task.CompletedTask;
     }
 
-    internal void ForgetSubmission(Guid submissionId)
+    internal void ForgetSubmissions(IReadOnlySet<Guid> submissionIds)
     {
-        lock (engineGate) currentEngine?.ForgetSubmission(submissionId);
+        lock (engineGate) currentEngine?.ForgetSubmissions(submissionIds);
     }
 
-    internal bool HasPendingSubmission(Guid submissionId)
-        => acceptedRootsAwaitingRegistration.Values.Any(pending =>
-            pending.Job.SubmissionId == submissionId);
+    internal HashSet<Guid> GetPendingSubmissionIds()
+        => acceptedRootsAwaitingRegistration.Values.Select(pending => pending.Job.SubmissionId)
+            .OfType<Guid>().ToHashSet();
 
     public bool TryNextCandidate(Guid jobId)
     {

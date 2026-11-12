@@ -127,11 +127,12 @@ public sealed class EngineStateStore
         lock (gate) transferState.MarkHistoryChanged();
     }
 
-    public void RemoveSubmission(Guid submissionId)
+    public void RemoveSubmissions(IReadOnlyCollection<Guid> submissionIds)
     {
         IReadOnlyList<JobSummaryDto> jobs;
         lock (gate)
-            jobs = jobState.GetJobs(new JobQuery(null, null, null, null, IncludeAll: true, SubmissionId: submissionId));
+            jobs = submissionIds.SelectMany(id => jobState.GetJobs(
+                new JobQuery(null, null, null, null, IncludeAll: true, SubmissionId: id))).ToArray();
         foreach (var workflow in jobs.GroupBy(job => job.WorkflowId))
             RetireJobProjections(workflow.Key, workflow.Select(job => job.JobId).ToArray());
         lock (gate) jobState.NotifyHistoryChanged();

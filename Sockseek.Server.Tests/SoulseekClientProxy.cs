@@ -8,6 +8,7 @@ public class SoulseekClientProxy : DispatchProxy
     private readonly Dictionary<string, Delegate?> handlers = new(StringComparer.Ordinal);
 
     public ISoulseekClient Client { get; private set; } = null!;
+    public SoulseekClientOptions Options { get; set; } = new(enableListener: false);
     public Func<Action<SearchResponse>, CancellationToken, Task>? SearchHandler { get; set; }
     public Func<object?[], Task<Transfer>>? DownloadHandler { get; set; }
     public Func<object?[], Task<Transfer>>? UploadHandler { get; set; }
@@ -118,6 +119,10 @@ public class SoulseekClientProxy : DispatchProxy
         return targetMethod.Name switch
         {
             "get_State" => ClientState,
+            "get_Options" => Options,
+            "get_Address" => "server.test",
+            "get_Port" => (int?)2271,
+            "get_IPEndPoint" => new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 2271),
             "get_MajorVersion" => 170,
             "get_MinorVersion" => 800850000,
             "SearchAsync" when targetMethod.ReturnType == typeof(Task<Search>) => SearchAsync(args),

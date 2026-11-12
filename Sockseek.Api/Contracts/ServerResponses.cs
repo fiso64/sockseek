@@ -22,7 +22,8 @@ public sealed record ServerStatusDto(
     int ActiveWorkflowCount,
     int RestartCount,
     PersistenceStatusDto? Persistence = null,
-    ConfigurationStatusDto? Configuration = null);
+    ConfigurationStatusDto? Configuration = null,
+    SoulseekConnectionDto? Connection = null);
 
 /// <summary>File reload state. Restart-required settings remain at their startup values.</summary>
 public sealed record ConfigurationStatusDto(bool Watching, bool RestartRequired, bool ReloadFailed);
@@ -310,3 +311,6 @@ public sealed record JobQuery(
 
 /// <summary>Read compact summaries for linked jobs without hydrating their full details.</summary>
 public sealed record JobLookupRequestDto(IReadOnlyList<Guid> JobIds);
+
+/// <summary>Current network session; contains no credentials.</summary>
+public sealed record SoulseekConnectionDto(string? Username, string? ServerAddress, int? ServerPort, string? ServerEndpoint, int? ListenPort);

@@ -73,12 +73,12 @@ test('renders populated and partial peer profiles without inventing missing fact
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog', { name: 'fixture-peer profile picture' })).toHaveCount(0);
 
-  await page.locator('.user-view-tabs').getByRole('button', { name: 'Shares', exact: true }).click();
+  await page.getByRole('tablist', { name: 'User browser views' }).getByRole('tab', { name: 'Shares', exact: true }).click();
   await expect(navigation.getByRole('button', { name: 'Shares', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page).toHaveURL(/\/shares\/fixture-peer$/);
   await expect(card).toHaveCount(0);
   await expect(page.locator('.shares-username')).toHaveText('fixture-peer');
-  await page.locator('.user-view-tabs').getByRole('button', { name: 'User', exact: true }).click();
+  await page.getByRole('tablist', { name: 'User browser views' }).getByRole('tab', { name: 'User', exact: true }).click();
   await expect(navigation.getByRole('button', { name: 'Users', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(card).toBeVisible();
 
@@ -194,7 +194,7 @@ test('filters shared files through the daemon and restores the tree when cleared
   await filter.fill('Unselected');
   await expect(page.getByRole('alert')).toContainText('Share filter failed');
   await expect(page.locator('.shares-filter-count')).toHaveCount(0);
-  await expect(page.getByText('No matching shared files', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.share-browser .search-results-empty')).toHaveCount(0);
   await page.unroute(filterRoute);
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(page.locator('.shares-filter-count')).toHaveText('1 matching file');
@@ -234,7 +234,7 @@ test('filters shared files through the daemon and restores the tree when cleared
   await page.locator('.share-tree-row.file').getByRole('checkbox').check();
   await filter.fill('NoMatchingFilename');
   await expect(page.locator('.shares-filter-count')).toHaveText('0 matching files');
-  await expect(page.getByText('No matching shared files', { exact: true })).toBeVisible();
+  await expect(page.locator('.share-browser .search-results-empty')).toBeVisible();
   await expect(page.getByText('Unselected.txt', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
   await filter.fill('');
@@ -245,7 +245,7 @@ test('filters shared files through the daemon and restores the tree when cleared
   await expect(tree.locator('.share-tree-name')).toHaveText(['Fixture', 'Selected.txt', 'Unselected.txt', 'Nested']);
   await expect(page.getByRole('checkbox', { name: 'Select Fixture', exact: true })).toHaveJSProperty('indeterminate', true);
   expect(profileReads).toEqual([]);
-  await page.getByRole('button', { name: 'User', exact: true }).click();
+  await page.getByRole('tab', { name: 'User', exact: true }).click();
   await expect(page.locator('.user-profile-description')).toContainText('A small shared library.');
   expect(profileReads).toHaveLength(1);
   await navigation.getByRole('button', { name: 'Shares', exact: true }).click();

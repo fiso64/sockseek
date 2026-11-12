@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageTabs from '../../components/PageTabs.svelte';
   import { keyboardList } from '../../lib/keyboard';
   import type { JobsTab } from './job-list.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
@@ -53,15 +54,6 @@
     scroller.addEventListener('scroll', remember);
     return () => scroller.removeEventListener('scroll', remember);
   });
-  function tabKey(event: KeyboardEvent): void {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    const next = event.key === 'Home' ? 'searches' : event.key === 'End' ? 'downloads'
-      : tab === 'searches' ? 'downloads' : 'searches';
-    ontabchange(next);
-    // This list is remounted on tab changes; focus its replacement after rendering.
-    void tick().then(() => document.getElementById(`jobs-tab-${next}`)?.focus());
-  }
   const lifetime = new AbortController();
   onMount(() => () => lifetime.abort());
   let reads = $state(new Map<string, JobSummaryRead>());
@@ -162,13 +154,8 @@
     <button type="button" class="new-job-button" onclick={onnew}><span>+</span> New job</button>
   </header>
 
-  <div class="jobs-tabs" role="tablist" aria-label="Jobs">
-    {#each [{ id: 'searches', label: 'Searches' }, { id: 'downloads', label: 'Download jobs' }] as item}
-      <button type="button" role="tab" id={`jobs-tab-${item.id}`} aria-selected={tab === item.id}
-        aria-controls="jobs-tab-panel" tabindex={tab === item.id ? 0 : -1} class:active={tab === item.id}
-        onkeydown={tabKey} onclick={() => ontabchange(item.id as JobsTab)}>{item.label}</button>
-    {/each}
-  </div>
+  <PageTabs id="jobs-tab" label="Jobs" value={tab} onchange={ontabchange}
+    items={[{ id: 'searches', label: 'Searches' }, { id: 'downloads', label: 'Download jobs' }]} />
   {#if submissionId}<div class="jobs-filter">Showing one download request <button type="button" onclick={onclearfilter}>Show all download jobs</button></div>{/if}
   <div role="tabpanel" id="jobs-tab-panel" aria-labelledby={`jobs-tab-${tab}`}>
   {#if error && ordered.length}

@@ -5,6 +5,7 @@ using Sockseek.Core.Sharing;
 using Sockseek.Core.Transfers.Uploads;
 using Sockseek.Api;
 using Sockseek.Persistence.Sharing;
+using Sockseek.Persistence.PeerBrowsing;
 using Soulseek;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -38,6 +39,7 @@ public sealed class SharingRuntime : IAsyncDisposable
     private readonly Dictionary<Guid, ShareScanStateDto> recentScans = [];
     private readonly Queue<Guid> recentScanOrder = [];
     private long scanRevision;
+    private (Guid Generation, Task<PeerBrowseArtifact> Task)? browser;
     private ShareScanStateDto? activeScan;
     private ShareScanStateDto? lastScan;
     private Task? manuallyStartedScan;
@@ -87,6 +89,37 @@ public sealed class SharingRuntime : IAsyncDisposable
         ClientManager.StateChanged += OnClientStateChanged;
         scans.StateChanged += OnScanStateChanged;
         Uploads.QueueChanged += OnUploadQueueChanged;
+    }
+
+    public async Task<PeerBrowseArtifact?> GetBrowserAsync(Guid generation, CancellationToken cancellationToken)
+    {
+        Task<PeerBrowseArtifact> pending;
+        lock (stateSync)
+        {
+            if (!catalogs.TryAcquire(out var lease) || lease is null)
+                return null;
+            if (lease.Metadata.GenerationId != generation)
+            {
+                lease.Dispose();
+                return null;
+            }
+            if (browser is { } existing && existing.Generation == generation && !existing.Task.IsFaulted && !existing.Task.IsCanceled)
+            {
+                lease.Dispose();
+                pending = existing.Task;
+            }
+            else
+            {
+                var token = lifetime.Token;
+                pending = Task.Run(async () =>
+                {
+                    await using (lease)
+                        return await PeerBrowseArtifact.FromCatalogAsync(lease.Reader, token).ConfigureAwait(false);
+                });
+                browser = (generation, pending);
+            }
+        }
+        return await pending.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public SoulseekClientManager ClientManager { get; }
@@ -340,6 +373,8 @@ public sealed class SharingRuntime : IAsyncDisposable
 
         lock (stateSync)
         {
+            if (state.Phase == ShareScanPhase.Completed && browser?.Generation != scanId)
+                browser = null;
             if (terminal)
             {
                 activeScan = null;

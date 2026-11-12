@@ -69,9 +69,11 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
 
     // Called only after execution and its pending writes have settled. Other
     // submissions may still use the workflow; their execution state stays intact.
-    public void ForgetSubmission(Guid submissionId)
+    public void ForgetSubmissions(IReadOnlySet<Guid> submissionIds)
     {
-        var ids = _jobs.Jobs.Where(job => job.SubmissionId == submissionId).Select(job => job.Id).ToHashSet();
+        var ids = _jobs.Jobs.Where(job => job.SubmissionId is Guid id && submissionIds.Contains(id))
+            .Select(job => job.Id).ToHashSet();
+        if (ids.Count == 0) return;
         Queue.RemoveJobs(ids);
         _manualSelections.Retire(ids);
         _jobs.Retire(ids);

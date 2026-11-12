@@ -86,6 +86,8 @@ public interface ISubmissionStore
     Task<PersistedSubmissionCommitReceipt?> GetCommitReceiptAsync(
         Guid submissionId,
         CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<Guid>> GetCompletedIdsAsync(bool searches, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<SubmissionDeleteResult>> DeleteManyAsync(Guid[] submissionIds, CancellationToken cancellationToken = default);
     /// <summary>Delete after the execution owner has finished producing this submission's updates.</summary>
     Task<SubmissionDeleteResult> DeleteAsync(
         Guid submissionId,
@@ -260,23 +262,48 @@ public sealed class SubmissionStore(
     }
 
 
-    public async Task<SubmissionDeleteResult> DeleteAsync(
-        Guid submissionId,
-        CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<Guid>> GetCompletedIdsAsync(bool searches, CancellationToken cancellationToken = default)
     {
+        await inbox.FlushMutationsAsync(cancellationToken).ConfigureAwait(false);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        // Match the two Jobs tabs and include every terminal outcome. Preserve
+        // submissions with active children and empty ones awaiting admission.
+        return await context.Submissions.Where(submission =>
+            context.Jobs.Any(job => job.SubmissionId == submission.Id && job.SemanticRole == "UserRoot"
+                && (searches ? job.Kind == "Search" : job.Kind != "Search" && job.Kind != "RetrieveFolder"))
+            && !context.Jobs.Any(job => job.SubmissionId == submission.Id
+                && job.LifecycleState != "Terminal"))
+            .Select(submission => submission.Id).ToArrayAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<SubmissionDeleteResult> DeleteAsync(Guid submissionId, CancellationToken cancellationToken = default)
+        => (await DeleteManyAsync([submissionId], cancellationToken).ConfigureAwait(false))[0];
+
+    public async Task<IReadOnlyList<SubmissionDeleteResult>> DeleteManyAsync(
+        Guid[] submissionIds, CancellationToken cancellationToken = default)
+    {
+        if (submissionIds.Length == 0) return [];
         // The caller first awaits execution. Settle every earlier mutation lane
         // before deleting; an interactive command alone is not a write barrier.
         await inbox.FlushMutationsAsync(cancellationToken).ConfigureAwait(false);
-        var command = new AwaitablePersistenceCommand<SubmissionDeleteResult>(async (context, ct) =>
+        var command = new AwaitablePersistenceCommand<IReadOnlyList<SubmissionDeleteResult>>(async (context, ct) =>
         {
-            if (!await context.Submissions.AnyAsync(item => item.Id == submissionId, ct).ConfigureAwait(false))
-                return new(submissionId, 0, 0, 0, null);
-            var jobs = context.Jobs.Where(job => job.SubmissionId == submissionId);
-            if (await jobs.AnyAsync(job => job.LifecycleState != "Terminal", ct).ConfigureAwait(false))
-                return new(submissionId, 0, 0, 1, "nonterminal-jobs");
-            int deleted = await jobs.ExecuteDeleteAsync(ct).ConfigureAwait(false);
-            await DeleteEmptyAsync(context, [submissionId], ct).ConfigureAwait(false);
-            return new(submissionId, 1, deleted, 0, null);
+            var existing = await context.Submissions.Where(item => submissionIds.Contains(item.Id))
+                .Select(item => item.Id).ToHashSetAsync(ct).ConfigureAwait(false);
+            var counts = await context.Jobs.Where(job => job.SubmissionId.HasValue && submissionIds.Contains(job.SubmissionId.Value))
+                .GroupBy(job => job.SubmissionId!.Value)
+                .Select(group => new { Id = group.Key, Count = group.Count(), Active = group.Count(job => job.LifecycleState != "Terminal") })
+                .ToDictionaryAsync(item => item.Id, ct).ConfigureAwait(false);
+            var eligible = existing.Where(id => !counts.TryGetValue(id, out var count) || count.Active == 0).ToArray();
+            await context.Jobs.Where(job => job.SubmissionId.HasValue && eligible.Contains(job.SubmissionId.Value))
+                .ExecuteDeleteAsync(ct).ConfigureAwait(false);
+            await DeleteEmptyAsync(context, eligible, ct).ConfigureAwait(false);
+            return submissionIds.Select(id =>
+            {
+                bool rejected = counts.TryGetValue(id, out var count) && count.Active > 0;
+                return new SubmissionDeleteResult(id, existing.Contains(id) && !rejected ? 1 : 0,
+                    rejected ? 0 : count?.Count ?? 0, rejected ? 1 : 0, rejected ? "nonterminal-jobs" : null);
+            }).ToArray();
         });
         await inbox.EnqueueCommandAsync(command, cancellationToken).ConfigureAwait(false);
         return await command.Task.ConfigureAwait(false);

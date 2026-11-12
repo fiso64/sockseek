@@ -75,6 +75,19 @@ internal static class JobEndpoints
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status503ServiceUnavailable);
 
+        app.MapPost("/api/jobs/delete-completed", async (
+            DeleteCompletedJobsRequestDto request, JobReadService jobs, CancellationToken cancellationToken) =>
+        {
+            try { return Results.Ok(await jobs.DeleteCompletedAsync(request.Category, cancellationToken)); }
+            catch (NotSupportedException ex) { return Results.Problem(ex.Message, statusCode: 503); }
+            catch (Exception ex) when (IsInvalidRequest(ex)) { return BadRequest(ex); }
+        })
+            .WithTags("Jobs")
+            .WithSummary("Permanently deletes completed submissions and results, preserving transfers and downloaded files.")
+            .Produces<DeleteCompletedJobsResponseDto>()
+            .Produces<ApiErrorDto>(400)
+            .Produces(503);
+
         app.MapDelete("/api/submissions/{submissionId:guid}", async (
             Guid submissionId,
             JobReadService jobs,

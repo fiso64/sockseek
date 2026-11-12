@@ -8,6 +8,7 @@ internal static class SharingEndpoints
 {
     public static void Map(WebApplication app)
     {
+        SharingBrowseEndpoints.Map(app);
         app.MapGet("/api/sharing", (DaemonRuntime runtime) =>
         {
             SharingRuntime? sharing = runtime.Sharing;

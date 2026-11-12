@@ -10,15 +10,7 @@ namespace Sockseek.Core.Services
     {
         // Irrelevant stuff starts here
 
-        public string Address => throw new NotImplementedException();
-
         public DistributedNetworkInfo DistributedNetwork => throw new NotImplementedException();
-
-        public IPAddress IPAddress => throw new NotImplementedException();
-
-        public IPEndPoint IPEndPoint => throw new NotImplementedException();
-
-        public int? Port => throw new NotImplementedException();
 
         public ServerInfo ServerInfo => throw new NotImplementedException();
 

@@ -147,6 +147,8 @@ type ScopedSession = ChatSession | BrowseSession;
 
 export class DaemonLiveClient {
   readonly reducer = new DaemonStateReducer();
+  private identity: Schema<'ServerInfoDto'> | null = null;
+  get serverInfo(): Schema<'ServerInfoDto'> | null { return this.identity; }
   private connection: HubConnection | null = null;
   private stateListeners = new Set<StateListener>();
   private statusListeners = new Set<StatusListener>();
@@ -245,14 +247,7 @@ export class DaemonLiveClient {
       throw error;
     }
     if (this.stopped || lifecycleId !== this.lifecycleId) return;
-    if (Number(info.liveProtocolVersion) !== expectedLiveProtocolVersion) {
-      const error = new Error(
-        `Incompatible live protocol: WebUI requires ${expectedLiveProtocolVersion}, daemon exposes ${info.liveProtocolVersion}.`,
-      );
-      this.emitStatus('failed', error);
-      throw error;
-    }
-
+    this.setServerInfo(info);
     const connection = new HubConnectionBuilder()
       .withUrl(`/api/events?liveProtocol=${expectedLiveProtocolVersion}`)
       .withAutomaticReconnect()
@@ -271,6 +266,11 @@ export class DaemonLiveClient {
     connection.onreconnected(async () => {
       if (this.stopped || this.connection !== connection) return;
       try {
+        // A reconnect may reach a restarted or upgraded daemon. Refresh the
+        // identity before publishing connected state to consumers.
+        const current = await this.api.getServerInfo();
+        if (this.stopped || this.connection !== connection) return;
+        this.setServerInfo(current);
         await connection.invoke(subscribeAllMethod, this.detail);
         await this.recover();
         if (this.stopped || this.connection !== connection) return;
@@ -336,6 +336,15 @@ export class DaemonLiveClient {
     }
     await connection?.stop();
     this.emitStatus('offline');
+  }
+
+  private setServerInfo(info: Schema<'ServerInfoDto'>): void {
+    if (Number(info.liveProtocolVersion) !== expectedLiveProtocolVersion) {
+      const error = new Error(`Incompatible live protocol: WebUI requires ${expectedLiveProtocolVersion}, daemon exposes ${info.liveProtocolVersion}.`);
+      this.emitStatus('failed', error);
+      throw error;
+    }
+    this.identity = info;
   }
 
   private resetRecovery(): void {

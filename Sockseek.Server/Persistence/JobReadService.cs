@@ -38,6 +38,38 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
     private async Task<JobDetailDto> WithSourceAvailabilityAsync(JobDetailDto detail, CancellationToken cancellationToken)
         => detail with { SourceJobAvailable = await IsSourceJobAvailableAsync(detail.Summary.SourceJobId, cancellationToken).ConfigureAwait(false) };
 
+    public async Task<DeleteCompletedJobsResponseDto> DeleteCompletedAsync(
+        CompletedJobCategory category, CancellationToken cancellationToken)
+    {
+        if (!Enum.IsDefined(category)) throw new ArgumentException("Unknown job category.");
+        if (persistence.Submissions is not { } submissions)
+            throw new NotSupportedException("Submission deletion requires persistence.");
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var candidates = await submissions.GetCompletedIdsAsync(category == CompletedJobCategory.Searches, cancellationToken).ConfigureAwait(false);
+        var active = live.GetJobs(new JobQuery(null, null, null, null, IncludeAll: true))
+            .Where(job => job.LifecycleState != ServerJobLifecycleState.Terminal)
+            .Select(job => job.SubmissionId).OfType<Guid>().ToHashSet();
+        active.UnionWith(supervisor.GetPendingSubmissionIds());
+        var eligible = candidates.Where(id => !active.Contains(id)).ToArray();
+        foreach (Guid id in eligible)
+            await supervisor.WaitForSubmissionExecutionAsync(id, cancellationToken).ConfigureAwait(false);
+        var results = await submissions.DeleteManyAsync(eligible, cancellationToken).ConfigureAwait(false);
+        var deleted = results.Where(result => result.RejectedSubmissionCount == 0)
+            .Select(result => result.SubmissionId).ToHashSet();
+        if (deleted.Count > 0)
+        {
+            supervisor.ForgetSubmissions(deleted);
+            live.RemoveSubmissions(deleted);
+        }
+        var receipt = new DeleteCompletedJobsResponseDto(results.Sum(result => result.AffectedSubmissionCount),
+            results.Sum(result => result.AffectedJobCount), candidates.Count - eligible.Length + results.Sum(result => result.RejectedSubmissionCount));
+        if (logger != null)
+            ServerLogMessages.CompletedJobsDeleted(logger, Guid.NewGuid(), category,
+                (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                receipt.DeletedSubmissions, receipt.DeletedJobs, receipt.SkippedSubmissions);
+        return receipt;
+    }
+
     public async Task<DeleteSubmissionResponseDto> DeleteSubmissionAsync(
         Guid submissionId,
         CancellationToken cancellationToken)
@@ -46,7 +78,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
             throw new NotSupportedException("Submission deletion requires persistence.");
         var liveJobs = live.GetJobs(new JobQuery(
             null, null, null, null, IncludeAll: true, SubmissionId: submissionId));
-        if (supervisor.HasPendingSubmission(submissionId)
+        if (supervisor.GetPendingSubmissionIds().Contains(submissionId)
             || liveJobs.Any(job => job.LifecycleState != ServerJobLifecycleState.Terminal))
             return new(submissionId, 0, 0, 1, [new("nonterminal-jobs", 1)]);
 
@@ -55,8 +87,8 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         var result = await persistence.Submissions.DeleteAsync(submissionId, cancellationToken).ConfigureAwait(false);
         if (result.RejectedSubmissionCount == 0)
         {
-            supervisor.ForgetSubmission(submissionId);
-            live.RemoveSubmission(submissionId);
+            supervisor.ForgetSubmissions(new HashSet<Guid> { submissionId });
+            live.RemoveSubmissions([submissionId]);
         }
         if (logger != null && result.AffectedSubmissionCount > 0)
             ServerLogMessages.SubmissionDeleted(logger, submissionId,

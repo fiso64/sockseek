@@ -2145,28 +2145,6 @@ input[type="checkbox"]:indeterminate {
   margin-bottom: 20px;
 }
 .user-browser-heading h1 { margin: 0; font-size: 1.72rem; font-weight: 650; letter-spacing: -0.025em; }
-.user-view-tabs {
-  display: inline-flex;
-  gap: 3px;
-  padding: 3px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-}
-.user-view-tabs button {
-  min-width: 72px;
-  height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.74rem;
-  font-weight: 550;
-}
-.user-view-tabs button:hover { color: var(--text); background: var(--surface-subtle); }
-.user-view-tabs button.active { color: var(--text); background: var(--accent-soft); }
-
 .user-profile-card {
   overflow: hidden;
   border: 1px solid var(--border);
@@ -2393,7 +2371,6 @@ input[type="checkbox"]:indeterminate {
 
 @media (max-width: 700px) {
   .user-browser-heading { align-items: stretch; flex-direction: column; }
-  .user-view-tabs { align-self: flex-start; }
   .user-profile-primary { grid-template-columns: 96px minmax(0, 1fr); gap: 15px; padding: 16px; }
   .user-profile-picture { width: 96px; height: 96px; border-radius: 13px; }
   .user-profile-copy p { font-size: 0.76rem; }
@@ -3629,10 +3606,6 @@ input[type="checkbox"]:indeterminate {
 
 .dashboard-range-label { min-width: 110px; }
 
-.jobs-tabs { position: sticky; top: 0; z-index: 2; background: var(--bg); display: flex; gap: 20px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
-.jobs-tabs button { padding: 10px 0; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-size: .85rem; }
-.jobs-tabs button:hover { color: var(--text); }
-.jobs-tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
 
 .jobs-filter { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px; font-size: .8rem; color: var(--muted); }
 .jobs-filter button { border: 0; background: transparent; color: var(--accent-text); cursor: pointer; }

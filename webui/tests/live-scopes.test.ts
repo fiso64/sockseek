@@ -73,7 +73,7 @@ function batch(browseId: string, sequence: number, previousSequence: number, rev
 }
 function fixture() {
   const api = {
-    getServerInfo: vi.fn().mockResolvedValue({ liveProtocolVersion: 19 }),
+    getServerInfo: vi.fn().mockResolvedValue({ liveProtocolVersion: 19, version: '4.0', startedAtUtc: '2026-10-22T00:00:00Z' }),
     getDaemonSnapshot: vi.fn().mockResolvedValue(snapshot()),
     getUserBrowseSnapshot: vi.fn((id: string) => Promise.resolve(snapshot(id))),
   };
@@ -92,8 +92,12 @@ it('keeps global transfer details opt-in and preserves the mode after reconnect'
   await client.startDaemon();
   expect(hubs[0]!.invoke).toHaveBeenLastCalledWith('SubscribeAll', 'Overview');
   expect(api.getDaemonSnapshot).toHaveBeenLastCalledWith(undefined, 'Overview');
+  expect(client.serverInfo?.version).toBe('4.0');
+  api.getServerInfo.mockResolvedValueOnce({ liveProtocolVersion: 19, version: '4.1', startedAtUtc: '2026-10-23T00:00:00Z' });
   hubs[0]!.reconnecting();
   await hubs[0]!.reconnected();
+  expect(client.serverInfo?.version).toBe('4.1');
+  expect(client.serverInfo?.startedAtUtc).toBe('2026-10-23T00:00:00Z');
   expect(hubs[0]!.invoke).toHaveBeenLastCalledWith('SubscribeAll', 'Overview');
   expect(api.getDaemonSnapshot).toHaveBeenLastCalledWith(undefined, 'Overview');
 });

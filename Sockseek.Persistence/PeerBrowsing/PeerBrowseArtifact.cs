@@ -5,6 +5,7 @@ using Sockseek.Core.IO;
 using Sockseek.Core.Models;
 using Sockseek.Core.PeerBrowsing;
 using Sockseek.Core.Snapshots;
+using Sockseek.Core.Sharing;
 
 namespace Sockseek.Persistence.PeerBrowsing;
 
@@ -13,7 +14,7 @@ namespace Sockseek.Persistence.PeerBrowsing;
 /// indexes and counters are rebuilt together. Every reader uses this same model.
 /// Array positions are stable IDs (one-based), including across reloads.
 /// </summary>
-internal sealed class PeerBrowseArtifact
+public sealed class PeerBrowseArtifact
 {
     internal sealed record Directory(int Parent, string WirePath, PeerBrowseEntryVisibility Visibility, bool Synthetic);
     internal readonly record struct File(int Directory, string Name, string? WireOverride, long Size,
@@ -134,6 +135,45 @@ internal sealed class PeerBrowseArtifact
         Array.Sort(orderedDirectories, CompareDirectories);
     }
 
+    /// <summary>
+    /// Uses the same tree, counters and filtering as peer shares. Built only when
+    /// the operator opens their shares, from the immutable catalog being served;
+    /// no second persisted catalog or network self-browse is needed.
+    /// </summary>
+    public static async Task<PeerBrowseArtifact> FromCatalogAsync(
+        IShareCatalogReader catalog, CancellationToken cancellationToken)
+    {
+        var directoryIds = new Dictionary<string, int>(StringComparer.Ordinal);
+        var directories = new List<Directory>();
+        var files = new List<File>();
+        int directoryId = 0;
+        await foreach (var row in catalog.EnumerateBrowseRowsAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (row is ShareCatalogBrowseDirectoryRow header)
+            {
+                string path = header.Directory.RemotePath;
+                int separator = path.LastIndexOf('\\');
+                int parent = separator < 0 ? 0 : directoryIds[path[..separator]];
+                directories.Add(new(parent, path, PeerBrowseEntryVisibility.Public, false));
+                directoryIds.Add(path, directoryId = directories.Count);
+            }
+            else if (row is ShareCatalogBrowseFileRow item)
+            {
+                var file = item.File;
+                byte[]? attributes = file.Attributes.Count == 0 ? null : new byte[file.Attributes.Count * 8];
+                for (int i = 0; i < file.Attributes.Count; i++)
+                {
+                    BinaryPrimitives.WriteInt32LittleEndian(attributes!.AsSpan(i * 8), file.Attributes[i].Type);
+                    BinaryPrimitives.WriteInt32LittleEndian(attributes.AsSpan(i * 8 + 4), file.Attributes[i].Value);
+                }
+                files.Add(new(directoryId, PeerBrowsePath.Leaf(file.RemotePath), null, file.SizeBytes,
+                    file.Extension, file.ProtocolCode, attributes, false));
+            }
+        }
+        return new PeerBrowseArtifact(new(PeerBrowseArtifactStore.ArtifactFormatVersion,
+            directories.ToArray(), files.ToArray()), cancellationToken);
+    }
+
     // This is one versioned immutable file, not a second database. BinaryReader/
     // BinaryWriter encode fixed scalar fields and length-prefixed UTF-8 strings;
     // buffering avoids a compression call for every individual scalar.
@@ -226,8 +266,8 @@ internal sealed class PeerBrowseArtifact
         return value >= 0 ? value : throw new InvalidDataException("The peer browse artifact contains a negative length.");
     }
 
-    internal PeerBrowseDirectoryEntry? DirectoryEntry(long id) => Valid(id, directories.Length) ? directories[(int)id - 1] : null;
-    internal PeerBrowseFileEntry? FileEntry(long id)
+    public PeerBrowseDirectoryEntry? DirectoryEntry(long id) => Valid(id, directories.Length) ? directories[(int)id - 1] : null;
+    public PeerBrowseFileEntry? FileEntry(long id)
     {
         if (!Valid(id, data.Files.Length))
             return null;
@@ -254,7 +294,7 @@ internal sealed class PeerBrowseArtifact
         return new(identity, targets, isComplete: true);
     }
 
-    internal PeerBrowsePage<PeerBrowseDirectoryEntry> ReadDirectories(long? parentId, string? query, bool recursive,
+    public PeerBrowsePage<PeerBrowseDirectoryEntry> ReadDirectories(long? parentId, string? query, bool recursive,
         string? afterKey, long? afterId, int limit, CancellationToken cancellationToken)
     {
         string? parentIdentity = null;
@@ -285,7 +325,7 @@ internal sealed class PeerBrowseArtifact
         return Page(rows, limit, row => row.DisplayPath, row => row.DirectoryId);
     }
 
-    internal PeerBrowsePage<PeerBrowseFileEntry> ReadFiles(long directoryId, string? query, string? afterKey,
+    public PeerBrowsePage<PeerBrowseFileEntry> ReadFiles(long directoryId, string? query, string? afterKey,
         long? afterId, int limit, CancellationToken cancellationToken)
     {
         var rows = new List<PeerBrowseFileEntry>();
@@ -303,14 +343,14 @@ internal sealed class PeerBrowseArtifact
         return Page(rows, limit, row => row.Name, row => row.FileId);
     }
 
-    internal string? SearchSortKey(PeerBrowseSearchEntryKind kind, long id) => kind switch
+    public string? SearchSortKey(PeerBrowseSearchEntryKind kind, long id) => kind switch
     {
         PeerBrowseSearchEntryKind.Directory => DirectoryEntry(id)?.DisplayPath,
         PeerBrowseSearchEntryKind.File => Valid(id, data.Files.Length) ? prefixes[data.Files[(int)id - 1].Directory - 1] + fileNames[(int)id - 1] : null,
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
-    internal PeerBrowseSearchPage Search(string query, string? afterPath, PeerBrowseSearchEntryKind? afterKind,
+    public PeerBrowseSearchPage Search(string query, string? afterPath, PeerBrowseSearchEntryKind? afterKind,
         long? afterId, int limit, CancellationToken cancellationToken)
     {
         int separator = query.LastIndexOf('\\');

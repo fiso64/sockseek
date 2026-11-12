@@ -22,13 +22,19 @@ public class EngineStateStoreTests
         var store = new EngineStateStore();
         int invalidations = 0;
         store.JobListChanged += () => invalidations++;
-        store.RemoveSubmission(Guid.NewGuid());
+        store.RemoveSubmissions([Guid.NewGuid()]);
         Assert.AreEqual(1, invalidations);
         var job = new SearchJob("Source") { SubmissionId = Guid.NewGuid() };
         Register(store, job);
         Assert.IsTrue(store.IsJobAvailable(job.Id));
-        store.RemoveSubmission(job.SubmissionId.Value);
+        var other = new SearchJob("Other") { SubmissionId = Guid.NewGuid() };
+        var retained = new SearchJob("Retained") { SubmissionId = Guid.NewGuid() };
+        Register(store, other);
+        Register(store, retained);
+        store.RemoveSubmissions([job.SubmissionId.Value, other.SubmissionId.Value]);
         Assert.IsFalse(store.IsJobAvailable(job.Id));
+        Assert.IsFalse(store.IsJobAvailable(other.Id));
+        Assert.IsTrue(store.IsJobAvailable(retained.Id));
         Assert.IsFalse(store.IsJobAvailable(Guid.NewGuid()));
     }
 
@@ -137,7 +143,7 @@ public class EngineStateStoreTests
         Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, updates.Current.Jobs.Single().Lifecycle!.TerminalOutcome);
         Assert.AreEqual(0, updates.Current.RemovedJobIds.Count, "Storage retirement cannot remove the displayed result.");
 
-        store.RemoveSubmission(roots[3].SubmissionId!.Value);
+        store.RemoveSubmissions([roots[3].SubmissionId!.Value]);
         Assert.IsTrue(await updates.MoveNextAsync());
         CollectionAssert.Contains(updates.Current.RemovedJobIds.ToArray(), roots[3].Id);
         CollectionAssert.Contains(updates.Current.Jobs.Select(row => row.JobId).ToArray(), roots[1].Id);

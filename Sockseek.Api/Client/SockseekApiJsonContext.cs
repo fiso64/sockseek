@@ -58,6 +58,8 @@ namespace Sockseek.Api;
 [JsonSerializable(typeof(SubmissionDetailDto))]
 [JsonSerializable(typeof(SubmissionReasonCountDto))]
 [JsonSerializable(typeof(DeleteSubmissionResponseDto))]
+[JsonSerializable(typeof(DeleteCompletedJobsRequestDto))]
+[JsonSerializable(typeof(DeleteCompletedJobsResponseDto))]
 [JsonSerializable(typeof(RefSelectionMode))]
 [JsonSerializable(typeof(RefSelectionExpressionDto))]
 [JsonSerializable(typeof(JobPreviewState))]
