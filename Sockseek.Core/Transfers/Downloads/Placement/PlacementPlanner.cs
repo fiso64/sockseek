@@ -13,7 +13,7 @@ public sealed record FilePlacement(
 /// Resolves ordinary remote-transfer destinations without interpreting files as music.
 /// Every result is sanitized and proven to remain below the configured parent.
 /// </summary>
-public sealed class PlacementPlanner
+public sealed class PlacementPlanner(OutputScope outputScope)
 {
     public FilePlacement PlanFile(
         PeerFileTarget target,
@@ -30,7 +30,7 @@ public sealed class PlacementPlanner
         return PlanFile(target, relativePath, settings.Output, settings);
     }
 
-    private static FilePlacement PlanFile(
+    private FilePlacement PlanFile(
         PeerFileTarget target,
         RelativeOutputPath relativePath,
         OutputSettings output,
@@ -40,7 +40,8 @@ public sealed class PlacementPlanner
         ArgumentNullException.ThrowIfNull(relativePath);
         ArgumentNullException.ThrowIfNull(output);
 
-        string parent = ResolveParent(output);
+        string parent = Path.GetFullPath(OutputScope.OutputParentDir(output));
+        string placementRoot = PlacementRoot(output);
         string remoteLeaf = RemoteLeaf(target.Filename);
         var plannedRelative = string.IsNullOrWhiteSpace(output.NameFormat)
             ? relativePath
@@ -49,13 +50,13 @@ public sealed class PlacementPlanner
                 relativeDirectoryComponents: relativePath.Components.Take(relativePath.Components.Count - 1).ToArray(),
                 folderName: RemoteLeaf(RemoteDirectory(target.Filename)),
                 itemName: Path.GetFileNameWithoutExtension(remoteLeaf),
-                defaultFolder: "",
+                defaultFolder: outputScope.DefaultFolder,
                 jobType: "RemoteFile",
                 parent,
                 output,
                 settings);
-        string path = ResolveContainedPath(parent, plannedRelative.Components, output.InvalidReplaceStr);
-        return new FilePlacement(target, plannedRelative, path);
+        string path = ResolveContainedPath(placementRoot, plannedRelative.Components, output.InvalidReplaceStr);
+        return new FilePlacement(target, ToRelativePath(parent, path), path);
     }
 
     public IReadOnlyList<FilePlacement> PlanDirectory(
@@ -71,7 +72,7 @@ public sealed class PlacementPlanner
         return PlanDirectory(plan, settings.Output, settings);
     }
 
-    private static IReadOnlyList<FilePlacement> PlanDirectory(
+    private IReadOnlyList<FilePlacement> PlanDirectory(
         DirectoryTransferPlan plan,
         OutputSettings output,
         DownloadSettings? settings)
@@ -79,7 +80,8 @@ public sealed class PlacementPlanner
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(output);
 
-        string parent = ResolveParent(output);
+        string parent = Path.GetFullPath(OutputScope.OutputParentDir(output));
+        string placementRoot = PlacementRoot(output);
         var occupied = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var placements = new List<FilePlacement>(plan.Entries.Count);
 
@@ -103,14 +105,14 @@ public sealed class PlacementPlanner
                     entry.RelativeDirectoryComponents,
                     Path.Join([plan.DisplayRoot, .. entry.RelativeDirectoryComponents]),
                     plan.DisplayRoot,
-                    plan.DisplayRoot,
+                    outputScope.DefaultFolder,
                     "RemoteDirectory",
                     parent,
                     output,
                     settings).Components;
             }
 
-            string resolved = ResolveContainedPath(parent, components, output.InvalidReplaceStr);
+            string resolved = ResolveContainedPath(placementRoot, components, output.InvalidReplaceStr);
             resolved = ResolveStableCollision(resolved, occupied);
             placements.Add(new FilePlacement(entry.Target, ToRelativePath(parent, resolved), resolved));
         }
@@ -118,8 +120,12 @@ public sealed class PlacementPlanner
         return placements.AsReadOnly();
     }
 
-    private static string ResolveParent(OutputSettings output)
-        => Path.GetFullPath(output.ParentDir ?? Directory.GetCurrentDirectory());
+    // Containers supply the default hierarchy for every download type. An explicit
+    // format replaces that hierarchy, and can opt back in with {default-folder}.
+    private string PlacementRoot(OutputSettings output)
+        => Path.GetFullPath(string.IsNullOrWhiteSpace(output.NameFormat)
+            ? outputScope.DefaultDirectory(output)
+            : OutputScope.OutputParentDir(output));
 
     private static string ResolveContainedPath(
         string parent,

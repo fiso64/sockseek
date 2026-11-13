@@ -162,37 +162,16 @@ internal sealed class DownloadExecutorCoordinator
 
     public static JobOutcome OutcomeWithCurrentMetadata(Job job, JobOutcome outcome)
     {
-        if (job is SongJob song)
+        if (outcome.TerminalOutcome is not (JobTerminalOutcome.Succeeded or JobTerminalOutcome.Skipped))
+            return outcome;
+        return job switch
         {
-            var downloadPath = song.DownloadPath ?? outcome.DownloadPath;
-            var chosenCandidate = song.ResolvedTarget ?? outcome.ChosenCandidate;
-            var downloadSource = song.DownloadSource != SongDownloadSource.None
-                ? song.DownloadSource
-                : outcome.DownloadSource;
-
-            return outcome.TerminalOutcome switch
-            {
-                JobTerminalOutcome.Succeeded => JobOutcome.Done(downloadPath, chosenCandidate, downloadSource),
-                JobTerminalOutcome.Skipped when outcome.SkipReason == JobSkipReason.AlreadyExists => JobOutcome.AlreadyExists(downloadPath),
-                JobTerminalOutcome.Skipped => JobOutcome.Skipped(outcome.SkipReason, outcome.FailureReason, downloadPath),
-                _ => outcome,
-            };
-        }
-
-        if (job is DirectoryDownloadJob album)
-        {
-            var downloadPath = album.DownloadPath ?? outcome.DownloadPath;
-
-            return outcome.TerminalOutcome switch
-            {
-                JobTerminalOutcome.Succeeded => JobOutcome.Done(downloadPath),
-                JobTerminalOutcome.Skipped when outcome.SkipReason == JobSkipReason.AlreadyExists => JobOutcome.AlreadyExists(downloadPath),
-                JobTerminalOutcome.Skipped => JobOutcome.Skipped(outcome.SkipReason, outcome.FailureReason, downloadPath),
-                _ => outcome,
-            };
-        }
-
-        return outcome;
+            SongJob song => outcome.WithDownloadMetadata(song.DownloadPath ?? outcome.DownloadPath,
+                song.ResolvedTarget ?? outcome.ChosenCandidate,
+                song.DownloadSource != SongDownloadSource.None ? song.DownloadSource : outcome.DownloadSource),
+            DirectoryDownloadJob directory => outcome.WithDownloadMetadata(directory.DownloadPath ?? outcome.DownloadPath),
+            FileDownloadJob file => outcome.WithDownloadMetadata(file.DownloadPath ?? outcome.DownloadPath),
+            _ => outcome,
+        };
     }
-
 }

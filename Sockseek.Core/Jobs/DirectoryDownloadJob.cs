@@ -162,7 +162,7 @@ public abstract class DirectoryDownloadJob : Job
         if (e.PropertyName is nameof(FileDownloadJob.BytesTransferred)
             or nameof(FileDownloadJob.FileSize))
         {
-            progress.Update(child.Id, child.BytesTransferred, child.FileSize, child.StateSnapshot);
+            progress.Update(child.Id, child.BytesTransferred, child.FileSize, child.StateSnapshot, child.Reused);
             OnPropertyChanged(nameof(BytesTransferred));
             OnPropertyChanged(nameof(TotalKnownBytes));
             if (e.PropertyName == nameof(FileDownloadJob.FileSize))
@@ -171,7 +171,7 @@ public abstract class DirectoryDownloadJob : Job
         }
         else if (e.PropertyName is nameof(Job.LifecycleState) or nameof(Job.TerminalOutcome) or nameof(Job.SkipReason))
         {
-            if (progress.Update(child.Id, child.BytesTransferred, child.FileSize, child.StateSnapshot))
+            if (progress.Update(child.Id, child.BytesTransferred, child.FileSize, child.StateSnapshot, child.Reused))
                 OnPropertyChanged(nameof(Progress));
         }
     }
@@ -221,7 +221,7 @@ public abstract class DirectoryDownloadJob : Job
     private void AttachDirectoryChild(FileDownloadJob child, bool supplemental = false)
     {
         fileJobs.Add(child);
-        progress.Add(child.Id, child.BytesTransferred, child.FileSize, child.StateSnapshot, supplemental);
+        progress.Add(child.Id, child.BytesTransferred, child.FileSize, child.StateSnapshot, supplemental, child.Reused);
         child.PropertyChanged += ChildPropertyChanged;
     }
 

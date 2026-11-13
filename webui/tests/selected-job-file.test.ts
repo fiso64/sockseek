@@ -3,7 +3,7 @@ import type { Schema, TransferStateDto } from '../src/api/types';
 import { selectedJobFile, selectedJobFileTransfer } from '../src/domains/jobs/selected-file';
 
 const file: Schema<'FileDownloadStateDto'> = {
-  downloadPath: null, bytesTransferred: 0, fileSize: null, progressPercent: null,
+  reused: false, downloadPath: null, bytesTransferred: 0, fileSize: null, progressPercent: null,
 };
 
 it('keeps the last attempted source without treating it as a resolved pin', () => {
@@ -13,7 +13,7 @@ it('keeps the last attempted source without treating it as a resolved pin', () =
   };
   const payload: Schema<'JobPayloadDtoSongJobPayloadDto'> = {
     kind: 'song', query: { artistMaybeWrong: false }, candidateCount: 2,
-    file: { downloadPath: null, bytesTransferred: 64, fileSize: 128, progressPercent: 50 },
+    file: { reused: false, downloadPath: null, bytesTransferred: 64, fileSize: 128, progressPercent: 50 },
     lastAttemptedFile: { target, peer: { username: target.username, hasFreeUploadSlot: false, uploadSpeed: 1000 } },
   };
   expect(selectedJobFile(payload)).toEqual({ target, file: payload.file, peer: payload.lastAttemptedFile!.peer });
@@ -78,7 +78,7 @@ it('uses available live identity and progress while the child payload is not que
   };
   const selected = selectedJobFile(null, live);
   expect(selected?.target).toMatchObject({ username: 'Exact Peer', filename: 'Other\\Mix CASE.jpg', size: 128 });
-  expect(selected?.file).toEqual({ downloadPath: '/downloads/cover.jpg', fileSize: 128, bytesTransferred: 64, progressPercent: 50 });
+  expect(selected?.file).toEqual({ reused: false, downloadPath: '/downloads/cover.jpg', fileSize: 128, bytesTransferred: 64, progressPercent: 50 });
   expect(selectedJobFile(null, { ...live, progress: { bytesTransferred: 64, totalBytes: -1 } })?.target.size).toBeNull();
   expect(selectedJobFile(null, { ...live, progress: { bytesTransferred: 0, totalBytes: 0 } })?.target.size).toBe(0);
   expect(selectedJobFileTransfer(live)).toMatchObject({ state: 'Downloading', progressPercent: 50, progressText: '50%' });

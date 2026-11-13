@@ -174,8 +174,7 @@ internal sealed class SongDownloadExecutor
             outcome,
             organizer,
             finalizePlacement,
-            allowOverwrite: !song.Config.Skip.SkipExisting,
-            allowUnownedReplacement: song.Config.Skip.SkipExisting);
+            allowOverwrite: !song.Config.Skip.SkipExisting);
         if (finalization.OrganizationException != null)
         {
             FailPendingTerminalTransfer(song, finalization.OrganizationException, TransferFailureReason.Finalization);
@@ -305,11 +304,8 @@ internal sealed class SongDownloadExecutor
                                         publishToDuplicateCache: target.PublishToDuplicateCache,
                                         parentJob: DownloadParentFor(song, job),
                                         deferTerminalCompletion: true,
-                                        // Reaching transfer means the centralized skip
-                                        // evaluation did not accept the existing file
-                                        // under its configured length semantics.
-                                        allowOverwrite: true,
-                                        protectPublishedOutput: config.Skip.SkipExisting);
+                                        allowOverwrite: !config.Skip.SkipExisting,
+                                        allowReuse: config.Skip.SkipExisting);
                             }
                             catch { return null; }
                         }
@@ -356,7 +352,7 @@ internal sealed class SongDownloadExecutor
                             song.Id,
                             "fast-search-provisional-download-succeeded",
                             null);
-                        return JobOutcome.Done(result.OutputPath, started.Candidate);
+                        return JobOutcome.Done(result.OutputPath, started.Candidate, reused: result.Reused);
                     }
 
                     if (fastDownload?.Status == ExactFileTransferStatus.ManuallySkipped)
@@ -434,10 +430,8 @@ internal sealed class SongDownloadExecutor
                     publishToDuplicateCache: target.PublishToDuplicateCache,
                     parentJob: DownloadParentFor(song, job),
                     deferTerminalCompletion: true,
-                    // The job-level skip evaluator has already decided that
-                    // any existing output is not an acceptable match.
-                    allowOverwrite: true,
-                    protectPublishedOutput: config.Skip.SkipExisting);
+                    allowOverwrite: !config.Skip.SkipExisting,
+                    allowReuse: config.Skip.SkipExisting);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -496,7 +490,7 @@ internal sealed class SongDownloadExecutor
                 song.Id,
                 "candidate-download-succeeded",
                 tried);
-            return JobOutcome.Done(result.OutputPath, candidate);
+            return JobOutcome.Done(result.OutputPath, candidate, reused: result.Reused);
         }
 
         if (lastDownloadException != null)
@@ -529,10 +523,8 @@ internal sealed class SongDownloadExecutor
             publishToDuplicateCache: destination.PublishToDuplicateCache,
             parentJob: DownloadParentFor(song, parentJob),
             deferTerminalCompletion: true,
-            // The job-level skip evaluator has already decided that any
-            // existing output is not an acceptable match.
-            allowOverwrite: true,
-            protectPublishedOutput: config.Skip.SkipExisting);
+            allowOverwrite: !config.Skip.SkipExisting,
+            allowReuse: config.Skip.SkipExisting);
 
         if (download.Status == ExactFileTransferStatus.ManuallySkipped)
             return JobOutcome.Skipped(JobSkipReason.Manual);
@@ -554,7 +546,7 @@ internal sealed class SongDownloadExecutor
                 result.OutputPath);
         }
 
-        return JobOutcome.Done(result.OutputPath, downloadSource: SongDownloadSource.Soulseek);
+        return JobOutcome.Done(result.OutputPath, downloadSource: SongDownloadSource.Soulseek, reused: result.Reused);
     }
 
     internal ValueTask<bool> CompleteAlbumTransfersAsync(IEnumerable<SongJob> files)

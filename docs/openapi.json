@@ -14356,6 +14356,43 @@
               "string"
             ],
             "format": "int32"
+          },
+          "existingFileSource": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerExistingFileSource"
+              }
+            ]
+          },
+          "skippedFileCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
+          },
+          "downloadedFileCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
+          },
+          "reusedFileCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
           }
         }
       },
@@ -15373,6 +15410,20 @@
               "string"
             ],
             "format": "double"
+          },
+          "existingFileSource": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerExistingFileSource"
+              }
+            ]
+          },
+          "reused": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -17681,6 +17732,33 @@
                                 "string"
                               ],
                               "format": "double"
+                            },
+                            "skippedMemberCount": {
+                              "pattern": "^-?(?:0|[1-9]\\d*)$",
+                              "type": [
+                                "null",
+                                "integer",
+                                "string"
+                              ],
+                              "format": "int32"
+                            },
+                            "downloadedMemberCount": {
+                              "pattern": "^-?(?:0|[1-9]\\d*)$",
+                              "type": [
+                                "null",
+                                "integer",
+                                "string"
+                              ],
+                              "format": "int32"
+                            },
+                            "reusedMemberCount": {
+                              "pattern": "^-?(?:0|[1-9]\\d*)$",
+                              "type": [
+                                "null",
+                                "integer",
+                                "string"
+                              ],
+                              "format": "int32"
                             }
                           }
                         }
@@ -18063,6 +18141,33 @@
                             "string"
                           ],
                           "format": "double"
+                        },
+                        "skippedMemberCount": {
+                          "pattern": "^-?(?:0|[1-9]\\d*)$",
+                          "type": [
+                            "null",
+                            "integer",
+                            "string"
+                          ],
+                          "format": "int32"
+                        },
+                        "downloadedMemberCount": {
+                          "pattern": "^-?(?:0|[1-9]\\d*)$",
+                          "type": [
+                            "null",
+                            "integer",
+                            "string"
+                          ],
+                          "format": "int32"
+                        },
+                        "reusedMemberCount": {
+                          "pattern": "^-?(?:0|[1-9]\\d*)$",
+                          "type": [
+                            "null",
+                            "integer",
+                            "string"
+                          ],
+                          "format": "int32"
                         }
                       }
                     }
@@ -19444,6 +19549,15 @@
               "string"
             ],
             "format": "int32"
+          },
+          "skippedAlbumCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
           }
         }
       },
@@ -19587,6 +19701,15 @@
               "string"
             ],
             "format": "int32"
+          },
+          "skippedJobCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
           }
         }
       },
@@ -19887,6 +20010,15 @@
               "string"
             ],
             "format": "int32"
+          },
+          "skippedSongCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
           }
         }
       },
@@ -20904,6 +21036,33 @@
               "string"
             ],
             "format": "double"
+          },
+          "skippedMemberCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "downloadedMemberCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "reusedMemberCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -23614,6 +23773,14 @@
         ],
         "default": "Automatic"
       },
+      "ServerExistingFileSource": {
+        "enum": [
+          "CompletionHistory",
+          "Library",
+          "Destination",
+          null
+        ]
+      },
       "ServerExtractionMode": {
         "type": "integer"
       },
@@ -25845,6 +26012,33 @@
                             "string"
                           ],
                           "format": "double"
+                        },
+                        "skippedMemberCount": {
+                          "pattern": "^-?(?:0|[1-9]\\d*)$",
+                          "type": [
+                            "null",
+                            "integer",
+                            "string"
+                          ],
+                          "format": "int32"
+                        },
+                        "downloadedMemberCount": {
+                          "pattern": "^-?(?:0|[1-9]\\d*)$",
+                          "type": [
+                            "null",
+                            "integer",
+                            "string"
+                          ],
+                          "format": "int32"
+                        },
+                        "reusedMemberCount": {
+                          "pattern": "^-?(?:0|[1-9]\\d*)$",
+                          "type": [
+                            "null",
+                            "integer",
+                            "string"
+                          ],
+                          "format": "int32"
                         }
                       }
                     }
@@ -26227,6 +26421,33 @@
                         "string"
                       ],
                       "format": "double"
+                    },
+                    "skippedMemberCount": {
+                      "pattern": "^-?(?:0|[1-9]\\d*)$",
+                      "type": [
+                        "null",
+                        "integer",
+                        "string"
+                      ],
+                      "format": "int32"
+                    },
+                    "downloadedMemberCount": {
+                      "pattern": "^-?(?:0|[1-9]\\d*)$",
+                      "type": [
+                        "null",
+                        "integer",
+                        "string"
+                      ],
+                      "format": "int32"
+                    },
+                    "reusedMemberCount": {
+                      "pattern": "^-?(?:0|[1-9]\\d*)$",
+                      "type": [
+                        "null",
+                        "integer",
+                        "string"
+                      ],
+                      "format": "int32"
                     }
                   }
                 }
@@ -28869,6 +29090,33 @@
                                 "string"
                               ],
                               "format": "double"
+                            },
+                            "skippedMemberCount": {
+                              "pattern": "^-?(?:0|[1-9]\\d*)$",
+                              "type": [
+                                "null",
+                                "integer",
+                                "string"
+                              ],
+                              "format": "int32"
+                            },
+                            "downloadedMemberCount": {
+                              "pattern": "^-?(?:0|[1-9]\\d*)$",
+                              "type": [
+                                "null",
+                                "integer",
+                                "string"
+                              ],
+                              "format": "int32"
+                            },
+                            "reusedMemberCount": {
+                              "pattern": "^-?(?:0|[1-9]\\d*)$",
+                              "type": [
+                                "null",
+                                "integer",
+                                "string"
+                              ],
+                              "format": "int32"
                             }
                           }
                         }
@@ -29251,6 +29499,33 @@
                             "string"
                           ],
                           "format": "double"
+                        },
+                        "skippedMemberCount": {
+                          "pattern": "^-?(?:0|[1-9]\\d*)$",
+                          "type": [
+                            "null",
+                            "integer",
+                            "string"
+                          ],
+                          "format": "int32"
+                        },
+                        "downloadedMemberCount": {
+                          "pattern": "^-?(?:0|[1-9]\\d*)$",
+                          "type": [
+                            "null",
+                            "integer",
+                            "string"
+                          ],
+                          "format": "int32"
+                        },
+                        "reusedMemberCount": {
+                          "pattern": "^-?(?:0|[1-9]\\d*)$",
+                          "type": [
+                            "null",
+                            "integer",
+                            "string"
+                          ],
+                          "format": "int32"
                         }
                       }
                     }

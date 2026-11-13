@@ -542,7 +542,7 @@ public class CliBackendParityTests
                     },
                     ctx.DownloadedRelativePaths(),
                     ctx.Name);
-                await AssertAutomaticAlbumDownloadAsync(ctx, group: false, expectedTransferredBytes: 0, new Dictionary<string, string>
+                await AssertAutomaticAlbumDownloadAsync(ctx, group: false, expectedTransferredBytes: 2, new Dictionary<string, string>
                 {
                     ["automatic-output/Album/from-profile/01. Artist - Track One.mp3"] = "a",
                     ["automatic-output/Album/from-profile/02. Artist - Track Two.mp3"] = "b",
@@ -680,7 +680,7 @@ public class CliBackendParityTests
                     },
                     ctx.DownloadedRelativePaths(),
                     ctx.Name);
-                await AssertAutomaticAlbumDownloadAsync(ctx, group: true, expectedTransferredBytes: 2, new Dictionary<string, string>
+                await AssertAutomaticAlbumDownloadAsync(ctx, group: true, expectedTransferredBytes: 6, new Dictionary<string, string>
                 {
                     ["automatic-output/Album One/from-profile/01. Artist - First.mp3"] = "a",
                     ["automatic-output/Album Two/from-profile/01. Artist - Second.mp3"] = "bb",
@@ -1448,9 +1448,8 @@ public class CliBackendParityTests
         Assert.AreEqual(expectedFiles.Count, directories.Sum(directory => directory.TerminalFileCount), ctx.Name);
         Assert.AreEqual(0, directories.Sum(directory => directory.FailedFileCount), ctx.Name);
         Assert.AreEqual((long)expectedFiles.Sum(file => file.Value.Length), directories.Sum(directory => directory.TotalKnownBytes), ctx.Name);
-        // Earlier manual outputs can be reused. Cached copies are successful
-        // files, not additional network bytes; only the previously unselected
-        // group child needs a new transfer.
+        // This is a new workflow with a new destination. Earlier manual outputs
+        // must not supply cached payloads across independent submissions.
         Assert.AreEqual(expectedTransferredBytes, directories.Sum(directory => directory.BytesTransferred), ctx.Name);
         Assert.IsTrue(directories.All(directory => directory.ProgressPercent == 100), ctx.Name);
         CollectionAssert.AreEqual(before.Concat(expectedFiles.Keys).Order(StringComparer.Ordinal).ToArray(),

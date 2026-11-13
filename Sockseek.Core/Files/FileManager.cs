@@ -19,13 +19,6 @@ public sealed class FileOrganizationException : IOException
     public string TargetPath { get; }
 }
 
-internal sealed class OutputPathAlreadyExistsException(string outputPath)
-    : IOException($"Output path already exists: '{outputPath}'.")
-{
-    public string OutputPath { get; } = outputPath;
-}
-
-
 // Context object passed to music-variable extractors and name-format helpers.
 // Constructed from a SongJob so name format works uniformly across single songs and album files.
 public struct FileManagerContext
@@ -213,7 +206,7 @@ public class FileManager
     }
 
     // Organizes all files in a completed album download.
-    public void OrganizeAlbum(Job albumJob, List<SongJob> allFiles, List<SongJob>? additionalImages, bool remainingOnly = true, Action<string>? beforeReplace = null)
+    public void OrganizeAlbum(Job albumJob, List<SongJob> allFiles, List<SongJob>? additionalImages, bool remainingOnly = true, Func<SongJob, string, bool>? preparePlacement = null)
     {
         lock (sync)
         {
@@ -221,7 +214,7 @@ public class FileManager
             {
                 if (remainingOnly && organized.Contains(file))
                     continue;
-                OrganizeDownloadedFile(file, beforeReplace);
+                OrganizeDownloadedFile(file, preparePlacement);
             }
 
             var nonAudioToOrganize = string.IsNullOrEmpty(output.NameFormat)
@@ -232,7 +225,7 @@ public class FileManager
                 return;
 
             var completedAudioPaths = allFiles
-                .Where(f => !f.IsNotAudio && f.TerminalOutcome == JobTerminalOutcome.Succeeded && !string.IsNullOrEmpty(f.DownloadPath))
+                .Where(f => !f.IsNotAudio && f.IsSuccessfulTerminal && !string.IsNullOrEmpty(f.DownloadPath))
                 .Select(f => f.DownloadPath!)
                 .ToList();
             string parent = completedAudioPaths.Count == 0 ? OutputParentDir : Utils.GreatestCommonDirectory(
@@ -242,12 +235,12 @@ public class FileManager
             {
                 if (remainingOnly && organized.Contains(file))
                     continue;
-                OrganizeNonAudio(file, parent, additionalImages != null && additionalImages.Contains(file), beforeReplace);
+                OrganizeNonAudio(file, parent, additionalImages != null && additionalImages.Contains(file), preparePlacement);
             }
         }
     }
 
-    public void OrganizeDownloadedFile(SongJob song, Action<string>? beforeReplace = null)
+    public void OrganizeDownloadedFile(SongJob song, Func<SongJob, string, bool>? preparePlacement = null)
     {
         lock (sync)
         {
@@ -281,7 +274,11 @@ public class FileManager
                 var oldFilePath = song.DownloadPath;
                 try
                 {
-                    beforeReplace?.Invoke(newFilePath);
+                    if (preparePlacement?.Invoke(song, newFilePath) == false)
+                    {
+                        organized.Add(song);
+                        return;
+                    }
                     Utils.MoveAndDeleteParent(oldFilePath, newFilePath, CleanupRootForSourcePath(oldFilePath));
                 }
                 catch (Exception ex)
@@ -310,7 +307,7 @@ public class FileManager
     public void OrganizeSong(SongJob song)
         => OrganizeDownloadedFile(song);
 
-    private void OrganizeNonAudio(SongJob file, string parent, bool isAdditionalImage, Action<string>? beforeReplace)
+    private void OrganizeNonAudio(SongJob file, string parent, bool isAdditionalImage, Func<SongJob, string, bool>? preparePlacement)
     {
         if (string.IsNullOrEmpty(file.DownloadPath))
             return;
@@ -329,7 +326,11 @@ public class FileManager
             var oldFilePath = file.DownloadPath;
             try
             {
-                beforeReplace?.Invoke(newFilePath);
+                if (preparePlacement?.Invoke(file, newFilePath) == false)
+                {
+                    organized.Add(file);
+                    return;
+                }
                 Utils.MoveAndDeleteParent(oldFilePath, newFilePath, CleanupRootForSourcePath(oldFilePath));
             }
             catch (Exception ex)

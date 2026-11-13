@@ -850,9 +850,11 @@ public sealed class SearchViewCoordinatorTests
                 var pinned = root.Jobs.OfType<AlbumJob>().Single(album => album.Query.Album == "Album Alpha");
                 Assert.AreEqual(AlbumDirectoryResolutionPolicy.UseSelectedSnapshot, pinned.DirectoryResolutionPolicy);
                 Assert.AreEqual(AlbumValidationRequirement.UserAccepted, pinned.ValidationRequirement);
+                Assert.IsFalse(pinned.CanBeSkipped);
                 CollectionAssert.AreEqual(new[] { first }, pinned.ResolvedTarget!.Files.Select(file => file.Candidate.Filename).ToArray());
                 var wholeFolder = root.Jobs.OfType<AlbumJob>().Single(album => album.Query.Album == "Album Beta");
                 Assert.AreEqual(AlbumValidationRequirement.UserAccepted, wholeFolder.ValidationRequirement);
+                Assert.IsFalse(wholeFolder.CanBeSkipped);
                 Assert.AreEqual(AlbumDirectoryResolutionPolicy.CompleteIfNeeded, wholeFolder.DirectoryResolutionPolicy);
                 CollectionAssert.AreEqual(new[] { sibling }, wholeFolder.ResolvedTarget!.Files.Select(file => file.Candidate.Filename).ToArray());
 

@@ -19,7 +19,11 @@ public sealed record ExactFileTransferResult(
     string OutputPath,
     PeerFileTarget Target,
     Guid? TransferId = null,
-    int AttemptCount = 0);
+    int AttemptCount = 0)
+{
+    // Completed exact-file work without a network transfer came from a local copy.
+    public bool Reused => TransferId == null;
+}
 
 public enum ExactFileTransferStatus
 {
@@ -85,7 +89,7 @@ public sealed class ExactPeerFileTransferRunner
         Job? parentJob = null,
         bool deferTerminalCompletion = false,
         bool allowOverwrite = true,
-        bool protectPublishedOutput = false)
+        bool allowReuse = true)
     {
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(owner);
@@ -99,10 +103,10 @@ public sealed class ExactPeerFileTransferRunner
 
         // Cached work remains usable while disconnected. The cheap presence
         // probe is only an optimization; PrepareAsync rechecks under the owner.
-        if (!clientManager.IsConnectedAndLoggedIn || fileOperations.MayHaveReusable(target))
+        if (!clientManager.IsConnectedAndLoggedIn || (allowReuse && fileOperations.MayHaveReusable(target, owner.WorkflowId)))
         {
             var reused = await fileOperations.TryReuseAsync(target, outputPath, owner.Id, owner.WorkflowId,
-                publishToDuplicateCache, allowOverwrite, protectPublishedOutput);
+                publishToDuplicateCache, allowOverwrite, allowReuse);
             if (reused != null) return reused;
         }
 
@@ -176,7 +180,7 @@ public sealed class ExactPeerFileTransferRunner
         }
 
         var prepared = await fileOperations.PrepareAsync(target, outputPath, incompleteOutputPath, owner.Id, owner.WorkflowId,
-            publishToDuplicateCache, allowOverwrite, protectPublishedOutput);
+            publishToDuplicateCache, allowOverwrite, allowReuse);
         if (prepared.Reused != null) return prepared.Reused;
 
         try

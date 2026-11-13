@@ -29,20 +29,29 @@ it('keeps missing outcomes and unknown sizes distinct from success and empty fil
   expect(directoryFileRow({
     id: 'four', relativePath: 'Cancelled.jpg', ownerTerminal: true,
     child: { lifecycleState: 'Terminal', terminalOutcome: 'Cancelled' },
-    file: { downloadPath: null, bytesTransferred: 64, fileSize: 128, progressPercent: 50 },
+    file: { reused: false, downloadPath: null, bytesTransferred: 64, fileSize: 128, progressPercent: 50 },
   }).transfer).toMatchObject({ state: 'Cancelled', progressPercent: 50, tone: 'cancelled' });
   expect(directoryFileRow({
     id: 'five', relativePath: 'Existing.jpg', ownerTerminal: true,
     child: { lifecycleState: 'Terminal', terminalOutcome: 'Skipped', skipReason: 'AlreadyExists' },
-    file: { downloadPath: '/downloads/Existing.jpg', bytesTransferred: 0, fileSize: 128, progressPercent: 0 },
+    file: { reused: false, downloadPath: '/downloads/Existing.jpg', bytesTransferred: 0, fileSize: 128, progressPercent: 0 },
   }).transfer).toMatchObject({ state: 'Skipped', progressPercent: undefined,
-    job: { skipReason: 'AlreadyExists' }, file: { downloadPath: '/downloads/Existing.jpg' } });
+    job: { skipReason: 'AlreadyExists' }, file: { reused: false, downloadPath: '/downloads/Existing.jpg' } });
+  const reused = directoryFileRow({
+    id: 'reused', relativePath: 'Copy.jpg', ownerTerminal: true,
+    child: { lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' },
+    file: { reused: true, downloadPath: '/downloads/Copy.jpg', bytesTransferred: 0, fileSize: 128, progressPercent: 0 },
+  }).transfer;
+  expect(reused?.file?.reused).toBe(true);
+  expect(reused?.file?.bytesTransferred).toBe(0);
+  expect(reused?.progressPercent).toBeUndefined();
 });
 
 it('shows a directory zero only when its owner confirms every planned size is known', () => {
   const base = {
     phase: 'planned', attemptNumber: 1, downloadPath: null, fileCount: 1,
     terminalFileCount: 0, successfulFileCount: 0, failedFileCount: 0,
+    skippedFileCount: 0, downloadedFileCount: 0, reusedFileCount: 0,
     bytesTransferred: 0, totalKnownBytes: 0, progressPercent: null, unknownFileSizeCount: 1,
   } satisfies Schema<'DirectoryDownloadStateDto'>;
   expect(directoryKnownSize({ ...base, unknownFileSizeCount: 1 })).toBeNull();

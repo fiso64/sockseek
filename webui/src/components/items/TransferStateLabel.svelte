@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import Modal from '../Modal.svelte';
+  import { jobSkipExplanation } from '../../domains/jobs/status';
   import { folderSources, type FolderItemFile, type TransferPresentation } from '../../domains/presentation/items';
   import { formatBytes, formatCount, humanizeStateValue } from '../../app/format';
 
@@ -49,11 +50,12 @@
         ['Peer', peer ?? undefined],
         [files ? 'Folder' : 'Remote path', files ? path : transfer.target?.filename ?? row?.identity.remotePath ?? path],
         [sources.complete ? remoteFolders.length === 1 ? 'Remote folder' : 'Remote folders' : 'Remote folders (loaded files)', remoteFolders.length ? remoteFolders.join('\n') : undefined],
-        [job?.skipReason === 'AlreadyExists' ? 'Existing download' : 'Local path', localPath ?? undefined],
+        [job?.skipReason === 'AlreadyExists' ? 'Existing path' : 'Local path', localPath ?? undefined],
         ['Size', total == null ? undefined : formatBytes(total)],
         ['Attempts', row ? formatCount(row.status.attemptCount) : undefined],
         ['Folder attempt', directory?.attemptNumber == null ? undefined : formatCount(directory.attemptNumber)],
-        ['Skip reason', meaningful(job?.skipReason)],
+        ['Skip reason', jobSkipExplanation(job, file?.existingFileSource ?? directory?.existingFileSource) || undefined],
+        ['Source', file?.reused ? 'Reused a completed local download from this workflow' : undefined],
         ['Failure reason', meaningful(job && terminal ? job.failureReason : row?.status.failureReason)],
         ['Cancellation', meaningful(job?.cancellationSource) ?? meaningful(row?.status.cancellationSource)],
         ['Activity', terminal ? undefined : meaningful(job?.activityPhase)],
@@ -81,7 +83,8 @@
     ] });
     if (directory) details.splice(1, 0, { title: 'Files', fields: [
       ['Total', formatCount(directory.fileCount)], ['Finished', formatCount(directory.terminalFileCount)],
-      ['Successful', formatCount(directory.successfulFileCount)], ['Failed', formatCount(directory.failedFileCount)],
+      ['Downloaded', formatCount(directory.downloadedFileCount)], ['Skipped', formatCount(directory.skippedFileCount)],
+      ['Reused', formatCount(directory.reusedFileCount)], ['Failed', formatCount(directory.failedFileCount)],
     ] });
     return details.map(section => ({ ...section, fields: section.fields.filter(([, value]) => value !== undefined && value !== '') }))
       .filter(section => section.fields.length);

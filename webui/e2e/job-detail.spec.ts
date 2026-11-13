@@ -19,6 +19,45 @@ test('opens a CLI print-results run as searchable results on navigation and relo
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
 });
 
+for (const mode of ['song', 'album'] as const) {
+  test(`shows the existing path of a history-skipped ${mode} on reload`, async ({ page, daemon }, testInfo) => {
+    await daemon.command(mode === 'song' ? 'music-search' : 'album-art-search');
+    const options = { outputParentDir: testInfo.outputPath(mode), downloadSettings: {
+      output: { writeIndex: true }, search: { noBrowseFolder: true },
+    } };
+    const data = mode === 'song'
+      ? { songQuery: { title: 'Fixture song', artistMaybeWrong: false }, options }
+      : { albumQuery: { album: 'Fixture Album', artistMaybeWrong: false }, options };
+    let firstPath: string | null | undefined;
+    for (let run = 0; run < 2; run++) {
+      const response = await page.request.post(`/api/jobs/downloads/${mode}`, { data });
+      expect(response.status(), await response.text()).toBe(202);
+      const job = await response.json() as Schema<'JobSummaryDto'>;
+      await daemon.command(`wait-job-complete:${job.jobId}`);
+      const detail = await (await page.request.get(`/api/jobs/${job.jobId}`)).json() as Schema<'JobDetailDto'>;
+      const output = detail.payload?.kind === 'song' ? detail.payload.file
+        : detail.payload?.kind === 'album' ? detail.payload.directory : undefined;
+      expect(output).toBeDefined();
+      if (run === 0) {
+        expect(detail.summary.terminalOutcome).toBe('Succeeded');
+        firstPath = output!.downloadPath;
+        expect(firstPath).toBeTruthy();
+        continue;
+      }
+      expect(detail.summary.terminalOutcome).toBe('Skipped');
+      expect(output!.existingFileSource).toBe('CompletionHistory');
+      expect(output!.downloadPath).toBe(firstPath);
+      await page.goto(`/jobs/${job.jobId}`);
+      const existingPath = page.locator('.job-content-section dd');
+      await expect(existingPath).toHaveText(firstPath!);
+      await page.reload();
+      await expect(existingPath).toHaveText(firstPath!);
+      await page.locator('.job-content-section .transfer-state').click();
+      await expect(page.getByRole('dialog').locator('dd').filter({ hasText: firstPath! })).toHaveCount(1);
+    }
+  });
+}
+
 // Record browser collection reads separately from direct API assertions.
 function observeUnfilteredChildReads(page: Page): string[] {
   const parents: string[] = [];

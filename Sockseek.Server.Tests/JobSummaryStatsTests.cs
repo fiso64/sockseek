@@ -24,13 +24,13 @@ public sealed class JobSummaryStatsTests
         [
             (new SongJob(query), new()),
             (new AlbumJob(albumQuery), new(MemberCount: 0, CompletedMemberCount: 0,
-                FailedMemberCount: 0, FolderCount: 0, FileCount: 0)),
-            (new SongGroupsJob(query), new(MemberCount: 0, CompletedMemberCount: 0, FailedMemberCount: 0)),
-            (new AlbumGroupsJob(albumQuery), new(MemberCount: 0, CompletedMemberCount: 0, FailedMemberCount: 0)),
-            (new JobList("List", [new SongJob(query)]), new(MemberCount: 1, CompletedMemberCount: 0, FailedMemberCount: 0)),
+                FailedMemberCount: 0, SkippedMemberCount: 0, FolderCount: 0, FileCount: 0, DownloadedMemberCount: 0, ReusedMemberCount: 0)),
+            (new SongGroupsJob(query), new(MemberCount: 0, CompletedMemberCount: 0, FailedMemberCount: 0, SkippedMemberCount: 0)),
+            (new AlbumGroupsJob(albumQuery), new(MemberCount: 0, CompletedMemberCount: 0, FailedMemberCount: 0, SkippedMemberCount: 0)),
+            (new JobList("List", [new SongJob(query)]), new(MemberCount: 1, CompletedMemberCount: 0, FailedMemberCount: 0, SkippedMemberCount: 0)),
             (new RemoteFileJob(new PeerFileTarget(new(" Peer ", @"Share\File.flac"), 123, "flac")), new(KnownBytes: 123)),
             (new RemoteDirectoryJob(new RemoteDirectorySource.PeerDirectory(new(" Peer ", @"Share\Album"))),
-                new(MemberCount: 0, CompletedMemberCount: 0, FailedMemberCount: 0, FileCount: 0)),
+                new(MemberCount: 0, CompletedMemberCount: 0, FailedMemberCount: 0, SkippedMemberCount: 0, FileCount: 0, DownloadedMemberCount: 0, ReusedMemberCount: 0)),
             (new RetrieveFolderJob(new(" Peer ", @"Share\Album")), new(NewFilesFoundCount: 0)),
             (new SearchJob("files"), null), (new ExtractJob("source"), null),
         ];
@@ -85,19 +85,19 @@ public sealed class JobSummaryStatsTests
         SongQuerySnapshot songQuery = new(null, null, null, null, null, false);
         AlbumQuerySnapshot albumQuery = new(null, null, null, null, false);
         FileDownloadStateSnapshot file = new(null, 0, null);
-        DirectoryDownloadStateSnapshot directory = new("transferring", 1, null, 8, 3, 2, 1, 45, 100, 0, 0.45);
+        DirectoryDownloadStateSnapshot directory = new("transferring", 1, null, 8, 3, 2, 1, 45, 100, 0, 0.45, SkippedFileCount: 1, ReusedFileCount: 1);
         (string kind, JobSnapshotPayload payload, JobSummaryStatsDto expected)[] cases =
         [
             ("Song", new SongJobSnapshotPayload(songQuery, 3, null, null, SongDownloadSource.None, file, null), new(CandidateCount: 3)),
             ("Album", new AlbumExecutionPayload(albumQuery, 4, null, directory, null),
-                new(MemberCount: 8, CompletedMemberCount: 3, FailedMemberCount: 1, FolderCount: 4, FileCount: 8, ProgressPercent: 45)),
+                new(MemberCount: 8, CompletedMemberCount: 3, FailedMemberCount: 1, FolderCount: 4, FileCount: 8, ProgressPercent: 45, SkippedMemberCount: 1, DownloadedMemberCount: 0, ReusedMemberCount: 1)),
             ("RemoteFile", new RemoteFileJobSnapshotPayload(new(new("Peer", @"Music\Song.mp3"), 123, ".mp3"), new(["Song.mp3"]), file), new(KnownBytes: 123)),
             ("RemoteDirectory", new RemoteDirectoryExecutionPayload(RemoteDirectorySourceSnapshotKind.Resolved, null, null, null, null,
                 directory with { FileCount = 9, TerminalFileCount = 4, BytesTransferred = 35, Progress = 0.35 }),
-                new(MemberCount: 9, CompletedMemberCount: 4, FailedMemberCount: 1, FileCount: 9, ProgressPercent: 35)),
-            ("SongGroups", new SongGroupsExecutionPayload(songQuery, null, new(5, 2, 1, 1)), new(MemberCount: 5, CompletedMemberCount: 2, FailedMemberCount: 1)),
-            ("AlbumGroups", new AlbumGroupsJobSnapshotPayload(albumQuery, new(5, 2, 1, 1), null), new(MemberCount: 5, CompletedMemberCount: 2, FailedMemberCount: 1)),
-            ("JobList", new JobListExecutionPayload(new(6, 3, 2, 1)), new(MemberCount: 6, CompletedMemberCount: 3, FailedMemberCount: 1)),
+                new(MemberCount: 9, CompletedMemberCount: 4, FailedMemberCount: 1, FileCount: 9, ProgressPercent: 35, SkippedMemberCount: 1, DownloadedMemberCount: 0, ReusedMemberCount: 1)),
+            ("SongGroups", new SongGroupsExecutionPayload(songQuery, null, new(5, 2, 1, 1)), new(MemberCount: 5, CompletedMemberCount: 2, FailedMemberCount: 1, SkippedMemberCount: 0)),
+            ("AlbumGroups", new AlbumGroupsJobSnapshotPayload(albumQuery, new(5, 2, 1, 1), null), new(MemberCount: 5, CompletedMemberCount: 2, FailedMemberCount: 1, SkippedMemberCount: 0)),
+            ("JobList", new JobListExecutionPayload(new(6, 3, 2, 1)), new(MemberCount: 6, CompletedMemberCount: 3, FailedMemberCount: 1, SkippedMemberCount: 0)),
             ("RetrieveFolder", new RetrieveFolderExecutionPayload(new("Peer", "Music"), 2, FolderRetrievalOutcome.Completed, false), new(NewFilesFoundCount: 2)),
         ];
         foreach (var (kind, payload, expected) in cases)

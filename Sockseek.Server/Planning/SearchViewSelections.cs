@@ -817,7 +817,13 @@ public sealed class SearchViewSelections
             if (candidates.Count == 0)
                 return (null, chosenOption == null ? "locked" : "unavailable-option");
             SongQuery query = group.Query;
-            return (new SongJob(query) { Candidates = candidates }, null);
+            var song = new SongJob(query) { Candidates = candidates };
+            if (chosenOption != null || request.UseRepresentativeWhenUnchosen == true)
+            {
+                song.ResolvedTarget = candidates.Single();
+                song.ExactTarget = song.ResolvedTarget.Target;
+            }
+            return (song, null);
         }
         if (item.AlbumGroup is { } albumGroup)
         {

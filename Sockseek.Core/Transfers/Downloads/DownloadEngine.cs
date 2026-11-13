@@ -443,7 +443,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         foreach (var (id, context) in JobPreparer.PrepareSubtree(
             job, job.PlannedSettings!.ReadSettings(), _jobSettingsResolver,
             explicitOwnerList: previous.PreparationOwner,
-            parentCtx: inherited, rootSettingsAreFinal: true))
+            parentCtx: inherited, rootSettingsAreFinal: true, indexes: _runtime.Files.Indexes))
         {
             context.PreprocessTracks = previous.PreprocessTracks;
             _contexts.Set(id, job.WorkflowId, context);
@@ -503,7 +503,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
                 events.Attempts,
                 events.Gates,
                 events.TerminalTransfers,
-                _runtime.Files.ActiveCachedDownloadCount,
+                _runtime.Files.CachedDownloadCount,
                 _sourceMutations.RetainedWorkflowCount);
         }
     }
@@ -651,7 +651,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
                         rootJob,
                         settings!,
                         _jobSettingsResolver,
-                        rootSettingsAreFinal: queuedJob.SettingsAreFinal))
+                        rootSettingsAreFinal: queuedJob.SettingsAreFinal, indexes: _runtime.Files.Indexes))
                         _contexts.Set(id, rootJob.WorkflowId, ctx);
 
                     _executionContext.ObservePreparedAutoProfiles(rootJob);

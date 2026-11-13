@@ -28,7 +28,7 @@ namespace Sockseek.Core.Jobs;
         public override SongQuery QueryTrack =>
             new SongQuery { Artist = Query.Artist, Title = Query.Album, URI = Query.URI };
 
-        protected override bool DefaultCanBeSkipped => true;
+        protected override bool DefaultCanBeSkipped => ValidationRequirement != AlbumValidationRequirement.UserAccepted;
 
         // Populated after search. Each element is one candidate folder version.
         public List<AlbumFolder> Results { get; set; } = new();
@@ -90,6 +90,7 @@ namespace Sockseek.Core.Jobs;
             var child = new SongJob(new SongQuery(file.Query))
             {
                 ResolvedTarget = file.Candidate,
+                ExactTarget = !CanBeSkipped ? file.Candidate.Target : null,
                 Candidates = [file.Candidate],
                 FileSize = file.Candidate.Target.Size,
             };

@@ -2,6 +2,8 @@ using Sockseek.Core.Models;
 
 namespace Sockseek.Core.Jobs;
 
+public enum ExistingFileSource { CompletionHistory, Library, Destination }
+
 // JobOutcome describes the job state transition produced by execution.
 // It should not carry post-commit side effects such as index updates,
 // playlist writes, file organization, event emission, or on-complete hooks.
@@ -17,10 +19,17 @@ public sealed record JobOutcome
     public JobFailureReason FailureReason { get; }
     public string? FailureMessage { get; }
     public string? FailureDetail { get; }
-    public bool ShouldUpdateDownloadPath { get; }
-    public string? DownloadPath { get; }
-    public FileCandidate? ChosenCandidate { get; }
-    public SongDownloadSource DownloadSource { get; }
+    public bool ShouldUpdateDownloadPath { get; private init; }
+    public string? DownloadPath { get; private init; }
+    public FileCandidate? ChosenCandidate { get; private init; }
+    public SongDownloadSource DownloadSource { get; private init; }
+    public ExistingFileSource? ExistingFileSource { get; private init; }
+    public bool Reused { get; private init; }
+
+    internal JobOutcome WithDownloadMetadata(string? path, FileCandidate? candidate = null,
+        SongDownloadSource source = SongDownloadSource.None)
+        => this with { ShouldUpdateDownloadPath = path != null, DownloadPath = path,
+            ChosenCandidate = candidate, DownloadSource = source };
 
     private JobOutcome(
         bool shouldCommit,
@@ -66,14 +75,15 @@ public sealed record JobOutcome
     public static JobOutcome Done(
         string? downloadPath = null,
         FileCandidate? chosenCandidate = null,
-        SongDownloadSource downloadSource = SongDownloadSource.None)
-        => new(
+        SongDownloadSource downloadSource = SongDownloadSource.None,
+        bool reused = false)
+        => new JobOutcome(
             shouldCommit: true,
             terminalOutcome: JobTerminalOutcome.Succeeded,
             shouldUpdateDownloadPath: downloadPath != null,
             downloadPath: downloadPath,
             chosenCandidate: chosenCandidate,
-            downloadSource: downloadSource);
+            downloadSource: downloadSource) { Reused = reused };
 
     public static JobOutcome Failed(
         JobFailureReason reason,
@@ -113,8 +123,9 @@ public sealed record JobOutcome
             downloadPath: downloadPath);
     }
 
-    public static JobOutcome AlreadyExists(string? downloadPath = null)
-        => Skipped(JobSkipReason.AlreadyExists, JobFailureReason.None, downloadPath);
+    public static JobOutcome AlreadyExists(string? downloadPath = null,
+        ExistingFileSource source = global::Sockseek.Core.Jobs.ExistingFileSource.Destination)
+        => Skipped(JobSkipReason.AlreadyExists, JobFailureReason.None, downloadPath) with { ExistingFileSource = source };
 
     public static JobOutcome PartialSuccess(
         string? message = null,

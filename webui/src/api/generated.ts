@@ -11096,6 +11096,22 @@ export interface components {
             progressPercent?: null | number | string;
             /** Format: int32 */
             unknownFileSizeCount: number | string;
+            existingFileSource?: null | components["schemas"]["ServerExistingFileSource"];
+            /**
+             * Format: int32
+             * @default 0
+             */
+            skippedFileCount: number | string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            downloadedFileCount: number | string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            reusedFileCount: number | string;
         };
         DirectoryManifestEntryDto: {
             /** Format: int32 */
@@ -11290,6 +11306,9 @@ export interface components {
             fileSize?: null | number | string;
             /** Format: double */
             progressPercent?: null | number | string;
+            existingFileSource?: null | components["schemas"]["ServerExistingFileSource"];
+            /** @default false */
+            reused: boolean;
         };
         FileMetadataDto: {
             name: string;
@@ -11775,6 +11794,12 @@ export interface components {
                             newFilesFoundCount?: null | number | string;
                             /** Format: double */
                             progressPercent?: null | number | string;
+                            /** Format: int32 */
+                            skippedMemberCount?: null | number | string;
+                            /** Format: int32 */
+                            downloadedMemberCount?: null | number | string;
+                            /** Format: int32 */
+                            reusedMemberCount?: null | number | string;
                         };
                     };
                     display?: {
@@ -11860,6 +11885,12 @@ export interface components {
                         newFilesFoundCount?: null | number | string;
                         /** Format: double */
                         progressPercent?: null | number | string;
+                        /** Format: int32 */
+                        skippedMemberCount?: null | number | string;
+                        /** Format: int32 */
+                        downloadedMemberCount?: null | number | string;
+                        /** Format: int32 */
+                        reusedMemberCount?: null | number | string;
                     };
                 }[];
                 searches: {
@@ -12205,6 +12236,11 @@ export interface components {
             succeededAlbumCount: number | string;
             /** Format: int32 */
             failedAlbumCount: number | string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            skippedAlbumCount: number | string;
         };
         JobPayloadDtoAlbumJobPayloadDto: {
             /** @enum {string} */
@@ -12242,6 +12278,11 @@ export interface components {
             succeededJobCount: number | string;
             /** Format: int32 */
             failedJobCount: number | string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            skippedJobCount: number | string;
         };
         JobPayloadDtoRemoteDirectoryJobPayloadDto: {
             /** @enum {string} */
@@ -12312,6 +12353,11 @@ export interface components {
             succeededSongCount: number | string;
             /** Format: int32 */
             failedSongCount: number | string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            skippedSongCount: number | string;
         };
         JobPayloadDtoSongJobPayloadDto: {
             /** @enum {string} */
@@ -12539,6 +12585,12 @@ export interface components {
             newFilesFoundCount?: null | number | string;
             /** Format: double */
             progressPercent?: null | number | string;
+            /** Format: int32 */
+            skippedMemberCount?: null | number | string;
+            /** Format: int32 */
+            downloadedMemberCount?: null | number | string;
+            /** Format: int32 */
+            reusedMemberCount?: null | number | string;
         };
         JoinRoomRequestDto: {
             roomName: string;
@@ -13198,6 +13250,8 @@ export interface components {
          * @enum {unknown}
          */
         ServerDownloadBehavior: "Automatic" | "Manual";
+        /** @enum {unknown} */
+        ServerExistingFileSource: "CompletionHistory" | "Library" | "Destination" | null;
         ServerExtractionMode: number;
         /** @enum {unknown} */
         ServerFolderRetrievalOutcome: "none" | "completed" | "cancelled" | "failed";
@@ -13703,6 +13757,12 @@ export interface components {
                         newFilesFoundCount?: null | number | string;
                         /** Format: double */
                         progressPercent?: null | number | string;
+                        /** Format: int32 */
+                        skippedMemberCount?: null | number | string;
+                        /** Format: int32 */
+                        downloadedMemberCount?: null | number | string;
+                        /** Format: int32 */
+                        reusedMemberCount?: null | number | string;
                     };
                 };
                 display?: {
@@ -13788,6 +13848,12 @@ export interface components {
                     newFilesFoundCount?: null | number | string;
                     /** Format: double */
                     progressPercent?: null | number | string;
+                    /** Format: int32 */
+                    skippedMemberCount?: null | number | string;
+                    /** Format: int32 */
+                    downloadedMemberCount?: null | number | string;
+                    /** Format: int32 */
+                    reusedMemberCount?: null | number | string;
                 };
             }[];
             searches: {
@@ -14428,6 +14494,12 @@ export interface components {
                             newFilesFoundCount?: null | number | string;
                             /** Format: double */
                             progressPercent?: null | number | string;
+                            /** Format: int32 */
+                            skippedMemberCount?: null | number | string;
+                            /** Format: int32 */
+                            downloadedMemberCount?: null | number | string;
+                            /** Format: int32 */
+                            reusedMemberCount?: null | number | string;
                         };
                     };
                     display?: {
@@ -14513,6 +14585,12 @@ export interface components {
                         newFilesFoundCount?: null | number | string;
                         /** Format: double */
                         progressPercent?: null | number | string;
+                        /** Format: int32 */
+                        skippedMemberCount?: null | number | string;
+                        /** Format: int32 */
+                        downloadedMemberCount?: null | number | string;
+                        /** Format: int32 */
+                        reusedMemberCount?: null | number | string;
                     };
                 }[];
                 searches: {

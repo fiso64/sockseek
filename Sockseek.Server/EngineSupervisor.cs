@@ -591,7 +591,7 @@ public sealed class EngineSupervisor : IDisposable
                 : request.RequestedMode == ServerExtractionMode.General
                     ? new RemoteFileJob(candidate.Target)
                     : new SongJob(Searcher.InferSongQuery(candidate.Filename, new SongQuery { Title = searchQuery ?? "" }))
-                        { ResolvedTarget = candidate };
+                        { ResolvedTarget = candidate, ExactTarget = candidate.Target };
             followUpJob.ItemName = source.ItemName;
             followUpJob.WorkflowId = source.WorkflowId;
 

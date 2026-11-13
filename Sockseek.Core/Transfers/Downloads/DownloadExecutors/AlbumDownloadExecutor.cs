@@ -76,8 +76,7 @@ internal sealed class AlbumDownloadExecutor
             images.ChosenFiles,
             images.AdditionalImages,
             outcome,
-            allowOverwrite: !config.Skip.SkipExisting,
-            allowUnownedReplacement: config.Skip.SkipExisting);
+            allowOverwrite: !config.Skip.SkipExisting);
         outcome = finalization.Outcome;
         if (finalization.OrganizationException != null && job.ResolvedTarget != null)
         {
@@ -100,12 +99,13 @@ internal sealed class AlbumDownloadExecutor
 
         if (audioResult.Succeeded && chosenFiles != null)
         {
-            var downloadedAudio = chosenFiles
-                .Where(af => !af.IsNotAudio && af.TerminalOutcome == JobTerminalOutcome.Succeeded && !string.IsNullOrEmpty(af.DownloadPath));
+            // Existing audio still anchors ancillary-file placement in the album folder.
+            var completedAudio = chosenFiles
+                .Where(af => !af.IsNotAudio && af.IsSuccessfulTerminal && !string.IsNullOrEmpty(af.DownloadPath));
 
-            if (downloadedAudio.Any())
+            if (completedAudio.Any())
             {
-                var downloadPath = Utils.GreatestCommonDirectory(downloadedAudio.Select(af => af.DownloadPath!));
+                var downloadPath = Utils.GreatestCommonDirectory(completedAudio.Select(af => af.DownloadPath!));
                 outcome = JobOutcome.Done(downloadPath);
                 job.DownloadPath = downloadPath;
                 ctx.IndexEditor?.NotifyJobDownloadPath(job.Id, downloadPath);

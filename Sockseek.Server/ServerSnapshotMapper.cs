@@ -183,11 +183,13 @@ public static class ServerSnapshotMapper
         => new(MemberCount: directory.FileCount, CompletedMemberCount: directory.TerminalFileCount,
             FailedMemberCount: directory.FailedFileCount, FolderCount: folders, FileCount: directory.FileCount,
             ProgressPercent: DirectoryProgressPercent(directory.FileCount, directory.SuccessfulFileCount,
-                directory.BytesTransferred, directory.TotalKnownBytes, directory.Progress));
+                directory.BytesTransferred, directory.TotalKnownBytes, directory.Progress),
+            SkippedMemberCount: directory.SkippedFileCount,
+            DownloadedMemberCount: directory.DownloadedFileCount, ReusedMemberCount: directory.ReusedFileCount);
 
     private static JobSummaryStatsDto MemberStats(JobOutcomeSummary outcomes)
         => new(MemberCount: outcomes.Total, CompletedMemberCount: outcomes.Completed,
-            FailedMemberCount: outcomes.Failed);
+            FailedMemberCount: outcomes.Failed, SkippedMemberCount: outcomes.Skipped);
 
     internal static JobOutcomeSummary ListOutcomes(JobListSnapshotPayload list, JobOutcomeSummary? liveOutcomes = null)
         => liveOutcomes ?? list.LogicalOutcomes ?? list.Jobs.Aggregate(new JobOutcomeSummary(),
@@ -198,7 +200,7 @@ public static class ServerSnapshotMapper
     {
         var (count, outcomes) = AlbumGroupsProgress(group, registeredAlbums);
         return new(MemberCount: count,
-            CompletedMemberCount: outcomes.Completed, FailedMemberCount: outcomes.Failed);
+            CompletedMemberCount: outcomes.Completed, FailedMemberCount: outcomes.Failed, SkippedMemberCount: outcomes.Skipped);
     }
 
     private static (int Count, JobOutcomeSummary Outcomes) AlbumGroupsProgress(
@@ -230,7 +232,7 @@ public static class ServerSnapshotMapper
             outcomes.Total - outcomes.Completed,
             outcomes.Completed,
             outcomes.Succeeded,
-            outcomes.Failed);
+            outcomes.Failed, outcomes.Skipped);
     }
 
     internal static SongGroupsJobPayloadDto ToGroupPayloadDto(
@@ -243,7 +245,7 @@ public static class ServerSnapshotMapper
             outcomes.Total,
             outcomes.Completed,
             outcomes.Succeeded,
-            outcomes.Failed);
+            outcomes.Failed, outcomes.Skipped);
     }
 
     internal static AlbumGroupsJobPayloadDto ToAlbumGroupsPayloadDto(
@@ -256,7 +258,7 @@ public static class ServerSnapshotMapper
             count,
             outcomes.Completed,
             outcomes.Succeeded,
-            outcomes.Failed);
+            outcomes.Failed, outcomes.Skipped);
     }
 
     public static SongJobPayloadDto ToSongJobPayloadDto(
@@ -278,7 +280,8 @@ public static class ServerSnapshotMapper
                 song.File.DownloadPath,
                 song.File.BytesTransferred,
                 totalBytes,
-                progressPercent),
+                progressPercent,
+                ToExistingFileSource(song.File.ExistingFileSource), song.File.Reused),
             song.ResolvedTarget?.Username,
             song.ResolvedTarget?.Filename,
             song.ResolvedTarget?.Peer.HasFreeUploadSlot,
@@ -573,7 +576,17 @@ public static class ServerSnapshotMapper
             file.FileSize,
             file.FileSize > 0
                 ? Math.Round((double)file.BytesTransferred / file.FileSize.Value * 100, 2)
-                : null);
+                : null,
+            ToExistingFileSource(file.ExistingFileSource), file.Reused);
+
+    private static ServerExistingFileSource? ToExistingFileSource(ExistingFileSource? source)
+        => source switch
+        {
+            ExistingFileSource.CompletionHistory => ServerExistingFileSource.CompletionHistory,
+            ExistingFileSource.Library => ServerExistingFileSource.Library,
+            ExistingFileSource.Destination => ServerExistingFileSource.Destination,
+            _ => null,
+        };
 
     private static DirectoryDownloadStateDto ToDirectoryDownloadStateDto(DirectoryDownloadStateSnapshot directory)
         => new(
@@ -588,7 +601,8 @@ public static class ServerSnapshotMapper
             directory.TotalKnownBytes,
             DirectoryProgressPercent(directory.FileCount, directory.SuccessfulFileCount,
                 directory.BytesTransferred, directory.TotalKnownBytes, directory.Progress),
-            directory.UnknownFileSizeCount);
+            directory.UnknownFileSizeCount, ToExistingFileSource(directory.ExistingFileSource),
+            directory.SkippedFileCount, directory.DownloadedFileCount, directory.ReusedFileCount);
 
     internal static double? DirectoryProgressPercent(
         int fileCount, int successfulFileCount, long bytesTransferred, long totalKnownBytes,

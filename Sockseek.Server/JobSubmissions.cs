@@ -235,13 +235,14 @@ public sealed class JobSubmissions
         string username,
         PeerBrowseDownloadResolution resolution)
     {
-        username = PeerUsername.Validate(username);
+        PeerUsername.Validate(username);
         ArgumentNullException.ThrowIfNull(resolution);
         if (resolution.Plans.Count == 0)
             throw new PeerBrowseSelectionException("The selection contains no downloadable public files.");
         var jobs = resolution.Plans.Select(plan =>
             (Job)new RemoteDirectoryJob(new RemoteDirectorySource.Resolved(plan))).ToArray();
-        return jobs.Length == 1 ? jobs[0] : new JobList($"Shares from {username}", jobs);
+        // A selection batch is not a named collection and must not add an output folder.
+        return jobs.Length == 1 ? jobs[0] : new JobList(jobs: jobs);
     }
 
     private void EnsureShareSubmissionConnection()

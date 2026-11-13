@@ -71,7 +71,7 @@ public sealed class PersistenceDaemonTests
             await fullClient.StartDaemonAsync();
             var root = await supervisor.Submissions.SubmitJobListAsync(new SubmitJobListRequestDto("held metadata",
                 [new GenericSearchJobDraftDto("held one"), new GenericSearchJobDraftDto("held two")]), CancellationToken.None);
-            var expectedStats = new JobSummaryStatsDto(MemberCount: 2, CompletedMemberCount: 2, FailedMemberCount: 0);
+            var expectedStats = new JobSummaryStatsDto(MemberCount: 2, CompletedMemberCount: 2, FailedMemberCount: 0, SkippedMemberCount: 0);
             workflowId = root.WorkflowId;
             await searchesStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await fullChildren.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -967,6 +967,13 @@ public sealed class PersistenceDaemonTests
                     var chosenReceipt = (await views.Selections.CommitSelectionAsync(
                         trackGroupViewId, chosenTrack, CancellationToken.None))!;
                     Assert.AreEqual(1L, chosenReceipt.SubmittedCount);
+                    var chosenSubmission = await second.Services.GetRequiredService<PersistenceCoordinator>()
+                        .Submissions!.GetSubmissionAsync(chosenReceipt.SubmissionId!.Value, CancellationToken.None);
+                    var chosenSong = (Sockseek.Core.Jobs.SongJob)Sockseek.Core.Planning.SubmissionSpecificationCodec
+                        .Deserialize(chosenSubmission!.SpecificationJson).MaterializeJob();
+                    Assert.IsFalse(chosenSong.CanBeSkipped);
+                    Assert.IsNotNull(chosenSong.ExactTarget);
+                    Assert.AreEqual(trackOptions.Items[0].RemoteFilename, chosenSong.ExactTarget.Filename);
                     await Assert.ThrowsExactlyAsync<IdempotencyConflictException>(() =>
                         views.Selections.CommitSelectionAsync(trackGroupViewId,
                             chosenTrack with { ChosenOptions = new Dictionary<string, string>() },
@@ -1120,7 +1127,8 @@ public sealed class PersistenceDaemonTests
 
                     var downloads = await supervisor.StartFileDownloadsAsync(
                         sourceJobId,
-                        new StartFileDownloadsRequestDto([candidate]),
+                        new StartFileDownloadsRequestDto([candidate], new SubmissionOptionsDto(
+                            DownloadSettings: new DownloadSettingsPatchDto(Skip: new SkipSettingsPatchDto(SkipExisting: false)))),
                         CancellationToken.None);
 
                     Assert.IsNotNull(downloads);
@@ -1134,6 +1142,8 @@ public sealed class PersistenceDaemonTests
                         .Submissions!.GetSubmissionAsync(downloads[0].SubmissionId!.Value, CancellationToken.None);
                     var acceptedSong = (Sockseek.Core.Jobs.SongJob)Sockseek.Core.Planning.SubmissionSpecificationCodec
                         .Deserialize(acceptedDownload!.SpecificationJson).MaterializeJob();
+                    Assert.IsFalse(acceptedSong.CanBeSkipped);
+                    Assert.IsNotNull(acceptedSong.ExactTarget);
                     Assert.IsNotNull(acceptedSong.ResolvedTarget);
                     Assert.AreEqual(expectedCandidate.Peer.QueueLength, acceptedSong.ResolvedTarget.QueueLength,
                         "Restart must preserve the observed peer queue instead of rebuilding partial search metadata.");

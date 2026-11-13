@@ -504,7 +504,9 @@ namespace Tests.Core
         }
 
         [TestMethod]
-        public async Task DuplicateDownloadCache_UsesOrganizedPathAfterNameFormatMove()
+        [DataRow(true)]
+        [DataRow(false)]
+        public async Task DuplicateDownloadCache_UsesOrganizedPathOnlyWhenSkippingEnabled(bool skipExisting)
         {
             var listPath = Path.GetTempFileName();
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-duplicate-cache-organized-" + Guid.NewGuid());
@@ -523,8 +525,9 @@ namespace Tests.Core
                 dl.Extraction.InputType = InputType.List;
                 dl.Extraction.RequestedMode = ExtractionMode.Song;
                 dl.Output.ParentDir = outputDir;
-                dl.Output.NameFormat = "{artist}/{title}";
-                dl.Skip.SkipExisting = false;
+                dl.Output.NameFormat = "{snum}/{artist}/{title}";
+                dl.Output.WriteIndex = false;
+                dl.Skip.SkipExisting = skipExisting;
 
                 var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
                 var completedTransfers = new ConcurrentQueue<TransferCompletedChange>();
@@ -537,10 +540,10 @@ namespace Tests.Core
                 var songs = app.Queue.AllSongs().ToList();
                 Assert.AreEqual(2, songs.Count);
                 Assert.IsTrue(songs.All(song => song.TerminalOutcome == JobTerminalOutcome.Succeeded));
-                Assert.AreEqual(1, testClient.DownloadCallCount, "Second duplicate should copy/reuse the first final organized path, not redownload.");
+                Assert.AreEqual(skipExisting ? 1 : 2, testClient.DownloadCallCount);
                 Assert.IsTrue(System.IO.File.Exists(songs[0].DownloadPath), "First song should point at the organized file.");
                 Assert.IsTrue(System.IO.File.Exists(songs[1].DownloadPath), "Second song should copy from the organized cache path.");
-                Assert.AreEqual(1, completedTransfers.Count);
+                Assert.AreEqual(skipExisting ? 1 : 2, completedTransfers.Count);
                 foreach (var transfer in completedTransfers)
                     Assert.AreEqual(songs.Single(song => song.Id == transfer.Job.Id).DownloadPath, transfer.FinalLocalPath);
             }
@@ -614,7 +617,7 @@ namespace Tests.Core
         }
 
         [TestMethod]
-        public async Task DuplicateDownloadCache_UsesAlbumOrganizedPathForNonAudioFiles()
+        public async Task IndependentAlbumRequestsDownloadAudioAndAncillaryFilesWhenSkippingDisabled()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-duplicate-cache-album-art-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
@@ -644,7 +647,7 @@ namespace Tests.Core
 
                 Assert.AreEqual(JobTerminalOutcome.Succeeded, firstAlbum.TerminalOutcome);
                 Assert.AreEqual(JobTerminalOutcome.Succeeded, secondAlbum.TerminalOutcome);
-                Assert.AreEqual(2, testClient.DownloadCallCount, "Second album should reuse both the audio and cover from their final organized paths.");
+                Assert.AreEqual(4, testClient.DownloadCallCount);
                 Assert.IsTrue(firstAlbum.TrackJobs.Any(file => file.IsNotAudio && System.IO.File.Exists(file.DownloadPath)));
                 Assert.IsTrue(secondAlbum.TrackJobs.Any(file => file.IsNotAudio && System.IO.File.Exists(file.DownloadPath)));
             }
@@ -655,7 +658,10 @@ namespace Tests.Core
         }
 
         [TestMethod]
-        public async Task AlbumNameFormat_FinalizesAudioAndAllAncillaryFiles()
+        [DataRow(0)]
+        [DataRow(1)]
+        [DataRow(4)]
+        public async Task AlbumNameFormat_FinalizesFilesAndPreservesOccupiedDestinations(int existingCount)
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-album-generic-files-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
@@ -674,7 +680,12 @@ namespace Tests.Core
                 dl.Output.ParentDir = outputDir;
                 dl.Output.NameFormat = "Organized/{foldername}/{filename}";
                 dl.Search.NoBrowseFolder = true;
-                dl.Skip.SkipExisting = false;
+                dl.Skip.SkipExisting = true;
+                var names = new[] { "01. Artist - Song.flac", "cover.jpg", "booklet.pdf", "rip.log" };
+                var finalDir = Path.Combine(outputDir, "Organized", "Album");
+                Directory.CreateDirectory(finalDir);
+                foreach (var name in names.Take(existingCount))
+                    await System.IO.File.WriteAllTextAsync(Path.Combine(finalDir, name), "keep");
 
                 var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
                 var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
@@ -685,9 +696,14 @@ namespace Tests.Core
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobTerminalOutcome.Succeeded, album.TerminalOutcome);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, album.TerminalOutcome, album.FailureMessage + "\n" + string.Join("\n", album.TrackJobs.Select(file => $"{file.TerminalOutcome}: {file.FailureMessage} {file.FailureDetail}")));
                 Assert.AreEqual(4, album.TrackJobs.Count);
-                Assert.IsTrue(album.TrackJobs.All(file => file.TerminalOutcome == JobTerminalOutcome.Succeeded));
+                Assert.IsTrue(album.TrackJobs.All(file => file.IsSuccessfulTerminal));
+                Assert.AreEqual(existingCount, album.ProgressSummary.SkippedFileCount);
+                Assert.AreEqual(4 - existingCount, album.ProgressSummary.DownloadedFileCount);
+                Assert.AreEqual(0, album.ProgressSummary.FailedFileCount);
+                foreach (var name in names.Take(existingCount))
+                    Assert.AreEqual("keep", await System.IO.File.ReadAllTextAsync(Path.Combine(finalDir, name)));
                 foreach (var filename in new[] { "01. Artist - Song.flac", "cover.jpg", "booklet.pdf", "rip.log" })
                     Assert.IsTrue(System.IO.File.Exists(Path.Combine(outputDir, "Organized", "Album", filename)), $"Missing finalized album file '{filename}'.");
 

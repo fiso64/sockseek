@@ -36,6 +36,35 @@ namespace Tests.Index
         }
 
         [TestMethod]
+        public void ConcurrentWorkflowsWritingOneIndexKeepEachOthersOutcomes()
+        {
+            var first = new SongJob(new SongQuery { Artist = "Artist", Title = "First" });
+            var second = new SongJob(new SongQuery { Artist = "Artist", Title = "Second" });
+            var indexes = new DownloadIndexStore();
+            var firstEditor = indexes.Open(testM3uPath, new JobList(null, [first]), first.WorkflowId, readOnly: false);
+            var secondEditor = indexes.Open(testM3uPath, new JobList(null, [second]), second.WorkflowId, readOnly: false);
+            first.SetDone("first.mp3");
+            firstEditor.Observe(first);
+            second.SetDone("second.mp3");
+            secondEditor.Observe(second);
+            firstEditor.PublishPending();
+            secondEditor.PublishPending();
+            var reloaded = new DownloadOutputFile(testM3uPath, new JobList(), OutputFileKind.Index, true, readOnly: true);
+            Assert.AreEqual("first.mp3", reloaded.PreviousRunResult(first)?.DownloadPath);
+            Assert.AreEqual("second.mp3", reloaded.PreviousRunResult(second)?.DownloadPath);
+            indexes.RetireWorkflow(first.WorkflowId);
+            Assert.AreEqual(1, indexes.Count);
+            second.SetDone("second-final.mp3");
+            secondEditor.Observe(second);
+            Assert.IsTrue(secondEditor.PublishPending());
+            indexes.RetireWorkflow(second.WorkflowId);
+            Assert.AreEqual(0, indexes.Count);
+            var later = indexes.Open(testM3uPath, new JobList(), Guid.NewGuid(), readOnly: true);
+            Assert.AreEqual("first.mp3", later.PreviousRunResult(first)?.DownloadPath);
+            Assert.AreEqual("second-final.mp3", later.PreviousRunResult(second)?.DownloadPath);
+        }
+
+        [TestMethod]
         public void IncrementalIndexFactsAreImmediateImmutableAndRoundTripMultilineCsvWithoutAliasDuplicates()
         {
             var song = new SongJob(new SongQuery { Artist = "Björk, \"Artist\"", Album = "Album\r\nTwo", Title = "Track\nOne" });

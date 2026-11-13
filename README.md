@@ -628,7 +628,7 @@ relative-path                   Relative directory plus filename, without the ex
 foldername / slsk-foldername    Selected root plus relative directory; for a direct
                                 file, its immediate remote parent folder
 item-name                       Current song, album, file, or folder name
-default-folder                  Default Sockseek folder for the current job
+default-folder                  Enclosing list/playlist folders for the current job
                                 (e.g. Spotify playlist name)
 output-dir / outputdir          Output parent directory (--output)
 type                            Job type (Song, Album, RemoteFile, RemoteDirectory, ..)

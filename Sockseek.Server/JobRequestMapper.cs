@@ -566,6 +566,7 @@ public static class JobRequestMapper
             }))
             {
                 ResolvedTarget = candidate,
+                ExactTarget = candidate.Target,
             };
         followUp.ItemName = sourceJob.ItemName;
         followUp.WorkflowId = sourceJob.WorkflowId;
@@ -693,6 +694,9 @@ public static class JobRequestMapper
 
     public static void ApplyFolderDownloadSelection(AlbumJob job, AlbumFolderDownloadSelectionDto? selection)
     {
+        // Source acceptance bypasses history matching independently of the
+        // caller's folder-retrieval and track-count verification choices.
+        job.CanBeSkippedOverride = false;
         job.DirectoryResolutionPolicy = selection?.ExactFiles == true
             ? AlbumDirectoryResolutionPolicy.UseSelectedSnapshot
             : AlbumDirectoryResolutionPolicy.CompleteIfNeeded;

@@ -158,6 +158,7 @@ namespace Sockseek.Core.Jobs;
         public DateTimeOffset? ActivityUntilUtc => StateSnapshot.ActivityUntilUtc;
         public JobTerminalOutcome TerminalOutcome => StateSnapshot.TerminalOutcome;
         public JobSkipReason SkipReason => StateSnapshot.SkipReason;
+        public ExistingFileSource? ExistingFileSource { get; internal set; }
 
         public bool IsPending => LifecycleState == JobLifecycleState.Pending;
         public bool IsRunning => LifecycleState == JobLifecycleState.Running;
@@ -352,7 +353,11 @@ namespace Sockseek.Core.Jobs;
             });
 
         public void ResetToPending()
-            => ApplyStateTransition(current => default(JobStateSnapshot) with { Revision = current.Revision });
+        {
+            ExistingFileSource = null;
+            if (this is FileDownloadJob file) file.Reused = false;
+            ApplyStateTransition(current => default(JobStateSnapshot) with { Revision = current.Revision });
+        }
 
         private static JobStateSnapshot Terminal(JobStateSnapshot current, JobTerminalOutcome outcome)
             => current with

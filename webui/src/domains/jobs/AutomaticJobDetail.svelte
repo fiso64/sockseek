@@ -17,7 +17,7 @@
   import { completedExtract, presentedChildren, resolvePresentedJob, extractSourceLabel } from './presentation';
   import { jobHeaderStats } from './header-stats';
   import { automaticJobListStats, automaticJobProgressPercent } from './list-stats';
-  import { jobStatusLabel, jobStatusClass, jobTransferTone } from './status';
+  import { jobStatusLabel, jobStatusClass, jobTransferTone, jobSkipExplanation } from './status';
   import { jobKindIcon, jobKindLabel } from './kind';
   import { canDeleteSubmission } from './deletion';
   import RelativeTime from '../../components/RelativeTime.svelte';
@@ -234,16 +234,18 @@
     }
     return progress;
   });
+  let skippedOutput = $derived(job?.terminalOutcome !== 'Skipped' ? null
+    : payload?.kind === 'song' ? payload.file : payload?.kind === 'album' ? payload.directory : null);
   let title = $derived(job?.itemName ?? job?.queryText ?? jobKindLabel(job?.kind));
   let progress = $derived(payload?.kind === 'job-list'
     && payload.succeededJobCount != null && payload.failedJobCount != null
-    ? { total: payload.count, completed: payload.succeededJobCount, failed: payload.failedJobCount }
+    ? { total: payload.count, completed: payload.completedJobCount, failed: payload.failedJobCount, skipped: payload.skippedJobCount ?? 0 }
     : payload?.kind === 'song-groups'
       && payload.succeededSongCount != null && payload.failedSongCount != null
-      ? { total: payload.songCount, completed: payload.succeededSongCount, failed: payload.failedSongCount }
+      ? { total: payload.songCount, completed: payload.completedSongCount, failed: payload.failedSongCount, skipped: payload.skippedSongCount ?? 0 }
       : payload?.kind === 'album-groups'
         && payload.succeededAlbumCount != null && payload.failedAlbumCount != null
-        ? { total: payload.resultCount, completed: payload.succeededAlbumCount, failed: payload.failedAlbumCount }
+        ? { total: payload.resultCount, completed: payload.completedAlbumCount, failed: payload.failedAlbumCount, skipped: payload.skippedAlbumCount ?? 0 }
       : null);
   let outcomeCountsUnavailable = $derived(payload?.kind === 'job-list'
     ? payload.succeededJobCount == null || payload.failedJobCount == null
@@ -655,6 +657,15 @@
         audio={audioAttributes(target)}
         transfer={jobFileTransfer(job, file, target, activeFileTransfer)} />
     </section>
+  {:else if skippedOutput}
+    <section class="job-content-section">
+      <div class="job-detail-empty"><strong>{jobSkipExplanation(job, skippedOutput.existingFileSource)}</strong></div>
+      {#if skippedOutput.downloadPath}
+        <dl class="job-detail-facts"><div><dt>Existing path</dt><dd title={skippedOutput.downloadPath}>{skippedOutput.downloadPath}</dd></div></dl>
+      {/if}
+      {#if payload?.kind === 'song'}<TransferStateLabel transfer={jobFileTransfer(job, payload.file)} />
+      {:else if folderTransfer}<TransferStateLabel transfer={folderTransfer} />{/if}
+    </section>
   {:else if payload?.kind === 'song'}
     {#if job?.lifecycleState === 'Terminal'}
       <div class="job-detail-empty"><strong>{job.terminalOutcome === 'Failed' ? 'No matching file' : 'No selected file'}</strong><span>{job.terminalOutcome === 'Failed' ? 'No candidate satisfied this job.' : job.skipReason && job.skipReason !== 'None' ? humanizeStateValue(job.skipReason) : jobStatusLabel(job)}</span></div>
@@ -687,7 +698,7 @@
   {/if}
   {#if progress}
     <section class="job-run-progress" aria-label={`${progress.completed} of ${progress.total} complete`}>
-      <div class="job-run-progress-copy"><strong>{formatCount(progress.completed)} of {formatCount(progress.total)} complete</strong><span>{Number(progress.failed) ? `${formatCount(progress.failed)} failed · ` : ''}{formatCount(Math.max(0, Number(progress.total) - Number(progress.completed) - Number(progress.failed)))} remaining</span></div>
+      <div class="job-run-progress-copy"><strong>{formatCount(progress.completed)} of {formatCount(progress.total)} complete</strong><span>{Number(progress.skipped) ? `${formatCount(progress.skipped)} skipped · ` : ''}{Number(progress.failed) ? `${formatCount(progress.failed)} failed · ` : ''}{formatCount(Math.max(0, Number(progress.total) - Number(progress.completed)))} remaining</span></div>
       <div class="job-run-progress-track"><i style={`width:${Number(progress.total) > 0 ? Number(progress.completed) / Number(progress.total) * 100 : 0}%`}></i></div>
     </section>
   {/if}

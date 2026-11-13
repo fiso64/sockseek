@@ -10,6 +10,11 @@ internal static class JobOutcomeCommitter
             return;
 
         ApplyOutcomeDownloadPath(job, outcome);
+        if (outcome.IsTerminal)
+        {
+            job.ExistingFileSource = outcome.ExistingFileSource;
+            if (job is FileDownloadJob completedFile) completedFile.Reused = outcome.Reused;
+        }
 
         if (outcome.LifecycleState == JobLifecycleState.AwaitingSelection)
         {

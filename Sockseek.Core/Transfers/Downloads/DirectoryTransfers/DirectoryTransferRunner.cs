@@ -85,12 +85,12 @@ internal sealed class DirectoryTransferRunner
                     config.Search.MaxStaleTime,
                     ct: child.Cts.Token,
                     parentJob: directory,
-                    allowOverwrite: !config.Skip.SkipExisting);
+                    allowOverwrite: !config.Skip.SkipExisting, allowReuse: config.Skip.SkipExisting);
 
                 var outcome = transfer.Status switch
                 {
                     ExactFileTransferStatus.Completed when transfer.Result != null
-                        => JobOutcome.Done(transfer.Result.OutputPath),
+                        => JobOutcome.Done(transfer.Result.OutputPath, reused: transfer.Result.Reused),
                     ExactFileTransferStatus.ManuallySkipped
                         => JobOutcome.Skipped(JobSkipReason.Manual),
                     ExactFileTransferStatus.AlreadyExists

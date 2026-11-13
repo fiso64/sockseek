@@ -23,15 +23,12 @@ export function automaticJobListStats(job: JobSummaryDto): string[] {
       break;
     case 'song-groups':
       if (!values.length && memberCount != null) values.push(`${formatCount(stats.memberCount)} songs`);
-      if (Number(stats.failedMemberCount) > 0) values.push(`${formatCount(stats.failedMemberCount)} failed`);
       break;
     case 'album-groups':
       if (!values.length && memberCount != null) values.push(`${formatCount(stats.memberCount)} albums`);
-      if (Number(stats.failedMemberCount) > 0) values.push(`${formatCount(stats.failedMemberCount)} failed`);
       break;
     case 'job-list':
       if (!values.length && memberCount != null) values.push(`${formatCount(stats.memberCount)} jobs`);
-      if (Number(stats.failedMemberCount) > 0) values.push(`${formatCount(stats.failedMemberCount)} failed`);
       break;
     case 'remote-file':
       if (stats.knownBytes != null) values.push(formatBytes(Number(stats.knownBytes)));
@@ -44,7 +41,11 @@ export function automaticJobListStats(job: JobSummaryDto): string[] {
         values.push(`${formatCount(stats.newFilesFoundCount)} new files`);
       break;
   }
-  return values.slice(0, 3);
+  if (Number(stats.downloadedMemberCount) > 0) values.push(`${formatCount(stats.downloadedMemberCount)} downloaded`);
+  if (Number(stats.skippedMemberCount) > 0) values.push(`${formatCount(stats.skippedMemberCount)} skipped`);
+  if (Number(stats.reusedMemberCount) > 0) values.push(`${formatCount(stats.reusedMemberCount)} reused`);
+  if (Number(stats.failedMemberCount) > 0) values.push(`${formatCount(stats.failedMemberCount)} failed`);
+  return values;
 }
 
 /** Compact child-row progress uses the same bounded summary as the root list. */

@@ -146,6 +146,7 @@ public sealed class EnginePersistenceTests
             command.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=0; CREATE TABLE entries(value BLOB NOT NULL);";
             command.ExecuteNonQuery();
             var target = new PeerFileTarget(new PeerFileIdentity("Peer", @"Share\File.bin"), 8 * 1024 * 1024, ".bin");
+            Guid workflowId = Guid.NewGuid();
             if (cachedCopy)
             {
                 string source = Path.Combine(root, "source.bin");
@@ -154,7 +155,7 @@ public sealed class EnginePersistenceTests
                     for (int part = 0; part < 128; part++) file.Write(chunk);
                     file.Flush(flushToDisk: true); // Prepare a stable existing input before measurement.
                 }
-                await files.WithCacheAsync(cache => { cache.Publish(source, target, Guid.NewGuid()); return true; });
+                await files.WithCacheAsync(cache => { cache.Publish(source, target, workflowId); return true; });
             }
             else
             {
@@ -171,8 +172,8 @@ public sealed class EnginePersistenceTests
             if (cachedCopy)
             {
                 for (int file = 0; file < 8; file++)
-                    Assert.IsNotNull(await files.TryReuseAsync(target, Path.Combine(root, file + ".bin"), Guid.NewGuid(), Guid.NewGuid(),
-                        publish: false, allowOverwrite: true, protectPublishedOutput: false));
+                    Assert.IsNotNull(await files.TryReuseAsync(target, Path.Combine(root, file + ".bin"), Guid.NewGuid(), workflowId,
+                        publish: false, allowOverwrite: true));
             }
             else
             {

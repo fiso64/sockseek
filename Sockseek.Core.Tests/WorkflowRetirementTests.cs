@@ -51,7 +51,7 @@ public sealed class WorkflowRetirementTests
     }
 
     [TestMethod]
-    public async Task DownloadReuseSurvivesRetirementWithoutKeepingWorkflowOwners()
+    public async Task DownloadReuseBelongsToItsWorkflowAndRetirementLeavesOutputIntact()
     {
         string directory = Directory.CreateTempSubdirectory("sockseek-cache-lifetime-").FullName;
         using var files = new Sockseek.Core.Services.DownloadFileOperations(1);
@@ -61,35 +61,23 @@ public sealed class WorkflowRetirementTests
             string copy = Path.Combine(directory, "copy.flac");
             File.WriteAllBytes(path, [1, 2, 3]);
             var target = new PeerFileTarget(new("Peer", @"Album\track.flac"), 3, ".flac");
-            for (int i = 0; i < 16; i++)
-            {
-                Guid first = Guid.NewGuid(), second = Guid.NewGuid();
-                await files.WithCacheAsync(cache => { cache.Publish(path, target, first); return true; });
-                Assert.IsNotNull(await files.TryReuseAsync(target, copy, Guid.NewGuid(), second,
-                    publish: true, allowOverwrite: true, protectPublishedOutput: false));
-                files.RetireWorkflow(second);
-                Assert.IsTrue(files.MayHaveReusable(target), "Publishing a copy must retain the original workflow's ownership.");
-                files.RetireWorkflow(first);
-                Assert.IsTrue(files.MayHaveReusable(target), "A later submission should still reuse recent completed downloads.");
-                Assert.AreEqual(0, files.ActiveCachedDownloadCount);
-                Assert.AreEqual(1, files.CachedDownloadCount);
-                CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(copy));
-            }
-            var bounded = new Sockseek.Core.Services.DownloadFileOperations.Cache(maximumIdleEntries: 2);
-            Guid active = Guid.NewGuid();
-            bounded.Publish(path, target, active);
-            for (int i = 0; i < 16; i++)
-            {
-                Guid owner = Guid.NewGuid();
-                var completed = new PeerFileTarget(new("Peer", $@"Album\Other-{i}.flac"), 3, ".flac");
-                bounded.Publish(Path.Combine(directory, $"other-{i}.flac"), completed, owner);
-                bounded.RetireWorkflow(owner);
-                Assert.IsTrue(bounded.Contains(target.Identity), "Idle cache pressure must not evict active workflow entries.");
-                Assert.IsTrue(bounded.Count <= 3);
-            }
-            bounded.RetireWorkflow(active);
-            Assert.AreEqual(2, bounded.Count);
-            Assert.AreEqual(0, bounded.ActiveCount);
+            Guid workflow = Guid.NewGuid(), other = Guid.NewGuid();
+            await files.WithCacheAsync(cache => { cache.Publish(path, target, workflow); return true; });
+            Assert.IsNull(await files.TryReuseAsync(target, copy, Guid.NewGuid(), other,
+                publish: true, allowOverwrite: true));
+            Assert.IsNull(await files.TryReuseAsync(target, copy, Guid.NewGuid(), workflow,
+                publish: true, allowOverwrite: true, allowReuse: false));
+            Assert.IsFalse(File.Exists(copy));
+            Assert.IsNotNull(await files.TryReuseAsync(target, copy, Guid.NewGuid(), workflow,
+                publish: true, allowOverwrite: true));
+            files.RetireWorkflow(other);
+            Assert.IsTrue(files.MayHaveReusable(target, workflow));
+            files.RetireWorkflow(workflow);
+            Assert.AreEqual(0, files.CachedDownloadCount);
+            Assert.IsNull(await files.TryReuseAsync(target, path + ".later", Guid.NewGuid(), other,
+                publish: true, allowOverwrite: true));
+            CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(path));
+            CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(copy));
         }
         finally { Directory.Delete(directory, true); }
     }

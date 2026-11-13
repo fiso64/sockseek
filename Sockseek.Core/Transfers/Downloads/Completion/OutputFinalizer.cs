@@ -69,8 +69,7 @@ internal sealed class OutputFinalizer
         JobOutcome outcome,
         FileManager organizer,
         bool finalizePlacement,
-        bool allowOverwrite,
-        bool allowUnownedReplacement = false)
+        bool allowOverwrite)
     {
         if (outcome.TerminalOutcome != JobTerminalOutcome.Succeeded || !finalizePlacement)
             return ValueTask.FromResult(OutputFinalizationResult.Completed(outcome));
@@ -80,7 +79,14 @@ internal sealed class OutputFinalizer
             song.UpdateActivity(JobActivityPhase.Organizing);
             try
             {
-                organizer.OrganizeDownloadedFile(song, CreateReplacementGuard(cache, allowOverwrite, allowUnownedReplacement));
+                bool skipped = false;
+                organizer.OrganizeDownloadedFile(song, (file, destination) =>
+                {
+                    skipped = !PreparePlacement(cache, file, destination, parentJob.Config.Output, allowOverwrite);
+                    return !skipped;
+                });
+                if (skipped)
+                    return OutputFinalizationResult.Completed(JobOutcome.AlreadyExists(song.DownloadPath));
                 EnsureFileLeftStaging(song, parentJob.Config.Output);
                 PublishDownloadedFileCache(cache, song, outcome);
                 return OutputFinalizationResult.Completed(outcome);
@@ -88,28 +94,6 @@ internal sealed class OutputFinalizer
             catch (Exception ex)
             {
                 var organizationException = AsOrganizationException(ex, song.DownloadPath, targetPath: null);
-                if (FindExistingOutput(ex) is { } existing)
-                {
-                    try
-                    {
-                        if (OutputStaging.Contains(song.DownloadPath, parentJob.Config.Output))
-                        {
-                            Utils.DeleteFileAndParentsIfEmpty(
-                                song.DownloadPath!,
-                                OutputStaging.Root(parentJob.Config.Output));
-                        }
-                        song.DownloadPath = existing.OutputPath;
-                        return OutputFinalizationResult.Completed(
-                            JobOutcome.AlreadyExists(existing.OutputPath));
-                    }
-                    catch (Exception cleanupException)
-                    {
-                        organizationException = AsOrganizationException(
-                            cleanupException,
-                            song.DownloadPath,
-                            existing.OutputPath);
-                    }
-                }
                 LogOrganizationFailure(song, organizationException);
                 return OutputFinalizationResult.Failed(
                     organizationException,
@@ -124,8 +108,7 @@ internal sealed class OutputFinalizer
         List<SongJob>? chosenFiles,
         List<SongJob>? additionalImages,
         JobOutcome outcome,
-        bool allowOverwrite,
-        bool allowUnownedReplacement = false)
+        bool allowOverwrite)
     {
         var filesToOrganize = (chosenFiles ?? [])
             .Concat(additionalImages ?? [])
@@ -141,7 +124,14 @@ internal sealed class OutputFinalizer
             {
                 if (!string.IsNullOrEmpty(album.DownloadPath))
                     organizer.OrganizeAlbum(album, filesToOrganize, additionalImages,
-                        beforeReplace: CreateReplacementGuard(cache, allowOverwrite, allowUnownedReplacement));
+                        preparePlacement: (file, destination) =>
+                        {
+                            if (PreparePlacement(cache, file, destination, album.Config.Output, allowOverwrite)) return true;
+                            // Album children have already committed their transfer outcome.
+                            // An occupied final destination skips only this file, not its siblings.
+                            JobOutcomeCommitter.Commit(file, JobOutcome.AlreadyExists(file.DownloadPath));
+                            return false;
+                        });
                 EnsureAlbumFilesLeftStaging(album, chosenFiles, additionalImages, outcome);
                 RefreshSuccessfulAlbumPath(album, filesToOrganize, outcome);
                 PublishDownloadedFileCache(cache, chosenFiles);
@@ -208,15 +198,21 @@ internal sealed class OutputFinalizer
                 PublishDownloadedFileCache(cache, song, JobOutcome.Done(song.DownloadPath, song.ResolvedTarget, song.DownloadSource));
     }
 
-    private static Action<string> CreateReplacementGuard(
-        DownloadFileOperations.Cache cache, bool allowOverwrite, bool allowUnownedReplacement = false)
-        => path =>
+    private static bool PreparePlacement(
+        DownloadFileOperations.Cache cache, SongJob file, string destination, OutputSettings output, bool allowOverwrite)
+    {
+        // Existence protects an occupied path; rejecting a history/library match
+        // never grants permission to replace a different version at that path.
+        if (!allowOverwrite && File.Exists(destination))
         {
-            if (!allowOverwrite && File.Exists(path)
-                && (!allowUnownedReplacement || cache.HasPublishedPathOwner(path)))
-                throw new OutputPathAlreadyExistsException(path);
-            cache.InvalidatePath(path);
-        };
+            if (OutputStaging.Contains(file.DownloadPath, output))
+                Utils.DeleteFileAndParentsIfEmpty(file.DownloadPath!, OutputStaging.Root(output));
+            file.DownloadPath = destination;
+            return false;
+        }
+        cache.InvalidatePath(destination);
+        return true;
+    }
 
     public async Task HandleIncompleteAlbumAsync(AlbumJob job, AlbumFolder folder, ResolvedIncompleteAlbumAction action, DownloadSettings config)
     {
@@ -273,7 +269,9 @@ internal sealed class OutputFinalizer
                             ?? throw new InvalidOperationException("Cannot move incomplete album files because incomplete album action path is not set.");
                         var newPath = Path.Join(targetBase, Path.GetRelativePath(relativeBase, downloadPath));
                         Directory.CreateDirectory(Path.GetDirectoryName(newPath)!);
-                        CreateReplacementGuard(cache, allowOverwrite: !config.Skip.SkipExisting)(newPath);
+                        if (config.Skip.SkipExisting && File.Exists(newPath))
+                            throw new IOException($"Output path already exists: '{newPath}'.");
+                        cache.InvalidatePath(newPath);
                         cache.InvalidatePath(downloadPath);
                         Utils.Move(downloadPath, newPath);
                         af.DownloadPath = newPath;
@@ -365,7 +363,7 @@ internal sealed class OutputFinalizer
             return;
 
         var finalizedPaths = files
-            .Where(file => file.TerminalOutcome == JobTerminalOutcome.Succeeded)
+            .Where(file => file.IsSuccessfulTerminal)
             .Select(file => file.DownloadPath)
             .Where(path => !string.IsNullOrWhiteSpace(path) && !OutputStaging.Contains(path, album.Config.Output))
             .Cast<string>()
@@ -384,16 +382,6 @@ internal sealed class OutputFinalizer
                 sourcePath ?? "",
                 targetPath ?? "",
                 exception);
-
-    private static OutputPathAlreadyExistsException? FindExistingOutput(Exception exception)
-    {
-        for (Exception? current = exception; current != null; current = current.InnerException)
-        {
-            if (current is OutputPathAlreadyExistsException existing)
-                return existing;
-        }
-        return null;
-    }
 
     private static string? RetainedStagedPayload(string? path, OutputSettings output)
         => OutputStaging.Contains(path, output) && File.Exists(path)

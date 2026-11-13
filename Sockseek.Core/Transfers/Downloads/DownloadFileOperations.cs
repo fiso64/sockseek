@@ -46,10 +46,14 @@ internal sealed class DownloadFileOperations : IDisposable
     public ValueTask<T> WithCacheAsync<T>(Func<Cache, T> work)
         => ExecuteAsync(() => work(cache), outputUpdate: true);
 
-    public bool MayHaveReusable(PeerFileTarget target) => cache.Contains(target.Identity);
-    public void RetireWorkflow(Guid workflowId) => cache.RetireWorkflow(workflowId);
+    public bool MayHaveReusable(PeerFileTarget target, Guid workflowId) => cache.Contains(target.Identity, workflowId);
+    public DownloadIndexStore Indexes { get; } = new();
+    public void RetireWorkflow(Guid workflowId)
+    {
+        cache.RetireWorkflow(workflowId);
+        Indexes.RetireWorkflow(workflowId);
+    }
     internal int CachedDownloadCount => cache.Count;
-    internal int ActiveCachedDownloadCount => cache.ActiveCount;
 
     private sealed class OutputWrite
     {
@@ -135,15 +139,15 @@ internal sealed class DownloadFileOperations : IDisposable
     }
 
     public ValueTask<ExactFileTransferOutcome?> TryReuseAsync(PeerFileTarget target, string outputPath, Guid jobId, Guid workflowId,
-        bool publish, bool allowOverwrite, bool protectPublishedOutput)
-        => WithCacheAsync(state => TryReuse(state, target, outputPath, jobId, workflowId, publish, allowOverwrite, protectPublishedOutput));
+        bool publish, bool allowOverwrite, bool allowReuse = true)
+        => WithCacheAsync(state => TryReuse(state, target, outputPath, jobId, workflowId, publish, allowOverwrite, allowReuse));
 
     public ValueTask<(ExactFileTransferOutcome? Reused, Stream? Output)> PrepareAsync(
         PeerFileTarget target, string outputPath, string incompletePath, Guid jobId, Guid workflowId,
-        bool publish, bool allowOverwrite, bool protectPublishedOutput)
+        bool publish, bool allowOverwrite, bool allowReuse = true)
         => WithCacheAsync(state =>
         {
-            var reused = TryReuse(state, target, outputPath, jobId, workflowId, publish, allowOverwrite, protectPublishedOutput);
+            var reused = TryReuse(state, target, outputPath, jobId, workflowId, publish, allowOverwrite, allowReuse);
             // No callback/queue gap between the final reuse decision and opening
             // a new output: another completed publication cannot be missed here.
             return (reused, reused == null ? Open(state, incompletePath) : null);
@@ -171,18 +175,11 @@ internal sealed class DownloadFileOperations : IDisposable
     }
 
     private ExactFileTransferOutcome? TryReuse(Cache cache, PeerFileTarget target, string outputPath,
-        Guid jobId, Guid workflowId, bool publishToDuplicateCache, bool allowOverwrite, bool protectPublishedOutput)
+        Guid jobId, Guid workflowId, bool publishToDuplicateCache, bool allowOverwrite, bool allowReuse)
     {
-        if (protectPublishedOutput
-            && File.Exists(outputPath)
-            && cache.IsPathOwnedByAnotherTarget(outputPath, target))
-        {
-            return ExactFileTransferOutcome.AlreadyExists(target, outputPath);
-        }
-
         if (!allowOverwrite && File.Exists(outputPath))
             return ExactFileTransferOutcome.AlreadyExists(target, outputPath);
-        if (!cache.TryGetReusable(target, out var existingDownload)) return null;
+        if (!allowReuse || !cache.TryGetReusable(target, workflowId, out var existingDownload)) return null;
         var existingPath = existingDownload.OutputPath;
 
         DownloadLogMessages.JobDecision(
@@ -194,8 +191,7 @@ internal sealed class DownloadFileOperations : IDisposable
         if (!PathEquals(existingPath, outputPath))
         {
             bool replacing = File.Exists(outputPath);
-            if (replacing && (!allowOverwrite
-                || protectPublishedOutput && cache.IsPathOwnedByAnotherTarget(outputPath, target)))
+            if (replacing && !allowOverwrite)
                 return ExactFileTransferOutcome.AlreadyExists(target, outputPath);
             DownloadLogMessages.JobDecision(
                 logger,
@@ -209,9 +205,9 @@ internal sealed class DownloadFileOperations : IDisposable
             try { File.Copy(existingPath, outputPath, overwrite: replacing); }
             catch (IOException) when (!replacing)
             {
-                // Preserve overwrite behavior if a local administrator created
-                // the path after our check (including an existing symlink).
-                File.Copy(existingPath, outputPath, overwrite: true);
+                if (!allowOverwrite && File.Exists(outputPath))
+                    return ExactFileTransferOutcome.AlreadyExists(target, outputPath);
+                File.Copy(existingPath, outputPath, overwrite: allowOverwrite);
             }
         }
 
@@ -375,6 +371,7 @@ internal sealed class DownloadFileOperations : IDisposable
             draining = workers.ToArray();
         }
         foreach (var worker in draining) worker.Join();
+        Indexes.Clear();
     }
 
     private sealed class OutputPathClaim
@@ -394,27 +391,25 @@ internal sealed class DownloadFileOperations : IDisposable
 
     // Output I/O remains serialized by WithCacheAsync. Retirement only changes
     // metadata under this lock; it never waits for filesystem work or deletes files.
-    internal sealed class Cache(int maximumIdleEntries = 10_000)
+    internal sealed class Cache
     {
-        internal sealed record CachedDownload(string OutputPath, PeerFileTarget Target)
-        {
-            public HashSet<Guid> Workflows { get; } = [];
-            public LinkedListNode<PeerFileIdentity>? IdleNode { get; set; }
-        }
+        internal sealed record CachedDownload(string OutputPath, PeerFileTarget Target);
+        private readonly record struct Key(Guid WorkflowId, PeerFileIdentity Identity);
         private readonly Lock gate = new();
-        private readonly ConcurrentDictionary<PeerFileIdentity, CachedDownload> downloadedFiles = new();
-        public bool Contains(PeerFileIdentity identity) => downloadedFiles.ContainsKey(identity);
-        public int Count => downloadedFiles.Count;
-        public int ActiveCount { get { lock (gate) return downloadedFiles.Count - idle.Count; } }
-        private readonly Dictionary<string, PeerFileIdentity> identitiesByPath = new(PathComparer);
+        private readonly ConcurrentDictionary<Key, CachedDownload> downloadedFiles = new();
+        private readonly Dictionary<string, Key> identitiesByPath = new(PathComparer);
         private readonly Dictionary<Guid, HashSet<PeerFileIdentity>> identitiesByWorkflow = [];
-        // Retain reuse across submissions without retaining every download for
-        // daemon uptime. Active workflows are never evicted to meet this target.
-        private readonly LinkedList<PeerFileIdentity> idle = [];
 
-        public bool TryGetReusable(PeerFileTarget target, [NotNullWhen(true)] out CachedDownload? result)
+        // Reuse fulfills duplicate work within one request. A later, unrelated
+        // submission must not silently receive an old same-path/same-size file.
+        public bool Contains(PeerFileIdentity identity, Guid workflowId)
+            => downloadedFiles.ContainsKey(new(workflowId, identity));
+        public int Count => downloadedFiles.Count;
+
+        public bool TryGetReusable(PeerFileTarget target, Guid workflowId, [NotNullWhen(true)] out CachedDownload? result)
         {
-            if (!downloadedFiles.TryGetValue(target.Identity, out var cached)) { result = null; return false; }
+            var key = new Key(workflowId, target.Identity);
+            if (!downloadedFiles.TryGetValue(key, out var cached)) { result = null; return false; }
             var file = new FileInfo(cached.OutputPath);
             var expectedSize = target.Size ?? cached.Target.Size;
             if (file.Exists && (expectedSize is null || file.Length == expectedSize.Value))
@@ -423,8 +418,7 @@ internal sealed class DownloadFileOperations : IDisposable
                 return true;
             }
             lock (gate)
-                if (ReferenceEquals(downloadedFiles.GetValueOrDefault(target.Identity), cached))
-                    RemoveIdentity(target.Identity);
+                if (ReferenceEquals(downloadedFiles.GetValueOrDefault(key), cached)) Remove(key);
             result = null;
             return false;
         }
@@ -432,36 +426,16 @@ internal sealed class DownloadFileOperations : IDisposable
         public void Publish(string outputPath, PeerFileTarget target, Guid workflowId)
         {
             string path = Path.GetFullPath(outputPath);
+            var key = new Key(workflowId, target.Identity);
             lock (gate)
             {
-                if (!downloadedFiles.TryGetValue(target.Identity, out var cached)
-                    || !PathComparer.Equals(cached.OutputPath, path))
-                {
-                    Guid[] workflows = cached?.Workflows.ToArray() ?? [];
-                    InvalidatePath(path);
-                    RemoveIdentity(target.Identity);
-                    cached = new(path, target);
-                    cached.Workflows.UnionWith(workflows);
-                    downloadedFiles[target.Identity] = cached;
-                    identitiesByPath[path] = target.Identity;
-                }
-                else if (cached.Target != target)
-                {
-                    cached = cached with { Target = target };
-                    downloadedFiles[target.Identity] = cached;
-                }
-                if (cached.IdleNode is { } node)
-                {
-                    idle.Remove(node);
-                    cached.IdleNode = null;
-                }
-                cached.Workflows.Add(workflowId);
-                foreach (Guid workflow in cached.Workflows)
-                {
-                    if (!identitiesByWorkflow.TryGetValue(workflow, out var identities))
-                        identitiesByWorkflow.Add(workflow, identities = []);
-                    identities.Add(target.Identity);
-                }
+                InvalidatePath(path);
+                Remove(key);
+                downloadedFiles[key] = new(path, target);
+                identitiesByPath[path] = key;
+                if (!identitiesByWorkflow.TryGetValue(workflowId, out var identities))
+                    identitiesByWorkflow.Add(workflowId, identities = []);
+                identities.Add(target.Identity);
             }
         }
 
@@ -469,45 +443,26 @@ internal sealed class DownloadFileOperations : IDisposable
         {
             lock (gate)
             {
-                if (!identitiesByWorkflow.Remove(workflowId, out var identities)) return;
-                foreach (var identity in identities)
-                    if (downloadedFiles.TryGetValue(identity, out var cached))
-                    {
-                        cached.Workflows.Remove(workflowId);
-                        if (cached.Workflows.Count == 0)
-                            cached.IdleNode = idle.AddLast(identity);
-                    }
-                while (idle.Count > maximumIdleEntries)
-                    RemoveIdentity(idle.First!.Value);
+                if (!identitiesByWorkflow.TryGetValue(workflowId, out var identities)) return;
+                foreach (var identity in identities.ToArray()) Remove(new(workflowId, identity));
             }
         }
 
         public void InvalidatePath(string outputPath)
         {
             lock (gate)
-                if (identitiesByPath.TryGetValue(Path.GetFullPath(outputPath), out var identity)) RemoveIdentity(identity);
+                if (identitiesByPath.TryGetValue(Path.GetFullPath(outputPath), out var key)) Remove(key);
         }
 
-        public bool IsPathOwnedByAnotherTarget(string path, PeerFileTarget target)
+        private void Remove(Key key)
         {
-            lock (gate) return identitiesByPath.TryGetValue(Path.GetFullPath(path), out var identity) && identity != target.Identity;
-        }
-        public bool HasPublishedPathOwner(string path)
-        {
-            lock (gate) return identitiesByPath.ContainsKey(Path.GetFullPath(path));
-        }
-
-        private void RemoveIdentity(PeerFileIdentity identity)
-        {
-            if (!downloadedFiles.TryRemove(identity, out var previous)) return;
-            if (previous.IdleNode is { } node) idle.Remove(node);
+            if (!downloadedFiles.TryRemove(key, out var previous)) return;
             identitiesByPath.Remove(previous.OutputPath);
-            foreach (Guid workflow in previous.Workflows)
-                if (identitiesByWorkflow.TryGetValue(workflow, out var identities))
-                {
-                    identities.Remove(identity);
-                    if (identities.Count == 0) identitiesByWorkflow.Remove(workflow);
-                }
+            if (identitiesByWorkflow.TryGetValue(key.WorkflowId, out var identities))
+            {
+                identities.Remove(key.Identity);
+                if (identities.Count == 0) identitiesByWorkflow.Remove(key.WorkflowId);
+            }
         }
     }
 

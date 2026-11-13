@@ -7,7 +7,6 @@ namespace Sockseek.Core;
 internal sealed class RemoteFileDownloadExecutor
 {
     private readonly DownloadExecutionContext context;
-    private readonly PlacementPlanner placement = new();
 
     public RemoteFileDownloadExecutor(DownloadExecutionContext context)
     {
@@ -17,6 +16,7 @@ internal sealed class RemoteFileDownloadExecutor
     public async Task<JobOutcome> Process(RemoteFileJob job, Job? parentJob)
     {
         var config = job.Config;
+        var placement = new PlacementPlanner(context.Ctx(job).OutputScope);
         var destination = placement.PlanFile(job.Target, job.OutputPath, config);
 
         var outcome = await context.Runtime.ExactFileTransfers.DownloadFile(
@@ -28,12 +28,12 @@ internal sealed class RemoteFileDownloadExecutor
             config.Search.MaxStaleTime,
             ct: job.Cts!.Token,
             parentJob: parentJob,
-            allowOverwrite: !config.Skip.SkipExisting);
+            allowOverwrite: !config.Skip.SkipExisting, allowReuse: config.Skip.SkipExisting);
 
         return outcome.Status switch
         {
             ExactFileTransferStatus.Completed when outcome.Result != null
-                => JobOutcome.Done(outcome.Result.OutputPath),
+                => JobOutcome.Done(outcome.Result.OutputPath, reused: outcome.Result.Reused),
             ExactFileTransferStatus.ManuallySkipped
                 => JobOutcome.Skipped(JobSkipReason.Manual),
             ExactFileTransferStatus.AlreadyExists

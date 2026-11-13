@@ -128,7 +128,10 @@ public sealed record JobSummaryStatsDto(
     int? FileCount = null,
     long? KnownBytes = null,
     int? NewFilesFoundCount = null,
-    double? ProgressPercent = null);
+    double? ProgressPercent = null,
+    int? SkippedMemberCount = null,
+    int? DownloadedMemberCount = null,
+    int? ReusedMemberCount = null);
 
 /// <summary>
 /// Lightweight job list item. Fetch JobDetailDto for a selected job's typed payload.

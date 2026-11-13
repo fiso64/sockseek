@@ -117,11 +117,14 @@ public sealed class DirectoryDownloadLifecycleTests
         Assert.AreEqual(30, job.TotalKnownBytes);
         Assert.AreEqual(0.5, job.Progress);
         pending.Fail(JobFailureReason.NoMatchingResults);
-        extra.SetDone();
+        JobOutcomeCommitter.Commit(extra, JobOutcome.Done(reused: true));
         var progress = job.ProgressSummary;
         Assert.AreEqual(3, progress.TerminalFileCount);
         Assert.AreEqual(2, progress.SuccessfulFileCount);
         Assert.AreEqual(1, progress.FailedFileCount);
+        Assert.AreEqual(1, progress.SkippedFileCount);
+        Assert.AreEqual(1, progress.ReusedFileCount);
+        Assert.AreEqual(0, progress.DownloadedFileCount);
         Assert.AreEqual(5, progress.BytesTransferred);
 
         job.BeginDirectoryAttempt(Plan());
@@ -157,6 +160,7 @@ public sealed class DirectoryDownloadLifecycleTests
         Assert.AreEqual(160, job.BytesTransferred);
         Assert.AreEqual(1, job.Progress);
         Assert.AreEqual(16, job.ProgressSummary.SuccessfulFileCount);
+        Assert.AreEqual(16, job.ProgressSummary.DownloadedFileCount);
         Assert.AreEqual(16, job.ProgressSummary.TerminalFileCount);
         Assert.AreEqual(0, job.ProgressSummary.FailedFileCount);
     }

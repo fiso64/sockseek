@@ -101,7 +101,7 @@ internal sealed class DiscoveryCoordinator
         if (allSongs.Count > 0)
             context.Events.RaiseTrackListReady(allSongs);
 
-        var newContexts = JobPreparer.PrepareSubtree(extracted, job.Config, context.JobSettingsResolver, parentJob as JobList, context.Ctx(job));
+        var newContexts = JobPreparer.PrepareSubtree(extracted, job.Config, context.JobSettingsResolver, parentJob as JobList, context.Ctx(job), indexes: context.Runtime.Files.Indexes);
         foreach (var (id, ctx) in newContexts)
             context.Contexts.Set(id, extracted.WorkflowId, ctx);
 

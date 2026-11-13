@@ -13,6 +13,78 @@ namespace Tests.EndToEnd
     public class GroupSkipTests
     {
         [TestMethod]
+        [DataRow(false, true, "history")]
+        [DataRow(true, true, "history")]
+        [DataRow(false, false, "history")]
+        [DataRow(false, true, "library")]
+        [DataRow(true, true, "library")]
+        [DataRow(false, false, "library")]
+        [DataRow(false, true, "not-found")]
+        [DataRow(true, true, "not-found")]
+        [DataRow(false, false, "not-found")]
+        public async Task MusicMatchingHonorsSkipSettingAndAcceptedSource(bool exact, bool skipExisting, string evidence)
+        {
+            string root = Directory.CreateTempSubdirectory("sockseek-skip-policy-").FullName;
+            try
+            {
+                foreach (bool albumMode in new[] { false, true })
+                {
+                    string output = Path.Combine(root, albumMode ? "album" : "song");
+                    string library = Path.Combine(output, "library", "Artist", "Album");
+                    Directory.CreateDirectory(library);
+                    if (evidence == "library")
+                        File.WriteAllBytes(Path.Combine(library, "Artist - Song.mp3"), TestHelpers.EmptyMp3Bytes);
+                    var query = new SongQuery { Artist = "Artist", Album = "Album", Title = "Song" };
+                    var albumQuery = new AlbumQuery { Artist = "Artist", Album = "Album" };
+                    Job Previous() => albumMode ? new AlbumJob(albumQuery) : new SongJob(query);
+                    string indexPath = Path.Combine(output, "_index.csv");
+                    if (evidence != "library")
+                    {
+                        Job previous = Previous();
+                        if (evidence == "not-found") previous.Fail(JobFailureReason.NoSearchResults);
+                        else JobOutcomeCommitter.Commit(previous, JobOutcome.Done(Path.Combine(output, "moved-or-deleted")));
+                        new DownloadOutputFile(indexPath, new JobList(null, [previous]), OutputFileKind.Index, false).Refresh();
+                    }
+                    var remote = TestHelpers.CreateSlFile(@"Artist\Album\Artist - Song.mp3", size: 16, length: 180);
+                    var response = new Soulseek.SearchResponse("Peer", 1, true, 100, 0, [remote]);
+                    var candidate = SoulseekSearchAdapter.ToFileCandidate(response, remote);
+                    var folder = new AlbumFolder("Peer", @"Artist\Album", [new AlbumFile(query, candidate)]) { IsFullyRetrieved = true };
+                    Job requested = albumMode
+                        ? new AlbumJob(albumQuery) { Results = [folder], ResolvedTarget = exact ? folder : null,
+                            ValidationRequirement = exact ? AlbumValidationRequirement.UserAccepted : AlbumValidationRequirement.Standard }
+                        : new SongJob(query) { Candidates = [candidate], ExactTarget = exact ? candidate.Target : null };
+                    var settings = new DownloadSettings
+                    {
+                        Output = { ParentDir = output, IndexFilePath = indexPath, WriteIndex = false },
+                        Skip = { SkipExisting = skipExisting, SkipMusicDir = Path.Combine(output, "library"), SkipNotFound = true },
+                        Search = { NoBrowseFolder = true },
+                    };
+                    // Accepted intent survives persistence/replay, rather than depending on UI state.
+                    requested = Sockseek.Core.Planning.SubmissionSpecificationCodec.Deserialize(
+                        Sockseek.Core.Planning.SubmissionSpecificationCodec.Serialize(
+                            Sockseek.Core.Planning.SubmissionSpecification.CreateShallow(requested, settings))).MaterializeJob();
+                    var client = new MockSoulseekClient([response]);
+                    var engineSettings = new EngineSettings { Username = "test", Password = "test" };
+                    await using var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
+                    engine.Enqueue(requested, settings);
+                    engine.CompleteEnqueue();
+                    await engine.RunAsync(CancellationToken.None);
+                    bool skipped = !exact && (skipExisting || evidence == "not-found");
+                    Assert.AreEqual(skipped ? JobTerminalOutcome.Skipped : JobTerminalOutcome.Succeeded, requested.TerminalOutcome,
+                        $"album={albumMode}, exact={exact}, skip={skipExisting}, evidence={evidence}: {requested.FailureMessage}");
+                    Assert.AreEqual(skipped ? 0 : 1, client.DownloadCallCount);
+                    if (skipped)
+                    {
+                        Assert.AreEqual(evidence == "not-found" ? JobSkipReason.NotFoundLastTime : JobSkipReason.AlreadyExists, requested.SkipReason);
+                        Assert.AreEqual(evidence == "not-found" ? null : evidence == "history"
+                            ? ExistingFileSource.CompletionHistory : ExistingFileSource.Library, requested.ExistingFileSource);
+                    }
+                }
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        [TestMethod]
         public async Task GroupDownload_SkipExisting_CorrectlySkipsAfterSearch()
         {
             Console.ResetColor();
@@ -130,6 +202,9 @@ namespace Tests.EndToEnd
                 int linesRun2 = File.ReadAllLines(dl.Output.IndexFilePath).Length;
                 Assert.AreEqual(linesRun1, linesRun2, "Index file should not duplicate entries when skipping within tolerance.");
 
+                // Remove the payload to test history tolerance independently of
+                // destination protection. History still skips run 2 without it.
+                File.Delete(aggJob1.Songs[0].DownloadPath!);
                 // Run 3: 185s (Outside tolerance, should NOT be skipped)
                 var clientManager3 = TestHelpers.CreateMockClientManager(testClient3, eng);
                 var app3 = new DownloadEngine(eng, clientManager3);
@@ -403,6 +478,9 @@ namespace Tests.EndToEnd
                 var songJob1 = app1.Queue.AllJobs().OfType<SongJob>().FirstOrDefault();
                 Assert.AreEqual(JobTerminalOutcome.Succeeded, songJob1!.TerminalOutcome);
 
+                // Keep history but remove the payload to isolate the matching
+                // tolerance from the independent occupied-destination guard.
+                File.Delete(songJob1.DownloadPath!);
                 // RUN 2: Try to download with query length 182
                 var dl2 = new DownloadSettings();
                 dl2.Extraction.Input = "artist=Artist, title=Song, length=182";

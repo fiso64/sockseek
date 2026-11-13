@@ -1045,7 +1045,7 @@ internal sealed class JobState
             {
                 var data = FileState(file);
                 progress.Add(file.Id, data.BytesTransferred, data.FileSize, file.LifecycleState,
-                    file.TerminalOutcome, file.SkipReason, supplementalIds.Contains(file.Id));
+                    file.TerminalOutcome, file.SkipReason, supplementalIds.Contains(file.Id), data.Reused);
             }
             Refresh();
         }
@@ -1054,7 +1054,7 @@ internal sealed class JobState
         {
             var data = FileState(file);
             if (progress.Update(file.Id, data.BytesTransferred, data.FileSize,
-                file.LifecycleState, file.TerminalOutcome, file.SkipReason))
+                file.LifecycleState, file.TerminalOutcome, file.SkipReason, data.Reused))
                 Refresh();
         }
 
@@ -1073,6 +1073,9 @@ internal sealed class JobState
                 TerminalFileCount = summary.TerminalFileCount,
                 SuccessfulFileCount = summary.SuccessfulFileCount,
                 FailedFileCount = summary.FailedFileCount,
+                SkippedFileCount = summary.SkippedFileCount,
+                DownloadedFileCount = summary.DownloadedFileCount,
+                ReusedFileCount = summary.ReusedFileCount,
                 BytesTransferred = summary.BytesTransferred,
                 TotalKnownBytes = plannedBytes + summary.SupplementalKnownBytes,
                 UnknownFileSizeCount = plannedUnknownCount + summary.SupplementalUnknownCount,

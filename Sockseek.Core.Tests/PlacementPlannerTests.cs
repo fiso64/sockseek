@@ -19,7 +19,7 @@ public sealed class PlacementPlannerTests
             Entry(@"Share\Collection\01.flac", []),
         ], representsDirectorySelection: !directlyUnderParent);
 
-        var placements = new PlacementPlanner().PlanDirectory(
+        var placements = new PlacementPlanner(OutputScope.Empty).PlanDirectory(
             plan,
             new OutputSettings { ParentDir = parent });
 
@@ -45,7 +45,7 @@ public sealed class PlacementPlannerTests
             NameFormat = "{peer-username}/{relative-path}",
         };
 
-        var placement = new PlacementPlanner().PlanDirectory(plan, output).Single();
+        var placement = new PlacementPlanner(OutputScope.Empty).PlanDirectory(plan, output).Single();
 
         CollectionAssert.AreEqual(
             new[] { "Peer", "Disc 2", "02.flac" },
@@ -60,7 +60,7 @@ public sealed class PlacementPlannerTests
             Entry(@"Share\Collection\02.flac", [], extension: ".flac"),
         ]);
 
-        var placement = new PlacementPlanner().PlanDirectory(
+        var placement = new PlacementPlanner(OutputScope.Empty).PlanDirectory(
             plan,
             new OutputSettings
             {
@@ -78,7 +78,7 @@ public sealed class PlacementPlannerTests
     {
         Assert.IsFalse(NameFormatVariableProvider.Supported.Contains("extension"));
         Assert.ThrowsExactly<UnsupportedNameFormatVariableException>(() =>
-            new PlacementPlanner().PlanFile(
+            new PlacementPlanner(OutputScope.Empty).PlanFile(
                 Target(@"Share\notes.txt"),
                 RelativeOutputPath.FromRemoteFile(Target(@"Share\notes.txt")),
                 new OutputSettings
@@ -95,7 +95,7 @@ public sealed class PlacementPlannerTests
         foreach (string variable in new[] { "selection-root", "relative-directory", "remote-file", "remote-folder", "remote-ext" })
         {
             Assert.ThrowsExactly<UnsupportedNameFormatVariableException>(() =>
-                new PlacementPlanner().PlanFile(
+                new PlacementPlanner(OutputScope.Empty).PlanFile(
                     target,
                     RelativeOutputPath.FromRemoteFile(target),
                     new OutputSettings
@@ -107,22 +107,23 @@ public sealed class PlacementPlannerTests
     }
 
     [TestMethod]
-    public void DirectFileFormat_FolderNameMeansImmediateRemoteParent()
+    [DataRow("{foldername}/{filename}", false)]
+    [DataRow("{default-folder}/{foldername}/{filename}", true)]
+    public void FileAndDirectoryFormatsUseTheSameContainerScope(string format, bool includeScope)
     {
         string parent = TestParent();
         var target = Target(@"Share\Documents\notes.txt", extension: ".txt");
-        var placement = new PlacementPlanner().PlanFile(
-            target,
-            RelativeOutputPath.FromRemoteFile(target),
-            new OutputSettings
-            {
-                ParentDir = parent,
-                NameFormat = "{foldername}/{filename}",
-            });
-
-        CollectionAssert.AreEqual(
-            new[] { "Documents", "notes.txt" },
-            placement.RelativePath.Components.ToArray());
+        var scope = OutputScope.Empty.WithDefaultFolder("wishlist", "_").WithDefaultFolder("collection", "_");
+        var planner = new PlacementPlanner(scope);
+        var output = new OutputSettings { ParentDir = parent, NameFormat = format };
+        var file = planner.PlanFile(target, RelativeOutputPath.FromRemoteFile(target), output);
+        var directory = planner.PlanDirectory(new DirectoryTransferPlan("Documents",
+            [new DirectoryTransferEntry(target, [])]), output).Single();
+        string[] expected = includeScope ? ["wishlist", "collection", "Documents", "notes.txt"]
+            : ["Documents", "notes.txt"];
+        CollectionAssert.AreEqual(expected, file.RelativePath.Components.ToArray());
+        Assert.AreEqual(Path.Combine([parent, .. expected]), file.OutputPath);
+        Assert.AreEqual(file.OutputPath, directory.OutputPath);
     }
 
     [TestMethod]
@@ -136,7 +137,7 @@ public sealed class PlacementPlannerTests
             Entry("Root\\cafe\u0301.txt", []),
         ]);
 
-        var placements = new PlacementPlanner().PlanDirectory(
+        var placements = new PlacementPlanner(OutputScope.Empty).PlanDirectory(
             plan,
             new OutputSettings { ParentDir = parent, InvalidReplaceStr = "_" });
         var leaves = placements.Select(item => Path.GetFileName(item.OutputPath)).ToArray();
@@ -155,7 +156,7 @@ public sealed class PlacementPlannerTests
             Entry("Root\\Di\tsc\\track\u001B.txt", ["Di\tsc"]),
         ]);
 
-        FilePlacement placement = new PlacementPlanner().PlanDirectory(
+        FilePlacement placement = new PlacementPlanner(OutputScope.Empty).PlanDirectory(
             plan,
             new OutputSettings { ParentDir = parent, InvalidReplaceStr = "_" }).Single();
 
@@ -175,7 +176,7 @@ public sealed class PlacementPlannerTests
         };
 
         var exception = Assert.ThrowsExactly<UnsupportedNameFormatVariableException>(() =>
-            new PlacementPlanner().PlanDirectory(
+            new PlacementPlanner(OutputScope.Empty).PlanDirectory(
                 new DirectoryTransferPlan("Root", [Entry(@"Root\file.bin", [])]),
                 output));
 
@@ -200,7 +201,7 @@ public sealed class PlacementPlannerTests
             },
         };
 
-        var placement = new PlacementPlanner().PlanFile(
+        var placement = new PlacementPlanner(OutputScope.Empty).PlanFile(
             target,
             RelativeOutputPath.FromRemoteFile(target),
             settings);
@@ -216,7 +217,7 @@ public sealed class PlacementPlannerTests
         var target = Target(@"Share\notes.txt", extension: ".txt");
 
         var exception = Assert.ThrowsExactly<UnsupportedNameFormatVariableException>(() =>
-            new PlacementPlanner().PlanFile(
+            new PlacementPlanner(OutputScope.Empty).PlanFile(
                 target,
                 RelativeOutputPath.FromRemoteFile(target),
                 new OutputSettings
@@ -250,7 +251,7 @@ public sealed class PlacementPlannerTests
             NameFormat = "{(..)}/{filename}",
         };
 
-        var placement = new PlacementPlanner().PlanDirectory(
+        var placement = new PlacementPlanner(OutputScope.Empty).PlanDirectory(
                 new DirectoryTransferPlan("Root", [Entry(@"Root\file.bin", [])]),
                 output).Single();
 

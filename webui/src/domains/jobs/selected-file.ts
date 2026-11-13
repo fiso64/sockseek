@@ -26,13 +26,13 @@ export function jobFileTransfer(job: Schema<'JobSummaryDto'> | null | undefined,
   const terminal = job?.lifecycleState === 'Terminal';
   return {
     ...current, job: job ?? undefined, file: file ?? undefined, target: target ?? undefined,
-    state: terminal || !current ? job ? jobStatusLabel(job) : 'Pending' : current.state,
+    state: terminal && file?.reused ? 'Reused' : terminal || !current ? job ? jobStatusLabel(job) : 'Pending' : current.state,
     tone: terminal || !current ? jobTransferTone(job) : current.tone,
     direction: 'download',
     speed: terminal ? undefined : current?.speed,
     eta: terminal ? undefined : current?.eta,
     detail: job?.failureMessage ?? (terminal ? undefined : current?.detail),
-    progressPercent: job?.terminalOutcome === 'Skipped' ? undefined
+    progressPercent: job?.terminalOutcome === 'Skipped' || file?.reused ? undefined
       : current?.progressPercent ?? (file?.progressPercent == null ? undefined : Number(file.progressPercent)),
   };
 }
@@ -66,6 +66,7 @@ export function selectedJobFile(payload: Schema<'JobPayloadDto'> | null | undefi
       attributes: live.file?.attributes,
     },
     file: payload?.file ?? {
+      reused: false,
       downloadPath: live.status.localPath,
       bytesTransferred: live.progress.bytesTransferred,
       fileSize: live.file?.size ?? (Number(live.progress.totalBytes) >= 0 ? live.progress.totalBytes : null),

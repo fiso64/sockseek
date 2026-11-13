@@ -30,10 +30,10 @@ it('shares prototype lifecycle labels without presenting skipped jobs as failed'
 
 it('shows authoritative outcome totals without counting loaded children', () => {
   expect(jobHeaderStats({ kind: 'job-list', count: 100, activeJobCount: 10,
-    completedJobCount: 90, succeededJobCount: 85, failedJobCount: 5,
-  })).toEqual(['100 jobs', '85 complete', '5 failed']);
+    completedJobCount: 90, succeededJobCount: 85, failedJobCount: 5, skippedJobCount: 0,
+  })).toEqual(['100 jobs', '90 complete', '5 failed']);
   expect(jobHeaderStats({ kind: 'song-groups', query: { artistMaybeWrong: false },
-    songCount: 20, completedSongCount: 20, succeededSongCount: 20, failedSongCount: 0,
+    songCount: 20, completedSongCount: 20, succeededSongCount: 20, failedSongCount: 0, skippedSongCount: 0,
   })).toEqual(['20 songs', '20 complete']);
 });
 
@@ -41,6 +41,7 @@ it('preserves unknown file sizes and displays authoritative container outcomes',
   const directory = {
     phase: 'resolving', attemptNumber: null, downloadPath: null, fileCount: 0,
     terminalFileCount: 0, successfulFileCount: 0, failedFileCount: 0,
+    skippedFileCount: 0, downloadedFileCount: 0, reusedFileCount: 0,
     bytesTransferred: 0, totalKnownBytes: 0, progressPercent: null, unknownFileSizeCount: 0,
   };
   expect(jobHeaderStats({ kind: 'remote-directory', sourceKind: 'PeerDirectory',
@@ -56,18 +57,18 @@ it('preserves unknown file sizes and displays authoritative container outcomes',
     .toEqual(['11 files']);
   expect(jobHeaderStats({ kind: 'remote-file',
     target: { username: 'peer', filename: 'file', size: null, extension: null },
-    outputPathComponents: [], file: { downloadPath: null, fileSize: null, bytesTransferred: 0, progressPercent: null },
+    outputPathComponents: [], file: { reused: false, downloadPath: null, fileSize: null, bytesTransferred: 0, progressPercent: null },
   })).toEqual([]);
   expect(jobHeaderStats({ kind: 'album-groups', query: { artistMaybeWrong: false }, resultCount: 12,
-    completedAlbumCount: 0, succeededAlbumCount: 0, failedAlbumCount: 0 }))
+    completedAlbumCount: 0, succeededAlbumCount: 0, failedAlbumCount: 0, skippedAlbumCount: 0 }))
     .toEqual(['12 albums', '0 complete']);
   expect(jobHeaderStats({ kind: 'album-groups', query: { artistMaybeWrong: false },
-    resultCount: 12, completedAlbumCount: 9, succeededAlbumCount: 8, failedAlbumCount: 1 }))
-    .toEqual(['12 albums', '8 complete', '1 failed']);
+    resultCount: 12, completedAlbumCount: 9, succeededAlbumCount: 8, failedAlbumCount: 1, skippedAlbumCount: 0 }))
+    .toEqual(['12 albums', '9 complete', '1 failed']);
   expect(jobHeaderStats({ kind: 'song-groups', query: { artistMaybeWrong: false }, songCount: 7,
-    completedSongCount: 0, succeededSongCount: 0, failedSongCount: 0 }))
+    completedSongCount: 0, succeededSongCount: 0, failedSongCount: 0, skippedSongCount: 0 }))
     .toEqual(['7 songs', '0 complete']);
   expect(jobHeaderStats({ kind: 'job-list', count: 3, activeJobCount: 3,
-    completedJobCount: 0, succeededJobCount: 0, failedJobCount: 0 }))
+    completedJobCount: 0, succeededJobCount: 0, failedJobCount: 0, skippedJobCount: 0 }))
     .toEqual(['3 jobs', '0 complete']);
 });

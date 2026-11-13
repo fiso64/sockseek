@@ -9,6 +9,23 @@ namespace Tests;
 public sealed class JobSettingsComposerTests
 {
     [TestMethod]
+    public void ExplicitFalseOverridesMusicSkippingFromConfigurationAndProfiles()
+    {
+        var settings = new DownloadSettings { Skip = { SkipExisting = true, SkipMusicDir = "/library" },
+            Output = { IndexFilePath = "/completion.csv" } };
+        var composer = new JobSettingsComposer(settings, new ProfileCatalog
+        {
+            NamedProfiles = [new SettingsProfile { Name = "history", Download = new SettingsPatch([new("Skip.SkipExisting", true)]) }],
+        });
+        var resolved = composer.ComposeDetailed(settings, new SongJob(new SongQuery { Title = "Track" }),
+            request: new JobSettingsRequestLayers(ProfileNames: ["history"], Download: new SettingsPatch([new("Skip.SkipExisting", false)])));
+        Assert.IsFalse(resolved.Settings.Skip.SkipExisting);
+        Assert.AreEqual("/library", resolved.Settings.Skip.SkipMusicDir);
+        Assert.AreEqual("/completion.csv", resolved.Settings.Output.IndexFilePath);
+        Assert.IsTrue(settings.Skip.SkipExisting);
+    }
+
+    [TestMethod]
     public void CommandFactsComposeEverySemanticModeWithoutAnExecutionObject()
     {
         foreach (var (kind, mode, projection) in new[]

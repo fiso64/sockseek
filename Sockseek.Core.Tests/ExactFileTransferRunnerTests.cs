@@ -209,13 +209,14 @@ public sealed class ExactFileTransferRunnerTests
         string copy = Path.Combine(root, "copy.bin");
         var target = Target("Exact Peer", @"Share\File.bin");
         byte[] payload = Enumerable.Range(0, (int)target.Size!.Value).Select(i => (byte)i).ToArray();
+        var owner = new RemoteFileJob(target);
         Task first = files.WithCacheAsync(cache =>
         {
             Assert.IsFalse(Thread.CurrentThread.IsThreadPoolThread);
             File.WriteAllBytes(original, payload);
             entered.SetResult();
             release.Wait();
-            cache.Publish(original, target, Guid.NewGuid());
+            cache.Publish(original, target, owner.WorkflowId);
             return true;
         }).AsTask();
         Task<ExactFileTransferOutcome>? copying = null;
@@ -228,7 +229,7 @@ public sealed class ExactFileTransferRunnerTests
             var client = new MockSoulseekClient([Response(target.Username, target.Filename)]);
             var (runner, _, _) = CreateRunner(client, files);
             var settings = new TransferSettings { NoIncompleteExt = true };
-            copying = runner.DownloadFile(target, copy, new RemoteFileJob(target), settings, root, 30_000);
+            copying = runner.DownloadFile(target, copy, owner, settings, root, 30_000);
             Assert.IsFalse(copying.IsCompleted);
             Assert.IsFalse(failed.IsCompleted);
             // Neither queued update may occupy the spare I/O worker while
@@ -571,10 +572,13 @@ public sealed class ExactFileTransferRunnerTests
             Assert.AreEqual(0, client.DownloadCallCount);
             Assert.AreEqual(target.Size, new FileInfo(copy).Length);
             Assert.IsNull(song.LastAttemptedCandidate, "A local reused copy is not a new peer attempt.");
-            var reusable = await ReusableAsync(files, target);
+            var reusable = await ReusableAsync(files, target, song.WorkflowId);
             Assert.IsNotNull(reusable);
             Assert.AreEqual(publishCopy ? copy : original, reusable.OutputPath,
                 "An unpublished staging copy must not replace the stable source used by concurrent duplicates.");
+            if (publishCopy) File.Delete(reusable.OutputPath);
+            else File.WriteAllBytes(reusable.OutputPath, [1]);
+            Assert.IsNull(await ReusableAsync(files, target, song.WorkflowId));
         }
         finally { Directory.Delete(root, recursive: true); }
     }
@@ -587,15 +591,16 @@ public sealed class ExactFileTransferRunnerTests
         using var files = new DownloadFileOperations(2);
         var first = Target("first-peer", @"Share\First.bin");
         var second = Target("second-peer", @"Share\Second.bin");
+        Guid firstWorkflow = Guid.NewGuid(), secondWorkflow = Guid.NewGuid();
         try
         {
             System.IO.File.WriteAllBytes(output, new byte[16]);
-            await files.WithCacheAsync(cache => { cache.Publish(output, first, Guid.NewGuid()); return true; });
+            await files.WithCacheAsync(cache => { cache.Publish(output, first, firstWorkflow); return true; });
             System.IO.File.WriteAllBytes(output, Enumerable.Repeat((byte)1, 16).ToArray());
-            await files.WithCacheAsync(cache => { cache.Publish(output, second, Guid.NewGuid()); return true; });
+            await files.WithCacheAsync(cache => { cache.Publish(output, second, secondWorkflow); return true; });
 
-            Assert.IsNull(await ReusableAsync(files, first));
-            var retained = await ReusableAsync(files, second);
+            Assert.IsNull(await ReusableAsync(files, first, firstWorkflow));
+            var retained = await ReusableAsync(files, second, secondWorkflow);
             Assert.IsNotNull(retained);
             Assert.AreEqual(Path.GetFullPath(output), retained.OutputPath);
         }
@@ -615,6 +620,8 @@ public sealed class ExactFileTransferRunnerTests
             Response(firstTarget.Username, firstTarget.Filename),
             Response(secondTarget.Username, secondTarget.Filename),
         ]);
+        var firstOwner = new RemoteFileJob(firstTarget);
+        var secondOwner = new RemoteFileJob(secondTarget);
         var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         client.BeforeDownloadStartsAsync = async (_, remotePath, cancellationToken) =>
@@ -635,29 +642,27 @@ public sealed class ExactFileTransferRunnerTests
             Task<ExactFileTransferOutcome> first = runner.DownloadFile(
                 firstTarget,
                 output,
-                new RemoteFileJob(firstTarget),
+                firstOwner,
                 settings,
                 root,
                 30_000,
-                allowOverwrite: true,
-                protectPublishedOutput: true);
+                allowOverwrite: false);
             await firstEntered.Task;
             Task<ExactFileTransferOutcome> second = runner.DownloadFile(
                 secondTarget,
                 output,
-                new RemoteFileJob(secondTarget),
+                secondOwner,
                 settings,
                 root,
                 30_000,
-                allowOverwrite: true,
-                protectPublishedOutput: true);
+                allowOverwrite: false);
 
             releaseFirst.TrySetResult();
             Assert.AreEqual(ExactFileTransferStatus.Completed, (await first).Status);
             Assert.AreEqual(ExactFileTransferStatus.AlreadyExists, (await second).Status);
             Assert.AreEqual(1, client.DownloadCallCount);
-            Assert.IsNotNull(await ReusableAsync(files, firstTarget));
-            Assert.IsNull(await ReusableAsync(files, secondTarget));
+            Assert.IsNotNull(await ReusableAsync(files, firstTarget, firstOwner.WorkflowId));
+            Assert.IsNull(await ReusableAsync(files, secondTarget, secondOwner.WorkflowId));
         }
         finally
         {
@@ -667,7 +672,9 @@ public sealed class ExactFileTransferRunnerTests
     }
 
     [TestMethod]
-    public async Task SkipExistingDoesNotCountACachedSamePathAsAnotherSuccessfulDownload()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SkipExistingProtectsTheDestinationEvenWhenItsSizeDiffers(bool changeSize)
     {
         using var files = new DownloadFileOperations(2);
         var target = Target("Peer", @"Share\File.bin");
@@ -680,17 +687,18 @@ public sealed class ExactFileTransferRunnerTests
         {
             Assert.AreEqual(ExactFileTransferStatus.Completed, (await runner.DownloadFile(target, path,
                 new RemoteFileJob(target), settings, root, 30_000)).Status);
+            if (changeSize) File.WriteAllBytes(path, [1, 2]);
             Assert.AreEqual(ExactFileTransferStatus.AlreadyExists, (await runner.DownloadFile(target, path,
                 new RemoteFileJob(target), settings, root, 30_000, allowOverwrite: false)).Status);
             Assert.AreEqual(1, client.DownloadCallCount);
-            Assert.AreEqual(target.Size, new FileInfo(path).Length);
+            Assert.AreEqual(changeSize ? 2 : target.Size, new FileInfo(path).Length);
         }
         finally { Directory.Delete(root, recursive: true); }
     }
 
     private static ValueTask<DownloadFileOperations.Cache.CachedDownload?> ReusableAsync(
-        DownloadFileOperations files, PeerFileTarget target)
-        => files.WithCacheAsync(cache => cache.TryGetReusable(target, out var found) ? found : null);
+        DownloadFileOperations files, PeerFileTarget target, Guid workflowId)
+        => files.WithCacheAsync(cache => cache.TryGetReusable(target, workflowId, out var found) ? found : null);
 
     private (ExactPeerFileTransferRunner Runner, ActiveDownloadTracker Active, DownloadEvents Events)
         CreateRunner(MockSoulseekClient client, DownloadFileOperations? files = null)

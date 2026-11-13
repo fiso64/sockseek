@@ -419,7 +419,7 @@ public static class CoreSnapshotFactory
     }
 
     internal static FileDownloadStateSnapshot CreateFileDownloadState(FileDownloadJob job)
-        => new(job.DownloadPath, job.BytesTransferred, job.FileSize);
+        => new(job.DownloadPath, job.BytesTransferred, job.FileSize, job.ExistingFileSource, job.Reused);
 
     private static DirectoryDownloadStateSnapshot CreateDirectoryDownloadState(DirectoryDownloadJob job)
     {
@@ -443,7 +443,8 @@ public static class CoreSnapshotFactory
             progress.BytesTransferred,
             plannedBytes + progress.SupplementalKnownBytes,
             (job.ActiveAttempt?.Plan.UnknownFileSizeCount ?? 0) + progress.SupplementalUnknownCount,
-            progress.GetProgress(plannedBytes));
+            progress.GetProgress(plannedBytes), job.ExistingFileSource,
+            progress.SkippedFileCount, progress.DownloadedFileCount, progress.ReusedFileCount);
     }
 
     private static RemoteDirectoryJobSnapshotPayload CreateRemoteDirectoryPayload(

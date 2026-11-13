@@ -16,17 +16,22 @@ public static class JobPreparer
     public static Dictionary<Guid, JobContext> PrepareJobs(
         JobList queue,
         DownloadSettings startConfig,
-        IJobSettingsResolver? resolver = null)
+        IJobSettingsResolver? resolver = null,
+        DownloadIndexStore? indexes = null)
     {
         var contexts = new Dictionary<Guid, JobContext>();
         var editors  = new Dictionary<(string path, OutputFileKind kind, bool readOnly), DownloadOutputFile>();
         var skippers = new Dictionary<(string dir, SkipMode mode, bool checkCond), TrackSkipper>();
         resolver ??= DefaultJobSettingsResolver.Instance;
+        indexes ??= new DownloadIndexStore();
 
         bool indexByDefault = HasDefaultIndex(queue);
         foreach (var job in queue.Jobs)
+        {
+            job.WorkflowId = queue.WorkflowId;
             PrepareJob(job, queue, indexByDefault, OutputScope.Empty, startConfig, contexts, editors, skippers, resolver,
-                JobSettingsInheritance.None);
+                JobSettingsInheritance.None, indexes);
+        }
 
         return contexts;
     }
@@ -39,12 +44,14 @@ public static class JobPreparer
         IJobSettingsResolver? resolver = null,
         JobList? explicitOwnerList = null,
         JobContext? parentCtx = null,
-        bool rootSettingsAreFinal = false)
+        bool rootSettingsAreFinal = false,
+        DownloadIndexStore? indexes = null)
     {
         var newContexts = new Dictionary<Guid, JobContext>();
         var editors     = new Dictionary<(string path, OutputFileKind kind, bool readOnly), DownloadOutputFile>();
         var skippers    = new Dictionary<(string dir, SkipMode mode, bool checkCond), TrackSkipper>();
         resolver ??= DefaultJobSettingsResolver.Instance;
+        indexes ??= new DownloadIndexStore();
 
         if (parentCtx != null)
         {
@@ -74,7 +81,7 @@ public static class JobPreparer
             ? JobSettingsInheritance.SearchConstraints
             : JobSettingsInheritance.None;
         PrepareJob(root, ownerList, HasDefaultIndex(ownerList), inheritedScope, parentConfig, newContexts, editors, skippers, resolver,
-            rootInheritance, useInheritedScopeForRootEditors, rootSettingsAreFinal,
+            rootInheritance, indexes, useInheritedScopeForRootEditors, rootSettingsAreFinal,
             syntheticOwner: root is not JobList && explicitOwnerList is null);
         return newContexts;
     }
@@ -140,6 +147,7 @@ public static class JobPreparer
         Dictionary<(string, SkipMode, bool), TrackSkipper> skippers,
         IJobSettingsResolver resolver,
         JobSettingsInheritance inheritance,
+        DownloadIndexStore indexes,
         bool useInheritedScopeForCurrentJob = false,
         bool settingsAreFinal = false,
         bool syntheticOwner = false)
@@ -164,7 +172,7 @@ public static class JobPreparer
 
         ctx.EnablesIndexByDefault = job.EnablesIndexByDefault;
 
-        SetupIndexEditor(job, ctx, ownerList, indexByDefault, editors, syntheticOwner);
+        SetupIndexEditor(job, ctx, ownerList, indexByDefault, editors, syntheticOwner, indexes);
         SetupPlaylistEditor(job, ctx, ownerList, editors, syntheticOwner);
         SetupSkippers(job, ctx, skippers);
 
@@ -182,7 +190,7 @@ public static class JobPreparer
                 // Core trees that did not pass through an extractor or daemon.
                 child.WorkflowId = childList.WorkflowId;
                 PrepareJob(child, childList, childIndexByDefault, childScope, job.Config, contexts, editors, skippers, resolver,
-                    JobSettingsInheritance.SearchConstraints,
+                    JobSettingsInheritance.SearchConstraints, indexes,
                     settingsAreFinal: child.PlannedSettings != null);
             }
         }
@@ -263,7 +271,7 @@ public static class JobPreparer
 
     private static void SetupIndexEditor(Job job, JobContext ctx, JobList ownerList,
         bool indexByDefault,
-        Dictionary<(string, OutputFileKind, bool), DownloadOutputFile> editors, bool syntheticOwner)
+        Dictionary<(string, OutputFileKind, bool), DownloadOutputFile> editors, bool syntheticOwner, DownloadIndexStore indexes)
     {
         if (job is RemoteFileJob or RemoteDirectoryJob)
             return;
@@ -273,7 +281,6 @@ public static class JobPreparer
         bool needIndex = writeIndex
             || (config.Skip.SkipExisting && config.Skip.SkipMode == SkipMode.Index)
             || config.Skip.SkipNotFound;
-
 
         if (!needIndex) return;
 
@@ -296,7 +303,7 @@ public static class JobPreparer
         }
         else
         {
-            ctx.IndexEditor = new DownloadOutputFile(indexPath, ownerList, OutputFileKind.Index, true, readOnly: !writeIndex);
+            ctx.IndexEditor = indexes.Open(indexPath, ownerList, job.WorkflowId, readOnly: !writeIndex);
             editors.Add(key, ctx.IndexEditor);
         }
     }
@@ -356,6 +363,10 @@ public static class JobPreparer
             skippers.Add(outputKey, ctx.OutputDirSkipper);
         }
 
+        // TODO: Consider improving repeated skip-music-dir scans in daemon context.
+        // Could a library snapshot or the share catalog serve this purpose? Decide
+        // freshness and coverage semantics first: sharing may exclude local files,
+        // and its catalog lacks the artist/title/album tags used by tag-mode skipping.
         if (config.Skip.SkipMusicDir != null)
         {
             var musicKey = (config.Skip.SkipMusicDir, config.Skip.SkipModeMusicDir, checkCond);

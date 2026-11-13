@@ -8,7 +8,6 @@ namespace Sockseek.Core;
 internal sealed class RemoteDirectoryDownloadExecutor
 {
     private readonly DownloadExecutionContext context;
-    private readonly PlacementPlanner placement = new();
     private readonly DirectoryTransferRunner transfers;
 
     public RemoteDirectoryDownloadExecutor(DownloadExecutionContext context)
@@ -25,6 +24,7 @@ internal sealed class RemoteDirectoryDownloadExecutor
             if (plan is null)
                 return JobOutcome.Done();
 
+            var placement = new PlacementPlanner(context.Ctx(job).OutputScope);
             var placements = placement.PlanDirectory(plan, job.Config);
             var children = placements
                 .Select(item => new RemoteFileJob(item.Target, item.RelativePath))

@@ -50,7 +50,7 @@ public sealed class HistoricalDirectoryPayloadTests
         var existing = new RemoteFileJob(first);
         var pending = new RemoteFileJob(second) { BytesTransferred = 48 };
         owner.MaterializeDirectoryChildren([existing, pending]);
-        existing.SetAlreadyExists();
+        JobOutcomeCommitter.Commit(existing, JobOutcome.AlreadyExists("/kept/file.bin"));
         JobSnapshot snapshot = CoreSnapshotFactory.CreateJob(owner, 1);
         var live = (RemoteDirectoryJobPayloadDto)ServerSnapshotMapper.ToJobPayload(snapshot, _ => null);
         var retainedJob = Job(snapshot.Payload);
@@ -61,9 +61,27 @@ public sealed class HistoricalDirectoryPayloadTests
             Assert.AreEqual(48L, directory.BytesTransferred);
             Assert.AreEqual(256L, directory.TotalKnownBytes);
             Assert.AreEqual(1, directory.SuccessfulFileCount);
+            Assert.AreEqual(1, directory.SkippedFileCount);
+            Assert.AreEqual(0, directory.DownloadedFileCount);
+            Assert.AreEqual(0, directory.ReusedFileCount);
+            Assert.AreEqual(0, directory.FailedFileCount);
         }
         Assert.AreEqual(43.75, ServerSnapshotMapper.ToJobSummaryStats(snapshot)?.ProgressPercent);
         Assert.AreEqual(43.75, HistoricalJobDtoMapper.ToSummary(retainedJob).Stats?.ProgressPercent);
+        JobOutcomeCommitter.Commit(pending, JobOutcome.Done("/reused/file.bin", reused: true));
+        var complete = (RemoteDirectoryJobPayloadDto)HistoricalJobDtoMapper.ToPayload(Job(CoreSnapshotFactory.CreateJob(owner, 2).Payload));
+        Assert.AreEqual(1, complete.Directory.ReusedFileCount);
+        Assert.AreEqual(0, complete.Directory.DownloadedFileCount);
+        foreach (var file in new[] { existing, pending })
+        {
+            var snapshotFile = CoreSnapshotFactory.CreateJob(file, 3);
+            var retainedFile = (RemoteFileJobPayloadDto)HistoricalJobDtoMapper.ToPayload(
+                Job(snapshotFile.Payload) with { Kind = "RemoteFile" });
+            Assert.AreEqual(file.Reused, retainedFile.File.Reused);
+            Assert.AreEqual(file.DownloadPath, retainedFile.File.DownloadPath);
+            Assert.AreEqual(file == existing ? ServerExistingFileSource.Destination : (ServerExistingFileSource?)null,
+                retainedFile.File.ExistingFileSource);
+        }
         var unknown = Read(DirectoryPayload(new("transferring", 1, null, 2, 1, 1, 0, 48, 0, 2, 0)));
         Assert.IsNull(unknown.Directory.ProgressPercent);
     }

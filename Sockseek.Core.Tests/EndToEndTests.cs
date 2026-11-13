@@ -379,7 +379,7 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task NestedListCsv_DefaultOutputDir_DownloadsSongsInsideAllContainerFolders()
+        public async Task NestedMixedLists_ShareOutputHierarchyAndSkipCompletedWorkOnRerun()
         {
             var tempRoot = Path.Combine(Path.GetTempPath(), "slsk-nested-default-folder-" + Guid.NewGuid());
             var sourceDir = Path.Combine(tempRoot, "source");
@@ -388,39 +388,44 @@ namespace Tests.EndToEnd
             Directory.CreateDirectory(sourceDir);
             Directory.CreateDirectory(musicRoot);
             Directory.CreateDirectory(outputDir);
-
-            var csvPath = Path.Combine(sourceDir, "songs.csv");
-            var listPath = Path.Combine(sourceDir, "wishlist.txt");
-            File.WriteAllText(csvPath, "artist,title\nTest Artist,First Song\n");
-            File.WriteAllText(listPath, $"\"{csvPath}\"\n");
-            File.WriteAllBytes(Path.Combine(musicRoot, "Test Artist - First Song.mp3"), TestHelpers.EmptyMp3Bytes);
-
             try
             {
+                var csvPath = Path.Combine(sourceDir, "songs.csv");
+                var listPath = Path.Combine(sourceDir, "wishlist.txt");
+                var remoteFolder = Path.Combine(musicRoot, "Selected");
+                var nestedFolder = Path.Combine(remoteFolder, "Nested");
+                Directory.CreateDirectory(nestedFolder);
+                var remoteFile = Path.Combine(musicRoot, "readme.txt");
+                await File.WriteAllBytesAsync(remoteFile, [1, 2, 3]);
+                await File.WriteAllBytesAsync(Path.Combine(nestedFolder, "file.bin"), [4, 5, 6]);
+                await File.WriteAllBytesAsync(Path.Combine(musicRoot, "Test Artist - First Song.mp3"), TestHelpers.EmptyMp3Bytes);
+                await File.WriteAllTextAsync(csvPath, "artist,title\nTest Artist,First Song\n");
+                await File.WriteAllTextAsync(listPath, $"\"{csvPath}\"\n\"slsk://local/{remoteFile}\"\n\"slsk://local/{remoteFolder}/\"\n");
+
                 var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
-                var settings = new DownloadSettings();
-                settings.Extraction.Input = listPath;
-                settings.Extraction.InputType = InputType.List;
-                settings.Output.ParentDir = outputDir;
+                var settings = new DownloadSettings { Output = { ParentDir = outputDir } };
+                for (int run = 0; run < 2; run++)
+                {
+                    var client = Tests.ClientTests.MockSoulseekClient.FromLocalPaths(useTags: false, musicRoot);
+                    await using var app = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
+                    app.Enqueue(new JobList("batch", [new ExtractJob(listPath, InputType.List)]), settings);
+                    app.CompleteEnqueue();
+                    await app.RunAsync(CancellationToken.None);
+                    Assert.AreEqual(run == 0 ? 3 : 0, client.DownloadCallCount);
+                    Assert.AreEqual(1, client.BrowseCallCount);
+                }
 
-                var client = LocalFilesSoulseekClient.FromLocalPaths(useTags: false, slowMode: false, musicRoot);
-                var app = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
-                app.Enqueue(new ExtractJob(listPath, InputType.List), settings);
-                app.CompleteEnqueue();
-
-                await app.RunAsync(CancellationToken.None);
-
-                var expectedPath = Path.Combine(outputDir, "wishlist", "songs", "Test Artist - First Song.mp3");
-                var tree = string.Join("\n", Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
-                    .Select(path => Path.GetRelativePath(outputDir, path)));
-
-                Assert.IsTrue(File.Exists(expectedPath), $"Expected nested container song at '{expectedPath}'. Actual tree:\n{tree}");
+                string[] expected = [Path.Combine("batch", "wishlist", "songs", "Test Artist - First Song.mp3"),
+                    Path.Combine("batch", "wishlist", "readme.txt"),
+                    Path.Combine("batch", "wishlist", "Selected", "Nested", "file.bin")];
+                var outputs = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                    .Where(path => Path.GetFileName(path) != "_index.csv")
+                    .Select(path => Path.GetRelativePath(outputDir, path)).ToArray();
+                CollectionAssert.AreEquivalent(expected, outputs);
+                CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(Path.Combine(outputDir, expected[1])));
+                CollectionAssert.AreEqual(new byte[] { 4, 5, 6 }, File.ReadAllBytes(Path.Combine(outputDir, expected[2])));
             }
-            finally
-            {
-                if (Directory.Exists(tempRoot))
-                    Directory.Delete(tempRoot, true);
-            }
+            finally { Directory.Delete(tempRoot, recursive: true); }
         }
 
         [TestMethod]

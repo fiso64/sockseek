@@ -1,4 +1,4 @@
-import type { JobSummaryDto } from '../../api/types';
+import type { JobSummaryDto, Schema } from '../../api/types';
 import { humanizeStateValue } from '../../app/format';
 import type { TransferPresentation } from '../presentation/items';
 
@@ -35,5 +35,23 @@ export function jobStatusClass(job: JobSummaryDto): string {
     case 'Cancelled': return 'cancelled';
     case 'Skipped': return 'skipped';
     default: return 'failed';
+  }
+}
+
+/** Describe the execution decision, without claiming an occupied path has equivalent content. */
+export function jobSkipExplanation(job: JobSummaryDto | null | undefined,
+  source?: Schema<'ServerExistingFileSource'> | null): string {
+  if (job?.terminalOutcome !== 'Skipped') return '';
+  switch (source) {
+    case 'CompletionHistory': return 'Recorded as completed in the download index';
+    case 'Library': return 'Matching music found in a local directory';
+    case 'Destination': return 'Destination already exists';
+  }
+  switch (job.skipReason) {
+    case 'NotFoundLastTime': return 'Not found during a previous search';
+    case 'Manual': return 'Skipped manually';
+    case 'Filtered': return 'Excluded by conditions';
+    case 'AlreadyExists': return 'Already exists';
+    default: return 'Skipped';
   }
 }

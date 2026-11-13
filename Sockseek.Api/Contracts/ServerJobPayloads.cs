@@ -69,11 +69,16 @@ public sealed record DirectoryManifestPageDto(
     IReadOnlyList<DirectoryManifestEntryDto> Items,
     int? NextOrdinal);
 
+[JsonConverter(typeof(JsonStringEnumConverter<ServerExistingFileSource>))]
+public enum ServerExistingFileSource { CompletionHistory, Library, Destination }
+
 public sealed record FileDownloadStateDto(
     string? DownloadPath,
     long BytesTransferred,
     long? FileSize,
-    double? ProgressPercent);
+    double? ProgressPercent,
+    ServerExistingFileSource? ExistingFileSource = null,
+    bool Reused = false);
 
 public sealed record DirectoryDownloadStateDto(
     string Phase,
@@ -86,7 +91,11 @@ public sealed record DirectoryDownloadStateDto(
     long BytesTransferred,
     long TotalKnownBytes,
     double? ProgressPercent,
-    int UnknownFileSizeCount);
+    int UnknownFileSizeCount,
+    ServerExistingFileSource? ExistingFileSource = null,
+    int SkippedFileCount = 0,
+    int DownloadedFileCount = 0,
+    int ReusedFileCount = 0);
 
 /// <summary>
 /// Payload for extract jobs.
@@ -207,7 +216,8 @@ public sealed record SongGroupsJobPayloadDto(
     int SongCount,
     int CompletedSongCount,
     int SucceededSongCount,
-    int FailedSongCount) : JobPayloadDto;
+    int FailedSongCount,
+    int SkippedSongCount = 0) : JobPayloadDto;
 
 /// <summary>
 /// Payload for album-groups jobs, which search for distinct album candidates.
@@ -217,7 +227,8 @@ public sealed record AlbumGroupsJobPayloadDto(
     int ResultCount,
     int CompletedAlbumCount,
     int SucceededAlbumCount,
-    int FailedAlbumCount) : JobPayloadDto;
+    int FailedAlbumCount,
+    int SkippedAlbumCount = 0) : JobPayloadDto;
 
 /// <summary>
 /// Payload for job-list jobs. Direct children are listed through the jobs collection.
@@ -227,7 +238,8 @@ public sealed record JobListPayloadDto(
     int ActiveJobCount,
     int CompletedJobCount,
     int SucceededJobCount,
-    int FailedJobCount) : JobPayloadDto;
+    int FailedJobCount,
+    int SkippedJobCount = 0) : JobPayloadDto;
 
 /// <summary>
 /// Payload for full-folder retrieval jobs started from album result views.

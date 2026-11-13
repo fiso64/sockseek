@@ -9,7 +9,8 @@ namespace Sockseek.Core.Jobs;
         public SongQuery Query { get; set; }
 
         public override SongQuery QueryTrack => Query;
-        protected override bool  DefaultCanBeSkipped => true;
+        // A selected peer file is an exact request, not a music-history lookup.
+        protected override bool DefaultCanBeSkipped => ExactTarget == null;
 
         // True for non-audio files inside album folders (cover art, .txt, etc.).
         // Prefer the remote candidate classification, but fall back to a known local

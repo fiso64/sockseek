@@ -27,6 +27,57 @@ public sealed record IndexEntry
 
 public enum OutputFileKind { Index, Playlist }
 
+// Workflows using the same CSV completion index share its history facts, not
+// their job trees or output membership. These are output indexes, not CSV inputs.
+// The engine releases the facts after the last workflow retires; the index file
+// remains the durable history. Updates neither lose another workflow's entries
+// nor reread the index per song.
+public sealed class DownloadIndexStore
+{
+    private readonly Lock gate = new();
+    private readonly Dictionary<string, (DownloadOutputFile.IndexData Data, HashSet<Guid> Workflows)> indexes =
+        new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+    private readonly Dictionary<Guid, HashSet<string>> workflowPaths = [];
+    internal int Count { get { lock (gate) return indexes.Count; } }
+
+    public DownloadOutputFile Open(string path, JobList owner, Guid workflowId, bool readOnly)
+    {
+        path = Utils.GetFullPath(path);
+        lock (gate)
+        {
+            if (!indexes.TryGetValue(path, out var entry))
+                entry = (new(), []);
+            var document = new DownloadOutputFile(path, owner, OutputFileKind.Index,
+                loadPreviousResults: true, readOnly, entry.Data);
+            indexes[path] = entry;
+            entry.Workflows.Add(workflowId);
+            if (!workflowPaths.TryGetValue(workflowId, out var paths))
+                workflowPaths.Add(workflowId, paths = new(indexes.Comparer));
+            paths.Add(path);
+            return document;
+        }
+    }
+
+    public void RetireWorkflow(Guid workflowId)
+    {
+        lock (gate)
+        {
+            if (!workflowPaths.Remove(workflowId, out var paths)) return;
+            foreach (string path in paths)
+            {
+                var entry = indexes[path];
+                entry.Workflows.Remove(workflowId);
+                if (entry.Workflows.Count == 0) indexes.Remove(path);
+            }
+        }
+    }
+
+    internal void Clear()
+    {
+        lock (gate) { indexes.Clear(); workflowPaths.Clear(); }
+    }
+}
+
 /// <summary>
 /// One workflow output: incremental logical facts and ordered membership, with
 /// publication scheduled by the engine's file-I/O owner. Observing a track never
@@ -42,18 +93,34 @@ public sealed class DownloadOutputFile
     public bool IsWritable { get; }
     private readonly string parent;
     private readonly List<string> originalLines;
-    readonly Dictionary<string, IndexValue> previousRunData = new();
+    private readonly IndexData indexData;
+    private Dictionary<string, IndexValue> previousRunData => indexData.Entries;
     // Duration-tolerant lookup only visits variants of the exact text identity,
     // never every retained song for each group completion/skip decision.
-    private Dictionary<SongQuery, List<IndexValue>>? songVariants;
+    private Dictionary<SongQuery, List<IndexValue>>? songVariants
+    {
+        get => indexData.Variants;
+        set => indexData.Variants = value;
+    }
     private readonly List<JobList> owners = [];
     private readonly List<OutputNode> roots = [];
     private readonly Dictionary<Guid, List<OutputNode>> nodes = [];
-    private readonly Lock writeGate = new();
-    private long revision;
-    private long writtenRevision;
+    private Lock writeGate => indexData.WriteGate;
+    private long revision { get => indexData.Revision; set => indexData.Revision = value; }
+    private long writtenRevision { get => indexData.WrittenRevision; set => indexData.WrittenRevision = value; }
 
-    private sealed class IndexValue(IndexEntry entry, string key)
+    internal sealed class IndexData
+    {
+        internal readonly Lock Gate = new();
+        internal readonly Lock WriteGate = new();
+        internal readonly Dictionary<string, IndexValue> Entries = new();
+        internal Dictionary<SongQuery, List<IndexValue>>? Variants;
+        internal long Revision;
+        internal long WrittenRevision;
+        internal bool Loaded;
+    }
+
+    internal sealed class IndexValue(IndexEntry entry, string key)
     {
         public readonly string Key = key;
         public IndexEntry Entry = entry;
@@ -77,7 +144,7 @@ public sealed class DownloadOutputFile
         public SearchSettings? Search = job.Config?.Search ?? parent?.Search;
     }
 
-    private readonly Lock locker = new();
+    private Lock locker => indexData.Gate;
     private readonly Dictionary<Guid, string?> jobDownloadPaths = new();
 
     public void NotifyJobDownloadPath(Guid jobId, string? path)
@@ -86,15 +153,23 @@ public sealed class DownloadOutputFile
     }
 
     public DownloadOutputFile(string path, JobList queue, OutputFileKind kind, bool loadPreviousResults, bool readOnly = false)
+        : this(path, queue, kind, loadPreviousResults, readOnly, new IndexData()) { }
+
+    internal DownloadOutputFile(string path, JobList queue, OutputFileKind kind, bool loadPreviousResults, bool readOnly, IndexData data)
     {
+        indexData = data;
         ArgumentException.ThrowIfNullOrEmpty(path);
         Path = Utils.GetFullPath(path);
         Kind = kind;
         IsWritable = !readOnly;
         parent = Utils.NormalizedPath(System.IO.Path.GetDirectoryName(Path) ?? "");
         originalLines = kind == OutputFileKind.Playlist ? ReadAllLines().ToList() : [];
-        if (kind == OutputFileKind.Index && loadPreviousResults)
-            LoadPreviousResults();
+        lock (locker)
+            if (kind == OutputFileKind.Index && loadPreviousResults && !indexData.Loaded)
+            {
+                LoadPreviousResults();
+                indexData.Loaded = true;
+            }
         if (IsWritable) AttachOwner(queue);
         if (kind == OutputFileKind.Playlist) revision++;
     }

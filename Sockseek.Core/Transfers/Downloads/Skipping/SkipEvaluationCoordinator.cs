@@ -7,6 +7,7 @@ namespace Sockseek.Core.Transfers.Downloads.Skipping;
 
 internal sealed class SkipEvaluationCoordinator
 {
+    private sealed record Match(string Path, ExistingFileSource Source);
     private readonly Func<Job, JobContext> getContext;
     private readonly Action<Job> raiseBuildingMusicDirectoryIndex;
     private readonly ILogger<SkipEvaluationCoordinator> logger;
@@ -23,21 +24,23 @@ internal sealed class SkipEvaluationCoordinator
 
     public bool TrySetAlreadyExists(Job job, SongJob song, TrackSkipperContext skipCtx)
     {
-        var path = FindExistingSongPath(job, song, skipCtx);
+        if (!song.CanBeSkipped) return false;
+        var match = FindExistingSong(job, song, skipCtx);
 
-        if (path != null)
+        if (match != null)
         {
-            JobOutcomeCommitter.Commit(song, JobOutcome.AlreadyExists(path));
+            JobOutcomeCommitter.Commit(song, JobOutcome.AlreadyExists(match.Path, match.Source));
             AlreadyExists(song);
         }
 
-        return path != null;
+        return match != null;
     }
 
     public bool TrySetJobAlreadyExists(Job job, JobContext ctx)
     {
+        if (!job.CanBeSkipped) return false;
         var skipCtx = TrackSkipperContext.From(ctx, job.Config.Skip, job.Config.ResolveSearchSettings());
-        string? path = null;
+        Match? match = null;
 
         if (job is SongJob song)
         {
@@ -45,43 +48,44 @@ internal sealed class SkipEvaluationCoordinator
         }
         else if (job is AlbumJob album)
         {
-            path = FindExistingAlbumPath(job, album, ctx, skipCtx);
+            match = FindExistingAlbum(job, album, ctx, skipCtx);
         }
         else
         {
             return false;
         }
 
-        if (path != null)
+        if (match != null)
         {
-            JobOutcomeCommitter.Commit(job, JobOutcome.AlreadyExists(path));
-            ctx.IndexEditor?.NotifyJobDownloadPath(job.Id, path);
+            JobOutcomeCommitter.Commit(job, JobOutcome.AlreadyExists(match.Path, match.Source));
+            ctx.IndexEditor?.NotifyJobDownloadPath(job.Id, match.Path);
             AlreadyExists(job);
         }
 
-        return path != null;
+        return match != null;
     }
 
     public JobOutcome? TryGetJobAlreadyExistsOutcome(Job job, JobContext ctx)
     {
+        if (!job.CanBeSkipped) return null;
         var skipCtx = TrackSkipperContext.From(ctx, job.Config.Skip, job.Config.ResolveSearchSettings());
-        string? path;
+        Match? match;
 
         if (job is SongJob song)
-            path = FindExistingSongPath(job, song, skipCtx);
+            match = FindExistingSong(job, song, skipCtx);
         else if (job is AlbumJob album)
-            path = FindExistingAlbumPath(job, album, ctx, skipCtx);
+            match = FindExistingAlbum(job, album, ctx, skipCtx);
         else
             return null;
 
-        if (path == null)
+        if (match == null)
             return null;
 
         AlreadyExists(job);
-        return JobOutcome.AlreadyExists(path);
+        return JobOutcome.AlreadyExists(match.Path, match.Source);
     }
 
-    public string? FindExistingSongPath(Job job, SongJob song, TrackSkipperContext skipCtx)
+    private Match? FindExistingSong(Job job, SongJob song, TrackSkipperContext skipCtx)
     {
         string? path = null;
         var jobCtx = getContext(job);
@@ -90,6 +94,7 @@ internal sealed class SkipEvaluationCoordinator
         {
             if (!jobCtx.OutputDirSkipper.IndexIsBuilt) jobCtx.OutputDirSkipper.BuildIndex();
             jobCtx.OutputDirSkipper.SongExists(song, skipCtx, out path);
+            if (path != null) return new(path, SourceOf(jobCtx.OutputDirSkipper));
         }
 
         if (path == null && jobCtx.MusicDirSkipper != null)
@@ -100,14 +105,15 @@ internal sealed class SkipEvaluationCoordinator
                 jobCtx.MusicDirSkipper.BuildIndex();
             }
             jobCtx.MusicDirSkipper.SongExists(song, skipCtx, out path);
+            if (path != null) return new(path, SourceOf(jobCtx.MusicDirSkipper));
         }
 
-        return path;
+        return null;
     }
 
     public bool TrySetNotFoundLastTime(SongJob song, DownloadOutputFile? indexEditor)
     {
-        if (indexEditor == null) return false;
+        if (!song.CanBeSkipped || indexEditor == null) return false;
         var prev = indexEditor.PreviousRunResult(song);
         if (prev == null) return false;
         if (IsNotFoundFailure(prev.FailureReason) || prev.State == JobStateOld.NotFoundLastTime)
@@ -121,6 +127,7 @@ internal sealed class SkipEvaluationCoordinator
 
     public bool TrySetNotFoundLastTimeForJob(Job job)
     {
+        if (!job.CanBeSkipped) return false;
         var jobCtx = getContext(job);
         if (jobCtx.IndexEditor == null) return false;
         var prev = PreviousRunResult(job, jobCtx.IndexEditor);
@@ -137,6 +144,7 @@ internal sealed class SkipEvaluationCoordinator
 
     public JobOutcome? TryGetNotFoundLastTimeOutcome(Job job)
     {
+        if (!job.CanBeSkipped) return null;
         var jobCtx = getContext(job);
         if (jobCtx.IndexEditor == null) return null;
         var prev = PreviousRunResult(job, jobCtx.IndexEditor);
@@ -163,7 +171,7 @@ internal sealed class SkipEvaluationCoordinator
             "skipped-not-found-in-prior-run",
             null);
 
-    private string? FindExistingAlbumPath(Job job, AlbumJob album, JobContext ctx, TrackSkipperContext skipCtx)
+    private Match? FindExistingAlbum(Job job, AlbumJob album, JobContext ctx, TrackSkipperContext skipCtx)
     {
         string? path = null;
 
@@ -171,6 +179,7 @@ internal sealed class SkipEvaluationCoordinator
         {
             if (!ctx.OutputDirSkipper.IndexIsBuilt) ctx.OutputDirSkipper.BuildIndex();
             ctx.OutputDirSkipper.AlbumExists(album, skipCtx, out path);
+            if (path != null) return new(path, SourceOf(ctx.OutputDirSkipper));
         }
 
         if (path == null && ctx.MusicDirSkipper != null)
@@ -181,10 +190,15 @@ internal sealed class SkipEvaluationCoordinator
                 ctx.MusicDirSkipper.BuildIndex();
             }
             ctx.MusicDirSkipper.AlbumExists(album, skipCtx, out path);
+            if (path != null) return new(path, SourceOf(ctx.MusicDirSkipper));
         }
 
-        return path;
+        return null;
     }
+
+    private static ExistingFileSource SourceOf(TrackSkipper skipper)
+        => skipper is IndexSkipper or IndexConditionalSkipper
+            ? ExistingFileSource.CompletionHistory : ExistingFileSource.Library;
 
     private static IndexEntry? PreviousRunResult(Job job, DownloadOutputFile indexEditor)
         => job switch

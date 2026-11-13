@@ -73,6 +73,7 @@ internal sealed class ManualSelectionCoordinator
                 return false;
 
             song.ResolvedTarget = candidate;
+            song.ExactTarget = candidate.Target;
             // Result groups remain a discovery surface while selection is open.
             // Execution pins the explicit manual target without discarding options.
             if (source is not SongGroupsJob)
@@ -207,6 +208,7 @@ internal sealed class ManualSelectionCoordinator
     private void StartExistingAlbumSelection(AlbumJob albumJob, AlbumFolder selectedFolder, Action<AlbumJob>? configureSelection)
     {
         albumJob.ResolvedTarget = selectedFolder;
+        albumJob.CanBeSkippedOverride = false;
         ApplySelectionSettings(albumJob, configureSelection);
         if (!albumJob.Results.Any(folder => SameAlbumFolder(folder, selectedFolder)))
             albumJob.Results.Insert(0, selectedFolder);

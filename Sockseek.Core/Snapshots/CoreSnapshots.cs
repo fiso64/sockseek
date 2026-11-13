@@ -189,7 +189,9 @@ public abstract record JobExecutionPayload : JobSnapshotPayload;
 public sealed record FileDownloadStateSnapshot(
     string? DownloadPath,
     long BytesTransferred,
-    long? FileSize);
+    long? FileSize,
+    ExistingFileSource? ExistingFileSource = null,
+    bool Reused = false);
 
 public sealed record DirectoryDownloadStateSnapshot(
     string Phase,
@@ -202,7 +204,11 @@ public sealed record DirectoryDownloadStateSnapshot(
     long BytesTransferred,
     long TotalKnownBytes,
     int UnknownFileSizeCount,
-    double? Progress = null);
+    double? Progress = null,
+    ExistingFileSource? ExistingFileSource = null,
+    int SkippedFileCount = 0,
+    int DownloadedFileCount = 0,
+    int ReusedFileCount = 0);
 
 public sealed record ExtractJobSnapshotPayload(
     string Input,
@@ -280,7 +286,8 @@ public readonly record struct JobOutcomeSummary(
     int Total,
     int Completed,
     int Succeeded,
-    int Failed)
+    int Failed,
+    int Skipped = 0)
 {
     public JobOutcomeSummary Include(
         JobLifecycleState lifecycle,
@@ -291,7 +298,8 @@ public readonly record struct JobOutcomeSummary(
             checked(Total + count),
             checked(Completed + (lifecycle == JobLifecycleState.Terminal ? count : 0)),
             checked(Succeeded + (IsSuccessful(outcome, skipReason) ? count : 0)),
-            checked(Failed + (IsFailedOrSkipped(outcome, skipReason) ? count : 0)));
+            checked(Failed + (outcome != JobTerminalOutcome.Skipped && IsFailedOrSkipped(outcome, skipReason) ? count : 0)),
+            checked(Skipped + (outcome == JobTerminalOutcome.Skipped ? count : 0)));
 
     public JobOutcomeSummary Exclude(
         JobLifecycleState lifecycle,
@@ -302,7 +310,8 @@ public readonly record struct JobOutcomeSummary(
             checked(Total - count),
             checked(Completed - (lifecycle == JobLifecycleState.Terminal ? count : 0)),
             checked(Succeeded - (IsSuccessful(outcome, skipReason) ? count : 0)),
-            checked(Failed - (IsFailedOrSkipped(outcome, skipReason) ? count : 0)));
+            checked(Failed - (outcome != JobTerminalOutcome.Skipped && IsFailedOrSkipped(outcome, skipReason) ? count : 0)),
+            checked(Skipped - (outcome == JobTerminalOutcome.Skipped ? count : 0)));
 
     public static bool IsSuccessful(JobTerminalOutcome outcome, JobSkipReason skipReason)
         => outcome == JobTerminalOutcome.Succeeded
