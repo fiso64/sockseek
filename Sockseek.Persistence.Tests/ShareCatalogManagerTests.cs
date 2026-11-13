@@ -320,7 +320,6 @@ public sealed class ShareCatalogManagerTests
 
         public ValueTask DisposeAsync()
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(Path))
                 Directory.Delete(Path, recursive: true);
             return ValueTask.CompletedTask;

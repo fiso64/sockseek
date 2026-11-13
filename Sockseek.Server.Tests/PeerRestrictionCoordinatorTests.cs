@@ -102,7 +102,6 @@ public sealed class PeerRestrictionCoordinatorTests
         }
         finally
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }
@@ -194,7 +193,6 @@ public sealed class PeerRestrictionCoordinatorTests
         }
         finally
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }

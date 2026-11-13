@@ -175,7 +175,6 @@ public sealed class SubmissionCommitCoordinatorTests
         }
         finally
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }

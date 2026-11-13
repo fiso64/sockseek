@@ -130,7 +130,6 @@ public sealed class ReadServiceTests
         finally
         {
             await persistence.StopAsync(CancellationToken.None);
-            SqliteConnection.ClearAllPools();
             Directory.Delete(directory, recursive: true);
         }
     }
@@ -178,7 +177,6 @@ public sealed class ReadServiceTests
         finally
         {
             await persistence.StopAsync(CancellationToken.None);
-            SqliteConnection.ClearAllPools();
             Directory.Delete(directory, recursive: true);
         }
     }
@@ -214,7 +212,7 @@ public sealed class ReadServiceTests
         {
             var expected = new Dictionary<Guid, (string Failure, TransferCancellationSource Cancellation)>();
             await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-            { DataSource = SockseekDataPaths.ResolveDatabasePath(directory) }.ToString()))
+            { Pooling = false, DataSource = SockseekDataPaths.ResolveDatabasePath(directory) }.ToString()))
             {
                 await connection.OpenAsync();
                 await using var transaction = await connection.BeginTransactionAsync();
@@ -254,7 +252,6 @@ public sealed class ReadServiceTests
         finally
         {
             await persistence.StopAsync(CancellationToken.None);
-            SqliteConnection.ClearAllPools();
             Directory.Delete(directory, recursive: true);
         }
     }
@@ -301,6 +298,7 @@ public sealed class ReadServiceTests
             long bucketTicks = now.UtcTicks - now.UtcTicks % TimeSpan.FromMinutes(5).Ticks;
             await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
             {
+                Pooling = false,
                 DataSource = SockseekDataPaths.ResolveDatabasePath(dataDirectory),
             }.ToString()))
             {
@@ -331,7 +329,6 @@ public sealed class ReadServiceTests
         finally
         {
             await persistence.StopAsync(CancellationToken.None);
-            SqliteConnection.ClearAllPools();
             if (Directory.Exists(dataDirectory))
                 Directory.Delete(dataDirectory, recursive: true);
         }
@@ -622,7 +619,6 @@ public sealed class ReadServiceTests
         finally
         {
             await persistence.StopAsync(CancellationToken.None);
-            SqliteConnection.ClearAllPools();
             if (Directory.Exists(dataDirectory))
                 Directory.Delete(dataDirectory, recursive: true);
         }
@@ -769,6 +765,7 @@ public sealed class ReadServiceTests
             var facade = new TransferReadService(live, runtime: null!, persistence);
             await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
             {
+                Pooling = false,
                 DataSource = SockseekDataPaths.ResolveDatabasePath(dataDirectory),
             }.ToString()))
             {
@@ -837,7 +834,6 @@ public sealed class ReadServiceTests
         finally
         {
             await persistence.StopAsync(CancellationToken.None);
-            SqliteConnection.ClearAllPools();
             if (Directory.Exists(dataDirectory))
                 Directory.Delete(dataDirectory, recursive: true);
         }
@@ -1212,7 +1208,6 @@ public sealed class ReadServiceTests
         finally
         {
             await persistence.StopAsync(CancellationToken.None);
-            SqliteConnection.ClearAllPools();
             if (Directory.Exists(dataDirectory))
                 Directory.Delete(dataDirectory, recursive: true);
         }

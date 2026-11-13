@@ -282,7 +282,6 @@ public sealed class UserBrowseApiTests
             // browse artifacts. Only accepted intent/receipt can satisfy this retry.
             await app.StopAsync();
             stopped = true;
-            SqliteConnection.ClearAllPools();
             Directory.Delete(Path.Combine(data, "peer-browses"), recursive: true);
             await using var restarted = global::Tests.TestServerHost.Build([], serverOptions, url);
             try
@@ -307,7 +306,6 @@ public sealed class UserBrowseApiTests
         finally
         {
             if (!stopped) await app.StopAsync();
-            SqliteConnection.ClearAllPools();
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
         }

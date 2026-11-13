@@ -58,7 +58,7 @@ public sealed class UserProfileApiTests
             fake.RaiseState(SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn);
             connected.TrySetResult();
             await app.StopAsync();
-            SqliteConnection.ClearAllPools();
+            await app.DisposeAsync();
             if (System.IO.Directory.Exists(dataDirectory))
                 System.IO.Directory.Delete(dataDirectory, recursive: true);
         }
@@ -146,7 +146,7 @@ public sealed class UserProfileApiTests
         finally
         {
             await app.StopAsync();
-            SqliteConnection.ClearAllPools();
+            await app.DisposeAsync();
             if (System.IO.Directory.Exists(dataDirectory))
                 System.IO.Directory.Delete(dataDirectory, recursive: true);
         }

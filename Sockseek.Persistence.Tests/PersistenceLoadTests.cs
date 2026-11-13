@@ -630,7 +630,7 @@ public sealed class PersistenceLoadTests
         public ValueTask DisposeAsync()
         {
             owner.Dispose();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            global::Tests.TestDatabase.ClearPool(Factory);
             if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
             return ValueTask.CompletedTask;
         }

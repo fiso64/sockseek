@@ -206,7 +206,7 @@ public sealed class SharingCatalogTests
         await using var fixture = await CatalogFixture.CreateAsync();
 
         await using (var connection = new Microsoft.Data.Sqlite.SqliteConnection(
-                         $"Data Source={fixture.DatabasePath}"))
+                         $"Data Source={fixture.DatabasePath};Pooling=false"))
         {
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
@@ -350,7 +350,6 @@ public sealed class SharingCatalogTests
 
         public ValueTask DisposeAsync()
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(Path))
                 Directory.Delete(Path, recursive: true);
             return ValueTask.CompletedTask;

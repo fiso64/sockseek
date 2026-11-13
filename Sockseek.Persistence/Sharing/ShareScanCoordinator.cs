@@ -1,3 +1,5 @@
+using Microsoft.Data.Sqlite;
+using Sockseek.Persistence.Sqlite;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Sharing;
@@ -298,7 +300,13 @@ public sealed class ShareScanCoordinator
 
     private static void CleanupUnpublished((string DatabasePath, string ArtifactPath) paths)
     {
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        // Opening a staging reader can fail before a reader owner is returned.
+        SqliteConnectionPool.Clear(new SqliteConnectionStringBuilder
+        {
+            DataSource = Path.GetFullPath(paths.DatabasePath),
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = true,
+        }.ToString());
         TryDelete(paths.DatabasePath);
         TryDelete(paths.DatabasePath + "-wal");
         TryDelete(paths.DatabasePath + "-shm");

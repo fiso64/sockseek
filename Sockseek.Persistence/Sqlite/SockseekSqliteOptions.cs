@@ -53,6 +53,12 @@ public static class SockseekDbContextOptions
 
 internal static class SqliteConnectionPool
 {
+    public static void Clear(SockseekSqliteOptions options)
+    {
+        Clear(SockseekDbContextOptions.CreateConnectionString(options));
+        Clear(SockseekDbContextOptions.CreateConnectionString(options, readOnly: true));
+    }
+
     public static void Clear(string connectionString)
     {
         using var connection = new SqliteConnection(connectionString);

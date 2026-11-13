@@ -95,6 +95,9 @@ public sealed class ChatPersistenceStore(
             var results = new List<IncomingChatCommitResult>(normalized.Length);
             var unreadCounts = new Dictionary<Guid, int>();
             var knownPrivateMessages = new Dictionary<PrivateReplayKey, ChatMessageEntity>();
+            // Avoid repeated queries and DbSet.Local change detection as the batch grows.
+            var conversations = new Dictionary<(string Account, string Peer), ChatConversationEntity>();
+            var rooms = new Dictionary<(string Account, string Room), ChatRoomSubscriptionEntity>();
             NormalizedPrivateMessage[] privateMessages = normalized.OfType<NormalizedPrivateMessage>().ToArray();
             if (privateMessages.Length > 0)
             {
@@ -143,23 +146,26 @@ public sealed class ChatPersistenceStore(
                 long now = ToUnixMilliseconds(clock.GetUtcNow());
                 if (inbound is NormalizedPrivateMessage direct)
                 {
-                    var conversation = context.ChatConversations.Local.FirstOrDefault(
-                            item => item.LocalAccountKey == direct.AccountKey && item.PeerKey == direct.PeerKey)
-                        ?? await context.ChatConversations.FirstOrDefaultAsync(
+                    var target = (direct.AccountKey, direct.PeerKey);
+                    if (!conversations.TryGetValue(target, out var conversation))
+                    {
+                        conversation = await context.ChatConversations.FirstOrDefaultAsync(
                             item => item.LocalAccountKey == direct.AccountKey && item.PeerKey == direct.PeerKey, ct)
                             .ConfigureAwait(false);
-                    if (conversation is null)
-                    {
-                        conversation = new ChatConversationEntity
+                        if (conversation is null)
                         {
-                            Id = Guid.NewGuid(),
-                            LocalAccountKey = direct.AccountKey,
-                            PeerKey = direct.PeerKey,
-                            DisplayUsername = direct.DisplayUsername,
-                            CreatedAtUtc = now,
-                            UpdatedAtUtc = now,
-                        };
-                        context.ChatConversations.Add(conversation);
+                            conversation = new ChatConversationEntity
+                            {
+                                Id = Guid.NewGuid(),
+                                LocalAccountKey = direct.AccountKey,
+                                PeerKey = direct.PeerKey,
+                                DisplayUsername = direct.DisplayUsername,
+                                CreatedAtUtc = now,
+                                UpdatedAtUtc = now,
+                            };
+                            context.ChatConversations.Add(conversation);
+                        }
+                        conversations.Add(target, conversation);
                     }
 
                     await GetUnreadCountAsync(
@@ -234,13 +240,18 @@ public sealed class ChatPersistenceStore(
                 }
 
                 var roomMessage = (NormalizedRoomMessage)inbound;
-                var room = await GetOrCreateRoomEntityAsync(
-                    context,
-                    roomMessage.AccountKey,
-                    roomMessage.RoomKey,
-                    roomMessage.DisplayRoomName,
-                    now,
-                    ct).ConfigureAwait(false);
+                var roomTarget = (roomMessage.AccountKey, roomMessage.RoomKey);
+                if (!rooms.TryGetValue(roomTarget, out var room))
+                {
+                    room = await GetOrCreateRoomEntityAsync(
+                        context,
+                        roomMessage.AccountKey,
+                        roomMessage.RoomKey,
+                        roomMessage.DisplayRoomName,
+                        now,
+                        ct).ConfigureAwait(false);
+                    rooms.Add(roomTarget, room);
+                }
                 await GetUnreadCountAsync(
                         roomMessage.AccountKey,
                         room.Id,

@@ -36,6 +36,13 @@ internal static class TestDatabase
             throw new InvalidDataException("The fixture schema has no accounting seed.");
     }
 
+    // Only the fixture's own pool; another test may be opening a connection.
+    public static void ClearPool(IDbContextFactory<SockseekDbContext> factory)
+    {
+        using var context = factory.CreateDbContext();
+        SqliteConnection.ClearPool((SqliteConnection)context.Database.GetDbConnection());
+    }
+
     private static byte[] CreateSchema()
     {
         string directory = Directory.CreateTempSubdirectory("sockseek-test-schema-").FullName;

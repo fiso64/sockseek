@@ -94,6 +94,7 @@ public sealed class PersistenceDaemonTests
             CollectionAssert.AreEqual(new[] { root.JobId }, listed.Current.WindowJobIds!.ToArray());
             await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
             {
+                Pooling = false,
                 DataSource = SockseekDataPaths.ResolveDatabasePath(directory),
             }.ToString());
             await connection.OpenAsync();
@@ -175,7 +176,7 @@ public sealed class PersistenceDaemonTests
         {
             releaseSearches.TrySetResult();
             await app.StopAsync();
-            SqliteConnection.ClearAllPools();
+            await app.DisposeAsync();
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }
@@ -216,7 +217,7 @@ public sealed class PersistenceDaemonTests
             Guid lostSearchId;
 
             await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-            { DataSource = Path.Combine(directory, "sockseek.db") }.ToString()))
+            { Pooling = false, DataSource = Path.Combine(directory, "sockseek.db") }.ToString()))
             {
                 await connection.OpenAsync();
                 await using var command = connection.CreateCommand();
@@ -268,7 +269,7 @@ public sealed class PersistenceDaemonTests
         finally
         {
             await app.StopAsync();
-            SqliteConnection.ClearAllPools();
+            await app.DisposeAsync();
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }
@@ -289,7 +290,7 @@ public sealed class PersistenceDaemonTests
         {
             await persistence.StartAsync(CancellationToken.None);
             await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-                { DataSource = Path.Combine(directory, "sockseek.db") }.ToString()))
+                { Pooling = false, DataSource = Path.Combine(directory, "sockseek.db") }.ToString()))
             {
                 await connection.OpenAsync();
                 using var seed = connection.CreateCommand();
@@ -315,7 +316,6 @@ public sealed class PersistenceDaemonTests
         {
             await maintenance.StopAsync(CancellationToken.None);
             await persistence.StopAsync(CancellationToken.None);
-            SqliteConnection.ClearAllPools();
             Directory.Delete(directory, true);
         }
     }
@@ -357,7 +357,6 @@ public sealed class PersistenceDaemonTests
         }
         finally
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }
@@ -383,7 +382,7 @@ public sealed class PersistenceDaemonTests
             var first = new PersistenceCoordinator(options);
             await first.StartAsync(CancellationToken.None);
             Guid runtimeId = first.Runtime!.RuntimeId;
-            var connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString();
+            var connectionString = new SqliteConnectionStringBuilder { Pooling = false, DataSource = databasePath }.ToString();
             await using (var lockConnection = new SqliteConnection(connectionString))
             {
                 await lockConnection.OpenAsync();
@@ -410,7 +409,7 @@ public sealed class PersistenceDaemonTests
             await second.StartAsync(CancellationToken.None);
             try
             {
-                await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString());
+                await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { Pooling = false, DataSource = databasePath }.ToString());
                 await connection.OpenAsync();
                 await using var command = connection.CreateCommand();
                 command.CommandText = "SELECT shutdown_kind FROM runtime_sessions ORDER BY started_at_utc LIMIT 1;";
@@ -423,7 +422,6 @@ public sealed class PersistenceDaemonTests
         }
         finally
         {
-            SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }
@@ -488,7 +486,7 @@ public sealed class PersistenceDaemonTests
                 var checkpoint = await coordinator.CheckpointAsync(CancellationToken.None);
                 Assert.IsTrue(checkpoint.Busy is 0 or 1);
                 Guid expiredTransfer = Guid.NewGuid(), retainedTransfer = Guid.NewGuid();
-                await using (var seed = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString()))
+                await using (var seed = new SqliteConnection(new SqliteConnectionStringBuilder { Pooling = false, DataSource = databasePath }.ToString()))
                 {
                     await seed.OpenAsync();
                     await using var insert = seed.CreateCommand();
@@ -547,7 +545,7 @@ public sealed class PersistenceDaemonTests
                     coordinator.IsStarted,
                     "The hosted persistence runtime must release database ownership during host stop.");
 
-                var connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString();
+                var connectionString = new SqliteConnectionStringBuilder { Pooling = false, DataSource = databasePath }.ToString();
                 await using var connection = new SqliteConnection(connectionString);
                 await connection.OpenAsync();
                 await using var command = connection.CreateCommand();
@@ -561,7 +559,6 @@ public sealed class PersistenceDaemonTests
         }
         finally
         {
-            SqliteConnection.ClearAllPools();
             await DeleteDirectoryWithRetryAsync(directory);
         }
     }
@@ -768,7 +765,6 @@ public sealed class PersistenceDaemonTests
         }
         finally
         {
-            SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }
@@ -900,7 +896,6 @@ public sealed class PersistenceDaemonTests
                 }
             }
 
-            SqliteConnection.ClearAllPools();
             options.DefaultDownload!.Search.NecessaryCond.Formats = ["ogg"];
 
             options.Profiles = ProfileCatalog.Empty;
@@ -1184,8 +1179,6 @@ public sealed class PersistenceDaemonTests
                 }
             }
 
-            SqliteConnection.ClearAllPools();
-
             await using (var third = global::Tests.TestServerHost.Build([], options, "http://127.0.0.1:0"))
             {
                 await third.StartAsync();
@@ -1226,7 +1219,6 @@ public sealed class PersistenceDaemonTests
         }
         finally
         {
-            SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }

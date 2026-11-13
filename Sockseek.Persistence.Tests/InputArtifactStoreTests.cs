@@ -204,7 +204,7 @@ public sealed class InputArtifactStoreTests
         {
             if (writer != null) await writer.DisposeAsync();
             owner.Dispose();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            global::Tests.TestDatabase.ClearPool(Factory);
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }

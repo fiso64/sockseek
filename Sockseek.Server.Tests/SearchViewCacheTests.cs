@@ -2138,7 +2138,7 @@ public sealed class SearchViewCacheTests
         {
             if (writer != null) await writer.DisposeAsync();
             owner.Dispose();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            global::Tests.TestDatabase.ClearPool(factory);
             if (Directory.Exists(Path))
                 Directory.Delete(Path, recursive: true);
         }

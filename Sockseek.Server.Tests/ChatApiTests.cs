@@ -220,7 +220,7 @@ public sealed class ChatApiTests
         finally
         {
             await app.StopAsync();
-            SqliteConnection.ClearAllPools();
+            await app.DisposeAsync();
             if (System.IO.Directory.Exists(dataDirectory))
                 System.IO.Directory.Delete(dataDirectory, recursive: true);
         }

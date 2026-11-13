@@ -213,7 +213,6 @@ public sealed class PersistenceMaintenanceTests
         {
             if (Host.IsStarted)
                 await Host.StopAsync(TimeSpan.FromSeconds(5));
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (System.IO.Directory.Exists(Directory))
                 System.IO.Directory.Delete(Directory, recursive: true);
         }

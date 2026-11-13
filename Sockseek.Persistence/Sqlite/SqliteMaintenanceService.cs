@@ -123,7 +123,7 @@ public sealed class SqliteMaintenanceService(
             if (!temporaryIntegrity.IsHealthy)
                 throw new InvalidDataException($"Restored temporary database failed integrity check: {temporaryIntegrity.Result}");
 
-            SqliteConnection.ClearAllPools();
+            SqliteConnectionPool.Clear(targetOptions);
             DeleteIfExists(targetPath + "-wal");
             DeleteIfExists(targetPath + "-shm");
             File.Move(temporaryPath, targetPath, overwrite: true);
@@ -135,7 +135,6 @@ public sealed class SqliteMaintenanceService(
         }
         finally
         {
-            SqliteConnection.ClearAllPools();
             DeleteIfExists(temporaryPath);
             DeleteSidecars(temporaryPath);
         }

@@ -53,7 +53,7 @@ public sealed class SearchViewCoordinatorTests
             finally { persistence.SearchSourceChanged -= Committed; }
             await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
                 new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
-                { DataSource = Path.Combine(directory, "sockseek.db") }.ToString());
+                { Pooling = false, DataSource = Path.Combine(directory, "sockseek.db") }.ToString());
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
             // Model a lost durable middle row while Core still owns all three.
@@ -95,7 +95,7 @@ public sealed class SearchViewCoordinatorTests
         {
             finish.TrySetResult();
             await app.StopAsync();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            await app.DisposeAsync();
             System.IO.Directory.Delete(directory, recursive: true);
         }
     }
@@ -216,7 +216,6 @@ public sealed class SearchViewCoordinatorTests
             try { await run; } catch (OperationCanceledException) { }
             await views.StopAsync(CancellationToken.None);
             await persistence.StopAsync(CancellationToken.None);
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             System.IO.Directory.Delete(directory, recursive: true);
         }
     }
@@ -288,7 +287,7 @@ public sealed class SearchViewCoordinatorTests
 
             await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
                 new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
-                { DataSource = Path.Combine(directory, "sockseek.db") }.ToString());
+                { Pooling = false, DataSource = Path.Combine(directory, "sockseek.db") }.ToString());
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
             command.CommandText = """
@@ -319,7 +318,7 @@ public sealed class SearchViewCoordinatorTests
         {
             finish.TrySetResult();
             await app.StopAsync();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            await app.DisposeAsync();
             System.IO.Directory.Delete(directory, recursive: true);
         }
     }
@@ -410,7 +409,6 @@ public sealed class SearchViewCoordinatorTests
             try { await run; } catch (OperationCanceledException) { }
             await views.StopAsync(CancellationToken.None);
             await persistence.StopAsync(CancellationToken.None);
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             System.IO.Directory.Delete(directory, recursive: true);
         }
     }
@@ -528,7 +526,7 @@ public sealed class SearchViewCoordinatorTests
         finally
         {
             await app.StopAsync();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            await app.DisposeAsync();
             if (System.IO.Directory.Exists(directory)) System.IO.Directory.Delete(directory, recursive: true);
         }
     }
@@ -622,7 +620,6 @@ public sealed class SearchViewCoordinatorTests
             try { await run; } catch (OperationCanceledException) { }
             await views.StopAsync(CancellationToken.None);
             await persistence.StopAsync(CancellationToken.None);
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (System.IO.Directory.Exists(directory)) System.IO.Directory.Delete(directory, recursive: true);
         }
     }
@@ -777,7 +774,6 @@ public sealed class SearchViewCoordinatorTests
             await run;
             await views.StopAsync(CancellationToken.None);
             await persistence.StopAsync(CancellationToken.None);
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (System.IO.Directory.Exists(directory)) System.IO.Directory.Delete(directory, recursive: true);
         }
     }
@@ -880,7 +876,6 @@ public sealed class SearchViewCoordinatorTests
         finally
         {
             release.TrySetResult();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (System.IO.Directory.Exists(directory)) System.IO.Directory.Delete(directory, recursive: true);
         }
     }
@@ -1006,7 +1001,6 @@ public sealed class SearchViewCoordinatorTests
         {
             await views.StopAsync(CancellationToken.None);
             await persistence.StopAsync(CancellationToken.None);
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (System.IO.Directory.Exists(directory)) System.IO.Directory.Delete(directory, recursive: true);
         }
     }
@@ -1068,7 +1062,6 @@ public sealed class SearchViewCoordinatorTests
         {
             await views.StopAsync(CancellationToken.None);
             await persistence.StopAsync(CancellationToken.None);
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (System.IO.Directory.Exists(directory))
                 System.IO.Directory.Delete(directory, recursive: true);
         }
@@ -1135,7 +1128,6 @@ public sealed class SearchViewCoordinatorTests
         finally
         {
             release.TrySetResult();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (System.IO.Directory.Exists(directory)) System.IO.Directory.Delete(directory, recursive: true);
         }
     }
@@ -1279,7 +1271,6 @@ public sealed class SearchViewCoordinatorTests
         finally
         {
             releaseSearch.TrySetResult();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (System.IO.Directory.Exists(directory))
                 System.IO.Directory.Delete(directory, recursive: true);
         }
@@ -1559,7 +1550,6 @@ public sealed class SearchViewCoordinatorTests
         finally
         {
             finish.TrySetResult();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             System.IO.Directory.Delete(directory, recursive: true);
         }
     }
@@ -1839,7 +1829,7 @@ public sealed class SearchViewCoordinatorTests
             {
                 await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
                     new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
-                    { DataSource = Path.Combine(directory, "sockseek.db") }.ToString());
+                    { Pooling = false, DataSource = Path.Combine(directory, "sockseek.db") }.ToString());
                 await connection.OpenAsync();
                 await using var command = connection.CreateCommand();
                 // Reproduce a search saved by the score-based implementation,
@@ -1893,7 +1883,6 @@ public sealed class SearchViewCoordinatorTests
         }
         finally
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (System.IO.Directory.Exists(directory))
                 System.IO.Directory.Delete(directory, recursive: true);
         }
@@ -2458,7 +2447,7 @@ public sealed class SearchViewCoordinatorTests
         {
             releaseSearch.TrySetResult();
             await app.StopAsync();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            await app.DisposeAsync();
             if (System.IO.Directory.Exists(directory))
                 System.IO.Directory.Delete(directory, recursive: true);
         }
@@ -2589,7 +2578,6 @@ public sealed class SearchViewCoordinatorTests
         finally
         {
             release.TrySetResult();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (System.IO.Directory.Exists(directory))
                 System.IO.Directory.Delete(directory, recursive: true);
         }

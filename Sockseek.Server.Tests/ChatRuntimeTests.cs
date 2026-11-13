@@ -536,6 +536,7 @@ public sealed class ChatRuntimeTests
         await chat.StartAsync(CancellationToken.None);
         var connectionString = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
         {
+            Pooling = false,
             DataSource = database.DatabasePath,
         }.ToString();
         await using var blocker = new Microsoft.Data.Sqlite.SqliteConnection(connectionString);
@@ -639,7 +640,6 @@ public sealed class ChatRuntimeTests
         public async ValueTask DisposeAsync()
         {
             await Host.StopAsync(TimeSpan.FromSeconds(5));
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (System.IO.Directory.Exists(directory))
                 System.IO.Directory.Delete(directory, recursive: true);
         }

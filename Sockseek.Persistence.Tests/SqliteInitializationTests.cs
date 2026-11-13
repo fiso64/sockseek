@@ -479,7 +479,6 @@ public sealed class SqliteInitializationTests
         }
         finally
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }
@@ -1245,7 +1244,7 @@ public sealed class SqliteInitializationTests
         {
             if (writer != null) await writer.DisposeAsync();
             Owner.Dispose();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            Sockseek.Persistence.Sqlite.SqliteConnectionPool.Clear(Options);
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }

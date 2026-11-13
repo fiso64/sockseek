@@ -360,7 +360,7 @@ public sealed class UploadPersistenceTests
             UploadTransferSnapshot cancelled;
             Task<TransferCommandReceiptDto> removal;
             await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-            { DataSource = SockseekDataPaths.ResolveDatabasePath(directory) }.ToString()))
+            { Pooling = false, DataSource = SockseekDataPaths.ResolveDatabasePath(directory) }.ToString()))
             {
                 await connection.OpenAsync();
                 await using var held = connection.BeginTransaction(deferred: false);
@@ -438,7 +438,6 @@ public sealed class UploadPersistenceTests
             uploads.TransferChanged -= observe;
             persistence.Health!.CommitCompleted -= Committed;
             await persistence.StopAsync(CancellationToken.None);
-            SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }

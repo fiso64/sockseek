@@ -216,6 +216,7 @@ test('recovers failed conversation loading without losing a composed draft', asy
 });
 
 test('does not pull a reader to the bottom when a peer message arrives', async ({ page, daemon }) => {
+  await page.clock.install();
   await page.goto('/chat/users/Scroll%20Peer');
   const composer = page.getByRole('textbox', { name: 'Message', exact: true });
   await composer.fill(Array.from({ length: 300 }, (_, index) => `History line ${index}`).join(' '));
@@ -224,17 +225,20 @@ test('does not pull a reader to the bottom when a peer message arrives', async (
   await expect(messages).toContainText('History line 59');
   await messages.evaluate(async element => {
     await new Promise(requestAnimationFrame);
-    element.scrollTop = 0;
+    element.scrollTop = element.scrollHeight;
   });
   expect(await messages.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
   await daemon.command('incoming-chat');
   await expect(messages).toContainText('Incoming while reading');
-  await messages.evaluate(() => new Promise(requestAnimationFrame));
+  // Move away while the incoming message's follow-to-bottom frame is pending.
+  await messages.evaluate(element => { element.scrollTop = 0; });
+  await page.clock.runFor(16);
   expect(await messages.evaluate(element => element.scrollTop)).toBeLessThanOrEqual(2);
   await messages.evaluate(element => { element.scrollTop = element.scrollHeight; });
   await daemon.command('incoming-chat');
   await expect(messages).toContainText('Incoming while reading 502');
-  await messages.evaluate(() => new Promise(requestAnimationFrame));
+  await page.clock.runFor(16);
   expect(await messages.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(2);
 });
 

@@ -1,5 +1,3 @@
-using Microsoft.Data.Sqlite;
-
 namespace Sockseek.Persistence.Sqlite;
 
 public static class PersistenceOfflineOperations
@@ -12,7 +10,7 @@ public static class PersistenceOfflineOperations
         using var owner = SqliteDatabaseOwner.Acquire(options);
         var factory = new SockseekDbContextFactory(SockseekDbContextOptions.Create(options));
         try { return await new SqliteInitializer(factory, options, owner).InitializeAsync(cancellationToken).ConfigureAwait(false); }
-        finally { SqliteConnection.ClearAllPools(); }
+        finally { SqliteConnectionPool.Clear(options); }
     }
 
     public static async Task<DatabaseIntegrityResult> CheckIntegrityAsync(
@@ -24,7 +22,7 @@ public static class PersistenceOfflineOperations
         using var owner = SqliteDatabaseOwner.Acquire(options);
         var factory = new SockseekDbContextFactory(SockseekDbContextOptions.Create(options));
         try { return await new SqliteMaintenanceService(factory, options).CheckIntegrityAsync(cancellationToken).ConfigureAwait(false); }
-        finally { SqliteConnection.ClearAllPools(); }
+        finally { SqliteConnectionPool.Clear(options); }
     }
 
     public static async Task<DatabaseBackupResult> BackupAsync(
@@ -37,7 +35,7 @@ public static class PersistenceOfflineOperations
         using var owner = SqliteDatabaseOwner.Acquire(options);
         var factory = new SockseekDbContextFactory(SockseekDbContextOptions.Create(options));
         try { return await new SqliteMaintenanceService(factory, options).BackupAsync(outputPath, cancellationToken).ConfigureAwait(false); }
-        finally { SqliteConnection.ClearAllPools(); }
+        finally { SqliteConnectionPool.Clear(options); }
     }
 
     private static void RequireExisting(string databasePath)

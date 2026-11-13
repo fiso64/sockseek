@@ -87,7 +87,6 @@ public sealed class JobPreviewTests
         }
         finally
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
         }
     }
@@ -192,7 +191,6 @@ public sealed class JobPreviewTests
         }
         finally
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
         }
     }
@@ -254,7 +252,6 @@ public sealed class JobPreviewTests
         }
         finally
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }
@@ -336,7 +333,6 @@ public sealed class JobPreviewTests
         finally
         {
             await coordinator.StopAsync(CancellationToken.None);
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }
@@ -459,7 +455,6 @@ public sealed class JobPreviewTests
         }
         finally
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }
@@ -609,7 +604,6 @@ public sealed class JobPreviewTests
         }
         finally
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(directory))
                 Directory.Delete(directory, recursive: true);
         }

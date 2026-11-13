@@ -578,8 +578,12 @@
   }
   function scheduleScrollToBottom(): void {
     const revision = selectionRevision;
+    const container = messagesElement;
+    const scrollTop = container?.scrollTop;
     requestAnimationFrame(() => {
-      if (revision === selectionRevision && messagesElement) messagesElement.scrollTop = messagesElement.scrollHeight;
+      // A pending follow-to-bottom must not undo scrolling done in the meantime.
+      if (revision === selectionRevision && container && container === messagesElement
+          && container.scrollTop === scrollTop) container.scrollTop = container.scrollHeight;
     });
   }
   $effect(() => {

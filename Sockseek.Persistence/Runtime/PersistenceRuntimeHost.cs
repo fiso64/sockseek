@@ -403,10 +403,10 @@ public sealed class PersistenceRuntimeHost
 
     private void ReleaseOwnership()
     {
+        // Release handles before allowing another runtime to acquire this database.
+        SqliteConnectionPool.Clear(sqliteOptions);
         owner?.Dispose();
         owner = null;
-        SqliteConnectionPool.Clear(SockseekDbContextOptions.CreateConnectionString(sqliteOptions));
-        SqliteConnectionPool.Clear(SockseekDbContextOptions.CreateConnectionString(sqliteOptions, readOnly: true));
     }
 
     private static long? FileSize(string path)
