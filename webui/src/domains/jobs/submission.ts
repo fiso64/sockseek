@@ -1,7 +1,7 @@
 import { searchModeFamily, type SearchDraft } from '../search/model';
 import type { Schema } from '../../api/types';
 
-export type NewJobChoice = 'song' | 'album' | 'spotify' | 'youtube' | 'bandcamp' | 'soundcloud' | 'musicbrainz' | 'soulseek' | 'csv' | 'list';
+export type NewJobChoice = 'song' | 'album' | 'spotify' | 'youtube' | 'bandcamp' | 'soundcloud' | 'musicbrainz' | 'soulseek-link' | 'csv' | 'list';
 
 export interface NewJobDraft {
   choice: NewJobChoice;

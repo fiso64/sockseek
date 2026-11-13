@@ -23,6 +23,10 @@ namespace Sockseek.Core.Jobs;
     {
         public AlbumQuery Query { get; set; }
 
+        // Whole-folder acceptance may still exclude individual files. Apply this
+        // after optional retrieval so browsing cannot reintroduce them.
+        public IReadOnlySet<string>? ExcludedFilenames { get; set; }
+
         // SongQuery-shaped view of the album query (used for display and key computation).
         // Recomputed from Query so it stays current after preprocessing.
         public override SongQuery QueryTrack =>

@@ -81,7 +81,7 @@
     },
     {
       value: 'track', label: 'Track Search', icon: 'track' as const, description:
-      'Shows results as individual tracks. Uses music-oriented default filters and ranking.'
+      'Shows results as tracks. Uses music-oriented default filters and ranking.'
     },
     {
       value: 'album', label: 'Album Search', icon: 'album' as const, description:
@@ -305,7 +305,11 @@
     </div>
     <section class="search-mode-help-notes" aria-labelledby="search-mode-notes-title">
       <h3 id="search-mode-notes-title">Notes</h3>
-      <p>Artist and song or album title affect how results are filtered, ranked, and grouped. Separate them with a hyphen, for example Casiopea - Mint Jams.</p>
+      <ul>
+        <li>Artist and the song/album title affect how results are filtered, ranked, and grouped. Separate them with a hyphen, for example Casiopea - Mint Jams.</li>
+        <li>You can change the default search mode by setting web-default-search-mode in the config.</li>
+        <li>Switch between search modes using up and down arrow keys.</li>
+      </ul>
     </section>
   </Modal>
 {/if}

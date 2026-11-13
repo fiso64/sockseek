@@ -1141,24 +1141,6 @@ public sealed class SearchViewCoordinatorTests
     }
 
     [TestMethod]
-    public void AlbumDirectorySelectionOnlyAllowsTheFullFolderSearchOption()
-    {
-        var folderOption = new DownloadSettingsPatchDto(
-            Search: new SearchSettingsPatchDto(NoBrowseFolder: true));
-        RemoteTransferSettingsValidator.ValidateExplicitPatch(
-            folderOption,
-            allowSearchViewAlbumFolderOption: true);
-        Assert.ThrowsExactly<ArgumentException>(() =>
-            RemoteTransferSettingsValidator.ValidateExplicitPatch(folderOption));
-        Assert.ThrowsExactly<ArgumentException>(() =>
-            RemoteTransferSettingsValidator.ValidateExplicitPatch(
-                new DownloadSettingsPatchDto(Search: new SearchSettingsPatchDto(
-                    NoBrowseFolder: true,
-                    Relax: true)),
-                allowSearchViewAlbumFolderOption: true));
-    }
-
-    [TestMethod]
     public async Task RefinementConditionsProjectTheWholeLivePrefixBeforePaging()
     {
         string directory = Path.Combine(
@@ -1327,8 +1309,15 @@ public sealed class SearchViewCoordinatorTests
         };
         try
         {
+            string expectedMode = albumMode ? "album" : kind == ServerSearchViewProjectionKind.GenericDirectories ? "generic" : "song";
+            var options = Options(directory, client.Client);
+            options.Profiles = new ProfileCatalog { AutoProfiles = [new SettingsProfile
+            {
+                Name = "selection", Condition = $"input-type == \"manual-search\" && download-mode == \"{expectedMode}\" && !interactive",
+                Download = new SettingsPatch([new("Search.MaxStaleTime", 4321)]),
+            }] };
             await using WebApplication app = global::Tests.TestServerHost.Build(
-                [], Options(directory, client.Client), "http://127.0.0.1:0");
+                [], options, "http://127.0.0.1:0");
             await app.StartAsync();
             var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
             JobSummaryDto source = kind switch
@@ -1517,6 +1506,48 @@ public sealed class SearchViewCoordinatorTests
                     ConditionRowSnapshots(await ReadConditionFilesAsync(views, completed)));
             }
             Assert.AreEqual(1, searchCalls, "Refining a live View must not repeat the network search.");
+            var completedView = views.Get(flac.ViewId, CancellationToken.None)!;
+            string selectedRef = kind switch
+            {
+                ServerSearchViewProjectionKind.Files => views.GetFiles(flac.ViewId, completedView.Revision, null, 1, cancellationToken: CancellationToken.None)!.Items[0].Ref,
+                ServerSearchViewProjectionKind.TrackGroups => views.GetTrackGroups(flac.ViewId, completedView.Revision, null, 1, CancellationToken.None)!.Items[0].Ref,
+                ServerSearchViewProjectionKind.AlbumGroups => views.GetAlbumGroups(flac.ViewId, completedView.Revision, null, 1, CancellationToken.None)!.Items[0].Ref,
+                _ => views.GetDirectories(flac.ViewId, completedView.Revision, null, 1, cancellationToken: CancellationToken.None)!.Items[0].Ref.Ref,
+            };
+            var committedSelection = new RefSelectionExpressionDto(RefSelectionMode.Only, [selectedRef]);
+            var defaults = views.Selections.ResolveSelectionSettings(flac.ViewId,
+                new(completedView.Revision, committedSelection), CancellationToken.None)!.Variants.Single();
+            Assert.AreEqual(albumMode ? ServerJobKind.Album : expectedMode == "song" ? ServerJobKind.Song : ServerJobKind.RemoteDirectory, defaults.JobKind);
+            Assert.AreEqual(4321, defaults.Settings.Values.Search!.MaxStaleTime);
+            var receipt = (await views.Selections.CommitSelectionAsync(flac.ViewId,
+                new(completedView.Revision, committedSelection, Guid.NewGuid(),
+                    UseRepresentativeWhenUnchosen: kind is ServerSearchViewProjectionKind.TrackGroups or ServerSearchViewProjectionKind.AlbumGroups), CancellationToken.None))!;
+            Assert.AreEqual(1L, receipt.SubmittedCount);
+            var accepted = (await app.Services.GetRequiredService<PersistenceCoordinator>().Submissions!
+                .GetSubmissionAsync(receipt.SubmissionId!.Value, CancellationToken.None))!;
+            var (job, settings) = Sockseek.Core.Planning.SubmissionSpecificationCodec.Deserialize(accepted.SpecificationJson).Materialize();
+            Assert.AreEqual(JobSelectionSource.ManualSearch, job.SelectionSource);
+            Assert.AreEqual(4321, settings.Search.MaxStaleTime);
+            Assert.IsTrue(ProfileConditionEvaluator.Satisfied($"download-mode == \"{expectedMode}\"", settings, job));
+            if (job is AlbumJob album) Assert.AreEqual(AlbumValidationRequirement.UserAccepted, album.ValidationRequirement);
+            if (job is SongJob song) Assert.IsNotNull(song.ExactTarget);
+            if (kind == ServerSearchViewProjectionKind.AlbumDirectories)
+            {
+                var childRefs = views.GetDirectoryFiles(flac.ViewId, selectedRef, completedView.Revision, null, 100, CancellationToken.None)!
+                    .Items.Select(child => child.Ref).ToArray();
+                var excludeObserved = new CommitSearchViewSelectionRequestDto(completedView.Revision, committedSelection,
+                    Guid.NewGuid(), ExcludedFileRefs: childRefs);
+                var fullFolder = (await views.Selections.CommitSelectionAsync(flac.ViewId, excludeObserved, CancellationToken.None))!;
+                Assert.AreEqual(1L, fullFolder.SubmittedCount, "A whole folder can contain files not observed by search.");
+                var observedOnly = (await views.Selections.CommitSelectionAsync(flac.ViewId, excludeObserved with
+                {
+                    IdempotencyKey = Guid.NewGuid(),
+                    Options = new SubmissionOptionsDto(DownloadSettings: new DownloadSettingsPatchDto(
+                        Search: new SearchSettingsPatchDto(NoBrowseFolder: true))),
+                }, CancellationToken.None))!;
+                Assert.AreEqual(0L, observedOnly.SubmittedCount);
+                Assert.AreEqual(1L, observedOnly.SkippedCount);
+            }
             await app.StopAsync();
         }
         finally

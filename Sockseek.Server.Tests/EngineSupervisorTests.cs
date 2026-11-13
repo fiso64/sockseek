@@ -824,7 +824,7 @@ public class EngineSupervisorTests
     }
 
     [TestMethod]
-    public async Task SubmitJobAsync_RequestPatchParticipatesInAutoProfileMatching()
+    public async Task SubmitJobAsync_DeclaredSearchModeParticipatesInAutoProfileMatching()
     {
         string root = Path.Combine(Path.GetTempPath(), "Sockseek-server-test-" + Guid.NewGuid());
         string outputDir = Path.Combine(root, "out");
@@ -849,6 +849,7 @@ public class EngineSupervisorTests
             JobSummaryDto summary = await supervisor.Submissions.SubmitTrackSearchJobAsync(
                 new SubmitTrackSearchJobRequestDto(
                     new SongQueryDto("Artist", "Track", "", "", -1, false),
+                    GroupResults: true,
                     Options: new SubmissionOptionsDto(
                         DownloadSettings: new DownloadSettingsPatchDto(
                             Search: new SearchSettingsPatchDto(GroupResults: true)))),
@@ -1563,7 +1564,7 @@ public class EngineSupervisorTests
             runTask = supervisor.RunAsync(cts.Token);
 
             var submitted = await supervisor.Submissions.SubmitExtractJobAsync(
-                new SubmitExtractJobRequestDto(ToSoulseekFileUri(source), "Soulseek"),
+                new SubmitExtractJobRequestDto(ToSoulseekFileUri(source), "soulseek-link"),
                 CancellationToken.None);
             await WaitForJobStateAsync(supervisor, submitted.JobId, ExpectedJobStatus.Succeeded);
 
@@ -1599,8 +1600,8 @@ public class EngineSupervisorTests
             [
                 new SettingsProfile
                 {
-                    Name = "generic-file-layout",
-                    Condition = "download-mode == \"generic-file\"",
+                    Name = "generic-layout",
+                    Condition = "download-mode == \"generic\"",
                     Download = remotePatch,
                 },
             ],
@@ -1618,7 +1619,7 @@ public class EngineSupervisorTests
             runTask = supervisor.RunAsync(cts.Token);
 
             var submitted = await supervisor.Submissions.SubmitExtractJobAsync(
-                new SubmitExtractJobRequestDto(ToSoulseekFileUri(source), "Soulseek"),
+                new SubmitExtractJobRequestDto(ToSoulseekFileUri(source), "soulseek-link"),
                 CancellationToken.None);
             await WaitForJobStateAsync(supervisor, submitted.JobId, ExpectedJobStatus.Succeeded);
 
@@ -1627,7 +1628,7 @@ public class EngineSupervisorTests
             Assert.IsNotNull(remote);
             await WaitForJobStateAsync(supervisor, remote.Id, ExpectedJobStatus.Succeeded);
             Assert.AreEqual("{peer-username}/{filename}", remote.Config.Output.NameFormat);
-            CollectionAssert.Contains(remote.Config.AppliedAutoProfiles.ToList(), "generic-file-layout");
+            CollectionAssert.Contains(remote.Config.AppliedAutoProfiles.ToList(), "generic-layout");
             string expectedPath = Path.Combine(output, "local", "File.bin");
             Assert.IsTrue(
                 File.Exists(expectedPath),

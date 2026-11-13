@@ -207,7 +207,7 @@ public sealed class PlacementPlanner(OutputScope outputScope)
             jobType,
             NameFormatVariableProvider.NormalizeExtension(
                 target.Extension ?? Path.GetExtension(RemoteLeaf(target.Filename))),
-            settings?.Extraction.InputType.ToString() ?? "",
+            settings?.Extraction.InputType.ToInputName() ?? "",
             settings?.Extraction.Input ?? "",
             settings?.RuntimePathContext.ConfigDir ?? "");
         string rendered = NameFormatRenderer.Render(

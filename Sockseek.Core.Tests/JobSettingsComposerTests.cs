@@ -34,8 +34,8 @@ public sealed class JobSettingsComposerTests
             (JobSnapshotKind.Album, "album", null),
             (JobSnapshotKind.SongGroups, "song-groups", null),
             (JobSnapshotKind.AlbumGroups, "album-groups", null),
-            (JobSnapshotKind.RemoteFile, "generic-file", null),
-            (JobSnapshotKind.RemoteDirectory, "generic-directory", null),
+            (JobSnapshotKind.RemoteFile, "generic", null),
+            (JobSnapshotKind.RemoteDirectory, "generic", null),
             (JobSnapshotKind.Search, "song", SearchDefaultProjectionKind.Track),
             (JobSnapshotKind.Search, "album", SearchDefaultProjectionKind.Album),
         })
@@ -59,6 +59,43 @@ public sealed class JobSettingsComposerTests
             Assert.AreEqual(kind is JobSnapshotKind.RemoteFile or JobSnapshotKind.RemoteDirectory
                 ? SearchSettingsBaselineKind.Generic : SearchSettingsBaselineKind.Music, result.Baseline, mode);
         }
+    }
+
+    [TestMethod]
+    public void InteractiveSourcesAndSearchModesAreIndependentOfConfiguredInput()
+    {
+        var settings = new DownloadSettings
+        {
+            Extraction = { Input = "https://open.spotify.com/playlist/unused", InputType = InputType.Spotify,
+                RequestedMode = ExtractionMode.Album },
+            Search = { GroupResults = true },
+        };
+        (Job Job, string Source, string Mode)[] cases =
+        [
+            (new SearchJob("query"), "manual-search", "generic"),
+            (new SearchJob(new SongQuery { Title = "track" }), "manual-search", "song"),
+            (new SearchJob(new SongQuery { Title = "track" }) { GroupResults = true }, "manual-search", "song-groups"),
+            (new SearchJob(new AlbumQuery { Album = "album" }), "manual-search", "album"),
+            (new SearchJob(new AlbumQuery { Album = "album" }) { GroupResults = true }, "manual-search", "album-groups"),
+            (new SongJob(new SongQuery()) { SelectionSource = JobSelectionSource.ManualSearch }, "manual-search", "song"),
+            (new AlbumJob(new AlbumQuery()) { SelectionSource = JobSelectionSource.ManualSearch }, "manual-search", "album"),
+            (new RemoteDirectoryJob(new RemoteDirectorySource.PeerDirectory(new PeerDirectoryIdentity("peer", "folder")))
+                { SelectionSource = JobSelectionSource.PeerShares }, "peer-shares", "generic"),
+            (new ExtractJob("https://www.youtube.com/watch?v=test") { SourceInputType = InputType.List }, "youtube", "album-groups"),
+        ];
+        foreach (var (job, source, mode) in cases)
+        {
+            var profile = Profile("match", value => value.Search.MaxStaleTime = 4321,
+                $"input-type == \"{source}\" && download-mode == \"{mode}\" && !interactive && !progress-json && !no-progress");
+            var composer = new JobSettingsComposer(settings, new ProfileCatalog { AutoProfiles = [profile] });
+            Assert.AreEqual(4321, composer.Compose(settings, job).Search.MaxStaleTime, source + "/" + mode);
+            var command = SubmissionSpecification.Create(job, settings).Command;
+            Assert.AreEqual(4321, composer.Compose(settings, JobSettingsContext.FromCommand(command, Guid.Empty))
+                .Search.MaxStaleTime, "Retained " + mode);
+            if (job is not ExtractJob)
+                Assert.AreEqual(mode.EndsWith("-groups"), ProfileConditionEvaluator.Satisfied("group", settings, job));
+        }
+        Assert.ThrowsExactly<Exception>(() => ProfileConditionEvaluator.Satisfied("typo", settings));
     }
 
     [TestMethod]
@@ -186,7 +223,7 @@ public sealed class JobSettingsComposerTests
                 launchNamedProfiles: [namedProfile],
                 launchDownload: launch);
 
-            var job = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" });
+            var job = new ExtractJob("Artist - Track", InputType.String) { RequestedModeOverride = ExtractionMode.Song };
             var layers = new JobSettingsRequestLayers(Download: request);
             DownloadSettings settings = composer.Compose(new DownloadSettings(), job, request: layers);
             JobSettingsCompositionResult detailed = composer.ComposeDetailed(new DownloadSettings(), job, request: layers);

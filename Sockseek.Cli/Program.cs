@@ -343,7 +343,7 @@ internal static partial class Program
             var submission = await coordinator.StartAsync(
                 new SubmitExtractJobRequestDto(
                     rootSettings.Extraction.Input,
-                    rootSettings.Extraction.InputType.ToString(),
+                    rootSettings.Extraction.InputType.ToInputName(),
                     Options: new SubmissionOptionsDto(workflowId)),
                 cts.Token);
             interactiveCoordinatorTask = coordinator.RunUntilCompleteAsync(submission.WorkflowId, cts.Token);
@@ -355,7 +355,7 @@ internal static partial class Program
             await backend.SubmitExtractJobAsync(
                 new SubmitExtractJobRequestDto(
                     rootSettings.Extraction.Input,
-                    rootSettings.Extraction.InputType.ToString()),
+                    rootSettings.Extraction.InputType.ToInputName()),
                 cts.Token);
             engine.CompleteEnqueue();
         }
@@ -731,7 +731,7 @@ internal static partial class Program
                 await backend.SubmitExtractJobAsync(
                     new SubmitExtractJobRequestDto(
                         rootSettings.Extraction.Input,
-                        rootSettings.Extraction.InputType.ToString(),
+                        rootSettings.Extraction.InputType.ToInputName(),
                         Options: options),
                     cts.Token);
             }
@@ -1588,7 +1588,7 @@ internal static partial class Program
     }
 
     private static InputType? ParseRemoteInputType(string? inputType)
-        => Enum.TryParse<InputType>(inputType, ignoreCase: true, out var parsed)
+        => InputTypes.TryParse(inputType, out var parsed)
             ? parsed
             : null;
 
@@ -1661,11 +1661,11 @@ internal static partial class Program
     private static SubmitExtractJobRequestDto BuildRemoteExtractRequest(DownloadSettings rootSettings, SubmissionOptionsDto options)
     {
         if (options.ProfileNames is not { Count: > 0 })
-            return new(rootSettings.Extraction.Input, rootSettings.Extraction.InputType.ToString(), Options: options);
+            return new(rootSettings.Extraction.Input, rootSettings.Extraction.InputType.ToInputName(), Options: options);
 
         // Named remote profiles are resolved by the daemon. Forward only CLI input overrides.
         var input = options.DownloadSettings?.Extraction?.Input;
-        var inputType = options.DownloadSettings?.Extraction?.InputType?.ToString();
+        var inputType = options.DownloadSettings?.Extraction?.InputType?.ToCore().ToInputName();
         return new(input, inputType, Options: options);
     }
 

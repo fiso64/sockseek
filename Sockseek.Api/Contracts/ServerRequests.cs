@@ -25,7 +25,7 @@ public sealed record SubmitSearchJobRequestDto(
 /// Starts a track discovery job.
 /// The job completes after search/projection; result endpoints expose candidates, and
 /// follow-up download endpoints start new download jobs from selected candidates.
-/// GroupResults changes the default Search View presentation only;
+/// GroupResults identifies the grouped search mode for profiles and the default Search View;
 /// individual group source choices remain client-owned until selection commit.
 /// </summary>
 public sealed record SubmitTrackSearchJobRequestDto(
@@ -38,7 +38,7 @@ public sealed record SubmitTrackSearchJobRequestDto(
 /// Starts an album discovery job.
 /// The job completes after search/projection; result endpoints expose folders, and
 /// follow-up download endpoints start new download jobs from selected folders.
-/// GroupResults changes the default Search View presentation only;
+/// GroupResults identifies the grouped search mode for profiles and the default Search View;
 /// individual group source choices remain client-owned until selection commit.
 /// </summary>
 public sealed record SubmitAlbumSearchJobRequestDto(
@@ -142,12 +142,14 @@ public sealed record TrackSearchJobDraftDto(
     SongQueryDto SongQuery,
     bool IncludeFullResults = false,
     DownloadSettingsPatchDto? DownloadSettings = null,
-    JobProvenanceDto? Provenance = null) : JobDraftDto;
+    JobProvenanceDto? Provenance = null,
+    bool GroupResults = false) : JobDraftDto;
 
 public sealed record AlbumSearchJobDraftDto(
     AlbumQueryDto AlbumQuery,
     DownloadSettingsPatchDto? DownloadSettings = null,
-    JobProvenanceDto? Provenance = null) : JobDraftDto;
+    JobProvenanceDto? Provenance = null,
+    bool GroupResults = false) : JobDraftDto;
 
 public sealed record SongJobDraftDto(
     SongQueryDto SongQuery,

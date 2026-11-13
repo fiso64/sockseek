@@ -1198,7 +1198,8 @@ namespace Tests.Eventing
         [DataRow(true, false, false)]
         [DataRow(true, true, false)]
         [DataRow(true, true, true)]
-        public async Task AlbumValidation_RespectsUserAcceptedSelections(bool userAccepted, bool loadFullFolder, bool exactFiles)
+        [DataRow(true, true, false, true)]
+        public async Task AlbumValidation_RespectsUserAcceptedSelections(bool userAccepted, bool loadFullFolder, bool exactFiles, bool excludeRetrievedFile = false)
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-strict-quality-browse-" + Guid.NewGuid());
             System.IO.Directory.CreateDirectory(outputDir);
@@ -1222,6 +1223,7 @@ namespace Tests.Eventing
                 var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
                 {
                     Results = [badFolder, goodFolder],
+                    ExcludedFilenames = excludeRetrievedFile ? new HashSet<string>([badFiles[0].Filename], StringComparer.Ordinal) : null,
                     ResolvedTarget = userAccepted ? badFolder : null,
                     ValidationRequirement = userAccepted ? AlbumValidationRequirement.UserAccepted : AlbumValidationRequirement.Standard,
                     DirectoryResolutionPolicy = exactFiles ? AlbumDirectoryResolutionPolicy.UseSelectedSnapshot : AlbumDirectoryResolutionPolicy.CompleteIfNeeded,
@@ -1251,8 +1253,8 @@ namespace Tests.Eventing
                     bool expand = loadFullFolder && !exactFiles;
                     Assert.AreSame(badFolder, album.ResolvedTarget, "Discovery conditions must not override the user's chosen folder.");
                     Assert.AreEqual(expand ? 1 : 0, client.BrowseCallCount, "Only the user's full-folder option may expand a selection.");
-                    Assert.AreEqual(expand ? 2 : 1, downloadsStarted);
-                    Assert.AreEqual(expand ? 2 : 1, client.DownloadCallCount);
+                    Assert.AreEqual(expand && !excludeRetrievedFile ? 2 : 1, downloadsStarted);
+                    Assert.AreEqual(expand && !excludeRetrievedFile ? 2 : 1, client.DownloadCallCount);
                     Assert.IsTrue(album.TrackJobs.Any(track => track.ResolvedTarget!.Filename.EndsWith(".mp3")), "The explicitly selected MP3 must survive FLAC-only discovery conditions.");
                 }
                 else

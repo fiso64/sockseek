@@ -20,7 +20,9 @@ public readonly record struct JobSettingsContext(
     ExtractionMode? RequestedMode = null,
     SearchDefaultProjectionKind? SearchProjection = null,
     string? QueryText = null,
-    bool MusicSearchDefaults = false)
+    bool MusicSearchDefaults = false,
+    bool GroupResults = false,
+    JobSelectionSource? SelectionSource = null)
 {
     public static JobSettingsContext FromCommand(NormalizedJobCommand command, Guid workflowId)
         => new(command.AcceptedJobId ?? Guid.Empty, workflowId, command.Kind,
@@ -28,7 +30,8 @@ public readonly record struct JobSettingsContext(
             command.Kind != JobSnapshotKind.Search ? null
                 : command.AlbumQuery is not null ? SearchDefaultProjectionKind.Album
                 : command.SongQuery is not null ? SearchDefaultProjectionKind.Track
-                : SearchDefaultProjectionKind.GenericFile, command.QueryText);
+                : SearchDefaultProjectionKind.GenericFile, command.QueryText,
+            GroupResults: command.GroupResults, SelectionSource: command.SelectionSource);
 
     public static implicit operator JobSettingsContext(Job job)
     {
@@ -41,6 +44,7 @@ public readonly record struct JobSettingsContext(
                 : search.DefaultFileProjection is not null
                     ? SearchDefaultProjectionKind.Track : SearchDefaultProjectionKind.GenericFile,
             (job as SearchJob)?.QueryText,
-            job is SearchJob { DefaultTrackGroupProjection: not null } or SearchJob { DefaultAlbumGroupProjection: not null });
+            job is SearchJob { DefaultTrackGroupProjection: not null } or SearchJob { DefaultAlbumGroupProjection: not null },
+            job is SearchJob { GroupResults: true }, job.SelectionSource);
     }
 }

@@ -196,7 +196,7 @@ public sealed class PlacementPlannerTests
             },
             Extraction =
             {
-                InputType = InputType.Soulseek,
+                InputType = InputType.SoulseekLink,
                 Input = "slsk://Peer/Share/notes.txt",
             },
         };
@@ -207,7 +207,7 @@ public sealed class PlacementPlannerTests
             settings);
 
         CollectionAssert.AreEqual(
-            new[] { "Soulseek", "notes.txt" },
+            new[] { "soulseek-link", "notes.txt" },
             placement.RelativePath.Components.ToArray());
     }
 

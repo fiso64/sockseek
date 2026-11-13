@@ -119,10 +119,20 @@ namespace Sockseek.Core;
         Bandcamp,
         String,
         List,
-        Soulseek,
+        [JsonStringEnumMemberName("soulseek-link")]
+        SoulseekLink,
         MusicBrainz,
         SoundCloud,
         None = -1,
+    }
+
+    public static class InputTypes
+    {
+        public static bool TryParse(string? value, out InputType type)
+            => Enum.TryParse(value?.Replace("-", ""), ignoreCase: true, out type) && Enum.IsDefined(type);
+
+        public static string ToInputName(this InputType type)
+            => type == InputType.SoulseekLink ? "soulseek-link" : type.ToString();
     }
 
     /// <summary>

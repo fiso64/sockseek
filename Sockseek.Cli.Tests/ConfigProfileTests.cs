@@ -85,7 +85,7 @@ namespace Tests.ConfigTests
                 "format = opus";
 
             var (file, root, cli, args) = Bind(content, "--input-type", "youtube");
-            var result = Resolve(file, root, cli, args, new AlbumJob(new AlbumQuery()));
+            var result = Resolve(file, root, cli, args, new AlbumJob(new AlbumQuery()) { SourceInputType = InputType.YouTube });
 
             Assert.AreEqual(10, result.Search.MaxStaleTime);
             Assert.IsFalse(result.Search.FastSearch);
@@ -162,7 +162,7 @@ namespace Tests.ConfigTests
 
             var (file, root, _, args) = Bind(content, "--input-type", "youtube", "--interactive");
             var cli = new CliSettings { InteractiveMode = true };
-            var result = Resolve(file, root, cli, args, new SongJob(new SongQuery { Title = "test" }));
+            var result = Resolve(file, root, cli, args, new SongJob(new SongQuery { Title = "test" }) { SourceInputType = InputType.YouTube });
 
             Assert.AreNotEqual(999999, result.Search.MaxStaleTime);
             Assert.IsTrue(result.YtDlp.UseYtdlp);
@@ -198,15 +198,15 @@ namespace Tests.ConfigTests
         public void CombinedInputTypeAndDownloadMode_ClassifiesSoulseekBeforeExtraction()
         {
             string content =
-                "[generic-file]\n" +
-                "profile-cond = input-type == \"soulseek\" && download-mode == \"generic-file\"\n" +
+                "[generic]\n" +
+                "profile-cond = input-type == \"soulseek-link\" && download-mode == \"generic\"\n" +
                 "no-progress = true\n" +
                 "name-format = {peer-username}/{filename}";
 
             const string input = "slsk://Peer/Share/File.bin";
             File.WriteAllText(testConfigPath, content);
             var file = ConfigManager.Load(testConfigPath);
-            string[] args = [input];
+            string[] args = [input, "--input-type", "soulseek-link"];
             var (_, root, cli) = ConfigManager.Bind(file, args);
 
             ConfigManager.ApplyAutoProfileCliSettings(file, root, cli);
@@ -214,8 +214,9 @@ namespace Tests.ConfigTests
                 .Resolve(root, new ExtractJob(input));
 
             Assert.IsTrue(cli.NoProgress);
+            Assert.AreEqual(InputType.SoulseekLink, root.Extraction.InputType);
             Assert.AreEqual("{peer-username}/{filename}", result.Output.NameFormat);
-            CollectionAssert.Contains(result.AppliedAutoProfiles.ToList(), "generic-file");
+            CollectionAssert.Contains(result.AppliedAutoProfiles.ToList(), "generic");
         }
 
         [TestMethod]
@@ -259,8 +260,8 @@ namespace Tests.ConfigTests
         {
             string content =
                 "name-format = {artist}/{title}\n" +
-                "[generic-file-layout]\n" +
-                "profile-cond = download-mode == \"generic-file\"\n" +
+                "[generic-layout]\n" +
+                "profile-cond = download-mode == \"generic\"\n" +
                 "name-format = {peer-username}/{filename}";
 
             var (file, root, cli, args) = Bind(content);
@@ -272,7 +273,7 @@ namespace Tests.ConfigTests
                 new ExtractJob("slsk://Peer/Share/File.bin"));
 
             Assert.AreEqual("{peer-username}/{filename}", result.Output.NameFormat);
-            CollectionAssert.Contains(result.AppliedAutoProfiles.ToList(), "generic-file-layout");
+            CollectionAssert.Contains(result.AppliedAutoProfiles.ToList(), "generic-layout");
         }
 
         [TestMethod]
@@ -299,7 +300,7 @@ namespace Tests.ConfigTests
 
             var (file, root, _, args) = Bind(content, "--interactive", "--on-complete", "+ -- action_cli");
             var cli = new CliSettings { InteractiveMode = true };
-            var result = Resolve(file, root, cli, args, new SongJob(new SongQuery { Title = "test" }));
+            var result = Resolve(file, root, cli, args, new SongJob(new SongQuery { Title = "test" }) { SourceInputType = InputType.YouTube });
 
             Assert.IsTrue(result.Search.FastSearch);
             Assert.AreEqual(2, result.Output.OnComplete!.Count);
@@ -663,14 +664,14 @@ namespace Tests.ConfigTests
                 (new RemoteFileJob(new PeerFileTarget(
                     new PeerFileIdentity("Peer", @"Share\File.bin"),
                     size: null,
-                    extension: null)), "generic-file"),
+                    extension: null)), "generic"),
                 (new RemoteDirectoryJob(new RemoteDirectorySource.PeerDirectory(
-                    new PeerDirectoryIdentity("Peer", @"Share\Folder"))), "generic-directory"),
+                    new PeerDirectoryIdentity("Peer", @"Share\Folder"))), "generic"),
             ];
             string[] modes =
             [
                 "song", "song-groups", "album", "album-groups",
-                "generic-file", "generic-directory", "remote-file", "remote-directory",
+                "generic", "remote-file", "remote-directory",
             ];
 
             foreach (var (job, expected) in cases)
@@ -694,7 +695,7 @@ namespace Tests.ConfigTests
                 "input-type == \"youtube\"",
                 new ExtractJob("https://www.youtube.com/playlist?list=test")));
             Assert.IsTrue(Satisfied(
-                "input-type == \"soulseek\"",
+                "input-type == \"soulseek-link\"",
                 new ExtractJob("slsk://Peer/Share/File.bin")));
         }
 
@@ -739,7 +740,7 @@ namespace Tests.ConfigTests
 
             foreach (string mode in new[]
                      {
-                         "normal", "generic-file", "generic-directory", "song", "song-groups", "album", "album-groups",
+                         "normal", "generic", "song", "song-groups", "album", "album-groups",
                      })
             {
                 Assert.IsFalse(Satisfied($"download-mode == \"{mode}\""),
@@ -767,10 +768,10 @@ namespace Tests.ConfigTests
         {
             dl.Extraction.RequestedMode = null;
             Assert.IsTrue(Satisfied(
-                "download-mode == \"generic-file\"",
+                "download-mode == \"generic\"",
                 new ExtractJob("slsk://Peer/Share/File.bin")));
             Assert.IsTrue(Satisfied(
-                "download-mode == \"generic-directory\"",
+                "download-mode == \"generic\"",
                 new ExtractJob("slsk://Peer/Share/Folder/")));
             Assert.IsFalse(Satisfied(
                 "download-mode == \"remote-file\"",

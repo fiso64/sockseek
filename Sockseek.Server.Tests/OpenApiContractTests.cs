@@ -636,7 +636,7 @@ public class OpenApiContractTests
             Output: new OutputSettingsPatchDto(AlbumArtOption: ServerAlbumArtOption.Largest),
             Skip: new SkipSettingsPatchDto(SkipMode: ServerSkipMode.Index),
             Extraction: new ExtractionSettingsPatchDto(
-                InputType: ServerInputType.Soulseek,
+                InputType: ServerInputType.SoulseekLink,
                 RequestedMode: ServerExtractionMode.General),
             PrintOption: combinedPrint);
         var behavior = new DownloadBehaviorPolicyDto(Album: ServerDownloadBehavior.Manual);

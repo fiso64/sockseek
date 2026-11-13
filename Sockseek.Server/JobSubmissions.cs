@@ -240,9 +240,10 @@ public sealed class JobSubmissions
         if (resolution.Plans.Count == 0)
             throw new PeerBrowseSelectionException("The selection contains no downloadable public files.");
         var jobs = resolution.Plans.Select(plan =>
-            (Job)new RemoteDirectoryJob(new RemoteDirectorySource.Resolved(plan))).ToArray();
+            (Job)new RemoteDirectoryJob(new RemoteDirectorySource.Resolved(plan))
+            { SelectionSource = JobSelectionSource.PeerShares }).ToArray();
         // A selection batch is not a named collection and must not add an output folder.
-        return jobs.Length == 1 ? jobs[0] : new JobList(jobs: jobs);
+        return jobs.Length == 1 ? jobs[0] : new JobList(jobs: jobs) { SelectionSource = JobSelectionSource.PeerShares };
     }
 
     private void EnsureShareSubmissionConnection()
@@ -408,7 +409,7 @@ public sealed class JobSubmissions
         return draft with
         {
             Input = input,
-            InputType = draft.InputType ?? settings.Extraction.InputType.ToString(),
+            InputType = draft.InputType ?? settings.Extraction.InputType.ToInputName(),
         };
     }
 
@@ -506,16 +507,16 @@ public sealed class JobSubmissions
     internal DownloadSettings PrepareSearchViewSelectionJob(
         Job job,
         SubmissionOptionsDto? options,
-        SubmissionOptionsJobSettingsResolver resolver,
-        bool allowSearchViewAlbumFolderOption = false)
+        SubmissionOptionsJobSettingsResolver resolver)
     {
         ArgumentNullException.ThrowIfNull(job);
+        job.SelectionSource = JobSelectionSource.ManualSearch;
         DownloadSettings settings = resolver.ResolveFollowUp(job, options);
         ValidateExplicitRemoteTransferOverrides(
             job,
             options?.DownloadSettings,
             settings,
-            resolver, allowSearchViewAlbumFolderOption);
+            resolver);
         RemoteTransferSubmissionPolicy.NormalizeSettings(job, settings);
         job.PlannedSettings = JobSettingsSnapshot.Capture(settings);
         return settings;
@@ -557,7 +558,6 @@ public sealed class JobSubmissions
         DownloadSettingsPatchDto? patch,
         DownloadSettings effectiveSettings,
         SubmissionOptionsJobSettingsResolver resolver,
-        bool allowSearchViewAlbumFolderOption = false,
         IReadOnlyList<JobDraftDto>? childDrafts = null)
     {
         if (!RemoteTransferSubmissionPolicy.ValidateOverrides(
@@ -565,8 +565,7 @@ public sealed class JobSubmissions
                 effectiveSettings,
                 patch,
                 (parent, child, _) => resolver.Resolve(parent, child, JobSettingsInheritance.SearchConstraints),
-                childDrafts,
-                allowSearchViewAlbumFolderOption))
+                childDrafts))
             return;
 
         RemoteTransferSettingsValidator.ValidateExplicitNameFormat(options.LaunchDownloadSettings);

@@ -11423,6 +11423,8 @@ export interface components {
             albumQuery: components["schemas"]["AlbumQueryDto"];
             downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
             provenance?: null | components["schemas"]["JobProvenanceDto"];
+            /** @default false */
+            groupResults: boolean;
         };
         JobDraftDtoExtractJobDraftDto: {
             /** @enum {string} */
@@ -11490,6 +11492,8 @@ export interface components {
             includeFullResults: boolean;
             downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
             provenance?: null | components["schemas"]["JobProvenanceDto"];
+            /** @default false */
+            groupResults: boolean;
         };
         JobLifecycleFieldsDto: {
             lifecycleState: components["schemas"]["ServerJobLifecycleState"];

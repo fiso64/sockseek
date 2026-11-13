@@ -2,6 +2,10 @@ using System.Text.Json.Serialization;
 
 namespace Sockseek.Core.Jobs;
 
+// Interactive selections are sources, not extractors. Keep them separate from
+// InputType so they cannot be requested as extractor input formats.
+public enum JobSelectionSource { ManualSearch, PeerShares }
+
 /// <summary>
 /// Source-owned descriptions carried with a job and retained with reviewed work.
 /// Consumers read these values without interpreting provider URLs or credentials.

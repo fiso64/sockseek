@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { DaemonApiClient } from '../src/api/client';
 import { DaemonHttpClient } from '../src/api/http';
-import { albumQuery, editableSearchDraft, emptySearchDraft, parseSearchResultMode, searchJobPath, songQuery, type SearchResultMode } from '../src/domains/search/model';
+import { albumQuery, editableSearchDraft, emptySearchDraft, parseSearchResultMode, searchJobDraft, searchJobPath, songQuery, type SearchResultMode } from '../src/domains/search/model';
 import { showsSearchResults } from '../src/domains/jobs/presentation';
 
 it.each([
@@ -75,7 +75,9 @@ it.each<SearchResultMode>(['song-groups', 'album-groups'])(
     const post = vi.spyOn(http, 'post').mockResolvedValueOnce({ jobId: 'job' })
       .mockResolvedValueOnce({ viewId: 'view' }).mockResolvedValueOnce({ kind });
     const client = new DaemonApiClient(http);
-    await client.submitSearch({ ...emptySearchDraft, mode: 'simple', resultMode, query: '  Casiopea  ' });
+    const draft = { ...emptySearchDraft, resultMode, query: '  Casiopea  ' };
+    expect(searchJobDraft(draft)).toMatchObject({ groupResults: true });
+    await client.submitSearch(draft);
     const query = resultMode === 'song-groups' ? { artist: 'Casiopea', title: null } : { artist: 'Casiopea', album: null, searchHint: null };
     expect(post.mock.calls[0]?.[1]).toMatchObject({ [field]: query });
     expect(post.mock.calls[1]?.[1]).toMatchObject({ [field]: query });

@@ -255,7 +255,7 @@ public class FileManager
 
             string pathPart = ApplyNameFormat(output.NameFormat, FileManagerContext.FromSongJob(song, job, remoteBaseDir) with
             {
-                ExtractorName = extraction.InputType.ToString(),
+                ExtractorName = extraction.InputType.ToInputName(),
                 InputSource = extraction.Input ?? "",
                 OutputDir = OutputParentDir,
                 DefaultFolder = outputScope.DefaultFolder,

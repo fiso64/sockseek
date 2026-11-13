@@ -11,17 +11,13 @@ namespace Sockseek.Server;
 public static class RemoteTransferSettingsValidator
 {
     public static void ValidateExplicitPatch(
-        DownloadSettingsPatchDto patch,
-        bool allowSearchViewAlbumFolderOption = false)
+        DownloadSettingsPatchDto patch)
     {
         ArgumentNullException.ThrowIfNull(patch);
         ValidateExplicitNameFormat(patch);
 
         var invalid = new List<string>();
-        if (patch.Search is { } search
-            && (!allowSearchViewAlbumFolderOption
-                || search.NoBrowseFolder is null
-                || search with { NoBrowseFolder = null } != new SearchSettingsPatchDto()))
+        if (patch.Search != null)
             invalid.Add("Search");
         if (patch.Skip is { } skip)
         {

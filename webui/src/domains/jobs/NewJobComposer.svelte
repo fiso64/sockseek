@@ -47,7 +47,7 @@
   let settingsLoading = $state(false);
   let settingsError = $state<Error | null>(null);
   let settingsRetry = $state(0);
-  let downloadCapabilities = $derived({ albumFolderEnrichment: draft.choice !== 'song' && draft.choice !== 'soulseek', playlistOutput: ['spotify', 'youtube', 'soundcloud', 'bandcamp', 'musicbrainz', 'csv', 'list'].includes(draft.choice), nameFormat: true });
+  let downloadCapabilities = $derived({ albumFolderEnrichment: draft.choice !== 'song' && draft.choice !== 'soulseek-link', playlistOutput: ['spotify', 'youtube', 'soundcloud', 'bandcamp', 'musicbrainz', 'csv', 'list'].includes(draft.choice), nameFormat: true });
   let downloadPatch = $derived(downloadValues && downloadBaseline ? buildDownloadOptionsPatch(downloadValues, downloadBaseline, downloadCapabilities) : {});
   let downloadCustomized = $derived(Object.keys(downloadPatch).length > 0);
   let csvMapping = $state<Schema<'CsvSettingsPatchDto'>>({});
@@ -250,7 +250,7 @@
     if (busy) return;
     try {
       const settings: Schema<'DownloadSettingsPatchDto'> = { ...downloadPatch.downloadSettings, search: carriedSearchSettings };
-      if (conditionSession && draft.choice !== 'soulseek') {
+      if (conditionSession && draft.choice !== 'soulseek-link') {
         const searchEdits = searchConditionsPatchForFamily(family, conditionSession.baseline, conditionSession.values);
         if (Object.keys(searchEdits).length) settings.search = mergeSearchSettings(settings.search ?? undefined, searchEdits);
         if (family === 'mixed' && conditionSession.values.track.expectedLength !== conditionSession.baseline.track.expectedLength) {
@@ -295,7 +295,7 @@
           {#if draft.choice === 'csv'}<CsvMapping value={csvMapping} bind:open={csvMappingOpen} onchange={(value) => { change({ ...draft }); csvMapping = value; }} />{/if}
           {#if hasImportOptions}<ImportOptionsPanel value={importOptions} bind:open={importOptionsOpen} onchange={(value) => { change({ ...draft }); importOptions = value; }} />{/if}
           <section class="new-job-job-settings" aria-label="Job settings">
-            {#if draft.choice !== 'soulseek'}
+            {#if draft.choice !== 'soulseek-link'}
             <ExpandableSettingsPanel title="Filtering" summary={filteringCustomized ? 'Custom' : 'Defaults'} customized={filteringCustomized} bind:open={filteringOpen} bodyId="new-job-filtering-options">
               {#if settingsLoading}<LoadingIndicator label="Loading effective settings" />
               {:else if settingsError}<p role="alert">{settingsError.message}</p><button type="button" onclick={() => settingsRetry++}>Retry settings</button>

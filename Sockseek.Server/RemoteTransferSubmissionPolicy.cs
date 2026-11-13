@@ -28,8 +28,7 @@ public static class RemoteTransferSubmissionPolicy
         DownloadSettingsPatchDto? patch,
         Func<DownloadSettings, Job, DownloadSettingsPatchDto?, DownloadSettings>
             resolveChildSettings,
-        IReadOnlyList<JobDraftDto>? childDrafts = null,
-        bool allowSearchViewAlbumFolderOption = false)
+        IReadOnlyList<JobDraftDto>? childDrafts = null)
     {
         bool containsRemoteTransfer = IsOrdinaryRemoteTransfer(job, settings);
         if (job is JobList list)
@@ -62,7 +61,7 @@ public static class RemoteTransferSubmissionPolicy
         }
 
         if (containsRemoteTransfer && patch != null)
-            RemoteTransferSettingsValidator.ValidateExplicitPatch(patch, allowSearchViewAlbumFolderOption);
+            RemoteTransferSettingsValidator.ValidateExplicitPatch(patch);
         return containsRemoteTransfer;
     }
 

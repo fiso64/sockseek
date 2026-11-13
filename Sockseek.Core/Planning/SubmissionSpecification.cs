@@ -286,6 +286,8 @@ public sealed record SubmissionSpecification(
             LineNumber = job.LineNumber,
             SourceMutation = job.SourceMutation,
             SourceInputType = job.SourceInputType,
+            SelectionSource = job.SelectionSource,
+            GroupResults = job is SearchJob { GroupResults: true },
             SourceInfo = job.SourceInfo,
             SourceCollectionInputType = job.SourceCollectionInputType,
             EnablesIndexByDefault = job.EnablesIndexByDefault,
@@ -412,10 +414,10 @@ public sealed record SubmissionSpecification(
                     : JobFrom(command.ExtractedResult, settings),
             },
             JobSnapshotKind.Search when command.AlbumQuery != null =>
-                new SearchJob(command.AlbumQuery.ToQuery()),
+                new SearchJob(command.AlbumQuery.ToQuery()) { GroupResults = command.GroupResults },
             JobSnapshotKind.Search when command.SongQuery != null =>
-                new SearchJob(command.SongQuery.ToQuery(), command.IncludeFullResults),
-            JobSnapshotKind.Search => new SearchJob(command.QueryText!),
+                new SearchJob(command.SongQuery.ToQuery(), command.IncludeFullResults) { GroupResults = command.GroupResults },
+            JobSnapshotKind.Search => new SearchJob(command.QueryText!) { GroupResults = command.GroupResults },
             JobSnapshotKind.Song => new SongJob(command.SongQuery!.ToQuery()),
             JobSnapshotKind.Album => new AlbumJob(command.AlbumQuery!.ToQuery()),
             JobSnapshotKind.SongGroups => new SongGroupsJob(command.SongQuery!.ToQuery()),
@@ -444,6 +446,7 @@ public sealed record SubmissionSpecification(
         job.LineNumber = command.LineNumber;
         job.SourceMutation = command.SourceMutation;
         job.SourceInputType = command.SourceInputType;
+        job.SelectionSource = command.SelectionSource;
         job.SourceInfo = command.SourceInfo;
         job.SourceCollectionInputType = command.SourceCollectionInputType;
         job.EnablesIndexByDefault = command.EnablesIndexByDefault;
@@ -471,6 +474,7 @@ public sealed record SubmissionSpecification(
                 : command.SelectedAlbum is { } folder ? RestoreAlbumFolder(folder) : null;
             album.DirectoryResolutionPolicy = command.AlbumResolutionPolicy ?? AlbumDirectoryResolutionPolicy.CompleteIfNeeded;
             album.ValidationRequirement = command.AlbumValidation ?? AlbumValidationRequirement.Standard;
+            album.ExcludedFilenames = command.ExcludedDirectoryFilenames?.ToHashSet(StringComparer.Ordinal);
         }
         return job;
     }
@@ -568,6 +572,7 @@ public sealed record SubmissionSpecification(
                 ? CoreSnapshotFactory.CreateAlbumFolder(chosen, includeFiles: true) : null,
             AlbumResolutionPolicy = album.DirectoryResolutionPolicy,
             AlbumValidation = album.ValidationRequirement,
+            ExcludedDirectoryFilenames = album.ExcludedFilenames?.ToArray(),
         };
     }
 

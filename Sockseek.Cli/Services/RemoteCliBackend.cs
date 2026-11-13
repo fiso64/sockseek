@@ -194,7 +194,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                 ".csv",
                 StringComparison.OrdinalIgnoreCase);
         }
-        return Enum.TryParse(request.InputType, ignoreCase: true, out InputType inputType)
+        return InputTypes.TryParse(request.InputType, out InputType inputType)
             && inputType is InputType.CSV or InputType.List;
     }
 

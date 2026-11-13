@@ -116,46 +116,37 @@ public sealed class SearchViewSelections
             if ((item.ParentRef != null && selectedContainers.Contains(item.ParentRef))
                 || item.ContainerRefs?.Any(selectedContainers.Contains) == true)
                 return;
-            Job? job = item switch
+            ServerJobKind? kind = item switch
             {
                 { File: { } file } when file.Input.Visibility != SearchResultVisibility.Locked
-                    => new RemoteFileJob(file.Input.ToFileCandidate().Target),
-                { Directory: { } directory } when directory.PublicMatchingFileCount > 0
-                    => new RemoteDirectoryJob(directory.FolderPath.Length == 0
-                        ? new RemoteDirectorySource.Resolved(DirectoryTransferPlanner.FromObservedSelection(
-                            new PeerDirectorySnapshot(new PeerDirectoryIdentity(directory.Username, ""),
-                                [directory.BestChild.Input.ToFileCandidate().Target], isComplete: false)))
-                        : new RemoteDirectorySource.PeerDirectory(
-                            new PeerDirectoryIdentity(directory.Username, directory.FolderPath))),
-                { TrackGroup: { } track } when track.SelectableOptionCount > 0
-                    => new SongJob(track.Query),
-                { AlbumGroup: { } album } when album.SelectableOptionCount > 0
-                    => new AlbumJob(album.Query),
+                    => UsesMusicFileDownloads(view) ? ServerJobKind.Song : ServerJobKind.RemoteFile,
+                { Directory: { PublicMatchingFileCount: > 0 } }
+                    => view.ProjectionKind == SearchViewProjectionKind.AlbumDirectories
+                        ? ServerJobKind.Album : ServerJobKind.RemoteDirectory,
+                { TrackGroup: { SelectableOptionCount: > 0 } } => ServerJobKind.Song,
+                { AlbumGroup: { SelectableOptionCount: > 0 } } => ServerJobKind.Album,
                 _ => null,
             };
-            if (job == null)
+            if (kind == null)
                 return;
-            // Auto-profile predicates currently use semantic mode/input type
-            // and shared request context, not peer or filename. One composed
-            // baseline per selected job kind is therefore exact; revisit this
-            // grouping if profile conditions gain item-specific variables.
-            ServerJobKind kind = job switch
+            // Profile predicates use mode/source and request context, not peer or
+            // filename. Resolve once per kind; do not infer metadata for every
+            // selected file just to inspect settings.
+            if (!variants.ContainsKey(kind.Value))
             {
-                RemoteFileJob => ServerJobKind.RemoteFile,
-                RemoteDirectoryJob => ServerJobKind.RemoteDirectory,
-                SongJob => ServerJobKind.Song,
-                AlbumJob => ServerJobKind.Album,
-                _ => throw new InvalidOperationException("Unsupported Search View selection job."),
-            };
-            if (!variants.ContainsKey(kind))
-            {
-                DownloadSettings settings = submissions.PrepareSearchViewSelectionJob(
-                    job,
-                    options: null,
-                    allowSearchViewAlbumFolderOption: view.ProjectionKind == SearchViewProjectionKind.AlbumDirectories
-                        && job is RemoteDirectoryJob, resolver: settingsResolver);
-                variants.Add(kind, new SearchViewSelectionSettingsVariantDto(
-                    kind, EffectiveSettingsMapper.ToSafeSettings(settings)));
+                Job job = kind switch
+                {
+                    ServerJobKind.Song => new SongJob(new SongQuery()),
+                    ServerJobKind.Album => new AlbumJob(new AlbumQuery()),
+                    ServerJobKind.RemoteFile => new RemoteFileJob(item.File!.Input.ToFileCandidate().Target),
+                    _ => new RemoteDirectoryJob(new RemoteDirectorySource.Resolved(
+                        DirectoryTransferPlanner.FromObservedSelection(new PeerDirectorySnapshot(
+                            new PeerDirectoryIdentity(item.Directory!.Username, item.Directory.FolderPath),
+                            [item.Directory.BestChild.Input.ToFileCandidate().Target], isComplete: false)))),
+                };
+                DownloadSettings settings = submissions.PrepareSearchViewSelectionJob(job, options: null, resolver: settingsResolver);
+                variants.Add(kind.Value, new SearchViewSelectionSettingsVariantDto(
+                    kind.Value, EffectiveSettingsMapper.ToSafeSettings(settings)));
             }
             if (item.Directory != null || item.TrackGroup != null || item.AlbumGroup != null)
                 selectedContainers.Add(item.Ref);
@@ -520,7 +511,7 @@ public sealed class SearchViewSelections
         var unboundAlbumSelections = new HashSet<string>(request.AlbumFileSelections?.Keys ?? [], StringComparer.Ordinal);
         // This list only owns the accepted batch. A name would also become an
         // output scope for music children, leaking an internal label into paths.
-        var root = new JobList();
+        var root = new JobList { SelectionSource = JobSelectionSource.ManualSearch };
         var selectedContainers = new HashSet<string>(StringComparer.Ordinal);
         IEnumerable<SearchViewCommitItem> ReadSelectedItems()
         {
@@ -576,32 +567,14 @@ public sealed class SearchViewSelections
                 }
                 DownloadSettings settings = submissions.PrepareSearchViewSelectionJob(
                     job,
-                    OptionsForSelectionJob(request.Options, sourceView.ProjectionKind, job),
-                    allowSearchViewAlbumFolderOption: sourceView.ProjectionKind == SearchViewProjectionKind.AlbumDirectories
-                        && job is RemoteDirectoryJob, resolver: settingsResolver);
-                if (sourceView.ProjectionKind == SearchViewProjectionKind.AlbumDirectories
-                    && item.Directory is { } selectedDirectory
-                    && job is RemoteDirectoryJob selectedJob
+                    request.Options,
+                    resolver: settingsResolver);
+                if (job is AlbumJob { ResolvedTarget: { Files.Count: 0 } }
                     && settings.Search.NoBrowseFolder)
                 {
-                    var observed = new List<PeerFileTarget>();
-                    foreach (SearchViewDirectoryFile child in snapshot.ReadPublicDirectoryFiles(selectedDirectory.Ref, cancellationToken))
-                        observed.Add(child.File.Input.ToFileCandidate().Target);
-                    IReadOnlySet<string>? excluded = excludedFiles.GetValueOrDefault(
-                        selectedDirectory.Username);
-                    if (observed.All(target => excluded?.Contains(target.Filename) == true))
-                    {
-                        skipped = checked(skipped + 1);
-                        AddReason(reasons, "empty-selection");
-                        continue;
-                    }
-                    var identity = new PeerDirectoryIdentity(
-                        selectedDirectory.Username,
-                        selectedDirectory.FolderPath);
-                    var directorySnapshot = new PeerDirectorySnapshot(identity, observed, isComplete: false);
-                    selectedJob.UseObservedSelection(DirectoryTransferPlanner.FromObservedSelection(
-                        directorySnapshot,
-                        excluded));
+                    skipped = checked(skipped + 1);
+                    AddReason(reasons, "empty-selection");
+                    continue;
                 }
                 root.Add(job);
                 submitted = checked(submitted + 1);
@@ -691,28 +664,6 @@ public sealed class SearchViewSelections
         return receipt;
     }
 
-    private static SubmissionOptionsDto? OptionsForSelectionJob(
-        SubmissionOptionsDto? options,
-        SearchViewProjectionKind projectionKind,
-        Job job)
-    {
-        if (projectionKind != SearchViewProjectionKind.AlbumDirectories
-            || job is not RemoteFileJob
-            || options?.DownloadSettings?.Search is not { NoBrowseFolder: not null } search)
-            return options;
-
-        // One selection may contain a whole album directory and an exact file.
-        // The folder-only option composes for directory jobs, not for exact files.
-        SearchSettingsPatchDto remaining = search with { NoBrowseFolder = null };
-        return options with
-        {
-            DownloadSettings = options.DownloadSettings with
-            {
-                Search = remaining == new SearchSettingsPatchDto() ? null : remaining,
-            },
-        };
-    }
-
     private static void ValidateExcludedIdentities(
         Guid sourceJobId,
         IReadOnlyList<string>? excludedRefs,
@@ -745,6 +696,30 @@ public sealed class SearchViewSelections
         // projection. It is neither persisted nor applied to this revision.
     }
 
+    private static bool UsesMusicFileDownloads(SearchViewInfo view) => view.ProjectionKind switch
+    {
+        SearchViewProjectionKind.GenericDirectories => false,
+        SearchViewProjectionKind.Files => view.Definition.Source.DefaultProjection != SearchDefaultProjectionKind.GenericFile,
+        _ => true,
+    };
+
+    private static Job CreateFileSelectionJob(SearchViewInfo view, SearchViewFile file)
+    {
+        FileCandidate candidate = file.Input.ToFileCandidate();
+        if (!UsesMusicFileDownloads(view))
+            return new RemoteFileJob(candidate.Target);
+        SongQuery query = view.Definition.Projection.SongQuery
+            ?? view.Definition.Source.FileQuery?.ToQuery()
+            ?? new SongQuery { Artist = view.Definition.Source.AlbumQuery?.Artist ?? "",
+                Album = view.Definition.Source.AlbumQuery?.Album ?? "" };
+        return new SongJob(Searcher.InferSongQuery(candidate.Filename, query))
+        { ResolvedTarget = candidate, ExactTarget = candidate.Target };
+    }
+
+    private static AlbumQuery AlbumSelectionQuery(SearchViewInfo view)
+        => view.Definition.Projection.AlbumQuery ?? view.Definition.Source.AlbumQuery?.ToQuery()
+            ?? throw new InvalidOperationException("An album view requires an album query.");
+
     private static (Job? Job, string? RejectionReason) ResolveSelectionJob(
         SearchViewSnapshot snapshot,
         SearchViewCommitItem item,
@@ -762,7 +737,7 @@ public sealed class SearchViewSelections
         {
             if (file.Input.Visibility == SearchResultVisibility.Locked)
                 return (null, "locked");
-            return (new RemoteFileJob(file.Input.ToFileCandidate().Target), null);
+            return (CreateFileSelectionJob(snapshot.View, file), null);
         }
         if (item.Directory is { } directory)
         {
@@ -790,9 +765,27 @@ public sealed class SearchViewSelections
                 DirectoryTransferPlan plan = DirectoryTransferPlanner.FromObservedSelection(directorySnapshot);
                 return (new RemoteDirectoryJob(new RemoteDirectorySource.Resolved(plan)), null);
             }
-            return (new RemoteDirectoryJob(new RemoteDirectorySource.PeerDirectory(
-                new PeerDirectoryIdentity(directory.Username, directory.FolderPath),
-                excludedFiles.GetValueOrDefault(directory.Username))), null);
+            AlbumQuery query = AlbumSelectionQuery(snapshot.View);
+            var trackQuery = new SongQuery { Artist = query.Artist, Album = query.Album, URI = query.URI,
+                ArtistMaybeWrong = query.ArtistMaybeWrong };
+            var excludedFilenames = excludedFiles.GetValueOrDefault(directory.Username);
+            var files = new List<AlbumFile>();
+            foreach (SearchViewDirectoryFile child in snapshot.ReadPublicDirectoryFiles(directory.Ref, cancellationToken))
+            {
+                FileCandidate candidate = child.File.Input.ToFileCandidate();
+                if (excludedFilenames?.Contains(candidate.Filename) != true)
+                    files.Add(AlbumFile.WithLazyQuery(() => Searcher.InferSongQuery(candidate.Filename, trackQuery), candidate));
+            }
+            // Even when all observed files are excluded, full-folder retrieval
+            // may discover other files. NoBrowseFolder is handled after settings resolution.
+            var folder = new AlbumFolder(directory.Username, directory.FolderPath, files)
+            { IsFullyRetrieved = directory.IsFullyRetrieved };
+            return (new AlbumJob(query)
+            {
+                ResolvedTarget = folder,
+                ValidationRequirement = AlbumValidationRequirement.UserAccepted,
+                ExcludedFilenames = excludedFilenames,
+            }, null);
         }
         if (item.TrackGroup is { } group)
         {

@@ -63,6 +63,7 @@ public static class SubmissionIdentity
 
     public static void AssignExecutionChild(Job parent, Job child)
     {
+        child.SelectionSource = parent.SelectionSource;
         AssignTree(
             child,
             parent.SubmissionId,

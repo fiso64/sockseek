@@ -99,7 +99,7 @@ export function extractSourceLabel(inputType: string | null | undefined): string
     case 'bandcamp': return 'Bandcamp';
     case 'soundcloud': return 'SoundCloud';
     case 'musicbrainz': return 'MusicBrainz';
-    case 'soulseek': return 'Soulseek';
+    case 'soulseek-link': return 'Soulseek link';
     case 'csv': return 'CSV';
     case 'list': return 'List';
     case 'string': return 'Text';

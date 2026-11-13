@@ -14,7 +14,7 @@ public class ExtractionSettings
     public InputType InputType { get; set; } = InputType.None;
 
     private static InputType ParseInputType(string value, string flag)
-        => Enum.TryParse<InputType>(value.Replace("-", ""), ignoreCase: true, out var parsed)
+        => InputTypes.TryParse(value, out var parsed)
             ? parsed : throw new ArgumentException($"Input error: Invalid input type '{value}'");
 
     [SettingOption("-n", "--number")]

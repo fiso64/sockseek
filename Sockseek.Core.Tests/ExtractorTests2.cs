@@ -777,7 +777,7 @@ namespace Tests.ExtractorTests2
         public void GetMatchingExtractor_SlskUrl_ReturnsSoulseekExtractor()
         {
             var (type, extractor) = ExtractorRegistry.GetMatchingExtractor("slsk://user/file.mp3", InputType.None, _dl);
-            Assert.AreEqual(InputType.Soulseek, type);
+            Assert.AreEqual(InputType.SoulseekLink, type);
             Assert.IsInstanceOfType(extractor, typeof(SoulseekExtractor));
         }
 
@@ -799,8 +799,8 @@ namespace Tests.ExtractorTests2
         [TestMethod]
         public void GetMatchingExtractor_ExplicitInputType_ReturnsCorrectExtractor()
         {
-            var (type, extractor) = ExtractorRegistry.GetMatchingExtractor("anything", InputType.Soulseek, _dl);
-            Assert.AreEqual(InputType.Soulseek, type);
+            var (type, extractor) = ExtractorRegistry.GetMatchingExtractor("anything", InputType.SoulseekLink, _dl);
+            Assert.AreEqual(InputType.SoulseekLink, type);
             Assert.IsInstanceOfType(extractor, typeof(SoulseekExtractor));
         }
 
@@ -817,7 +817,7 @@ namespace Tests.ExtractorTests2
                 "slsk://Peer/Share/File.bin",
                 InputType.None,
                 out InputType soulseek));
-            Assert.AreEqual(InputType.Soulseek, soulseek);
+            Assert.AreEqual(InputType.SoulseekLink, soulseek);
 
             Assert.IsFalse(ExtractorRegistry.TryResolveInputType(null, InputType.None, out InputType none));
             Assert.AreEqual(InputType.None, none);

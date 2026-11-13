@@ -17,7 +17,7 @@
       { value: 'soundcloud', label: 'SoundCloud', detail: 'Track or playlist URL', icon: 'soundcloud' },
       { value: 'bandcamp', label: 'Bandcamp', detail: 'Track, album, wishlist, or artist URL', icon: 'bandcamp' },
       { value: 'musicbrainz', label: 'MusicBrainz', detail: 'Release, release group, or collection URL', icon: 'musicbrainz' },
-      { value: 'soulseek', label: 'Soulseek', detail: 'File or directory slsk:// link', icon: 'soulseek' },
+      { value: 'soulseek-link', label: 'Soulseek link', detail: 'File or directory slsk:// link', icon: 'soulseek' },
     ] },
   ];
   export function jobChoiceMetadata(value: NewJobChoice) {

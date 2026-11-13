@@ -38,8 +38,8 @@ export function isGroupSearchMode(mode: SearchResultMode): boolean {
 
 export function searchJobDraft(draft: SearchDraft): Schema<'JobDraftDto'> {
   if (draft.resultMode === 'generic') return { kind: 'search-generic', queryText: networkQuery(draft) };
-  if (searchModeFamily(draft.resultMode) === 'track') return { kind: 'search-track', songQuery: songQuery(draft), includeFullResults: true };
-  return { kind: 'search-album', albumQuery: albumQuery(draft) };
+  if (searchModeFamily(draft.resultMode) === 'track') return { kind: 'search-track', songQuery: songQuery(draft), includeFullResults: true, groupResults: isGroupSearchMode(draft.resultMode) };
+  return { kind: 'search-album', albumQuery: albumQuery(draft), groupResults: isGroupSearchMode(draft.resultMode) };
 }
 
 export interface SearchDraft {

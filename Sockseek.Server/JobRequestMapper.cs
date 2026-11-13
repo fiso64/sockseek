@@ -35,7 +35,7 @@ public static class JobRequestMapper
         InputType? inputType = null;
         if (!string.IsNullOrWhiteSpace(value))
         {
-            if (!Enum.TryParse<InputType>(value, ignoreCase: true, out var parsed))
+            if (!InputTypes.TryParse(value, out var parsed))
                 throw new ArgumentException($"Unsupported inputType '{value}'");
             inputType = parsed;
         }
@@ -167,8 +167,9 @@ public static class JobRequestMapper
             ExtractJobDraftDto extract => ExtractCommand(extract, allowMissingInput),
             GenericSearchJobDraftDto search => GenericSearchCommand(search, allowMissingInput),
             TrackSearchJobDraftDto search => SongCommand(JobSnapshotKind.Search, search.SongQuery)
-                with { IncludeFullResults = search.IncludeFullResults },
-            AlbumSearchJobDraftDto search => AlbumCommand(JobSnapshotKind.Search, search.AlbumQuery),
+                with { IncludeFullResults = search.IncludeFullResults, GroupResults = search.GroupResults },
+            AlbumSearchJobDraftDto search => AlbumCommand(JobSnapshotKind.Search, search.AlbumQuery)
+                with { GroupResults = search.GroupResults },
             SongJobDraftDto song => SongCommand(JobSnapshotKind.Song, song.SongQuery, song.DownloadBehavior),
             AlbumJobDraftDto album => AlbumCommand(JobSnapshotKind.Album, album.AlbumQuery, album.DownloadBehavior),
             SongGroupsJobDraftDto group => SongCommand(JobSnapshotKind.SongGroups, group.SongQuery, group.DownloadBehavior),
@@ -568,6 +569,7 @@ public static class JobRequestMapper
                 ResolvedTarget = candidate,
                 ExactTarget = candidate.Target,
             };
+        followUp.SelectionSource = JobSelectionSource.ManualSearch;
         followUp.ItemName = sourceJob.ItemName;
         followUp.WorkflowId = sourceJob.WorkflowId;
         return followUp;
@@ -609,6 +611,7 @@ public static class JobRequestMapper
                 : sourceJob.ItemName;
         var followUp = new AlbumJob(new AlbumQuery(query))
         {
+            SelectionSource = JobSelectionSource.ManualSearch,
             ResolvedTarget = folder,
             ItemName = itemName,
             WorkflowId = sourceJob.WorkflowId,
@@ -713,7 +716,7 @@ public static class JobRequestMapper
         if (!folder.IsFullyRetrieved && selection?.ExactFiles != true)
         {
             return new RemoteDirectoryJob(new RemoteDirectorySource.PeerDirectory(
-                folder.DirectoryIdentity));
+                folder.DirectoryIdentity)) { SelectionSource = JobSelectionSource.ManualSearch };
         }
 
         var selectedSnapshot = new PeerDirectorySnapshot(
@@ -721,7 +724,7 @@ public static class JobRequestMapper
             folder.Files.Select(file => file.Candidate.Target).ToArray(),
             isComplete: true);
         return new RemoteDirectoryJob(new RemoteDirectorySource.Resolved(
-            DirectoryTransferPlanner.FromSnapshot(selectedSnapshot)));
+            DirectoryTransferPlanner.FromSnapshot(selectedSnapshot))) { SelectionSource = JobSelectionSource.ManualSearch };
     }
 
     private static JobList CreateJobList(string? name, IReadOnlyList<JobDraftDto> jobs)

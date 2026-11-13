@@ -479,6 +479,8 @@ internal sealed class AlbumDownloadExecutor
                 state.RetrievedFolders.Add(chosenFolder.FolderPath);
         }
 
+        if (job.ExcludedFilenames is { Count: > 0 } excluded)
+            chosenFolder.Files.RemoveAll(file => excluded.Contains(file.Filename));
         job.BeginAlbumTransferAttempt(chosenFolder);
         job.UpdateActivity(JobActivityPhase.Downloading);
 

@@ -592,6 +592,7 @@ public sealed class EngineSupervisor : IDisposable
                     ? new RemoteFileJob(candidate.Target)
                     : new SongJob(Searcher.InferSongQuery(candidate.Filename, new SongQuery { Title = searchQuery ?? "" }))
                         { ResolvedTarget = candidate, ExactTarget = candidate.Target };
+            followUpJob.SelectionSource = JobSelectionSource.ManualSearch;
             followUpJob.ItemName = source.ItemName;
             followUpJob.WorkflowId = source.WorkflowId;
 
@@ -660,6 +661,7 @@ public sealed class EngineSupervisor : IDisposable
                 };
         if (sourceJob is null) JobRequestMapper.ApplyFolderDownloadSelection(albumJob, request.Selection);
 
+        albumJob.SelectionSource = JobSelectionSource.ManualSearch;
         var followUpSettings = resolver.ResolveFollowUp(albumJob, request.Options);
 
         return await Submissions.SubmitFollowUpJobAsync(sourceJobId, sourceJob, albumJob, followUpSettings, request.Options, ct, resolver);

@@ -52,17 +52,8 @@ public sealed class RemoteDirectoryJob : DirectoryDownloadJob
         }
     }
 
-    public RemoteDirectorySource Source { get; private set; }
+    public RemoteDirectorySource Source { get; }
     public PeerDirectorySnapshot? ResolvedDirectory { get; internal set; }
-
-    public void UseObservedSelection(DirectoryTransferPlan plan)
-    {
-        ArgumentNullException.ThrowIfNull(plan);
-        if (Source is not RemoteDirectorySource.PeerDirectory || ActiveAttempt != null)
-            throw new InvalidOperationException("Only an unresolved peer directory can use an observed selection.");
-        Source = new RemoteDirectorySource.Resolved(plan);
-        BeginDirectoryAttempt(plan);
-    }
 
     protected override bool DefaultCanBeSkipped => false;
 

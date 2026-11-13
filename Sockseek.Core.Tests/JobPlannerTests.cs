@@ -379,8 +379,8 @@ public sealed class JobPlannerTests
     {
         var root = new JobList("links",
         [
-            new ExtractJob("slsk://Peer/Share/notes.txt", InputType.Soulseek),
-            new ExtractJob("slsk://Peer/Share/Album/", InputType.Soulseek),
+            new ExtractJob("slsk://Peer/Share/notes.txt", InputType.SoulseekLink),
+            new ExtractJob("slsk://Peer/Share/Album/", InputType.SoulseekLink),
         ]);
         var planner = new JobPlanner(new JobSettingsComposerResolver(
             new JobSettingsComposer(null, ProfileCatalog.Empty)));

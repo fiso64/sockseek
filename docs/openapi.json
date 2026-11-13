@@ -16042,6 +16042,10 @@
                 "$ref": "#/components/schemas/JobProvenanceDto"
               }
             ]
+          },
+          "groupResults": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -16391,6 +16395,10 @@
                 "$ref": "#/components/schemas/JobProvenanceDto"
               }
             ]
+          },
+          "groupResults": {
+            "type": "boolean",
+            "default": false
           }
         }
       },

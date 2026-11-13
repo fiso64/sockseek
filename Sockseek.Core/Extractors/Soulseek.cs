@@ -14,6 +14,8 @@ namespace Sockseek.Core.Extractors;
 
     public class SoulseekExtractor : IExtractor, IInputMatcher
     {
+        public static string SourceName => "Soulseek link";
+
         public JobSourceInfo? DescribeSource(ExtractJob source, Job item)
         {
             if (ReferenceEquals(source, item)) return new(

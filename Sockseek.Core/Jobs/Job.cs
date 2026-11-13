@@ -188,6 +188,7 @@ namespace Sockseek.Core.Jobs;
         // Auto-profile matching reads this instead of depending on a materialized
         // parent settings object being reused for every descendant.
         public InputType?               SourceInputType { get; set; }
+        public JobSelectionSource?     SelectionSource { get; set; }
         // Outermost List provenance for presentation. Keep this separate from
         // SourceInputType: that immediate extractor identity selects auto-profiles.
         public InputType?               SourceCollectionInputType { get; set; }
@@ -407,6 +408,7 @@ namespace Sockseek.Core.Jobs;
             ItemName                  = src.ItemName;
             EnablesIndexByDefault = src.EnablesIndexByDefault;
             SourceInputType        = src.SourceInputType;
+            SelectionSource        = src.SelectionSource;
             SourceInfo             = src.SourceInfo;
             SourceCollectionInputType = src.SourceCollectionInputType;
             ItemNumber            = src.ItemNumber;

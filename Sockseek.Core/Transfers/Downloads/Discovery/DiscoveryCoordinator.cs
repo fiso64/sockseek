@@ -145,7 +145,7 @@ internal sealed class DiscoveryCoordinator
     public sealed record ExtractJobResult(JobOutcome Outcome, Job? Result, IExtractor? Extractor);
 
     static string ExtractorLogSource(InputType inputType)
-        => inputType.ToString();
+        => inputType.ToInputName();
 
     public async Task<JobOutcome> ProcessSearchJob(SearchJob job, CancellationToken parentToken)
     {

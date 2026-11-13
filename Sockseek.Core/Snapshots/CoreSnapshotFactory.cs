@@ -339,7 +339,7 @@ public static class CoreSnapshotFactory
         {
             ExtractJob extract => new ExtractJobSnapshotPayload(
                 extract.Input,
-                extract.InputType?.ToString(),
+                extract.InputType?.ToInputName(),
                 extract.Result?.Id,
                 extract.AutoProcessResult),
             SearchJob search => new SearchJobSnapshotPayload(

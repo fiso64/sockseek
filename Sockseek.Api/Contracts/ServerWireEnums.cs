@@ -44,7 +44,8 @@ public enum ServerInputType
     Bandcamp = 3,
     String = 4,
     List = 5,
-    Soulseek = 6,
+    [JsonStringEnumMemberName("soulseek-link")]
+    SoulseekLink = 6,
     MusicBrainz = 7,
     SoundCloud = 8,
     None = -1,

@@ -228,9 +228,6 @@ public static class SettingsNormalizer
 
 public static partial class ProfileConditionEvaluator
 {
-    private const string GenericFileMode = "generic-file";
-    private const string GenericDirectoryMode = "generic-directory";
-
     public static bool Satisfied(string cond, DownloadSettings settings, Job? job = null, ProfileContext? context = null)
         => SatisfiedForContext(cond, settings, job is null ? (JobSettingsContext?)null : (JobSettingsContext)job, context);
 
@@ -317,16 +314,18 @@ public static partial class ProfileConditionEvaluator
                 SoulseekMode(
                     source,
                     job.Value.RequestedMode ?? settings.Extraction.RequestedMode),
-            { Kind: JobSnapshotKind.Search, SearchProjection: SearchDefaultProjectionKind.Album } => "album",
-            { Kind: JobSnapshotKind.Search, SearchProjection: SearchDefaultProjectionKind.Track } => "song",
+            { Kind: JobSnapshotKind.Search, SearchProjection: SearchDefaultProjectionKind.Album } => job.Value.GroupResults ? "album-groups" : "album",
+            { Kind: JobSnapshotKind.Search, SearchProjection: SearchDefaultProjectionKind.Track } => job.Value.GroupResults ? "song-groups" : "song",
+            { Kind: JobSnapshotKind.Search } => "generic",
+            { SelectionSource: JobSelectionSource.PeerShares } => "generic",
             { Kind: JobSnapshotKind.AlbumGroups } => "album-groups",
             { Kind: JobSnapshotKind.Album } => "album",
             { Kind: JobSnapshotKind.SongGroups } => "song-groups",
             { Kind: JobSnapshotKind.Song } => "song",
-            { Kind: JobSnapshotKind.RemoteFile } => GenericFileMode,
-            { Kind: JobSnapshotKind.RemoteDirectory } => GenericDirectoryMode,
+            { Kind: JobSnapshotKind.RemoteFile } => "generic",
+            { Kind: JobSnapshotKind.RemoteDirectory } => "generic",
             { Kind: JobSnapshotKind.Extract } => SettingsMode(settings, inputType, job.Value.RequestedMode),
-            null when inputType == InputType.Soulseek
+            null when inputType == InputType.SoulseekLink
                 && SoulseekExtractor.InputMatches(settings.Extraction.Input ?? "") =>
                 SoulseekMode(settings.Extraction.Input!, settings.Extraction.RequestedMode),
             _ => SettingsMode(settings, inputType),
@@ -334,26 +333,34 @@ public static partial class ProfileConditionEvaluator
 
         return var switch
         {
-            "input-type" => inputType.ToString().ToLower(),
+            "input-type" => job?.SelectionSource switch
+            {
+                JobSelectionSource.ManualSearch => "manual-search",
+                JobSelectionSource.PeerShares => "peer-shares",
+                _ when job is { Kind: JobSnapshotKind.Search, SourceInputType: null } => "manual-search",
+                _ => inputType.ToInputName().ToLowerInvariant(),
+            },
             "download-mode" => mode,
             "album" => mode is "album" or "album-groups",
-            "group" or "aggregate" => settings.Search.GroupResults || mode is "song-groups" or "album-groups",
+            "group" or "aggregate" => mode is "song-groups" or "album-groups"
+                || job is null or { Kind: JobSnapshotKind.Extract or JobSnapshotKind.JobList }
+                    && settings.Search.GroupResults,
             _ when context?.Values.TryGetValue(var, out var value) == true => value,
+            "interactive" or "progress-json" or "no-progress" => false,
             _ => throw new Exception($"Input error: Unrecognized profile condition variable '{var}'"),
         };
     }
 
     private static InputType EffectiveInputType(DownloadSettings settings, JobSettingsContext? job)
     {
-        string? input = settings.Extraction.Input;
-        InputType configured = job?.SourceInputType
-            ?? settings.Extraction.InputType;
-        if (job is { Kind: JobSnapshotKind.Extract } extract)
+        // Configured input describes the CLI root, never an unrelated submitted job.
+        string? input = job is null ? settings.Extraction.Input : job.Value.Input;
+        InputType configured = job switch
         {
-            input = extract.Input;
-            if (extract.InputType is { } jobInputType && jobInputType != InputType.None)
-                configured = jobInputType;
-        }
+            null => settings.Extraction.InputType,
+            { Kind: JobSnapshotKind.Extract } extract => extract.InputType ?? InputType.None,
+            { } item => item.SourceInputType ?? InputType.None,
+        };
 
         return ExtractorRegistry.TryResolveInputType(input, configured, out InputType resolved)
             ? resolved
@@ -363,8 +370,8 @@ public static partial class ProfileConditionEvaluator
     private static string SoulseekMode(string input, ExtractionMode? requestedMode)
         => SoulseekExtractor.ClassifyLink(input, requestedMode) switch
         {
-            SoulseekLinkInterpretation.RemoteFile => GenericFileMode,
-            SoulseekLinkInterpretation.RemoteDirectory => GenericDirectoryMode,
+            SoulseekLinkInterpretation.RemoteFile => "generic",
+            SoulseekLinkInterpretation.RemoteDirectory => "generic",
             SoulseekLinkInterpretation.MusicTrack => "song",
             SoulseekLinkInterpretation.MusicAlbum => "album",
             _ => throw new ArgumentOutOfRangeException(),

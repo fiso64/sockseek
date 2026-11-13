@@ -29,6 +29,11 @@ public sealed class UserBrowseApiTests
         string url = $"http://127.0.0.1:{port}";
         var serverOptions = new ServerOptions
         {
+            Profiles = new ProfileCatalog { AutoProfiles = [new SettingsProfile
+            {
+                Name = "shared-files", Condition = "input-type == \"peer-shares\" && download-mode == \"generic\" && !interactive",
+                Download = new SettingsPatch([new("Search.MaxStaleTime", 4321)]),
+            }] },
             Engine = new EngineSettings
             {
                 MockFilesDir = mockFiles,
@@ -171,6 +176,15 @@ public sealed class UserBrowseApiTests
             Assert.IsNotNull(accepted);
             Assert.IsNotNull(accepted.CommitReceiptJson);
             Assert.IsNotNull(accepted.CommitFingerprint);
+            var (selectionJob, selectionSettings) = Sockseek.Core.Planning.SubmissionSpecificationCodec
+                .Deserialize(accepted.SpecificationJson).Materialize();
+            Assert.AreEqual(Sockseek.Core.Jobs.JobSelectionSource.PeerShares, selectionJob.SelectionSource);
+            Assert.AreEqual(4321, selectionSettings.Search.MaxStaleTime);
+            foreach (var child in ((Sockseek.Core.Jobs.JobList)selectionJob).Jobs)
+            {
+                Assert.AreEqual(Sockseek.Core.Jobs.JobSelectionSource.PeerShares, child.SelectionSource);
+                Assert.IsTrue(ProfileConditionEvaluator.Satisfied("download-mode == \"generic\"", selectionSettings, child));
+            }
             Assert.AreEqual(submitted.Workflow.JobId, repeated.Workflow.JobId);
             Assert.AreEqual(submitted.Resolution, repeated.Resolution);
 

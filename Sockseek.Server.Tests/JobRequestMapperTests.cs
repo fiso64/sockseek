@@ -2,6 +2,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
+using Sockseek.Core.Settings;
 using Sockseek.Server;
 
 namespace Tests.Server;
@@ -9,6 +10,28 @@ namespace Tests.Server;
 [TestClass]
 public class JobRequestMapperTests
 {
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void SearchDraftSettingsAndExecutionShareGroupIntent(bool album, bool grouped)
+    {
+        JobDraftDto draft = album
+            ? new AlbumSearchJobDraftDto(new AlbumQueryDto(Album: "album"), GroupResults: grouped)
+            : new TrackSearchJobDraftDto(new SongQueryDto(Title: "track"), GroupResults: grouped);
+        string mode = (album ? "album" : "song") + (grouped ? "-groups" : "");
+        var composer = new JobSettingsComposer(null, new ProfileCatalog { AutoProfiles = [new SettingsProfile
+        {
+            Name = "search-mode", Condition = $"input-type == \"manual-search\" && download-mode == \"{mode}\"",
+            Download = new SettingsPatch([new("Search.MaxStaleTime", 4321)]),
+        }] });
+        Assert.AreEqual(4321, composer.Compose(new DownloadSettings(), JobRequestMapper.CreateSettingsContext(draft)).Search.MaxStaleTime);
+        var job = (SearchJob)JobRequestMapper.CreateJob(draft);
+        Assert.AreEqual(grouped, job.GroupResults);
+        Assert.AreEqual(4321, composer.Compose(new DownloadSettings(), job).Search.MaxStaleTime);
+    }
+
     [TestMethod]
     public void RemoteDirectoryDraft_RequiresExactlyOneCompleteSourceCase()
     {

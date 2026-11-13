@@ -516,7 +516,7 @@ output-dir = ~/downloads/sockseek-youtube
 
 # use structural naming for non-music downloads
 [generic-layout]
-profile-cond = download-mode == "generic-file" || download-mode == "generic-directory"
+profile-cond = download-mode == "generic"
 name-format = {peer-username}/{foldername}/{filename}
 ```
 
@@ -524,13 +524,15 @@ The following operators are supported for use in `profile-cond`: `&&`, `||`, `==
 The following variables are available:
 
 ```
-input-type        ("youtube"|"csv"|"string"|"bandcamp"|"spotify"|"list"|"soulseek"|"musicbrainz"|"none")
-download-mode     ("song"|"song-groups"|"album"|"album-groups"|"generic-file"|"generic-directory")
-album             (bool)
-group             (bool)
-interactive       (bool)
-progress-json     (bool)
-no-progress       (bool)
+input-type        "youtube"|"csv"|"string"|"bandcamp"|"spotify"|"list"|
+                  "musicbrainz"|"soulseek-link"|"manual-search"|
+                  "peer-shares"|"none" 
+download-mode     "song"|"song-groups"|"album"|"album-groups"|"generic"
+album             bool
+group             bool
+interactive       bool
+progress-json     bool
+no-progress       bool
 ```
 
 <!-- sockseek-help:end -->
@@ -1012,7 +1014,7 @@ Most used flags at a glance:
 
 ```
 -o, --output-dir <path>         Download directory
---input-type <type>             [csv|youtube|spotify|bandcamp|string|list|soulseek|
+--input-type <type>             [csv|youtube|spotify|bandcamp|string|list|soulseek-link|
                                 musicbrainz] (default: auto)
 -s, --song                      Song mode for string input
 --name-format <format>          Name format for downloaded tracks. See `--help name-format`

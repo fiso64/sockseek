@@ -112,7 +112,7 @@ public static class OnCompleteExecutor
             logger ?? NullLogger.Instance);
 
         // Build a FileManagerContext for variable substitution.
-        string extractorName = job.Config.Extraction.InputType.ToString();
+        string extractorName = job.Config.Extraction.InputType.ToInputName();
         string inputSource = job.Config.Extraction.Input ?? "";
         string outputDir = job.Config.Output.ParentDir ?? "";
         string configDir = job.Config.RuntimePathContext.ConfigDir ?? "";

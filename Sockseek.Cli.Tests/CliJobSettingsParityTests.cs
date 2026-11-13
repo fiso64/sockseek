@@ -38,7 +38,7 @@ public sealed class CliJobSettingsParityTests
     }
 
     [TestMethod]
-    public void LocalSubmissionOptions_UseRequestPatchForAutoProfileMatching()
+    public void LocalSubmissionOptions_UseDeclaredGroupSearchForAutoProfileMatching()
     {
         var autoPatch = new SettingsPatch([new("Search.MaxStaleTime", 7654)]);
         var autoProfile = new SettingsProfile
@@ -58,7 +58,7 @@ public sealed class CliJobSettingsParityTests
             namedProfiles: [],
             cliProfile: null);
         var resolver = new SubmissionOptionsJobSettingsResolver(inner);
-        var job = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" });
+        var job = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" }) { GroupResults = true };
         resolver.SetJobOptions(job.Id, new SubmissionOptionsDto(
             DownloadSettings: new DownloadSettingsPatchDto(
                 Search: new SearchSettingsPatchDto(GroupResults: true))));

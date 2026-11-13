@@ -141,6 +141,8 @@ public sealed class SubmissionSpecificationTests
         var pinned = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
         {
             Results = selectedInOptions ? [fallback, chosen] : [],
+            SelectionSource = JobSelectionSource.ManualSearch,
+            ExcludedFilenames = new HashSet<string>(["Excluded.flac"], StringComparer.Ordinal),
             ResolvedTarget = chosen,
             DirectoryResolutionPolicy = AlbumDirectoryResolutionPolicy.UseSelectedSnapshot,
             ValidationRequirement = AlbumValidationRequirement.UserAccepted,
@@ -157,6 +159,8 @@ public sealed class SubmissionSpecificationTests
         Assert.AreEqual(AlbumDirectoryResolutionPolicy.UseSelectedSnapshot, restored.DirectoryResolutionPolicy);
         Assert.AreEqual(AlbumValidationRequirement.UserAccepted, restored.ValidationRequirement);
         Assert.IsTrue(restored.ResolvedTarget.IsFullyRetrieved);
+        Assert.AreEqual(JobSelectionSource.ManualSearch, restored.SelectionSource);
+        CollectionAssert.AreEqual(new[] { "Excluded.flac" }, restored.ExcludedFilenames!.ToArray());
         AlbumFile file = restored.ResolvedTarget.Files.Single();
         Assert.AreEqual(query.URI, file.Query.URI);
         Assert.AreEqual(query.Title, file.Query.Title);

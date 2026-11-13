@@ -21,6 +21,7 @@ public sealed record NormalizedJobCommand
     public int LineNumber { get; init; }
     public SourceMutation? SourceMutation { get; init; }
     public InputType? SourceInputType { get; init; }
+    public JobSelectionSource? SelectionSource { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public JobSourceInfo? SourceInfo { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -54,6 +55,7 @@ public sealed record NormalizedJobCommand
     public SongQueryDefinition? SongQuery { get; init; }
     public AlbumQueryDefinition? AlbumQuery { get; init; }
     public bool IncludeFullResults { get; init; }
+    public bool GroupResults { get; init; }
     public IReadOnlyList<NormalizedJobCommand>? Children { get; init; }
     public PeerFileTarget? PeerFile { get; init; }
     public IReadOnlyList<string>? OutputPathComponents { get; init; }
