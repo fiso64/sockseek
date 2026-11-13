@@ -1,5 +1,7 @@
 <script lang="ts">
   import LoadingIndicator from './components/LoadingIndicator.svelte';
+  import LazyView from './components/LazyView.svelte';
+  import { ViewLoader } from './app/view-loader.svelte';
   import { onMount, untrack } from 'svelte';
   import AppShell from './components/AppShell.svelte';
   import JobsList from './domains/jobs/JobsList.svelte';
@@ -9,15 +11,10 @@
   import { JobRouteReader } from './domains/jobs/route-reader';
   import Modal from './components/Modal.svelte';
   import NewJobComposer from './domains/jobs/NewJobComposer.svelte';
-  import AutomaticJobDetail from './domains/jobs/AutomaticJobDetail.svelte';
-  import SearchResults from './domains/search/SearchResults.svelte';
   import TransfersPage from './domains/transfers/TransfersPage.svelte';
   import { TransferTimelineController } from './domains/transfers/controller.svelte';
   import Dashboard from './domains/dashboard/Dashboard.svelte';
-  import UsersPage from './domains/users/UsersPage.svelte';
   import { userBrowserSession, type UserBrowseView } from './domains/users/session';
-  import ChatPage from './domains/chat/ChatPage.svelte';
-  import SystemPage from './domains/system/SystemPage.svelte';
   import ConfigurationDialog from './domains/system/ConfigurationDialog.svelte';
   import type { SystemTab } from './domains/system/tabs';
   import { DaemonLiveClient, type LiveConnectionStatus } from './api/live';
@@ -30,6 +27,12 @@
   import { emptySearchDraft, parseSearchResultMode, searchJobPath, type SearchDraft, type SearchResultMode } from './domains/search/model';
   import { canReplaySearch } from './domains/search/replay';
   import type { PageId, UserLinkActions } from './app/navigation';
+
+  const automaticDetail = new ViewLoader(() => import('./domains/jobs/AutomaticJobDetail.svelte'));
+  const searchResults = new ViewLoader(() => import('./domains/search/SearchResults.svelte'));
+  const usersPage = new ViewLoader(() => import('./domains/users/UsersPage.svelte'));
+  const chatPage = new ViewLoader(() => import('./domains/chat/ChatPage.svelte'));
+  const systemPage = new ViewLoader(() => import('./domains/system/SystemPage.svelte'));
 
   const liveClient = new DaemonLiveClient();
   const observeJobs = liveClient.observeJobs.bind(liveClient);
@@ -321,6 +324,7 @@
 
   async function submit(next: SearchDraft): Promise<void> {
     if (searchBusy) return;
+    searchResults.load();
     search = { ...next };
     searchBusy = true;
     mutationError = null;
@@ -421,6 +425,7 @@
       setPath(`/jobs/${encodeURIComponent(job.jobId)}`);
       return;
     }
+    searchResults.load();
     const route = routeLocation();
     const openKey = `${job.jobId}|${route}`;
     if (openingJobKey === openKey) {
@@ -562,50 +567,58 @@
     </section>
   {:else if activePage === 'jobs' && showingSearch && searchState.draft}
     {#if !deferSearchRender}
-    <SearchResults
-      {userActions}
-      daemonOffline={liveStatus === 'offline'}
-      viewState={searchState}
-      liveJob={activeLiveJob}
-      liveJobError={searchJobError}
-      removeAction={activeSearchAction}
-      removePending={removingSearch}
-      actionError={mutationError}
-      onremove={() => void removeActiveSearch()}
-      searchAgainAvailable={canRerunSearch}
-      searchAgainPending={rerunningSearch}
-      isselected={(ref, parentRef) => searchController.isSelected(ref, parentRef)}
-      selectedCount={selectedSearchCount}
-      ontoggle={(ref, selected, parentRef) => searchController.toggle(ref, selected, parentRef)}
-      onselectfolder={(directoryRef, relativePath, selected) => searchController.toggleDirectoryPath(directoryRef, relativePath, selected)}
-      isfolderselected={(directoryRef, relativePath) => searchController.isDirectoryPathSelected(directoryRef, relativePath)}
-      onselectall={(selected) => searchController.selectAll(selected)}
-      ondownload={(options) => void searchController.commit(options)}
-      onresolvesettings={(options) => searchController.resolveSelectionSettings(options)}
-      onloaddefinition={(viewId) => daemonApi.getSearchViewDefinition(viewId)}
-      onrefine={(request, resetSelection) => searchController.refine(request, resetSelection)}
-      onsort={(order) => searchController.sort(order)}
-      onloadmore={() => void searchController.loadMore()}
-      onretry={() => { searchJobRetry++; void searchController.refresh(true); }}
-      onloaddirectory={(ref) => void searchController.loadDirectoryFiles(ref)}
-      onretrievedirectory={(ref) => void searchController.retrieveDirectory(ref)}
-      onopenoptions={(ref) => void searchController.openGroupOptions(ref)}
-      oncloseoptions={() => searchController.closeGroupOptions()}
-      onloadoptions={() => void searchController.loadMoreGroupOptions()}
-      onchooseoption={(ref, option) => searchController.chooseGroupOption(ref, option)}
-      ontogglealbumfile={(groupRef, fileRef, selected) => searchController.toggleAlbumGroupFile(groupRef, fileRef, selected)}
-      onviewdownloads={(id) => { jobLists.downloads.filterSubmission(id); jobsTab = 'downloads'; backToJobs(); }}
-      onback={backToJobs}
-      onsearchagain={() => void rerunActiveSearch()}
-    />
+    <LazyView view={searchResults}>
+      {#snippet children(SearchResults)}
+        <SearchResults
+          {userActions}
+          daemonOffline={liveStatus === 'offline'}
+          viewState={searchState}
+          liveJob={activeLiveJob}
+          liveJobError={searchJobError}
+          removeAction={activeSearchAction}
+          removePending={removingSearch}
+          actionError={mutationError}
+          onremove={() => void removeActiveSearch()}
+          searchAgainAvailable={canRerunSearch}
+          searchAgainPending={rerunningSearch}
+          isselected={(ref, parentRef) => searchController.isSelected(ref, parentRef)}
+          selectedCount={selectedSearchCount}
+          ontoggle={(ref, selected, parentRef) => searchController.toggle(ref, selected, parentRef)}
+          onselectfolder={(directoryRef, relativePath, selected) => searchController.toggleDirectoryPath(directoryRef, relativePath, selected)}
+          isfolderselected={(directoryRef, relativePath) => searchController.isDirectoryPathSelected(directoryRef, relativePath)}
+          onselectall={(selected) => searchController.selectAll(selected)}
+          ondownload={(options) => void searchController.commit(options)}
+          onresolvesettings={(options) => searchController.resolveSelectionSettings(options)}
+          onloaddefinition={(viewId) => daemonApi.getSearchViewDefinition(viewId)}
+          onrefine={(request, resetSelection) => searchController.refine(request, resetSelection)}
+          onsort={(order) => searchController.sort(order)}
+          onloadmore={() => void searchController.loadMore()}
+          onretry={() => { searchJobRetry++; void searchController.refresh(true); }}
+          onloaddirectory={(ref) => void searchController.loadDirectoryFiles(ref)}
+          onretrievedirectory={(ref) => void searchController.retrieveDirectory(ref)}
+          onopenoptions={(ref) => void searchController.openGroupOptions(ref)}
+          oncloseoptions={() => searchController.closeGroupOptions()}
+          onloadoptions={() => void searchController.loadMoreGroupOptions()}
+          onchooseoption={(ref, option) => searchController.chooseGroupOption(ref, option)}
+          ontogglealbumfile={(groupRef, fileRef, selected) => searchController.toggleAlbumGroupFile(groupRef, fileRef, selected)}
+          onviewdownloads={(id) => { jobLists.downloads.filterSubmission(id); jobsTab = 'downloads'; backToJobs(); }}
+          onback={backToJobs}
+          onsearchagain={() => void rerunActiveSearch()}
+        />
+      {/snippet}
+    </LazyView>
     {/if}
   {:else if activePage === 'jobs'}
     {#if automaticJobId}
-      <AutomaticJobDetail jobId={automaticJobId} initialDetail={automaticInitialDetail} {userActions}
-        connected={liveStatus === 'connected' && documentVisible}
-        {observeJobs}
-        onback={backToJobs} onopenjob={(job, detail) => void openJob(job, detail)} ondelete={(job) => void deleteOpenedSubmission(job)}
-        deletingSubmissions={deletingSubmissionIds} deleteError={mutationError} />
+      <LazyView view={automaticDetail}>
+        {#snippet children(AutomaticJobDetail)}
+          <AutomaticJobDetail jobId={automaticJobId!} initialDetail={automaticInitialDetail} {userActions}
+            connected={liveStatus === 'connected' && documentVisible}
+            {observeJobs}
+            onback={backToJobs} onopenjob={(job, detail) => void openJob(job, detail)} ondelete={(job) => void deleteOpenedSubmission(job)}
+            deletingSubmissions={deletingSubmissionIds} deleteError={mutationError} />
+        {/snippet}
+      </LazyView>
     {:else}
     {#key jobsTab}
     <JobsList
@@ -677,16 +690,28 @@
   {:else if activePage === 'users' || activePage === 'shares'}
     {#if activeUsername}
       {#key userBrowsers[userView]}
-        <UsersPage session={userBrowsers[userView]} view={userView} {liveStatus} {liveClient} onviewchange={changeUserView} onmessageuser={userActions.message} />
+        <LazyView view={usersPage}>
+          {#snippet children(UsersPage)}
+            <UsersPage session={userBrowsers[userView]} view={userView} {liveStatus} {liveClient} onviewchange={changeUserView} onmessageuser={userActions.message} />
+          {/snippet}
+        </LazyView>
       {/key}
     {:else}
       <section class="page user-browser-page"><header class="user-browser-heading"><div><h1>{activePage === 'shares' ? 'Shares' : 'Users'}</h1></div></header><div class="resource-state-notice empty blocking" role="status"><span class="resource-state-dot" aria-hidden="true"></span><span class="resource-state-copy"><strong>{activePage === 'shares' ? 'No shares to display' : 'No user to display'}</strong></span></div></section>
     {/if}
   {:else if activePage === 'chat'}
-    <ChatPage {liveClient} {liveStatus} runtime={liveState.daemon?.chat} {userActions} initialUsername={initialChatUsername} />
+    <LazyView view={chatPage}>
+      {#snippet children(ChatPage)}
+        <ChatPage {liveClient} {liveStatus} runtime={liveState.daemon?.chat} {userActions} initialUsername={initialChatUsername} />
+      {/snippet}
+    </LazyView>
   {:else}
-    <SystemPage daemon={liveState.daemon} {liveStatus} {liveClient} tab={systemTab}
-      ontabchange={tab => { systemTab = tab; setPath(tab === 'status' ? '/system' : `/system/${tab}`); }} />
+    <LazyView view={systemPage}>
+      {#snippet children(SystemPage)}
+        <SystemPage daemon={liveState.daemon} {liveStatus} {liveClient} tab={systemTab}
+          ontabchange={tab => { systemTab = tab; setPath(tab === 'status' ? '/system' : `/system/${tab}`); }} />
+      {/snippet}
+    </LazyView>
   {/if}
 </AppShell>
 

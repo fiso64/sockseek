@@ -1,8 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import App from './App.svelte';
+  import LazyView from './components/LazyView.svelte';
+  import { ViewLoader } from './app/view-loader.svelte';
   import LoadingIndicator from './components/LoadingIndicator.svelte';
   import { browserSession } from './api/session.svelte';
+
+  const application = new ViewLoader(() => import('./App.svelte'));
 
   let loading = $state(true);
   let showLoading = $state(false);
@@ -50,7 +53,9 @@
 {#if loading}
   <main class="session-screen">{#if showLoading}<LoadingIndicator label="Checking session" />{/if}</main>
 {:else if browserSession.data?.authenticated}
-  <App />
+  <LazyView view={application}>
+    {#snippet children(App)}<App />{/snippet}
+  </LazyView>
 {:else}
   <main class="session-screen login-screen">
     <section class="login-card" aria-label="Sockseek login">

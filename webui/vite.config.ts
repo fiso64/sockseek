@@ -11,8 +11,6 @@ export default defineConfig({
   // instead of lowering it to flags inferred only from the bundled stylesheet.
   build: {
     cssTarget: ['chrome123', 'firefox120', 'safari17.5'],
-    // The full client is about 590 kB minified (170 kB gzip); flag substantial growth.
-    chunkSizeWarningLimit: 750,
   },
   server: {
     proxy: {

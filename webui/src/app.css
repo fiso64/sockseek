@@ -2145,7 +2145,7 @@ input[type="checkbox"]:indeterminate {
   display: grid;
   grid-template-columns: 190px minmax(0, 1fr);
   gap: 22px;
-  align-items: center;
+  align-items: start;
   padding: 22px;
 }
 .user-profile-picture {

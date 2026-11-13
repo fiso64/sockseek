@@ -4,6 +4,49 @@ import type { WebSocketRoute } from '@playwright/test';
 // Authenticate normally, then exercise unavailable application reads/streams.
 // A failed initial session check is covered by the authentication journey.
 
+test('keeps navigation and drafts usable while a deferred page loads', async ({ page }) => {
+  const chatChunk = /\/assets\/ChatPage-[^/]+\.js$/;
+  let release!: () => void;
+  let requested!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { requested = resolve; });
+  let chunkRequests = 0, chatReads = 0;
+  page.on('request', request => {
+    if (chatChunk.test(request.url())) chunkRequests++;
+    if (new URL(request.url()).pathname.startsWith('/api/chat/')) chatReads++;
+  });
+  await page.route(chatChunk, async route => {
+    requested();
+    await held;
+    await route.continue();
+  });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  expect(chunkRequests).toBe(0);
+  const draft = page.locator('#global-search-simple');
+  await draft.fill('Keep this unfinished search');
+  const navigation = page.getByRole('navigation', { name: 'Primary navigation' });
+  try {
+    await navigation.getByRole('button', { name: 'Chat', exact: true }).click();
+    await started;
+    await expect(page).toHaveURL(/\/chat$/);
+    await expect(draft).toHaveValue('Keep this unfinished search');
+    await expect(page.locator('.loading-indicator')).toHaveCount(0);
+    await navigation.getByRole('button', { name: 'Dashboard', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
+  } finally { release(); }
+  // Leaving while loading must not start Chat reads.
+  // Reopening uses the same request; later visits use the cached component synchronously.
+  expect(chatReads).toBe(0);
+  await navigation.getByRole('button', { name: 'Chat', exact: true }).click();
+  await expect(page.getByRole('complementary', { name: 'Chat destinations' })).toBeVisible();
+  await navigation.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await navigation.getByRole('button', { name: 'Chat', exact: true }).click();
+  await expect(page.getByRole('complementary', { name: 'Chat destinations' })).toBeVisible();
+  expect(chunkRequests).toBe(1);
+  await expect(draft).toHaveValue('Keep this unfinished search');
+});
+
 test('shows offline states and recovers history after daemon startup returns', async ({ page }) => {
   await page.clock.install();
   let unavailable = true;

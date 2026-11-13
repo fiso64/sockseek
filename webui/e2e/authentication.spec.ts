@@ -3,6 +3,13 @@ import { test, expect } from './fixtures';
 test.use({ authenticated: false });
 
 test('signs in, manages a CLI key in System, and revokes the browser session on logout', async ({ page, daemon }) => {
+  const applicationChunk = /\/assets\/App-[^/]+\.js$/;
+  let applicationRequests = 0;
+  let documentRequests = 0;
+  page.on('request', request => {
+    if (applicationChunk.test(request.url())) applicationRequests++;
+    if (request.isNavigationRequest()) documentRequests++;
+  });
   await page.route('**/api/auth/session', route => route.abort('failed'));
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Retry connection' })).toBeVisible();
@@ -13,9 +20,17 @@ test('signs in, manages a CLI key in System, and revokes the browser session on 
   await page.getByLabel('Username').fill('admin');
   await page.getByLabel('Password').fill('wrong');
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
-  await expect(page.getByRole('alert')).toHaveText('Invalid username or password.');
+  await expect(page.getByRole('alert')).toBeVisible();
+  expect(applicationRequests).toBe(0);
+  await page.route(applicationChunk, route => route.abort('failed'), { times: 1 });
   await page.getByLabel('Password').fill('test-only-password');
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
+  // A missing chunk must leave the authenticated session intact. Reloading is
+  // explicit because doing so automatically could discard unsaved work.
+  await expect(page.getByRole('alert').getByRole('button', { name: 'Reload page' })).toBeVisible();
+  await expect(page.getByRole('form', { name: 'Log in to Sockseek' })).toHaveCount(0);
+  expect(documentRequests).toBe(1);
+  await page.getByRole('button', { name: 'Reload page' }).click();
   await page.getByRole('navigation', { name: 'Secondary navigation' }).getByRole('button', { name: 'System' }).click();
   await page.getByRole('tablist', { name: 'System sections' }).getByRole('tab', { name: 'API', exact: true }).click();
   await page.getByRole('button', { name: 'Create API key', exact: true }).click();
