@@ -22,7 +22,9 @@ test('signs in, manages a CLI key in System, and revokes the browser session on 
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await expect(page.getByRole('alert')).toBeVisible();
   expect(applicationRequests).toBe(0);
-  await page.route(applicationChunk, route => route.abort('failed'), { times: 1 });
+  // Keep the chunk missing for both module preload and import requests; Chromium
+  // can fetch it again after a failed preload. Restore it only before reload.
+  await page.route(applicationChunk, route => route.fulfill({ status: 404, body: '' }));
   await page.getByLabel('Password').fill('test-only-password');
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   // A missing chunk must leave the authenticated session intact. Reloading is
@@ -30,6 +32,7 @@ test('signs in, manages a CLI key in System, and revokes the browser session on 
   await expect(page.getByRole('alert').getByRole('button', { name: 'Reload page' })).toBeVisible();
   await expect(page.getByRole('form', { name: 'Log in to Sockseek' })).toHaveCount(0);
   expect(documentRequests).toBe(1);
+  await page.unroute(applicationChunk);
   await page.getByRole('button', { name: 'Reload page' }).click();
   await page.getByRole('navigation', { name: 'Secondary navigation' }).getByRole('button', { name: 'System' }).click();
   await page.getByRole('tablist', { name: 'System sections' }).getByRole('tab', { name: 'API', exact: true }).click();

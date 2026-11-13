@@ -44,6 +44,7 @@
     <button type="button" class="profile-trigger" {disabled} popovertarget={id}
       aria-expanded={open} onclick={positionPopout}>
       <Icon name="sliders" />Profiles
+      {#if value.length || inherited.length}<i class="settings-disclosure-customized" aria-hidden="true"></i>{/if}
     </button>
     <div bind:this={popout} {id} popover="auto" class="profile-popout" style={position}
       aria-label="Profiles" ontoggle={(event) => open = event.newState === 'open'}>
