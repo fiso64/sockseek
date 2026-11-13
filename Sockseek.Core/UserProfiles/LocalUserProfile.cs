@@ -31,8 +31,7 @@ public sealed record LocalUserProfile(string Description, UserPicture? Picture)
             }
             catch (Exception ex) when (ex is IOException
                 or UnauthorizedAccessException
-                or InvalidDataException
-                or SixLabors.ImageSharp.ImageProcessingException)
+                or InvalidDataException)
             {
                 SoulseekLogMessages.ProfilePictureRejected(
                     logger ?? NullLogger.Instance,

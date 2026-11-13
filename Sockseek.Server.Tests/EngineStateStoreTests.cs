@@ -896,14 +896,18 @@ public class EngineStateStoreTests
         var captured = client.GetJob(job.Id)!;
         Assert.AreEqual(128L, captured.Stats!.KnownBytes);
         Assert.AreEqual(store.GetJobSummary(job.Id)!.Stats, captured.Stats);
-        var detail = (RemoteFileJobPayloadDto)store.GetJobDetail(job.Id)!.Payload;
+        var payload = store.GetJobDetail(job.Id)!.Payload;
+        Assert.IsInstanceOfType<RemoteFileJobPayloadDto>(payload);
+        var detail = (RemoteFileJobPayloadDto)payload;
         Assert.AreEqual(32L, detail.File.BytesTransferred);
         Assert.AreEqual(128L, detail.File.FileSize);
         Progress(0);
         Assert.AreEqual(0L, client.GetJob(job.Id)!.Stats!.KnownBytes);
         Progress(null);
         Assert.IsNull(client.GetJob(job.Id)!.Stats!.KnownBytes);
-        Assert.IsNull(((RemoteFileJobPayloadDto)store.GetJobDetail(job.Id)!.Payload).File.FileSize);
+        payload = store.GetJobDetail(job.Id)!.Payload;
+        Assert.IsInstanceOfType<RemoteFileJobPayloadDto>(payload);
+        Assert.IsNull(((RemoteFileJobPayloadDto)payload).File.FileSize);
         Assert.AreEqual(128L, captured.Stats.KnownBytes, "Earlier client facts remain immutable.");
     }
 
@@ -1538,7 +1542,9 @@ public class EngineStateStoreTests
         Assert.AreEqual(ServerJobLifecycleState.Running, page.Items.Single().Child?.LifecycleState);
         Assert.AreEqual(50, page.Items.Single().File?.ProgressPercent);
         Assert.AreEqual("/output/final/File.bin", page.Items.Single().File?.DownloadPath);
-        var childDetail = (RemoteFileJobPayloadDto)store.GetJobDetail(child.Id)!.Payload;
+        var childPayload = store.GetJobDetail(child.Id)!.Payload;
+        Assert.IsInstanceOfType<RemoteFileJobPayloadDto>(childPayload);
+        var childDetail = (RemoteFileJobPayloadDto)childPayload;
         Assert.AreEqual(64L, childDetail.File.BytesTransferred);
         Assert.AreEqual(128L, childDetail.File.FileSize);
         Assert.AreEqual("/output/final/File.bin", childDetail.File.DownloadPath);

@@ -218,7 +218,7 @@ public static class ServerHost
                 document.Info = new()
                 {
                     Title = "Sockseek daemon API",
-                    Version = GetOpenApiVersion(),
+                    Version = GetVersion(),
                     Description = "HTTP API for the Sockseek daemon."
                 };
 
@@ -374,7 +374,7 @@ public static class ServerHost
         return app;
     }
 
-    private static string GetOpenApiVersion()
+    internal static string GetVersion()
     {
         var assembly = typeof(ServerHost).Assembly;
         var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion

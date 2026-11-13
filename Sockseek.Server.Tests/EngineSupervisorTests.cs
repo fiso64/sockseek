@@ -1255,6 +1255,8 @@ public class EngineSupervisorTests
 
             SearchJob? accepted = supervisor.GetRuntimeJob<SearchJob>(summary.JobId);
             Assert.IsNotNull(accepted?.Config);
+            Assert.IsNotNull(query.Artist);
+            Assert.IsNotNull(query.Title);
             Assert.AreEqual(generic ? "Artist Track" : new SongQuery { Artist = query.Artist, Title = query.Title }.ToString(noInfo: true), accepted.QueryText);
             CollectionAssert.AreEqual(preview.AppliedProfiles.ToArray(), summary.AppliedProfiles.ToArray());
             Assert.AreEqual(preview.Settings.Values.Search?.MaxStaleTime, accepted.Config.Search.MaxStaleTime);

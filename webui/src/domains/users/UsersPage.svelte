@@ -1,5 +1,4 @@
 <script lang="ts">
-  import PageTabs from '../../components/PageTabs.svelte';
   import ShareBrowser from './ShareBrowser.svelte';
   import { peerShareSource } from './share-source';
   import { userPresence } from './presence.svelte';
@@ -176,10 +175,16 @@
 <section class="page user-browser-page">
   <header class="user-browser-heading">
     <div><h1>User browser</h1></div>
+    <nav class="user-view-tabs" aria-label="User browser views">
+      <button type="button" class:active={view === 'user'}
+        aria-current={view === 'user' ? 'page' : undefined}
+        onclick={() => onviewchange('user')}>User</button>
+      <button type="button" class:active={view === 'shares'}
+        aria-current={view === 'shares' ? 'page' : undefined}
+        onclick={() => onviewchange('shares')}>Shares</button>
+    </nav>
   </header>
-  <PageTabs id="user-view-tab" label="User browser views" value={view} onchange={onviewchange}
-    items={[{ id: 'user', label: 'User' }, { id: 'shares', label: 'Shares' }]} />
-  <div role="tabpanel" id="user-view-tab-panel" aria-labelledby={`user-view-tab-${view}`}>
+
   {#if view === 'user'}
     {#if profileError}
       <div class={`resource-state-notice ${liveStatus === 'offline' ? 'offline' : 'unavailable'}`}
@@ -290,7 +295,6 @@
       {/key}
     {/if}
   {/if}
-  </div>
 </section>
 
 {#if profilePictureOpen && pictureUrl}

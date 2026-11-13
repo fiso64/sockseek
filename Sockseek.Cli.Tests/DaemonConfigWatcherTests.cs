@@ -12,7 +12,7 @@ using Sockseek.Server.Persistence;
 using Tests.ClientTests;
 using UserInfo = Soulseek.UserInfo;
 using System.Net;
-using SixLabors.ImageSharp;
+using SkiaSharp;
 
 namespace Tests;
 
@@ -55,8 +55,10 @@ public sealed class DaemonConfigWatcherTests
         Directory.CreateDirectory(root);
         File.WriteAllText(System.IO.Path.Combine(root, "shared.txt"), "testing");
         string picture = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(fixture.Path)!, "profile.png");
-        using (var image = new Image<SixLabors.ImageSharp.PixelFormats.Rgb24>(2, 2))
-            await image.SaveAsPngAsync(picture);
+        using (var bitmap = new SKBitmap(2, 2))
+        using (var image = SKImage.FromBitmap(bitmap))
+        using (var png = image.Encode(SKEncodedImageFormat.Png, 100))
+            await File.WriteAllBytesAsync(picture, png.ToArray());
         string runtimeConfig = $"upload-slots = 3\nupload-speed-limit-kib = 64\nshare = {root}\nuser-picture = {picture}\n";
         fixture.Write(runtimeConfig + "user-description = updated");
         Assert.IsTrue(await fixture.Watcher.ReloadAsync());

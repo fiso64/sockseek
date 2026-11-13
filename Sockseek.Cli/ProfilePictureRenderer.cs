@@ -1,11 +1,7 @@
 using System.Diagnostics;
 using System.Text;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Advanced;
-using SixLabors.ImageSharp.Formats;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
-using SixLabors.ImageSharp.Processing.Processors.Quantization;
+using SkiaSharp;
+using KGySoft.Drawing.Imaging;
 using Sockseek.Api;
 using Sockseek.Core.UserProfiles;
 
@@ -51,46 +47,21 @@ internal static class ProfilePictureRenderer
         int requestedWidth = selectedMode == "sixel"
             ? Math.Min(UserPictureCodec.LocalOutputDimension, CellWidth * EstimatedSixelPixelsPerCell)
             : CellWidth;
-        int pixelWidth = Math.Min(validated.Width, requestedWidth);
-        int pixelHeight = Math.Max(
-            1,
-            (int)Math.Round(validated.Height * (pixelWidth / (double)validated.Width)));
-        pixelHeight = Math.Min(UserPictureCodec.LocalOutputDimension, pixelHeight);
-
-        var decoderOptions = new DecoderOptions
-        {
-            MaxFrames = 1,
-            SkipMetadata = true,
-            TargetSize = new Size(pixelWidth, pixelHeight),
-        };
-        using var decodeTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        decodeTimeout.CancelAfter(UserPictureCodec.MaximumWorkDuration);
-        await using var input = new MemoryStream(validated.Bytes, writable: false);
-        using Image<Rgba32> image = await Image.LoadAsync<Rgba32>(
-            decoderOptions,
-            input,
-            decodeTimeout.Token).ConfigureAwait(false);
-        image.Mutate(context =>
-        {
-            context.Resize(new ResizeOptions
-            {
-                Mode = ResizeMode.Max,
-                Size = new Size(pixelWidth, pixelHeight),
-                Sampler = KnownResamplers.Bicubic,
-            });
-        });
+        using var image = UserPictureCodec.DecodeForDisplay(
+            validated, requestedWidth, UserPictureCodec.LocalOutputDimension, cancellationToken);
 
         return selectedMode == "sixel" ? RenderSixel(image) : RenderPixels(image);
     }
 
-    internal static string RenderPixels(Image<Rgba32> image)
+    internal static string RenderPixels(SKBitmap image)
     {
         var output = new StringBuilder((image.Width * 32 + 5) * ((image.Height + 1) / 2));
+        SKColor[] pixels = image.Pixels;
         for (int y = 0; y < image.Height; y += 2)
         {
-            Span<Rgba32> top = image.DangerousGetPixelRowMemory(y).Span;
-            Span<Rgba32> bottom = y + 1 < image.Height
-                ? image.DangerousGetPixelRowMemory(y + 1).Span
+            Span<SKColor> top = pixels.AsSpan(y * image.Width, image.Width);
+            Span<SKColor> bottom = y + 1 < image.Height
+                ? pixels.AsSpan((y + 1) * image.Width, image.Width)
                 : top;
             for (int x = 0; x < image.Width; x++)
             {
@@ -103,24 +74,23 @@ internal static class ProfilePictureRenderer
         return output.ToString();
     }
 
-    internal static string RenderSixel(Image<Rgba32> source)
+    internal static string RenderSixel(SKBitmap source)
     {
-        using Image<Rgba32> image = source.Clone();
-        image.Mutate(context => context.Quantize(new WuQuantizer(new QuantizerOptions
-        {
-            MaxColors = MaximumSixelColors,
-            Dither = null,
-        })));
+        using SKBitmap image = source.Copy();
+        using var bitmapData = BitmapDataFactory.CreateBitmapData(image.GetPixels(),
+            new System.Drawing.Size(image.Width, image.Height), image.RowBytes, KnownPixelFormat.Format32bppArgb);
+        bitmapData.Quantize(OptimizedPaletteQuantizer.Wu(MaximumSixelColors, new Color32(255, 255, 255)));
+        SKColor[] pixels = image.Pixels;
 
-        var palette = new Dictionary<Rgba32, int>();
+        var palette = new Dictionary<SKColor, int>();
         for (int y = 0; y < image.Height; y++)
         {
-            Span<Rgba32> row = image.DangerousGetPixelRowMemory(y).Span;
+            Span<SKColor> row = pixels.AsSpan(y * image.Width, image.Width);
             for (int x = 0; x < row.Length; x++)
             {
-                Rgba32 color = row[x].A < 128 ? default : Opaque(row[x]);
+                SKColor color = row[x].Alpha < 128 ? default : Opaque(row[x]);
                 row[x] = color;
-                if (color.A == 0)
+                if (color.Alpha == 0)
                     continue;
                 if (!palette.ContainsKey(color))
                     palette[color] = palette.Count;
@@ -129,19 +99,19 @@ internal static class ProfilePictureRenderer
 
         var output = new StringBuilder(Math.Max(256, image.Width * image.Height * 2));
         output.Append("\u001bPq\"").Append("1;1;").Append(image.Width).Append(';').Append(image.Height);
-        foreach ((Rgba32 color, int index) in palette.OrderBy(pair => pair.Value))
+        foreach ((SKColor color, int index) in palette.OrderBy(pair => pair.Value))
         {
             output.Append('#').Append(index).Append(";2;")
-                .Append(Percent(color.R)).Append(';')
-                .Append(Percent(color.G)).Append(';')
-                .Append(Percent(color.B));
+                .Append(Percent(color.Red)).Append(';')
+                .Append(Percent(color.Green)).Append(';')
+                .Append(Percent(color.Blue));
         }
 
         int bandCount = (image.Height + 5) / 6;
         for (int band = 0; band < bandCount; band++)
         {
             bool wroteColor = false;
-            foreach ((Rgba32 color, int index) in palette.OrderBy(pair => pair.Value))
+            foreach ((SKColor color, int index) in palette.OrderBy(pair => pair.Value))
             {
                 char[] columns = new char[image.Width];
                 int lastNonEmpty = -1;
@@ -151,7 +121,7 @@ internal static class ProfilePictureRenderer
                     for (int bit = 0; bit < 6; bit++)
                     {
                         int y = band * 6 + bit;
-                        if (y < image.Height && image[x, y].Equals(color))
+                        if (y < image.Height && pixels[y * image.Width + x].Equals(color))
                             bits |= 1 << bit;
                     }
                     columns[x] = (char)(63 + bits);
@@ -188,26 +158,26 @@ internal static class ProfilePictureRenderer
 
     private static int Percent(byte value) => (int)Math.Round(value * (100d / 255d));
 
-    private static void AppendColor(StringBuilder output, Rgba32 color, bool foreground)
+    private static void AppendColor(StringBuilder output, SKColor color, bool foreground)
     {
-        if (color.A < 128)
+        if (color.Alpha < 128)
         {
             output.Append(foreground ? "\u001b[39m" : "\u001b[49m");
             return;
         }
         output.Append(foreground ? "\u001b[38;2;" : "\u001b[48;2;")
-            .Append(color.R).Append(';').Append(color.G).Append(';').Append(color.B).Append('m');
+            .Append(color.Red).Append(';').Append(color.Green).Append(';').Append(color.Blue).Append('m');
     }
 
-    private static Rgba32 Opaque(Rgba32 value)
+    private static SKColor Opaque(SKColor value)
     {
-        if (value.A == byte.MaxValue)
+        if (value.Alpha == byte.MaxValue)
             return value;
-        int inverse = byte.MaxValue - value.A;
-        return new Rgba32(
-            (byte)((value.R * value.A + 255 * inverse) / 255),
-            (byte)((value.G * value.A + 255 * inverse) / 255),
-            (byte)((value.B * value.A + 255 * inverse) / 255),
+        int inverse = byte.MaxValue - value.Alpha;
+        return new SKColor(
+            (byte)((value.Red * value.Alpha + 255 * inverse) / 255),
+            (byte)((value.Green * value.Alpha + 255 * inverse) / 255),
+            (byte)((value.Blue * value.Alpha + 255 * inverse) / 255),
             byte.MaxValue);
     }
 

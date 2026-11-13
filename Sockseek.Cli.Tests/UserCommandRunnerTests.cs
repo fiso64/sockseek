@@ -3,8 +3,7 @@ using System.Net.Sockets;
 using System.Text;
 using Sockseek.Api;
 using Sockseek.Cli;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using SkiaSharp;
 
 namespace Tests.Cli;
 
@@ -180,7 +179,8 @@ public sealed class UserCommandRunnerTests
     [TestMethod]
     public void PixelRendererEmitsOnlyLocallyGeneratedAnsiAndResetsEachLine()
     {
-        using var image = new Image<Rgba32>(2, 2, new Rgba32(10, 20, 30));
+        using var image = new SKBitmap(new SKImageInfo(2, 2, SKColorType.Bgra8888, SKAlphaType.Unpremul));
+        image.Erase(new SKColor(10, 20, 30));
         string rendered = ProfilePictureRenderer.RenderPixels(image);
 
         StringAssert.StartsWith(rendered, "\u001b[38;2;10;20;30m\u001b[48;2;10;20;30m▀");
@@ -191,13 +191,30 @@ public sealed class UserCommandRunnerTests
     [TestMethod]
     public void PixelRendererUsesTerminalDefaultColorForTransparentPixels()
     {
-        using var image = new Image<Rgba32>(1, 2);
-        image[0, 0] = new Rgba32(200, 100, 50, 0);
-        image[0, 1] = new Rgba32(10, 20, 30);
+        using var image = new SKBitmap(new SKImageInfo(1, 2, SKColorType.Bgra8888, SKAlphaType.Unpremul));
+        image.SetPixel(0, 0, new SKColor(200, 100, 50, 0));
+        image.SetPixel(0, 1, new SKColor(10, 20, 30));
 
         string rendered = ProfilePictureRenderer.RenderPixels(image);
 
         Assert.AreEqual("\u001b[39m\u001b[48;2;10;20;30m▀\u001b[0m\n", rendered);
+    }
+
+    [TestMethod]
+    public void SixelRendererKeepsTransparencyAndBoundsThePalette()
+    {
+        using var image = new SKBitmap(new SKImageInfo(32, 12, SKColorType.Bgra8888, SKAlphaType.Unpremul));
+        image.Erase(SKColors.Transparent);
+        string transparent = ProfilePictureRenderer.RenderSixel(image);
+        Assert.IsFalse(transparent.Contains('#'));
+        for (int y = 0; y < image.Height; y++)
+        for (int x = 0; x < image.Width; x++)
+            image.SetPixel(x, y, new SKColor((byte)(x * 8), (byte)(y * 20), (byte)((x + y) * 5)));
+        string rendered = ProfilePictureRenderer.RenderSixel(image);
+        StringAssert.StartsWith(rendered, "\u001bPq\"1;1;32;12");
+        StringAssert.EndsWith(rendered, "\u001b\\");
+        int colors = System.Text.RegularExpressions.Regex.Matches(rendered, @"#\d+;2;").Count;
+        Assert.IsTrue(colors is > 1 and <= 64);
     }
 
     [TestMethod]

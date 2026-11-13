@@ -785,7 +785,7 @@ public class OpenApiContractTests
     }
 
     [TestMethod]
-    public async Task ServerInfo_AdvertisesEnforcedLiveProtocolVersion()
+    public async Task ServerInfo_AdvertisesProductAndLiveProtocolVersions()
     {
         string url = "http://127.0.0.1:0";
         await using var app = TestServerHost.Build([], new ServerOptions
@@ -803,6 +803,9 @@ public class OpenApiContractTests
             var info = await new SockseekApiClient(http).GetServerInfoAsync();
 
             Assert.AreEqual(LiveProtocol.Version, info.LiveProtocolVersion);
+            string productVersion = typeof(ServerHost).Assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0];
+            Assert.AreEqual(productVersion, info.Version);
             using var noRedirect = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
             {
                 BaseAddress = new Uri(url),

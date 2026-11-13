@@ -23,6 +23,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="11.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.Json" Version="11.0.0" />
+    <!-- Managed Wu quantization preserves the terminal renderer's bounded palette. -->
+    <PackageReference Include="KGySoft.Drawing.Core" Version="10.0.2" />
     <PackageReference Include="Spectre.Console" Version="0.57.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="11.0.0" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
@@ -38,6 +40,15 @@
   <ItemGroup>
     <None Include="../README.md" />
   </ItemGroup>
+
+  <!-- Server's executable entry point exists only for build-time OpenAPI generation.
+       The distributed daemon uses the CLI's runtime/dependency configuration. -->
+  <Target Name="RemoveServerToolingConfiguration" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="'%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'Sockseek.Server.runtimeconfig.json' or '%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'Sockseek.Server.deps.json'" />
+    </ItemGroup>
+  </Target>
 
   <!-- The CLI is the distributed daemon executable; publish its static WebUI
        alongside it, not from the referenced Server library's publish target. -->
