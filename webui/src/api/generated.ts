@@ -10997,7 +10997,7 @@ export interface components {
         /** @enum {unknown} */
         DaemonFeatureState: "Disabled" | "Starting" | "Ready" | "Degraded";
         /** @enum {unknown} */
-        DaemonStateDetail: "Full" | "Overview" | null;
+        DaemonStateDetail: "Full" | "Overview";
         DaemonStateDto: {
             /** Format: int64 */
             revision: number | string;
@@ -11212,6 +11212,25 @@ export interface components {
             items: components["schemas"]["DirectoryManifestEntryDto"][];
             /** Format: int32 */
             nextOrdinal?: null | number | string;
+        };
+        DirectoryTransferEntryDto: {
+            target: {
+                username: string;
+                filename: string;
+                /** Format: int64 */
+                size?: null | number | string;
+                extension?: null | string;
+                /** Format: int32 */
+                bitRate?: null | number | string;
+                /** Format: int32 */
+                bitDepth?: null | number | string;
+                /** Format: int32 */
+                sampleRate?: null | number | string;
+                /** Format: int32 */
+                length?: null | number | string;
+                attributes?: components["schemas"]["FileAttributeDto"][] | null;
+            };
+            relativeDirectoryComponents: string[];
         };
         DirectoryTransferPlanDto: {
             displayRoot: string;
@@ -11514,15 +11533,35 @@ export interface components {
             kind?: "remote-directory";
             username?: null | string;
             folderPath?: null | string;
-            plan?: unknown;
+            plan?: null | {
+                displayRoot: string;
+                entries: components["schemas"]["DirectoryTransferEntryDto"][];
+                /** Format: int64 */
+                totalKnownBytes: number | string;
+            };
             downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
             provenance?: null | components["schemas"]["JobProvenanceDto"];
         };
         JobDraftDtoRemoteFileJobDraftDto: {
             /** @enum {string} */
             kind?: "remote-file";
-            target: unknown;
-            outputPathComponents?: unknown;
+            target: {
+                username: string;
+                filename: string;
+                /** Format: int64 */
+                size?: null | number | string;
+                extension?: null | string;
+                /** Format: int32 */
+                bitRate?: null | number | string;
+                /** Format: int32 */
+                bitDepth?: null | number | string;
+                /** Format: int32 */
+                sampleRate?: null | number | string;
+                /** Format: int32 */
+                length?: null | number | string;
+                attributes?: components["schemas"]["FileAttributeDto"][] | null;
+            };
+            outputPathComponents?: null | string[];
             downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
             provenance?: null | components["schemas"]["JobProvenanceDto"];
         };

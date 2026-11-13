@@ -26,7 +26,7 @@ async function observeFilterRender(page: Page, query: string, label: string, fil
   }), { query, label, files });
 }
 
-test('pages and filters a 100k-file peer share without browser fan-out @Load', async ({ page, daemon }, testInfo) => {
+test('pages and filters a 100k-file peer share without browser fan-out @Load @Performance', async ({ page, daemon }, testInfo) => {
   test.setTimeout(90_000);
   await daemon.command('large-peer-shares');
   const requests: { method: string; path: string; elapsedMs: number }[] = [];
@@ -56,7 +56,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
   await expect(page.locator('.share-tree-row.file')).toHaveCount(1000);
   const browseMs = Math.round(performance.now() - browseStart);
   expect(requests.filter(item => item.path.includes('/search?'))).toHaveLength(0);
-  expect(requests.filter(item => item.path.includes('/directories?'))).toHaveLength(2);
+  expect(requests.filter(item => item.path.includes('/directories?'))).toHaveLength(1);
   expect(requests.filter(item => item.path.includes('/files?'))).toHaveLength(1);
   expect(requests.filter(item => item.path.endsWith('/snapshot'))).toHaveLength(1);
   expect(lifecycleReadsAfterStreaming).toBe(0);
@@ -99,7 +99,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load', a
   expect(selectiveRenderedMs, 'A selective filter must render promptly after its input event.').toBeLessThan(300);
   expect(broadRenderedMs, 'A 100k-file broad filter must render promptly after its input event.').toBeLessThan(300);
   expect(requests.filter(item => item.path.includes('/search?'))).toHaveLength(2);
-  expect(requests.filter(item => item.path.includes('/directories?'))).toHaveLength(2);
+  expect(requests.filter(item => item.path.includes('/directories?'))).toHaveLength(1);
   expect(requests.filter(item => item.path.includes('/files?'))).toHaveLength(1);
   const firstPageBytes = (await firstResponse.body()).byteLength;
   const moreStart = performance.now();

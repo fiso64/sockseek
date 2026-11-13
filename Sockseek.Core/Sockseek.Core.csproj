@@ -2,7 +2,6 @@
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>Sockseek.Core</AssemblyName>
@@ -23,7 +22,7 @@
     <PackageReference Include="AngleSharp" Version="1.8.5" />
     <PackageReference Include="Google.Apis.YouTube.v3" Version="1.77.0.4302" />
     <PackageReference Include="HtmlAgilityPack" Version="1.13.1" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="11.0.0" />
     <PackageReference Include="SmallestCSVParser" Version="1.2.0" />
     <!-- Upstream 10.0.2 is unlisted/deprecated for CriticalBugs, with no newer release.
          Review https://github.com/jpdillingham/Soulseek.NET/releases before upgrading;

@@ -345,6 +345,24 @@ public static class ServerHost
 
         // The public SPA shell/assets must load before the authenticated API boundary.
         app.UseOperatorAuthentication();
+        app.Use(async (context, next) =>
+        {
+            if (!context.Request.Path.StartsWithSegments("/" + LiveProtocol.HubPath))
+            {
+                await next(context);
+                return;
+            }
+            // Reconnects can arrive after SignalR closes existing connections but
+            // before Kestrel stops listening. Reject before the hub handshake so
+            // clients retry; a hub-level Abort would send a non-reconnectable close.
+            if (app.Lifetime.ApplicationStopping.IsCancellationRequested)
+            {
+                context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                return;
+            }
+            using var stopping = app.Lifetime.ApplicationStopping.Register(context.Abort);
+            await next(context);
+        });
         app.MapOpenApi("/api/openapi.json");
         AuthenticationEndpoints.Map(app);
         MapEndpoints(app);

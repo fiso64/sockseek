@@ -18,7 +18,7 @@ namespace Sockseek.Api;
 [JsonDerivedType(typeof(RemoteFileJobPayloadDto), ServerProtocol.JobKinds.RemoteFile)]
 [JsonDerivedType(typeof(RemoteDirectoryJobPayloadDto), ServerProtocol.JobKinds.RemoteDirectory)]
 [JsonDerivedType(typeof(GenericJobPayloadDto), ServerProtocol.JobKinds.Generic)]
-public abstract record JobPayloadDto;
+public closed record JobPayloadDto;
 
 public sealed record PeerFileTargetDto(
     string Username,

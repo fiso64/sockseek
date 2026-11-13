@@ -24,7 +24,7 @@ export async function measureApi(baseUrl: string, path: string, init?: RequestIn
     body, bodyBytes: Buffer.byteLength(body), elapsedMs, issuedAt };
 }
 
-const assembly = fileURLToPath(new URL('./daemon/bin/Release/net10.0/Sockseek.WebUi.TestHost.dll', import.meta.url));
+const assembly = fileURLToPath(new URL('./daemon/bin/Release/Sockseek.WebUi.TestHost.dll', import.meta.url));
 const webRoot = fileURLToPath(new URL('../dist/', import.meta.url));
 
 /** Rendering optimizations must preserve the geometry of every fetched row. */

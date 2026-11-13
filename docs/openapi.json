@@ -1,9 +1,9 @@
 {
-  "openapi": "3.1.1",
+  "openapi": "3.2.0",
   "info": {
     "title": "Sockseek daemon API",
     "description": "HTTP API for the Sockseek daemon.",
-    "version": "4.0.0"
+    "version": "4.0.0-preview"
   },
   "paths": {
     "/api/users/{username}/profile": {
@@ -7722,9 +7722,6 @@
               }
             }
           },
-          "404": {
-            "description": "Not Found"
-          },
           "400": {
             "description": "Bad Request",
             "content": {
@@ -7734,6 +7731,9 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Not Found"
           },
           "401": {
             "description": "Authentication required or credential expired/revoked."
@@ -7794,9 +7794,6 @@
               }
             }
           },
-          "404": {
-            "description": "Not Found"
-          },
           "400": {
             "description": "Bad Request",
             "content": {
@@ -7806,6 +7803,9 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Not Found"
           },
           "401": {
             "description": "Authentication required or credential expired/revoked."
@@ -7863,9 +7863,6 @@
               }
             }
           },
-          "404": {
-            "description": "Not Found"
-          },
           "400": {
             "description": "Bad Request",
             "content": {
@@ -7875,6 +7872,9 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Not Found"
           },
           "401": {
             "description": "Authentication required or credential expired/revoked."
@@ -9790,8 +9790,8 @@
         ],
         "summary": "Starts a share scan or returns the currently active scan.",
         "responses": {
-          "202": {
-            "description": "Accepted",
+          "200": {
+            "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
@@ -9800,8 +9800,8 @@
               }
             }
           },
-          "200": {
-            "description": "OK",
+          "202": {
+            "description": "Accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -13770,8 +13770,7 @@
       "DaemonStateDetail": {
         "enum": [
           "Full",
-          "Overview",
-          null
+          "Overview"
         ]
       },
       "DaemonStateDto": {
@@ -14660,6 +14659,100 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "DirectoryTransferEntryDto": {
+        "required": [
+          "target",
+          "relativeDirectoryComponents"
+        ],
+        "type": "object",
+        "properties": {
+          "target": {
+            "required": [
+              "username",
+              "filename"
+            ],
+            "type": "object",
+            "properties": {
+              "username": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              },
+              "size": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "null",
+                  "integer",
+                  "string"
+                ],
+                "format": "int64"
+              },
+              "extension": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "bitRate": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "null",
+                  "integer",
+                  "string"
+                ],
+                "format": "int32"
+              },
+              "bitDepth": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "null",
+                  "integer",
+                  "string"
+                ],
+                "format": "int32"
+              },
+              "sampleRate": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "null",
+                  "integer",
+                  "string"
+                ],
+                "format": "int32"
+              },
+              "length": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "null",
+                  "integer",
+                  "string"
+                ],
+                "format": "int32"
+              },
+              "attributes": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/FileAttributeDto"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "relativeDirectoryComponents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -15980,6 +16073,7 @@
         "required": [
           "albumQuery"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -16026,6 +16120,7 @@
         "required": [
           "albumQuery"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -16072,6 +16167,7 @@
         "required": [
           "albumQuery"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -16109,6 +16205,7 @@
         }
       },
       "JobDraftDtoExtractJobDraftDto": {
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -16170,6 +16267,7 @@
         "required": [
           "queryText"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -16206,6 +16304,7 @@
         "required": [
           "jobs"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -16248,6 +16347,7 @@
         }
       },
       "JobDraftDtoRemoteDirectoryJobDraftDto": {
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -16267,7 +16367,36 @@
               "string"
             ]
           },
-          "plan": { },
+          "plan": {
+            "required": [
+              "displayRoot",
+              "entries",
+              "totalKnownBytes"
+            ],
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "displayRoot": {
+                "type": "string"
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DirectoryTransferEntryDto"
+                }
+              },
+              "totalKnownBytes": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "format": "int64"
+              }
+            }
+          },
           "downloadSettings": {
             "oneOf": [
               {
@@ -16294,6 +16423,7 @@
         "required": [
           "target"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -16301,8 +16431,94 @@
             ],
             "type": "string"
           },
-          "target": { },
-          "outputPathComponents": { },
+          "target": {
+            "required": [
+              "username",
+              "filename"
+            ],
+            "type": "object",
+            "properties": {
+              "username": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              },
+              "size": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "null",
+                  "integer",
+                  "string"
+                ],
+                "format": "int64"
+              },
+              "extension": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "bitRate": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "null",
+                  "integer",
+                  "string"
+                ],
+                "format": "int32"
+              },
+              "bitDepth": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "null",
+                  "integer",
+                  "string"
+                ],
+                "format": "int32"
+              },
+              "sampleRate": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "null",
+                  "integer",
+                  "string"
+                ],
+                "format": "int32"
+              },
+              "length": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "null",
+                  "integer",
+                  "string"
+                ],
+                "format": "int32"
+              },
+              "attributes": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/FileAttributeDto"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "outputPathComponents": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
           "downloadSettings": {
             "oneOf": [
               {
@@ -16329,6 +16545,7 @@
         "required": [
           "songQuery"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -16375,6 +16592,7 @@
         "required": [
           "songQuery"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -16421,6 +16639,7 @@
         "required": [
           "songQuery"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -19599,6 +19818,7 @@
           "succeededAlbumCount",
           "failedAlbumCount"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -19658,6 +19878,7 @@
           "resultCount",
           "directory"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -19697,6 +19918,7 @@
         "required": [
           "input"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -19726,6 +19948,7 @@
         "required": [
           "text"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -19746,6 +19969,7 @@
           "succeededJobCount",
           "failedJobCount"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -19809,6 +20033,7 @@
           "sourceKind",
           "directory"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -19848,6 +20073,7 @@
           "outputPathComponents",
           "file"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -19953,6 +20179,7 @@
           "retrievalOutcome",
           "retrievalCancelled"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -19991,6 +20218,7 @@
           "revision",
           "isComplete"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -20060,6 +20288,7 @@
           "succeededSongCount",
           "failedSongCount"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -20118,6 +20347,7 @@
           "query",
           "file"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -33436,6 +33666,7 @@
         "required": [
           "directoryId"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -33457,6 +33688,7 @@
         "required": [
           "fileId"
         ],
+        "type": "object",
         "properties": {
           "kind": {
             "enum": [
@@ -33640,28 +33872,7 @@
   },
   "tags": [
     {
-      "name": "User Browsing"
-    },
-    {
-      "name": "User Restrictions"
-    },
-    {
-      "name": "Live State"
-    },
-    {
-      "name": "Input Artifacts"
-    },
-    {
-      "name": "Job Preview"
-    },
-    {
-      "name": "Search Views"
-    },
-    {
-      "name": "Server"
-    },
-    {
-      "name": "Persistence"
+      "name": "Authentication"
     },
     {
       "name": "Chat"
@@ -33670,40 +33881,61 @@
       "name": "Chat Rooms"
     },
     {
-      "name": "Notifications"
-    },
-    {
-      "name": "Profiles"
-    },
-    {
-      "name": "Submissions"
-    },
-    {
-      "name": "Jobs"
-    },
-    {
-      "name": "Job Submission"
-    },
-    {
-      "name": "Search Results"
+      "name": "Dashboard"
     },
     {
       "name": "Follow-up Jobs"
     },
     {
-      "name": "Workflows"
+      "name": "Input Artifacts"
     },
     {
-      "name": "Transfers"
+      "name": "Job Preview"
     },
     {
-      "name": "Dashboard"
+      "name": "Job Submission"
+    },
+    {
+      "name": "Jobs"
+    },
+    {
+      "name": "Live State"
+    },
+    {
+      "name": "Notifications"
+    },
+    {
+      "name": "Persistence"
+    },
+    {
+      "name": "Profiles"
+    },
+    {
+      "name": "Search Results"
+    },
+    {
+      "name": "Search Views"
+    },
+    {
+      "name": "Server"
     },
     {
       "name": "Sharing"
     },
     {
-      "name": "Authentication"
+      "name": "Submissions"
+    },
+    {
+      "name": "Transfers"
+    },
+    {
+      "name": "User Browsing"
+    },
+    {
+      "name": "User Restrictions"
+    },
+    {
+      "name": "Workflows"
     }
   ]
 }

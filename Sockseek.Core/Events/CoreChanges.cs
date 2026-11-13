@@ -23,7 +23,7 @@ public interface ICoalescibleCoreChange : ICoreChange
 /// </summary>
 public interface IOrderedCoreChange : ICoreChange;
 
-public abstract record CoreChange(long Sequence, DateTimeOffset OccurredAtUtc) : ICoreChange;
+public closed record CoreChange(long Sequence, DateTimeOffset OccurredAtUtc) : ICoreChange;
 
 public sealed record JobRegisteredChange(
     long Sequence,

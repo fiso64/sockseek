@@ -19,7 +19,7 @@
     "api:check": "openapi-typescript ../docs/openapi.json -o src/api/generated.ts --check"
   },
   "dependencies": {
-    "@microsoft/signalr": "10.0.11"
+    "@microsoft/signalr": "11.0.0"
   },
   "devDependencies": {
     "@playwright/test": "1.58.2",

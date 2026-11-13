@@ -1455,8 +1455,16 @@ public class RemoteCliBackendTests
             var firstPosition = monitor.ClientStore.GetPosition(StateStreamScopeDto.Daemon);
             Assert.IsNotNull(firstPosition);
 
-            // Stop the host before disposing its service provider so SignalR can
-            // run the disconnect callback during this deliberate daemon restart.
+            // A reconnect can arrive after SignalR closes its existing connections
+            // but before Kestrel stops accepting requests. Reject that late connection
+            // instead of keeping the old host alive until its shutdown timeout.
+            firstApp.Lifetime.StopApplication();
+            await using (var lateClient = new RemoteCliBackend(
+                await global::Tests.TestServerHost.CreateHttpClientAsync(firstApp)))
+            {
+                var rejected = await Assert.ThrowsAsync<HttpRequestException>(() => lateClient.SubscribeAllAsync());
+                Assert.AreEqual(HttpStatusCode.ServiceUnavailable, rejected.StatusCode);
+            }
             await firstApp.StopAsync();
 
             await using var secondApp = BuildServer(options, url);

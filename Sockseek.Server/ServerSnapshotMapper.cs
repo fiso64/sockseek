@@ -151,7 +151,7 @@ public static class ServerSnapshotMapper
                 retrieve.Directory.FolderPath, retrieve.Directory.Username, retrieve.NewFilesFoundCount,
                 ToServerFolderRetrievalOutcome(retrieve.RetrievalOutcome), retrieve.RetrievalCancelled),
             GenericJobSnapshotPayload generic => new GenericJobPayloadDto(generic.Text),
-            _ => new GenericJobPayloadDto(job.QueryText ?? ToServerJobKind(job.Kind).ToWireString()),
+            null => new GenericJobPayloadDto(job.QueryText ?? ToServerJobKind(job.Kind).ToWireString()),
         };
 
     // Summary readers need scalar counters, not a rendered detail payload. Both

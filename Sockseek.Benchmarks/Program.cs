@@ -20,4 +20,10 @@ if (args.Length > 0 && args[0].Equals("matching", StringComparison.OrdinalIgnore
     return;
 }
 
+if (args.Length > 0 && args[0].Equals("search", StringComparison.OrdinalIgnoreCase))
+{
+    BenchmarkSwitcher.FromTypes([typeof(ResultSorterBenchmarks), typeof(SearchResultProjectorBenchmarks)]).Run(args[1..]);
+    return;
+}
+
 BenchmarkSwitcher.FromAssembly(typeof(ConfigurationBenchmarks).Assembly).Run(args);

@@ -555,7 +555,7 @@ for (const mode of modes) {
         const response = await page.request.get(`/api/jobs?submissionId=${commit.receipt.submissionId}&includeAll=true&limit=100`);
         expect(response.ok(), await response.text()).toBe(true);
         const jobs = await response.json() as Schema<'JobSummaryDto'>[];
-        const directories = jobs.filter(job => job.kind === 'remote-directory');
+        const directories = jobs.filter(job => job.kind === (mode.kind === 'AlbumDirectories' ? 'album' : 'remote-directory'));
         expect(directories).toHaveLength(1);
         directoryId = directories[0]!.jobId!;
         await page.goto(`/jobs/${directoryId}`);
@@ -570,7 +570,8 @@ for (const mode of modes) {
         await daemon.command('release-download');
       }
       const completed = await verifyDirectoryPlan(directoryId, expectedFiles.map(expectedFile), outputDirectory);
-      expect(Number(completed.directory.bytesTransferred)).toBe(76_500_000);
+      expect(Number(completed.directory.bytesTransferred))
+        .toBe(expectedFiles.reduce((sum, file) => sum + Number(file.file.size), 0));
       page.off('request', record);
       expect(requests.filter(request => request.path.endsWith('/commit'))).toHaveLength(1);
       expect(requests.filter(request => request.path.endsWith('/selection-counts'))).toHaveLength(1);
@@ -669,7 +670,8 @@ for (const mode of modes) {
         expect(fullCommit.body.options?.downloadSettings?.search?.noBrowseFolder).not.toBe(true);
         const response = await page.request.get(`/api/jobs?submissionId=${fullCommit.receipt.submissionId}&includeAll=true&limit=100`);
         expect(response.ok(), await response.text()).toBe(true);
-        const directories = (await response.json() as Schema<'JobSummaryDto'>[]).filter(job => job.kind === 'remote-directory');
+        const directories = (await response.json() as Schema<'JobSummaryDto'>[])
+          .filter(job => job.kind === (mode.kind === 'AlbumDirectories' ? 'album' : 'remote-directory'));
         expect(directories).toHaveLength(1);
         fullDirectoryId = directories[0]!.jobId!;
         if (mode.kind === 'AlbumDirectories') {
@@ -677,8 +679,8 @@ for (const mode of modes) {
           await page.goto(`/jobs/${fullDirectoryId}`);
           await expect(page.locator('.automatic-job-detail h1')).toBeVisible();
           await expect(page.locator('.job-detail-heading-summary')).not.toContainText('0 files');
-          await expect(page.locator('.folder-transfer-size')).toHaveText('—');
-          await expect(page.locator('.folder-item-card')).toContainText('Waiting for the accepted file plan.');
+          await expect(page.locator('.folder-heading-size')).toHaveText('—');
+          await expect(page.locator('.folder-file-row')).toHaveCount(0);
           const resolvingScreenshot = testInfo.outputPath('resolving-full-folder-plan.png');
           await page.screenshot({ path: resolvingScreenshot });
           await testInfo.attach('Album Search directory still resolving', { path: resolvingScreenshot, contentType: 'image/png' });
@@ -689,8 +691,13 @@ for (const mode of modes) {
         if (mode.kind === 'GenericDirectories') await page.goto(`/jobs/${fullDirectoryId}`);
         await expect(page.locator('.folder-item-card .folder-file-row')).toHaveCount(11);
         await expect(page.locator('.folder-item-card')).toContainText('10 - Fixture Bonus.flac');
-        await expect(page.locator('.folder-item-card .transfer-progress-track'))
-          .toHaveAttribute('aria-label', '100% complete');
+        await expect(page.locator('.folder-item-card .transfer-progress-track')).toBeVisible();
+        // These are new submissions, so earlier downloads cannot fill this
+        // held transfer through workflow-local reuse.
+        const progress = await page.locator('.folder-item-card .transfer-progress-track > span')
+          .evaluate(element => Number.parseFloat((element as HTMLElement).style.width));
+        expect(progress).toBeGreaterThan(0);
+        expect(progress).toBeLessThan(100);
         if (mode.kind === 'GenericDirectories') {
           await page.setViewportSize({ width: 390, height: 900 });
           await page.emulateMedia({ colorScheme: 'dark' });
@@ -704,7 +711,7 @@ for (const mode of modes) {
         page.off('request', recordFull);
       }
       const fullCompleted = await verifyDirectoryPlan(fullDirectoryId, fullExpected, fullOutput);
-      const networkBytes = root.ref.username === firstDirectory.ref.username ? 128 : 84_500_128;
+      const networkBytes = fullExpected.reduce((sum, file) => sum + file.size, 0);
       expect(Number(fullCompleted.directory.bytesTransferred)).toBe(networkBytes);
       expect(daemon.logs().filter(line => line === 'E2E_METRIC large-music-browse files=100000')).toHaveLength(1);
       expect(fullRequests.filter(request => request.method === 'POST' && request.path.endsWith('/directories/retrieve')))
@@ -714,7 +721,8 @@ for (const mode of modes) {
       expect(fullRequests.filter(request => request.method === 'GET'
         && /\/directories\/[^/]+\/files(?:\?|$)/.test(request.path))).toHaveLength(0);
       expect(fullRequests.filter(request => request.method === 'POST' && request.path.endsWith('/commit'))).toHaveLength(1);
-      expect(fullRequests.filter(request => request.path.includes('/profile'))).toHaveLength(0);
+      expect(fullRequests.filter(request => /\/api\/users\/[^/]+\/profile/.test(request.path))).toHaveLength(0);
+      expect(fullRequests.filter(request => request.path === '/api/profiles').length).toBeLessThanOrEqual(1);
       const settings = fullRequests.filter(request => request.path.endsWith('/selection-settings'));
       expect(new Set(settings.map(request => request.body)).size).toBe(settings.length);
       fullFolderPlan = { browseUiMs, heldDetailApiMs, commitApiMs: fullCommit.apiMs,

@@ -51,7 +51,7 @@ public sealed class YtDlpClient : IYtDlpClient
     public async Task<IReadOnlyList<YtDlpSearchResult>> SearchAsync(SongQuery query, IJobLog? log, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var results = await YtDlpCommand.SearchAsync(query, log);
+        var results = await YtDlpCommand.SearchAsync(query, log, ct);
         ct.ThrowIfCancellationRequested();
         return results
             .Select(result => new YtDlpSearchResult(result.length, result.id, result.title))
@@ -61,7 +61,7 @@ public sealed class YtDlpClient : IYtDlpClient
     public async Task<string> DownloadAsync(string id, string savePathNoExt, string ytdlpArgument, IJobLog? log, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var path = await YtDlpCommand.DownloadAsync(id, savePathNoExt, ytdlpArgument, log);
+        var path = await YtDlpCommand.DownloadAsync(id, savePathNoExt, ytdlpArgument, log, ct);
         ct.ThrowIfCancellationRequested();
         return path;
     }
@@ -74,11 +74,11 @@ internal static class YtDlpCommand
     private const string DownloadResultTemplate =
         "[%(filepath)j,%(id)j,%(title)j,%(webpage_url)j,%(extractor)j,%(format_id)j,%(ext)j,%(duration)j]";
 
-    public static async Task<List<(int length, string id, string title)>> SearchAsync(SongQuery query, IJobLog? log = null)
+    public static async Task<List<(int length, string id, string title)>> SearchAsync(SongQuery query, IJobLog? log = null, CancellationToken ct = default)
     {
         log ??= ExtractorContext.None.Log;
         string search = query.Artist.Length > 0 ? $"{query.Artist} - {query.Title}" : query.Title;
-        var result = await RunAsync($"\"ytsearch3:{search}\" --dump-json", log);
+        var result = await RunAsync($"\"ytsearch3:{search}\" --dump-json", log, ct: ct);
         if (result.ExitCode != 0)
             throw new InvalidOperationException($"yt-dlp search failed with exit code {result.ExitCode}: {string.Join(Environment.NewLine, result.Stderr)}");
 
@@ -152,12 +152,12 @@ internal static class YtDlpCommand
         }
     }
 
-    public static async Task<string> DownloadAsync(string id, string savePathNoExt, string ytdlpArgument = "", IJobLog? log = null)
+    public static async Task<string> DownloadAsync(string id, string savePathNoExt, string ytdlpArgument = "", IJobLog? log = null, CancellationToken ct = default)
     {
         log ??= ExtractorContext.None.Log;
         var arguments = BuildDownloadArguments(id, savePathNoExt, ytdlpArgument);
 
-        var result = await RunAsync(arguments, log, StripInternalDownloadResultPrint(arguments));
+        var result = await RunAsync(arguments, log, StripInternalDownloadResultPrint(arguments), ct);
         if (result.ExitCode != 0)
             throw new InvalidOperationException($"yt-dlp download failed with exit code {result.ExitCode}: {string.Join(Environment.NewLine, result.Stderr)}");
 
@@ -341,40 +341,42 @@ internal static class YtDlpCommand
             : null;
     }
 
-    private sealed record ProcessResult(int ExitCode, IReadOnlyList<string> Stdout, IReadOnlyList<string> Stderr);
+    internal sealed record ProcessResult(int ExitCode, IReadOnlyList<string> Stdout, IReadOnlyList<string> Stderr);
 
-    private static async Task<ProcessResult> RunAsync(string arguments, IJobLog log, string? logArguments = null)
-    {
-        using var process = new Process();
-        process.StartInfo = new ProcessStartInfo
+    private static Task<ProcessResult> RunAsync(string arguments, IJobLog log,
+        string? logArguments = null, CancellationToken ct = default)
+        => RunAsync(new ProcessStartInfo("yt-dlp", arguments)
         {
-            FileName = "yt-dlp",
-            Arguments = arguments,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-        };
+        }, log, logArguments, ct);
 
-        log.Info($"{process.StartInfo.FileName} {logArguments ?? process.StartInfo.Arguments}");
-        process.Start();
-
-        var stdoutTask = ReadLinesAsync(process.StandardOutput);
-        var stderrTask = ReadLinesAsync(process.StandardError);
-        await process.WaitForExitAsync();
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
-        foreach (var line in stderr)
-            log.Info(line);
-
-        return new ProcessResult(process.ExitCode, stdout, stderr);
-    }
-
-    private static async Task<List<string>> ReadLinesAsync(TextReader reader)
+    internal static async Task<ProcessResult> RunAsync(ProcessStartInfo startInfo, IJobLog log,
+        string? logArguments = null, CancellationToken ct = default)
     {
-        var lines = new List<string>();
-        string? line;
-        while ((line = await reader.ReadLineAsync()) != null)
-            lines.Add(line);
-        return lines;
+        ct.ThrowIfCancellationRequested();
+        log.Info($"{startInfo.FileName} {logArguments ?? startInfo.Arguments}");
+        using var process = Process.Start(startInfo)!;
+        List<string> stdout = [], stderr = [];
+        try
+        {
+            await foreach (var line in process.ReadAllLinesAsync(ct))
+                (line.StandardError ? stderr : stdout).Add(line.Content);
+            await process.WaitForExitAsync(ct);
+            foreach (var line in stderr) log.Info(line);
+            return new ProcessResult(process.ExitCode, stdout, stderr);
+        }
+        finally
+        {
+            // Canceling output enumeration or a wait does not terminate yt-dlp.
+            // Join the child on failure/cancellation as well as normal EOF.
+            if (!process.HasExited)
+            {
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) when (process.HasExited) { }
+                await process.WaitForExitAsync();
+            }
+        }
     }
 }

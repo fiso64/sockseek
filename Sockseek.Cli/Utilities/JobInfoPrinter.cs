@@ -26,43 +26,25 @@ internal static class JobInfoPrinter
         if (!string.IsNullOrEmpty(s.SourceDetail))
             Field("Source", s.SourceDetail);
 
-        switch (detail.Payload)
+        Action printPayload = detail.Payload switch
         {
-            case SongJobPayloadDto song:
-                PrintSong(song);
-                break;
-            case AlbumJobPayloadDto album:
-                PrintAlbum(album, children);
-                break;
-            case ExtractJobPayloadDto extract:
-                PrintExtract(extract, children);
-                break;
-            case SongGroupsJobPayloadDto agg:
-                PrintGroup(agg, children);
-                break;
-            case AlbumGroupsJobPayloadDto albumAgg:
-                PrintAlbumGroups(albumAgg, children);
-                break;
-            case JobListPayloadDto list:
-                PrintJobList(list, children);
-                break;
-            case RetrieveFolderJobPayloadDto retrieve:
-                PrintRetrieveFolder(retrieve);
-                break;
-            case RemoteFileJobPayloadDto remoteFile:
-                PrintRemoteFile(remoteFile);
-                break;
-            case RemoteDirectoryJobPayloadDto remoteDirectory:
-                PrintRemoteDirectory(remoteDirectory, children);
-                break;
-            case GenericJobPayloadDto generic:
-                Field("Info", generic.Text);
-                break;
-            default:
+            SongJobPayloadDto song => () => PrintSong(song),
+            AlbumJobPayloadDto album => () => PrintAlbum(album, children),
+            ExtractJobPayloadDto extract => () => PrintExtract(extract, children),
+            SongGroupsJobPayloadDto group => () => PrintGroup(group, children),
+            AlbumGroupsJobPayloadDto group => () => PrintAlbumGroups(group, children),
+            JobListPayloadDto list => () => PrintJobList(list, children),
+            RetrieveFolderJobPayloadDto retrieve => () => PrintRetrieveFolder(retrieve),
+            RemoteFileJobPayloadDto file => () => PrintRemoteFile(file),
+            RemoteDirectoryJobPayloadDto directory => () => PrintRemoteDirectory(directory, children),
+            GenericJobPayloadDto generic => () => Field("Info", generic.Text),
+            SearchJobPayloadDto or null => () =>
+            {
                 if (s.ItemName != null) Field("Name", s.ItemName);
                 if (s.QueryText != null) Field("Query", s.QueryText);
-                break;
-        }
+            },
+        };
+        printPayload();
 
         if (s.FailureMessage != null)
             Field("Error", s.FailureMessage, ConsoleColor.Red);

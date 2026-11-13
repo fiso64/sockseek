@@ -12,13 +12,14 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
 
   <PropertyGroup>
     <RepoRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</RepoRoot>
-    <Framework Condition="'$(Framework)' == ''">net10.0</Framework>
+    <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
+    <Framework Condition="'$(Framework)' == ''">$(TargetFramework)</Framework>
 
     <ArtifactsDir Condition="'$(ArtifactsDir)' == ''">$(RepoRoot)/artifacts</ArtifactsDir>
 
     <CliProject>$(RepoRoot)/Sockseek.Cli/Sockseek.Cli.csproj</CliProject>
     <PackagerProject>$(RepoRoot)/Sockseek.Packager/Sockseek.Packager.csproj</PackagerProject>
-    <PackagerTargetFramework>net10.0</PackagerTargetFramework>
+    <PackagerTargetFramework>$(TargetFramework)</PackagerTargetFramework>
     <PackagerDll>$(RepoRoot)/Sockseek.Packager/bin/$(Configuration)/$(PackagerTargetFramework)/Sockseek.Packager.dll</PackagerDll>
   </PropertyGroup>
 

@@ -405,7 +405,7 @@ namespace Sockseek.Core.Extractors;
         [GeneratedRegex(@"document\.title\s*=\s*""(.+?) - YouTube"";")]
         private static partial Regex DocumentTitleRegex();
 
-            public class YouTubeArchiveRetriever : IDisposable
+        public class YouTubeArchiveRetriever : IDisposable
         {
             private readonly HttpClient _client;
             private readonly IJobLog _log;
@@ -419,82 +419,70 @@ namespace Sockseek.Core.Extractors;
 
             public async Task<List<SongJob>> RetrieveDeleted(string url, bool printFailed = true)
             {
-                using var deletedVideoUrls = new BlockingCollection<string>();
-
                 int totalCount = 0;
                 int archivedCount = 0;
                 var songs = new ConcurrentBag<SongJob>();
                 var noArchive = new ConcurrentBag<string>();
                 var failRetrieve = new ConcurrentBag<string>();
 
-                int workerCount = 4;
-                var workers = new List<Task>();
-
-                using var process = new Process
+                using var process = Process.Start(new ProcessStartInfo
                 {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = "yt-dlp",
-                        Arguments = $"--ignore-no-formats-error --no-warn --match-filter \"!uploader\" --print webpage_url {url}",
-                        RedirectStandardOutput = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                    },
-                    EnableRaisingEvents = true
-                };
-                process.OutputDataReceived += (sender, e) =>
+                    FileName = "yt-dlp",
+                    Arguments = $"--ignore-no-formats-error --no-warn --match-filter \"!uploader\" --print webpage_url {url}",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                })!;
+                try
                 {
-                    if (!string.IsNullOrWhiteSpace(e.Data))
+                    // EOF, not Process.Exited, ends URL collection: final output
+                    // can still be arriving after the child exits.
+                    await Parallel.ForEachAsync(process.ReadAllLinesAsync(),
+                        new ParallelOptions { MaxDegreeOfParallelism = 4 }, async (line, _) =>
                     {
-                        deletedVideoUrls.Add(e.Data);
+                        if (line.StandardError) { _log.Info(line.Content); return; }
+                        if (string.IsNullOrWhiteSpace(line.Content)) return;
+                        string videoUrl = line.Content;
                         Interlocked.Increment(ref totalCount);
-                    }
-                };
-                process.Exited += (sender, e) => { deletedVideoUrls.CompleteAdding(); };
-
-                process.Start();
-                process.BeginOutputReadLine();
-
-                for (int i = 0; i < workerCount; i++)
-                {
-                    workers.Add(Task.Run(async () =>
-                    {
-                        foreach (var videoUrl in deletedVideoUrls.GetConsumingEnumerable())
+                        var waybackUrls = await GetOldestArchiveUrls(videoUrl, limit: 2);
+                        if (waybackUrls != null && waybackUrls.Count > 0)
                         {
-                            var waybackUrls = await GetOldestArchiveUrls(videoUrl, limit: 2);
-                            if (waybackUrls != null && waybackUrls.Count > 0)
-                            {
-                                Interlocked.Increment(ref archivedCount);
+                            Interlocked.Increment(ref archivedCount);
 
-                                bool good = false;
-                                foreach (var waybackUrl in waybackUrls)
+                            bool good = false;
+                            foreach (var waybackUrl in waybackUrls)
+                            {
+                                var (title, uploader, duration) = await GetVideoDetails(waybackUrl);
+                                if (!string.IsNullOrWhiteSpace(title))
                                 {
-                                    var (title, uploader, duration) = await GetVideoDetails(waybackUrl);
-                                    if (!string.IsNullOrWhiteSpace(title))
-                                    {
-                                        var song = await ParseSongInfo(title, uploader, waybackUrl, duration, log: _log);
-                                        song.ExtractorInfo = $"{{\"t\":\"{title.Trim()}\",\"u\":\"{uploader.Trim()}\"}}";
-                                        songs.Add(song);
-                                        good = true;
-                                        break;
-                                    }
+                                    var song = await ParseSongInfo(title, uploader, waybackUrl, duration, log: _log);
+                                    song.ExtractorInfo = $"{{\"t\":\"{title.Trim()}\",\"u\":\"{uploader.Trim()}\"}}";
+                                    songs.Add(song);
+                                    good = true;
+                                    break;
                                 }
-
-                                if (!good)
-                                    failRetrieve.Add(waybackUrls[0]);
-                            }
-                            else
-                            {
-                                noArchive.Add(videoUrl);
                             }
 
+                            if (!good)
+                                failRetrieve.Add(waybackUrls[0]);
                         }
-                    }));
+                        else
+                        {
+                            noArchive.Add(videoUrl);
+                        }
+                    });
+                    await process.WaitForExitAsync();
                 }
-
-                await Task.WhenAll(workers);
-                await process.WaitForExitAsync();
-                deletedVideoUrls.CompleteAdding();
+                finally
+                {
+                    if (!process.HasExited)
+                    {
+                        try { process.Kill(entireProcessTree: true); }
+                        catch (InvalidOperationException) when (process.HasExited) { }
+                        await process.WaitForExitAsync();
+                    }
+                }
                 _log.Info($"Deleted metadata total/archived/retrieved: {totalCount}/{archivedCount}/{songs.Count}");
 
                 if (printFailed)

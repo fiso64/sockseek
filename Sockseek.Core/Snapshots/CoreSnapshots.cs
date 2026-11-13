@@ -181,10 +181,10 @@ public sealed record FileSearchProjectionSnapshot(SongQuerySnapshot Query, bool 
 
 public sealed record FolderSearchProjectionSnapshot(AlbumQuerySnapshot Query, bool IncludeFiles);
 
-public abstract record JobSnapshotPayload;
+public closed record JobSnapshotPayload;
 
 /// <summary>Execution data cannot contain job trees, plans or directory listings.</summary>
-public abstract record JobExecutionPayload : JobSnapshotPayload;
+public closed record JobExecutionPayload : JobSnapshotPayload;
 
 public sealed record FileDownloadStateSnapshot(
     string? DownloadPath,

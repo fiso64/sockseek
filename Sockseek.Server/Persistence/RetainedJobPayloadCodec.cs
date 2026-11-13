@@ -41,7 +41,6 @@ internal static class RetainedJobPayloadCodec
             JobListSnapshotPayload list => new JobListExecutionPayload(ServerSnapshotMapper.ListOutcomes(list)),
             RetrieveFolderJobSnapshotPayload retrieve => new RetrieveFolderExecutionPayload(
                 retrieve.Directory, retrieve.NewFilesFoundCount, retrieve.RetrievalOutcome, retrieve.RetrievalCancelled),
-            _ => throw new InvalidOperationException($"Unsupported retained job payload {payload.GetType().Name}."),
         };
         return new(() => JsonSerializer.Serialize(compact, compact.GetType(), Options));
     }

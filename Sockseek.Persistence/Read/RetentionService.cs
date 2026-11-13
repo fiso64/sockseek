@@ -75,7 +75,7 @@ public sealed class RetentionService(
             string sources = JsonSerializer.Serialize(searchIdsToPrune.Select(id => id.ToString("D").ToUpperInvariant()));
             prunedResults = await context.SearchResults.Where(result => searchIdsToPrune.Contains(result.SearchJobId))
                 .CountAsync(cancellationToken).ConfigureAwait(false);
-            await context.Database.ExecuteSqlInterpolatedAsync($"""
+            await context.Database.ExecuteSqlAsync($"""
                 DELETE FROM search_observation_sources
                 WHERE search_job_id IN (SELECT value FROM json_each({sources}));
                 """, cancellationToken).ConfigureAwait(false);

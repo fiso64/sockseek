@@ -157,8 +157,8 @@ public sealed class SqliteInitializationTests
         await context.SaveChangesAsync();
         await context.GetService<IMigrator>().MigrateAsync("20261106230000_DownloadPresentationGroups");
         // Seed the previous schema directly; current entities deliberately have no archive field.
-        await context.Database.ExecuteSqlInterpolatedAsync($"UPDATE submissions SET archived_at_utc = 100 WHERE id = {deleted}");
-        await context.Database.ExecuteSqlInterpolatedAsync($"""
+        await context.Database.ExecuteSqlAsync($"UPDATE submissions SET archived_at_utc = 100 WHERE id = {deleted}");
+        await context.Database.ExecuteSqlAsync($"""
             INSERT INTO transfers (id, job_id, last_runtime_id, last_sequence, direction, source, state,
                 terminal_outcome, failure_reason, cancellation_source, total_bytes, transferred_bytes,
                 attempt_count, created_at_utc, completed_at_utc, revision, group_kind, archived_at_utc)
@@ -391,7 +391,7 @@ public sealed class SqliteInitializationTests
         await database.Initializer.InitializeAsync();
         await using (var context = await database.Factory.CreateDbContextAsync())
         {
-            await context.Database.ExecuteSqlInterpolatedAsync($"""
+            await context.Database.ExecuteSqlAsync($"""
                 CREATE TABLE operator_data(value TEXT);
                 INSERT INTO operator_data VALUES ('keep me');
                 INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion)

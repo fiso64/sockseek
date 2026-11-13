@@ -2,6 +2,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
+  // Manual timing checks: SOCKSEEK_RUN_LOAD=1 npx playwright test --grep '@Performance'.
+  // CI's scheduled Load run excludes that tag.
   testIgnore: process.env.SOCKSEEK_RUN_LOAD === '1' ? [] : ['**/*.load.spec.ts'],
   fullyParallel: false,
   // Each worker owns its daemon and database. Run ordinary files in parallel;

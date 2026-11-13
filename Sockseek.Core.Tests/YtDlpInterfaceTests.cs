@@ -1,4 +1,6 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Diagnostics;
+using Sockseek.Core.Extractors;
 using Sockseek.Core.Services;
 
 namespace Tests.Core;
@@ -6,6 +8,34 @@ namespace Tests.Core;
 [TestClass]
 public class YtDlpInterfaceTests
 {
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(7)]
+    public async Task ProcessOutputIsDrainedThroughExit(int exitCode)
+    {
+        var start = new ProcessStartInfo
+        {
+            FileName = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        if (OperatingSystem.IsWindows())
+        {
+            start.ArgumentList.Add("/c");
+            start.ArgumentList.Add($"echo first&echo diagnostic 1>&2&<nul set /p =last&exit /b {exitCode}");
+        }
+        else
+        {
+            start.ArgumentList.Add("-c");
+            start.ArgumentList.Add($"printf 'first\\n'; printf diagnostic >&2; printf last; exit {exitCode}");
+        }
+        var result = await YtDlpCommand.RunAsync(start, ExtractorContext.None.Log);
+        Assert.AreEqual(exitCode, result.ExitCode);
+        CollectionAssert.AreEqual(new[] { "first", "last" }, result.Stdout.ToArray());
+        Assert.AreEqual("diagnostic", result.Stderr.Single().Trim());
+    }
+
     [TestMethod]
     public void TryParseYtdlpSearchResult_ReadsJsonFields()
     {

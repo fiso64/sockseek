@@ -71,7 +71,12 @@ internal static class ServerEndpoints
             .Produces<PersistenceRetentionResultDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
 
-        app.MapHub<ServerEventHub>("/api/events", options => options.CloseOnAuthenticationExpiration = true)
+        app.MapHub<ServerEventHub>("/api/events", options =>
+        {
+            options.CloseOnAuthenticationExpiration = true;
+            // Sessions have fixed expiry; API keys are revoked rather than refreshed.
+            options.EnableAuthenticationRefresh = false;
+        })
             .RequireAuthorization();
     }
 }
