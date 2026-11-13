@@ -90,6 +90,14 @@ export class DaemonApiClient {
     return this.http.post('/job-previews', request, signal);
   }
 
+  getProfiles(signal?: AbortSignal): Promise<Schema<'ProfileSummaryDto'>[]> {
+    return this.http.get('/profiles', signal);
+  }
+
+  resolveUserShareDownloadSettings(options: Schema<'SubmissionOptionsDto'>, signal?: AbortSignal): Promise<Schema<'ResolveEffectiveSettingsResponseDto'>> {
+    return this.http.post('/user-browses/download-settings', options, signal);
+  }
+
   resolveEffectiveSettings(request: Schema<'ResolveEffectiveSettingsRequestDto'>, signal?: AbortSignal): Promise<Schema<'ResolveEffectiveSettingsResponseDto'>> {
     return this.http.post('/jobs/effective-settings', request, signal);
   }
@@ -325,8 +333,9 @@ export class DaemonApiClient {
     signal?: AbortSignal,
     excludedFileIds?: string[],
     excludedDirectoryIds?: string[],
+    options?: Schema<'SubmissionOptionsDto'>,
   ): Promise<StartUserShareDownloadsResponseDto> {
-    const request: Schema<'StartUserShareDownloadsRequestDto'> = { requestId, selections, excludedFileIds, excludedDirectoryIds };
+    const request: Schema<'StartUserShareDownloadsRequestDto'> = { requestId, selections, excludedFileIds, excludedDirectoryIds, options };
     return this.http.post(`/user-browses/${encodeURIComponent(browseId)}/downloads`, request, signal);
   }
 

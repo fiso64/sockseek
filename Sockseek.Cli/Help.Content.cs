@@ -769,13 +769,15 @@ Configuration
     The following operators are supported for use in profile-cond: &&, ||, ==, !=, !{bool}. The
     following variables are available:
 
-    input-type        (""youtube""|""csv""|""string""|""bandcamp""|""spotify""|""list""|""soulseek-link""|""musicbrainz""|""manual-search""|""peer-shares""|""none"")
-    download-mode     (""song""|""song-groups""|""album""|""album-groups""|""generic"")
-    album             (bool)
-    group             (bool)
-    interactive       (bool)
-    progress-json     (bool)
-    no-progress       (bool)";
+    input-type        ""youtube""|""csv""|""string""|""bandcamp""|""spotify""|""list""|
+                      ""musicbrainz""|""soulseek-link""|""manual-search""|
+                      ""peer-shares""|""none""
+    download-mode     ""song""|""song-groups""|""album""|""album-groups""|""generic""
+    album             bool
+    group             bool
+    interactive       bool
+    progress-json     bool
+    no-progress       bool";
 
     const string onCompleteHelp = @"
 On-Complete Actions

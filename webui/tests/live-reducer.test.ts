@@ -16,7 +16,7 @@ function job(revision: number, phase: JobStateDto['lifecycle']['activityPhase'] 
       kind: 'search',
       itemName: null,
       queryText: 'boards of canada',
-      appliedAutoProfiles: [],
+      appliedProfiles: [],
       printOption: 0,
       submissionId: null,
       role: 'user-root',

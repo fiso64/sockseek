@@ -20,7 +20,7 @@ public sealed class AutoProfileWorkflowReporterTests
         {
             Config = new DownloadSettings
             {
-                AppliedAutoProfiles = ["music"],
+                AppliedProfiles = [new("music", "automatic")],
             },
         };
         var summaries = new List<string>();

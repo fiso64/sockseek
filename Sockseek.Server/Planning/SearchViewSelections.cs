@@ -144,9 +144,10 @@ public sealed class SearchViewSelections
                             new PeerDirectoryIdentity(item.Directory!.Username, item.Directory.FolderPath),
                             [item.Directory.BestChild.Input.ToFileCandidate().Target], isComplete: false)))),
                 };
-                DownloadSettings settings = submissions.PrepareSearchViewSelectionJob(job, options: null, resolver: settingsResolver);
+                DownloadSettings settings = submissions.PrepareSearchViewSelectionJob(job, options: request.Options, resolver: settingsResolver);
                 variants.Add(kind.Value, new SearchViewSelectionSettingsVariantDto(
-                    kind.Value, EffectiveSettingsMapper.ToSafeSettings(settings)));
+                    kind.Value, EffectiveSettingsMapper.ToSafeSettings(settings),
+                    settings.AppliedProfiles.Select(profile => new AppliedProfileDto(profile.Name, profile.Source)).ToArray()));
             }
             if (item.Directory != null || item.TrackGroup != null || item.AlbumGroup != null)
                 selectedContainers.Add(item.Ref);

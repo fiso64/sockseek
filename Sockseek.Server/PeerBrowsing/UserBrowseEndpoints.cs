@@ -11,6 +11,11 @@ internal static class UserBrowseEndpoints
 
     public static void Map(WebApplication app)
     {
+        app.MapPost("/api/user-browses/download-settings", (SubmissionOptionsDto options, JobSubmissions submissions) =>
+            Results.Ok(submissions.ResolveUserShareDownloadSettings(options)))
+            .WithTags("User Browsing")
+            .WithSummary("Resolves settings for ordinary downloads from peer shares.")
+            .Produces<ResolveEffectiveSettingsResponseDto>();
         app.MapPost("/api/users/{username}/browses", StartAsync)
             .WithTags("User Browsing")
             .WithSummary("Starts, joins, or reuses a remote user's share browse.")

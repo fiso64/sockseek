@@ -131,9 +131,9 @@ namespace Sockseek.Core.Jobs;
         // every pending job. Prefer live edits once that copy actually exists.
         internal PrintOption EffectivePrintOption => _config?.PrintOption
             ?? PlannedSettings?.PrintOption ?? PrintOption.None;
-        internal IEnumerable<string> EffectiveAutoProfiles => _config is { } config
-            ? config.AppliedAutoProfiles ?? Enumerable.Empty<string>()
-            : PlannedSettings?.AppliedAutoProfiles ?? [];
+        internal IEnumerable<Settings.AppliedProfile> EffectiveProfiles => _config is { } config
+            ? config.AppliedProfiles
+            : PlannedSettings?.AppliedProfiles ?? [];
 
         internal void BindPlannedSettings(Settings.DownloadSettings ownedSettings)
         {

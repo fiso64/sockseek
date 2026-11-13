@@ -59,9 +59,14 @@ public class DownloadSettings
         _ => throw new Exception($"Input error: Invalid print option '{s}' for '{flag}'"),
     };
 
-    /// Tracks which auto-profiles were applied by the job settings resolver.
+    /// Application order and origin, captured with accepted settings.
     [SettingIgnore]
-    public HashSet<string> AppliedAutoProfiles { get; set; } = [];
+    public List<AppliedProfile> AppliedProfiles { get; set; } = [];
+
+    // Workflow logging needs automatic matches, not explicitly selected profiles.
+    [JsonIgnore, SettingIgnore]
+    public IReadOnlyList<string> AppliedAutoProfiles => AppliedProfiles
+        .Where(profile => profile.Source == "automatic").Select(profile => profile.Name).ToArray();
 
     /// Runtime path expansion context. This is not a user-facing setting.
     [JsonIgnore]

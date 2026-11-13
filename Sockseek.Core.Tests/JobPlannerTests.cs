@@ -94,7 +94,7 @@ public sealed class JobPlannerTests
     public void SnapshotMetadataUsesFrozenSettingsAndReflectsLaterLiveEdits()
     {
         var settings = new DownloadSettings { PrintOption = PrintOption.Results | PrintOption.Full };
-        settings.AppliedAutoProfiles.Add("frozen-profile");
+        settings.AppliedProfiles.Add(new("frozen-profile", "automatic"));
         var job = new SongJob(new SongQuery { Title = "Track" })
         {
             PlannedSettings = JobSettingsSnapshot.Capture(settings),
@@ -103,17 +103,17 @@ public sealed class JobPlannerTests
         var reference = CoreSnapshotFactory.CreateJobReference(job, 1);
         Assert.AreEqual(settings.PrintOption, frozen.PrintOption);
         Assert.AreEqual(settings.PrintOption, reference.PrintOption);
-        CollectionAssert.AreEqual(new[] { "frozen-profile" }, frozen.AppliedAutoProfiles.ToArray());
+        CollectionAssert.AreEqual(new[] { "frozen-profile" }, frozen.AppliedProfiles.Select(profile => profile.Name).ToArray());
 
         job.Config.PrintOption = PrintOption.Jobs;
-        job.Config.AppliedAutoProfiles.Clear();
-        job.Config.AppliedAutoProfiles.Add("live-profile");
+        job.Config.AppliedProfiles.Clear();
+        job.Config.AppliedProfiles.Add(new("live-profile", "automatic"));
         var live = CoreSnapshotFactory.CreateJob(job, 2);
         Assert.AreEqual(PrintOption.Jobs, live.PrintOption);
         Assert.AreEqual(PrintOption.Jobs, CoreSnapshotFactory.CreateJobReference(job, 2).PrintOption);
-        CollectionAssert.AreEqual(new[] { "live-profile" }, live.AppliedAutoProfiles.ToArray());
+        CollectionAssert.AreEqual(new[] { "live-profile" }, live.AppliedProfiles.Select(profile => profile.Name).ToArray());
         Assert.AreEqual(settings.PrintOption, frozen.PrintOption);
-        CollectionAssert.AreEqual(new[] { "frozen-profile" }, frozen.AppliedAutoProfiles.ToArray());
+        CollectionAssert.AreEqual(new[] { "frozen-profile" }, frozen.AppliedProfiles.Select(profile => profile.Name).ToArray());
     }
 
     [TestMethod]
@@ -122,7 +122,7 @@ public sealed class JobPlannerTests
     public void PendingJobSnapshotsStayCompactAndPreserveSettingsMetadata()
     {
         var settings = new DownloadSettings { PrintOption = PrintOption.Results | PrintOption.Full };
-        settings.AppliedAutoProfiles.Add("fixture-profile");
+        settings.AppliedProfiles.Add(new("fixture-profile", "automatic"));
         var shared = JobSettingsSnapshot.Capture(settings);
         var jobs = Enumerable.Range(0, 10_000).Select(index => (Job)new SongJob(
             new SongQuery { Title = $"Track {index:D5}" }) { PlannedSettings = shared }).ToList();
@@ -137,7 +137,7 @@ public sealed class JobPlannerTests
         var rows = ((JobListSnapshotPayload)snapshot.Payload).Jobs;
         Assert.AreEqual(10_000, rows.Count);
         Assert.IsTrue(rows.All(row => row.PrintOption == settings.PrintOption
-            && row.AppliedAutoProfiles.SequenceEqual(new[] { "fixture-profile" })));
+            && row.AppliedProfiles.Select(profile => profile.Name).SequenceEqual(new[] { "fixture-profile" })));
         CollectionAssert.AreEqual(jobs.Select(job => job.Id).ToArray(), rows.Select(row => row.Id).ToArray());
     }
 
@@ -364,7 +364,7 @@ public sealed class JobPlannerTests
             Assert.AreEqual(InputType.CSV, song.SourceInputType);
             Assert.AreEqual(4242, song.ReadSettings()?.Search.MaxStaleTime);
             CollectionAssert.Contains(
-                song.AppliedAutoProfiles.ToList(),
+                song.AppliedProfiles.Select(profile => profile.Name).ToList(),
                 "csv-song");
         }
         finally

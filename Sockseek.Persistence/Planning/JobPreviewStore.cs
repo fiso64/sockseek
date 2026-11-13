@@ -28,7 +28,7 @@ public sealed record StoredJobPreviewNode(
     string? ItemName,
     string? QueryText,
     int DirectChildCount,
-    string AppliedAutoProfilesJson,
+    string AppliedProfilesJson,
     string? SpecificationJson,
     string? EffectiveSettingsRef,
     string? EffectiveSettingsJson,
@@ -118,7 +118,7 @@ public sealed class JobPreviewStore(
                     item_name TEXT NULL,
                     query_text TEXT NULL,
                     direct_child_count INTEGER NOT NULL,
-                    applied_auto_profiles_json TEXT NOT NULL,
+                    applied_profiles_json TEXT NOT NULL,
                     specification_json TEXT NULL,
                     effective_settings_ref TEXT NULL,
                     failure_code TEXT NULL,
@@ -293,7 +293,7 @@ public sealed class JobPreviewStore(
                     INSERT INTO job_preview_nodes (
                         preview_id, ordinal, node_ref, parent_ref, role, state,
                         is_selectable, kind, item_name, query_text, direct_child_count,
-                        applied_auto_profiles_json, specification_json,
+                        applied_profiles_json, specification_json,
                         effective_settings_ref, failure_code, failure_message)
                     VALUES ($preview, $ordinal, $ref, $parent, $role, $state,
                         $selectable, $kind, $name, $query, $children, $profiles,
@@ -307,7 +307,7 @@ public sealed class JobPreviewStore(
                     writer.BindValues([
                         ordinal + index, node.Ref, node.ParentRef, node.Role, node.State,
                         node.IsSelectable ? 1 : 0, node.Kind, node.ItemName, node.QueryText,
-                        node.DirectChildCount, node.AppliedAutoProfilesJson, node.SpecificationJson,
+                        node.DirectChildCount, node.AppliedProfilesJson, node.SpecificationJson,
                         node.EffectiveSettingsRef, node.FailureCode, Limit(node.FailureMessage),
                     ], offset: 1);
                     writer.Execute(ct);
@@ -844,7 +844,7 @@ public sealed class JobPreviewStore(
             Text(reader, "item_name"),
             Text(reader, "query_text"),
             reader.GetInt32(reader.GetOrdinal("direct_child_count")),
-            reader.GetString(reader.GetOrdinal("applied_auto_profiles_json")),
+            reader.GetString(reader.GetOrdinal("applied_profiles_json")),
             Text(reader, "specification_json"),
             Text(reader, "effective_settings_ref"),
             Text(reader, "effective_settings_json"),

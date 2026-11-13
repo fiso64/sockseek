@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import AppliedProfiles from '../AppliedProfiles.svelte';
   import Modal from '../Modal.svelte';
   import { jobSkipExplanation } from '../../domains/jobs/status';
   import { folderSources, type FolderItemFile, type TransferPresentation } from '../../domains/presentation/items';
@@ -109,6 +110,7 @@
         <dl>{#each section.fields as [label, value] (label)}<dt>{label}</dt><dd>{value}</dd>{/each}</dl>
       </section>
     {/each}
+    {#if transfer.job?.appliedProfiles?.length}<section><h3>Profiles</h3><AppliedProfiles profiles={transfer.job.appliedProfiles} /></section>{/if}
     {#if transfer.job?.failureDetail && transfer.job.failureDetail !== transfer.detail}
       <details><summary>Technical details</summary><p>{transfer.job.failureDetail}</p></details>
     {/if}

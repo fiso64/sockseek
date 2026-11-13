@@ -1,5 +1,7 @@
 namespace Sockseek.Api;
 
+public sealed record AppliedProfileDto(string Name, string Source);
+
 public sealed record ResolveEffectiveSettingsRequestDto(
     JobDraftDto Job,
     SubmissionOptionsDto? Options = null);
@@ -25,7 +27,6 @@ public sealed record EffectiveDownloadSettingsDto(
 public sealed record ResolveEffectiveSettingsResponseDto(
     ServerSearchSettingsBaselineKind Baseline,
     EffectiveDownloadSettingsDto Settings,
-    IReadOnlyList<string> AppliedAutoProfiles,
-    IReadOnlyList<string> NamedProfiles,
+    IReadOnlyList<AppliedProfileDto> AppliedProfiles,
     IReadOnlyDictionary<string, string> Provenance,
     bool IsProvisional = false);

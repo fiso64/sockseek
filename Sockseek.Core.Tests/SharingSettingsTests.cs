@@ -433,7 +433,7 @@ public sealed class SharingSettingsTests
             {
                 Regex = [(new RegexFields { Title = "before" }, new RegexFields { Title = "after" })],
             },
-            AppliedAutoProfiles = ["lossless"],
+            AppliedProfiles = [new("lossless", "automatic")],
         };
 
         DownloadSettings clone = SettingsCloner.Clone(original);
@@ -447,7 +447,7 @@ public sealed class SharingSettingsTests
         clone.Preprocess.Regex[0] = (
             new RegexFields { Title = "changed" },
             clone.Preprocess.Regex[0].Replace);
-        clone.AppliedAutoProfiles.Add("portable");
+        clone.AppliedProfiles.Add(new("portable", "automatic"));
 
         CollectionAssert.AreEqual(new[] { "first" }, original.Output.OnComplete);
         Assert.AreEqual("incomplete", original.Output.IncompleteAlbumAction.Path);

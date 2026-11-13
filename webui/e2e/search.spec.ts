@@ -89,11 +89,17 @@ async function sortWithoutCreatingView(page: Page, value: string, order: Schema<
         && new URL(response.url()).pathname.endsWith('/selection-settings'));
       await page.getByRole('button', { name: 'Download options', exact: true }).click();
       expect((await settings).ok()).toBe(true);
+      await page.getByRole('button', { name: 'Profiles', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'download-preset', exact: true }).check();
+  await page.getByRole('button', { name: 'Profiles', exact: true }).click();
+      await expect(page.getByRole('checkbox', { name: 'Skip existing downloads', exact: true })).not.toBeChecked();
 
     const commit = page.waitForResponse(response => response.ok() && response.request().method() === 'POST'
       && /\/api\/search-views\/[^/]+\/commit$/.test(new URL(response.url()).pathname));
     await page.getByRole('button', { name: 'Download 1', exact: true }).click();
-    const receipt = await (await commit).json() as Schema<'CommitSearchViewSelectionResponseDto'>;
+    const commitResponse = await commit;
+    expect(commitResponse.request().postDataJSON().options.profileNames).toEqual(['download-preset']);
+    const receipt = await commitResponse.json() as Schema<'CommitSearchViewSelectionResponseDto'>;
     expect(Number(receipt.submittedCount)).toBe(1);
     expect(Number(receipt.rejectedCount)).toBe(0);
     await page.locator('.floating-download-options-popover').getByRole('button', { name: 'Close download options', exact: true }).click();

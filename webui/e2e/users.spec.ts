@@ -291,7 +291,15 @@ test('filters Unicode share names without changing the selected download identit
   await expect(page.locator('.shares-filter-count')).toHaveText('1 matching file');
   await expect(page.locator('.share-tree-row.file .share-tree-name')).toHaveText(['sound.txt']);
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Download options', exact: true }).click();
+  await page.getByRole('button', { name: 'Profiles', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'download-preset', exact: true }).check();
+  await page.getByRole('button', { name: 'Profiles', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: 'Skip existing downloads', exact: true })).not.toBeChecked();
+  const submitted = page.waitForRequest(request => request.method() === 'POST'
+    && /\/api\/user-browses\/[^/]+\/downloads$/.test(new URL(request.url()).pathname));
   await page.getByRole('button', { name: 'Download 1', exact: true }).click();
+  expect((await submitted).postDataJSON().options.profileNames).toEqual(['download-preset']);
   await expect(page.locator('.mutation-status')).toContainText('1 download requested');
   await page.goto('/downloads');
   const file = page.locator('.file-item-card');

@@ -464,6 +464,13 @@ namespace Sockseek.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("skip_reason");
 
+                    b.Property<string>("AppliedProfilesJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("[]")
+                        .HasColumnName("applied_profiles_json");
+
                     b.Property<int>("PrintOption")
                         .HasColumnType("INTEGER")
                         .HasColumnName("print_option");

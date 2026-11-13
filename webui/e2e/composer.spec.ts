@@ -34,11 +34,20 @@ test('uses filtering and output settings for a direct Start download', async ({ 
   const destination = testInfo.outputPath('direct-song');
   await page.getByLabel('Output directory', { exact: true }).fill(destination);
   await page.getByLabel('Name format', { exact: true }).fill('direct/{stitle}');
+  await page.getByRole('button', { name: 'Profiles', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'download-preset', exact: true }).check();
+  await page.getByRole('button', { name: 'Profiles', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: 'Skip existing downloads', exact: true })).not.toBeChecked();
+  await expect(page.getByLabel('Output directory', { exact: true })).toHaveValue(destination);
+  await expect(page.getByLabel('Name format', { exact: true })).toHaveValue('direct/{stitle}');
+  await expect(page.getByPlaceholder('Song title…')).toHaveValue('Fixture song');
   const request = page.waitForRequest(candidate => candidate.method() === 'POST'
     && new URL(candidate.url()).pathname === '/api/job-previews');
   await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled();
   await page.getByLabel('Name format', { exact: true }).press('Control+Enter');
   const started = (await request).postDataJSON() as Schema<'CreateJobPreviewRequestDto'>;
+  expect(started.options?.profileNames).toEqual(['download-preset']);
+  expect(started.options?.downloadSettings?.skip).toBeUndefined();
   expect(started.options?.downloadSettings?.search?.necessaryCond?.formats?.replace).toEqual(['flac']);
   expect(started.options?.downloadSettings?.output?.nameFormat).toBe('direct/{stitle}');
   await expect(page.locator('.search-history-open').filter({ hasText: 'Fixture song' })).toBeVisible();
@@ -134,7 +143,7 @@ test('shows a failed source preview and allows correcting the same draft', async
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
   await page.locator('.new-job-source-disclosure summary').click();
-  await page.getByRole('complementary', { name: 'Job type' }).getByRole('button', { name: 'Soulseek', exact: true }).click();
+  await page.getByRole('complementary', { name: 'Job type' }).getByRole('button', { name: 'Soulseek link', exact: true }).click();
   await expect(page.getByRole('button', { name: /^(Filtering|Ranking) (Defaults|Custom)$/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Download Defaults', exact: true })).toBeVisible();
   const source = page.getByPlaceholder('Paste a slsk:// link…');
@@ -259,7 +268,18 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
     name: 'browser-input.csv', mimeType: 'text/csv',
     buffer: Buffer.from('performer,recording\nFixture Artist,Fixture CSV Song\nFixture Artist,Second CSV Song\n'),
   });
-  await page.getByRole('button', { name: 'Column mapping Auto-detect' }).click();
+  await page.getByRole('button', { name: 'Profiles', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'download-preset', exact: true }).check();
+  await page.getByRole('button', { name: 'Profiles', exact: true }).click();
+  await page.getByRole('button', { name: /^Import options / }).click();
+  await expect(page.getByLabel('Offset', { exact: true })).toHaveValue('2');
+  await expect(page.getByLabel('Limit items', { exact: true })).toHaveValue('20');
+  await expect(page.locator('[aria-controls="new-job-import-options"] .settings-disclosure-customized')).toBeVisible();
+  await expect(page.locator('[aria-controls="new-job-download-options"] .settings-disclosure-customized')).toBeVisible();
+  await expect(page.locator('[aria-controls="new-job-ranking-options"] .settings-disclosure-customized')).toHaveCount(0);
+
+  await page.getByLabel('Offset', { exact: true }).fill('0');
+  await page.getByRole('button', { name: /^Column mapping / }).click();
   await page.locator('.new-job-csv-grid').getByLabel('Artist', { exact: true }).fill('performer');
   await page.locator('.new-job-csv-grid').getByLabel('Title', { exact: true }).fill('recording');
   await expect(page.getByRole('button', { name: 'Review', exact: true })).toBeEnabled();
@@ -269,6 +289,8 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   const firstCreation = await firstCreated;
   const original = await firstCreation.json() as Schema<'CreateJobPreviewResponseDto'>;
   const originalRequest = firstCreation.request().postDataJSON() as Schema<'CreateJobPreviewRequestDto'>;
+  expect(originalRequest.options?.profileNames).toEqual(['download-preset']);
+  expect(originalRequest.options?.downloadSettings?.extraction).toEqual({ offset: 0 });
   await expect(page.locator('.new-job-start-button')).toBeEnabled();
   await expect(page.locator('.job-preview-row').first()).toContainText('browser-input.csv');
   await expect(page.locator('.job-preview-copy small').first()).toHaveText('Import · Uploaded artifact');

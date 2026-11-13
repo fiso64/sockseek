@@ -1315,6 +1315,9 @@ public sealed class SearchViewCoordinatorTests
             {
                 Name = "selection", Condition = $"input-type == \"manual-search\" && download-mode == \"{expectedMode}\" && !interactive",
                 Download = new SettingsPatch([new("Search.MaxStaleTime", 4321)]),
+            }], NamedProfiles = [new SettingsProfile
+            {
+                Name = "download", Download = new SettingsPatch([new("Search.MaxStaleTime", 5432)]),
             }] };
             await using WebApplication app = global::Tests.TestServerHost.Build(
                 [], options, "http://127.0.0.1:0");
@@ -1515,19 +1518,22 @@ public sealed class SearchViewCoordinatorTests
                 _ => views.GetDirectories(flac.ViewId, completedView.Revision, null, 1, cancellationToken: CancellationToken.None)!.Items[0].Ref.Ref,
             };
             var committedSelection = new RefSelectionExpressionDto(RefSelectionMode.Only, [selectedRef]);
+            var selectedOptions = new SubmissionOptionsDto(ProfileNames: ["download"]);
             var defaults = views.Selections.ResolveSelectionSettings(flac.ViewId,
-                new(completedView.Revision, committedSelection), CancellationToken.None)!.Variants.Single();
+                new(completedView.Revision, committedSelection, Options: selectedOptions), CancellationToken.None)!.Variants.Single();
             Assert.AreEqual(albumMode ? ServerJobKind.Album : expectedMode == "song" ? ServerJobKind.Song : ServerJobKind.RemoteDirectory, defaults.JobKind);
-            Assert.AreEqual(4321, defaults.Settings.Values.Search!.MaxStaleTime);
+            Assert.AreEqual(5432, defaults.Settings.Values.Search!.MaxStaleTime);
+            CollectionAssert.AreEqual(new[] { new AppliedProfileDto("selection", "automatic"), new AppliedProfileDto("download", "selected") }, defaults.AppliedProfiles.ToArray());
             var receipt = (await views.Selections.CommitSelectionAsync(flac.ViewId,
-                new(completedView.Revision, committedSelection, Guid.NewGuid(),
+                new(completedView.Revision, committedSelection, Guid.NewGuid(), Options: selectedOptions,
                     UseRepresentativeWhenUnchosen: kind is ServerSearchViewProjectionKind.TrackGroups or ServerSearchViewProjectionKind.AlbumGroups), CancellationToken.None))!;
             Assert.AreEqual(1L, receipt.SubmittedCount);
             var accepted = (await app.Services.GetRequiredService<PersistenceCoordinator>().Submissions!
                 .GetSubmissionAsync(receipt.SubmissionId!.Value, CancellationToken.None))!;
             var (job, settings) = Sockseek.Core.Planning.SubmissionSpecificationCodec.Deserialize(accepted.SpecificationJson).Materialize();
             Assert.AreEqual(JobSelectionSource.ManualSearch, job.SelectionSource);
-            Assert.AreEqual(4321, settings.Search.MaxStaleTime);
+            Assert.AreEqual(defaults.Settings.Values.Search.MaxStaleTime, settings.Search.MaxStaleTime);
+            CollectionAssert.AreEqual(defaults.AppliedProfiles.Select(profile => new AppliedProfile(profile.Name, profile.Source)).ToArray(), settings.AppliedProfiles);
             Assert.IsTrue(ProfileConditionEvaluator.Satisfied($"download-mode == \"{expectedMode}\"", settings, job));
             if (job is AlbumJob album) Assert.AreEqual(AlbumValidationRequirement.UserAccepted, album.ValidationRequirement);
             if (job is SongJob song) Assert.IsNotNull(song.ExactTarget);
@@ -1769,9 +1775,10 @@ public sealed class SearchViewCoordinatorTests
     }
 
     [TestMethod]
-    [DataRow(true)]
-    [DataRow(false)]
-    public async Task RestartRequiresANewViewAndRebuildsFromRetainedRawResults(bool captureCompletion)
+    [DataRow(true, false)]
+    [DataRow(false, false)]
+    [DataRow(true, true)]
+    public async Task RestartRequiresANewViewAndRebuildsFromRetainedRawResults(bool captureCompletion, bool upgradeFailureThresholds)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -1826,6 +1833,28 @@ public sealed class SearchViewCoordinatorTests
                     supervisor.StateStore.SetJobPersistence(null);
                 }
                 await first.StopAsync();
+            }
+
+            if (upgradeFailureThresholds)
+            {
+                await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+                    new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
+                    { DataSource = Path.Combine(directory, "sockseek.db") }.ToString());
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                // Reproduce a search saved by the score-based implementation,
+                // before the failure-count migration existed.
+                command.CommandText = """
+                    UPDATE jobs SET payload_json=json_set(payload_json,
+                        '$.Definition.ProjectionSettings.DownrankOn', -1,
+                        '$.Definition.ProjectionSettings.IgnoreOn', -2) WHERE id=$job;
+                    UPDATE submission_specifications SET specification_json=json_set(specification_json,
+                        '$.search.projectionSettings.downrankOn', -1,
+                        '$.search.projectionSettings.ignoreOn', -2);
+                    DELETE FROM __EFMigrationsHistory WHERE MigrationId='20261113220000_PositivePeerFailureThresholds';
+                    """;
+                command.Parameters.AddWithValue("$job", sourceJobId);
+                await command.ExecuteNonQueryAsync();
             }
 
             var secondClient = ControllableSearchClientProxy.Create();

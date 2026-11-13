@@ -224,7 +224,7 @@ public sealed class JobSettingsComposerTests
                 launchDownload: launch);
 
             var job = new ExtractJob("Artist - Track", InputType.String) { RequestedModeOverride = ExtractionMode.Song };
-            var layers = new JobSettingsRequestLayers(Download: request);
+            var layers = new JobSettingsRequestLayers(ProfileNames: ["named"], Download: request);
             DownloadSettings settings = composer.Compose(new DownloadSettings(), job, request: layers);
             JobSettingsCompositionResult detailed = composer.ComposeDetailed(new DownloadSettings(), job, request: layers);
             Assert.AreEqual("request", detailed.Provenance["Search.MaxStaleTime"]);
@@ -233,6 +233,15 @@ public sealed class JobSettingsComposerTests
                 "Ordinary and detailed composition must resolve the same complete settings, even when no auto-profile matches.");
 
             CollectionAssert.AreEqual(matches ? new[] { "group-auto" } : [], settings.AppliedAutoProfiles.ToArray());
+            AppliedProfile[] expectedProfiles = matches
+                ? [new("default", "default"), new("group-auto", "automatic"), new("named", "startup"), new("named", "selected")]
+                : [new("default", "default"), new("named", "startup"), new("named", "selected")];
+            CollectionAssert.AreEqual(expectedProfiles, settings.AppliedProfiles);
+            var captured = SubmissionSpecificationCodec.Deserialize(SubmissionSpecificationCodec.Serialize(
+                SubmissionSpecification.CreateShallow(job, settings)));
+            var (_, retainedSettings) = captured.Materialize();
+            CollectionAssert.AreEqual(expectedProfiles, retainedSettings.AppliedProfiles,
+                "Applied profile history must survive retention without consulting the current catalog.");
             Assert.AreEqual(matches, settings.Search.GroupResults);
             Assert.AreEqual(5, settings.Search.MaxStaleTime);
         }
@@ -245,6 +254,7 @@ public sealed class JobSettingsComposerTests
         var requestPatch = new SettingsPatch([new("Skip.SkipExisting", true)]);
         var composer = new JobSettingsComposer(null, new ProfileCatalog
         {
+            DefaultProfile = new SettingsProfile { Name = "default", Download = profilePatch },
             NamedProfiles =
             [
                 new SettingsProfile { Name = "same", Download = profilePatch },
@@ -262,6 +272,8 @@ public sealed class JobSettingsComposerTests
                 ProfileNames: ["same"],
                 Download: requestPatch));
 
+        var defaults = composer.ComposeDetailed(new DownloadSettings(), new SearchJob("query"));
+        Assert.AreEqual("operator-default", defaults.Provenance["Skip.SkipExisting"]);
         Assert.AreEqual("profile", profile.Provenance["Skip.SkipExisting"]);
         Assert.AreEqual("request", request.Provenance["Skip.SkipExisting"]);
     }

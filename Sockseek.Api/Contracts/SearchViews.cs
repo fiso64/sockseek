@@ -239,11 +239,13 @@ public sealed record ResolveSearchViewSelectionSettingsRequestDto(
     long Revision,
     RefSelectionExpressionDto Selection,
     IReadOnlyList<string>? IncludedFileRefs = null,
-    IReadOnlyList<SearchViewDirectoryPathRuleDto>? DirectoryPathRules = null);
+    IReadOnlyList<SearchViewDirectoryPathRuleDto>? DirectoryPathRules = null,
+    SubmissionOptionsDto? Options = null);
 
 public sealed record SearchViewSelectionSettingsVariantDto(
     ServerJobKind JobKind,
-    EffectiveDownloadSettingsDto Settings);
+    EffectiveDownloadSettingsDto Settings,
+    IReadOnlyList<AppliedProfileDto> AppliedProfiles);
 
 public sealed record ResolveSearchViewSelectionSettingsResponseDto(
     long Revision,

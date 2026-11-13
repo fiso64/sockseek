@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { buildDownloadOptionsPatch, downloadOptionsFromResolved, type DownloadOptions } from '../src/domains/jobs/download-options';
+import { buildDownloadOptionsPatch, rebaseOptions, changedOptions, downloadOptionsFromResolved, type DownloadOptions } from '../src/domains/jobs/download-options';
 import type { Schema } from '../src/api/types';
 import { buildSearchSelectionDownloadPatch, searchDownloadOptionDefaults } from '../src/domains/search/download-options';
 
@@ -42,8 +42,8 @@ it('keeps mixed selection defaults unset until explicitly changed', () => {
     ytDlpArgumentConfigured: false, bandcampHtmlFileConfigured: false, soundCloudTokenConfigured: false,
   });
   const defaults = searchDownloadOptionDefaults({ revision: 3, variants: [
-    { jobKind: 'remote-directory', settings: settings(true) },
-    { jobKind: 'remote-file', settings: settings(false) },
+    { appliedProfiles: [], jobKind: 'remote-directory', settings: settings(true) },
+    { appliedProfiles: [], jobKind: 'remote-file', settings: settings(false) },
   ] });
   expect(defaults.mixedFields.has('skipExisting')).toBe(true);
   expect(defaults.capabilities.albumFolderEnrichment).toBe(false);
@@ -64,18 +64,17 @@ it('applies the album folder option to directories even beside exact files', () 
     ytDlpArgumentConfigured: false, bandcampHtmlFileConfigured: false, soundCloudTokenConfigured: false,
   };
   const response: Schema<'ResolveSearchViewSelectionSettingsResponseDto'> = {
-    revision: 3, variants: [{ jobKind: 'remote-directory', settings }],
+    revision: 3, variants: [{ appliedProfiles: [], jobKind: 'album', settings }],
   };
-  expect(searchDownloadOptionDefaults(response, 'AlbumDirectories').capabilities.albumFolderEnrichment).toBe(true);
-  expect(searchDownloadOptionDefaults(response, 'GenericDirectories').capabilities.albumFolderEnrichment).toBe(false);
+  expect(searchDownloadOptionDefaults(response).capabilities.albumFolderEnrichment).toBe(true);
   const fileSettings: Schema<'EffectiveDownloadSettingsDto'> = {
     ...settings,
     values: { ...settings.values, search: { noBrowseFolder: true } },
   };
   const mixed = searchDownloadOptionDefaults({ ...response, variants: [
-    { jobKind: 'remote-file', settings: fileSettings },
+    { appliedProfiles: [], jobKind: 'song', settings: fileSettings },
     ...response.variants,
-  ] }, 'AlbumDirectories');
+  ] });
   expect(mixed.capabilities.albumFolderEnrichment).toBe(true);
   expect(mixed.baseline.loadFullAlbumFolder).toBe(true);
   expect(mixed.mixedFields.has('loadFullAlbumFolder')).toBe(false);
@@ -93,11 +92,23 @@ it('does not submit blank display values for untouched mixed text defaults', () 
     ytDlpArgumentConfigured: false, bandcampHtmlFileConfigured: false, soundCloudTokenConfigured: false,
   });
   const defaults = searchDownloadOptionDefaults({ revision: 3, variants: [
-    { jobKind: 'remote-directory', settings: settings('/one') },
-    { jobKind: 'remote-file', settings: settings('/two') },
+    { appliedProfiles: [], jobKind: 'remote-directory', settings: settings('/one') },
+    { appliedProfiles: [], jobKind: 'remote-file', settings: settings('/two') },
   ] });
   expect(defaults.values.outputParentDir).toBe('');
   expect(buildSearchSelectionDownloadPatch(defaults.values, defaults, new Set())).toEqual({});
   expect(buildSearchSelectionDownloadPatch({ ...defaults.values, outputParentDir: '/new' },
     defaults, new Set(['outputParentDir']))).toEqual({ outputParentDir: '/new' });
+});
+
+it('rebases untouched controls and submits only edits above the selected profiles', () => {
+  const next = { ...baseline, skipExisting: !baseline.skipExisting, outputParentDir: '/profile' };
+  const edited = { ...baseline, nameFormat: 'edited/{title}' };
+  const rebased = rebaseOptions(baseline, edited, next);
+  expect(rebased).toEqual({ ...next, nameFormat: edited.nameFormat });
+  expect(changedOptions(rebased, next)).toEqual({ nameFormat: edited.nameFormat });
+  expect(buildDownloadOptionsPatch(rebased, next, capabilities)).toEqual({ downloadSettings: { output: { nameFormat: edited.nameFormat } } });
+  expect(rebaseOptions(next, rebased, baseline)).toEqual(edited);
+  expect(rebaseOptions(baseline, baseline, next, new Set(['skipExisting'])).skipExisting)
+    .toBe(baseline.skipExisting);
 });

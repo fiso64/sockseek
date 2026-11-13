@@ -18,8 +18,8 @@ public sealed class JobSettingsSnapshot
     private JobSettingsSnapshot(DownloadSettings ownedSettings)
     {
         settings = ownedSettings;
-        AppliedAutoProfiles = settings.AppliedAutoProfiles.Count == 0 ? []
-            : Array.AsReadOnly(settings.AppliedAutoProfiles.Order(StringComparer.Ordinal).ToArray());
+        AppliedProfiles = settings.AppliedProfiles.Count == 0 ? []
+            : Array.AsReadOnly(settings.AppliedProfiles.ToArray());
     }
 
     public static JobSettingsSnapshot Capture(DownloadSettings settings)
@@ -30,7 +30,7 @@ public sealed class JobSettingsSnapshot
     internal static JobSettingsSnapshot FromOwned(DownloadSettings settings) => new(settings);
 
     internal PrintOption PrintOption => settings.PrintOption;
-    public IReadOnlyList<string> AppliedAutoProfiles { get; }
+    public IReadOnlyList<AppliedProfile> AppliedProfiles { get; }
     public DownloadSettings ReadSettings() => SettingsCloner.Clone(settings);
     internal RetainedJobSettings Retain(RetainedSettingsWriter? writer = null) => Volatile.Read(ref retained)
         ?? LazyInitializer.EnsureInitialized(ref retained, ref retainLock,

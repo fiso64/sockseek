@@ -26,6 +26,53 @@ public sealed class SqliteInitializationTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
+    public async Task FailureThresholdUpgradePreservesRetainedSettingsAndUserText(bool sharedSettings)
+    {
+        await using var database = new TemporaryDatabase();
+        await using var context = await database.Factory.CreateDbContextAsync();
+        await context.GetService<IMigrator>().MigrateAsync("20261113210000_JobAppliedProfiles");
+        Guid runtime = Guid.NewGuid(), submission = Guid.NewGuid();
+        const string query = "Text \"downrankOn\":-7 [testing]";
+        var settings = new DownloadSettings { Search = new() { DownrankOn = -7, IgnoreOn = -9 } };
+        var specification = SubmissionSpecification.Create(new SearchJob(query), settings);
+        if (sharedSettings)
+            specification = specification with { Command = specification.Command with {
+                PlannedEffectiveSettingsJson = specification.EffectiveSettingsJson, PlannedCredentialBindings = [] } };
+        context.RuntimeSessions.Add(new RuntimeSessionEntity { Id = runtime, Version = "migration" });
+        context.Submissions.Add(new SubmissionEntity { Id = submission, SpecificationSchemaVersion = 5, Revision = 1,
+            Specification = new() { Json = SubmissionSpecificationCodec.Serialize(specification) } });
+        var job = JobRow(Guid.NewGuid(), runtime, 1, "Terminal", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        job.PayloadJson = """{"Definition":{"ProjectionSettings":{"DownrankOn":-7,"IgnoreOn":-9}},"text":"\"IgnoreOn\":-9","unchanged":{"DownrankOn":2,"IgnoreOn":0}}""";
+        context.Jobs.Add(job);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+        await context.Database.MigrateAsync();
+        var restored = SubmissionSpecificationCodec.Deserialize((await context.Set<SubmissionSpecificationEntity>().AsNoTracking().SingleAsync()).Json);
+        Assert.AreEqual(query, ((SearchJob)restored.MaterializeJob()).QueryText);
+        Assert.AreEqual(7, restored.MaterializeSettings().Search.DownrankOn);
+        Assert.AreEqual(9, restored.MaterializeSettings().Search.IgnoreOn);
+        Assert.AreEqual(7, restored.Search!.ProjectionSettings.DownrankOn);
+        if (sharedSettings)
+        {
+            Assert.IsNotNull(restored.SharedSettings);
+            foreach (var retained in restored.SharedSettings)
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(retained.Json);
+                Assert.AreEqual(7, document.RootElement.GetProperty("search").GetProperty("downrankOn").GetInt32());
+                Assert.AreEqual(9, document.RootElement.GetProperty("search").GetProperty("ignoreOn").GetInt32());
+            }
+        }
+        using var payload = System.Text.Json.JsonDocument.Parse((await context.Jobs.AsNoTracking().SingleAsync()).PayloadJson!);
+        Assert.AreEqual(7, payload.RootElement.GetProperty("Definition").GetProperty("ProjectionSettings").GetProperty("DownrankOn").GetInt32());
+        Assert.AreEqual(9, payload.RootElement.GetProperty("Definition").GetProperty("ProjectionSettings").GetProperty("IgnoreOn").GetInt32());
+        Assert.AreEqual("\"IgnoreOn\":-9", payload.RootElement.GetProperty("text").GetString());
+        Assert.AreEqual(2, payload.RootElement.GetProperty("unchanged").GetProperty("DownrankOn").GetInt32());
+        Assert.AreEqual(0, payload.RootElement.GetProperty("unchanged").GetProperty("IgnoreOn").GetInt32());
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
     public async Task SearchGroupsMigrationPreservesSettingsAndUserText(bool sharedSettings)
     {
         await using var database = new TemporaryDatabase();
@@ -50,7 +97,7 @@ public sealed class SqliteInitializationTests
         await context.SaveChangesAsync();
         context.ChangeTracker.Clear();
         await context.GetService<IMigrator>().MigrateAsync("20261107230000_JobPrintOption");
-        Assert.AreEqual("AlbumAggregate", (await context.Jobs.AsNoTracking().SingleAsync()).Kind);
+        Assert.AreEqual("AlbumAggregate", await context.Jobs.AsNoTracking().Select(job => job.Kind).SingleAsync());
         using (var old = System.Text.Json.JsonDocument.Parse((await context.Set<SubmissionSpecificationEntity>().AsNoTracking().SingleAsync()).Json))
         using (var oldSettings = System.Text.Json.JsonDocument.Parse(old.RootElement.GetProperty("effectiveSettingsJson").GetString()!))
             Assert.IsTrue(oldSettings.RootElement.GetProperty("search").GetProperty("isAggregate").GetBoolean());

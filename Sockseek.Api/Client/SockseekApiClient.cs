@@ -1010,6 +1010,12 @@ public sealed class SockseekApiClient
         return await GetRequiredAsync<BrowseSearchPageDto>(url, ct);
     }
 
+    public Task<ResolveEffectiveSettingsResponseDto> ResolveUserShareDownloadSettingsAsync(
+        SubmissionOptionsDto options,
+        CancellationToken ct = default)
+        => PostRequiredAsync<ResolveEffectiveSettingsResponseDto, SubmissionOptionsDto>(
+            "api/user-browses/download-settings", options, ct);
+
     public Task<StartUserShareDownloadsResponseDto> StartUserShareDownloadsAsync(
         Guid browseId,
         StartUserShareDownloadsRequestDto request,

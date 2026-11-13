@@ -281,7 +281,7 @@ public class RemoteProfileTests
                 "A client-only setting must not fill gaps in the daemon profile.");
             Assert.AreEqual(clientProfile ? 12345 : 5000, settings.Search.SearchTimeout);
             CollectionAssert.AreEqual(clientProfile ? new[] { "client-no-progress" } : Array.Empty<string>(),
-                resolved.AppliedAutoProfiles.ToArray());
+                resolved.AppliedProfiles.Where(profile => profile.Source == "automatic").Select(profile => profile.Name).ToArray());
         }
         finally
         {

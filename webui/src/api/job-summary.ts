@@ -23,7 +23,7 @@ export function jobStateSummary(job: JobStateDto): JobSummaryDto {
     discoveryLockedFileCount: job.discovery.lockedFileCount,
     discoveryPublicFileCount: job.discovery.publicFileCount,
     discoveryObservedPeerCount: job.discovery.observedPeerCount,
-    appliedAutoProfiles: job.display.appliedAutoProfiles,
+    appliedProfiles: job.display.appliedProfiles,
     availableActions: job.lifecycle.availableActions,
     failureDetail: job.lifecycle.failureDetail,
     cancellationSource: job.lifecycle.cancellationSource,

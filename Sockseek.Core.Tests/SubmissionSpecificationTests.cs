@@ -373,7 +373,7 @@ public sealed class SubmissionSpecificationTests
                 Assert.IsNull(retained.MaterializeSettings(credentials).YouTube.ApiKey);
                 first.Search.NecessaryCond.Formats[0] = "mutated";
                 first.Output.OnComplete!.Add("later");
-                first.AppliedAutoProfiles.Add("runtime-only");
+                first.AppliedProfiles.Add(new("runtime-only", "automatic"));
                 CollectionAssert.AreEqual(new[] { "flac" }, second.Search.NecessaryCond.Formats);
                 CollectionAssert.AreEqual(new[] { "original" }, second.Output.OnComplete);
                 Assert.AreEqual(0, second.AppliedAutoProfiles.Count);

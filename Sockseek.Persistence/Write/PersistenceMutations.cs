@@ -65,7 +65,8 @@ public sealed record JobPersistenceMutation(
     DateTimeOffset? StartedAtUtc = null,
     DirectoryManifestSnapshot? DirectoryManifest = null,
     string? SourceDetail = null,
-    int PrintOption = 0)
+    int PrintOption = 0,
+    string AppliedProfilesJson = "[]")
     : PersistenceMutation(RuntimeId, Sequence, OccurredAtUtc, JobId, Revision, Priority);
 
 public sealed record TransferPersistenceMutation(

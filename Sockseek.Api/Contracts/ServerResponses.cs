@@ -86,7 +86,8 @@ public sealed record ProfileSummaryDto(
     string? Condition,
     bool IsAutoProfile,
     bool HasEngineSettings,
-    bool HasDownloadSettings);
+    bool HasDownloadSettings,
+    bool HasInputSettings = false);
 
 /// <summary>
 /// Error response body for rejected API requests.
@@ -172,7 +173,7 @@ public sealed record JobSummaryDto(
     Guid? SourceJobId,
     int? DiscoveryRawResultCount,
     int? DiscoveryLockedFileCount,
-    IReadOnlyList<string> AppliedAutoProfiles,
+    IReadOnlyList<AppliedProfileDto> AppliedProfiles,
     IReadOnlyList<ResourceActionDto> AvailableActions,
     string? FailureDetail = null,
     ServerJobCancellationSource CancellationSource = ServerJobCancellationSource.None,
@@ -232,7 +233,7 @@ public sealed record JobSummaryDto(
         Guid? SourceJobId,
         int? DiscoveryRawResultCount,
         int? DiscoveryLockedFileCount,
-        IReadOnlyList<string> AppliedAutoProfiles,
+        IReadOnlyList<AppliedProfileDto> AppliedProfiles,
         IReadOnlyList<ResourceActionDto> AvailableActions,
         string? FailureDetail = null)
         : this(
@@ -254,7 +255,7 @@ public sealed record JobSummaryDto(
             SourceJobId,
             DiscoveryRawResultCount,
             DiscoveryLockedFileCount,
-            AppliedAutoProfiles,
+            AppliedProfiles,
             AvailableActions,
             FailureDetail)
     {

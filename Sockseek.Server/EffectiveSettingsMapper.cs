@@ -19,8 +19,7 @@ internal static class EffectiveSettingsMapper
     ];
 
     public static ResolveEffectiveSettingsResponseDto ToDto(
-        JobSettingsCompositionResult result,
-        IReadOnlyList<string>? namedProfiles)
+        JobSettingsCompositionResult result)
     {
         DownloadSettings settings = result.Settings;
         var provenance = result.Provenance
@@ -30,8 +29,7 @@ internal static class EffectiveSettingsMapper
         return new ResolveEffectiveSettingsResponseDto(
             result.Baseline.ToServer(),
             ToSafeSettings(settings),
-            settings.AppliedAutoProfiles.OrderBy(name => name, StringComparer.Ordinal).ToArray(),
-            namedProfiles?.ToArray() ?? [],
+            settings.AppliedProfiles.Select(profile => new AppliedProfileDto(profile.Name, profile.Source)).ToArray(),
             provenance);
     }
 

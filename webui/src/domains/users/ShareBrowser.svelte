@@ -1,4 +1,8 @@
 <script lang="ts">
+  import ProfilePicker from '../../components/ProfilePicker.svelte';
+  import DownloadOptionsPanel from '../../components/DownloadOptionsPanel.svelte';
+  import { daemonApi } from '../../api/client';
+  import { downloadOptionsFromResolved, buildDownloadOptionsPatch, rebaseOptions, type DownloadOptions } from '../jobs/download-options';
   import { keyboardList } from '../../lib/keyboard';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { onDestroy, untrack } from 'svelte';
@@ -47,8 +51,38 @@
   let selectedDirectoryCounts = $state<Map<string, number>>(saved?.selectedDirectoryCounts ?? new Map());
   let selectedDirectoryTotals = $state<Map<string, number>>(saved?.selectedDirectoryTotals ?? new Map());
   let selectedFileIsPublic = $state<Map<string, boolean>>(saved?.selectedFileIsPublic ?? new Map());
+  let optionsOpen = $state(false);
+  let optionsLoading = $state(false);
+  let optionsError = $state('');
+  let profileNames = $state<string[]>([]);
+  let appliedProfiles = $state<Schema<'AppliedProfileDto'>[]>([]);
+  let baseline = $state<DownloadOptions | null>(null);
+  let downloadValues = $state<DownloadOptions | null>(null);
+  const capabilities = { albumFolderEnrichment: false, playlistOutput: false, nameFormat: true };
+  let downloadOptions = $derived({ ...(baseline && downloadValues ? buildDownloadOptionsPatch(downloadValues, baseline, capabilities) : {}),
+    ...(profileNames.length ? { profileNames: [...profileNames] } : {}) });
+  let optionsRequest = 0;
+  async function loadOptions() {
+    const request = ++optionsRequest;
+    optionsLoading = true;
+    optionsError = '';
+    try {
+      const resolved = await daemonApi.resolveUserShareDownloadSettings({ profileNames }, lifetime.signal);
+      if (request !== optionsRequest || lifetime.signal.aborted) return;
+      const next = downloadOptionsFromResolved(resolved.settings);
+      downloadValues = rebaseOptions(baseline, downloadValues ?? next, next);
+      baseline = next;
+      appliedProfiles = resolved.appliedProfiles;
+    } catch (cause) { if (request === optionsRequest && !lifetime.signal.aborted) optionsError = String(cause); }
+    finally { if (request === optionsRequest) optionsLoading = false; }
+  }
+  function toggleOptions() {
+    optionsOpen = !optionsOpen;
+    if (optionsOpen && !baseline && !optionsLoading) void loadOptions();
+  }
   let mutation = $state<MutationState>({ phase: 'idle' });
   let commitKey: string | null = null;
+  $effect(() => { JSON.stringify(downloadOptions); commitKey = null; });
   let filterKey = saved?.filterKey ?? '';
   let collapsedFiltered = $state<Set<string>>(saved?.collapsedFiltered ?? new Set());
   const lifetime = new AbortController();
@@ -344,7 +378,7 @@
   }
 
   async function downloadSelection(): Promise<void> {
-    if (!source.download || !selected.size || mutation.phase === 'pending') return;
+    if (!source.download || !selected.size || mutation.phase === 'pending' || optionsLoading || optionsError) return;
     const browseId = browse.browseId;
     const signal = lifetime.signal;
     const selections: Schema<'UserShareSelectionDto'>[] = [...selected].map((key) => key.startsWith('d:')
@@ -353,7 +387,7 @@
     const requestId = commitKey ??= randomUUID();
     mutation = { phase: 'pending', label: `Requesting ${downloadableCount} shared file${downloadableCount === 1 ? '' : 's'}…` };
     try {
-      const response = await source.download(requestId, selections, [...excludedSelection].filter(key => key.startsWith('f:')).map(key => key.slice(2)), [...excludedSelection].filter(key => key.startsWith('d:')).map(key => key.slice(2)));
+      const response = await source.download(requestId, selections, [...excludedSelection].filter(key => key.startsWith('f:')).map(key => key.slice(2)), [...excludedSelection].filter(key => key.startsWith('d:')).map(key => key.slice(2)), downloadOptions);
       // Selection changes invalidate the receipt's presentation, not the accepted
       // download. Do not cancel a submitted command or clear a newer retry key.
       if (signal.aborted || browse?.browseId !== browseId || commitKey !== requestId) return;
@@ -375,6 +409,10 @@
   function mergeIds(existing: string[], incoming: string[]): string[] { return [...new Set([...existing, ...incoming])]; }
   function mergeFiles(existing: BrowseFileEntryDto[], incoming: BrowseFileEntryDto[]): BrowseFileEntryDto[] { const values = new Map(existing.map((item) => [String(item.fileId), item])); for (const item of incoming) values.set(String(item.fileId), item); return [...values.values()]; }
 </script>
+
+<svelte:window onkeydown={(event) => {
+  if (event.key === 'Escape' && optionsOpen) { event.preventDefault(); optionsOpen = false; }
+}} />
 
 <div class="share-browser" class:read-only={!source.download} use:keyboardList={{
   scope: `${browse.browseId}:${filterText.trim()}`,
@@ -414,8 +452,19 @@
         </div>
         {#if source.download}<SelectionToolbar {selectedCount} floatingLabel={`Download ${downloadableCount}`}
           detail={lockedCount ? `${selectedCount} selected · ${lockedCount} locked` : undefined}
-          actionDisabled={downloadableCount === 0 || mutation.phase === 'pending'}
+          actionDisabled={downloadableCount === 0 || mutation.phase === 'pending' || optionsLoading || Boolean(optionsError)}
+          optionsOpen={optionsOpen} optionsCustomized={Object.keys(downloadOptions).length > 0} onoptions={toggleOptions}
           onclear={clearSelection} onaction={() => void downloadSelection()}/>{/if}
+
+        {#if source.download && selectedCount && optionsOpen}
+          <button type="button" class="floating-options-backdrop" aria-label="Close download options" onclick={() => optionsOpen = false}></button>
+          <section class="floating-download-options-popover" data-shortcuts-blocked="true" inert={mutation.phase === 'pending'} aria-label="Download options">
+            <header><strong>Download options</strong><div class="download-options-actions"><ProfilePicker value={profileNames} applied={appliedProfiles} onchange={(names) => { profileNames = names; void loadOptions(); }} /><button type="button" aria-label="Close download options" onclick={() => optionsOpen = false}>×</button></div></header>
+            {#if optionsLoading}<LoadingIndicator label="Loading download settings" />
+            {:else if optionsError}<p role="alert">{optionsError}</p><button type="button" onclick={() => void loadOptions()}>Retry</button>
+            {:else if downloadValues}<DownloadOptionsPanel bind:value={downloadValues} {capabilities} context="selection" compact />{/if}
+          </section>
+        {/if}
 
         {#if filterText.trim()}
           {#if filterError}

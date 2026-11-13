@@ -628,6 +628,18 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     Uploads = new UploadSettings { Slots = uploadShares ? 1 : 10 },
                     LogLevel = scenario.ApplicationLogs ? LogLevel.Information : LogLevel.None,
                 },
+                Profiles = new ProfileCatalog { NamedProfiles = [new SettingsProfile
+                {
+                    Name = "download-preset",
+                    Download = new SettingsPatch([
+                        new("Skip.SkipExisting", false),
+                        new("Extraction.Input", "Do not use this saved input"),
+                        new("Extraction.InputType", Sockseek.Core.InputType.List),
+                        new("Search.MaxStaleTime", 4321),
+                        new("Extraction.MaxTracks", 20),
+                        new("Extraction.Offset", 2),
+                    ]),
+                }] },
                 OperatorDownloadSettings = new Sockseek.Api.DownloadSettingsPatchDto(
                     Output: new Sockseek.Api.OutputSettingsPatchDto(ParentDir: Path.Combine(temporary, "downloads"))),
                 Persistence = new() { Enabled = true, DataDirectory = dataDirectory },

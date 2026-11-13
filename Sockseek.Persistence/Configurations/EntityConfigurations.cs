@@ -68,6 +68,7 @@ internal sealed class JobConfiguration : IEntityTypeConfiguration<JobEntity>
         builder.Property(x => x.QueryText).HasColumnName("query_text").HasMaxLength(4096);
         builder.Property(x => x.SourceDetail).HasColumnName("source_detail").HasMaxLength(128);
         builder.Property(x => x.PrintOption).HasColumnName("print_option");
+        builder.Property(x => x.AppliedProfilesJson).HasColumnName("applied_profiles_json").HasDefaultValue("[]").IsRequired();
         builder.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         builder.Property(x => x.StartedAtUtc).HasColumnName("started_at_utc");
         builder.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");

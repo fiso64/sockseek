@@ -186,7 +186,7 @@ public class SettingsPatchTests
         after.Output.IncompleteAlbumAction.Path = null;
         after.Search.NecessaryCond.Formats = ["flac"];
         after.Output.WriteIndex = false;
-        after.AppliedAutoProfiles.Add("runtime-only");
+        after.AppliedProfiles.Add(new("runtime-only", "automatic"));
 
         RoundTrip(SettingsPatch.Difference(before, after)!).ApplyTo(before);
 
@@ -202,12 +202,12 @@ public class SettingsPatchTests
         ])!;
         var first = new DownloadSettings();
         patch.ApplyTo(first);
-        first.AppliedAutoProfiles.Add("one");
+        first.AppliedProfiles.Add(new("one", "automatic"));
         var clone = SettingsCloner.Clone(first);
         clone.Output.OnComplete!.Add("-- clone");
         clone.Search.NecessaryCond.Formats![0] = "mp3";
         clone.Preprocess.Regex!.Clear();
-        clone.AppliedAutoProfiles.Clear();
+        clone.AppliedProfiles.Clear();
         var second = new DownloadSettings();
         patch.ApplyTo(second);
 
@@ -223,6 +223,7 @@ public class SettingsPatchTests
     [DataRow("RuntimePathContext.ConfigDir")]
     [DataRow("DefaultMinGroupShares")]
     [DataRow("AppliedAutoProfiles")]
+    [DataRow("AppliedProfiles")]
     [DataRow("Extraction.IsAlbum")]
     [DataRow("PrintJobs")]
     public void Patch_RejectsUnknownRuntimeAndComputedPaths(string path)

@@ -10,7 +10,7 @@ export interface ShareBrowserSource {
   directories: (parentId: number | string | null, cursor: string | null, limit: number, signal: AbortSignal) => Promise<Schema<'PageDtoOfBrowseDirectoryEntryDto'>>;
   files: (directoryId: number | string, cursor: string | null, limit: number, signal: AbortSignal) => Promise<Schema<'PageDtoOfBrowseFileEntryDto'>>;
   search: (query: string, cursor: string | null, limit: number, signal: AbortSignal) => Promise<Schema<'BrowseSearchPageDto'>>;
-  download?: (requestId: string, selections: Schema<'UserShareSelectionDto'>[], excludedFiles: string[], excludedDirectories: string[]) => Promise<Schema<'StartUserShareDownloadsResponseDto'>>;
+  download?: (requestId: string, selections: Schema<'UserShareSelectionDto'>[], excludedFiles: string[], excludedDirectories: string[], options?: Schema<'SubmissionOptionsDto'>) => Promise<Schema<'StartUserShareDownloadsResponseDto'>>;
 }
 
 export function peerShareSource(browse: UserBrowseDto): ShareBrowserSource {
@@ -20,7 +20,7 @@ export function peerShareSource(browse: UserBrowseDto): ShareBrowserSource {
     directories: (...args) => daemonApi.getUserShareDirectories(id, ...args),
     files: (...args) => daemonApi.getUserShareFiles(id, ...args),
     search: (...args) => daemonApi.searchUserShares(id, ...args),
-    download: (requestId, selections, files, directories) => daemonApi.startUserShareDownloads(id, requestId, selections, undefined, files, directories),
+    download: (requestId, selections, files, directories, options) => daemonApi.startUserShareDownloads(id, requestId, selections, undefined, files, directories, options),
   };
 }
 

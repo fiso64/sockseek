@@ -90,7 +90,7 @@ internal static class HistoricalJobDtoMapper
             job.SourceJobId,
             ToNullableInt(job.DiscoveryPublicFileCount),
             ToNullableInt(job.DiscoveryLockedFileCount),
-            [],
+            snapshot.AppliedProfiles.Select(profile => new AppliedProfileDto(profile.Name, profile.Source)).ToArray(),
             [],
             job.FailureDetail,
             Parse(job.CancellationSource, ServerJobCancellationSource.None),
@@ -130,7 +130,8 @@ internal static class HistoricalJobDtoMapper
             job.ActivityUntilUtc, Parse(job.TerminalOutcome, JobTerminalOutcome.None),
             Parse(job.SkipReason, JobSkipReason.None), Parse(job.CancellationSource, JobCancellationSource.None),
             Parse(job.FailureReason, JobFailureReason.Other), job.FailureMessage, job.FailureDetail,
-            job.ItemName, job.QueryText, null, [], (PrintOption)job.PrintOption, false, job.SourceDetail),
+            job.ItemName, job.QueryText, null,
+            JsonSerializer.Deserialize<Sockseek.Core.Settings.AppliedProfile[]>(job.AppliedProfilesJson)!, (PrintOption)job.PrintOption, false, job.SourceDetail),
             payload ?? new GenericJobSnapshotPayload(job.Kind));
     }
 

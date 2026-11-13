@@ -174,7 +174,17 @@ public sealed class JobSettingsComposer
             ? conditionSettings
             : ComposeLayers(inherited, baseline, inheritance, matchingAutoProfiles,
                 allNamedProfiles, request?.Download, provenance);
-        settings.AppliedAutoProfiles = [.. matchingAutoProfiles.Select(p => p.Name)];
+        settings.AppliedProfiles = [];
+        if (catalog.DefaultProfile is { HasDownloadSettings: true } defaults)
+            settings.AppliedProfiles.Add(new(defaults.Name, "default"));
+        AddProfiles(matchingAutoProfiles, "automatic");
+        AddProfiles(launchNamedProfiles, "startup");
+        AddProfiles(requestNamedProfiles, "selected");
+        void AddProfiles(IEnumerable<SettingsProfile> profiles, string source)
+        {
+            foreach (var profile in profiles.Where(profile => source == "automatic" || profile.HasDownloadSettings))
+                settings.AppliedProfiles.Add(new(profile.Name, source));
+        }
         finalize?.Invoke(settings);
         return settings;
     }
@@ -196,7 +206,7 @@ public sealed class JobSettingsComposer
                 provenance[field] = source;
         }
         ApplyTracked(settings, operatorDefault, "operator-default", provenance);
-        ApplyTracked(settings, catalog.DefaultProfile?.Download, "profile", provenance);
+        ApplyTracked(settings, catalog.DefaultProfile?.Download, "operator-default", provenance);
         foreach (var profile in autoProfiles)
             ApplyTracked(settings, profile.Download, "profile", provenance);
         foreach (var profile in namedProfiles)

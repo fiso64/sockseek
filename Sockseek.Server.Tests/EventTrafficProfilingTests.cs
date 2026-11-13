@@ -52,7 +52,7 @@ public class EventTrafficProfilingTests
                     null,
                     null,
                     null,
-                    ["profile-a"],
+                    [new("profile-a", "automatic")],
                     []),
                 2))
             .ToList();

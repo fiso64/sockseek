@@ -45,3 +45,29 @@ export function buildDownloadOptionsPatch(value: DownloadOptions, baseline: Down
     ...(Object.keys(settings).length ? { downloadSettings: settings } : {}),
   };
 }
+
+/** Move untouched fields to a new resolved baseline, retaining explicit edits. */
+export function rebaseOptions<T extends object>(previous: T | null, value: T, baseline: T, explicitFields?: ReadonlySet<keyof T>): T {
+  if (!previous) return { ...baseline };
+  const next = { ...baseline };
+  for (const key of Object.keys(value) as (keyof T)[])
+    if (value[key] !== previous[key] || explicitFields?.has(key)) next[key] = value[key];
+  return next;
+}
+
+export function changedOptions<T extends object>(value: T, baseline: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([key, item]) => item !== baseline[key as keyof T])) as Partial<T>;
+}
+
+/** Section indicators include profile settings; request patches still compare against resolved values. */
+export function profileSettingsSections(provenance: Record<string, string>) {
+  const fields = Object.keys(provenance).filter(field => provenance[field] === 'profile');
+  const has = (...paths: string[]) => fields.some(field => paths.some(path => field === path || field.startsWith(`${path}.`)));
+  return {
+    filtering: has('Search.NecessaryCond', 'Search.NecessaryFolderCond', 'Search.StrictAlbumQuality'),
+    ranking: has('Search.PreferredCond', 'Search.PreferredFolderCond'),
+    download: has('Skip', 'Output', 'Transfer', 'Search.NoBrowseFolder'),
+    import: has('Extraction.MaxTracks', 'Extraction.Offset', 'Extraction.UpgradeToAlbum'),
+    csv: has('Csv'),
+  };
+}

@@ -46,7 +46,7 @@ public static class ServerSnapshotMapper
             sourceJobId,
             job.Discovery?.RawResultCount,
             job.Discovery?.LockedFileCount,
-            job.AppliedAutoProfiles,
+            job.AppliedProfiles.Select(profile => new AppliedProfileDto(profile.Name, profile.Source)).ToArray(),
             includeActions ? BuildJobActions(job.Id, job.CanCancel) : [],
             job.FailureDetail,
             ToServerJobCancellationSource(job.CancellationSource),

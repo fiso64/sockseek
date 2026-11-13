@@ -788,6 +788,11 @@ public sealed class PersistenceDaemonTests
 
         var options = new ServerOptions
         {
+            Profiles = new ProfileCatalog { AutoProfiles = [new SettingsProfile
+            {
+                Name = "original-profile", Condition = "input-type == \"manual-search\"",
+                Download = new SettingsPatch([new("Skip.SkipExisting", false)]),
+            }] },
             ConfigDir = directory,
             Engine = new EngineSettings { MockFilesDir = mockFiles, MockFilesReadTags = false },
             DefaultDownload = new DownloadSettings
@@ -898,6 +903,7 @@ public sealed class PersistenceDaemonTests
             SqliteConnection.ClearAllPools();
             options.DefaultDownload!.Search.NecessaryCond.Formats = ["ogg"];
 
+            options.Profiles = ProfileCatalog.Empty;
             await using (var second = global::Tests.TestServerHost.Build([], options, "http://127.0.0.1:0"))
             {
                 await second.StartAsync();
@@ -943,6 +949,8 @@ public sealed class PersistenceDaemonTests
                     var byDisplay = await facade.GetJobByDisplayIdAsync(workflowId, sourceDisplayId);
                     Assert.IsNotNull(byDisplay);
                     Assert.AreEqual(sourceJobId, byDisplay.Summary.JobId);
+                    CollectionAssert.AreEqual(new[] { new AppliedProfileDto("original-profile", "automatic") }, byDisplay.Summary.AppliedProfiles.ToArray());
+                    CollectionAssert.AreEqual(byDisplay.Summary.AppliedProfiles.ToArray(), historicalJobs.Items.Single(job => job.JobId == sourceJobId).AppliedProfiles.ToArray());
                     Assert.IsFalse(supervisor.CancelJob(sourceJobId));
                     Assert.IsFalse(supervisor.TryNextCandidate(sourceJobId));
                     Assert.IsFalse(await supervisor.CompleteManualSelectionAsync(sourceJobId));

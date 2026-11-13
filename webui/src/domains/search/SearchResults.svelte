@@ -14,6 +14,9 @@
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
   import PeerItemGroup from '../../components/items/PeerItemGroup.svelte';
   import UsernameLink from '../../components/UsernameLink.svelte';
+  import AppliedProfiles from '../../components/AppliedProfiles.svelte';
+  import ProfilePicker from '../../components/ProfilePicker.svelte';
+  import { rebaseOptions } from '../jobs/download-options';
   import DownloadOptionsPanel from '../../components/DownloadOptionsPanel.svelte';
   import ResultFilterControl from '../../components/ResultFilterControl.svelte';
   import SearchConditionPills from '../../components/SearchConditionPills.svelte';
@@ -49,7 +52,7 @@
     isfolderselected: (directoryRef: string, relativePath: string) => boolean;
     onselectall: (selected: boolean) => void;
     ondownload: (options?: Schema<'SubmissionOptionsDto'>) => void;
-    onresolvesettings: () => Promise<Schema<'ResolveSearchViewSelectionSettingsResponseDto'>>;
+    onresolvesettings: (options?: Schema<'SubmissionOptionsDto'>) => Promise<Schema<'ResolveSearchViewSelectionSettingsResponseDto'>>;
     onloaddefinition: (viewId: string) => Promise<Schema<'SearchViewDefinitionDto'>>;
     onrefine: (request: Schema<'CreateSearchViewRequestDto'>, resetSelection?: boolean) => Promise<boolean>;
     onsort: (order: Schema<'ServerSearchViewSortOrder'>) => Promise<boolean>;
@@ -353,6 +356,8 @@
     if (!conditionsOpen || conditionsAnchor?.contains(event.target) || conditionsPopover?.contains(event.target)) return;
     conditionsOpen = false;
   }
+  let profileNames = $state<string[]>([]);
+  let appliedProfiles = $state<Schema<'AppliedProfileDto'>[]>([]);
   let downloadOptionsOpen = $state(false);
   let downloadOptionsLoading = $state(false);
   let downloadOptionsError = $state<Error | null>(null);
@@ -393,6 +398,7 @@
     optionsRequest += 1;
     downloadOptionsOpen = false;
     downloadOptionsLoading = false;
+    appliedProfiles = [];
     downloadDefaults = null;
     downloadValues = null;
     downloadOptionsError = null;
@@ -401,9 +407,10 @@
   let visibleMixedFields = $derived(new Set(
     [...(downloadDefaults?.mixedFields ?? [])].filter(field => !touchedMixedFields.has(field)),
   ));
-  let downloadPatch = $derived(downloadDefaults && downloadValues
-    ? buildSearchSelectionDownloadPatch(downloadValues, downloadDefaults, touchedMixedFields)
-    : undefined);
+  let downloadPatch = $derived({
+    ...(downloadDefaults && downloadValues ? buildSearchSelectionDownloadPatch(downloadValues, downloadDefaults, touchedMixedFields) : {}),
+    ...(profileNames.length ? { profileNames: [...profileNames] } : {}),
+  });
   let downloadCustomized = $derived(Boolean(downloadPatch && Object.keys(downloadPatch).length));
 
   async function loadDownloadOptions(): Promise<void> {
@@ -411,18 +418,19 @@
     downloadOptionsLoading = true;
     downloadOptionsError = null;
     try {
-      const defaults = searchDownloadOptionDefaults(
-        await onresolvesettings(),
-        viewState.summary?.kind,
-      );
+      const resolved = await onresolvesettings({ profileNames });
+      const defaults = searchDownloadOptionDefaults(resolved);
       if (request !== optionsRequest) return;
       const exactAlbumFiles = [...viewState.albumFileSelections.keys()]
         .some(ref => isselected(ref));
+      appliedProfiles = resolved.variants.flatMap(variant => variant.appliedProfiles)
+        .filter((profile, index, all) => all.findIndex(other => other.name === profile.name && other.source === profile.source) === index);
+      downloadValues = rebaseOptions(downloadDefaults?.values ?? null, downloadValues ?? defaults.values, defaults.values, touchedMixedFields);
       downloadDefaults = exactAlbumFiles ? {
         ...defaults,
         capabilities: { ...defaults.capabilities, albumFolderEnrichment: false },
       } : defaults;
-      downloadValues = { ...defaults.values };
+
     } catch (error) {
       if (request === optionsRequest)
         downloadOptionsError = error instanceof Error ? error : new Error(String(error));
@@ -667,6 +675,7 @@
     <div class="search-results-title">
       <p class="eyebrow">{viewState.draft ? searchModeLabel(viewState.draft.resultMode) : 'Search'}</p>
       <h1>{queryTitle()}</h1>
+      {#if viewState.job?.appliedProfiles?.length}<AppliedProfiles profiles={viewState.job.appliedProfiles} />{/if}
     </div>
     <div class="search-results-summary">
       {#if statusLabel !== 'Complete'}
@@ -800,7 +809,7 @@
       ? `${formatCount(String(BigInt(viewState.selectionCounts.publicFileCount) + BigInt(viewState.selectionCounts.lockedFileCount)))} selected · ${formatCount(viewState.selectionCounts.lockedFileCount)} locked`
       : viewState.selectionCountsLoading ? 'Counting selected files…'
       : viewState.selectionCountsError ? viewState.selectionCountsError.message : undefined}
-    actionDisabled={viewState.committing || (!viewState.canRetryPendingCommit && (refinementPending
+    actionDisabled={downloadOptionsLoading || Boolean(downloadOptionsError) || viewState.committing || (!viewState.canRetryPendingCommit && (refinementPending
       || viewState.selectionCountsLoading || hasUnreadySelectedChoice()
       || Boolean(viewState.selectionCountsError) || selectedCount === 0))}
     optionsOpen={downloadOptionsOpen}
@@ -813,8 +822,8 @@
 
   {#if selectedCount && downloadOptionsOpen}
     <button type="button" class="floating-options-backdrop" aria-label="Close download options" onclick={() => (downloadOptionsOpen = false)}></button>
-    <section data-shortcuts-blocked="true" class="floating-download-options-popover" aria-label="Download options">
-      <header><strong>Download options</strong><button type="button" aria-label="Close download options" onclick={() => (downloadOptionsOpen = false)}>×</button></header>
+    <section inert={viewState.committing} data-shortcuts-blocked="true" class="floating-download-options-popover" aria-label="Download options">
+      <header><strong>Download options</strong><div class="download-options-actions"><ProfilePicker disabled={viewState.committing} value={profileNames} applied={appliedProfiles} onchange={(names) => { profileNames = names; void loadDownloadOptions(); }} /><button type="button" aria-label="Close download options" onclick={() => (downloadOptionsOpen = false)}>×</button></div></header>
       {#if downloadOptionsLoading}
         <LoadingIndicator label="Loading effective defaults" />
       {:else if downloadOptionsError}

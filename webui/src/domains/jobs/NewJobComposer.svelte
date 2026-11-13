@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ProfilePicker from '../../components/ProfilePicker.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { onMount, untrack } from 'svelte';
   import Icon from '../../components/Icon.svelte';
@@ -8,12 +9,12 @@
   import type { SearchDraft } from '../search/model';
   import type { SearchConditions } from '../search/config-state';
   import { readSearchConditions, rebaseSearchConditions, searchConditionsPatchForFamily, searchExpectedLength, mergeSearchSettings } from '../search/config-mapping';
-  import { buildDownloadOptionsPatch, downloadOptionsFromResolved, type DownloadOptions } from './download-options';
+  import { buildDownloadOptionsPatch, downloadOptionsFromResolved, profileSettingsSections, rebaseOptions, changedOptions, type DownloadOptions } from './download-options';
   import JobTypeNav, { jobChoiceMetadata } from './JobTypeNav.svelte';
   import JobInputs from './JobInputs.svelte';
   import CsvMapping from './CsvMapping.svelte';
   import ImportOptionsPanel from './ImportOptions.svelte';
-  import { buildImportPatch, createImportOptions, type ImportOptions } from './import-options';
+  import { buildImportPatch, createImportOptions, importOptionsFromResolved, type ImportOptions } from './import-options';
   import type { Schema } from '../../api/types';
   import { daemonApi } from '../../api/client';
   import { DaemonApiError } from '../../api/http';
@@ -28,6 +29,11 @@
   const initialChoice = untrack(() => draft.choice);
   let carriedSearchSettings = $derived(draft.choice === initialChoice ? initial?.searchSettings : undefined);
   let choiceMetadata = $derived(jobChoiceMetadata(draft.choice));
+  let profileNames = $state<string[]>([]);
+  let appliedProfiles = $state<Schema<'AppliedProfileDto'>[]>([]);
+  let profileSections = $state(profileSettingsSections({}));
+  let importBaseline = $state<ImportOptions | null>(null);
+  let csvBaseline = $state<Schema<'CsvSettingsPatchDto'> | null>(null);
   let downloadOpen = $state(false);
   let filteringOpen = $state(false);
   let rankingOpen = $state(false);
@@ -39,9 +45,9 @@
   const conditionFingerprints = new Map<ConditionFamily, string>();
   let family = $derived<ConditionFamily>(draft.choice === 'song' ? 'track' : draft.choice === 'album' ? 'album' : 'mixed');
   let conditionSession = $derived(conditionSessions[family]);
-  let filteringCustomized = $derived(Boolean(conditionSession && JSON.stringify({ common: conditionSession.values.common, track: conditionSession.values.track, album: conditionSession.values.album })
+  let filteringCustomized = $derived(profileSections.filtering || Boolean(conditionSession && JSON.stringify({ common: conditionSession.values.common, track: conditionSession.values.track, album: conditionSession.values.album })
     !== JSON.stringify({ common: conditionSession.baseline.common, track: conditionSession.baseline.track, album: conditionSession.baseline.album })));
-  let rankingCustomized = $derived(Boolean(conditionSession && JSON.stringify(conditionSession.values.ranking) !== JSON.stringify(conditionSession.baseline.ranking)));
+  let rankingCustomized = $derived(profileSections.ranking || Boolean(conditionSession && JSON.stringify(conditionSession.values.ranking) !== JSON.stringify(conditionSession.baseline.ranking)));
   let downloadValues = $state<DownloadOptions | null>(null);
   let downloadBaseline = $state<DownloadOptions | null>(null);
   let settingsLoading = $state(false);
@@ -49,7 +55,7 @@
   let settingsRetry = $state(0);
   let downloadCapabilities = $derived({ albumFolderEnrichment: draft.choice !== 'song' && draft.choice !== 'soulseek-link', playlistOutput: ['spotify', 'youtube', 'soundcloud', 'bandcamp', 'musicbrainz', 'csv', 'list'].includes(draft.choice), nameFormat: true });
   let downloadPatch = $derived(downloadValues && downloadBaseline ? buildDownloadOptionsPatch(downloadValues, downloadBaseline, downloadCapabilities) : {});
-  let downloadCustomized = $derived(Object.keys(downloadPatch).length > 0);
+  let downloadCustomized = $derived(profileSections.download || Object.keys(downloadPatch).length > 0);
   let csvMapping = $state<Schema<'CsvSettingsPatchDto'>>({});
   let importOptions = $state<ImportOptions>(createImportOptions());
   let hasImportOptions = $derived(['spotify', 'youtube', 'soundcloud', 'bandcamp', 'musicbrainz', 'csv', 'list'].includes(draft.choice));
@@ -111,13 +117,15 @@
     return node.sourceDetail ? `${kind} · ${node.sourceDetail}` : kind;
   }
 
+  let needsSettings = $derived(downloadOpen || filteringOpen || rankingOpen || importOptionsOpen
+    || csvMappingOpen || downloadBaseline !== null || profileNames.length > 0);
   $effect(() => {
     settingsRetry;
     const requestDraft = { ...draft };
+    const requestedProfiles = [...profileNames];
     const carriedSettings = carriedSearchSettings;
     const requestFamily: ConditionFamily = requestDraft.choice === 'song' ? 'track' : requestDraft.choice === 'album' ? 'album' : 'mixed';
-    const hasEditedSettings = untrack(() => downloadBaseline !== null || conditionSessions[requestFamily] !== null);
-    if (!downloadOpen && !filteringOpen && !rankingOpen && !hasEditedSettings) return;
+    if (!needsSettings) return;
     const abort = new AbortController();
     untrack(() => {
       settingsLoading = true;
@@ -125,8 +133,16 @@
       void (async () => {
         try {
           const resolved = await daemonApi.resolveEffectiveSettings({ ...buildJobSettingsRequest(requestDraft),
-            options: carriedSettings ? { downloadSettings: { search: carriedSettings } } : undefined }, abort.signal);
+            options: { profileNames: requestedProfiles, ...(carriedSettings ? { downloadSettings: { search: carriedSettings } } : {}) } }, abort.signal);
           if (abort.signal.aborted) return;
+          appliedProfiles = resolved.appliedProfiles;
+          profileSections = profileSettingsSections(resolved.provenance);
+          const nextImport = importOptionsFromResolved(resolved.settings);
+          importOptions = rebaseOptions(importBaseline, importOptions, nextImport);
+          importBaseline = nextImport;
+          const nextCsv = resolved.settings.values.csv ?? {};
+          csvMapping = rebaseOptions(csvBaseline, csvMapping, nextCsv);
+          csvBaseline = nextCsv;
           const baseline = downloadOptionsFromResolved(resolved.settings);
           if (!resolved.settings.values.search) throw new Error('The daemon did not return resolved search settings.');
           const searchBaseline = readSearchConditions(resolved.settings.values.search, requestDraft.expectedLength);
@@ -140,20 +156,8 @@
           };
           conditionFingerprints.set(resolvedFamily, JSON.stringify(nextConditions.values));
           conditionSessions = { ...conditionSessions, [resolvedFamily]: nextConditions };
-          const previous = downloadBaseline;
-          const edited = downloadValues;
-          const next = { ...baseline };
-          if (previous && edited) {
-            // Refresh inherited values without discarding explicit edits.
-            for (const key of ['skipExisting', 'loadFullAlbumFolder', 'writePlaylist'] as const) {
-              if (edited[key] !== previous[key]) next[key] = edited[key];
-            }
-            for (const key of ['outputParentDir', 'nameFormat'] as const) {
-              if (edited[key] !== previous[key]) next[key] = edited[key];
-            }
-          }
+          downloadValues = rebaseOptions(downloadBaseline, downloadValues ?? baseline, baseline);
           downloadBaseline = baseline;
-          downloadValues = next;
         } catch (cause) {
           if (!abort.signal.aborted) settingsError = cause instanceof Error ? cause : new Error(String(cause));
         } finally { if (!abort.signal.aborted) settingsLoading = false; }
@@ -257,10 +261,10 @@
           throw new Error('Expected length belongs to each extracted song; it cannot be applied to every item in a mixed source.');
         }
       }
-      if (draft.choice === 'csv') settings.csv = csvMapping;
-      if (hasImportOptions) settings.extraction = buildImportPatch(importOptions);
+      if (draft.choice === 'csv') settings.csv = changedOptions(csvMapping, csvBaseline ?? {});
+      if (hasImportOptions) settings.extraction = buildImportPatch(importOptions, importBaseline ?? createImportOptions());
       error = null;
-      const request = buildJobPreviewRequest(draft, { ...downloadPatch, downloadSettings: settings });
+      const request = buildJobPreviewRequest(draft, { ...downloadPatch, profileNames: [...profileNames], downloadSettings: settings });
       if (request.job.kind === 'song' && conditionSession) {
         request.job.songQuery.length = searchExpectedLength(conditionSession.values.track.expectedLength) ?? null;
       }
@@ -289,11 +293,16 @@
     <JobTypeNav value={draft.choice} onchange={choose} />
     <div class="new-job-workspace">
       <div class="new-job-scroll-area">
-        <header class="new-job-current-choice"><div><strong>{choiceMetadata.label}</strong><small>{choiceMetadata.detail}</small></div></header>
+        <header class="new-job-current-choice"><div><strong>{choiceMetadata.label}</strong><small>{choiceMetadata.detail}</small></div>
+          <ProfilePicker value={profileNames} applied={appliedProfiles} onchange={(names) => { profileNames = names; invalidatePreview(); }} />
+        </header>
         <div class="new-job-config">
           <JobInputs {draft} {fileName} onchange={change} onfile={(file) => void chooseFile(file)} />
-          {#if draft.choice === 'csv'}<CsvMapping value={csvMapping} bind:open={csvMappingOpen} onchange={(value) => { change({ ...draft }); csvMapping = value; }} />{/if}
-          {#if hasImportOptions}<ImportOptionsPanel value={importOptions} bind:open={importOptionsOpen} onchange={(value) => { change({ ...draft }); importOptions = value; }} />{/if}
+          {#if draft.choice === 'csv'}<CsvMapping profileApplied={profileSections.csv} value={csvMapping} baseline={csvBaseline ?? {}} disabled={settingsLoading || Boolean(settingsError)} bind:open={csvMappingOpen} onchange={(value) => { invalidatePreview(); csvMapping = value; }} />{/if}
+          {#if hasImportOptions}<ImportOptionsPanel profileApplied={profileSections.import} value={importOptions} baseline={importBaseline ?? createImportOptions()} disabled={settingsLoading || Boolean(settingsError)} bind:open={importOptionsOpen} onchange={(value) => { invalidatePreview(); importOptions = value; }} />{/if}
+          {#if settingsError && !filteringOpen && !rankingOpen && !downloadOpen}
+            <p role="alert">{settingsError.message}</p><button type="button" onclick={() => settingsRetry++}>Retry settings</button>
+          {/if}
           <section class="new-job-job-settings" aria-label="Job settings">
             {#if draft.choice !== 'soulseek-link'}
             <ExpandableSettingsPanel title="Filtering" summary={filteringCustomized ? 'Custom' : 'Defaults'} customized={filteringCustomized} bind:open={filteringOpen} bodyId="new-job-filtering-options">

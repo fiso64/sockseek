@@ -581,7 +581,7 @@
       isfolderselected={(directoryRef, relativePath) => searchController.isDirectoryPathSelected(directoryRef, relativePath)}
       onselectall={(selected) => searchController.selectAll(selected)}
       ondownload={(options) => void searchController.commit(options)}
-      onresolvesettings={() => searchController.resolveSelectionSettings()}
+      onresolvesettings={(options) => searchController.resolveSelectionSettings(options)}
       onloaddefinition={(viewId) => daemonApi.getSearchViewDefinition(viewId)}
       onrefine={(request, resetSelection) => searchController.refine(request, resetSelection)}
       onsort={(order) => searchController.sort(order)}

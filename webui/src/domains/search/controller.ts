@@ -815,12 +815,12 @@ export class SearchViewController {
     }
   }
 
-  async resolveSelectionSettings(signal?: AbortSignal): Promise<Schema<'ResolveSearchViewSelectionSettingsResponseDto'>> {
+  async resolveSelectionSettings(options?: Schema<'SubmissionOptionsDto'>, signal?: AbortSignal): Promise<Schema<'ResolveSearchViewSelectionSettingsResponseDto'>> {
     const summary = this.state.summary;
     if (!summary) throw new Error('Search results are not available.');
     const { revision, selection, includedFileRefs, directoryPathRules } = this.selection.input();
     return this.api.resolveSearchViewSelectionSettings(summary.viewId,
-      { revision, selection, includedFileRefs, directoryPathRules }, signal);
+      { revision, selection, includedFileRefs, directoryPathRules, options }, signal);
   }
 
   private cancelPageRequest(): void {

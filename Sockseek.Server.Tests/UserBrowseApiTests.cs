@@ -33,6 +33,9 @@ public sealed class UserBrowseApiTests
             {
                 Name = "shared-files", Condition = "input-type == \"peer-shares\" && download-mode == \"generic\" && !interactive",
                 Download = new SettingsPatch([new("Search.MaxStaleTime", 4321)]),
+            }], NamedProfiles = [new SettingsProfile
+            {
+                Name = "destination", Download = new SettingsPatch([new("Search.MaxStaleTime", 5432)]),
             }] },
             Engine = new EngineSettings
             {
@@ -152,7 +155,10 @@ public sealed class UserBrowseApiTests
                 new UserShareFileSelectionDto(files1.Items[0].FileId),
                 new UserShareFileSelectionDto(betaFile.FileId),
             ];
-            var submissionOptions = new SubmissionOptionsDto(OutputParentDir: output);
+            var submissionOptions = new SubmissionOptionsDto(OutputParentDir: output, ProfileNames: ["destination"]);
+            var resolved = await api.ResolveUserShareDownloadSettingsAsync(submissionOptions);
+            Assert.AreEqual(5432, resolved.Settings.Values.Search!.MaxStaleTime);
+            CollectionAssert.AreEqual(new[] { new AppliedProfileDto("shared-files", "automatic"), new AppliedProfileDto("destination", "selected") }, resolved.AppliedProfiles.ToArray());
             Guid requestId = Guid.NewGuid();
             var downloadRequest = new StartUserShareDownloadsRequestDto(
                 requestId,
@@ -179,7 +185,8 @@ public sealed class UserBrowseApiTests
             var (selectionJob, selectionSettings) = Sockseek.Core.Planning.SubmissionSpecificationCodec
                 .Deserialize(accepted.SpecificationJson).Materialize();
             Assert.AreEqual(Sockseek.Core.Jobs.JobSelectionSource.PeerShares, selectionJob.SelectionSource);
-            Assert.AreEqual(4321, selectionSettings.Search.MaxStaleTime);
+            Assert.AreEqual(resolved.Settings.Values.Search.MaxStaleTime, selectionSettings.Search.MaxStaleTime);
+            CollectionAssert.AreEqual(resolved.AppliedProfiles.Select(profile => new AppliedProfile(profile.Name, profile.Source)).ToArray(), selectionSettings.AppliedProfiles);
             foreach (var child in ((Sockseek.Core.Jobs.JobList)selectionJob).Jobs)
             {
                 Assert.AreEqual(Sockseek.Core.Jobs.JobSelectionSource.PeerShares, child.SelectionSource);

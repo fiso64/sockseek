@@ -357,6 +357,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/user-browses/download-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolves settings for ordinary downloads from peer shares. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SubmissionOptionsDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ResolveEffectiveSettingsResponseDto"];
+                    };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/users/{username}/browses": {
         parameters: {
             query?: never;
@@ -10427,6 +10481,10 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
+        AppliedProfileDto: {
+            name: string;
+            source: string;
+        };
         ArchiveConversationRequestDto: {
             /** @default true */
             archived: boolean;
@@ -11389,7 +11447,7 @@ export interface components {
             kind: components["schemas"]["ServerJobKind"];
             itemName?: null | string;
             queryText?: null | string;
-            appliedAutoProfiles: string[];
+            appliedProfiles: components["schemas"]["AppliedProfileDto"][];
             printOption: components["schemas"]["ServerPrintOption"];
             /** Format: uuid */
             submissionId?: null | string;
@@ -11724,7 +11782,10 @@ export interface components {
                             kind: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
                             itemName?: null | string;
                             queryText?: null | string;
-                            appliedAutoProfiles: string[];
+                            appliedProfiles: {
+                                name: string;
+                                source: string;
+                            }[];
                             printOption: number;
                             /** Format: uuid */
                             submissionId?: null | string;
@@ -11815,7 +11876,10 @@ export interface components {
                         kind: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
                         itemName?: null | string;
                         queryText?: null | string;
-                        appliedAutoProfiles: string[];
+                        appliedProfiles: {
+                            name: string;
+                            source: string;
+                        }[];
                         printOption: number;
                         /** Format: uuid */
                         submissionId?: null | string;
@@ -12426,7 +12490,7 @@ export interface components {
             queryText?: null | string;
             /** Format: int32 */
             directChildCount: number | string;
-            appliedAutoProfiles: string[];
+            appliedProfiles: components["schemas"]["AppliedProfileDto"][];
             songQuery?: null | components["schemas"]["SongQueryDto"];
             albumQuery?: null | components["schemas"]["AlbumQueryDto"];
             failureCode?: null | string;
@@ -12551,7 +12615,7 @@ export interface components {
             discoveryRawResultCount?: null | number | string;
             /** Format: int32 */
             discoveryLockedFileCount?: null | number | string;
-            appliedAutoProfiles?: string[];
+            appliedProfiles?: components["schemas"]["AppliedProfileDto"][];
             availableActions?: components["schemas"]["ResourceActionDto"][];
             failureDetail?: null | string;
             cancellationSource?: components["schemas"]["ServerJobCancellationSource"];
@@ -12871,6 +12935,8 @@ export interface components {
             isAutoProfile: boolean;
             hasEngineSettings: boolean;
             hasDownloadSettings: boolean;
+            /** @default false */
+            hasInputSettings: boolean;
         };
         RefSelectionExpressionDto: {
             mode: components["schemas"]["RefSelectionMode"];
@@ -12906,8 +12972,7 @@ export interface components {
         ResolveEffectiveSettingsResponseDto: {
             baseline: components["schemas"]["ServerSearchSettingsBaselineKind"];
             settings: components["schemas"]["EffectiveDownloadSettingsDto"];
-            appliedAutoProfiles: string[];
-            namedProfiles: string[];
+            appliedProfiles: components["schemas"]["AppliedProfileDto"][];
             provenance: {
                 [key: string]: string;
             };
@@ -12931,6 +12996,7 @@ export interface components {
             selection: components["schemas"]["RefSelectionExpressionDto"];
             includedFileRefs?: null | string[];
             directoryPathRules?: null | components["schemas"]["SearchViewDirectoryPathRuleDto"][];
+            options?: null | components["schemas"]["SubmissionOptionsDto"];
         };
         ResolveSearchViewSelectionSettingsResponseDto: {
             /** Format: int64 */
@@ -13181,6 +13247,7 @@ export interface components {
         SearchViewSelectionSettingsVariantDto: {
             jobKind: components["schemas"]["ServerJobKind"];
             settings: components["schemas"]["EffectiveDownloadSettingsDto"];
+            appliedProfiles: components["schemas"]["AppliedProfileDto"][];
         };
         SearchViewSummaryDto: {
             /** Format: uuid */
@@ -13687,7 +13754,10 @@ export interface components {
                         kind: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
                         itemName?: null | string;
                         queryText?: null | string;
-                        appliedAutoProfiles: string[];
+                        appliedProfiles: {
+                            name: string;
+                            source: string;
+                        }[];
                         printOption: number;
                         /** Format: uuid */
                         submissionId?: null | string;
@@ -13778,7 +13848,10 @@ export interface components {
                     kind: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
                     itemName?: null | string;
                     queryText?: null | string;
-                    appliedAutoProfiles: string[];
+                    appliedProfiles: {
+                        name: string;
+                        source: string;
+                    }[];
                     printOption: number;
                     /** Format: uuid */
                     submissionId?: null | string;
@@ -14424,7 +14497,10 @@ export interface components {
                             kind: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
                             itemName?: null | string;
                             queryText?: null | string;
-                            appliedAutoProfiles: string[];
+                            appliedProfiles: {
+                                name: string;
+                                source: string;
+                            }[];
                             printOption: number;
                             /** Format: uuid */
                             submissionId?: null | string;
@@ -14515,7 +14591,10 @@ export interface components {
                         kind: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
                         itemName?: null | string;
                         queryText?: null | string;
-                        appliedAutoProfiles: string[];
+                        appliedProfiles: {
+                            name: string;
+                            source: string;
+                        }[];
                         printOption: number;
                         /** Format: uuid */
                         submissionId?: null | string;

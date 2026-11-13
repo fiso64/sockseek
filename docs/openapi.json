@@ -365,6 +365,50 @@
         ]
       }
     },
+    "/api/user-browses/download-settings": {
+      "post": {
+        "tags": [
+          "User Browsing"
+        ],
+        "summary": "Resolves settings for ordinary downloads from peer shares.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveEffectiveSettingsResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
+      }
+    },
     "/api/users/{username}/browses": {
       "post": {
         "tags": [
@@ -11533,6 +11577,21 @@
           }
         }
       },
+      "AppliedProfileDto": {
+        "required": [
+          "name",
+          "source"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
       "ArchiveConversationRequestDto": {
         "type": "object",
         "properties": {
@@ -15777,7 +15836,7 @@
           "displayId",
           "workflowId",
           "kind",
-          "appliedAutoProfiles",
+          "appliedProfiles",
           "printOption",
           "role"
         ],
@@ -15810,10 +15869,10 @@
               "string"
             ]
           },
-          "appliedAutoProfiles": {
+          "appliedProfiles": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/AppliedProfileDto"
             }
           },
           "printOption": {
@@ -17368,7 +17427,7 @@
                             "displayId",
                             "workflowId",
                             "kind",
-                            "appliedAutoProfiles",
+                            "appliedProfiles",
                             "printOption",
                             "role"
                           ],
@@ -17413,10 +17472,22 @@
                                 "string"
                               ]
                             },
-                            "appliedAutoProfiles": {
+                            "appliedProfiles": {
                               "type": "array",
                               "items": {
-                                "type": "string"
+                                "required": [
+                                  "name",
+                                  "source"
+                                ],
+                                "type": "object",
+                                "properties": {
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "source": {
+                                    "type": "string"
+                                  }
+                                }
                               }
                             },
                             "printOption": {
@@ -17777,7 +17848,7 @@
                         "displayId",
                         "workflowId",
                         "kind",
-                        "appliedAutoProfiles",
+                        "appliedProfiles",
                         "printOption",
                         "role"
                       ],
@@ -17822,10 +17893,22 @@
                             "string"
                           ]
                         },
-                        "appliedAutoProfiles": {
+                        "appliedProfiles": {
                           "type": "array",
                           "items": {
-                            "type": "string"
+                            "required": [
+                              "name",
+                              "source"
+                            ],
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "source": {
+                                "type": "string"
+                              }
+                            }
                           }
                         },
                         "printOption": {
@@ -20319,7 +20402,7 @@
           "isSelectable",
           "kind",
           "directChildCount",
-          "appliedAutoProfiles"
+          "appliedProfiles"
         ],
         "type": "object",
         "properties": {
@@ -20364,10 +20447,10 @@
             ],
             "format": "int32"
           },
-          "appliedAutoProfiles": {
+          "appliedProfiles": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/AppliedProfileDto"
             }
           },
           "songQuery": {
@@ -20868,10 +20951,10 @@
             ],
             "format": "int32"
           },
-          "appliedAutoProfiles": {
+          "appliedProfiles": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/AppliedProfileDto"
             }
           },
           "availableActions": {
@@ -22155,6 +22238,10 @@
           },
           "hasDownloadSettings": {
             "type": "boolean"
+          },
+          "hasInputSettings": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -22290,8 +22377,7 @@
         "required": [
           "baseline",
           "settings",
-          "appliedAutoProfiles",
-          "namedProfiles",
+          "appliedProfiles",
           "provenance"
         ],
         "type": "object",
@@ -22302,16 +22388,10 @@
           "settings": {
             "$ref": "#/components/schemas/EffectiveDownloadSettingsDto"
           },
-          "appliedAutoProfiles": {
+          "appliedProfiles": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
-          },
-          "namedProfiles": {
-            "type": "array",
-            "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/AppliedProfileDto"
             }
           },
           "provenance": {
@@ -22402,6 +22482,16 @@
             "items": {
               "$ref": "#/components/schemas/SearchViewDirectoryPathRuleDto"
             }
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            ]
           }
         }
       },
@@ -23509,7 +23599,8 @@
       "SearchViewSelectionSettingsVariantDto": {
         "required": [
           "jobKind",
-          "settings"
+          "settings",
+          "appliedProfiles"
         ],
         "type": "object",
         "properties": {
@@ -23518,6 +23609,12 @@
           },
           "settings": {
             "$ref": "#/components/schemas/EffectiveDownloadSettingsDto"
+          },
+          "appliedProfiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppliedProfileDto"
+            }
           }
         }
       },
@@ -25648,7 +25745,7 @@
                         "displayId",
                         "workflowId",
                         "kind",
-                        "appliedAutoProfiles",
+                        "appliedProfiles",
                         "printOption",
                         "role"
                       ],
@@ -25693,10 +25790,22 @@
                             "string"
                           ]
                         },
-                        "appliedAutoProfiles": {
+                        "appliedProfiles": {
                           "type": "array",
                           "items": {
-                            "type": "string"
+                            "required": [
+                              "name",
+                              "source"
+                            ],
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "source": {
+                                "type": "string"
+                              }
+                            }
                           }
                         },
                         "printOption": {
@@ -26057,7 +26166,7 @@
                     "displayId",
                     "workflowId",
                     "kind",
-                    "appliedAutoProfiles",
+                    "appliedProfiles",
                     "printOption",
                     "role"
                   ],
@@ -26102,10 +26211,22 @@
                         "string"
                       ]
                     },
-                    "appliedAutoProfiles": {
+                    "appliedProfiles": {
                       "type": "array",
                       "items": {
-                        "type": "string"
+                        "required": [
+                          "name",
+                          "source"
+                        ],
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          }
+                        }
                       }
                     },
                     "printOption": {
@@ -28726,7 +28847,7 @@
                             "displayId",
                             "workflowId",
                             "kind",
-                            "appliedAutoProfiles",
+                            "appliedProfiles",
                             "printOption",
                             "role"
                           ],
@@ -28771,10 +28892,22 @@
                                 "string"
                               ]
                             },
-                            "appliedAutoProfiles": {
+                            "appliedProfiles": {
                               "type": "array",
                               "items": {
-                                "type": "string"
+                                "required": [
+                                  "name",
+                                  "source"
+                                ],
+                                "type": "object",
+                                "properties": {
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "source": {
+                                    "type": "string"
+                                  }
+                                }
                               }
                             },
                             "printOption": {
@@ -29135,7 +29268,7 @@
                         "displayId",
                         "workflowId",
                         "kind",
-                        "appliedAutoProfiles",
+                        "appliedProfiles",
                         "printOption",
                         "role"
                       ],
@@ -29180,10 +29313,22 @@
                             "string"
                           ]
                         },
-                        "appliedAutoProfiles": {
+                        "appliedProfiles": {
                           "type": "array",
                           "items": {
-                            "type": "string"
+                            "required": [
+                              "name",
+                              "source"
+                            ],
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "source": {
+                                "type": "string"
+                              }
+                            }
                           }
                         },
                         "printOption": {

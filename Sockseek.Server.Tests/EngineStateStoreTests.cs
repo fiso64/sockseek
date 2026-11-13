@@ -410,6 +410,7 @@ public class EngineStateStoreTests
         var job = new SongJob(new SongQuery { Title = "External submission" });
         var batches = new List<StateUpdateBatchDto>();
         store.StateBatchPublished += batch => batches.Add(batch.ToDto());
+        job.Config = new Sockseek.Core.Settings.DownloadSettings { AppliedProfiles = [new("lossless", "selected")] };
         Register(store, job);
 
         Guid submissionId = Guid.NewGuid();
@@ -428,6 +429,17 @@ public class EngineStateStoreTests
         Assert.AreEqual(submissionId, state.ToSummary().SubmissionId);
         Assert.AreEqual(ServerJobRole.UserRoot, state.ToSummary().Role);
         Assert.AreEqual(createdAt, state.ToSummary().CreatedAtUtc);
+
+        CollectionAssert.AreEqual(new[] { new AppliedProfileDto("lossless", "selected") }, changed.Display.AppliedProfiles.ToArray());
+        // Settings captures can create equal records with different references.
+        // Lifecycle changes must not resend their unchanged display/profile data.
+        job.Config!.AppliedProfiles = [new("lossless", "selected")];
+        batches.Clear();
+        job.SetDone();
+        UpdateState(store, job);
+        var completed = batches.SelectMany(batch => batch.State.Jobs).Last(delta => delta.JobId == job.Id);
+        Assert.IsNotNull(completed.Lifecycle);
+        Assert.IsNull(completed.Display);
 
         var search = new SearchJob(new SongQuery { Title = "Track search" })
             { WorkflowId = job.WorkflowId, GroupResults = true };

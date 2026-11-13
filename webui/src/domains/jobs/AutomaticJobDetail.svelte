@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AppliedProfiles from '../../components/AppliedProfiles.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { untrack } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
@@ -607,6 +608,7 @@
       </div>
     {/if}
   </header>
+  {#if job?.appliedProfiles?.length}<dl class="job-detail-facts"><div><dt>Profiles</dt><dd class="job-profile-list"><AppliedProfiles profiles={job.appliedProfiles} /></dd></div></dl>{/if}
   {#if !detail && !error}<LoadingIndicator label="Loading job" blocking />{/if}
   {#if error}<div class="resource-state-notice unavailable" role="alert">{error.message}</div>{/if}
   {#if transferError}<div class="resource-state-notice unavailable" role="alert"><span>Live file progress unavailable: {transferError.message}</span><button type="button" onclick={() => transferRetry++}>Retry</button></div>{/if}

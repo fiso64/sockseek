@@ -35,7 +35,7 @@ public sealed class JobPreviewStoreTests
         {
             EffectiveSettingsJson = "{\"version\":2}",
             ItemName = "曲 é ' \"\nnull", QueryText = "null", DirectChildCount = int.MaxValue,
-            AppliedAutoProfilesJson = "[\"Exact Profile\"]", SpecificationJson = "{\"text\":\"曲\"}",
+            AppliedProfilesJson = "[\"Exact Profile\"]", SpecificationJson = "{\"text\":\"曲\"}",
             CredentialBindingsJson = "[{\"name\":\"local\"}]",
         };
         var failed = Node(preview.Id, "0/1", "0", selectable: false, state: "Failed");

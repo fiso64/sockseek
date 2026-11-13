@@ -676,7 +676,7 @@ public sealed class JobPreviewCoordinator(
                 displayName ?? node.PreviewTitle,
                 node.QueryText,
                 node.DirectChildCount,
-                JsonSerializer.Serialize(node.AppliedAutoProfiles),
+                JsonSerializer.Serialize(node.AppliedProfiles),
                 specification,
                 settingsRef,
                 completeSpecification?.EffectiveSettingsJson,
@@ -784,7 +784,7 @@ public sealed class JobPreviewCoordinator(
             node.ItemName,
             node.QueryText,
             node.DirectChildCount,
-            JsonSerializer.Deserialize<string[]>(node.AppliedAutoProfilesJson) ?? [],
+            JsonSerializer.Deserialize<AppliedProfileDto[]>(node.AppliedProfilesJson) ?? [],
             command?.SongQuery is { } songQuery
                 ? ServerSnapshotMapper.ToSongQueryDto(songQuery)
                 : null,

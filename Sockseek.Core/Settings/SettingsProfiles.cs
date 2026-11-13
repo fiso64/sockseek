@@ -9,6 +9,8 @@ using Sockseek.Core.Snapshots;
 
 namespace Sockseek.Core.Settings;
 
+public sealed record AppliedProfile(string Name, string Source);
+
 public sealed record SettingsProfile
 {
     public string Name { get; init; } = "";

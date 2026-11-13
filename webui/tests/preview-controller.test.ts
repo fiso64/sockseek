@@ -17,7 +17,7 @@ it('shows partial readiness as soon as the planning request completes and retain
   const failed: Schema<'JobPreviewNodeDto'> = {
     ref: 'failed', parentRef: null, role: 'user-root', isReady: false, isSelectable: false,
     kind: 'extract', itemName: 'Source', queryText: null, directChildCount: 0,
-    selectableSubtreeCount: 0, appliedAutoProfiles: [], failureCode: 'extraction-failed', failureMessage: 'Source unavailable',
+    selectableSubtreeCount: 0, appliedProfiles: [], failureCode: 'extraction-failed', failureMessage: 'Source unavailable',
   };
   class Api extends DaemonApiClient {
     override async createJobPreview() { return { preview: { ...summary('preview'), state: 'Planning' as const } }; }
@@ -124,7 +124,7 @@ it('opens a small review and only the first structural page of a large review', 
   const reads: Array<string | null | undefined> = [];
   const node = (ref: string, parentRef: string | null, directChildCount: number): Schema<'JobPreviewNodeDto'> => ({
     ref, parentRef, directChildCount, role: 'user-root', isReady: true, isSelectable: true,
-    kind: 'song', itemName: ref, queryText: null, selectableSubtreeCount: 1, appliedAutoProfiles: [],
+    kind: 'song', itemName: ref, queryText: null, selectableSubtreeCount: 1, appliedProfiles: [],
   });
   class Api extends DaemonApiClient {
     override async createJobPreview(body: Schema<'CreateJobPreviewRequestDto'>) {

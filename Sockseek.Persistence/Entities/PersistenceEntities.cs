@@ -50,6 +50,7 @@ internal sealed class JobEntity : IRevisionedHistoryRow
     public string? QueryText { get; set; }
     public string? SourceDetail { get; set; }
     public int PrintOption { get; set; }
+    public string AppliedProfilesJson { get; set; } = "[]";
     public long CreatedAtUtc { get; set; }
     public long? StartedAtUtc { get; set; }
     public long UpdatedAtUtc { get; set; }

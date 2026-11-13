@@ -104,7 +104,8 @@ public sealed class JobSubmissions
                 profile.Condition,
                 profile.Condition != null,
                 profile.HasEngineSettings,
-                profile.HasDownloadSettings))
+                profile.HasDownloadSettings,
+                profile.Download.Operations.Any(operation => operation.Path is "Extraction.Input" or "Extraction.InputType")))
             .OrderBy(profile => profile.Name)
             .ToList();
 
@@ -252,6 +253,16 @@ public sealed class JobSubmissions
             throw new InvalidOperationException("Soulseek is not connected.");
     }
 
+    public ResolveEffectiveSettingsResponseDto ResolveUserShareDownloadSettings(SubmissionOptionsDto options)
+    {
+        var job = new JobSettingsContext(Guid.Empty, Guid.Empty, JobSnapshotKind.RemoteDirectory,
+            SelectionSource: JobSelectionSource.PeerShares);
+        var result = SettingsResolver.ResolveDetailed(job, options);
+        if (options.DownloadSettings is { } patch) RemoteTransferSettingsValidator.ValidateExplicitPatch(patch);
+        RemoteTransferSubmissionPolicy.NormalizeSettings(job, result.Settings);
+        return EffectiveSettingsMapper.ToDto(result);
+    }
+
     public ResolveEffectiveSettingsResponseDto ResolveEffectiveSettings(
         ResolveEffectiveSettingsRequestDto request)
     {
@@ -281,7 +292,7 @@ public sealed class JobSubmissions
             combinedPatch, resolver);
         if (containsRemoteTransfer)
             RemoteTransferSettingsValidator.ValidateExplicitNameFormat(options.LaunchDownloadSettings);
-        return EffectiveSettingsMapper.ToDto(result, requestOptions.ProfileNames) with
+        return EffectiveSettingsMapper.ToDto(result) with
         {
             IsProvisional = isProvisional,
         };

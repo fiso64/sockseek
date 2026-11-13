@@ -271,7 +271,7 @@ public static class CoreSnapshotFactory
                 JobTitle(job),
                 job.ToString(noInfo: true),
                 CreateDiscovery(job.Discovery),
-                SnapshotCollections.Freeze(job.EffectiveAutoProfiles.OrderBy(x => x)),
+                SnapshotCollections.Freeze(job.EffectiveProfiles),
                 job.EffectivePrintOption,
                 CanCancel(job, state),
                 SourceDetail(job));

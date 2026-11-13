@@ -40,7 +40,7 @@ public sealed record JobPreviewNodeDto(
     string? ItemName,
     string? QueryText,
     int DirectChildCount,
-    IReadOnlyList<string> AppliedAutoProfiles,
+    IReadOnlyList<AppliedProfileDto> AppliedProfiles,
     SongQueryDto? SongQuery = null,
     AlbumQueryDto? AlbumQuery = null,
     string? FailureCode = null,

@@ -19,7 +19,6 @@ const fields: readonly (keyof DownloadOptions)[] = [
 
 export function searchDownloadOptionDefaults(
   response: Schema<'ResolveSearchViewSelectionSettingsResponseDto'>,
-  projectionKind?: string,
 ): SearchDownloadOptionDefaults {
   if (!response.variants.length) throw new Error('The selection has no downloadable public results.');
   const variants = response.variants.map(variant => ({
@@ -27,9 +26,7 @@ export function searchDownloadOptionDefaults(
     options: downloadOptionsFromResolved(variant.settings),
   }));
   const defaults = variants.map(variant => variant.options);
-  const albumDirectory = projectionKind === 'AlbumDirectories'
-    ? variants.find(variant => variant.kind === 'remote-directory')
-    : undefined;
+  const albumDirectory = variants.find(variant => variant.kind === 'album');
   const baseline = { ...defaults[0]! };
   if (albumDirectory) baseline.loadFullAlbumFolder = albumDirectory.options.loadFullAlbumFolder;
   const mixedFields = new Set<keyof DownloadOptions>();
@@ -46,11 +43,7 @@ export function searchDownloadOptionDefaults(
     values,
     mixedFields,
     capabilities: {
-      albumFolderEnrichment: response.variants.every(variant => variant.jobKind === 'album')
-        || (projectionKind === 'AlbumDirectories'
-          && Boolean(albumDirectory)
-          && response.variants.every(variant => variant.jobKind === 'remote-directory'
-            || variant.jobKind === 'remote-file')),
+      albumFolderEnrichment: Boolean(albumDirectory),
       playlistOutput: false,
       nameFormat: true,
     },

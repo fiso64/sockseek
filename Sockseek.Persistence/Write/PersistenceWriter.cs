@@ -801,6 +801,7 @@ public sealed class PersistenceWriter(
         entity.QueryText = mutation.QueryText;
         entity.SourceDetail = Limit(mutation.SourceDetail, 128);
         entity.PrintOption = mutation.PrintOption;
+        entity.AppliedProfilesJson = mutation.AppliedProfilesJson;
         entity.UpdatedAtUtc = Math.Max(entity.UpdatedAtUtc, occurredAt);
         if (entity.StartedAtUtc == null && mutation.LifecycleState != "Pending")
             entity.StartedAtUtc = mutation.StartedAtUtc?.ToUniversalTime().ToUnixTimeMilliseconds()

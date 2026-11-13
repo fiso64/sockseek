@@ -6,10 +6,10 @@ export function createImportOptions(): ImportOptions {
   return { maxTracks: '', offset: '0', upgradeToAlbum: false };
 }
 
-export function importOptionsCustomized(value: ImportOptions): boolean {
-  return Boolean(value.maxTracks.trim())
-    || (value.offset.trim() !== '' && value.offset.trim() !== '0')
-    || value.upgradeToAlbum;
+export function importOptionsCustomized(value: ImportOptions, baseline: ImportOptions = createImportOptions()): boolean {
+  return value.maxTracks !== baseline.maxTracks
+    || (value.offset || '0') !== (baseline.offset || '0')
+    || value.upgradeToAlbum !== baseline.upgradeToAlbum;
 }
 
 function integer(value: string, name: string, minimum: number): number | undefined {
@@ -21,10 +21,16 @@ function integer(value: string, name: string, minimum: number): number | undefin
   return parsed;
 }
 
-export function buildImportPatch(value: ImportOptions): Schema<'ExtractionSettingsPatchDto'> {
+export function importOptionsFromResolved(settings: Schema<'EffectiveDownloadSettingsDto'>): ImportOptions {
+  const extraction = settings.values.extraction;
+  return { maxTracks: extraction?.maxTracks == null || extraction.maxTracks === 2147483647 ? '' : String(extraction.maxTracks),
+    offset: String(extraction?.offset ?? 0), upgradeToAlbum: extraction?.upgradeToAlbum ?? false };
+}
+
+export function buildImportPatch(value: ImportOptions, baseline: ImportOptions = createImportOptions()): Schema<'ExtractionSettingsPatchDto'> {
   return {
-    maxTracks: integer(value.maxTracks, 'Item limit', 1),
-    offset: integer(value.offset, 'Offset', 0),
-    upgradeToAlbum: value.upgradeToAlbum ? true : undefined,
+    ...(value.maxTracks !== baseline.maxTracks ? { maxTracks: integer(value.maxTracks, 'Item limit', 1) ?? 2147483647 } : {}),
+    ...((value.offset || '0') !== (baseline.offset || '0') ? { offset: integer(value.offset, 'Offset', 0) ?? 0 } : {}),
+    ...(value.upgradeToAlbum !== baseline.upgradeToAlbum ? { upgradeToAlbum: value.upgradeToAlbum } : {}),
   };
 }

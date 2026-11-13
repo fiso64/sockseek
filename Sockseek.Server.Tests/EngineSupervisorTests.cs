@@ -1203,6 +1203,8 @@ public class EngineSupervisorTests
         {
             SettingsProfile profile = CreateProfile("review", settings =>
             {
+                settings.Extraction.Input = "https://example.com/profile-input";
+                settings.Extraction.InputType = InputType.List;
                 settings.Skip.SkipExisting = false;
                 settings.Search.MaxStaleTime = 4321;
             });
@@ -1231,11 +1233,12 @@ public class EngineSupervisorTests
             Assert.AreEqual(4321, preview.Settings.Values.Search?.MaxStaleTime);
             Assert.AreEqual(true, preview.Settings.Values.Skip?.SkipExisting);
             Assert.AreEqual("request", preview.Provenance["Skip.SkipExisting"]);
-            CollectionAssert.AreEqual(new[] { "review" }, preview.NamedProfiles.ToArray());
+            CollectionAssert.AreEqual(new[] { "review" }, preview.AppliedProfiles.Where(profile => profile.Source == "selected").Select(profile => profile.Name).ToArray());
             Assert.AreEqual(1, preview.Settings.OnCompleteCommandCount);
             Assert.IsTrue(preview.Settings.SpotifyClientSecretConfigured);
             Assert.IsTrue(preview.Settings.YouTubeApiKeyConfigured);
             Assert.AreEqual(0, supervisor.StateStore.GetWorkflows().Count);
+            Assert.IsTrue(supervisor.Submissions.GetProfiles().Single().HasInputSettings);
 
             string json = JsonSerializer.Serialize(
                 preview,
@@ -1252,6 +1255,8 @@ public class EngineSupervisorTests
 
             SearchJob? accepted = supervisor.GetRuntimeJob<SearchJob>(summary.JobId);
             Assert.IsNotNull(accepted?.Config);
+            Assert.AreEqual(generic ? "Artist Track" : new SongQuery { Artist = query.Artist, Title = query.Title }.ToString(noInfo: true), accepted.QueryText);
+            CollectionAssert.AreEqual(preview.AppliedProfiles.ToArray(), summary.AppliedProfiles.ToArray());
             Assert.AreEqual(preview.Settings.Values.Search?.MaxStaleTime, accepted.Config.Search.MaxStaleTime);
             Assert.AreEqual(preview.Settings.Values.Skip?.SkipExisting, accepted.Config.Skip.SkipExisting);
             CollectionAssert.AreEqual(preview.Settings.Values.Search?.NecessaryCond?.Formats?.Replace?.ToArray(), accepted.Config.Search.NecessaryCond.Formats);

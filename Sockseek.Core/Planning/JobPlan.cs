@@ -28,7 +28,7 @@ public sealed class PlannedJobNode
     public string? QueryText => command.QueryText;
     public InputType? SourceInputType => command.SourceInputType;
     public string? PreviewTitle { get; }
-    public IReadOnlyList<string> AppliedAutoProfiles { get; }
+    public IReadOnlyList<Sockseek.Core.Settings.AppliedProfile> AppliedProfiles { get; }
     public int DirectChildCount { get; }
     public string? FailureCode { get; }
     public string? FailureMessage { get; }
@@ -54,7 +54,7 @@ public sealed class PlannedJobNode
         SourceRevision = sourceRevision;
         // The preparation owner freezes this once for both execution and Review.
         settings = job.PlannedSettings;
-        AppliedAutoProfiles = settings?.AppliedAutoProfiles ?? [];
+        AppliedProfiles = settings?.AppliedProfiles ?? [];
         search = command.SearchDefinition;
     }
 

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Collections.Concurrent;
 using Sockseek.Core;
 using Sockseek.Core.Events;
@@ -77,7 +78,8 @@ internal sealed class JobPersistence(
             pending.StartedAtUtc ?? default,
             manifest,
             job.SourceDetail,
-            (int)job.PrintOption));
+            (int)job.PrintOption,
+            job.AppliedProfiles.Count == 0 ? "[]" : JsonSerializer.Serialize(job.AppliedProfiles)));
     }
 
     internal void WriteResults(SearchResultsAddedChange change)

@@ -58,7 +58,8 @@ public sealed record PersistedJob(
     long? DiscoveryLockedFileCount = null,
     long? DiscoveryObservedPeerCount = null,
     string? SourceDetail = null,
-    int PrintOption = 0);
+    int PrintOption = 0,
+    string AppliedProfilesJson = "[]");
 
 public sealed record PersistedJobPage(IReadOnlyList<PersistedJob> Items, string? NextCursor);
 public sealed record PersistedDirectoryManifestEntry(
@@ -433,7 +434,7 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
             DateTimeOffset.FromUnixTimeMilliseconds(job.CreatedAtUtc),
             DateTimeOffset.FromUnixTimeMilliseconds(job.UpdatedAtUtc), FromUnixMilliseconds(job.CompletedAtUtc),
             job.Revision, job.PayloadSchemaVersion, job.PayloadJson, job.SubmissionId, job.SemanticRole,
-            publicCount, lockedCount, peerCount, job.SourceDetail, job.PrintOption);
+            publicCount, lockedCount, peerCount, job.SourceDetail, job.PrintOption, job.AppliedProfilesJson);
 
     private static DateTimeOffset? FromUnixMilliseconds(long? value)
         => value.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds(value.Value) : null;

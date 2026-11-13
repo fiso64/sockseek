@@ -381,7 +381,7 @@ public record JobSnapshotHeader(
     string? ItemName,
     string? QueryText,
     DiscoverySnapshot? Discovery,
-    IReadOnlyList<string> AppliedAutoProfiles,
+    IReadOnlyList<Sockseek.Core.Settings.AppliedProfile> AppliedProfiles,
     PrintOption PrintOption,
     bool CanCancel,
     string? SourceDetail = null);
