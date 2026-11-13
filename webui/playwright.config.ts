@@ -4,7 +4,9 @@ export default defineConfig({
   testDir: './e2e',
   testIgnore: process.env.SOCKSEEK_RUN_LOAD === '1' ? [] : ['**/*.load.spec.ts'],
   fullyParallel: false,
-  workers: 1,
+  // Each worker owns its daemon and database. Run ordinary files in parallel;
+  // keep Load measurements isolated and tests within each file ordered.
+  workers: process.env.SOCKSEEK_RUN_LOAD === '1' ? 1 : 2,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
   reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'list',

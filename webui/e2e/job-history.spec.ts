@@ -114,6 +114,8 @@ test.describe('Jobs paging', () => {
 
 test('renders full Jobs scopes and child pages without redundant detail reads', async ({ page, daemon }) => {
   await daemon.command('retained-imports');
+  // This result exists only in history: completion must not depend on a live event.
+  await daemon.command('wait-job-complete:53000000-0000-0000-0000-000000000001');
   await daemon.command('hold-download');
   const response = await page.request.post('/api/jobs/lists', { data: {
     name: 'Paging parent 101', jobs: Array.from({ length: 101 }, (_, child) => ({

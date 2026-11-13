@@ -1,4 +1,6 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Sockseek.Cli;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
@@ -105,55 +107,44 @@ public class CliExitCodeTests
             Path.GetTempPath(), "sockseek-configured-command-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         string configPath = Path.Combine(root, "sockseek.conf");
-        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
-        listener.Start();
-        int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
-        Task responder = RespondWithServiceUnavailableAsync(listener);
-        await File.WriteAllTextAsync(
-            configPath, $"remote = http://127.0.0.1:{port}\n");
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.Logging.ClearProviders();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        await using var app = builder.Build();
+        int requests = 0;
+        // Commands may issue concurrent requests (profile and presence, for
+        // example). Answer all of them rather than waiting for HTTP timeouts.
+        app.Run(context =>
+        {
+            Interlocked.Increment(ref requests);
+            context.Response.StatusCode = 503;
+            return Task.CompletedTask;
+        });
 
         var originalError = Console.Error;
         using var stderr = new StringWriter();
         try
         {
+            await app.StartAsync();
+            await File.WriteAllTextAsync(configPath, $"remote = {app.Urls.Single()}\n");
             Console.SetError(stderr);
 
             string[] args = operand is null
                 ? [command, action, "--config", configPath]
                 : [command, action, operand, "--config", configPath];
-            int exitCode = await Sockseek.Cli.Program.Main(args);
+            int exitCode = await Sockseek.Cli.Program.Main(args).WaitAsync(TimeSpan.FromSeconds(5));
 
             Assert.AreEqual((int)Sockseek.Cli.Program.CliExitCode.WorkFailed, exitCode);
-            Assert.IsFalse(
-                stderr.ToString().Contains("requires a configured remote URL", StringComparison.Ordinal),
-                "The command ignored the configured remote URL.");
-            await responder.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.IsTrue(requests > 0, "The command must contact the configured remote server.");
         }
         finally
         {
-            listener.Stop();
             Console.SetError(originalError);
+            await app.StopAsync();
             try { Directory.Delete(root, recursive: true); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
-    }
-
-    private static async Task RespondWithServiceUnavailableAsync(
-        System.Net.Sockets.TcpListener listener)
-    {
-        using System.Net.Sockets.TcpClient client = await listener.AcceptTcpClientAsync();
-        await using System.Net.Sockets.NetworkStream stream = client.GetStream();
-        var request = new byte[4096];
-        _ = await stream.ReadAsync(request);
-        const string body = "{\"error\":\"test unavailable\"}";
-        byte[] response = System.Text.Encoding.ASCII.GetBytes(
-            "HTTP/1.1 503 Service Unavailable\r\n"
-            + "Content-Type: application/json\r\n"
-            + $"Content-Length: {body.Length}\r\n"
-            + "Connection: close\r\n\r\n"
-            + body);
-        await stream.WriteAsync(response);
     }
 
     [TestMethod]

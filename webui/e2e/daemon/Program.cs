@@ -964,23 +964,18 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                 case string wait when wait.StartsWith("wait-job-complete:", StringComparison.Ordinal):
                 {
                     Guid jobId = Guid.Parse(wait["wait-job-complete:".Length..]);
-                    var state = app.Services.GetRequiredService<EngineStateStore>();
-                    var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                    void Changed(StateUpdate update)
+                    var jobs = app.Services.GetRequiredService<Sockseek.Server.Persistence.JobReadService>();
+                    var events = app.Services.GetRequiredService<ServerEventBroadcaster>();
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+                    // Observe the same live/retained state as the UI. Fast skipped
+                    // jobs can retire before this command reaches the fixture.
+                    await foreach (var update in jobs.ObserveJobsAsync(jobId, [], events, timeout.Token))
                     {
-                        if (update.Scope.Kind != Sockseek.Api.StateStreamScopeKind.Daemon) return;
-                        foreach (var change in update.State.Jobs)
-                            if (change.JobId == jobId && change.Current.LifecycleState == Sockseek.Api.ServerJobLifecycleState.Terminal)
-                                completed.TrySetResult();
+                        if (update.State.Jobs.Any(change => change.JobId == jobId
+                            && (change.Lifecycle ?? change.Added?.Lifecycle)?.LifecycleState
+                                == Sockseek.Api.ServerJobLifecycleState.Terminal))
+                            break;
                     }
-                    state.StateBatchPublished += Changed;
-                    try
-                    {
-                        if (state.GetJobSummary(jobId)?.LifecycleState == Sockseek.Api.ServerJobLifecycleState.Terminal)
-                            completed.TrySetResult();
-                        await completed.Task.WaitAsync(TimeSpan.FromSeconds(120));
-                    }
-                    finally { state.StateBatchPublished -= Changed; }
                     break;
                 }
                 case "directory-selection-search": directorySelectionSearch = true; break;
