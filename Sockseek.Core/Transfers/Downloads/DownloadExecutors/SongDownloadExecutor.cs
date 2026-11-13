@@ -337,7 +337,6 @@ internal sealed class SongDownloadExecutor
                         try { await searchTask; } catch (OperationCanceledException) { }
 
                         var result = fastDownload.Result;
-                        context.UserSuccesses.RecordSuccess(song.WorkflowId, result.Target.Username);
                         if (result.TransferId is Guid transferId)
                         {
                             context.PendingTerminalTransfers[song.Id] = new PendingTerminalTransfer(
@@ -404,11 +403,17 @@ internal sealed class SongDownloadExecutor
                 : DownloadOutcomes.NoMatchingCandidates();
         }
 
+        // Preserve fixed targets, including tracks inside an already selected album.
+        var attempts = song.ResolvedTarget != null || song.ExactTarget != null
+            ? candidates
+            : context.PeerFailures.ForAutomaticSelection(song.WorkflowId, candidates,
+                candidate => candidate.Username, config.Search);
+
         // Try candidates in order until one succeeds.
         int tried = 0;
         Exception? lastDownloadException = null;
         string? lastDownloadFailureMessage = null;
-        foreach (var candidate in candidates)
+        foreach (var candidate in attempts)
         {
             tried++;
             var target = await context.OutputFinalizer.GetInitialDownloadTargetAsync(config, song, organizer, candidate);
@@ -475,7 +480,6 @@ internal sealed class SongDownloadExecutor
 
             var result = download.Result
                 ?? throw new InvalidOperationException($"Completed download outcome missing result for '{candidate.Username}\\{candidate.Filename}'.");
-            context.UserSuccesses.RecordSuccess(song.WorkflowId, result.Target.Username);
             if (result.TransferId is Guid transferId)
             {
                 context.PendingTerminalTransfers[song.Id] = new PendingTerminalTransfer(
@@ -535,7 +539,6 @@ internal sealed class SongDownloadExecutor
             ?? throw new InvalidOperationException(
                 $"Completed exact download outcome missing result for "
                 + $"'{target.Username}\\{PeerIdentityValidator.ToDisplayText(target.Filename)}'.");
-        context.UserSuccesses.RecordSuccess(song.WorkflowId, target.Username);
         if (result.TransferId is Guid transferId)
         {
             context.PendingTerminalTransfers[song.Id] = new PendingTerminalTransfer(

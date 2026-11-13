@@ -12,7 +12,7 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
     private readonly EngineSettings settings;
     private readonly SoulseekClientManager clientManager;
     private readonly ActiveDownloadTracker activeDownloads;
-    private readonly UserSuccessTracker userSuccesses;
+    private readonly PeerFailureTracker peerFailures;
     private readonly DownloadEvents events;
     private readonly SearchEvents searchEvents;
     private readonly StaleDownloadCoordinator staleDownloads;
@@ -34,7 +34,7 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
         EngineSettings settings,
         SoulseekClientManager clientManager,
         ActiveDownloadTracker activeDownloads,
-        UserSuccessTracker userSuccesses,
+        PeerFailureTracker peerFailures,
         DownloadEvents events,
         SearchEvents searchEvents,
         StaleDownloadCoordinator staleDownloads,
@@ -45,7 +45,7 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
         this.settings = settings;
         this.clientManager = clientManager;
         this.activeDownloads = activeDownloads;
-        this.userSuccesses = userSuccesses;
+        this.peerFailures = peerFailures;
         this.events = events;
         this.searchEvents = searchEvents;
         this.staleDownloads = staleDownloads;
@@ -109,7 +109,7 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
             ?? new OneShotPeerDirectorySource(new SoulseekPeerBrowseTransport(clientManager));
         searcher = new Searcher(
             client,
-            userSuccesses,
+            peerFailures,
             events,
             settings.SearchesPerTime,
             settings.SearchRenewTime,

@@ -77,6 +77,67 @@ namespace Tests.Core
         }
 
         [TestMethod]
+        [DataRow("automatic")]
+        [DataRow("exhausted")]
+        [DataRow("song")]
+        [DataRow("file")]
+        [DataRow("directory")]
+        public async Task FailureFeedback_RechecksAutomaticChoicesButHonorsExactTargets(string mode)
+        {
+            string output = Path.Combine(Path.GetTempPath(), "sockseek-failure-selection-" + Guid.NewGuid().ToString("N"));
+            var files = Enumerable.Range(0, 4).Select(i =>
+                TestHelpers.CreateSlFile($@"Music\{i}\Artist - Track.mp3", size: 512, length: 180)).ToArray();
+            var bad = new SearchResponse("peer", 1, true, 10_000_000, 0, files);
+            var good = new SearchResponse("other", 1, true, 100, 0, [files[0]]);
+            var client = new ClientTests.MockSoulseekClient([bad, good],
+                failingUsers: mode == "exhausted" ? ["peer", "other"] : mode == "automatic" ? ["peer"] : []);
+            var candidate = SoulseekSearchAdapter.ToFileCandidate(bad, files[0]);
+            Job job = mode switch
+            {
+                "file" => new RemoteFileJob(candidate.Target),
+                "directory" => new RemoteDirectoryJob(new RemoteDirectorySource.Resolved(
+                    new DirectoryTransferPlan("Music", [new DirectoryTransferEntry(candidate.Target, [])]))),
+                "song" => new SongJob(new SongQuery { Artist = "Artist", Title = "Track" }) { ExactTarget = candidate.Target },
+                _ => new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
+                {
+                    Candidates = files.Select(file => SoulseekSearchAdapter.ToFileCandidate(bad, file))
+                        .Append(SoulseekSearchAdapter.ToFileCandidate(good, files[0])).ToList(),
+                },
+            };
+            try
+            {
+                var settings = new DownloadSettings();
+                settings.Output.ParentDir = output;
+                settings.Transfer.UnknownErrorRetries = 0;
+                settings.Transfer.MaxDownloadRetries = 10;
+                var engineSettings = new EngineSettings { Username = "u", Password = "p" };
+                await using var engine = new DownloadEngine(engineSettings,
+                    TestHelpers.CreateMockClientManager(client, engineSettings));
+                var attempts = new List<string>();
+                engine.Events.DownloadStarted += change => attempts.Add(change.Target.Username);
+                engine.Events.JobRegistered += change =>
+                {
+                    if (mode is not ("automatic" or "exhausted") && change.Job.Id == job.Id)
+                        engine.GetPeerFailureCounts(job.WorkflowId)["peer"] = 3;
+                };
+                engine.Enqueue(job, settings);
+                engine.CompleteEnqueue();
+                await engine.RunAsync(CancellationToken.None);
+                Assert.AreEqual(mode == "exhausted" ? JobTerminalOutcome.Failed : JobTerminalOutcome.Succeeded, job.TerminalOutcome, job.FailureMessage);
+                string[] expected = mode switch
+                {
+                    "automatic" => ["peer", "peer", "other"],
+                    "exhausted" => ["peer", "peer", "other", "peer"],
+                    _ => ["peer"],
+                };
+                CollectionAssert.AreEqual(expected, attempts);
+                Assert.AreEqual(mode == "automatic" ? 2 : 3, engine.GetPeerFailureCounts(job.WorkflowId)["peer"],
+                    "Success must not reduce prior failures.");
+            }
+            finally { if (Directory.Exists(output)) Directory.Delete(output, recursive: true); }
+        }
+
+        [TestMethod]
         public async Task SongJob_FallsBackToNextCandidate_OnDownloadFailure()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-fallback-song-" + Guid.NewGuid());
@@ -117,7 +178,7 @@ namespace Tests.Core
                     new[] { "failuser", "gooduser" },
                     transfersStarted.Select(change => change.Target.Identity.Username).ToArray());
                 Assert.AreEqual(2, transfersStarted.Select(change => change.TransferId).Distinct().Count());
-                Assert.AreEqual(-1, app.GetUserSuccessCounts(songJob.WorkflowId)["failuser"],
+                Assert.AreEqual(1, app.GetPeerFailureCounts(songJob.WorkflowId)["failuser"],
                     "Exhausting a peer's transport retries counts as one failed transfer.");
             }
             finally
@@ -187,10 +248,10 @@ namespace Tests.Core
                 Assert.AreEqual(1, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length,
                     "Failed choices must not leave final or staging files behind.");
                 Assert.IsTrue(responses.Take(candidateCount - 1).All(response =>
-                    engine.GetUserSuccessCounts(song.WorkflowId).GetValueOrDefault(response.Username) < 0),
+                    engine.GetPeerFailureCounts(song.WorkflowId).GetValueOrDefault(response.Username) > 0),
                     "Failed peers must be downranked within this workflow.");
-                Assert.IsTrue(engine.GetUserSuccessCounts(song.WorkflowId)[responses[^1].Username] > 0,
-                    "Existing within-workflow success/downranking behavior is preserved.");
+                Assert.AreEqual(0, engine.GetPeerFailureCounts(song.WorkflowId).GetValueOrDefault(responses[^1].Username),
+                    "Successful transfers must not create failure credit.");
             }
             finally
             {
@@ -204,7 +265,7 @@ namespace Tests.Core
         public async Task FailedPeerIsDownrankedOnlyWithinItsWorkflow(bool retireWorkflows)
         {
             string outputDir = Path.Combine(Path.GetTempPath(), "sockseek-workflow-downrank-" + Guid.NewGuid().ToString("N"));
-            var files = new[] { "First", "Second", "Third" }.Select(title =>
+            var files = new[] { "First", "Second", "Third", "Fourth" }.Select(title =>
                 TestHelpers.CreateSlFile($@"Music\Artist - {title}.mp3", size: 512, length: 180)).ToArray();
             var client = new ClientTests.MockSoulseekClient(
                 [new SearchResponse("failed peer", 1, true, 10_000_000, 0, files),
@@ -225,40 +286,42 @@ namespace Tests.Core
                 var first = new SongJob(new SongQuery { Artist = "Artist", Title = "First" });
                 var second = new SongJob(new SongQuery { Artist = "Artist", Title = "Second" });
                 var third = new SongJob(new SongQuery { Artist = "Artist", Title = "Third" });
-                var workflow = new JobList(jobs: [first, second]);
+                var fourth = new SongJob(new SongQuery { Artist = "Artist", Title = "Fourth" });
+                var workflow = new JobList(jobs: [first, second, third]);
                 var attempts = new ConcurrentBag<DownloadStartedChange>();
                 var terminalCounts = new ConcurrentDictionary<Guid, Dictionary<string, int>>();
                 engine.Events.DownloadStarted += attempts.Add;
                 engine.Events.WorkflowRetired += change => terminalCounts[change.WorkflowId] =
-                    new Dictionary<string, int>(engine.GetUserSuccessCounts(change.WorkflowId), StringComparer.Ordinal);
+                    new Dictionary<string, int>(engine.GetPeerFailureCounts(change.WorkflowId), StringComparer.Ordinal);
                 engine.Enqueue(workflow, settings);
-                engine.Enqueue(third, settings);
+                engine.Enqueue(fourth, settings);
                 engine.CompleteEnqueue();
 
                 await engine.RunAsync(CancellationToken.None);
 
-                foreach (SongJob song in new[] { first, second, third })
+                foreach (SongJob song in new[] { first, second, third, fourth })
                 {
                     Assert.AreEqual(JobTerminalOutcome.Succeeded, song.TerminalOutcome, song.FailureMessage);
                     Assert.AreEqual(512L, new FileInfo(song.DownloadPath!).Length);
                 }
                 Assert.AreEqual(first.WorkflowId, second.WorkflowId);
-                Assert.AreNotEqual(first.WorkflowId, third.WorkflowId);
+                Assert.AreEqual(first.WorkflowId, third.WorkflowId);
+                Assert.AreNotEqual(first.WorkflowId, fourth.WorkflowId);
                 string[] Peers(Guid workflowId) => attempts.OrderBy(change => change.Sequence)
                     .Where(change => change.Job.WorkflowId == workflowId)
                     .Select(change => change.Target.Identity.Username).ToArray();
-                CollectionAssert.AreEqual(new[] { "failed peer", "good peer", "good peer" }, Peers(first.WorkflowId),
-                    "The second song should prefer the healthy source after the first song's peer failure.");
-                CollectionAssert.AreEqual(new[] { "failed peer", "good peer" }, Peers(third.WorkflowId),
+                CollectionAssert.AreEqual(new[] { "failed peer", "good peer", "failed peer", "good peer", "good peer" }, Peers(first.WorkflowId),
+                    "Two failures downrank the peer for the third song.");
+                CollectionAssert.AreEqual(new[] { "failed peer", "good peer" }, Peers(fourth.WorkflowId),
                     "A separate workflow must start without another workflow's downranking.");
-                foreach (var (id, successes) in new[] { (first.WorkflowId, 2), (third.WorkflowId, 1) })
+                foreach (var (id, failures) in new[] { (first.WorkflowId, 2), (fourth.WorkflowId, 1) })
                 {
                     IReadOnlyDictionary<string, int> counts = retireWorkflows
-                        ? terminalCounts[id] : engine.GetUserSuccessCounts(id);
-                    Assert.AreEqual(-1, counts["failed peer"]);
-                    Assert.AreEqual(successes, counts["good peer"]);
+                        ? terminalCounts[id] : engine.GetPeerFailureCounts(id);
+                    Assert.AreEqual(failures, counts["failed peer"]);
+                    Assert.AreEqual(0, counts.GetValueOrDefault("good peer"));
                     if (retireWorkflows)
-                        Assert.AreEqual(0, engine.GetUserSuccessCounts(id).Count,
+                        Assert.AreEqual(0, engine.GetPeerFailureCounts(id).Count,
                             "Workflow retirement releases counters after readers capture their terminal inputs.");
                 }
             }
@@ -1133,7 +1196,7 @@ namespace Tests.Core
                 Assert.AreEqual(JobFailureReason.AllDownloadsFailed, songJob.FailureReason);
                 Assert.IsTrue(Directory.Exists(finalPath), "The blocked destination directory should be left untouched.");
                 Assert.IsFalse(System.IO.File.Exists(incompletePath), "The incomplete file should be cleaned up after a failed final rename.");
-                Assert.IsTrue(app.GetUserSuccessCounts(songJob.WorkflowId).GetValueOrDefault("user1") >= 0,
+                Assert.IsTrue(app.GetPeerFailureCounts(songJob.WorkflowId).GetValueOrDefault("user1") == 0,
                     "A blocked local destination must not downrank the remote peer.");
             }
             finally

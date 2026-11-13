@@ -15,28 +15,28 @@ public static partial class SearchResultProjector
         IEnumerable<(SearchResponse Response, Soulseek.File File)> rawResults,
         SongQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts,
+        ConcurrentDictionary<string, int> peerFailureCounts,
         bool useInfer = true)
         => SortedTrackCandidates(
             rawResults.Select((result, index) => SearchProjectionInput.FromLive(
                 index + 1L, index + 1, result.Response, result.File, DateTimeOffset.UnixEpoch)),
             query,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             useInfer);
 
     public static List<FileCandidate> SortedTrackCandidates(
         IEnumerable<SearchProjectionInput> rawResults,
         SongQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts,
+        ConcurrentDictionary<string, int> peerFailureCounts,
         bool useInfer = true,
         bool includeFullResults = true)
     {
         var sorter = new IncrementalResultSorter(
             query,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             useInfer: useInfer,
             requireFileSatisfies: !includeFullResults);
         sorter.AddRange(rawResults);
@@ -49,26 +49,26 @@ public static partial class SearchResultProjector
         IEnumerable<(SearchResponse Response, Soulseek.File File)> rawResults,
         SongQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts)
+        ConcurrentDictionary<string, int> peerFailureCounts)
         => GroupTracks(rawResults.Select((result, index) => SearchProjectionInput.FromLive(
             index + 1L, index + 1, result.Response, result.File, DateTimeOffset.UnixEpoch)),
-            query, search, userSuccessCounts);
+            query, search, peerFailureCounts);
 
     public static List<SongJob> GroupTracks(
         IEnumerable<SearchProjectionInput> rawResults,
         SongQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts)
-        => GroupTracks(rawResults, query, search, userSuccessCounts, requiredConditionsAlreadyApplied: false);
+        ConcurrentDictionary<string, int> peerFailureCounts)
+        => GroupTracks(rawResults, query, search, peerFailureCounts, requiredConditionsAlreadyApplied: false);
 
     internal static List<SongJob> GroupTracks(
         IEnumerable<SearchProjectionInput> rawResults,
         SongQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts,
+        ConcurrentDictionary<string, int> peerFailureCounts,
         bool requiredConditionsAlreadyApplied)
     {
-        var projector = new IncrementalTrackGroupProjector(query, search, userSuccessCounts);
+        var projector = new IncrementalTrackGroupProjector(query, search, peerFailureCounts);
         if (requiredConditionsAlreadyApplied) projector.AddAdmittedRange(rawResults);
         else projector.AddRange(rawResults);
         return projector.Snapshot();
@@ -91,7 +91,7 @@ public static partial class SearchResultProjector
         IEnumerable<(SearchResponse Response, Soulseek.File File)> rawResults,
         AlbumQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int>? userSuccessCounts = null,
+        ConcurrentDictionary<string, int>? peerFailureCounts = null,
         bool ignoreStringSortConditions = false,
         FolderSortMode sortMode = FolderSortMode.AlbumRanked,
         bool enforceMinimumTrackCount = true)
@@ -99,7 +99,7 @@ public static partial class SearchResultProjector
         var plan = new AlbumFolderProjectionPlan(
             query,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             ignoreStringSortConditions,
             sortMode,
             enforceMinimumTrackCount);
@@ -117,7 +117,7 @@ public static partial class SearchResultProjector
         IEnumerable<SearchProjectionInput> rawResults,
         AlbumQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int>? userSuccessCounts = null,
+        ConcurrentDictionary<string, int>? peerFailureCounts = null,
         bool ignoreStringSortConditions = false,
         FolderSortMode sortMode = FolderSortMode.AlbumRanked,
         bool enforceMinimumTrackCount = true)
@@ -125,7 +125,7 @@ public static partial class SearchResultProjector
         var plan = new AlbumFolderProjectionPlan(
             query,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             ignoreStringSortConditions,
             sortMode,
             enforceMinimumTrackCount);
@@ -232,9 +232,10 @@ public static partial class SearchResultProjector
     public static List<AlbumJob> GroupAlbums(
         IEnumerable<AlbumFolder> albums,
         AlbumQuery query,
-        SearchSettings search)
+        SearchSettings search,
+        ConcurrentDictionary<string, int>? peerFailureCounts = null)
     {
-        var projector = new IncrementalAlbumGroupProjector(query, search);
+        var projector = new IncrementalAlbumGroupProjector(query, search, peerFailureCounts);
         projector.ResetBatch(albums);
         return projector.Snapshot();
     }

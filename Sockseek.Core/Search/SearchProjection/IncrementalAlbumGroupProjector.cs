@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Settings;
@@ -68,12 +69,13 @@ public sealed class IncrementalAlbumGroupProjector
     private readonly HashSet<PeerPathKey> seenFolders = [];
     private List<AlbumFolder> orderedFolders = [];
 
-    public IncrementalAlbumGroupProjector(AlbumQuery query, SearchSettings search)
+    public IncrementalAlbumGroupProjector(AlbumQuery query, SearchSettings search,
+        ConcurrentDictionary<string, int>? peerFailureCounts = null)
     {
         this.query = query;
         this.search = search;
         maxDiff = search.GroupLengthTol;
-        folderComparer = new AlbumFolderGroupComparer(query, search, folderOrder);
+        folderComparer = new AlbumFolderGroupComparer(query, search, folderOrder, peerFailureCounts);
     }
 
     public int Count => seenFolders.Count;

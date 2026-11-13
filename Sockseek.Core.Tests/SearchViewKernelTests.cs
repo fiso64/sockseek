@@ -629,29 +629,32 @@ public sealed class SearchViewKernelTests
     [TestMethod]
     [DataRow(SearchViewProjectionKind.Files)]
     [DataRow(SearchViewProjectionKind.TrackGroups)]
-    public void WorkflowLocalUserSuccessInputProducesTheSameAdmissionAndOrderForEveryConsumer(SearchViewProjectionKind kind)
+    [DataRow(SearchViewProjectionKind.GenericDirectories)]
+    [DataRow(SearchViewProjectionKind.AlbumDirectories)]
+    [DataRow(SearchViewProjectionKind.AlbumGroups)]
+    public void WorkflowLocalPeerFailureInputProducesTheSameAdmissionAndOrderForEveryConsumer(SearchViewProjectionKind kind)
     {
         var settings = new SearchSettings
         {
             NecessaryCond = new FileConditions(),
             PreferredCond = new FileConditions(),
-            DownrankOn = -1,
-            IgnoreOn = -2,
+            MinGroupShares = 1,
         };
         var projection = new SearchViewProjectionDefinition(kind,
             new SongQuery { Title = "Track" },
+            AlbumQuery: new AlbumQuery { Album = "Music" },
             IncludeFullResults: true);
         SearchProjectionInput[] inputs =
         [
             Input(1, "failed-peer", @"Music\Track.flac", 900, SearchResultVisibility.Public),
-            Input(2, "successful-peer", @"Music\Track.flac", 900, SearchResultVisibility.Public),
+            Input(2, "healthy-peer", @"Music\Track.flac", 900, SearchResultVisibility.Public),
             Input(3, "ignored-peer", @"Music\Track.flac", 900, SearchResultVisibility.Public),
         ];
         var workflowCounts = new Dictionary<string, int>(StringComparer.Ordinal)
         {
-            ["failed-peer"] = -1,
-            ["successful-peer"] = 0,
-            ["ignored-peer"] = -2,
+            ["failed-peer"] = settings.DownrankOn,
+            ["healthy-peer"] = 0,
+            ["ignored-peer"] = settings.IgnoreOn,
         };
 
         var local = new SearchViewKernel(projection, settings, workflowCounts);
@@ -663,11 +666,15 @@ public sealed class SearchViewKernelTests
         if (kind == SearchViewProjectionKind.TrackGroups)
             AssertTrackGroupsEqual(local.Snapshot().TrackGroups!, daemon.Snapshot().TrackGroups!);
         var snapshot = daemon.Snapshot();
-        var admitted = kind == SearchViewProjectionKind.Files ? snapshot.Files
-            : snapshot.TrackGroups!.Single().NewOptions;
-        CollectionAssert.AreEqual(
-            new[] { "successful-peer", "failed-peer" },
-            admitted.Select(file => file.Input.Username).ToArray());
+        IEnumerable<string> peers = kind switch
+        {
+            SearchViewProjectionKind.Files => snapshot.Files.Select(file => file.Input.Username),
+            SearchViewProjectionKind.TrackGroups => snapshot.TrackGroups!.Single().NewOptions.Select(file => file.Input.Username),
+            SearchViewProjectionKind.AlbumGroups => snapshot.AlbumGroups!.Single().Options.Select(folder => folder.Username),
+            _ => snapshot.Directories!.OrderBy(folder => folder.BestChild.SortKey,
+                SearchProjectionSortKeyComparer.Instance).Select(folder => folder.Directory.Username),
+        };
+        CollectionAssert.AreEqual(new[] { "healthy-peer", "failed-peer" }, peers.ToArray());
         Assert.AreEqual(3L, snapshot.Counters.PublicFileCount);
         Assert.AreEqual(2L, snapshot.Counters.ProjectedPublicFileCount);
     }

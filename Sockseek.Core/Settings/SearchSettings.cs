@@ -136,15 +136,15 @@ public class SearchSettings
 
     // ── Ranking ───────────────────────────────────────────────────────────────
 
-    /// After this many failures, downrank the candidate. Stored as negative: -N means N failures.
-    [SettingOption("--ftd", "--fails-to-downrank", Negate = true)]
-    public int DownrankOn { get; set; } = -1;
+    /// After this many failures, downrank the candidate.
+    [SettingOption("--ftd", "--fails-to-downrank")]
+    public int DownrankOn { get; set; } = 2;
 
-    /// After this many failures, ignore the candidate entirely. Stored as negative.
-    [SettingOption("--fti", "--fails-to-ignore", Negate = true)]
-    public int IgnoreOn { get; set; } = -2;
+    /// After this many failures, ignore the candidate entirely.
+    [SettingOption("--fti", "--fails-to-ignore")]
+    public int IgnoreOn { get; set; } = 3;
 
-    public int EffectiveIgnoreOn => Math.Min(IgnoreOn, DownrankOn);
+    public int EffectiveIgnoreOn => Math.Max(IgnoreOn, DownrankOn);
 
     // ── Fast search ───────────────────────────────────────────────────────────
 

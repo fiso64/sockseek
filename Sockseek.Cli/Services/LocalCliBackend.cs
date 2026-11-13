@@ -215,7 +215,7 @@ internal sealed class LocalCliBackend
                 _ => new LocalFileProjectionState(
                     projection,
                     searchJob.Config.Search,
-                    engine.GetUserSuccessCounts(searchJob.WorkflowId).ToDictionary(
+                    engine.GetPeerFailureCounts(searchJob.WorkflowId).ToDictionary(
                         pair => pair.Key,
                         pair => pair.Value,
                         StringComparer.Ordinal)));
@@ -258,7 +258,7 @@ internal sealed class LocalCliBackend
             if (projection == null)
                 throw new ArgumentException("Album folder projection requires an album query.");
 
-            var snapshot = searchJob.GetAlbumFolders(projection, searchJob.Config.Search, includeLocked: true);
+            var snapshot = searchJob.GetAlbumFolders(projection, searchJob.Config.Search, includeLocked: true, peerFailureCounts: engine.GetPeerFailureCounts(searchJob.WorkflowId));
             return Task.FromResult<SearchResultSnapshotDto<AlbumFolderDto>?>(new(
                 snapshot.Revision,
                 snapshot.IsComplete,
@@ -269,7 +269,7 @@ internal sealed class LocalCliBackend
         if (albumJob == null)
             return Task.FromResult<SearchResultSnapshotDto<AlbumFolderDto>?>(null);
 
-        var folders = JobRequestMapper.ProjectAlbumJobFolders(albumJob, engine.GetUserSuccessCounts(albumJob.WorkflowId));
+        var folders = JobRequestMapper.ProjectAlbumJobFolders(albumJob, engine.GetPeerFailureCounts(albumJob.WorkflowId));
         return Task.FromResult<SearchResultSnapshotDto<AlbumFolderDto>?>(new(
             Revision: 0,
             IsComplete: albumJob.LifecycleState is not (JobLifecycleState.Pending or JobLifecycleState.Running),
@@ -293,7 +293,7 @@ internal sealed class LocalCliBackend
                         ? new TrackGroupProjection(fileProjection.Query)
                         : new TrackGroupProjection(new SongQuery { Title = searchJob.QueryText }));
             bool includeCandidates = request.IncludeCandidates;
-            var snapshot = searchJob.GetTrackGroups(projection, searchJob.Config.Search, engine.GetUserSuccessCounts(searchJob.WorkflowId), includeLocked: true);
+            var snapshot = searchJob.GetTrackGroups(projection, searchJob.Config.Search, engine.GetPeerFailureCounts(searchJob.WorkflowId), includeLocked: true);
             return Task.FromResult<SearchResultSnapshotDto<TrackGroupCandidateDto>?>(new(
                 snapshot.Revision,
                 snapshot.IsComplete,
@@ -340,7 +340,7 @@ internal sealed class LocalCliBackend
                 throw new ArgumentException("Grouped album projection requires an album query.");
 
             bool includeFolders = request?.IncludeFolders ?? false;
-            var snapshot = searchJob.GetAlbumGroups(projection, searchJob.Config.Search, includeLocked: true);
+            var snapshot = searchJob.GetAlbumGroups(projection, searchJob.Config.Search, includeLocked: true, peerFailureCounts: engine.GetPeerFailureCounts(searchJob.WorkflowId));
             return Task.FromResult<SearchResultSnapshotDto<AlbumGroupCandidateDto>?>(new(
                 snapshot.Revision,
                 snapshot.IsComplete,
@@ -375,7 +375,7 @@ internal sealed class LocalCliBackend
         var folder = JobRequestMapper.FindAlbumFolderForRetrieval(
             sourceJob,
             request.Folder,
-            engine.GetUserSuccessCounts(sourceJob.WorkflowId),
+            engine.GetPeerFailureCounts(sourceJob.WorkflowId),
             request.AlbumQuery);
         if (folder == null)
             throw new ArgumentException("Requested folder was not found in this job's album candidates.");
@@ -396,7 +396,7 @@ internal sealed class LocalCliBackend
         var folder = JobRequestMapper.FindAlbumFolderForRetrieval(
             sourceJob,
             request.Folder,
-            engine.GetUserSuccessCounts(sourceJob.WorkflowId),
+            engine.GetPeerFailureCounts(sourceJob.WorkflowId),
             request.AlbumQuery);
         if (folder == null)
             throw new ArgumentException("Requested folder was not found in this job's album candidates.");
@@ -439,7 +439,7 @@ internal sealed class LocalCliBackend
             var candidate = JobRequestMapper.FindFileCandidate(
                 sourceJob,
                 request.Files[0],
-                engine.GetUserSuccessCounts(sourceJob.WorkflowId));
+                engine.GetPeerFailureCounts(sourceJob.WorkflowId));
             if (candidate == null)
                 throw new ArgumentException("Requested file was not found in this job's file candidates.");
 
@@ -455,7 +455,7 @@ internal sealed class LocalCliBackend
             var candidate = JobRequestMapper.FindFileCandidate(
                 sourceJob,
                 file,
-                engine.GetUserSuccessCounts(sourceJob.WorkflowId));
+                engine.GetPeerFailureCounts(sourceJob.WorkflowId));
             if (candidate == null)
                 throw new ArgumentException("Requested file was not found in this job's file candidates.");
 
@@ -502,7 +502,7 @@ internal sealed class LocalCliBackend
         var folder = JobRequestMapper.FindAlbumFolder(
             sourceJob,
             request.Folder,
-            engine.GetUserSuccessCounts(sourceJob.WorkflowId),
+            engine.GetPeerFailureCounts(sourceJob.WorkflowId),
             request.AlbumQuery);
         if (folder == null)
             throw new ArgumentException("Requested folder was not found in this job's album candidates.");
@@ -749,11 +749,11 @@ internal sealed class LocalCliBackend
         public LocalFileProjectionState(
             FileSearchProjection projection,
             SearchSettings settings,
-            IReadOnlyDictionary<string, int> reputationSnapshot)
+            IReadOnlyDictionary<string, int> peerFailureSnapshot)
             => kernel = new SearchViewKernel(
                 projection,
                 settings,
-                reputationSnapshot);
+                peerFailureSnapshot);
 
         public SearchViewKernelSnapshot Snapshot(SearchJob job)
         {

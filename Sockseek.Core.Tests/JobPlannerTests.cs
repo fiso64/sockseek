@@ -213,7 +213,7 @@ public sealed class JobPlannerTests
                 Assert.IsNull(prepared.ExecutedSearchDefinition,
                     "Queued jobs have not searched and must not repeat search descriptions in history.");
                 using var searcher = new Searcher(new MockSoulseekClient([]),
-                    TestHelpers.CreateUserSuccessTracker(), new DownloadEvents(), 10, 10);
+                    TestHelpers.CreatePeerFailureTracker(), new DownloadEvents(), 10, 10);
                 var response = new ResponseData();
                 switch (prepared)
                 {

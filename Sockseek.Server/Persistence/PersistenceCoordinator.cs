@@ -211,8 +211,8 @@ public sealed class PersistenceCoordinator(
         return new JobPersistence(Runtime.RuntimeId, host.MutationSink, handoffs, (workflowId, ids) =>
         {
             // One workflow snapshot shared by its read inputs, not one
-            // reputation copy per completed search child.
-            var counts = new Dictionary<string, int>(engine.GetUserSuccessCounts(workflowId), StringComparer.Ordinal);
+            // failure-count copy per completed search child.
+            var counts = new Dictionary<string, int>(engine.GetPeerFailureCounts(workflowId), StringComparer.Ordinal);
             var sources = new Dictionary<Guid, SearchViewSource>();
             foreach (Guid id in ids)
                 if (engine.GetJob(id) is { } job && SearchViewSource.Capture(job, counts) is { } source)

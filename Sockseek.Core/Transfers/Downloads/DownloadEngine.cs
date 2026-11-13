@@ -129,10 +129,10 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
 
     // Session state
     private readonly ActiveDownloadTracker _activeDownloads = new();
-    private readonly UserSuccessTracker _userSuccesses = new();
+    private readonly PeerFailureTracker _peerFailures = new();
     private readonly OutputFinalizer _outputFinalizer;
-    public ConcurrentDictionary<string, int> GetUserSuccessCounts(Guid workflowId)
-        => _userSuccesses.GetCounts(workflowId);
+    public ConcurrentDictionary<string, int> GetPeerFailureCounts(Guid workflowId)
+        => _peerFailures.GetCounts(workflowId);
 
     // ── concurrency semaphores ────────────────────────────────────────────────
 
@@ -342,13 +342,13 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         Events = new DownloadEvents(
             timeProvider,
             this.loggerFactory.CreateLogger<DownloadEvents>());
-        Events.JobRegistered += change => _userSuccesses.StartWorkflow(change.Job.WorkflowId);
+        Events.JobRegistered += change => _peerFailures.StartWorkflow(change.Job.WorkflowId);
         Events.TransferFailed += change =>
         {
             if (change.Transfer.Source == TransferSnapshotSource.SoulseekPeer
                 && (change.Reason is TransferFailureReason.PeerFailure or TransferFailureReason.Stale)
                 && change.Transfer.Username is { } username)
-                _userSuccesses.RecordFailure(change.Job.WorkflowId, username);
+                _peerFailures.RecordFailure(change.Job.WorkflowId, username);
         };
         SearchEvents = new SearchEvents();
         _sourceMutations = new SourceMutationCoordinator(
@@ -375,7 +375,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             settings,
             _clientManager,
             _activeDownloads,
-            _userSuccesses,
+            _peerFailures,
             Events,
             SearchEvents,
             _staleDownloadCoordinator,
@@ -394,7 +394,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             _staleDownloadCoordinator,
             Events,
             Queue,
-            _userSuccesses,
+            _peerFailures,
             _outputFinalizer,
             _contexts,
             _sourceMutations,
@@ -475,7 +475,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         }
         finally
         {
-            _userSuccesses.Clear();
+            _peerFailures.Clear();
             GC.SuppressFinalize(this);
         }
     }
@@ -697,7 +697,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         _executionContext.RetireWorkflow(workflowId, allJobIds);
         _manualSelections.Retire(registeredIds);
         _jobs.Retire(registeredIds);
-        _userSuccesses.RetireWorkflow(workflowId);
+        _peerFailures.RetireWorkflow(workflowId);
         _runtime.Files.RetireWorkflow(workflowId);
         _sourceMutations.RetireWorkflow(workflowId);
         if (_jobSettingsResolver is IWorkflowSettingsLifetime settingsLifetime)

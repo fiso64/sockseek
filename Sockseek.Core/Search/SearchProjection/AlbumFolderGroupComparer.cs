@@ -13,14 +13,15 @@ internal sealed class AlbumFolderGroupComparer : IComparer<AlbumFolder>
     public AlbumFolderGroupComparer(
         AlbumQuery query,
         SearchSettings search,
-        IReadOnlyDictionary<PeerPathKey, int> folderOrder)
+        IReadOnlyDictionary<PeerPathKey, int> folderOrder,
+        ConcurrentDictionary<string, int>? peerFailureCounts = null)
     {
         this.folderOrder = folderOrder;
         keyContext = ResultSorter.CreateSortKeyContext(
             [],
             SearchResultProjector.AlbumFileMatchQuery(query),
             search,
-            new ConcurrentDictionary<string, int>(),
+            peerFailureCounts ?? new ConcurrentDictionary<string, int>(),
             useBracketCheck: false,
             useInfer: false,
             albumMode: true,

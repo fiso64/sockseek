@@ -291,7 +291,7 @@ public class SearchCompletionTests
     }
 
     private static Searcher CreateSearcher(MockSoulseekClient client, DownloadEvents? events = null)
-        => new(client, TestHelpers.CreateUserSuccessTracker(), events ?? new DownloadEvents(), 10, 10);
+        => new(client, TestHelpers.CreatePeerFailureTracker(), events ?? new DownloadEvents(), 10, 10);
 
     private static SearchResponse Response(int i)
         => new($"User{i}", 1, true, 1000, 0, [TestHelpers.CreateSlFile($@"Artist\Album\Track {i}.mp3", length: 180)]);

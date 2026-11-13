@@ -391,7 +391,7 @@ internal static partial class Program
                 cliReporter = null;
                 PrintOutputRenderer.PrintRequestedOutput(
                     engine.Queue,
-                    engine.GetUserSuccessCounts);
+                    engine.GetPeerFailureCounts);
             }
 
             var exitCode = LogCliSessionExit(logger, DetermineLocalExitCode(engine.Queue));

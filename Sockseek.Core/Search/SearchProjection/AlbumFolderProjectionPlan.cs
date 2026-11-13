@@ -59,7 +59,7 @@ internal readonly struct AlbumFolderProjectionPlan
     public AlbumFolderProjectionPlan(
         AlbumQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int>? userSuccessCounts = null,
+        ConcurrentDictionary<string, int>? peerFailureCounts = null,
         bool ignoreStringSortConditions = false,
         FolderSortMode sortMode = FolderSortMode.AlbumRanked,
         bool enforceMinimumTrackCount = true)
@@ -74,7 +74,7 @@ internal readonly struct AlbumFolderProjectionPlan
             [],
             projectionFilter.SortQuery,
             search,
-            userSuccessCounts ?? new ConcurrentDictionary<string, int>(),
+            peerFailureCounts ?? new ConcurrentDictionary<string, int>(),
             useBracketCheck: false,
             useInfer: false,
             albumMode: true,

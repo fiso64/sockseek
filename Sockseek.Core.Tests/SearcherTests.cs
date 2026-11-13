@@ -61,9 +61,43 @@ namespace Tests.Unit
             return index;
         }
 
+        [TestMethod]
+        [DataRow(false)]
+        [DataRow(true)]
+        public async Task AutomaticAlbumDiscovery_UsesWorkflowFailureCounts(bool grouped)
+        {
+            var files = Enumerable.Range(1, 3).Select(i =>
+                TestHelpers.CreateSlFile($@"Artist\Album\{i:D2} - Track.mp3", length: 180)).ToArray();
+            var responses = new[] { "downranked", "healthy", "ignored" }.Select(peer =>
+                new SearchResponse(peer, 1, true, peer == "healthy" ? 100 : 10_000_000, 0, files)).ToList();
+            var client = new MockSoulseekClient(responses);
+            var settings = TestHelpers.CreateDefaultSettings().Download;
+            settings.Search.MinGroupShares = 1;
+            var failures = new PeerFailureTracker();
+            using var searcher = new Searcher(client, failures, new DownloadEvents(), 10, 10);
+            var query = new AlbumQuery { Artist = "Artist", Album = "Album" };
+            Job job = grouped ? new AlbumGroupsJob(query) : new AlbumJob(query);
+            job.Config = settings;
+            for (int n = 0; n < 2; n++) failures.RecordFailure(job.WorkflowId, "downranked");
+            for (int n = 0; n < 3; n++) failures.RecordFailure(job.WorkflowId, "ignored");
+            IReadOnlyList<AlbumFolder> folders;
+            if (job is AlbumGroupsJob groups)
+            {
+                var result = await searcher.SearchAlbumGroup(groups, settings.Search, new ResponseData(), CancellationToken.None);
+                folders = result.Albums.Single().Results;
+            }
+            else
+            {
+                var album = (AlbumJob)job;
+                await searcher.SearchAlbum(album, settings.Search, new ResponseData(), CancellationToken.None);
+                folders = album.Results;
+            }
+            CollectionAssert.AreEqual(new[] { "healthy", "downranked" }, folders.Select(folder => folder.Username).ToArray());
+        }
+
         private Searcher CreateSearcher(ISoulseekClient client, DownloadSettings config)
         {
-            var registry = TestHelpers.CreateUserSuccessTracker();
+            var registry = TestHelpers.CreatePeerFailureTracker();
             return new Searcher(client, registry, new DownloadEvents(), 10, 10);
         }
 
@@ -157,7 +191,7 @@ namespace Tests.Unit
         {
             var client = CreateMockClient(TestHelpers.CreateTestIndex());
             var settings = TestHelpers.CreateDefaultSettings().Download;
-            var registry = TestHelpers.CreateUserSuccessTracker();
+            var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var song = new SongJob(new SongQuery { Artist = "testartist", Title = "testsong" });
             var phases = new List<JobActivityPhase>();
@@ -191,7 +225,7 @@ namespace Tests.Unit
             var response = new SearchResponse("User", 1, true, 1000, 0, files);
             var client = CreateMockClient([response]);
             var settings = TestHelpers.CreateDefaultSettings().Download;
-            var registry = TestHelpers.CreateUserSuccessTracker();
+            var registry = TestHelpers.CreatePeerFailureTracker();
             var events = new DownloadEvents();
             var searcher = new Searcher(client, registry, events, 10, 10);
             var album = new AlbumJob(new AlbumQuery { Artist = "ELO", Album = "Time" });
@@ -1208,7 +1242,7 @@ namespace Tests.Unit
             var config = TestHelpers.CreateDefaultSettings().Download;
             config.Search.MinGroupShares = 1;
 
-            var registry = TestHelpers.CreateUserSuccessTracker();
+            var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
             var responseData = new ResponseData();
@@ -1236,7 +1270,7 @@ namespace Tests.Unit
             var config = TestHelpers.CreateDefaultSettings().Download;
             config.Search.MinGroupShares = 2; // Only return if shared by 2+ peers
 
-            var registry = TestHelpers.CreateUserSuccessTracker();
+            var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
             var responseData = new ResponseData();
@@ -1405,11 +1439,11 @@ namespace Tests.Unit
             var settings = new SearchSettings
             {
                 NecessaryCond = new(), PreferredCond = new(), MinGroupShares = 2,
-                DownrankOn = -1, IgnoreOn = -2,
+                DownrankOn = 1, IgnoreOn = 2,
             };
             var counts = new ConcurrentDictionary<string, int>();
-            counts["ignored"] = -2;
-            counts["late"] = -1;
+            counts["ignored"] = 2;
+            counts["late"] = 1;
             var projector = new IncrementalTrackGroupProjector(
                 new SongQuery { Artist = "ELO", Title = "Track" }, settings, counts, filterText: "Rare");
             SearchProjectionInput Input(long sequence, string user, string folder, int speed) => new(
@@ -1425,7 +1459,7 @@ namespace Tests.Unit
             Assert.AreEqual(0, projector.SnapshotForSearchView().Count,
                 "An ignored peer's filename must not reveal the group.");
 
-            counts["early"] = -2;
+            counts["early"] = 2;
             counts["ignored"] = 0;
             Add(Input(3, "late", "Rare", 9000));
             var group = projector.SnapshotForSearchView().Single();
@@ -1830,7 +1864,7 @@ namespace Tests.Unit
             var config = TestHelpers.CreateDefaultSettings().Download;
             config.Search.MinGroupShares = 1;
 
-            var registry = TestHelpers.CreateUserSuccessTracker();
+            var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = new SongGroupsJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
             var responseData = new ResponseData();
@@ -1865,7 +1899,7 @@ namespace Tests.Unit
             var config = TestHelpers.CreateDefaultSettings().Download;
             config.Search.MinGroupShares = 1;
 
-            var registry = TestHelpers.CreateUserSuccessTracker();
+            var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = new SongGroupsJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
             var responseData = new ResponseData();
@@ -1897,7 +1931,7 @@ namespace Tests.Unit
             var config = TestHelpers.CreateDefaultSettings().Download;
             config.Search.MinGroupShares = 1;
 
-            var registry = TestHelpers.CreateUserSuccessTracker();
+            var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = new SongGroupsJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
             var responseData = new ResponseData();
@@ -1931,7 +1965,7 @@ namespace Tests.Unit
             var config = TestHelpers.CreateDefaultSettings().Download;
             config.Search.MinGroupShares = 1;
 
-            var registry = TestHelpers.CreateUserSuccessTracker();
+            var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
             var responseData = new ResponseData();
@@ -1963,7 +1997,7 @@ namespace Tests.Unit
             var config = TestHelpers.CreateDefaultSettings().Download;
             config.Search.MinGroupShares = 1;
 
-            var registry = TestHelpers.CreateUserSuccessTracker();
+            var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
             var responseData = new ResponseData();
@@ -1982,7 +2016,7 @@ namespace Tests.Unit
             var settings = TestHelpers.CreateDefaultSettings().Download;
             var events = new DownloadEvents();
             var searchEvents = new SearchEvents();
-            var registry = TestHelpers.CreateUserSuccessTracker();
+            var registry = TestHelpers.CreatePeerFailureTracker();
 
             // 1 search per 10 seconds — second search will block immediately
             var searcher = new Searcher(client, registry, events, searchesPerTime: 1, searchRenewTime: 10, searchEvents: searchEvents);

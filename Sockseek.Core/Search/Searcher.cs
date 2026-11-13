@@ -23,7 +23,7 @@ namespace Sockseek.Core.Services;
 public partial class Searcher : IDisposable
 {
     private readonly ISoulseekClient client;
-    private readonly IUserSuccessStats userStats;
+    private readonly IPeerFailureStats peerFailures;
     private readonly DownloadEvents downloadEvents;
     private readonly SearchEvents searchEvents;
     private readonly RateLimitedSemaphore rateSemaphore;
@@ -34,7 +34,7 @@ public partial class Searcher : IDisposable
     private readonly ILogger<Searcher> logger;
 
     public Searcher(ISoulseekClient client,
-                    IUserSuccessStats userStats,
+                    IPeerFailureStats peerFailures,
                     DownloadEvents downloadEvents,
                     int searchesPerTime, int searchRenewTime, int concurrentSearches = 2,
                     SearchEvents? searchEvents = null,
@@ -43,7 +43,7 @@ public partial class Searcher : IDisposable
                     ILoggerFactory? loggerFactory = null)
     {
         this.client = client;
-        this.userStats = userStats;
+        this.peerFailures = peerFailures;
         this.downloadEvents = downloadEvents;
         this.searchEvents = searchEvents ?? new SearchEvents();
         this.timeProvider = timeProvider ?? TimeProvider.System;
@@ -215,7 +215,7 @@ public partial class Searcher : IDisposable
             session.AddResponse(r);
 
             if (!readOnly && onFastSearchCandidate != null && search.FastSearch
-                && userStats.GetCounts(song.WorkflowId).GetValueOrDefault(r.Username, 0) > search.DownrankOn
+                && peerFailures.GetCounts(song.WorkflowId).GetValueOrDefault(r.Username, 0) < search.DownrankOn
                 && r.Files.FirstOrDefault() is { } f)
             {
                 var candidate = SoulseekSearchAdapter.ToFileCandidate(r, f);
@@ -258,7 +258,7 @@ public partial class Searcher : IDisposable
             ProjectionInputs(session, includeLocked: song.Config?.PrintResults == true),
             song.Query,
             search,
-            userStats.GetCounts(song.WorkflowId),
+            peerFailures.GetCounts(song.WorkflowId),
             useInfer: true);
     }
 
@@ -280,7 +280,8 @@ public partial class Searcher : IDisposable
         job.UpdateActivity(JobActivityPhase.ProcessingSearchResults);
         job.Results = searchJob.GetAlbumFolders(
             searchJob.DefaultFolderProjection! with { EnforceMinimumTrackCount = job.Config?.PrintResults == true },
-            search, includeLocked: job.Config?.PrintResults == true).Items.ToList();
+            search, includeLocked: job.Config?.PrintResults == true,
+            peerFailureCounts: peerFailures.GetCounts(job.WorkflowId)).Items.ToList();
         return null;
     }
 
@@ -321,7 +322,7 @@ public partial class Searcher : IDisposable
         job.UpdateActivity(JobActivityPhase.ProcessingSearchResults);
         job.Songs = SearchResultProjector.GroupTracks(
             ProjectionInputs(session, includeLocked: job.Config?.PrintResults == true),
-            job.Query, search, userStats.GetCounts(job.WorkflowId), requiredConditionsAlreadyApplied: true);
+            job.Query, search, peerFailures.GetCounts(job.WorkflowId), requiredConditionsAlreadyApplied: true);
         foreach (SongJob song in job.Songs)
             SubmissionIdentity.AssignExecutionChild(job, song);
         return null;
@@ -344,8 +345,9 @@ public partial class Searcher : IDisposable
                 SortMode: FolderSortMode.DeterministicUnranked,
                 EnforceMinimumTrackCount: job.Config?.PrintResults == true),
             search,
-            includeLocked: job.Config?.PrintResults == true);
-        var albums = SearchResultProjector.GroupAlbums(folders.Items, job.Query, search);
+            includeLocked: job.Config?.PrintResults == true,
+            peerFailureCounts: peerFailures.GetCounts(job.WorkflowId));
+        var albums = SearchResultProjector.GroupAlbums(folders.Items, job.Query, search, peerFailures.GetCounts(job.WorkflowId));
         foreach (AlbumJob album in albums)
             SubmissionIdentity.AssignExecutionChild(job, album);
         return (albums, null);

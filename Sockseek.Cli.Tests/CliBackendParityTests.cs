@@ -1689,7 +1689,7 @@ public class CliBackendParityTests
                     ?? throw new AssertFailedException("The completed local job is missing.");
                 using (Printing.RedirectOutput(output))
                     Assert.IsTrue(PrintOutputRenderer.PrintRequestedOutput(new JobList("print", [root]),
-                        workflowId => engine.GetUserSuccessCounts(workflowId)));
+                        workflowId => engine.GetPeerFailureCounts(workflowId)));
             }
             return output.ToString();
         }

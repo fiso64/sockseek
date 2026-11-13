@@ -309,7 +309,7 @@ internal sealed class AlbumDownloadExecutor
             : new(false, null, null, state.LastChosenFolder);
     }
 
-    static AlbumCandidateSelection? SelectAlbumCandidate(AlbumJob job, AlbumAudioDownloadState state)
+    AlbumCandidateSelection? SelectAlbumCandidate(AlbumJob job, AlbumAudioDownloadState state)
     {
         bool wasPreselected = job.ResolvedTarget != null;
         bool retrieveCurrent = !wasPreselected
@@ -323,14 +323,12 @@ internal sealed class AlbumDownloadExecutor
             return new(chosenFolder, wasPreselected, retrieveCurrent);
         }
 
-        if (!string.IsNullOrWhiteSpace(state.FilterText))
-        {
-            state.Index = job.Results.FindIndex(f => f.Files.Any(af => af.Filename.ContainsIgnoreCase(state.FilterText)));
-            if (state.Index == -1)
-                return null;
-        }
-
-        return new(job.Results[state.Index], wasPreselected, retrieveCurrent);
+        var candidates = Enumerable.Range(0, job.Results.Count)
+            .Where(index => string.IsNullOrWhiteSpace(state.FilterText)
+                || job.Results[index].Files.Any(file => file.Filename.ContainsIgnoreCase(state.FilterText)));
+        state.Index = context.PeerFailures.ForAutomaticSelection(job.WorkflowId, candidates,
+            index => job.Results[index].Username, job.Config.Search).FirstOrDefault(-1);
+        return state.Index < 0 ? null : new(job.Results[state.Index], wasPreselected, retrieveCurrent);
     }
 
     async Task<AlbumCandidateStepResult> VerifyAlbumTrackCountCandidateAsync(

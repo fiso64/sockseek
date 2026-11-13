@@ -132,7 +132,7 @@ public sealed class IncrementalResultSorter
     public IncrementalResultSorter(
         SongQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts,
+        ConcurrentDictionary<string, int> peerFailureCounts,
         bool albumMode = false,
         bool useInfer = false,
         bool requireFileSatisfies = false,
@@ -150,7 +150,7 @@ public sealed class IncrementalResultSorter
             [],
             query,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             useBracketCheck: !albumMode,
             useInfer,
             albumMode,
@@ -201,13 +201,13 @@ public sealed class IncrementalResultSorter
         => AddRangeAndGetProjected(results).Count;
 
     public ProjectedFileCandidate? Add(SearchProjectionInput input)
-        => AddWithUserSuccessCount(input, userSuccessCount: null);
+        => AddWithPeerFailureCount(input, peerFailureCount: null);
 
     // Deferred group ranking retains the workflow score at admission. It
     // must not re-admit ignored peers or change earlier ranking after failures.
-    internal ProjectedFileCandidate? AddWithUserSuccessCount(SearchProjectionInput input, int? userSuccessCount)
+    internal ProjectedFileCandidate? AddWithPeerFailureCount(SearchProjectionInput input, int? peerFailureCount)
     {
-        var entry = CreateEntry(input, userSuccessCount);
+        var entry = CreateEntry(input, peerFailureCount);
         if (!entry.HasValue) return null;
         if (retainProjectedRows)
         {
@@ -234,11 +234,11 @@ public sealed class IncrementalResultSorter
         return added;
     }
 
-    private ResultSorter.SortEntry? CreateEntry(SearchProjectionInput input, int? userSuccessCount = null)
+    private ResultSorter.SortEntry? CreateEntry(SearchProjectionInput input, int? peerFailureCount = null)
     {
         var key = (new PeerPathKey(input.Username, input.Filename), input.Visibility);
         if (seen != null && !seen.Add(key)) return null;
-        var entry = ResultSorter.CreateSortEntry(input, keyContext, nextOriginalIndex++, userSuccessCount);
+        var entry = ResultSorter.CreateSortEntry(input, keyContext, nextOriginalIndex++, peerFailureCount);
         return requireFileSatisfies && entry.HasValue && !entry.Value.Key.ConditionFacts.NecessaryConditionsSatisfied
             ? null : entry;
     }

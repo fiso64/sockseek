@@ -157,8 +157,8 @@ public static class Printing
         Job job,
         PrintOption printOption,
         SearchSettings search,
-        IReadOnlyDictionary<string, int>? reputationSnapshot = null)
-        => ResultPrintFormatter.Print(job, printOption, search, reputationSnapshot);
+        IReadOnlyDictionary<string, int>? peerFailureSnapshot = null)
+        => ResultPrintFormatter.Print(job, printOption, search, peerFailureSnapshot);
 
     public static void PrintComplete(JobList queue)
     {

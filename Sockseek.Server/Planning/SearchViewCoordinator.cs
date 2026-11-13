@@ -22,7 +22,7 @@ internal sealed record SearchViewSource(
     SearchSession Session,
     SearchDefinition? FallbackDefinition,
     SearchSettings Settings,
-    IReadOnlyDictionary<string, int> UserSuccessCounts,
+    IReadOnlyDictionary<string, int> PeerFailureCounts,
     string? SubmissionSpecificationJson = null)
 {
     public SearchDefinition Definition
@@ -38,7 +38,7 @@ internal sealed record SearchViewSource(
         }
     }
 
-    public static SearchViewSource? Capture(Job job, IReadOnlyDictionary<string, int> userSuccessCountSnapshot)
+    public static SearchViewSource? Capture(Job job, IReadOnlyDictionary<string, int> peerFailureCountSnapshot)
     {
         if (job.Config == null || job.SearchObservationSession is not { } session)
             return null;
@@ -47,7 +47,7 @@ internal sealed record SearchViewSource(
             fallback ??= (job as SearchJob)?.Definition;
         // Prepared settings are no longer mutated by execution. Each View
         // clones them before refinement; retirement need not copy/parse plans.
-        return new(session, fallback, job.Config.ResolveSearchSettings(), userSuccessCountSnapshot,
+        return new(session, fallback, job.Config.ResolveSearchSettings(), peerFailureCountSnapshot,
             job.SubmissionSpecificationJson);
     }
 }
@@ -261,7 +261,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         SearchDefinition definition;
         SearchViewProjectionDefinition projection;
         SearchSettings settings;
-        IReadOnlyDictionary<string, int> workflowUserSuccessCounts;
+        IReadOnlyDictionary<string, int> workflowPeerFailureCounts;
 
         SearchViewSource? observation = supervisor.GetSearchViewSource(sourceJobId);
         if (observation != null)
@@ -270,9 +270,9 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             projection = ResolveProjection(definition, request);
             settings = SettingsCloner.Clone(observation.Settings);
             source = new ObservedSource(sourceJobId, supervisor, persistence);
-            // TODO [V4]: Preserve workflow downranking only; daemon-wide
-            // reputation ownership and persistence remain undefined.
-            workflowUserSuccessCounts = observation.UserSuccessCounts;
+            // Freeze workflow failure feedback for this View; later transfers must
+            // not silently change the ranking of an already reviewed snapshot.
+            workflowPeerFailureCounts = observation.PeerFailureCounts;
         }
         else
         {
@@ -285,7 +285,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             definition = historical.Definition;
             projection = historical.Projection;
             settings = definition.ProjectionSettings.ToSettings();
-            workflowUserSuccessCounts = new Dictionary<string, int>(
+            workflowPeerFailureCounts = new Dictionary<string, int>(
                 StringComparer.Ordinal);
         }
 
@@ -293,8 +293,8 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
 
         SearchViewInfo stored = repository.Create(sourceJobId, new SearchViewDefinition(definition, projection, request.RefinementSettings), cancellationToken: cancellationToken);
         var runtime = new RuntimeView(
-            stored, source, projection, settings, workflowUserSuccessCounts, clock.GetUtcNow(),
-            new SearchViewKernel(projection, settings, workflowUserSuccessCounts,
+            stored, source, projection, settings, workflowPeerFailureCounts, clock.GetUtcNow(),
+            new SearchViewKernel(projection, settings, workflowPeerFailureCounts,
                 retainProjectedRows: false, trackPeerIdentities: false));
         if (!runtimes.TryAdd(stored.Id, runtime))
             throw new InvalidOperationException("The search view already exists in runtime state.");
@@ -845,7 +845,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                 return;
             }
             runtime.Kernel = await RebuildKernelAsync(runtime.Source, runtime.Projection,
-                runtime.Settings, stored, cancellationToken, runtime.UserSuccessCounts).ConfigureAwait(false);
+                runtime.Settings, stored, cancellationToken, runtime.PeerFailureCounts).ConfigureAwait(false);
         }
         SearchViewKernel kernel = runtime.Kernel;
         // Catch-up never depends on a client poll. Coalesce sparse live arrivals
@@ -1017,9 +1017,9 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         }
         SearchSettings settings = definition.ProjectionSettings.ToSettings();
         DownloadSettingsPatchDtoMapper.ApplyTo(settings, refinementSettings);
-        IReadOnlyDictionary<string, int> reputation = supervisor.GetSearchViewSource(stored.SourceJobId)?.UserSuccessCounts
+        IReadOnlyDictionary<string, int> peerFailures = supervisor.GetSearchViewSource(stored.SourceJobId)?.PeerFailureCounts
             ?? new Dictionary<string, int>(StringComparer.Ordinal);
-        var runtime = new RuntimeView(stored, source, projection, settings, reputation, clock.GetUtcNow());
+        var runtime = new RuntimeView(stored, source, projection, settings, peerFailures, clock.GetUtcNow());
         runtimes.TryAdd(stored.Id, runtime);
         return runtime;
     }
@@ -1104,12 +1104,12 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         SearchSettings settings,
         SearchViewInfo stored,
         CancellationToken cancellationToken,
-        IReadOnlyDictionary<string, int>? reputation = null)
+        IReadOnlyDictionary<string, int>? peerFailures = null)
     {
         var kernel = new SearchViewKernel(
             projection,
             settings,
-            reputation,
+            peerFailures,
             retainProjectedRows: false,
             trackPeerIdentities: false);
         while (kernel.ConsumedSequence < stored.ConsumedSequence)
@@ -1425,14 +1425,14 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
 
     private sealed class RuntimeView(
         SearchViewInfo stored, RuntimeSource source, SearchViewProjectionDefinition projection,
-        SearchSettings settings, IReadOnlyDictionary<string, int> reputation,
+        SearchSettings settings, IReadOnlyDictionary<string, int> peerFailures,
         DateTimeOffset lastUsedAt, SearchViewKernel? kernel = null)
     {
         public Guid ViewId { get; } = stored.Id;
         public RuntimeSource Source { get; } = source;
         public SearchViewProjectionDefinition Projection { get; } = projection;
         public SearchSettings Settings { get; } = settings;
-        public IReadOnlyDictionary<string, int> UserSuccessCounts { get; } = reputation;
+        public IReadOnlyDictionary<string, int> PeerFailureCounts { get; } = peerFailures;
         public long PublishedRevision = stored.Revision;
         public SearchViewKernel? Kernel { get; set; } = kernel;
         public DateTimeOffset LastUsedAt { get; set; } = lastUsedAt;

@@ -27,7 +27,7 @@ public class RealCaptureProjectionBenchmarks
     private SearchSettings search = null!;
     private SongQuery trackQuery = null!;
     private AlbumQuery albumQuery = null!;
-    private ConcurrentDictionary<string, int> userSuccessCounts = null!;
+    private ConcurrentDictionary<string, int> peerFailureCounts = null!;
 
     public IEnumerable<string> CaptureNames => Captures.Value.Keys.OrderBy(x => x);
 
@@ -47,7 +47,7 @@ public class RealCaptureProjectionBenchmarks
             Album = trackQuery.Album.Length > 0 ? trackQuery.Album : trackQuery.Title,
             ArtistMaybeWrong = trackQuery.ArtistMaybeWrong,
         };
-        userSuccessCounts = new ConcurrentDictionary<string, int>();
+        peerFailureCounts = new ConcurrentDictionary<string, int>();
 
         rawResults = capture.Results.Select(Rehydrate).ToList();
         cumulativeResultSnapshots = BuildCumulativeSnapshots(rawResults, snapshotCount: 10);
@@ -70,14 +70,14 @@ public class RealCaptureProjectionBenchmarks
 
     [Benchmark]
     public int SongSort()
-        => SearchResultProjector.SortedTrackCandidates(rawResults, trackQuery, search, userSuccessCounts).Count;
+        => SearchResultProjector.SortedTrackCandidates(rawResults, trackQuery, search, peerFailureCounts).Count;
 
     [Benchmark]
     public int SongSort_Streaming10Snapshots()
     {
         int count = 0;
         foreach (var snapshot in cumulativeResultSnapshots)
-            count += SearchResultProjector.SortedTrackCandidates(snapshot, trackQuery, search, userSuccessCounts).Count;
+            count += SearchResultProjector.SortedTrackCandidates(snapshot, trackQuery, search, peerFailureCounts).Count;
         return count;
     }
 
@@ -85,7 +85,7 @@ public class RealCaptureProjectionBenchmarks
     public int SongSort_Incremental10Batches()
     {
         int count = 0;
-        var sorter = new IncrementalResultSorter(trackQuery, search, userSuccessCounts);
+        var sorter = new IncrementalResultSorter(trackQuery, search, peerFailureCounts);
         foreach (var batch in resultBatches)
         {
             sorter.AddRange(batch);
@@ -134,7 +134,7 @@ public class RealCaptureProjectionBenchmarks
     public int AlbumGroup_Incremental10Batches()
     {
         int count = 0;
-        var projector = new IncrementalAlbumFolderProjector(albumQuery, search, userSuccessCounts);
+        var projector = new IncrementalAlbumFolderProjector(albumQuery, search, peerFailureCounts);
         foreach (var batch in resultBatches)
         {
             projector.AddRange(batch);
@@ -146,14 +146,14 @@ public class RealCaptureProjectionBenchmarks
 
     [Benchmark]
     public int TrackGrouping()
-        => SearchResultProjector.GroupTracks(rawResults, trackQuery, search, userSuccessCounts).Count;
+        => SearchResultProjector.GroupTracks(rawResults, trackQuery, search, peerFailureCounts).Count;
 
     [Benchmark]
     public int TrackGrouping_Streaming10Snapshots()
     {
         int count = 0;
         foreach (var snapshot in cumulativeResultSnapshots)
-            count += SearchResultProjector.GroupTracks(snapshot, trackQuery, search, userSuccessCounts).Count;
+            count += SearchResultProjector.GroupTracks(snapshot, trackQuery, search, peerFailureCounts).Count;
         return count;
     }
 
@@ -161,7 +161,7 @@ public class RealCaptureProjectionBenchmarks
     public int TrackGrouping_Incremental10Batches()
     {
         int count = 0;
-        var projector = new IncrementalTrackGroupProjector(trackQuery, search, userSuccessCounts);
+        var projector = new IncrementalTrackGroupProjector(trackQuery, search, peerFailureCounts);
         foreach (var batch in resultBatches)
         {
             projector.AddRange(batch);
@@ -206,7 +206,7 @@ public class RealCaptureProjectionBenchmarks
     public int AlbumGrouping_IncrementalAlbumFolders10Batches()
     {
         int count = 0;
-        var projector = new IncrementalAlbumFolderProjector(albumQuery, search, userSuccessCounts);
+        var projector = new IncrementalAlbumFolderProjector(albumQuery, search, peerFailureCounts);
         foreach (var batch in resultBatches)
         {
             projector.AddRange(batch);

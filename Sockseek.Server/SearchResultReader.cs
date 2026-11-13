@@ -17,7 +17,7 @@ namespace Sockseek.Server;
 internal sealed class SearchResultReader(
     PersistenceCoordinator? persistence,
     Func<Guid, Job?> currentJob,
-    Func<Guid, ConcurrentDictionary<string, int>> userSuccessCounts)
+    Func<Guid, ConcurrentDictionary<string, int>> peerFailureCounts)
 {
     internal sealed record Source(Guid Id, Guid WorkflowId, string? ItemName, Job? RuntimeJob, PersistedJob? RetainedJob);
 
@@ -34,7 +34,7 @@ internal sealed class SearchResultReader(
     public async Task<(FileCandidate Candidate, string? SearchQuery)> GetFileAsync(Source source, FileCandidateRefDto file, CancellationToken ct)
     {
         if (source.RuntimeJob is { } current)
-            return (JobRequestMapper.FindFileCandidate(current, file, userSuccessCounts(source.WorkflowId))
+            return (JobRequestMapper.FindFileCandidate(current, file, peerFailureCounts(source.WorkflowId))
                 ?? throw new ArgumentException("Requested file was not found in this job's file candidates."), null);
         if (persistence?.SearchHistory is null)
             throw new NotSupportedException("Retained search results are unavailable.");
@@ -71,7 +71,7 @@ internal sealed class SearchResultReader(
     {
         if (source.RuntimeJob is { } current)
         {
-            var counts = userSuccessCounts(source.WorkflowId);
+            var counts = peerFailureCounts(source.WorkflowId);
             var currentFolder = forRetrieval
                 ? JobRequestMapper.FindAlbumFolderForRetrieval(current, folderRef, counts, requestedQuery)
                 : JobRequestMapper.FindAlbumFolder(current, folderRef, counts, requestedQuery);

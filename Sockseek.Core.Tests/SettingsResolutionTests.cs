@@ -154,14 +154,14 @@ public class SettingsResolutionTests
     public void ResolvingDependentValues_DoesNotOverwriteRequestedValues()
     {
         var settings = new DownloadSettings();
-        settings.Search.IgnoreOn = -1;
-        settings.Search.DownrankOn = -5;
+        settings.Search.IgnoreOn = 1;
+        settings.Search.DownrankOn = 5;
         settings.YouTube.DeletedOnly = true;
         SettingsNormalizer.NormalizeDownloadPaths(settings);
-        Assert.AreEqual(-1, settings.Search.IgnoreOn);
-        Assert.AreEqual(-5, settings.Search.EffectiveIgnoreOn);
+        Assert.AreEqual(1, settings.Search.IgnoreOn);
+        Assert.AreEqual(5, settings.Search.EffectiveIgnoreOn);
         settings.Search.DownrankOn = 0;
-        Assert.AreEqual(-1, settings.Search.EffectiveIgnoreOn);
+        Assert.AreEqual(1, settings.Search.EffectiveIgnoreOn);
         Assert.IsFalse(settings.YouTube.GetDeleted);
         Assert.IsTrue(settings.YouTube.DeletedOnly);
     }

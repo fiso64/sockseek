@@ -84,32 +84,32 @@ public class SearchJob : Job
 
     public SearchProjectionSnapshot<FileCandidate> GetSortedTrackCandidates(
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts)
+        ConcurrentDictionary<string, int> peerFailureCounts)
     {
         var projection = DefaultFileProjection
             ?? new FileSearchProjection(new SongQuery { Title = QueryText });
-        return GetSortedTrackCandidates(projection, search, userSuccessCounts);
+        return GetSortedTrackCandidates(projection, search, peerFailureCounts);
     }
 
     public SearchProjectionSnapshot<FileCandidate> GetSortedTrackCandidates(
         SongQuery query,
         bool includeFullResults,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts)
-        => GetSortedTrackCandidates(new FileSearchProjection(query, includeFullResults), search, userSuccessCounts);
+        ConcurrentDictionary<string, int> peerFailureCounts)
+        => GetSortedTrackCandidates(new FileSearchProjection(query, includeFullResults), search, peerFailureCounts);
 
     public SearchProjectionSnapshot<FileCandidate> GetSortedTrackCandidates(
         FileSearchProjection projection,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts)
+        ConcurrentDictionary<string, int> peerFailureCounts)
     {
         var state = GetOrCreateIncrementalProjectionState(
-            ProjectionKey("sorted-track", projection, search, userSuccessCounts),
+            ProjectionKey("sorted-track", projection, search, peerFailureCounts),
             () => new IncrementalNeutralFileProjectionState(
                 new IncrementalResultSorter(
                     projection.Query,
                     ProjectionSettings(search),
-                    userSuccessCounts,
+                    peerFailureCounts,
                     useInfer: false,
                     requireFileSatisfies: !projection.IncludeFullResults)));
 
@@ -128,14 +128,16 @@ public class SearchJob : Job
         => GetAlbumFolders(new FolderSearchProjection(query), search);
 
     public SearchProjectionSnapshot<AlbumFolder> GetAlbumFolders(
-        FolderSearchProjection projection, SearchSettings search, bool includeLocked = false)
+        FolderSearchProjection projection, SearchSettings search, bool includeLocked = false,
+        ConcurrentDictionary<string, int>? peerFailureCounts = null)
     {
         var state = GetOrCreateIncrementalProjectionState(
-            ProjectionKey("album-folders", projection, search, includeLocked: includeLocked),
+            ProjectionKey("album-folders", projection, search, peerFailureCounts, includeLocked),
             () => new IncrementalNeutralProjectionState<IncrementalAlbumFolderProjector, AlbumFolder>(
                 new IncrementalAlbumFolderProjector(
                     projection.Query,
                     ProjectionSettings(search),
+                    peerFailureCounts,
                     ignoreStringSortConditions: projection.IgnoreStringSortConditions,
                     sortMode: projection.SortMode,
                     enforceMinimumTrackCount: projection.EnforceMinimumTrackCount),
@@ -150,31 +152,31 @@ public class SearchJob : Job
 
     public SearchProjectionSnapshot<SongJob> GetTrackGroups(
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts)
+        ConcurrentDictionary<string, int> peerFailureCounts)
     {
         var projection = DefaultTrackGroupProjection
             ?? (DefaultFileProjection is { } fileProjection
                 ? new TrackGroupProjection(fileProjection.Query)
                 : new TrackGroupProjection(new SongQuery { Title = QueryText }));
-        return GetTrackGroups(projection, search, userSuccessCounts);
+        return GetTrackGroups(projection, search, peerFailureCounts);
     }
 
     public SearchProjectionSnapshot<SongJob> GetTrackGroups(
         SongQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts)
-        => GetTrackGroups(new TrackGroupProjection(query), search, userSuccessCounts);
+        ConcurrentDictionary<string, int> peerFailureCounts)
+        => GetTrackGroups(new TrackGroupProjection(query), search, peerFailureCounts);
 
     public SearchProjectionSnapshot<SongJob> GetTrackGroups(
         TrackGroupProjection projection,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts,
+        ConcurrentDictionary<string, int> peerFailureCounts,
         bool includeLocked = false)
     {
         var state = GetOrCreateIncrementalProjectionState(
-            ProjectionKey("track-groups", projection, search, userSuccessCounts, includeLocked),
+            ProjectionKey("track-groups", projection, search, peerFailureCounts, includeLocked),
             () => new IncrementalNeutralProjectionState<IncrementalTrackGroupProjector, SongJob>(
-                new IncrementalTrackGroupProjector(projection.Query, ProjectionSettings(search), userSuccessCounts),
+                new IncrementalTrackGroupProjector(projection.Query, ProjectionSettings(search), peerFailureCounts),
                 (projector, results) => projector.AddRange(results),
                 projector => projector.Snapshot(),
                 includeLocked));
@@ -194,11 +196,12 @@ public class SearchJob : Job
         => GetAlbumGroups(new AlbumGroupProjection(query), search);
 
     public SearchProjectionSnapshot<AlbumJob> GetAlbumGroups(
-        AlbumGroupProjection projection, SearchSettings search, bool includeLocked = false)
+        AlbumGroupProjection projection, SearchSettings search, bool includeLocked = false,
+        ConcurrentDictionary<string, int>? peerFailureCounts = null)
     {
         var state = GetOrCreateIncrementalProjectionState(
-            ProjectionKey("album-groups", projection, search, includeLocked: includeLocked),
-            () => new IncrementalAlbumGroupsProjectionState(projection.Query, ProjectionSettings(search), includeLocked));
+            ProjectionKey("album-groups", projection, search, peerFailureCounts, includeLocked),
+            () => new IncrementalAlbumGroupsProjectionState(projection.Query, ProjectionSettings(search), includeLocked, peerFailureCounts));
 
         var result = state.Snapshot(this);
         ApplyRetrievedDirectories(result.Items.SelectMany(album => album.Results));
@@ -409,15 +412,17 @@ public class SearchJob : Job
         private long lastSequence;
         private SearchProjectionSnapshot<AlbumJob>? cachedSnapshot;
 
-        public IncrementalAlbumGroupsProjectionState(AlbumQuery query, SearchSettings search, bool includeLocked)
+        public IncrementalAlbumGroupsProjectionState(AlbumQuery query, SearchSettings search, bool includeLocked,
+            ConcurrentDictionary<string, int>? peerFailureCounts)
         {
             this.includeLocked = includeLocked;
             albumProjector = new IncrementalAlbumFolderProjector(
                 query,
                 search,
+                peerFailureCounts,
                 ignoreStringSortConditions: true,
                 sortMode: FolderSortMode.DeterministicUnranked);
-            groupProjector = new IncrementalAlbumGroupProjector(query, search);
+            groupProjector = new IncrementalAlbumGroupProjector(query, search, peerFailureCounts);
         }
 
         public SearchProjectionSnapshot<AlbumJob> Snapshot(SearchJob job)

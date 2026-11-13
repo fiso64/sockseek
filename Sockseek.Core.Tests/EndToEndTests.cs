@@ -1471,7 +1471,7 @@ namespace Tests.EndToEnd
                 rootSettings.Search.NoBrowseFolder = true;
 
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
-                var registry = TestHelpers.CreateUserSuccessTracker();
+                var registry = TestHelpers.CreatePeerFailureTracker();
                 var searcher = new Searcher(testClient, registry, new DownloadEvents(), 10, 10);
                 var seedJob = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Chosen Album" });
                 await searcher.SearchAlbum(seedJob, rootSettings.Search, new ResponseData(), CancellationToken.None);
@@ -1527,7 +1527,7 @@ namespace Tests.EndToEnd
                 rootSettings.Output.NameFormat = "{filename}";
 
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
-                var registry = TestHelpers.CreateUserSuccessTracker();
+                var registry = TestHelpers.CreatePeerFailureTracker();
                 var searcher = new Searcher(testClient, registry, new DownloadEvents(), 10, 10);
                 var seedSong = new SongJob(new SongQuery { Artist = "Artist", Title = "Real Track" });
                 await searcher.SearchSong(seedSong, rootSettings.Search, new ResponseData(), CancellationToken.None);

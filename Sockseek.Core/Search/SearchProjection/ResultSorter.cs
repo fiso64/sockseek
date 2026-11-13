@@ -12,19 +12,19 @@ public static partial class ResultSorter
         IEnumerable<KeyValuePair<string, (SearchResponse, Soulseek.File)>> results,
         SongQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts,
+        ConcurrentDictionary<string, int> peerFailureCounts,
         bool useInfer = false,
         bool albumMode = false,
         bool ignoreStringSortConditions = false)
     {
-        return OrderedResults(results.Select(x => x.Value), query, search, userSuccessCounts, useInfer, albumMode, ignoreStringSortConditions);
+        return OrderedResults(results.Select(x => x.Value), query, search, peerFailureCounts, useInfer, albumMode, ignoreStringSortConditions);
     }
 
     public static IEnumerable<(SearchResponse response, Soulseek.File file)> OrderedResults(
         IEnumerable<(SearchResponse, Soulseek.File)> results,
         SongQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts,
+        ConcurrentDictionary<string, int> peerFailureCounts,
         bool useInfer = false,
         bool albumMode = false,
         bool ignoreStringSortConditions = false)
@@ -36,7 +36,7 @@ public static partial class ResultSorter
             results,
             query,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             useBracketCheck,
             useInfer,
             albumMode,
@@ -47,7 +47,7 @@ public static partial class ResultSorter
         IEnumerable<(SearchResponse, Soulseek.File)> results,
         SongQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts,
+        ConcurrentDictionary<string, int> peerFailureCounts,
         bool useBracketCheck,
         bool useInfer,
         bool albumMode,
@@ -57,7 +57,7 @@ public static partial class ResultSorter
             results,
             query,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             useBracketCheck,
             useInfer,
             albumMode,
@@ -82,14 +82,14 @@ public static partial class ResultSorter
         IEnumerable<SearchProjectionInput> results,
         SongQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts,
+        ConcurrentDictionary<string, int> peerFailureCounts,
         bool useInfer = false,
         bool albumMode = false,
         bool ignoreStringSortConditions = false)
     {
         var resultList = results as IReadOnlyCollection<SearchProjectionInput> ?? results.ToArray();
         var keyContext = new SortKeyContext(
-            resultList, query, search, userSuccessCounts,
+            resultList, query, search, peerFailureCounts,
             useBracketCheck: !albumMode, useInfer: false, albumMode, ignoreStringSortConditions);
         var entries = new List<SortEntry>(resultList.Count);
         int index = 0;
@@ -107,7 +107,7 @@ public static partial class ResultSorter
         IEnumerable<(SearchResponse, Soulseek.File)> results,
         SongQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts,
+        ConcurrentDictionary<string, int> peerFailureCounts,
         bool useBracketCheck,
         bool useInfer,
         bool albumMode,
@@ -117,7 +117,7 @@ public static partial class ResultSorter
             results,
             query,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             useBracketCheck,
             useInfer,
             albumMode,
@@ -138,13 +138,13 @@ public static partial class ResultSorter
         SearchProjectionInput input,
         SortKeyContext keyContext,
         int originalIndex,
-        int? userSuccessCount = null)
+        int? peerFailureCount = null)
     {
         if (!keyContext.Search.NecessaryCond.VisibilitySatisfies(input.Visibility)) return null;
-        int successCount = userSuccessCount ?? keyContext.UserSuccessCounts.GetValueOrDefault(input.Username, 0);
-        if (successCount <= keyContext.Search.IgnoreOn)
+        int failureCount = peerFailureCount ?? keyContext.PeerFailureCounts.GetValueOrDefault(input.Username, 0);
+        if (failureCount >= keyContext.Search.EffectiveIgnoreOn)
             return null;
-        return new SortEntry(input, null, null, keyContext.CreateKey(input, successCount), originalIndex);
+        return new SortEntry(input, null, null, keyContext.CreateKey(input, failureCount), originalIndex);
     }
 
     internal static SortEntry? CreateSortEntry(
@@ -221,13 +221,13 @@ public static partial class ResultSorter
 
         private SortKeyContext(
             SongQuery query, SearchSettings search,
-            ConcurrentDictionary<string, int> userSuccessCounts,
+            ConcurrentDictionary<string, int> peerFailureCounts,
             bool useBracketCheck, bool useInfer, bool albumMode, bool ignoreStringSortConditions,
             Func<SearchProjectionInput, bool>? necessaryConditionEvaluator)
         {
             Query = query;
             Search = search;
-            UserSuccessCounts = userSuccessCounts;
+            PeerFailureCounts = peerFailureCounts;
             UseBracketCheck = useBracketCheck;
             UseInfer = useInfer;
             AlbumMode = albumMode;
@@ -250,13 +250,13 @@ public static partial class ResultSorter
             IEnumerable<(SearchResponse, Soulseek.File)> results,
             SongQuery query,
             SearchSettings search,
-            ConcurrentDictionary<string, int> userSuccessCounts,
+            ConcurrentDictionary<string, int> peerFailureCounts,
             bool useBracketCheck,
             bool useInfer,
             bool albumMode,
             bool ignoreStringSortConditions,
             Func<SearchProjectionInput, bool>? necessaryConditionEvaluator = null)
-            : this(query, search, userSuccessCounts, useBracketCheck, useInfer, albumMode,
+            : this(query, search, peerFailureCounts, useBracketCheck, useInfer, albumMode,
                 ignoreStringSortConditions, necessaryConditionEvaluator)
         {
             var resultList = useInfer ? results.ToList() : null;
@@ -271,13 +271,13 @@ public static partial class ResultSorter
             IEnumerable<SearchProjectionInput> results,
             SongQuery query,
             SearchSettings search,
-            ConcurrentDictionary<string, int> userSuccessCounts,
+            ConcurrentDictionary<string, int> peerFailureCounts,
             bool useBracketCheck,
             bool useInfer,
             bool albumMode,
             bool ignoreStringSortConditions,
             Func<SearchProjectionInput, bool>? necessaryConditionEvaluator = null)
-            : this(query, search, userSuccessCounts, useBracketCheck, useInfer, albumMode,
+            : this(query, search, peerFailureCounts, useBracketCheck, useInfer, albumMode,
                 ignoreStringSortConditions, necessaryConditionEvaluator)
         {
             var resultList = useInfer ? results.ToList() : null;
@@ -293,7 +293,7 @@ public static partial class ResultSorter
         public IEnumerable<SearchProjectionInput> InputResults { get; } = [];
         public SongQuery Query { get; }
         public SearchSettings Search { get; }
-        public ConcurrentDictionary<string, int> UserSuccessCounts { get; }
+        public ConcurrentDictionary<string, int> PeerFailureCounts { get; }
         public bool UseBracketCheck { get; }
         public bool UseInfer { get; }
         public bool AlbumMode { get; }
@@ -301,7 +301,7 @@ public static partial class ResultSorter
         public SortKey CreateKey(SearchResponse response, Soulseek.File file)
             => CreateKey(ToInput(response, file));
 
-        public SortKey CreateKey(SearchProjectionInput input, int? userSuccessCount = null)
+        public SortKey CreateKey(SearchProjectionInput input, int? peerFailureCount = null)
         {
             (SongQuery Query, int Count)? inferred = null;
             (SongQuery Query, int Count) getInferred() => inferred ??= InferredQuery(input);
@@ -378,7 +378,7 @@ public static partial class ResultSorter
             }
 
             return new SortKey(
-                (userSuccessCount ?? UserSuccessCounts.GetValueOrDefault(input.Username, 0)) > Search.DownrankOn,
+                (peerFailureCount ?? PeerFailureCounts.GetValueOrDefault(input.Username, 0)) < Search.DownrankOn,
                 necessaryConditionsMet,
                 preferredUserConditionsMet,
                 Search.AudioConditionsIgnored || (input.Length != null && input.Length > 0) || Search.PreferredCond.AcceptNoLength,
@@ -523,7 +523,7 @@ public static partial class ResultSorter
         public SearchProjectionSortKey Rank { get; init; }
 
         public SortKey(
-            bool userSuccessAboveDownrank,
+            bool peerBelowFailureThreshold,
             bool necessaryConditionsMet,
             bool preferredUserConditionsMet,
             bool hasValidLength,
@@ -555,7 +555,7 @@ public static partial class ResultSorter
             // Identity beats quality: an MP3 from the requested album outranks
             // a FLAC from an unrelated album. Album coverage uses this prefix too.
             var identity = BoolSortKey.CreateDescending()
-                .Then(userSuccessAboveDownrank)
+                .Then(peerBelowFailureThreshold)
                 .Then(necessaryConditionsMet)
                 .Then(preferredUserConditionsMet)
                 .Then(hasValidLength)

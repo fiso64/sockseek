@@ -15,7 +15,7 @@ namespace Tests.Unit;
 public class SearchFallbackTests
 {
     private static Searcher CreateSearcher(ISoulseekClient client)
-        => new(client, TestHelpers.CreateUserSuccessTracker(), new DownloadEvents(), 100, 1);
+        => new(client, TestHelpers.CreatePeerFailureTracker(), new DownloadEvents(), 100, 1);
 
     private static SearchResponse Response(string artist, string title = "Some Song", int length = 200, string user = "User", int speed = 1000)
         => new(user, 1, true, speed, 0,
@@ -348,7 +348,7 @@ public class SearchFallbackTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         bool limited = false;
         events.SearchRateLimited += _ => { limited = true; cts.Cancel(); };
-        using var searcher = new Searcher(client, TestHelpers.CreateUserSuccessTracker(), new DownloadEvents(), 1, 60, searchEvents: events);
+        using var searcher = new Searcher(client, TestHelpers.CreatePeerFailureTracker(), new DownloadEvents(), 1, 60, searchEvents: events);
         var song = new SongJob(new SongQuery { Artist = "First;Second", Title = "Song" });
 
         await Assert.ThrowsAsync<OperationCanceledException>(() => searcher.SearchSong(song, new SearchSettings(), new ResponseData(), cts.Token));

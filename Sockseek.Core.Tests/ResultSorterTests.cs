@@ -10,7 +10,7 @@ namespace Tests.ResultSorterTests
     public class SortKeyTests
     {
         private static ResultSorter.SortKey Key(
-            bool userSuccessAboveDownrank = false,
+            bool peerBelowFailureThreshold = false,
             bool necessaryConditionsMet = false,
             bool preferredUserConditionsMet = false,
             bool hasValidLength = false,
@@ -37,7 +37,7 @@ namespace Tests.ResultSorterTests
             int bitRate = 0,
             int randomTiebreaker = 0)
             => new(
-                userSuccessAboveDownrank,
+                peerBelowFailureThreshold,
                 necessaryConditionsMet,
                 preferredUserConditionsMet,
                 hasValidLength,
@@ -80,9 +80,9 @@ namespace Tests.ResultSorterTests
         }
 
         [TestMethod]
-        public void CompareTo_UserSuccessAboveDownrank_IsHighestPriority()
+        public void CompareTo_PeerBelowFailureThreshold_IsHighestPriority()
         {
-            var better = Key(userSuccessAboveDownrank: true);
+            var better = Key(peerBelowFailureThreshold: true);
             var worse = Key(necessaryConditionsMet: true, hasFreeUploadSlot: true);
 
             Assert.IsTrue(better.CompareTo(worse) > 0);
@@ -140,7 +140,7 @@ namespace Tests.ResultSorterTests
             // Test that each successive criterion can win when all above are equal
             var fields = new (string name, Func<ResultSorter.SortKey> better)[]
             {
-                ("UserSuccessAboveDownrank", () => Key(userSuccessAboveDownrank: true)),
+                ("PeerBelowFailureThreshold", () => Key(peerBelowFailureThreshold: true)),
                 ("NecessaryConditionsMet", () => Key(necessaryConditionsMet: true)),
                 ("PreferredUserConditionsMet", () => Key(preferredUserConditionsMet: true)),
                 ("HasValidLength", () => Key(hasValidLength: true)),
@@ -217,7 +217,7 @@ namespace Tests.ResultSorterTests
         }
 
         [TestMethod]
-        public void OrderedResults_PrefersUserWithSuccessHistory()
+        public void OrderedResults_DownranksPeersAtFailureThreshold()
         {
             var file1 = TestHelpers.CreateSlFile("Music\\Track.mp3", bitrate: 320, length: 200);
             var file2 = TestHelpers.CreateSlFile("Music\\Track.mp3", bitrate: 320, length: 200);
@@ -226,10 +226,8 @@ namespace Tests.ResultSorterTests
             var results = new List<(SearchResponse, File)> { (response1, file1), (response2, file2) };
 
             var config = TestHelpers.CreateDefaultSettings().Download;
-            config.Search.DownrankOn = 0;
             var counts = new ConcurrentDictionary<string, int>();
-            counts["winner"] = 5;  // Above downrankOn
-            // "loser" has 0, which is not > 0
+            counts["loser"] = config.Search.DownrankOn;
 
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
             var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
@@ -247,9 +245,9 @@ namespace Tests.ResultSorterTests
 
             var config = TestHelpers.CreateDefaultSettings().Download;
             config.Search.DownrankOn = 0;
-            config.Search.IgnoreOn = 0;  // Need > 0 to be included
+            config.Search.IgnoreOn = 0;  // No peer is below this threshold
             var counts = new ConcurrentDictionary<string, int>();
-            // "baduser" has 0 which is not > 0
+            // "baduser" has 0 failures and therefore meets the exclusion threshold.
 
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
             var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
@@ -540,7 +538,7 @@ namespace Tests.ResultSorterTests
             config.Search.PreferredCond = new FileConditions { Formats = ["flac"], StrictTitle = true };
             var counts = new ConcurrentDictionary<string, int>();
             counts["user-3"] = 4;
-            config.Search.IgnoreOn = -1;
+            config.Search.IgnoreOn = 3;
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
 
             var expected = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();

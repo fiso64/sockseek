@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
@@ -12,7 +13,7 @@ internal static class PrintOutputRenderer
 
     public static bool PrintRequestedOutput(
         JobList queue,
-        Func<Guid, IReadOnlyDictionary<string, int>>? getUserSuccessCounts = null)
+        Func<Guid, IReadOnlyDictionary<string, int>>? getPeerFailureCounts = null)
     {
         var requests = queue.Jobs.SelectMany(CollectPrintRequests).ToList();
         if (requests.Count == 0)
@@ -44,7 +45,7 @@ internal static class PrintOutputRenderer
                     request.Job,
                     request.Option,
                     request.Job.Config.Search,
-                    getUserSuccessCounts?.Invoke(request.Job.WorkflowId));
+                    getPeerFailureCounts?.Invoke(request.Job.WorkflowId));
                 i++;
             }
 
@@ -296,21 +297,21 @@ internal static class ResultPrintFormatter
         Job job,
         PrintOption printOption,
         SearchSettings search,
-        IReadOnlyDictionary<string, int>? reputationSnapshot = null)
+        IReadOnlyDictionary<string, int>? peerFailureSnapshot = null)
     {
         lock (Printing.ConsoleLock)
         {
             switch (job)
             {
                 case JobList list:
-                    PrintJobListResults(list, printOption, search, reputationSnapshot);
+                    PrintJobListResults(list, printOption, search, peerFailureSnapshot);
                     break;
                 case SearchJob searchJob:
                     PrintSearchResults(
                         searchJob,
                         printOption,
                         search,
-                        reputationSnapshot);
+                        peerFailureSnapshot);
                     break;
                 case SongJob song:
                     PrintSongResults(song, printOption);
@@ -335,12 +336,14 @@ internal static class ResultPrintFormatter
         SearchJob searchJob,
         PrintOption printOption,
         SearchSettings search,
-        IReadOnlyDictionary<string, int>? reputationSnapshot)
+        IReadOnlyDictionary<string, int>? peerFailureSnapshot)
     {
         if (searchJob.DefaultFolderProjection != null)
         {
             var folders = searchJob.GetAlbumFolders(
-                searchJob.DefaultFolderProjection, search, includeLocked: true);
+                searchJob.DefaultFolderProjection, search, includeLocked: true,
+                peerFailureCounts: peerFailureSnapshot == null ? null
+                    : new ConcurrentDictionary<string, int>(peerFailureSnapshot, StringComparer.Ordinal));
             var album = new AlbumJob(searchJob.DefaultFolderProjection.Query)
             {
                 Results = folders.Items.ToList(),
@@ -355,7 +358,7 @@ internal static class ResultPrintFormatter
         var kernel = new SearchViewKernel(
             projection,
             search,
-            reputationSnapshot);
+            peerFailureSnapshot);
         kernel.Apply(
             searchJob.RawSnapshot().Select(result => result.ProjectionInput),
             searchJob.Revision,
@@ -375,7 +378,7 @@ internal static class ResultPrintFormatter
         JobList list,
         PrintOption printOption,
         SearchSettings search,
-        IReadOnlyDictionary<string, int>? reputationSnapshot)
+        IReadOnlyDictionary<string, int>? peerFailureSnapshot)
     {
         bool nonVerbose = IsMachineReadable(printOption);
         bool printedAny = false;
@@ -387,7 +390,7 @@ internal static class ResultPrintFormatter
             if (printedAny && !nonVerbose)
                 Printing.WriteLine();
 
-            Print(child, printOption, search, reputationSnapshot);
+            Print(child, printOption, search, peerFailureSnapshot);
             printedAny = true;
         }
     }

@@ -33,7 +33,7 @@ public sealed class IncrementalAlbumFolderProjector
     public IncrementalAlbumFolderProjector(
         AlbumQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int>? userSuccessCounts = null,
+        ConcurrentDictionary<string, int>? peerFailureCounts = null,
         bool ignoreStringSortConditions = false,
         FolderSortMode sortMode = FolderSortMode.AlbumRanked,
         bool enforceMinimumTrackCount = true)
@@ -45,7 +45,7 @@ public sealed class IncrementalAlbumFolderProjector
         projectionPlan = new AlbumFolderProjectionPlan(
             query,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             ignoreStringSortConditions,
             sortMode,
             enforceMinimumTrackCount);

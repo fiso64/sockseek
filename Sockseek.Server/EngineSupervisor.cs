@@ -84,7 +84,7 @@ public sealed class EngineSupervisor : IDisposable
     {
         this.options = options.Value;
         this.persistence = persistence;
-        searchResults = new(persistence, GetRuntimeJob<Job>, GetCurrentEngineUserSuccessCounts);
+        searchResults = new(persistence, GetRuntimeJob<Job>, GetCurrentEnginePeerFailureCounts);
         this.loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         this.retireTerminalWorkflows = retireTerminalWorkflows;
         logger = this.loggerFactory.CreateLogger<EngineSupervisor>();
@@ -705,20 +705,20 @@ public sealed class EngineSupervisor : IDisposable
         return engine;
     }
 
-    private ConcurrentDictionary<string, int> GetCurrentEngineUserSuccessCounts(Guid workflowId)
+    private ConcurrentDictionary<string, int> GetCurrentEnginePeerFailureCounts(Guid workflowId)
     {
         DownloadEngine? engine;
         lock (engineGate)
             engine = currentEngine;
 
-        return engine?.GetUserSuccessCounts(workflowId) ?? new ConcurrentDictionary<string, int>();
+        return engine?.GetPeerFailureCounts(workflowId) ?? new ConcurrentDictionary<string, int>();
     }
 
     internal SearchViewSource? GetSearchViewSource(Guid jobId)
     {
         SearchViewSource? current = GetRuntimeJob<Job>(jobId) is { } job
             ? SearchViewSource.Capture(job, new Dictionary<string, int>(
-                GetCurrentEngineUserSuccessCounts(job.WorkflowId), StringComparer.Ordinal)) : null;
+                GetCurrentEnginePeerFailureCounts(job.WorkflowId), StringComparer.Ordinal)) : null;
         // Retirement can start between the job lookup and counter capture.
         // Its handoff owns the final inputs even while Core still has the job.
         return persistence?.GetRetiringSearchSource(jobId) ?? current;

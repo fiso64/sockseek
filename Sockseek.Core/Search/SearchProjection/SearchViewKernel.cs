@@ -204,7 +204,7 @@ public sealed class SearchViewKernel
     public SearchViewKernel(
         FileSearchProjection projection,
         SearchSettings settings,
-        IReadOnlyDictionary<string, int>? reputationSnapshot = null,
+        IReadOnlyDictionary<string, int>? peerFailureSnapshot = null,
         bool retainProjectedRows = true,
         SearchViewKernelSeed? seed = null,
         bool trackPeerIdentities = true)
@@ -214,7 +214,7 @@ public sealed class SearchViewKernel
                 projection?.Query,
                 IncludeFullResults: projection?.IncludeFullResults ?? false),
             settings,
-            reputationSnapshot,
+            peerFailureSnapshot,
             retainProjectedRows,
             seed,
             trackPeerIdentities)
@@ -225,7 +225,7 @@ public sealed class SearchViewKernel
     public SearchViewKernel(
         SearchViewProjectionDefinition projection,
         SearchSettings settings,
-        IReadOnlyDictionary<string, int>? reputationSnapshot = null,
+        IReadOnlyDictionary<string, int>? peerFailureSnapshot = null,
         bool retainProjectedRows = true,
         SearchViewKernelSeed? seed = null,
         bool trackPeerIdentities = true)
@@ -247,10 +247,10 @@ public sealed class SearchViewKernel
             or SearchViewProjectionKind.TrackGroups
             or SearchViewProjectionKind.AlbumGroups))
             throw new NotSupportedException($"Search View projection '{projectionKind}' is not implemented yet.");
-        var reputation = reputationSnapshot == null
+        var peerFailures = peerFailureSnapshot == null
             ? new ConcurrentDictionary<string, int>()
             : new ConcurrentDictionary<string, int>(
-                reputationSnapshot,
+                peerFailureSnapshot,
                 StringComparer.Ordinal);
         if (projectionKind is SearchViewProjectionKind.AlbumDirectories
             or SearchViewProjectionKind.AlbumGroups)
@@ -258,7 +258,7 @@ public sealed class SearchViewKernel
             albumFolderProjector = new IncrementalAlbumFolderProjector(
                 projection.AlbumQuery!,
                 SettingsCloner.Clone(settings),
-                reputation,
+                peerFailures,
                 ignoreStringSortConditions:
                     projectionKind == SearchViewProjectionKind.AlbumGroups,
                 sortMode: projectionKind == SearchViewProjectionKind.AlbumGroups
@@ -268,7 +268,8 @@ public sealed class SearchViewKernel
             {
                 albumGroupProjector = new IncrementalAlbumGroupProjector(
                     projection.AlbumQuery!,
-                    SettingsCloner.Clone(settings));
+                    SettingsCloner.Clone(settings),
+                    peerFailures);
             }
         }
         else if (projectionKind == SearchViewProjectionKind.TrackGroups)
@@ -276,7 +277,7 @@ public sealed class SearchViewKernel
             trackGroupProjector = new IncrementalTrackGroupProjector(
                 projection.SongQuery!,
                 SettingsCloner.Clone(settings),
-                reputation,
+                peerFailures,
                 filterText);
         }
         else
@@ -284,7 +285,7 @@ public sealed class SearchViewKernel
             sorter = new IncrementalResultSorter(
                 projection.SongQuery!,
                 SettingsCloner.Clone(settings),
-                reputation,
+                peerFailures,
                 useInfer: false,
                 requireFileSatisfies: !projection.IncludeFullResults,
                 retainProjectedRows: projectionKind == SearchViewProjectionKind.Files

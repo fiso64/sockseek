@@ -772,10 +772,11 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void FailsToDownrank_StoredNegated()
+        public void PeerFailureThresholds_ArePositiveCounts()
         {
-            var (_, dl, _) = Bind("x", "--fails-to-downrank", "3");
-            Assert.AreEqual(-3, dl.Search.DownrankOn);
+            var (_, dl, _) = Bind("x", "--fails-to-downrank", "3", "--fails-to-ignore", "5");
+            Assert.AreEqual(3, dl.Search.DownrankOn);
+            Assert.AreEqual(5, dl.Search.IgnoreOn);
         }
 
         [TestMethod]

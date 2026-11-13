@@ -255,9 +255,9 @@ namespace Tests
             return new SoulseekClientManager(engineSettings, client);
         }
 
-        public static UserSuccessTracker CreateUserSuccessTracker()
+        public static PeerFailureTracker CreatePeerFailureTracker()
         {
-            return new UserSuccessTracker();
+            return new PeerFailureTracker();
         }
     }
 }

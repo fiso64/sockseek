@@ -34,7 +34,7 @@ internal sealed class DownloadExecutionContext
         StaleDownloadCoordinator staleDownloadCoordinator,
         DownloadEvents events,
         JobList queue,
-        UserSuccessTracker userSuccesses,
+        PeerFailureTracker peerFailures,
         OutputFinalizer outputFinalizer,
         DownloadJobContextStore contexts,
         SourceMutationCoordinator sourceMutations,
@@ -52,7 +52,7 @@ internal sealed class DownloadExecutionContext
         StaleDownloadCoordinator = staleDownloadCoordinator;
         Events = events;
         Queue = queue;
-        UserSuccesses = userSuccesses;
+        PeerFailures = peerFailures;
         OutputFinalizer = outputFinalizer;
         Contexts = contexts;
         SourceMutations = sourceMutations;
@@ -71,7 +71,7 @@ internal sealed class DownloadExecutionContext
     public StaleDownloadCoordinator StaleDownloadCoordinator { get; }
     public DownloadEvents Events { get; }
     public JobList Queue { get; }
-    public UserSuccessTracker UserSuccesses { get; }
+    public PeerFailureTracker PeerFailures { get; }
     public OutputFinalizer OutputFinalizer { get; }
     public DownloadJobContextStore Contexts { get; }
     public SourceMutationCoordinator SourceMutations { get; }

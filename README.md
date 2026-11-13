@@ -1090,8 +1090,8 @@ Most used flags at a glance:
 --no-remove-special-chars       Keep special characters in Soulseek search terms
 --max-retries <num>             Max download retries per item (default: 10)
 --unknown-error-retries <num>   Extra retries for unknown/transient errors (default: 2)
---fails-to-downrank <num>       Number of fails to downrank a user's shares (default: 1)
---fails-to-ignore <num>         Number of fails to ban/ignore a user's shares (default: 2)
+--fails-to-downrank <num>       Failures within a workflow before downranking a peer (default: 2)
+--fails-to-ignore <num>         Failures within a workflow before ignoring a peer (default: 3)
 
 --yt-dlp                        Use yt-dlp to download songs that weren't found on
                                 Soulseek. yt-dlp must be available from the command line.

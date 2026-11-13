@@ -611,7 +611,7 @@ namespace Tests.Cancellation
                 Assert.IsTrue(songJob.IsUnsuccessfulTerminal);
                 Assert.AreEqual(JobFailureReason.Cancelled, songJob.FailureReason);
                 Assert.AreEqual(1, testClient.DownloadCallCount, "Should only attempt the first candidate before cancellation takes effect.");
-                Assert.AreEqual(0, app.GetUserSuccessCounts(songJob.WorkflowId).Count,
+                Assert.AreEqual(0, app.GetPeerFailureCounts(songJob.WorkflowId).Count,
                     "Operator cancellation must not penalize the peer.");
             }
             finally

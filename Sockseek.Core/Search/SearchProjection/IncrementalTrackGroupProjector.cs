@@ -20,7 +20,7 @@ public sealed class IncrementalTrackGroupProjector
 {
     private readonly SongQuery query;
     private readonly SearchSettings search;
-    private readonly ConcurrentDictionary<string, int> userSuccessCounts;
+    private readonly ConcurrentDictionary<string, int> peerFailureCounts;
     private readonly SongQueryGroups<TrackGroupBucket> buckets;
     private readonly Dictionary<string, SongQuery> inferredByFilename = new(StringComparer.Ordinal);
     private readonly HashSet<(PeerPathKey Path, SearchResultVisibility Visibility)> seen = [];
@@ -28,15 +28,15 @@ public sealed class IncrementalTrackGroupProjector
     public IncrementalTrackGroupProjector(
         SongQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int>? userSuccessCounts = null,
+        ConcurrentDictionary<string, int>? peerFailureCounts = null,
         string? filterText = null)
     {
         this.query = query;
         this.search = search;
-        this.userSuccessCounts = userSuccessCounts ?? new ConcurrentDictionary<string, int>();
+        this.peerFailureCounts = peerFailureCounts ?? new ConcurrentDictionary<string, int>();
         string? filter = string.IsNullOrWhiteSpace(filterText) ? null : filterText.Trim();
         buckets = new(search.GroupLengthTol,
-            (key, index) => new TrackGroupBucket(index, key, query, search, this.userSuccessCounts, filter));
+            (key, index) => new TrackGroupBucket(index, key, query, search, this.peerFailureCounts, filter));
     }
 
     public int Count => seen.Count;
@@ -195,7 +195,7 @@ public sealed class IncrementalTrackGroupProjector
         private List<PendingCandidate>? pending;
         private readonly SongQuery sourceQuery;
         private readonly SearchSettings search;
-        private readonly ConcurrentDictionary<string, int> userSuccessCounts;
+        private readonly ConcurrentDictionary<string, int> peerFailureCounts;
         private readonly string? filterText;
         private bool matchesText;
         private int? firstKnownLength;
@@ -221,14 +221,14 @@ public sealed class IncrementalTrackGroupProjector
             SongQuery query,
             SongQuery sourceQuery,
             SearchSettings search,
-            ConcurrentDictionary<string, int> userSuccessCounts,
+            ConcurrentDictionary<string, int> peerFailureCounts,
             string? filterText)
         {
             Index = index;
             Query = query;
             this.sourceQuery = sourceQuery;
             this.search = search;
-            this.userSuccessCounts = userSuccessCounts;
+            this.peerFailureCounts = peerFailureCounts;
             this.filterText = filterText;
             matchesText = filterText is null || ContainsFilter(query.Artist) || ContainsFilter(query.Title);
         }
@@ -238,14 +238,14 @@ public sealed class IncrementalTrackGroupProjector
             sorter = new IncrementalResultSorter(
                 Query,
                 search,
-                userSuccessCounts,
+                peerFailureCounts,
                 albumMode: false,
                 ignoreStringSortConditions: true,
                 // The containing projector owns exact identity deduplication.
                 deduplicateInputs: false,
                 necessaryConditionEvaluator: static _ => true);
             if (pending is null) return;
-            foreach (var candidate in pending) AddRanked(candidate.Input, candidate.UserSuccessCount);
+            foreach (var candidate in pending) AddRanked(candidate.Input, candidate.PeerFailureCount);
             pending = null;
         }
 
@@ -255,8 +255,8 @@ public sealed class IncrementalTrackGroupProjector
             // Sharers describe discoveries, as in full grouping.
             // Workflow-local ignored peers contribute no selectable options.
             users.Add(input.Username);
-            int successCount = userSuccessCounts.GetValueOrDefault(input.Username, 0);
-            if (successCount <= search.IgnoreOn) return null;
+            int failureCount = peerFailureCounts.GetValueOrDefault(input.Username, 0);
+            if (failureCount >= search.EffectiveIgnoreOn) return null;
             matchesText |= ContainsFilter(input.Filename);
             if (sorter is null)
             {
@@ -265,17 +265,17 @@ public sealed class IncrementalTrackGroupProjector
                 // executed; replay its earlier options without losing backfill.
                 if (!MeetsVisibility())
                 {
-                    (pending ??= []).Add(new(input, successCount));
+                    (pending ??= []).Add(new(input, failureCount));
                     return null;
                 }
                 PrepareRanking();
             }
-            return AddRanked(input, successCount);
+            return AddRanked(input, failureCount);
         }
 
-        private ProjectedFileCandidate? AddRanked(SearchProjectionInput input, int successCount)
+        private ProjectedFileCandidate? AddRanked(SearchProjectionInput input, int failureCount)
         {
-            var projected = sorter!.AddWithUserSuccessCount(input, successCount);
+            var projected = sorter!.AddWithPeerFailureCount(input, failureCount);
             if (projected is not null && input.Visibility == SearchResultVisibility.Public) PublicOptionCount++;
             return projected;
         }
@@ -287,7 +287,7 @@ public sealed class IncrementalTrackGroupProjector
             => matchesText && ShareCount >= search.EffectiveMinGroupShares
                 && (search.Relax || MatchesStrictQuery());
 
-        private readonly record struct PendingCandidate(SearchProjectionInput Input, int UserSuccessCount);
+        private readonly record struct PendingCandidate(SearchProjectionInput Input, int PeerFailureCount);
 
         public SongQuery QueryWithKnownLength()
         {

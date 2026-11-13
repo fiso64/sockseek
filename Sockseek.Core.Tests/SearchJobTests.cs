@@ -330,16 +330,16 @@ namespace Tests.Unit
                 TestHelpers.CreateSlFile(@"Music\Artist\Track.mp3", length: 180),
             ]));
 
-            var userSuccessCounts = new ConcurrentDictionary<string, int>();
-            var first = job.GetSortedTrackCandidates(config.Search, userSuccessCounts);
-            var second = job.GetSortedTrackCandidates(config.Search, userSuccessCounts);
+            var peerFailureCounts = new ConcurrentDictionary<string, int>();
+            var first = job.GetSortedTrackCandidates(config.Search, peerFailureCounts);
+            var second = job.GetSortedTrackCandidates(config.Search, peerFailureCounts);
 
             job.Session.AddResponse(new SearchResponse("User2", 1, true, 100, 0,
             [
                 TestHelpers.CreateSlFile(@"Music\Artist\Track Alt.mp3", length: 181),
             ]));
 
-            var third = job.GetSortedTrackCandidates(config.Search, userSuccessCounts);
+            var third = job.GetSortedTrackCandidates(config.Search, peerFailureCounts);
 
             Assert.AreSame(first, second);
             Assert.AreEqual(1, first.Items.Count);
@@ -352,15 +352,15 @@ namespace Tests.Unit
         {
             var job = new SearchJob("cache identity");
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            var userSuccessCounts = new ConcurrentDictionary<string, int>();
+            var peerFailureCounts = new ConcurrentDictionary<string, int>();
             var first = job.GetSortedTrackCandidates(
                 new FileSearchProjection(new SongQuery { Artist = "a\0b", Title = "c" }, true),
                 search,
-                userSuccessCounts);
+                peerFailureCounts);
             var second = job.GetSortedTrackCandidates(
                 new FileSearchProjection(new SongQuery { Artist = "a", Title = "b\0c" }, true),
                 search,
-                userSuccessCounts);
+                peerFailureCounts);
 
             Assert.AreNotSame(first, second,
                 "Distinct query components must not alias the same incremental projector state.");
@@ -412,7 +412,7 @@ namespace Tests.Unit
                 ]),
             };
             var config = TestHelpers.CreateDefaultSettings().Download;
-            var registry = TestHelpers.CreateUserSuccessTracker();
+            var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(new ClientTests.MockSoulseekClient(index), registry, new DownloadEvents(), 10, 10);
             var job = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" });
             var originalSession = job.Session;
@@ -442,12 +442,12 @@ namespace Tests.Unit
             ]));
 
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
-            var userSuccessCounts = new ConcurrentDictionary<string, int>();
-            var first = job.GetSortedTrackCandidates(search, userSuccessCounts);
-            var second = job.GetSortedTrackCandidates(search, userSuccessCounts);
+            var peerFailureCounts = new ConcurrentDictionary<string, int>();
+            var first = job.GetSortedTrackCandidates(search, peerFailureCounts);
+            var second = job.GetSortedTrackCandidates(search, peerFailureCounts);
 
             job.Session.Complete();
-            var completed = job.GetSortedTrackCandidates(search, userSuccessCounts);
+            var completed = job.GetSortedTrackCandidates(search, peerFailureCounts);
 
             Assert.AreSame(first, second, "Typed projections should reuse the same snapshot while revision and completion state are unchanged.");
             Assert.AreEqual(1, first.Revision);
@@ -471,7 +471,7 @@ namespace Tests.Unit
             };
             var config = TestHelpers.CreateDefaultSettings().Download;
             config.Search.NecessaryCond.Formats = ["flac"];
-            var registry = TestHelpers.CreateUserSuccessTracker();
+            var registry = TestHelpers.CreatePeerFailureTracker();
             var client = new ClientTests.MockSoulseekClient(index);
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = album ? new SearchJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
@@ -524,15 +524,15 @@ namespace Tests.Unit
 
             var search = TestHelpers.CreateDefaultSettings().Download.Search;
             search.MinGroupShares = 1;
-            var userSuccessCounts = new ConcurrentDictionary<string, int>();
-            var first = job.GetTrackGroups(search, userSuccessCounts);
-            var second = job.GetTrackGroups(search, userSuccessCounts);
+            var peerFailureCounts = new ConcurrentDictionary<string, int>();
+            var first = job.GetTrackGroups(search, peerFailureCounts);
+            var second = job.GetTrackGroups(search, peerFailureCounts);
 
             job.Session.AddResponse(new SearchResponse("User2", 1, true, 100, 0,
             [
                 TestHelpers.CreateSlFile(@"Music\ELO - Blue Sky.flac", length: 180),
             ]));
-            var updated = job.GetTrackGroups(search, userSuccessCounts);
+            var updated = job.GetTrackGroups(search, peerFailureCounts);
 
             Assert.AreSame(first, second);
             Assert.AreEqual(1, first.Items.Count);
@@ -730,7 +730,7 @@ namespace Tests.Unit
         public async Task Searcher_SearchJob_TerminalFailure_CompletesLiveSessionForDirectCallers()
         {
             var config = TestHelpers.CreateDefaultSettings().Download;
-            var registry = TestHelpers.CreateUserSuccessTracker();
+            var registry = TestHelpers.CreatePeerFailureTracker();
             var client = new ClientTests.MockSoulseekClient([]);
             client.FailNextSearch();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);

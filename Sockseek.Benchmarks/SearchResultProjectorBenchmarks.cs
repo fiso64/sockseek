@@ -19,7 +19,7 @@ public class SearchResultProjectorBenchmarks
     private SearchSettings noStringSearch = null!;
     private SongQuery trackQuery = null!;
     private AlbumQuery albumQuery = null!;
-    private ConcurrentDictionary<string, int> userSuccessCounts = null!;
+    private ConcurrentDictionary<string, int> peerFailureCounts = null!;
 
     [Params(100, 1_000)]
     public int FolderCount { get; set; }
@@ -39,7 +39,7 @@ public class SearchResultProjectorBenchmarks
         noStringSearch.PreferredCond.StrictAlbum = false;
         trackQuery = BenchmarkDataFactory.TrackQuery;
         albumQuery = BenchmarkDataFactory.AlbumQuery;
-        userSuccessCounts = BenchmarkDataFactory.CreateUserSuccessCounts(FolderCount);
+        peerFailureCounts = BenchmarkDataFactory.CreatePeerFailureCounts(FolderCount);
         albumFolders = SearchResultProjector.AlbumFolders(rawResults, albumQuery, search);
     }
 
@@ -53,15 +53,15 @@ public class SearchResultProjectorBenchmarks
 
     [Benchmark]
     public int SortedTrackCandidates()
-        => SearchResultProjector.SortedTrackCandidates(trackResults, trackQuery, search, userSuccessCounts).Count;
+        => SearchResultProjector.SortedTrackCandidates(trackResults, trackQuery, search, peerFailureCounts).Count;
 
     [Benchmark]
     public int SortedTrackCandidates_StringPrefsOff()
-        => SearchResultProjector.SortedTrackCandidates(trackResults, trackQuery, noStringSearch, userSuccessCounts).Count;
+        => SearchResultProjector.SortedTrackCandidates(trackResults, trackQuery, noStringSearch, peerFailureCounts).Count;
 
     [Benchmark]
     public int TrackGroups()
-        => SearchResultProjector.GroupTracks(rawResults, trackQuery, search, userSuccessCounts).Count;
+        => SearchResultProjector.GroupTracks(rawResults, trackQuery, search, peerFailureCounts).Count;
 
     [Benchmark]
     public int AlbumGroups()

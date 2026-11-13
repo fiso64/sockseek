@@ -392,7 +392,7 @@ public static class JobRequestMapper
     }
 
 
-    public static List<AlbumFolder> ProjectAlbumJobFolders(AlbumJob albumJob, ConcurrentDictionary<string, int>? userSuccessCounts = null)
+    public static List<AlbumFolder> ProjectAlbumJobFolders(AlbumJob albumJob, ConcurrentDictionary<string, int>? peerFailureCounts = null)
     {
         if (albumJob.Config == null || albumJob.Results.Count == 0)
             return albumJob.Results.ToList();
@@ -415,7 +415,7 @@ public static class JobRequestMapper
             rawResults,
             albumJob.Query,
             albumJob.Config.Search,
-            userSuccessCounts);
+            peerFailureCounts);
 
         // Once a folder has been explicitly browsed, preserve the full browsed contents
         // in result projections. Re-projecting the raw files through the original search
@@ -439,8 +439,8 @@ public static class JobRequestMapper
         return projected;
     }
 
-    public static AlbumFolder? FindProjectedAlbumFolder(AlbumJob albumJob, AlbumFolderRefDto folderRef, ConcurrentDictionary<string, int>? userSuccessCounts = null)
-        => ProjectAlbumJobFolders(albumJob, userSuccessCounts)
+    public static AlbumFolder? FindProjectedAlbumFolder(AlbumJob albumJob, AlbumFolderRefDto folderRef, ConcurrentDictionary<string, int>? peerFailureCounts = null)
+        => ProjectAlbumJobFolders(albumJob, peerFailureCounts)
             .FirstOrDefault(folder => string.Equals(folder.Username, folderRef.Username, StringComparison.Ordinal)
                 && string.Equals(folder.FolderPath, folderRef.FolderPath, StringComparison.Ordinal));
 
@@ -461,22 +461,22 @@ public static class JobRequestMapper
     public static AlbumFolder? FindAlbumFolderForRetrieval(
         Job sourceJob,
         AlbumFolderRefDto folderRef,
-        ConcurrentDictionary<string, int> userSuccessCounts,
+        ConcurrentDictionary<string, int> peerFailureCounts,
         AlbumQueryDto? albumQuery = null)
     {
         if (sourceJob is AlbumJob albumJob)
         {
             return albumJob.Results.FirstOrDefault(folder => Matches(folder, folderRef))
-                ?? FindAlbumFolder(sourceJob, folderRef, userSuccessCounts, albumQuery);
+                ?? FindAlbumFolder(sourceJob, folderRef, peerFailureCounts, albumQuery);
         }
 
-        return FindAlbumFolder(sourceJob, folderRef, userSuccessCounts, albumQuery);
+        return FindAlbumFolder(sourceJob, folderRef, peerFailureCounts, albumQuery);
     }
 
     public static AlbumFolder? FindAlbumFolder(
         Job sourceJob,
         AlbumFolderRefDto folderRef,
-        ConcurrentDictionary<string, int> userSuccessCounts,
+        ConcurrentDictionary<string, int> peerFailureCounts,
         AlbumQueryDto? albumQuery = null)
     {
         if (sourceJob is SearchJob searchJob)
@@ -499,7 +499,7 @@ public static class JobRequestMapper
 
         if (sourceJob is AlbumJob albumJob)
         {
-            return FindProjectedAlbumFolder(albumJob, folderRef, userSuccessCounts)
+            return FindProjectedAlbumFolder(albumJob, folderRef, peerFailureCounts)
                 ?? albumJob.Results.FirstOrDefault(folder => Matches(folder, folderRef))
                 ?? BuildRelatedFolder(folderRef, albumJob.Results);
         }
@@ -521,10 +521,10 @@ public static class JobRequestMapper
     public static FileCandidate? FindFileCandidate(
         Job sourceJob,
         FileCandidateRefDto candidateRef,
-        ConcurrentDictionary<string, int> userSuccessCounts)
+        ConcurrentDictionary<string, int> peerFailureCounts)
     {
         if (sourceJob is SearchJob searchJob)
-            return FindSearchFileCandidate(searchJob, candidateRef, userSuccessCounts);
+            return FindSearchFileCandidate(searchJob, candidateRef, peerFailureCounts);
 
         IEnumerable<FileCandidate> candidates = sourceJob switch
         {
@@ -621,13 +621,13 @@ public static class JobRequestMapper
     private static FileCandidate? FindSearchFileCandidate(
         SearchJob searchJob,
         FileCandidateRefDto candidateRef,
-        ConcurrentDictionary<string, int> userSuccessCounts)
+        ConcurrentDictionary<string, int> peerFailureCounts)
     {
         if (searchJob.Config == null)
             return null;
 
         FileCandidate? candidate = searchJob
-            .GetSortedTrackCandidates(searchJob.Config.Search, userSuccessCounts)
+            .GetSortedTrackCandidates(searchJob.Config.Search, peerFailureCounts)
             .Items
             .FirstOrDefault(item => Matches(item, candidateRef));
         if (candidate != null || searchJob.DefaultFolderProjection == null)

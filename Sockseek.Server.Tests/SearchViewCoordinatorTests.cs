@@ -565,7 +565,7 @@ public sealed class SearchViewCoordinatorTests
             var source = await supervisor.Submissions.SubmitSearchJobAsync(new("Artist"), CancellationToken.None);
             Action<SearchResponse> receive = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
             receive(Response("Péér A", [File(@"Artist\Album\01 - Artist - Track.flac")]));
-            engine.GetUserSuccessCounts(source.WorkflowId)["Péér B"] = -1;
+            engine.GetPeerFailureCounts(source.WorkflowId)["Péér B"] = 2;
             var request = new CreateSearchViewRequestDto(kind,
                 SongQuery: new SongQueryDto("Artist", "", "", "", null, false),
                 AlbumQuery: new AlbumQueryDto("Artist", "Album", "", "", false),
@@ -698,7 +698,7 @@ public sealed class SearchViewCoordinatorTests
             receive(Response("Exact Péér", [File(@"Artist\Album\01 - Track.flac")],
                 [File(@"Artist\Album\02 - Locked.flac")]));
             await commitHeld.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            engine.GetUserSuccessCounts(source.WorkflowId)["Exact Péér"] = -1;
+            engine.GetPeerFailureCounts(source.WorkflowId)["Exact Péér"] = 2;
             finishSearch.TrySetResult();
             engine.CompleteEnqueue();
             await run.WaitAsync(TimeSpan.FromSeconds(5));
@@ -706,9 +706,9 @@ public sealed class SearchViewCoordinatorTests
             Assert.IsNull(supervisor.GetRuntimeJob<Job>(source.JobId));
             Assert.IsFalse(persistence.WaitForJobHandoffAsync(source.JobId, CancellationToken.None).IsCompleted);
             Assert.IsNotNull(persistence.GetRetiringSearchSource(source.JobId));
-            Assert.AreEqual(-1, persistence.GetRetiringSearchSource(source.JobId)!.UserSuccessCounts["Exact Péér"],
+            Assert.AreEqual(2, persistence.GetRetiringSearchSource(source.JobId)!.PeerFailureCounts["Exact Péér"],
                 "The read handoff preserves this workflow's last counters after engine disposal.");
-            Assert.AreEqual(0, engine.GetUserSuccessCounts(source.WorkflowId).Count);
+            Assert.AreEqual(0, engine.GetPeerFailureCounts(source.WorkflowId).Count);
 
             var history = new JobReadService(supervisor.StateStore, supervisor, persistence);
             CombinedSearchRawPage firstRaw = (await history.GetRawSearchResultsAsync(source.JobId, 0, 1)

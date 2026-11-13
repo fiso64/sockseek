@@ -90,8 +90,10 @@ internal sealed class AlbumImageDownloadExecutor
 
         while (imageFolders.Count > 0)
         {
-            var imgs = imageFolders[0];
-            imageFolders.RemoveAt(0);
+            var imgs = context.PeerFailures.ForAutomaticSelection(job.WorkflowId, imageFolders,
+                files => files[0].Candidate.Username, config.Search).FirstOrDefault();
+            if (imgs == null) break;
+            imageFolders.Remove(imgs);
             var imageJobs = config.Output.AlbumArtOnly
                 ? job.BeginAlbumArtTransferAttempt(
                     job.Results.First(folder => imgs.All(folder.Files.Contains)),

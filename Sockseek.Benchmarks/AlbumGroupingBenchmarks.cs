@@ -17,7 +17,7 @@ public partial class AlbumGroupingBenchmarks
     private List<(SearchResponse Response, SlFile File)> rawResults = null!;
     private SearchSettings search = null!;
     private AlbumQuery albumQuery = null!;
-    private ConcurrentDictionary<string, int> userSuccessCounts = null!;
+    private ConcurrentDictionary<string, int> peerFailureCounts = null!;
 
     [Params(1_000, 10_000)]
     public int FolderCount { get; set; }
@@ -31,21 +31,21 @@ public partial class AlbumGroupingBenchmarks
         rawResults = BenchmarkDataFactory.CreateAlbumResults(FolderCount, TracksPerFolder);
         search = BenchmarkDataFactory.CreateSearchSettings();
         albumQuery = BenchmarkDataFactory.AlbumQuery;
-        userSuccessCounts = BenchmarkDataFactory.CreateUserSuccessCounts(FolderCount);
+        peerFailureCounts = BenchmarkDataFactory.CreatePeerFailureCounts(FolderCount);
     }
 
     [Benchmark(Baseline = true)]
     public int Legacy_AlbumFolders_GlobalFileSort()
-        => LegacyAlbumFolders(rawResults, albumQuery, search, userSuccessCounts).Count;
+        => LegacyAlbumFolders(rawResults, albumQuery, search, peerFailureCounts).Count;
 
     [Benchmark]
     public int New_AlbumFolders_GroupThenSort()
-        => SearchResultProjector.AlbumFolders(rawResults, albumQuery, search, userSuccessCounts).Count;
+        => SearchResultProjector.AlbumFolders(rawResults, albumQuery, search, peerFailureCounts).Count;
 
     [Benchmark]
     public int Legacy_AlbumGroups_GlobalFileSortThenGroup()
     {
-        var folders = LegacyAlbumFolders(rawResults, albumQuery, search, userSuccessCounts);
+        var folders = LegacyAlbumFolders(rawResults, albumQuery, search, peerFailureCounts);
         return SearchResultProjector.GroupAlbums(folders, albumQuery, search).Count;
     }
 
@@ -56,7 +56,7 @@ public partial class AlbumGroupingBenchmarks
             rawResults,
             albumQuery,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             ignoreStringSortConditions: true,
             sortMode: FolderSortMode.DeterministicUnranked);
         return SearchResultProjector.GroupAlbums(folders, albumQuery, search).Count;
@@ -69,7 +69,7 @@ public partial class AlbumGroupingBenchmarks
         var sorter = new IncrementalResultSorter(
             sortQuery,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             useInfer: false,
             albumMode: true);
 
@@ -96,7 +96,7 @@ public partial class AlbumGroupingBenchmarks
         var projector = new IncrementalAlbumFolderProjector(
             albumQuery,
             search,
-            userSuccessCounts);
+            peerFailureCounts);
 
         projector.AddRange(rawResults);
         return projector.Snapshot().Count;
@@ -109,7 +109,7 @@ public partial class AlbumGroupingBenchmarks
         var sorter = new IncrementalResultSorter(
             sortQuery,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             useInfer: false,
             albumMode: true,
             ignoreStringSortConditions: true);
@@ -140,7 +140,7 @@ public partial class AlbumGroupingBenchmarks
         var folderProjector = new IncrementalAlbumFolderProjector(
             albumQuery,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             ignoreStringSortConditions: true,
             sortMode: FolderSortMode.DeterministicUnranked);
         var groupProjector = new IncrementalAlbumGroupProjector(albumQuery, search);
@@ -154,7 +154,7 @@ public partial class AlbumGroupingBenchmarks
         IEnumerable<(SearchResponse Response, SlFile File)> rawResults,
         AlbumQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts)
+        ConcurrentDictionary<string, int> peerFailureCounts)
     {
         var sortQuery = SearchResultProjector.AlbumFileMatchQuery(query);
         var filteredResults = rawResults
@@ -170,7 +170,7 @@ public partial class AlbumGroupingBenchmarks
             filteredResults.Select(x => (x.Response, x.File)),
             sortQuery,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             useInfer: false,
             albumMode: true);
 

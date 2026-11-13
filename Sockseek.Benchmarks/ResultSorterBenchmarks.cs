@@ -15,7 +15,7 @@ public class ResultSorterBenchmarks
     private List<List<(SearchResponse Response, SlFile File)>> resultBatches = null!;
     private SearchSettings search = null!;
     private SongQuery query = null!;
-    private ConcurrentDictionary<string, int> userSuccessCounts = null!;
+    private ConcurrentDictionary<string, int> peerFailureCounts = null!;
 
     [Params(1_000, 5_000, 20_000)]
     public int ResultCount { get; set; }
@@ -27,7 +27,7 @@ public class ResultSorterBenchmarks
         resultBatches = BuildBatches(results, batchCount: 10);
         search = BenchmarkDataFactory.CreateSearchSettings();
         query = BenchmarkDataFactory.TrackQuery;
-        userSuccessCounts = BenchmarkDataFactory.CreateUserSuccessCounts(ResultCount);
+        peerFailureCounts = BenchmarkDataFactory.CreatePeerFailureCounts(ResultCount);
     }
 
     [Benchmark(Baseline = true)]
@@ -36,7 +36,7 @@ public class ResultSorterBenchmarks
                 results.Select(x => (x.Response, x.File)),
                 query,
                 search,
-                userSuccessCounts,
+                peerFailureCounts,
                 useInfer: true));
 
     [Benchmark]
@@ -45,7 +45,7 @@ public class ResultSorterBenchmarks
                 results.Select(x => (x.Response, x.File)),
                 query,
                 search,
-                userSuccessCounts,
+                peerFailureCounts,
                 useInfer: false));
 
     [Benchmark]
@@ -54,7 +54,7 @@ public class ResultSorterBenchmarks
                 results.Select(x => (x.Response, x.File)),
                 query,
                 search,
-                userSuccessCounts,
+                peerFailureCounts,
                 useInfer: false,
                 albumMode: true));
 
@@ -64,7 +64,7 @@ public class ResultSorterBenchmarks
         var sorter = new IncrementalResultSorter(
             query,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             useInfer: true,
             requireFileSatisfies: true);
 
