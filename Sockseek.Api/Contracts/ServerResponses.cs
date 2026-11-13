@@ -26,7 +26,8 @@ public sealed record ServerStatusDto(
     SoulseekConnectionDto? Connection = null);
 
 /// <summary>File reload state. Restart-required settings remain at their startup values.</summary>
-public sealed record ConfigurationStatusDto(bool Watching, bool RestartRequired, bool ReloadFailed);
+public sealed record ConfigurationStatusDto(bool Watching, bool RestartRequired, bool ReloadFailed,
+    string? Error = null, int? ErrorLine = null);
 
 public sealed record PersistenceStatusDto(
     bool Enabled,

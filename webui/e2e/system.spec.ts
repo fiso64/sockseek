@@ -3,6 +3,63 @@ import type { Schema } from '../src/api/types';
 
 test.use({ uploadShares: true });
 
+test('announces configuration problems once until resolved, using live state', async ({ page, daemon }) => {
+  const statusRequests: string[] = [];
+  page.on('request', request => {
+    if (/\/api\/server\/(status|info)$/.test(new URL(request.url()).pathname)) statusRequests.push(request.url());
+  });
+  await page.goto('/jobs');
+  const dialog = page.getByRole('dialog');
+  await daemon.command('configuration:true:true:false');
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'System', exact: true }).click();
+  const notices = page.locator('.system-page > [role=tabpanel] > .resource-state-notice');
+  await expect(notices).toHaveCount(1);
+  await page.reload();
+  await expect(notices).toHaveCount(1);
+  await expect(page.locator('.status-card').first().locator('dd').first()).not.toHaveText('—');
+  let initialRequests = statusRequests.length;
+  await expect(dialog).toHaveCount(0);
+
+  // An error still interrupts an already-dismissed restart notice. Both pieces
+  // of information share one modal, dismissed together rather than stacked.
+  await daemon.command('configuration:true:true:true');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await expect(notices).toHaveCount(2);
+  // Assert transport/rendering of diagnostic data, not application wording.
+  const status = await (await page.request.get('/api/server/status')).json() as Schema<'ServerStatusDto'>;
+  await expect(dialog.getByRole('alert')).toContainText(status.configuration!.error!);
+  await expect(dialog.getByRole('alert')).toContainText(String(status.configuration!.errorLine));
+  await expect(notices.and(page.getByRole('alert'))).toContainText(status.configuration!.error!);
+  await dialog.getByRole('button').click();
+  await expect(dialog).toHaveCount(0);
+  expect(statusRequests).toHaveLength(initialRequests);
+  // Errors remain prominent on a full reload, unlike the dismissed restart.
+  await page.reload();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await expect(notices).toHaveCount(2);
+  await page.keyboard.press('Escape');
+  initialRequests = statusRequests.length;
+  await daemon.command('terminal-transfer-committed');
+
+  // Recovery clears the failure latch without repeating the pending restart.
+  await daemon.command('configuration:true:true:false');
+  await expect(notices).toHaveCount(1);
+  await expect(dialog).toHaveCount(0);
+  await daemon.command('configuration:true:true:true');
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await daemon.command('configuration:true:false:false');
+  await expect(notices).toHaveCount(0);
+  await daemon.command('configuration:true:true:false');
+  await expect(dialog).toBeVisible();
+  expect(statusRequests).toHaveLength(initialRequests);
+});
+
 test('browses the served catalog and confirms cleanup without deleting active work', async ({ page, daemon }) => {
   const requests: string[] = [];
   page.on('request', request => requests.push(`${request.method()} ${new URL(request.url()).pathname}`));

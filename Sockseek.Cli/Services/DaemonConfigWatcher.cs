@@ -78,7 +78,7 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
         catch (Exception exception)
         {
             watching = false;
-            supervisor.StateStore.UpdateConfigurationStatus(new(false, restartRequired, true));
+            ReportError(exception);
             WatchFailed(logger, exception.GetType().Name);
         }
     }
@@ -136,10 +136,20 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
             // Report the category, never the raw exception or candidate values.
             if (applying) appliedText = null;
             if (applying || exception is IOException or UnauthorizedAccessException) rejectedText = null;
-            supervisor.StateStore.UpdateConfigurationStatus(new(watching, restartRequired, true));
+            ReportError(exception);
             ReloadRejected(logger, exception.GetType().Name, exception.Data["ConfigLine"] is int line ? $" at line {line}" : "");
             return false;
         }
+    }
+
+    private void ReportError(Exception exception)
+    {
+        // Details go only to the authenticated operator state, never to logs.
+        string error = exception.Message;
+        const string prefix = "Input error: ";
+        if (error.StartsWith(prefix, StringComparison.Ordinal)) error = error[prefix.Length..];
+        supervisor.StateStore.UpdateConfigurationStatus(new(watching, restartRequired, true,
+            error, exception.Data["ConfigLine"] as int?));
     }
 
     [LoggerMessage(5010, LogLevel.Information, "Configuration reloaded: {ProfileCount} profiles; restart required: {RestartRequired}")]

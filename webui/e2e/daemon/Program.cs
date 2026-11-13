@@ -689,6 +689,15 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             if (command == "stop") break;
             switch (command)
             {
+                case string configuration when configuration.StartsWith("configuration:", StringComparison.Ordinal):
+                {
+                    string[] parts = configuration.Split(':');
+                    app.Services.GetRequiredService<EngineStateStore>().UpdateConfigurationStatus(
+                        new(bool.Parse(parts[1]), bool.Parse(parts[2]), bool.Parse(parts[3]),
+                            bool.Parse(parts[3]) ? "Fixture validation detail" : null,
+                            bool.Parse(parts[3]) ? 17 : null));
+                    break;
+                }
                 case string preferences when preferences.StartsWith("webui-settings:", StringComparison.Ordinal):
                 {
                     string[] parts = preferences.Split(':');

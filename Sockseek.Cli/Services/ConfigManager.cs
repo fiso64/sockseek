@@ -432,7 +432,7 @@ public static partial class ConfigManager
 
                 int eq = line.IndexOf('=');
                 if (eq <= 0 || eq == line.Length - 1)
-                    throw new Exception($"Input error: Error parsing config '{path}' at line {lineNum}");
+                    throw new Exception($"Input error: Error parsing config '{path}' at line {lineNum}: expected a setting and value separated by '='.");
 
                 var parts = line.Split('=', 2, StringSplitOptions.TrimEntries);
                 string key = parts[0];
@@ -460,8 +460,7 @@ public static partial class ConfigManager
             }
             catch (Exception exception)
             {
-                // Preserve the original CLI error, but give daemon reload logs
-                // a useful location without exposing a supplied value/secret.
+                // Preserve the CLI exception and its location for reload diagnostics.
                 exception.Data["ConfigLine"] = lineNum;
                 throw;
             }

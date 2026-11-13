@@ -76,7 +76,7 @@
   {#if error}<Notice variant="unavailable" ondismiss={() => error = null}>{error}</Notice>{/if}
   {#if configuration?.reloadFailed}
     <Notice variant="unavailable">
-      <span>{configuration.watching
+      <span>{#if configuration.error}{configuration.errorLine ? `Line ${configuration.errorLine}: ` : ''}{configuration.error}{' '}{/if}{configuration.watching
         ? 'Configuration could not be reloaded. Check the daemon log and configuration file.'
         : 'Configuration watching stopped. Check the daemon log and restart to resume automatic reloading.'}</span>
     </Notice>

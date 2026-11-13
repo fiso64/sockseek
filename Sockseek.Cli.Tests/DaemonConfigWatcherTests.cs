@@ -34,12 +34,16 @@ public sealed class DaemonConfigWatcherTests
         Assert.IsFalse(fixture.Supervisor.GetStatus().Configuration!.RestartRequired);
         fixture.Write("web-theme = invalid");
         Assert.IsFalse(await fixture.Watcher.ReloadAsync());
+        Assert.AreEqual(1, fixture.Supervisor.GetStatus().Configuration!.ErrorLine);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(fixture.Supervisor.GetStatus().Configuration!.Error));
         Assert.AreEqual("auto", fixture.ServerOptions.WebUi.Theme);
         fixture.Write("web-default-search-mode = invalid");
         Assert.IsFalse(await fixture.Watcher.ReloadAsync());
         fixture.Write("");
         Assert.IsTrue(await fixture.Watcher.ReloadAsync());
         Assert.AreEqual("dark", fixture.ServerOptions.WebUi.Theme);
+        Assert.IsNull(fixture.Supervisor.GetStatus().Configuration!.Error);
+        Assert.IsNull(fixture.Supervisor.GetStatus().Configuration!.ErrorLine);
     }
 
     [TestMethod]
@@ -125,11 +129,20 @@ public sealed class DaemonConfigWatcherTests
             fixture.Write(bad);
             Assert.IsFalse(await fixture.Watcher.ReloadAsync());
             Assert.IsTrue(fixture.Supervisor.GetStatus().Configuration!.ReloadFailed);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(fixture.Supervisor.GetStatus().Configuration!.Error));
             CollectionAssert.AreEqual(new[] { "flac" }, fixture.Settings().Search!.PreferredCond!.Formats!.Replace!.ToArray());
         }
+        const string invalidValue = "blah";
+        fixture.Write($"pref-format = ogg\nserver-port = {invalidValue}");
+        Assert.IsFalse(await fixture.Watcher.ReloadAsync());
+        var failure = fixture.Supervisor.GetStatus().Configuration!;
+        Assert.AreEqual(2, failure.ErrorLine);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(failure.Error));
+        Assert.IsTrue(failure.Error!.Contains(invalidValue, StringComparison.Ordinal));
         File.Delete(fixture.Path);
         Assert.AreEqual(System.IO.Path.GetDirectoryName(fixture.Path), ConfigManager.Load(fixture.Path).ConfigDir);
         Assert.IsFalse(await fixture.Watcher.ReloadAsync());
+        Assert.IsNull(fixture.Supervisor.GetStatus().Configuration!.ErrorLine);
         fixture.Write(initial);
         Assert.IsTrue(await fixture.Watcher.ReloadAsync());
         Assert.IsFalse(fixture.Supervisor.GetStatus().Configuration!.RestartRequired);

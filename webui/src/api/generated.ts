@@ -10852,6 +10852,9 @@ export interface components {
             watching: boolean;
             restartRequired: boolean;
             reloadFailed: boolean;
+            error?: null | string;
+            /** Format: int32 */
+            errorLine?: null | number | string;
         };
         ConversationPageDto: {
             items: components["schemas"]["ConversationSummaryDto"][];
@@ -11655,6 +11658,9 @@ export interface components {
                         watching: boolean;
                         restartRequired: boolean;
                         reloadFailed: boolean;
+                        error?: null | string;
+                        /** Format: int32 */
+                        errorLine?: null | number | string;
                     };
                 };
                 workflows: {
@@ -13580,6 +13586,9 @@ export interface components {
                     watching: boolean;
                     restartRequired: boolean;
                     reloadFailed: boolean;
+                    error?: null | string;
+                    /** Format: int32 */
+                    errorLine?: null | number | string;
                 };
             };
             workflows: {
@@ -14302,6 +14311,9 @@ export interface components {
                         watching: boolean;
                         restartRequired: boolean;
                         reloadFailed: boolean;
+                        error?: null | string;
+                        /** Format: int32 */
+                        errorLine?: null | number | string;
                     };
                 };
                 workflows: {

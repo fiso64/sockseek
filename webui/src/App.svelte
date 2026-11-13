@@ -18,6 +18,7 @@
   import { userBrowserSession, type UserBrowseView } from './domains/users/session';
   import ChatPage from './domains/chat/ChatPage.svelte';
   import SystemPage from './domains/system/SystemPage.svelte';
+  import ConfigurationDialog from './domains/system/ConfigurationDialog.svelte';
   import type { SystemTab } from './domains/system/tabs';
   import { DaemonLiveClient, type LiveConnectionStatus } from './api/live';
   import { jobStateSummary } from './api/job-summary';
@@ -688,6 +689,8 @@
       ontabchange={tab => { systemTab = tab; setPath(tab === 'status' ? '/system' : `/system/${tab}`); }} />
   {/if}
 </AppShell>
+
+<ConfigurationDialog configuration={liveState.daemon?.configuration} epoch={liveState.epoch} />
 
 {#if activePage === 'jobs' && !showingSearch && !automaticJobId && composingJob}
   <Modal title="Create new job" label="New job" closeLabel="Close new job" wide locked={composingJobCommitPending}
