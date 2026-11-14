@@ -3,7 +3,7 @@
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { onMount, untrack } from 'svelte';
   import Icon from '../../components/Icon.svelte';
-  import ExpandableSettingsPanel from '../../components/ExpandableSettingsPanel.svelte';
+  import PageTabs from '../../components/PageTabs.svelte';
   import DownloadOptionsPanel from '../../components/DownloadOptionsPanel.svelte';
   import SearchConfigPanel from '../../components/SearchConfigPanel.svelte';
   import type { SearchDraft } from '../search/model';
@@ -14,7 +14,7 @@
   import JobInputs from './JobInputs.svelte';
   import CsvMapping from './CsvMapping.svelte';
   import ImportOptionsPanel from './ImportOptions.svelte';
-  import { buildImportPatch, createImportOptions, importOptionsFromResolved, type ImportOptions } from './import-options';
+  import { buildImportPatch, createImportOptions, importOptionsCustomized, importOptionsFromResolved, type ImportOptions } from './import-options';
   import type { Schema } from '../../api/types';
   import { daemonApi } from '../../api/client';
   import { DaemonApiError } from '../../api/http';
@@ -34,11 +34,10 @@
   let profileSections = $state(profileSettingsSections({}));
   let importBaseline = $state<ImportOptions | null>(null);
   let csvBaseline = $state<Schema<'CsvSettingsPatchDto'> | null>(null);
-  let downloadOpen = $state(false);
-  let filteringOpen = $state(false);
-  let rankingOpen = $state(false);
-  let csvMappingOpen = $state(false);
-  let importOptionsOpen = $state(false);
+  type OptionsTab = 'import' | 'filtering' | 'ranking' | 'download' | 'review';
+  let optionsTab = $state<OptionsTab>('download');
+  let preview = $state<PreviewState>({ summary: null, loading: false, branches: new Map(), error: null });
+  let conditionPanel = $state<ReturnType<typeof SearchConfigPanel>>();
   type ConditionFamily = 'track' | 'album' | 'mixed';
   type ConditionSession = { baseline: SearchConditions; values: SearchConditions };
   let conditionSessions = $state<Record<ConditionFamily, ConditionSession | null>>({ track: null, album: null, mixed: null });
@@ -59,10 +58,20 @@
   let csvMapping = $state<Schema<'CsvSettingsPatchDto'>>({});
   let importOptions = $state<ImportOptions>(createImportOptions());
   let hasImportOptions = $derived(['spotify', 'youtube', 'soundcloud', 'bandcamp', 'musicbrainz', 'csv', 'list'].includes(draft.choice));
+  let optionTabs = $derived([
+    ...(hasImportOptions ? [{ id: 'import' as const, label: 'Import options',
+      customized: profileSections.import || importOptionsCustomized(importOptions, importBaseline ?? createImportOptions())
+        || draft.choice === 'csv' && (profileSections.csv || Object.keys(changedOptions(csvMapping, csvBaseline ?? {})).length > 0) }] : []),
+    ...(draft.choice !== 'soulseek-link' ? [
+      { id: 'filtering' as const, label: 'Filtering', customized: filteringCustomized },
+      { id: 'ranking' as const, label: 'Ranking', customized: rankingCustomized },
+    ] : []),
+    { id: 'download' as const, label: 'Download', customized: downloadCustomized },
+    ...(preview.summary ? [{ id: 'review' as const, label: 'Review' }] : []),
+  ]);
   let fileName = $state('');
   let uploading = $state(false);
   let error = $state<Error | null>(null);
-  let preview = $state<PreviewState>({ summary: null, loading: false, branches: new Map(), error: null });
   let automaticStart = false;
   let all = $state(true);
   let selectionRules = $state<SubtreeRule[]>([]);
@@ -80,23 +89,6 @@
   let needsReview = $derived(preview.summary?.state === 'Expired' || preview.error instanceof DaemonApiError
     && (preview.error.code === 'preview-not-found' || preview.error.code === 'preview-conflict'));
   let committable = $derived(!needsReview && (preview.summary?.state === 'Ready' || preview.summary?.state === 'PartiallyReady'));
-  let previewTitle = $derived.by(() => {
-    if (draft.choice === 'song' || draft.choice === 'album') {
-      const subject = (draft.choice === 'song' ? draft.title : draft.album).trim();
-      return [draft.artist.trim(), subject].filter(Boolean).join(' — ');
-    }
-    return fileName || preview.branches.get(null)?.items[0]?.itemName || choiceMetadata.label;
-  });
-  let previewSourceLabel = $derived.by(() => {
-    const count = Number(preview.summary?.selectableNodeCount ?? 0);
-    if (draft.choice === 'song' || draft.choice === 'album') return 'Direct job';
-    if (draft.choice === 'csv') return `CSV · ${count} ${count === 1 ? 'job' : 'jobs'}`;
-    if (draft.choice === 'list') return 'List file · nested sources';
-    const sourceLabel = preview.branches.get(null)?.items[0]?.sourceLabel;
-    if (sourceLabel) return sourceLabel;
-    return choiceMetadata.label;
-  });
-
   function previewNodeTitle(node: Schema<'JobPreviewNodeDto'>): string {
     if (node.kind === 'song' && node.songQuery) {
       const title = [node.songQuery.artist, node.songQuery.title].filter(Boolean).join(' — ');
@@ -117,15 +109,12 @@
     return node.sourceDetail ? `${kind} · ${node.sourceDetail}` : kind;
   }
 
-  let needsSettings = $derived(downloadOpen || filteringOpen || rankingOpen || importOptionsOpen
-    || csvMappingOpen || downloadBaseline !== null || profileNames.length > 0);
   $effect(() => {
     settingsRetry;
     const requestDraft = { ...draft };
     const requestedProfiles = [...profileNames];
     const carriedSettings = carriedSearchSettings;
     const requestFamily: ConditionFamily = requestDraft.choice === 'song' ? 'track' : requestDraft.choice === 'album' ? 'album' : 'mixed';
-    if (!needsSettings) return;
     const abort = new AbortController();
     untrack(() => {
       settingsLoading = true;
@@ -178,6 +167,8 @@
 
   onMount(() => {
     const unsubscribe = controller.subscribe((state) => {
+      if (state.summary && state.summary.previewId !== preview.summary?.previewId) optionsTab = 'review';
+      else if (!state.summary && optionsTab === 'review') optionsTab = 'download';
       preview = state;
       if (automaticStart && (state.summary?.state === 'Ready' || state.summary?.state === 'PartiallyReady')) {
         automaticStart = false;
@@ -190,14 +181,9 @@
 
   function change(next: NewJobDraft): void {
     if (preview.committing) return;
-    controller.stop();
-    automaticStart = false;
-    preview = { summary: null, loading: false, branches: new Map(), error: null };
+    invalidatePreview();
     if (next.choice !== draft.choice) { upload?.abort(); uploading = false; fileName = ''; next = { ...next, artifactId: null }; }
     draft = next;
-    all = true;
-    selectionRules = [];
-    error = null;
   }
 
   function choose(choice: NewJobChoice): void {
@@ -206,11 +192,7 @@
     upload = null;
     uploading = false;
     fileName = '';
-    filteringOpen = false;
-    rankingOpen = false;
-    downloadOpen = false;
-    csvMappingOpen = false;
-    importOptionsOpen = false;
+    optionsTab = 'download';
     const next = { ...draft, choice, artifactId: null };
     if (choice === 'song' || choice === 'album') {
       next.artist = '';
@@ -226,6 +208,7 @@
 
   function invalidatePreview(): void {
     if (preview.committing) return;
+    if (optionsTab === 'review') optionsTab = 'download';
     controller.stop();
     automaticStart = false;
     preview = { summary: null, loading: false, branches: new Map(), error: null };
@@ -298,58 +281,54 @@
         </header>
         <div class="new-job-config">
           <JobInputs {draft} {fileName} onchange={change} onfile={(file) => void chooseFile(file)} />
-          {#if draft.choice === 'csv'}<CsvMapping profileApplied={profileSections.csv} value={csvMapping} baseline={csvBaseline ?? {}} disabled={settingsLoading || Boolean(settingsError)} bind:open={csvMappingOpen} onchange={(value) => { invalidatePreview(); csvMapping = value; }} />{/if}
-          {#if hasImportOptions}<ImportOptionsPanel profileApplied={profileSections.import} value={importOptions} baseline={importBaseline ?? createImportOptions()} disabled={settingsLoading || Boolean(settingsError)} bind:open={importOptionsOpen} onchange={(value) => { invalidatePreview(); importOptions = value; }} />{/if}
-          {#if settingsError && !filteringOpen && !rankingOpen && !downloadOpen}
-            <p role="alert">{settingsError.message}</p><button type="button" onclick={() => settingsRetry++}>Retry settings</button>
-          {/if}
           <section class="new-job-job-settings" aria-label="Job settings">
-            {#if draft.choice !== 'soulseek-link'}
-            <ExpandableSettingsPanel title="Filtering" summary={filteringCustomized ? 'Custom' : 'Defaults'} customized={filteringCustomized} bind:open={filteringOpen} bodyId="new-job-filtering-options">
-              {#if settingsLoading}<LoadingIndicator label="Loading effective settings" />
-              {:else if settingsError}<p role="alert">{settingsError.message}</p><button type="button" onclick={() => settingsRetry++}>Retry settings</button>
-              {:else if conditionSession}
-                <SearchConfigPanel mode={family === 'album' ? 'album' : 'track'} configurationFamily={family} bind:conditions={conditionSession.values} section="conditions" embedded singleItem={family !== 'mixed'} />
-              {/if}
-            </ExpandableSettingsPanel>
-            <ExpandableSettingsPanel title="Ranking" summary={rankingCustomized ? 'Custom' : 'Defaults'} customized={rankingCustomized} bind:open={rankingOpen} bodyId="new-job-ranking-options">
-              {#if settingsLoading}<LoadingIndicator label="Loading effective settings" />
-              {:else if settingsError}<p role="alert">{settingsError.message}</p><button type="button" onclick={() => settingsRetry++}>Retry settings</button>
-              {:else if conditionSession}
-                <SearchConfigPanel mode={family === 'album' ? 'album' : 'track'} configurationFamily={family} bind:conditions={conditionSession.values} section="ranking" embedded />
-              {/if}
-            </ExpandableSettingsPanel>
-            {/if}
-            <ExpandableSettingsPanel title="Download" summary={downloadCustomized ? 'Custom' : 'Defaults'} customized={downloadCustomized} bind:open={downloadOpen} bodyId="new-job-download-options">
-              {#if settingsLoading}<LoadingIndicator label="Loading effective settings" />
-              {:else if settingsError}<p role="alert">{settingsError.message}</p><button type="button" onclick={() => settingsRetry++}>Retry settings</button>
-              {:else if downloadValues}
-                <div oninput={invalidatePreview}>
-                  <DownloadOptionsPanel bind:value={downloadValues} capabilities={downloadCapabilities} />
-                </div>
-                <footer class="search-config-footer embedded">
-                  <button type="button" onclick={() => {
-                    if (!downloadBaseline) return;
-                    downloadValues = { ...downloadBaseline };
+            <div class="new-job-options-header">
+              <PageTabs variant="segmented" id="new-job-options" label="Job options" items={optionTabs} value={optionsTab} onchange={(tab) => (optionsTab = tab)} />
+              <div class="search-config-actions">
+                {#if optionsTab === 'filtering' || optionsTab === 'ranking'}
+                  <button type="button" data-testid="search-config-clear" disabled={settingsLoading || Boolean(settingsError) || !conditionPanel} onclick={() => conditionPanel?.clearActiveTab()}>Clear</button>
+                  <button type="button" data-testid="search-config-reset" disabled={settingsLoading || Boolean(settingsError) || !conditionPanel} onclick={() => conditionPanel?.resetActiveTab()}>Reset</button>
+                {:else if optionsTab === 'review'}
+                  <button type="button" data-testid="new-job-selection-toggle" onclick={() => { all = !all; selectionRules = []; }}>{all ? 'Deselect all' : 'Select all'}</button>
+                {:else}
+                  <button type="button" data-testid="new-job-options-reset" disabled={settingsLoading || Boolean(settingsError)} onclick={() => {
+                    if (optionsTab === 'import') {
+                      importOptions = { ...(importBaseline ?? createImportOptions()) };
+                      if (draft.choice === 'csv') csvMapping = { ...(csvBaseline ?? {}) };
+                    } else if (downloadBaseline) {
+                      downloadValues = { ...downloadBaseline };
+                    }
                     invalidatePreview();
-                  }}>Reset download options</button>
-                </footer>
+                  }}>Reset</button>
+                {/if}
+              </div>
+            </div>
+            <div id="new-job-options-panel" class="new-job-options-panel" role="tabpanel" aria-labelledby={`new-job-options-${optionsTab}`}>
+              {#if optionsTab === 'review' && preview.summary}
+                <section class="new-job-preview">
+                  {@render branch(null, 0)}
+                </section>
+              {:else if settingsLoading}<LoadingIndicator label="Loading effective settings" />
+              {:else if settingsError}<p role="alert">{settingsError.message}</p><button type="button" data-testid="new-job-settings-retry" onclick={() => settingsRetry++}>Retry settings</button>
+              {:else if optionsTab === 'import'}
+                <ImportOptionsPanel value={importOptions} onchange={(value) => { invalidatePreview(); importOptions = value; }} />
+                {#if draft.choice === 'csv'}
+                  <CsvMapping value={csvMapping} onchange={(value) => { invalidatePreview(); csvMapping = value; }} />
+                {/if}
+              {:else if (optionsTab === 'filtering' || optionsTab === 'ranking') && conditionSession}
+                <SearchConfigPanel bind:this={conditionPanel} showActions={false} mode={family === 'album' ? 'album' : 'track'} configurationFamily={family}
+                  bind:conditions={conditionSession.values} loadDefaults={() => conditionSession!.baseline}
+                  section={optionsTab === 'filtering' ? 'conditions' : 'ranking'} embedded automatic singleItem={family !== 'mixed'} />
+              {:else if optionsTab === 'download' && downloadValues}
+                <div oninput={invalidatePreview}>
+                  <DownloadOptionsPanel bind:value={downloadValues} capabilities={downloadCapabilities} separators={false} />
+                </div>
               {/if}
-            </ExpandableSettingsPanel>
+            </div>
           </section>
         </div>
         {#if error || preview.error || preview.summary?.state === 'Expired'}<p class="mutation-status rejected" role="alert">{(error ?? preview.error)?.message ?? 'This preview has expired. Review it again before starting.'}</p>{/if}
         {#if uploading}<p role="status">Uploading source file…</p>{/if}
-        {#if preview.summary}
-          <section class="new-job-preview">
-            <header>
-              <div><p class="eyebrow">Review</p><h3>{previewTitle}</h3><small>{preview.summary.state === 'Planning' ? 'Planning…' : previewSourceLabel}{#if Number(preview.summary.failedNodeCount) > 0}{' · '}{preview.summary.failedNodeCount} failed{/if}</small></div>
-              <button type="button" class="new-job-select-toggle" onclick={() => { all = !all; selectionRules = []; }}>{all ? 'Deselect all' : 'Select all'}</button>
-            </header>
-            <p class="new-job-preview-note">Review resolves extraction and preprocessing only. Soulseek candidate discovery starts after submission.</p>
-            {@render branch(null, 0)}
-          </section>
-        {/if}
       </div>
       <footer class="new-job-footer">
         {#if preview.summary}

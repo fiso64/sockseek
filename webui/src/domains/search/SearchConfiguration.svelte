@@ -101,5 +101,10 @@
 {#if loading}
   <div class="search-results-empty" role="status">Resolving search configuration…</div>
 {:else if baseline}
-  <SearchConfigPanel mode={draft.resultMode} bind:conditions {onclose} />
+  <SearchConfigPanel mode={draft.resultMode} bind:conditions {onclose} loadDefaults={async signal => {
+    const response = await daemonApi.resolveEffectiveSettings({ job: searchJobDraft(draft) }, signal);
+    const search = response.settings.values.search;
+    if (!search) throw new Error('The daemon did not return resolved search settings.');
+    return readSearchConditions(search, draft.expectedLength);
+  }} />
 {/if}

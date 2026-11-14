@@ -1,7 +1,6 @@
 <script lang="ts">
   import {
     createEmptySearchConditions,
-    createEmptySearchRanking,
     type SearchConditions,
   } from '../domains/search/config-state';
   import {
@@ -13,6 +12,9 @@
   } from '../domains/search/config-schema';
   import type { SearchModeFamily, SearchResultMode } from '../domains/search/model';
   import { isGroupSearchMode, searchModeFamily } from '../domains/search/model';
+  import { onDestroy } from 'svelte';
+  import HelpPopover from './HelpPopover.svelte';
+  import Notice from './Notice.svelte';
   import SearchFormatControl from './SearchFormatControl.svelte';
 
 
@@ -25,9 +27,12 @@
     initialTab?: PanelTab;
     section?: PanelTab;
     embedded?: boolean;
+    showActions?: boolean;
     onclose?: () => void;
     configurationFamily?: SearchModeFamily | 'mixed';
     singleItem?: boolean;
+    automatic?: boolean;
+    loadDefaults: (signal: AbortSignal) => SearchConditions | Promise<SearchConditions>;
   }
 
   let {
@@ -37,9 +42,12 @@
     initialTab = 'conditions',
     section,
     embedded = false,
+    showActions = true,
     onclose,
     configurationFamily,
     singleItem = true,
+    automatic = false,
+    loadDefaults,
   }: Props = $props();
 
   let family = $derived(configurationFamily ?? searchModeFamily(mode));
@@ -49,20 +57,46 @@
   $effect(() => { activeTab = section ?? initialTab; });
   let requiredTrackTitle = $state('');
 
-  function clearActiveTab(): void {
-    if (activeTab === 'conditions') {
-      const ranking = conditions.ranking;
-      const requiredTrackTitles = conditions.album.requiredTrackTitles;
-      const expectedLength = conditions.track.expectedLength;
-      Object.assign(conditions, createEmptySearchConditions());
-      conditions.ranking = ranking;
+  let resetting = $state(false);
+  let resetError = $state<string | null>(null);
+  let resetRequest: AbortController | undefined;
+  onDestroy(() => resetRequest?.abort());
+
+  function replaceTab(values: SearchConditions, tab: PanelTab): void {
+    // Copy resolved defaults: editing this panel must never mutate its baseline.
+    const next = JSON.parse(JSON.stringify(values)) as SearchConditions;
+    if (tab === 'conditions') {
+      next.ranking = conditions.ranking;
       if (!singleItem) {
-        conditions.album.requiredTrackTitles = requiredTrackTitles;
-        conditions.track.expectedLength = expectedLength;
+        next.album.requiredTrackTitles = conditions.album.requiredTrackTitles;
+        next.track.expectedLength = conditions.track.expectedLength;
       }
+      conditions = next;
       requiredTrackTitle = '';
-    } else if (activeTab === 'ranking') {
-      conditions.ranking = createEmptySearchRanking();
+    } else {
+      conditions.ranking = next.ranking;
+    }
+  }
+
+  export function clearActiveTab(): void {
+    resetError = null;
+    replaceTab(createEmptySearchConditions(), activeTab);
+  }
+
+  export async function resetActiveTab(): Promise<void> {
+    const tab = activeTab;
+    const request = new AbortController();
+    resetRequest = request;
+    resetting = true;
+    resetError = null;
+    try {
+      const defaults = await loadDefaults(request.signal);
+      if (!request.signal.aborted) replaceTab(defaults, tab);
+    } catch (error) {
+      if (!request.signal.aborted)
+        resetError = error instanceof Error ? error.message : 'Could not load default settings.';
+    } finally {
+      if (!request.signal.aborted) resetting = false;
     }
   }
 
@@ -78,6 +112,24 @@
   }
 </script>
 
+{#snippet actions()}
+  <div class="search-config-actions">
+    <button type="button" data-testid="search-config-clear" disabled={resetting} onclick={clearActiveTab}>Clear</button>
+    <button type="button" data-testid="search-config-reset" disabled={resetting} onclick={resetActiveTab}>Reset</button>
+  </div>
+{/snippet}
+
+<!-- Keep placement stable while editing: only album-group filtering puts Grouping below Peers. -->
+{#snippet grouping()}
+  <section class="search-config-section">
+    <h3>Grouping <HelpPopover title="Grouping" testId="search-grouping-help">Groups must have at least this many distinct sharers; tolerance controls near-length grouping.</HelpPopover></h3>
+    <div class="config-grid">
+      <label><span>Minimum sharers</span><input type="number" min="1" step="1" bind:value={conditions.group.minShares} /></label>
+      <label><span>Grouping tolerance <small>sec</small></span><input type="number" min="0" step="1" bind:value={conditions.group.lengthTolerance} /></label>
+    </div>
+  </section>
+{/snippet}
+
 {#if !embedded}
   <header class="search-config-header">
     <strong>{title}</strong>
@@ -85,11 +137,13 @@
       <button type="button" class:active={activeTab === 'conditions'} aria-current={activeTab === 'conditions' ? 'page' : undefined} onclick={() => (activeTab = 'conditions')}>Filtering</button>
       <button type="button" class:active={activeTab === 'ranking'} aria-current={activeTab === 'ranking' ? 'page' : undefined} onclick={() => (activeTab = 'ranking')}>Ranking</button>
     </nav>
+    {#if showActions}{@render actions()}{/if}
     {#if onclose}
       <button type="button" class="search-config-close" aria-label="Close search configuration" onclick={onclose}>×</button>
     {/if}
   </header>
 {/if}
+{#if resetError}<Notice variant="unavailable">{resetError}</Notice>{/if}
 
 {#if activeTab === 'conditions'}
   <div class="search-config-flow">
@@ -150,10 +204,22 @@
       </div>
 
       {#if !genericMode}
-        <label class="config-check"><input type="checkbox" bind:checked={conditions.common.rejectUnknownMetadata} /> {searchConfigLabel('rejectUnknownMetadata', 'conditions')}</label>
+        <div class="config-check-with-help">
+          <label class="config-check"><input type="checkbox" bind:checked={conditions.common.rejectUnknownMetadata} /> {searchConfigLabel('rejectUnknownMetadata', 'conditions')}</label>
+          <HelpPopover title="Reject unknown metadata" testId="unknown-metadata-help">
+            <span>Some peers' clients do not report properties such as bitrate. By default, a file with an unknown bitrate is still accepted even when you set a minimum bitrate.</span>
+            <span>Enable this to reject files when a property being checked is unknown. Use with care: this can exclude otherwise valid files simply because of the particular client sharing them.</span>
+          </HelpPopover>
+        </div>
       {/if}
       {#if family === 'album' || family === 'mixed'}
-        <label class="config-check"><input type="checkbox" bind:checked={conditions.album.strictAlbumQuality} /> {searchConfigLabel('strictAlbumQuality', 'conditions')}</label>
+        <div class="config-check-with-help">
+          <label class="config-check"><input type="checkbox" bind:checked={conditions.album.strictAlbumQuality} /> {searchConfigLabel('strictAlbumQuality', 'conditions')}</label>
+          <HelpPopover title="Every album track must satisfy quality" testId="album-quality-help">
+            <span>By default, mixed-quality folders are ranked by coverage. For example, if you prefer FLAC, a folder with 9 FLAC files and 1 MP3 is still accepted (ranking above a mostly-MP3 folder).</span>
+            <span>Enable this to require every audio file in the folder to meet your audio quality conditions.</span>
+          </HelpPopover>
+        </div>
       {/if}
     </section>
 
@@ -222,15 +288,8 @@
           </section>
         {/if}
 
-        {#if groupMode}
-          <section class="search-config-section">
-            <h3>Grouping</h3>
-            <div class="config-grid">
-              <label><span>Minimum sharers</span><input type="number" min="1" step="1" bind:value={conditions.group.minShares} /></label>
-              <label><span>Grouping tolerance <small>sec</small></span><input type="number" min="0" step="1" bind:value={conditions.group.lengthTolerance} /></label>
-            </div>
-            <p class="download-option-note">Groups must have at least this many distinct sharers; tolerance controls near-length grouping.</p>
-          </section>
+        {#if groupMode && family !== 'album'}
+          {@render grouping()}
         {/if}
       </div>
 
@@ -241,8 +300,13 @@
             <label><span>{searchConfigLabel('allowedUsers', 'conditions')}</span><input type="text" bind:value={conditions.common.allowedUsers} placeholder="e.g. user1, user2" /></label>
             <label><span>{searchConfigLabel('bannedUsers', 'conditions')}</span><input type="text" bind:value={conditions.common.bannedUsers} placeholder="e.g. user1, user2" /></label>
           </div>
-          <label class="config-check"><input type="checkbox" bind:checked={conditions.common.excludeLocked} /> {searchConfigLabel('excludeLocked', 'conditions')}</label>
+          {#if !automatic}
+            <label class="config-check"><input type="checkbox" bind:checked={conditions.common.excludeLocked} /> {searchConfigLabel('excludeLocked', 'conditions')}</label>
+          {/if}
         </section>
+        {#if groupMode && family === 'album'}
+          {@render grouping()}
+        {/if}
       </div>
     </div>
   </div>
@@ -327,13 +391,11 @@
             <label><span>{searchConfigLabel('allowedUsers', 'ranking')}</span><input type="text" bind:value={conditions.ranking.common.allowedUsers} placeholder="e.g. user1, user2" /></label>
             <label><span>{searchConfigLabel('bannedUsers', 'ranking')}</span><input type="text" bind:value={conditions.ranking.common.bannedUsers} placeholder="e.g. user1, user2" /></label>
           </div>
-          <label class="config-check" title="After quality preferences, before upload slots and speed. A folder with any locked file counts as locked."><input type="checkbox" bind:checked={conditions.ranking.common.excludeLocked} /> {searchConfigLabel('excludeLocked', 'ranking')}</label>
+          {#if !automatic}
+            <label class="config-check"><input type="checkbox" bind:checked={conditions.ranking.common.excludeLocked} /> {searchConfigLabel('excludeLocked', 'ranking')}</label>
+          {/if}
         </section>
       </div>
     </div>
   </div>
 {/if}
-
-<footer class:embedded class="search-config-footer">
-  <button type="button" onclick={clearActiveTab}>{activeTab === 'conditions' ? 'Clear filtering' : 'Clear ranking'}</button>
-</footer>

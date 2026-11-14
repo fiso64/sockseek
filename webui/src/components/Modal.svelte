@@ -50,7 +50,7 @@
 <style>
   dialog { width: min(40rem, calc(100vw - 48px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--border-strong); border-radius: 13px; background: var(--surface); color: var(--text); box-shadow: 0 22px 60px #0005; overflow: hidden; }
   dialog[open] { display: flex; flex-direction: column; }
-  dialog.wide { width: min(900px, calc(100vw - 48px)); height: min(720px, calc(100dvh - 48px)); }
+  dialog.wide { width: min(1000px, calc(100vw - 48px)); height: min(920px, calc(100dvh - 48px)); }
   dialog.compact { width: min(28rem, calc(100vw - 32px)); }
   dialog::backdrop { background: color-mix(in srgb, var(--bg) 74%, transparent); backdrop-filter: blur(3px); }
   header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
@@ -60,5 +60,5 @@
   .modal-close:hover:not(:disabled) { background: var(--surface-raised); color: var(--text); }
   .modal-body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 18px; }
   .wide .modal-body { flex: 1; padding: 0; overflow: hidden; }
-  @media (max-width: 980px) { dialog, dialog.wide { width: calc(100vw - 32px); max-height: calc(100dvh - 32px); } dialog.wide { height: min(720px, calc(100dvh - 32px)); } }
+  @media (max-width: 980px) { dialog, dialog.wide { width: calc(100vw - 32px); max-height: calc(100dvh - 32px); } dialog.wide { height: min(920px, calc(100dvh - 32px)); } }
 </style>

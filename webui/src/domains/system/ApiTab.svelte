@@ -3,6 +3,7 @@
   import { DaemonHttpClient } from '../../api/http';
   import type { Schema } from '../../api/types';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
+  import HelpPopover from '../../components/HelpPopover.svelte';
   import Modal from '../../components/Modal.svelte';
 
   const http = new DaemonHttpClient();
@@ -60,7 +61,7 @@
 
   <section class="settings-section" aria-labelledby="keys-heading">
     <div class="section-heading key-heading">
-      <div><h2 id="keys-heading">API keys</h2><p>Connect the remote CLI or other integrations. Each key grants full access.</p></div>
+      <div><h2 id="keys-heading">API keys <HelpPopover title="API keys" testId="api-keys-help">Connect the remote CLI or other integrations.</HelpPopover></h2><p>Each key grants full access.</p></div>
       <button class="auth-button primary" disabled={loading || pending} onclick={() => { name = ''; created = null; error = null; creating = true; }}>Create API key</button>
     </div>
     {#if error && !creating && !revoking}<p class="error" role="alert">{error}</p>{/if}

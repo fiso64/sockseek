@@ -281,7 +281,8 @@ test('applies projection-only sort and live track conditions through an all-exce
   await expect(page.locator('.result-condition-pills')).toHaveCount(0);
   await panel.getByRole('button', { name: 'FLAC', exact: true }).click();
   await expect(page.locator('.result-condition-pills .search-condition-pill')).toHaveCount(7);
-  await panel.getByRole('button', { name: 'FLAC', exact: true }).click();
+  await panel.getByTestId('search-config-reset').click();
+  await expect(panel.getByRole('button', { name: 'FLAC', exact: true })).toHaveClass(/active/);
   await expect(page.locator('.result-condition-pills')).toHaveCount(0);
   await panel.getByRole('button', { name: 'custom…', exact: true }).click();
   const required = page.waitForResponse(response => response.ok()
@@ -434,15 +435,21 @@ test.describe('live album conditions', () => {
     const view = await (await refined).json() as Schema<'SearchViewSummaryDto'>;
     await page.keyboard.press('Escape');
     await expect(page.locator('.result-tier.preferred-tier .folder-item-card')).toHaveCount(1);
-    const preferredHelp = page.getByRole('button', { name: 'About preferred matches', exact: true });
-    const preferredExplanation = page.getByRole('dialog', { name: 'Preferred matches', exact: true });
+    const preferredHelp = page.getByTestId('preferred-matches-help');
+    const preferredExplanation = page.getByTestId('preferred-matches-help-content');
     await preferredHelp.hover();
-    await preferredExplanation.getByRole('button', { name: 'Edit preferences', exact: true }).click();
+    await page.mouse.move(0, 0);
+    await page.clock.fastForward(250);
+    await expect(preferredExplanation).toHaveCount(0);
+    await preferredHelp.hover();
+    await page.clock.fastForward(250);
+    await preferredExplanation.getByTestId('edit-search-preferences').click();
     await expect(panel.getByRole('button', { name: 'Ranking', exact: true })).toHaveAttribute('aria-current', 'page');
     await expect(panel.getByLabel('Min bitrate kbps')).toHaveValue('256');
     await page.keyboard.press('Escape');
     await expect(panel).toHaveCount(0);
     await preferredHelp.hover();
+    await page.clock.fastForward(250);
     await expect(preferredExplanation).toBeVisible();
     await page.mouse.move(0, 0);
     await expect(preferredExplanation).toHaveCount(0);
@@ -455,10 +462,11 @@ test.describe('live album conditions', () => {
     await preferredHelp.click();
     await page.keyboard.press('Escape');
     await expect(preferredExplanation).toHaveCount(0);
-    await preferredHelp.focus();
+    await expect(preferredHelp).toBeFocused();
+    await preferredHelp.press('Enter');
     await expect(preferredExplanation).toBeVisible();
     await page.keyboard.press('Tab');
-    await expect(preferredExplanation.getByRole('button', { name: 'Edit preferences', exact: true })).toBeFocused();
+    await expect(preferredExplanation.getByTestId('edit-search-preferences')).toBeFocused();
     await page.getByRole('heading', { name: 'Album', exact: true }).click();
     await expect(preferredExplanation).toHaveCount(0);
     await page.locator('.folder-file-row input[type=checkbox]').first().check();

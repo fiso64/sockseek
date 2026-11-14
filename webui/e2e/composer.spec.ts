@@ -10,10 +10,14 @@ test('uses filtering and output settings for a direct Start download', async ({ 
   await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeDisabled();
   await page.getByPlaceholder('Song title…').press('Control+Enter');
   await expect(page.getByRole('dialog', { name: 'New job' })).toBeVisible();
+  await expect(page.locator('#new-job-options-download')).toHaveAttribute('aria-selected', 'true');
   await page.getByPlaceholder('Song title…').fill('Fixture song');
-  await page.getByRole('button', { name: 'Filtering Defaults', exact: true }).click();
-  const filtering = page.locator('#new-job-filtering-options');
+  await page.locator('#new-job-options-filtering').click();
+  const filtering = page.locator('#new-job-options-panel');
   await expect(filtering.getByRole('button', { name: 'FLAC', exact: true })).toBeVisible();
+  await page.getByTestId('search-config-clear').click();
+  await expect(filtering.getByRole('button', { name: 'Any', exact: true })).toHaveClass(/active/);
+  await page.getByTestId('search-config-reset').click();
   for (const format of ['AAC', 'ALAC']) {
     const button = filtering.getByRole('button', { name: format, exact: true });
     await expect(button).toHaveClass(/active/);
@@ -30,7 +34,21 @@ test('uses filtering and output settings for a direct Start download', async ({ 
   await expect(customFormat).toHaveCount(0);
   await filtering.getByRole('button', { name: 'Any', exact: true }).click();
   await filtering.getByRole('button', { name: 'FLAC', exact: true }).click();
-  await page.getByRole('button', { name: 'Download Defaults', exact: true }).click();
+  await page.locator('#new-job-options-download').click();
+  let tabSettingsReads = 0;
+  const countTabSettingsReads = (request: import('@playwright/test').Request) => {
+    if (new URL(request.url()).pathname === '/api/jobs/effective-settings') tabSettingsReads++;
+  };
+  page.on('request', countTabSettingsReads);
+  await page.locator('#new-job-options-ranking').click();
+  await page.locator('#new-job-options-ranking').press('ArrowLeft');
+  await expect(page.locator('#new-job-options-filtering')).toBeFocused();
+  await expect(filtering.getByRole('button', { name: 'FLAC', exact: true })).toHaveClass(/active/);
+  await expect(filtering.getByRole('button', { name: 'MP3', exact: true })).not.toHaveClass(/active/);
+  await page.locator('#new-job-options-download').click();
+  await expect(page.getByLabel('Output directory', { exact: true })).toBeVisible();
+  expect(tabSettingsReads).toBe(0);
+  page.off('request', countTabSettingsReads);
   const destination = testInfo.outputPath('direct-song');
   await page.getByLabel('Output directory', { exact: true }).fill(destination);
   await page.getByLabel('Name format', { exact: true }).fill('direct/{stitle}');
@@ -87,8 +105,8 @@ test('Ctrl+Enter prepares music downloads with the current query and edited sear
     await expect(page.getByRole('tab', { name: 'Download jobs', exact: true })).toHaveAttribute('aria-selected', 'true');
     await expect(dialog.getByPlaceholder(mode === 'Album Search' ? 'Album title…' : 'Song title…')).toHaveValue(mode === 'Album Search' ? 'Fixture album' : 'Fixture song');
     await expect(dialog.getByPlaceholder('Artist…', { exact: true })).toHaveValue(mode === 'Album Search' ? 'Fixture artist' : '');
-    await dialog.getByRole('button', { name: 'Filtering Defaults', exact: true }).click();
-    const filtering = dialog.locator('#new-job-filtering-options');
+    await dialog.locator('#new-job-options-filtering').click();
+    const filtering = dialog.locator('#new-job-options-panel');
     await expect(filtering.getByRole('button', { name: 'FLAC', exact: true })).toHaveClass(/active/);
     await expect(filtering.getByRole('button', { name: 'MP3', exact: true })).not.toHaveClass(/active/);
     // Further edits in the modal must override, not discard or resurrect, the copied settings.
@@ -105,7 +123,7 @@ test('Ctrl+Enter prepares music downloads with the current query and edited sear
   expect(searches).toBe(0);
 });
 
-test('keeps Review reachable with edited Album settings panels open on narrow screens', async ({ page }) => {
+test('keeps Review reachable with edited Album settings on narrow screens', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
@@ -120,10 +138,10 @@ test('keeps Review reachable with edited Album settings panels open on narrow sc
   await page.getByRole('button', { name: 'New job', exact: false }).click();
   await dialog.getByRole('button', { name: 'Album', exact: true }).click();
   await dialog.getByPlaceholder('Album title…').fill('Fixture Album');
-  await dialog.getByRole('button', { name: 'Filtering Defaults', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Download Defaults', exact: true }).click();
-  await dialog.locator('#new-job-download-options').getByLabel('Name format', { exact: true }).fill('fixture/{album}');
-  await expect(dialog.getByRole('button', { name: 'Download Custom', exact: true })).toBeVisible();
+  await dialog.locator('#new-job-options-filtering').click();
+  await dialog.locator('#new-job-options-download').click();
+  await dialog.locator('#new-job-options-panel').getByLabel('Name format', { exact: true }).fill('fixture/{album}');
+  await expect(dialog.locator('#new-job-options-download .settings-disclosure-customized')).toBeVisible();
   const modalBounds = await dialog.boundingBox();
   const footerBounds = await dialog.locator('.new-job-footer').boundingBox();
   expect(modalBounds).not.toBeNull();
@@ -144,14 +162,13 @@ test('shows a failed source preview and allows correcting the same draft', async
   await page.getByRole('button', { name: 'New job', exact: false }).click();
   await page.locator('.new-job-source-disclosure summary').click();
   await page.getByRole('complementary', { name: 'Job type' }).getByRole('button', { name: 'Soulseek link', exact: true }).click();
-  await expect(page.getByRole('button', { name: /^(Filtering|Ranking) (Defaults|Custom)$/ })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Download Defaults', exact: true })).toBeVisible();
+  await expect(page.locator('#new-job-options-filtering, #new-job-options-ranking')).toHaveCount(0);
+  await expect(page.locator('#new-job-options-download')).toBeVisible();
   const source = page.getByPlaceholder('Paste a slsk:// link…');
   await source.fill('slsk://fixture-peer');
   await page.getByRole('button', { name: 'Review', exact: true }).click();
 
   const preview = page.locator('.new-job-preview');
-  await expect(preview.locator('header')).toContainText('1 failed');
   await expect(preview.locator('.job-preview-row')).toContainText('missing path');
   await expect(preview.locator('.job-preview-row input[type=checkbox]')).toBeDisabled();
   await expect(page.getByRole('button', { name: /^Start.*job/ })).toBeDisabled();
@@ -163,20 +180,22 @@ test('shows a failed source preview and allows correcting the same draft', async
 
   await source.fill('slsk://fixture-peer/Fixture/');
   await expect(preview).toHaveCount(0);
+  await expect(page.locator('#new-job-options-review')).toHaveCount(0);
+  await expect(page.locator('#new-job-options-download')).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await expect(preview.locator('.job-preview-row').filter({ hasText: 'fixture-peer — Fixture' })).toHaveCount(1);
-  await expect(preview.locator('header')).not.toContainText('failed');
   await expect(page.getByRole('button', { name: 'Start 1 job', exact: true })).toBeEnabled();
 });
 
 test('edits source settings before upload and rebases them when the artifact arrives', async ({ page }) => {
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
-  await page.getByRole('button', { name: 'CSV file', exact: true }).click();
   const provisional = page.waitForResponse(response => new URL(response.url()).pathname === '/api/jobs/effective-settings'
-    && response.request().method() === 'POST' && !response.request().postDataJSON()?.job?.artifactId);
-  await page.getByRole('button', { name: 'Filtering Defaults', exact: true }).click();
-  const filtering = page.locator('#new-job-filtering-options');
+    && response.request().method() === 'POST' && response.request().postDataJSON()?.job?.inputType === 'csv'
+    && !response.request().postDataJSON()?.job?.artifactId);
+  await page.getByRole('button', { name: 'CSV file', exact: true }).click();
+  await page.locator('#new-job-options-filtering').click();
+  const filtering = page.locator('#new-job-options-panel');
   await expect(filtering.getByLabel('Require track title in filename')).toBeVisible();
   await expect(filtering.getByText('Expected length', { exact: false })).toHaveCount(0);
   await expect(filtering.getByText('Required track title', { exact: true })).toHaveCount(0);
@@ -205,40 +224,41 @@ test('edits source settings before upload and rebases them when the artifact arr
 test('blocks stale settings after a failed refresh and retries the shared resolver', async ({ page }) => {
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
-  await page.getByPlaceholder('Song title…').fill('Retry settings fixture');
+  await expect(page.getByLabel('Output directory', { exact: true })).toBeVisible();
   let attempts = 0;
   await page.route('**/api/jobs/effective-settings', async route => {
     attempts++;
     if (attempts === 1) await route.abort();
     else await route.continue();
   });
-  await page.getByRole('button', { name: 'Filtering Defaults', exact: true }).click();
-  const filtering = page.locator('#new-job-filtering-options');
+  await page.getByPlaceholder('Song title…').fill('Retry settings fixture');
+  await page.locator('#new-job-options-filtering').click();
+  const filtering = page.locator('#new-job-options-panel');
   await expect(filtering.getByRole('alert')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review', exact: true })).toBeDisabled();
-  await filtering.getByRole('button', { name: 'Retry settings' }).click();
+  await filtering.getByTestId('new-job-settings-retry').click();
   await expect(filtering.getByRole('button', { name: 'FLAC', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review', exact: true })).toBeEnabled();
   expect(attempts).toBe(2);
 });
 
-test('clears source-specific drafts and disclosures when choosing a job type', async ({ page }) => {
+test('clears source-specific drafts and resets the options tab when choosing a job type', async ({ page }) => {
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
   await page.locator('.new-job-source-disclosure summary').click();
   await page.getByRole('button', { name: 'YouTube', exact: true }).click();
   await page.getByPlaceholder('Paste a YouTube URL…').fill('https://www.youtube.com/playlist?list=fixture');
-  const importDisclosure = page.locator('.new-job-import-options .settings-disclosure-toggle');
-  await importDisclosure.click();
-  const filteringDisclosure = page.locator('.new-job-job-settings .settings-disclosure-toggle').first();
-  await filteringDisclosure.click();
-  await expect(filteringDisclosure).toHaveAttribute('aria-expanded', 'true');
+  const importTab = page.locator('#new-job-options-import');
+  await importTab.click();
+  const filteringTab = page.locator('#new-job-options-filtering');
+  await filteringTab.click();
+  await expect(filteringTab).toHaveAttribute('aria-selected', 'true');
 
   await page.getByRole('button', { name: 'Bandcamp', exact: true }).click();
   await expect(page.getByPlaceholder('Paste a Bandcamp URL…')).toHaveValue('');
   await expect(page.getByRole('button', { name: 'Review', exact: true })).toBeDisabled();
-  await expect(importDisclosure).toHaveAttribute('aria-expanded', 'false');
-  await expect(filteringDisclosure).toHaveAttribute('aria-expanded', 'false');
+  await expect(importTab).toHaveAttribute('aria-selected', 'false');
+  await expect(filteringTab).toHaveAttribute('aria-selected', 'false');
   await page.getByPlaceholder('Paste a Bandcamp URL…').fill('https://example.bandcamp.com/album/fixture');
   await page.getByRole('button', { name: 'Bandcamp', exact: true }).click();
   await expect(page.getByPlaceholder('Paste a Bandcamp URL…')).toHaveValue('');
@@ -268,18 +288,46 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
     name: 'browser-input.csv', mimeType: 'text/csv',
     buffer: Buffer.from('performer,recording\nFixture Artist,Fixture CSV Song\nFixture Artist,Second CSV Song\n'),
   });
+  await page.locator('#new-job-options-import').click();
+  const mappingIndicator = page.locator('#new-job-options-import .settings-disclosure-customized');
+  const artistMapping = page.locator('.new-job-csv-grid').getByLabel('Artist', { exact: true });
+  await expect(artistMapping).toHaveValue('');
+  await expect(mappingIndicator).toHaveCount(0);
+  await artistMapping.fill('performer');
+  await expect(mappingIndicator).toBeVisible();
+  await artistMapping.fill('');
+  await expect(mappingIndicator).toHaveCount(0);
   await page.getByRole('button', { name: 'Profiles', exact: true }).click();
   await page.getByRole('checkbox', { name: 'download-preset', exact: true }).check();
   await page.getByRole('button', { name: 'Profiles', exact: true }).click();
-  await page.getByRole('button', { name: /^Import options / }).click();
+  await page.locator('#new-job-options-import').click();
   await expect(page.getByLabel('Offset', { exact: true })).toHaveValue('2');
   await expect(page.getByLabel('Limit items', { exact: true })).toHaveValue('20');
-  await expect(page.locator('[aria-controls="new-job-import-options"] .settings-disclosure-customized')).toBeVisible();
-  await expect(page.locator('[aria-controls="new-job-download-options"] .settings-disclosure-customized')).toBeVisible();
-  await expect(page.locator('[aria-controls="new-job-ranking-options"] .settings-disclosure-customized')).toHaveCount(0);
+  await expect(page.locator('#new-job-options-import .settings-disclosure-customized')).toBeVisible();
+  await expect(page.locator('#new-job-options-download .settings-disclosure-customized')).toBeVisible();
+  await expect(page.locator('#new-job-options-ranking .settings-disclosure-customized')).toHaveCount(0);
 
+  const defaultArtistColumn = await page.locator('.new-job-csv-grid').getByLabel('Artist', { exact: true }).inputValue();
   await page.getByLabel('Offset', { exact: true }).fill('0');
-  await page.getByRole('button', { name: /^Column mapping / }).click();
+  const mappingHelp = page.getByTestId('csv-mapping-help');
+  const mappingExplanation = page.getByTestId('csv-mapping-help-content');
+  await expect(mappingExplanation).toHaveCount(0);
+  await mappingHelp.click();
+  await page.mouse.move(0, 0);
+  await expect(mappingExplanation).toBeVisible();
+  await mappingHelp.press('Escape');
+  await expect(mappingExplanation).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'New job', exact: true })).toBeVisible();
+  await expect(mappingHelp).toBeFocused();
+  await mappingHelp.press('Enter');
+  await expect(mappingExplanation).toBeVisible();
+  await page.locator('.new-job-csv-grid').getByLabel('Artist', { exact: true }).click();
+  await page.locator('.new-job-csv-grid').getByLabel('Artist', { exact: true }).fill('performer');
+  await expect(mappingExplanation).toHaveCount(0);
+  await page.getByTestId('new-job-options-reset').click();
+  await expect(page.getByLabel('Offset', { exact: true })).toHaveValue('2');
+  await expect(page.locator('.new-job-csv-grid').getByLabel('Artist', { exact: true })).toHaveValue(defaultArtistColumn);
+  await page.getByLabel('Offset', { exact: true }).fill('0');
   await page.locator('.new-job-csv-grid').getByLabel('Artist', { exact: true }).fill('performer');
   await page.locator('.new-job-csv-grid').getByLabel('Title', { exact: true }).fill('recording');
   await expect(page.getByRole('button', { name: 'Review', exact: true })).toBeEnabled();
@@ -303,10 +351,17 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
 
   // Keep the uploaded artifact and non-default mapping, but make the reviewed
   // plan genuinely expired before commit. A stale plan must never be accepted.
-  await page.getByRole('button', { name: 'Deselect all', exact: true }).click();
+  await page.getByTestId('new-job-selection-toggle').click();
   const firstSong = page.locator('.job-preview-row').filter({ hasText: 'Fixture CSV Song' });
   await firstSong.locator('input[type=checkbox]').check();
   const resolvedSettingsReads = settingsReads;
+  await expect(page.locator('#new-job-options-review')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('new-job-options-reset')).toHaveCount(0);
+  await page.locator('#new-job-options-download').click();
+  await expect(page.locator('.new-job-preview')).toHaveCount(0);
+  await page.locator('#new-job-options-review').click();
+  await expect(firstSong.locator('input[type=checkbox]')).toBeChecked();
+  expect({ plans, settingsReads }).toEqual({ plans: 1, settingsReads: resolvedSettingsReads });
   await daemon.command('expire-job-previews');
   const rejected = page.waitForResponse(reply => new URL(reply.url()).pathname
     === `/api/job-previews/${original.preview.previewId}/commit`);
@@ -354,7 +409,7 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   expect({ uploads, plans, commits, settingsReads }).toEqual({ uploads: 1, plans: 3, commits: 2, settingsReads: resolvedSettingsReads });
   // Re-extraction may produce different nodes; old subtree choices cannot be
   // silently applied to this new preview. Choose the desired row again.
-  await page.getByRole('button', { name: 'Deselect all', exact: true }).click();
+  await page.getByTestId('new-job-selection-toggle').click();
   await firstSong.locator('input[type=checkbox]').check();
   const committed = page.waitForResponse(reply => new URL(reply.url()).pathname
     === `/api/job-previews/${finalPreview.preview.previewId}/commit`);

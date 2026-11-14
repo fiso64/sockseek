@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { daemonApi } from '../../api/client';
+  import HelpPopover from '../../components/HelpPopover.svelte';
   import { tick } from 'svelte';
   import { keyboardList } from '../../lib/keyboard';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
@@ -28,7 +30,7 @@
   import { buildSearchSelectionDownloadPatch, searchDownloadOptionDefaults, type SearchDownloadOptionDefaults } from './download-options';
   import type { UserLinkActions } from '../../app/navigation';
   import { audioAttributes as audio, type FolderItemFile } from '../presentation/items';
-  import { directoryTotals, isGroupSearchMode, searchModeFamily, searchModeLabel } from './model';
+  import { searchJobDraft, directoryTotals, isGroupSearchMode, searchModeFamily, searchModeLabel } from './model';
   import type { SearchRow, SearchViewState } from './controller';
 
   type OrdinaryRow = Extract<SearchRow, { kind: 'file' | 'directory' }>;
@@ -121,11 +123,6 @@
   let configurationError = $state<Error | null>(null);
   let conditionsOpen = $state(false);
   let conditionsInitialTab = $state<'conditions' | 'ranking'>('conditions');
-  let preferredHelpOpen = $state(false);
-  let preferredHelpPinned = false;
-  let preferredHelpHovered = false;
-  let preferredHelpButton = $state<HTMLButtonElement>();
-  let preferredHelpPanel = $state<HTMLElement>();
   let conditionsAnchor = $state<HTMLButtonElement>();
   let conditionsPopover = $state<HTMLElement>();
   let lastRequestedFingerprint = $state<string | null>(null);
@@ -337,22 +334,13 @@
 
   function windowKeydown(event: KeyboardEvent): void {
     if (event.key !== 'Escape') return;
-    if (preferredHelpOpen) {
-      preferredHelpOpen = false;
-      preferredHelpPinned = false;
-      preferredHelpButton?.blur();
-      event.preventDefault();
-    } else if (viewState.groupOptions) oncloseoptions();
+    if (viewState.groupOptions) oncloseoptions();
     else if (downloadOptionsOpen) downloadOptionsOpen = false;
     else if (conditionsOpen) conditionsOpen = false;
   }
 
   function windowPointerDown(event: PointerEvent): void {
     if (!(event.target instanceof Node)) return;
-    if (!preferredHelpButton?.contains(event.target) && !preferredHelpPanel?.contains(event.target)) {
-      preferredHelpOpen = false;
-      preferredHelpPinned = false;
-    }
     if (!conditionsOpen || conditionsAnchor?.contains(event.target) || conditionsPopover?.contains(event.target)) return;
     conditionsOpen = false;
   }
@@ -782,7 +770,13 @@
     {/if}
     {#if conditionsOpen && viewState.draft}
       <section data-shortcuts-blocked="true" bind:this={conditionsPopover} class="search-config-popover results-config-popover" aria-label="Result search configuration" use:anchoredPopover={{ anchor: conditionsAnchor, align: 'start', gap: 8, viewportMargin: 16, minHeight: 240 }}>
-        <SearchConfigPanel mode={viewState.draft.resultMode} bind:conditions title="Search configuration" initialTab={conditionsInitialTab} onclose={() => (conditionsOpen = false)} />
+        <SearchConfigPanel mode={viewState.draft.resultMode} bind:conditions title="Search configuration" loadDefaults={async signal => {
+          const draft = viewState.draft!;
+          const response = await daemonApi.resolveEffectiveSettings({ job: searchJobDraft(draft) }, signal);
+          const search = response.settings.values.search;
+          if (!search) throw new Error('The daemon did not return resolved search settings.');
+          return readSearchConditions(search, draft.expectedLength);
+        }} initialTab={conditionsInitialTab} onclose={() => (conditionsOpen = false)} />
       </section>
     {/if}
   </div>
@@ -886,32 +880,21 @@
           <div class:preferred={tier === 'Preferred'} class="result-tier-heading">
             <span>{tier === 'Preferred' ? 'Preferred matches' : 'Other matches'}</span><small>{count}</small>
             {#if tier === 'Preferred'}
-              <span class="preferred-help" role="group" aria-label="Preferred match information" onpointerenter={(event) => { if (event.pointerType !== 'touch') { preferredHelpHovered = true; preferredHelpOpen = true; } }}
-                onpointerleave={(event) => { preferredHelpHovered = false; if (!preferredHelpPinned && !event.currentTarget.contains(document.activeElement)) preferredHelpOpen = false; }}
-                onfocusout={(event) => { if (!preferredHelpPinned && !preferredHelpHovered && !(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) preferredHelpOpen = false; }}>
-                <button bind:this={preferredHelpButton} type="button" class="preferred-help-button" aria-label="About preferred matches"
-                  aria-expanded={preferredHelpOpen} aria-haspopup="dialog" aria-controls={preferredHelpOpen ? 'preferred-matches-help' : undefined}
-                  onfocus={() => preferredHelpOpen = true}
-                  onclick={() => { preferredHelpPinned = !preferredHelpPinned; preferredHelpOpen = preferredHelpPinned; }}><Icon name="help" /></button>
-                {#if preferredHelpOpen}
-                  <span bind:this={preferredHelpPanel} id="preferred-matches-help" role="dialog" aria-label="Preferred matches" class="preferred-help-panel"
-                    use:anchoredPopover={{ anchor: preferredHelpButton, align: 'start', gap: 0, viewportMargin: 12, minHeight: 100 }}>
-                    <strong>Preferred matches</strong>
-                    <span>These results satisfy all your ranking conditions when using "Relevance" sorting. Other matches remain available below.</span>
-                    <span>Edit your preferences in your config, e.g. set <code>pref-format = flac</code> to prefer FLAC files.</span>
-                    <span><button type="button" class="edit-preferences-button" disabled={configurationLoading || !baseline}
-                      onclick={async () => {
-                        conditionsAnchor = preferredHelpButton;
-                        conditionsInitialTab = 'ranking';
-                        conditionsOpen = true;
-                        preferredHelpOpen = false;
-                        preferredHelpPinned = false;
-                        await tick();
-                        conditionsPopover?.querySelector<HTMLButtonElement>('[aria-current="page"]')?.focus();
-                      }}>Edit preferences</button> for this search only.</span>
-                  </span>
-                {/if}
-              </span>
+              <HelpPopover title="Preferred matches" testId="preferred-matches-help">
+                {#snippet children(close, anchor)}
+                  <span>These results satisfy all your ranking conditions when using "Relevance" sorting. Other matches remain available below.</span>
+                  <span>Edit your preferences in your config, e.g. set <code>pref-format = flac</code> to prefer FLAC files.</span>
+                  <span><button type="button" class="edit-preferences-button" data-testid="edit-search-preferences" disabled={configurationLoading || !baseline}
+                    onclick={async () => {
+                      conditionsAnchor = anchor;
+                      conditionsInitialTab = 'ranking';
+                      conditionsOpen = true;
+                      close();
+                      await tick();
+                      conditionsPopover?.querySelector<HTMLButtonElement>('[aria-current="page"]')?.focus();
+                    }}>Edit preferences</button> for this search only.</span>
+                {/snippet}
+              </HelpPopover>
             {/if}
           </div>
         {/if}

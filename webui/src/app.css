@@ -812,7 +812,8 @@ input[type="checkbox"]:indeterminate {
 .search-config-header {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
+  flex-wrap: wrap;
   padding-bottom: 8px;
 }
 .search-config-header strong { display: block; font-size: 0.95rem; font-weight: 650; }
@@ -852,7 +853,7 @@ input[type="checkbox"]:indeterminate {
 .search-config-columns {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
-  align-items: start;
+  align-items: stretch;
   gap: 12px;
 }
 .search-config-column {
@@ -861,6 +862,7 @@ input[type="checkbox"]:indeterminate {
   align-content: start;
   gap: 12px;
 }
+.search-config-column-secondary { display: flex; flex-direction: column; }
 .search-config-section {
   min-width: 0;
   padding: 15px;
@@ -974,6 +976,8 @@ input[type="checkbox"]:indeterminate {
   color: var(--text);
   font-size: 0.75rem;
 }
+.config-check-with-help { display: flex; align-items: center; gap: 2px; margin-top: 9px; }
+.config-check-with-help .config-check { margin-top: 0; }
 .config-check input { margin: 0; accent-color: var(--accent); }
 .required-track-pills {
   display: flex;
@@ -993,12 +997,20 @@ input[type="checkbox"]:indeterminate {
 .config-stack input { margin-left: 0; }
 .single-config-field { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .search-config-footer { display: flex; justify-content: flex-end; padding-top: 12px; }
+.search-config-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: auto; }
+.search-config-actions button,
 .search-config-footer button {
   min-height: 32px; padding: 7px 11px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
   font-size: 0.75rem;
+}
+.search-config-actions button { color: var(--muted); background: transparent; }
+.search-config-actions button:hover:not(:disabled),
+.search-config-footer button:hover:not(:disabled) {
+  background: var(--surface-raised);
+  border-color: var(--border-strong);
 }
 
 @media (max-width: 760px) {
@@ -1431,13 +1443,6 @@ input[type="checkbox"]:indeterminate {
 .edit-preferences-button { padding: 2px 4px; border: 0; border-radius: 4px; background: transparent; color: var(--accent-text); font: inherit; font-weight: 400; letter-spacing: normal; text-transform: none; cursor: pointer; }
 .edit-preferences-button:hover:not(:disabled), .edit-preferences-button:focus-visible { background: var(--accent-soft); color: var(--accent-text); }
 .edit-preferences-button:disabled { opacity: .5; cursor: default; }
-.preferred-help { display: inline-flex; position: relative; }
-.preferred-help-button { display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
-.preferred-help-button .app-icon { --app-icon-size: 15px; }
-.preferred-help-button:hover, .preferred-help-button:focus-visible { color: var(--text); }
-.preferred-help-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 50%; }
-.preferred-help-panel { position: fixed; z-index: 50; display: grid; gap: 6px; width: min(320px, calc(100vw - 24px)); padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: 9px; background: var(--surface-raised); color: var(--muted); box-shadow: 0 8px 24px #0004; font-size: .79rem; line-height: 1.45; font-weight: 400; letter-spacing: normal; text-transform: none; }
-.preferred-help-panel strong { color: var(--text); font-size: .82rem; font-weight: 600; }
 
 
 .result-tier { display: grid; gap: 10px; }
@@ -2113,7 +2118,7 @@ input[type="checkbox"]:indeterminate {
   margin-bottom: 20px;
 }
 .user-browser-heading h1 { margin: 0; font-size: 1.72rem; font-weight: 650; letter-spacing: -0.025em; }
-.user-view-tabs {
+.user-view-tabs, .segmented-tabs {
   display: inline-flex;
   gap: 3px;
   padding: 3px;
@@ -2121,7 +2126,7 @@ input[type="checkbox"]:indeterminate {
   border-radius: 10px;
   background: var(--surface);
 }
-.user-view-tabs button {
+.user-view-tabs button, .segmented-tabs button {
   min-width: 72px;
   height: 32px;
   padding: 0 12px;
@@ -2132,8 +2137,8 @@ input[type="checkbox"]:indeterminate {
   font-size: 0.74rem;
   font-weight: 550;
 }
-.user-view-tabs button:hover { color: var(--text); background: var(--surface-subtle); }
-.user-view-tabs button.active { color: var(--text); background: var(--accent-soft); }
+.user-view-tabs button:hover, .segmented-tabs button:hover { color: var(--text); background: var(--surface-subtle); }
+.user-view-tabs button.active, .segmented-tabs button.active { color: var(--text); background: var(--accent-soft); }
 
 .user-profile-card {
   overflow: hidden;
@@ -3221,8 +3226,7 @@ input[type="checkbox"]:indeterminate {
   color: var(--text);
   font-size: .76rem;
 }
-.new-job-source-field, .new-job-drop-zone, .new-job-field-help, .new-job-source-mode, .new-job-csv-options, .new-job-job-settings { grid-column: 1 / -1; }
-.new-job-field-help { margin: -3px 1px 0; color: var(--muted); font-size: .64rem; line-height: 1.35; }
+.new-job-source-field, .new-job-drop-zone, .new-job-source-mode, .new-job-job-settings { grid-column: 1 / -1; }
 .new-job-config > label > span small, .new-job-csv-grid label > span small { color: var(--faint); font-size: .6rem; font-weight: 450; }
 .new-job-source-mode { min-width: 0; display: grid; gap: 5px; color: var(--muted); font-size: .66rem; }
 .new-job-segmented { display: inline-flex; align-items: stretch; width: fit-content; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg); }
@@ -3230,38 +3234,19 @@ input[type="checkbox"]:indeterminate {
 .new-job-segmented button:last-child { border-right: 0; }
 .new-job-segmented button:hover { background: var(--surface-subtle); color: var(--text); }
 .new-job-segmented button.active { background: var(--accent-soft); color: var(--accent-text); }
-.new-job-csv-options { display: grid; gap: 9px; }
-.settings-disclosure { min-width: 0; display: grid; gap: 9px; }
-.settings-disclosure-toggle {
-  width: 100%;
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 6px 9px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-subtle);
-  color: var(--text);
-  text-align: left;
-}
-.settings-disclosure-toggle:hover { border-color: var(--border-strong); background: var(--surface-raised); }
-.settings-disclosure-label { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
-.settings-disclosure-summary { display: inline-flex; align-items: center; justify-content: flex-end; gap: 7px; min-width: 0; }
-.settings-disclosure-toggle .app-icon { --app-icon-size: 14px; color: var(--muted); }
-.settings-disclosure-toggle strong { font-size: .7rem; font-weight: 590; }
-.settings-disclosure-toggle small { color: var(--muted); font-size: .64rem; white-space: nowrap; }
 .settings-disclosure-customized { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--accent); }
-.settings-disclosure-body { min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--surface-subtle) 55%, transparent); }
-.settings-disclosure-body .search-config-flow { padding-top: 0; }
-.settings-disclosure-body .search-config-section { padding: 12px; }
-.settings-disclosure-body .search-config-footer.embedded { padding-top: 10px; border-top: 1px solid var(--border); }
-.settings-disclosure-body .download-options-panel { gap: 10px 24px; }
-.settings-disclosure-body .download-options-section { padding: 6px 0 10px; }
-.settings-disclosure-body .download-options-section h3 { margin-bottom: 10px; }
-.new-job-csv-mapping { display: grid; gap: 9px; }
-.new-job-csv-mapping > p { margin: 0; color: var(--muted); font-size: .62rem; line-height: 1.35; }
+.new-job-options-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.new-job-job-settings .new-job-options-header .page-tabs { position: static; min-width: 0; margin-bottom: 0; }
+.new-job-options-header .search-config-actions, .search-config-header .search-config-actions { flex-wrap: nowrap; flex-shrink: 0; margin: 0 0 0 auto; }
+.search-config-header .search-config-close { margin-left: 0; }
+.new-job-options-panel { min-width: 0; }
+.new-job-options-panel .search-config-flow { padding-top: 0; }
+.new-job-options-panel .search-config-section { padding: 12px; }
+.new-job-options-panel .download-options-panel { gap: 10px 24px; }
+.new-job-options-panel .download-options-section { padding: 6px 0 10px; }
+.new-job-options-panel .download-options-section h3 { margin-bottom: 10px; }
+.new-job-csv-mapping { display: grid; gap: 9px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+.new-job-csv-mapping h3 { margin: 0; font-size: .875rem; }
 .new-job-csv-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px 10px; }
 .new-job-footer {
   min-width: 0;
@@ -3313,21 +3298,7 @@ input[type="checkbox"]:indeterminate {
 .new-job-drop-zone strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .76rem; }
 .new-job-drop-zone small { color: var(--muted); font-size: .64rem; }
 
-.new-job-preview { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); }
-.new-job-preview > header { display: flex; align-items: end; justify-content: space-between; gap: 14px; }
-.new-job-preview > header > div { min-width: 0; }
-.new-job-preview h3 { margin: 2px 0; font-size: .94rem; }
-.new-job-preview header small { color: var(--muted); font-size: .66rem; }
-.new-job-select-toggle {
-  min-height: 30px;
-  padding: 5px 9px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--muted);
-  font-size: .68rem;
-}
-.new-job-preview-note { margin: 0; color: var(--muted); font-size: .68rem; }
+.new-job-preview { display: grid; gap: 10px; }
 .job-preview-tree { overflow: hidden; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); }
 .job-preview-node + .job-preview-node { border-top: 1px solid var(--border); }
 .job-preview-children { border-top: 1px solid var(--border); }
@@ -3495,7 +3466,7 @@ input[type="checkbox"]:indeterminate {
   .new-job-footer { padding-inline: 14px; }
   .new-job-current-choice small { display: none; }
   .new-job-config { grid-template-columns: minmax(0, 1fr); }
-  .new-job-source-field, .new-job-drop-zone, .new-job-field-help, .new-job-source-mode, .new-job-csv-options, .new-job-job-settings { grid-column: 1; }
+  .new-job-source-field, .new-job-drop-zone, .new-job-source-mode, .new-job-job-settings { grid-column: 1; }
   .new-job-csv-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .new-job-segmented { width: 100%; }
   .new-job-segmented button { flex: 1; min-width: 0; white-space: normal; }
@@ -3515,8 +3486,7 @@ input[type="checkbox"]:indeterminate {
 /* Shared submission/download options */
 .download-options-panel {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 28px;
+  grid-template-columns: minmax(0, 1fr);
 }
 .download-options-section {
   min-width: 0;
@@ -3524,7 +3494,7 @@ input[type="checkbox"]:indeterminate {
   border-bottom: 1px solid var(--border);
 }
 .download-options-section h3 { margin: 0 0 14px; font-size: .875rem; font-weight: 650; }
-.download-options-fields { display: grid; gap: 10px; }
+.download-options-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 10px 24px; }
 .download-options-fields label { min-width: 0; display: grid; gap: 5px; color: var(--muted); font-size: .75rem; }
 .download-options-fields input {
   width: 100%; min-width: 0; min-height: 34px; padding: 7px 8px;
@@ -3533,9 +3503,7 @@ input[type="checkbox"]:indeterminate {
 }
 .download-options-fields input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .download-option-note { margin: 8px 0 0; color: var(--muted); font-size: .66rem; line-height: 1.4; }
-.download-options-panel.compact { grid-template-columns: minmax(0, 1fr); gap: 0; }
 .download-options-panel.seamless .download-options-section { border-bottom: 0; }
-.download-options-section.collection-output { grid-column: 1 / -1; }
 .download-options-panel.compact .download-options-section { padding: 12px 0; }
 .download-options-panel.compact .download-options-section:first-child { padding-top: 0; }
 .download-options-panel.compact .download-options-section:last-child { border-bottom: 0; padding-bottom: 0; }
@@ -3584,12 +3552,8 @@ input[type="checkbox"]:indeterminate {
 .floating-download-options-popover > header .download-options-actions > button:hover { background: var(--surface-subtle); color: var(--text); }
 .floating-download-options-popover .download-options-panel { padding-top: 10px; }
 
-.new-job-import-options, .new-job-job-settings { grid-column: 1 / -1; display: grid; gap: 9px; }
+.new-job-job-settings { grid-column: 1 / -1; min-width: 0; --page-tabs-background: var(--surface); }
 .new-job-import-options-body { display: grid; gap: 8px; }
-
-@media (max-width: 760px) {
-  .download-options-panel { grid-template-columns: minmax(0, 1fr); }
-}
 
 @media (max-width: 560px) {
   .floating-options-action { width: 42px; min-height: 42px; }

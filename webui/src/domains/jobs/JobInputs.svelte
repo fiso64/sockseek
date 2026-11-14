@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpPopover from '../../components/HelpPopover.svelte';
   import Icon from '../../components/Icon.svelte';
   import type { NewJobDraft } from './submission';
 
@@ -40,12 +41,15 @@
   <label class:dragging class="new-job-drop-zone" ondragover={(event) => { event.preventDefault(); dragging = true; }} ondragleave={() => (dragging = false)} ondrop={drop}>
     <input type="file" accept={draft.choice === 'csv' ? '.csv,text/csv' : '.txt,.list,text/plain'} onchange={chooseFile} />
     <Icon name="upload-file" />
-    <span><strong>{fileName || `Drop a ${draft.choice === 'csv' ? 'CSV' : 'list'} file here`}</strong><small>{fileName ? 'Choose another file or continue' : 'or click to choose a local file'}</small></span>
+    <span>
+      <strong>{fileName || `Drop a ${draft.choice === 'csv' ? 'CSV' : 'list'} file here`}</strong>
+      {#if !fileName}<small>or click to choose a local file</small>{/if}
+    </span>
   </label>
 {:else}
   {#if draft.choice === 'spotify'}
     <div class="new-job-source-mode">
-      <span>Input</span>
+      <span>Input <HelpPopover title="Spotify input" testId="spotify-input-help">Liked songs and albums use the Spotify account configured for the daemon.</HelpPopover></span>
       <div class="new-job-segmented" role="group" aria-label="Spotify input">
         <button type="button" class:active={draft.spotifyInput === 'url'} onclick={() => onchange({ ...draft, spotifyInput: 'url' })}>Playlist / album URL</button>
         <button type="button" class:active={draft.spotifyInput === 'likes'} onclick={() => onchange({ ...draft, spotifyInput: 'likes' })}>Liked songs</button>
@@ -53,9 +57,7 @@
       </div>
     </div>
   {/if}
-  {#if draft.choice === 'spotify' && draft.spotifyInput !== 'url'}
-    <p class="new-job-field-help">Uses the Spotify account configured for the daemon.</p>
-  {:else}
+  {#if draft.choice !== 'spotify' || draft.spotifyInput === 'url'}
     <label class="new-job-source-field"><span>URL</span><input value={draft.source} placeholder={placeholders[draft.choice]} oninput={(event) => setField('source', event)} /></label>
   {/if}
 {/if}
